@@ -64,8 +64,51 @@ impl EqualityEvidence {
 pub(crate) struct Timings {
     pub(crate) p50: f64,
     pub(crate) p95: f64,
+    #[serde(default)]
+    pub(crate) p99: f64,
     pub(crate) mean: f64,
     pub(crate) max: f64,
+}
+
+/// How much slower the pack route was than the live route, per percentile, in milliseconds.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct Increase {
+    pub(crate) p50: f64,
+    pub(crate) p95: f64,
+    pub(crate) p99: f64,
+}
+
+impl Increase {
+    pub(crate) fn between(live: &Timings, pack: &Timings) -> Self {
+        Self {
+            p50: pack.p50 - live.p50,
+            p95: pack.p95 - live.p95,
+            p99: pack.p99 - live.p99,
+        }
+    }
+
+    fn within(&self, bound: &crate::by_pnu_gateway_contract::LatencyBound) -> bool {
+        self.p50 <= bound.p50 && self.p95 <= bound.p95 && self.p99 <= bound.p99
+    }
+}
+
+/// The load phase: the preview alone, paced at the contract's rate, the gate sample drawn with
+/// replacement so legal dongs repeat (cold and warm reads mixed).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct LoadEvidence {
+    pub(crate) requests_per_second: u32,
+    pub(crate) duration_seconds: u64,
+    pub(crate) max_in_flight: u64,
+    pub(crate) sent: u64,
+    pub(crate) answered: u64,
+    /// The requests the pacing could not start because `max_in_flight` were outstanding.
+    pub(crate) shed: u64,
+    pub(crate) achieved_requests_per_second: f64,
+    pub(crate) availability: f64,
+    pub(crate) failures: BTreeMap<String, u64>,
+    pub(crate) latency_ms: Timings,
+    pub(crate) server_timing: ServerTimingSummary,
+    pub(crate) worker_cpu: Option<WorkerCpu>,
 }
 
 /// What the preview Worker said about its own answers (`Server-Timing`): its total and R2 wait,
@@ -76,6 +119,37 @@ pub(crate) struct ServerTimingSummary {
     pub(crate) total_ms: Timings,
     pub(crate) r2_ms: Timings,
     pub(crate) sources: BTreeMap<String, u64>,
+    /// How the Worker answered, by its `outcome` (`document` passes the member through,
+    /// `document-decompressed` gunzipped it for a client without gzip, `r2-unavailable`, …).
+    #[serde(default)]
+    pub(crate) outcomes: BTreeMap<String, u64>,
+}
+
+/// The preview read without gzip (`Accept-Encoding: identity`): the Worker's one path that
+/// decompresses. Each answer must be 200, carry no `Content-Encoding`, and hold the content the
+/// live route answered for the same PNU.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct NoGzipEvidence {
+    pub(crate) sent: u64,
+    pub(crate) answered: u64,
+    /// Answers that came back uncompressed, as asked.
+    pub(crate) identity: u64,
+    pub(crate) mismatched: u64,
+    /// Answers whose live read had failed, so there was nothing to compare them with.
+    pub(crate) not_compared: u64,
+    pub(crate) failures: BTreeMap<String, u64>,
+    pub(crate) latency_ms: Timings,
+    pub(crate) outcomes: BTreeMap<String, u64>,
+}
+
+impl NoGzipEvidence {
+    fn holds(&self) -> bool {
+        self.sent > 0
+            && self.answered == self.sent
+            && self.identity == self.sent
+            && self.mismatched == 0
+            && self.not_compared < self.sent
+    }
 }
 
 /// The preview Worker's CPU over the probe window, as Workers analytics records it.
@@ -88,6 +162,11 @@ pub(crate) struct WorkerCpu {
     /// The largest p50 and p99 of any invocation status group, in milliseconds.
     pub(crate) cpu_p50_ms: f64,
     pub(crate) cpu_p99_ms: f64,
+    /// Wall time per invocation, the largest of any status group, in milliseconds.
+    #[serde(default)]
+    pub(crate) wall_p50_ms: f64,
+    #[serde(default)]
+    pub(crate) wall_p99_ms: f64,
     /// Invocations per status (`success`, `exceededResources`, …).
     pub(crate) statuses: BTreeMap<String, u64>,
 }
@@ -152,6 +231,24 @@ pub(crate) struct LatencyEvidence {
     pub(crate) worker_cpu: Option<WorkerCpu>,
     #[serde(default)]
     pub(crate) bound_cpu_p99_ms: f64,
+    /// The share of preview reads that answered 200 (the live route's failures are the network's
+    /// or the object path's, not the pack path's, and are counted in `failures` only).
+    #[serde(default)]
+    pub(crate) availability: f64,
+    #[serde(default)]
+    pub(crate) increase_cold_ms: Increase,
+    #[serde(default)]
+    pub(crate) increase_warm_ms: Increase,
+    #[serde(default)]
+    pub(crate) load: Option<LoadEvidence>,
+    /// Answers by `{live|pack}:{Content-Encoding}` (`identity` when none). Every read asks for
+    /// gzip as a browser does; a pack answer that is not gzip is counted in `failures` as
+    /// `pack:not-gzip` instead, since it means the member was not passed through.
+    #[serde(default)]
+    pub(crate) encodings: BTreeMap<String, u64>,
+    /// `None` when the no-gzip sample was not read; such a file never opens the gate.
+    #[serde(default)]
+    pub(crate) no_gzip: Option<NoGzipEvidence>,
 }
 
 /// The environment a production probe names.
@@ -164,16 +261,34 @@ impl LatencyEvidence {
     /// Returns an error when the contract cannot be read.
     pub(crate) fn verdict(&self) -> anyhow::Result<bool> {
         let gate = &section_pack_policy()?.cutover_gate;
-        Ok(self.sample_size >= u64::try_from(gate.latency_sample_size)?
-            && self.answered == self.sample_size
-            && self.mismatched == 0
-            && self.failed == 0
-            && self.pack_ms.p50 - self.live_ms.p50 <= gate.latency_max_increase_ms.p50
-            && self.pack_ms.p95 - self.live_ms.p95 <= gate.latency_max_increase_ms.p95
-            && self.worker_cpu.as_ref().is_some_and(|cpu| {
+        let slo = &gate.slo;
+        let cpu_within = |cpu: &Option<WorkerCpu>| {
+            cpu.as_ref().is_some_and(|cpu| {
                 cpu.requests > 0
                     && cpu.exceeded_resources() == 0
                     && cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms
+            })
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let enough_answered =
+            self.answered as f64 >= self.sample_size as f64 * slo.availability_min;
+        Ok(self.sample_size >= u64::try_from(gate.latency_sample_size)?
+            && self.mismatched == 0
+            && enough_answered
+            && self.availability >= slo.availability_min
+            && self
+                .increase_cold_ms
+                .within(&slo.latency_max_increase_ms.cold)
+            && (self.warm_answered == 0
+                || self
+                    .increase_warm_ms
+                    .within(&slo.latency_max_increase_ms.warm))
+            && cpu_within(&self.worker_cpu)
+            && self.no_gzip.as_ref().is_some_and(NoGzipEvidence::holds)
+            && self.load.as_ref().is_some_and(|load| {
+                load.sent > 0
+                    && load.availability >= slo.availability_min
+                    && cpu_within(&load.worker_cpu)
             }))
     }
 }

@@ -27,6 +27,8 @@ last_reviewed: 2026-10-05
 | `probe-building-by-pnu-section-pack-latency` | 관문 (나): 표본 10,000건을 운영 경로와 미리보기로 한 번씩 읽어 내용·첫 조회 p50·p95 비교 | 증거 파일만 |
 | `publish-building-by-pnu-section-packs` | manifest 의 `section_packs` 블록 | manifest(비교 후 교체)·이력·고정 태그 |
 | `inspect-building-by-pnu-section-packs` | PNU 하나의 항목별 조각과 응답 | 없음 |
+| `check-building-gateway-version-health` | 단계 배포 한 단계의 판정(Cloudflare 분석) | 없음 |
+| `monitor-building-by-pnu-serving` | 운영 주소 매시 감시 | 보고 파일만 |
 
 | 변수 | 쓰는 명령 | 뜻 |
 |---|---|---|
@@ -42,7 +44,7 @@ last_reviewed: 2026-10-05
 | `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
 | `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기와 운영 경로 |
 | `…_PACK_PROBE_CONCURRENCY` | 관문 (나) | 선택. 동시에 읽는 PNU 수. 없으면 계약의 `probe_concurrency` |
-| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면 증거에 CPU 가 없고 관문이 열리지 않는다 |
+| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면(파일이 아직 없으면) 탐침과 카나리아 판정이 시작 전에 파일과 변수 이름을 대며 거부한다 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
 | `…_INSPECT_PNU` | 확인 | PNU |
 
@@ -148,14 +150,25 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 - 표본은 관문 (가)의 증거에 든 10,000건이다. 증거에 적힌 sha256 과 맞지 않으면 거부한다.
 - 계약의 `probe_concurrency`(8)개 PNU 를 동시에 읽는다. PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저
   읽고, 읽기마다 따로 잰다. 둘 다 200 이어야 하고, 내용은 `source` 를 빼고 같아야 한다.
-- 법정동의 첫 읽기가 차가운 읽기다. 묶음의 차가운 p50·p95 가 같은 PNU 의 운영 경로보다 계약의
-  `latency_max_increase_ms` 이상 늘지 않아야 통과다. 따뜻한 읽기(`*_warm_ms`)도 증거에 적는다.
-- 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 하나라도 있으면 통과가 아니다.
+- 법정동의 첫 읽기가 차가운 읽기다. 판정은 계약의 SLO(`cutover_gate.slo`)로 한다: 묶음의 차가운 p50·p95·p99 가
+  같은 PNU 의 운영 경로보다 `latency_max_increase_ms.cold` 이상, 따뜻한 것이 `.warm` 이상 늘지 않아야 하고, 미리보기
+  읽기의 200 비율(`availability`)이 `availability_min`(99.95%) 이상이어야 한다.
+- 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 운영 경로 쪽 실패는 망이나 객체 경로의 것이라
+  묶음 가용성에 넣지 않지만, 답한 PNU 가 표본의 `availability_min` 에 못 미치면 통과가 아니다.
+- 짝 읽기 뒤 부하 단계(`cutover_gate.load_test`, 초당 25건 10분 = 15,000건, 동시 최대 64)가 미리보기만 읽는다.
+  표본에서 시드 해시로 뽑아 법정동이 되풀이되므로 차가운 읽기와 따뜻한 읽기가 섞인다. 동시 한도에 걸려 시작하지
+  못한 요청(`shed`)도 가용성에서 뺀다. 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
+- 모든 읽기는 브라우저처럼 `Accept-Encoding: gzip` 을 보낸다. 미리보기 답이 `Content-Encoding: gzip` 이 아니면 저장된
+  덩어리를 그대로 낸 것이 아니므로 실패(`pack:not-gzip`)다. 증거의 `encodings` 가 쪽마다 받은 인코딩을,
+  `server_timing.outcomes` 가 미리보기가 간 경로(`document`·`document-decompressed`·…)를 센다.
+- 짝 읽기 뒤 표본 앞 `no_gzip_sample_size`(200)건을 미리보기에서 `Accept-Encoding: identity` 로 다시 읽는다(증거
+  `no_gzip`). Worker 가 푸는 유일한 경로다. 모두 200·`Content-Encoding` 없음·운영 경로와 같은 내용이어야 통과다.
 - 미리보기의 `Server-Timing`(전체, R2 대기, 묶음이 `r2-whole`·`r2-head+range`·`edge-…`·`memory-…` 중 어디서 왔는지)을
   모아 증거의 `server_timing` 에 적는다.
 - 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
   때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(5ms) 이하여야 통과다.
-  계정이 Workers Free(요청당 10ms)라 넘으면 오류 1102, 곧 503 이 된다(ADR-0151).
+  2026-10-05 에는 계정이 Workers Free(요청당 10ms)라 넘은 요청이 오류 1102, 곧 503 이 되었다. 2026-10-06 부터 Workers
+  Paid 이고 운영 Worker 의 CPU 한도는 계약 `building_by_pnu_gateway.cpu_limit_ms` 다(ADR-0151 Revision 9).
 - 주소가 로컬·사설이면 증거에 `local-simulation` 이 적히고, 그 증거로는 발행이 거부된다.
 
 ### 비용
@@ -168,9 +181,27 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 | 4절 관문 (나): 미리보기 10,000건 | Class B 최대 약 20,000. 256KiB 이하 묶음은 GET 하나, 큰 묶음은 머리 + 범위 둘이고, 같은 법정동의 다음 읽기는 메모리·엣지 사본에서 R2 없이 답한다 |
 | 5절 첫 발행 | Class A 2 (manifest·이력) + 표본 묶음 다시 읽기(항목마다 16) |
 
-## 5. 첫 발행 (전환)
+## 5. 전환: 버전 비율로 단계 배포 (ADR-0151 Revision)
 
-운영 Worker 를 이 PR 의 코드로 배포한다(`_capabilities` 가 `[1, 2, 3]`). 그 다음:
+전환은 세 단계다. 사용자가 묶음을 읽기 시작하는 것은 셋째 단계이고, 그 단계는 Worker 버전 비율로 나눠
+올리고 내린다. manifest 는 둘째 단계에서 한 번 바뀌고, 셋째 단계의 되돌리기는 manifest 를 건드리지 않는다.
+
+| 단계 | 하는 일 | 사용자가 읽는 것 | 되돌리기 |
+|---|---|---|---|
+| 1. 코드 | `building-gateway-canary.sh --execute code`: 이 릴리스의 Worker 를 `FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off` 로 올려 지금 버전에서 계약의 `canary.steps_percent` 로 옮긴다 | 객체 | 이전 버전 100% |
+| 2. manifest | 아래 `publish-building-by-pnu-section-packs` (꺼진 버전이 `_capabilities` 에 `[1, 2, 3]` 으로 답한다) | 객체 (꺼진 버전은 블록을 읽지 않는다) | 6절 manifest 되돌리기 |
+| 3. 묶음 | `building-gateway-canary.sh --execute packs <1단계의 버전>`: 같은 코드를 켜서 올리고 꺼진 버전에서 단계마다 옮긴다 | 묶음 | `building-gateway-canary.sh --execute rollback <1단계의 버전>` |
+
+- 각 단계는 `canary.hold_seconds` 동안 머문 뒤 `scripts/ops/building-gateway-health.sh <새> <옛>`(분석 토큰이 있는
+  호스트에서 root 로)이 Cloudflare 분석으로 판정한다: 새 버전 요청 수 ≥ `canary.min_requests_per_step`,
+  `exceededResources` 0, 예외·내부 오류 비율과 운영 주소의 5xx 비율(클라이언트 요청만, `requestSource: eyeball`)
+  ≤ 1 − `slo.availability_min`, CPU p99 ≤ `worker_cpu_p99_max_ms`, wall p50·p99 증가 ≤ `slo.latency_max_increase_ms.warm`.
+  어긋나면 스크립트가 모든 요청을 옛 버전으로 즉시 되돌리고 멈춘다.
+- 스크립트는 기본이 dry-run 이다(명령만 찍는다). 노트북에서 돌릴 때는 판정을 분석 호스트에서 하게 한다:
+  `CANARY_HEALTH_COMMAND='ssh <host> sudo /opt/foundation-platform/current/scripts/ops/building-gateway-health.sh @NEW@ @OLD@'`.
+- 3단계가 100% 가 되면 감시를 켠다(6절).
+
+2단계 발행:
 
 ```bash
 …_CONFIRM_PACK_PUBLISH=true …_PACK_SUMMARY_DIR=$WORK/summaries \
@@ -190,7 +221,27 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 
 발행은 v2 필드를 그대로 두고 `section_packs` 만 더한다. 이전 manifest 는 이력에 남는다.
 
-## 6. 확인과 되돌리기
+## 6. 감시, 확인과 되돌리기
+
+### 감시 (3단계 100% 뒤)
+
+`foundation-building-serving-monitor.timer`(매시 17분)가 운영 주소에서 표본 앞 `monitor.pnus`(20)건을 읽어
+레인이 서빙하는 문서(발행기가 R2 묶음에서 직접 푼 것)와, 객체가 남아 있는 동안 객체 문서와 비교하고 p95 를
+`monitor.latency_p95_max_ms` 와 견준다. 어긋나면 유닛이 실패하고 `OnFailure` 가 Slack 에 알린다. 릴리스가 타이머를
+설치만 하므로 켜는 것은 이 단계다.
+
+```bash
+echo 'FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_MONITOR_SAMPLE_PATH=<WORK>/equality.json' |
+  sudo install -m 0640 -o root -g foundation-platform /dev/stdin /etc/foundation-platform/building-serving-monitor.env
+sudo systemctl enable --now foundation-building-serving-monitor.timer
+```
+
+### 객체는 남긴다
+
+객체 레인은 감시가 `fallback.objects_kept_clean_days`(30일) 동안 깨끗할 때까지 발행된 채, manifest 되돌리기로
+돌아갈 수 있는 상태로 둔다. 객체를 정리할지는 그 뒤 소유자가 따로 정한다. 승인 없이 지우지 않는다(append-only).
+
+### 확인과 되돌리기
 
 ```bash
 …_INSPECT_PNU=<PNU> "$PUBLISHER_BIN" inspect-building-by-pnu-section-packs

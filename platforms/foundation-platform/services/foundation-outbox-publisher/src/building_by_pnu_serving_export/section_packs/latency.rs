@@ -17,39 +17,43 @@
 //! preview's own `Server-Timing` (R2 wait, where each section's pack came from) is summarised, and
 //! failures are counted by side and class.
 //!
+//! Every read asks for gzip (`Accept-Encoding: gzip`), as a browser does: the pack path's point is
+//! to hand the stored member out as it is, so a pack answer without `Content-Encoding: gzip` is a
+//! failure (`pack:not-gzip`), and the evidence records which encoding each side answered in and
+//! which path the preview took (its `Server-Timing` outcome). A further `no_gzip_sample_size` of
+//! the sample is then read from the preview with `Accept-Encoding: identity`, the one path where
+//! the Worker decompresses: each must answer 200, uncompressed, with the live route's content.
+//!
 //! The preview Worker's CPU over the probe window is read from Workers analytics: the account's
 //! plan cuts a request off past its CPU limit (error 1102, an HTTP 503), so the gate demands no
 //! `exceededResources` and a p99 within the contract's `worker_cpu_p99_max_ms`. Without the
-//! analytics credentials the evidence records no CPU and never opens the gate. Evidence of two
+//! analytics credentials (the contract's `cloudflare_analytics.env_file`) the probe refuses to
+//! start, naming the file; evidence that records no CPU never opens the gate either. Evidence of two
 //! stand-in routes (loopback or private addresses) is marked `local-simulation` and never opens
 //! the gate either; CI proves the probe with such stand-ins.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Read as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, ensure, Context};
-use chrono::{DateTime, SecondsFormat, Utc};
+use anyhow::{ensure, Context};
+use chrono::Utc;
 use futures_util::{stream, StreamExt as _};
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use super::super::{optional_env, LANE};
+use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::equality::write_evidence;
 use super::gate::{
-    self, EqualityEvidence, LatencyEvidence, ServerTimingSummary, Timings, WorkerCpu,
+    self, EqualityEvidence, Increase, LatencyEvidence, NoGzipEvidence, ServerTimingSummary, Timings,
 };
+use super::load::{self, LoadPlan};
 use crate::by_pnu_gateway_contract::section_pack_policy;
 use crate::r2_layout::by_pnu_packs;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const ANALYTICS_ENDPOINT: &str = "https://api.cloudflare.com/client/v4/graphql";
-/// Workers analytics lags the requests by a minute or two; the probe waits this long at most for
-/// it to count the preview requests it sent.
-const ANALYTICS_WAIT: Duration = Duration::from_secs(600);
-const ANALYTICS_POLL: Duration = Duration::from_secs(30);
-/// The share of the preview requests analytics must count before its quantiles are taken.
-const ANALYTICS_COVERAGE_PERCENT: u64 = 95;
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug)]
 pub(crate) struct LatencyConfig {
@@ -63,17 +67,14 @@ pub(crate) struct LatencyConfig {
     pub(crate) concurrency: usize,
     /// Where the preview Worker's CPU is read; `None` records none (the gate stays shut).
     pub(crate) analytics: Option<AnalyticsConfig>,
-}
-
-/// Workers analytics (GraphQL) for the preview Worker.
-#[derive(Clone, Debug)]
-pub(crate) struct AnalyticsConfig {
-    pub(crate) endpoint: String,
-    pub(crate) account_id: String,
-    pub(crate) api_token: String,
-    pub(crate) script: String,
-    pub(crate) wait: Duration,
-    pub(crate) poll: Duration,
+    /// The preview Worker's script name, which analytics is asked about.
+    pub(crate) preview_script: String,
+    /// The paced load against the preview after the paired reads; `None` runs none (the gate
+    /// stays shut).
+    pub(crate) load: Option<LoadPlan>,
+    /// How many sample PNUs are read again from the preview without gzip; 0 reads none (the gate
+    /// stays shut).
+    pub(crate) no_gzip_sample_size: usize,
 }
 
 impl LatencyConfig {
@@ -96,39 +97,9 @@ impl LatencyConfig {
                 })?,
             None => gate.probe_concurrency,
         };
-        let names = &section_pack_policy()?.cloudflare_analytics;
-        let analytics = match (
-            optional_env(&names.account_id_env)?,
-            optional_env(&names.api_token_env)?,
-        ) {
-            (Some(account_id), Some(api_token)) => Some(AnalyticsConfig {
-                endpoint: ANALYTICS_ENDPOINT.to_owned(),
-                account_id,
-                api_token,
-                script: LANE
-                    .section_packs()?
-                    .preview_worker
-                    .as_ref()
-                    .context("the contract names no preview Worker for this lane")?
-                    .worker_name
-                    .clone(),
-                wait: ANALYTICS_WAIT,
-                poll: ANALYTICS_POLL,
-            }),
-            (None, None) => {
-                tracing::warn!(
-                    "{} and {} are not set: the evidence records no Worker CPU and cannot pass",
-                    names.account_id_env,
-                    names.api_token_env
-                );
-                None
-            }
-            _ => bail!(
-                "{} and {} are set together or not at all",
-                names.account_id_env,
-                names.api_token_env
-            ),
-        };
+        // Evidence without the Worker's CPU can never open the gate, so the probe refuses before
+        // spending half an hour of reads on it.
+        let analytics = Some(AnalyticsConfig::required("gate (나)")?);
         Ok(Self {
             generation: required("PACK_GENERATION")?
                 .parse()
@@ -142,6 +113,15 @@ impl LatencyConfig {
             evidence_path: PathBuf::from(required("PACK_LATENCY_EVIDENCE_PATH")?),
             concurrency,
             analytics,
+            preview_script: LANE
+                .section_packs()?
+                .preview_worker
+                .as_ref()
+                .context("the contract names no preview Worker for this lane")?
+                .worker_name
+                .clone(),
+            load: Some(LoadPlan::from_contract(&gate.load_test)),
+            no_gzip_sample_size: gate.no_gzip_sample_size,
         })
     }
 }
@@ -223,19 +203,64 @@ fn is_stand_in(base_url: &str) -> bool {
     }
 }
 
-/// One timed answer.
+/// What a read asks for in `Accept-Encoding`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Accept {
+    /// What browsers send: the pack path answers with the stored member as it is.
+    Gzip,
+    /// A client without gzip: the Worker decompresses the member.
+    Identity,
+}
+
+impl Accept {
+    fn header(self) -> &'static str {
+        match self {
+            Self::Gzip => "gzip",
+            Self::Identity => "identity",
+        }
+    }
+}
+
+/// One timed answer; `body` is decoded when it came gzip.
 #[derive(Debug)]
-struct Answer {
-    ms: f64,
-    body: Vec<u8>,
-    server_timing: Option<String>,
+pub(crate) struct Answer {
+    pub(crate) ms: f64,
+    pub(crate) body: Vec<u8>,
+    pub(crate) server_timing: Option<String>,
+    /// The answer's `Content-Encoding`, `None` when it had none.
+    pub(crate) content_encoding: Option<String>,
+}
+
+impl Answer {
+    /// The encoding the answer came in, `identity` when it named none.
+    pub(crate) fn encoding(&self) -> &str {
+        self.content_encoding.as_deref().unwrap_or("identity")
+    }
+}
+
+/// A pack answer that did not come gzip is a failure: the member was not passed through.
+pub(crate) fn require_gzip(answer: Result<Answer, Failure>, url: &str) -> Result<Answer, Failure> {
+    match answer {
+        Ok(answer) if answer.content_encoding.as_deref() != Some("gzip") => Err(Failure {
+            class: "not-gzip".to_owned(),
+            detail: format!(
+                "GET {url} asked for gzip and answered {} ({})",
+                answer.encoding(),
+                answer
+                    .server_timing
+                    .as_deref()
+                    .unwrap_or("no Server-Timing")
+            ),
+        }),
+        other => other,
+    }
 }
 
 /// Why a read failed, in the evidence's words, and what the client said.
 #[derive(Debug)]
-struct Failure {
-    class: String,
-    detail: String,
+pub(crate) struct Failure {
+    pub(crate) class: String,
+    pub(crate) detail: String,
 }
 
 /// Both reads of one PNU.
@@ -254,6 +279,15 @@ pub(crate) fn cold_reads(pnus: &[String]) -> anyhow::Result<Vec<bool>> {
     pnus.iter()
         .map(|pnu| Ok(seen.insert(by_pnu_packs::unit_of(pnu)?.to_owned())))
         .collect()
+}
+
+/// The preview's URL for `pnu` at the probed generation.
+fn preview_url(config: &LatencyConfig, prefix: &str, parameter: &str, pnu: &str) -> String {
+    format!(
+        "{}{prefix}{pnu}?{parameter}=g{}",
+        config.preview_base_url.trim_end_matches('/'),
+        config.generation
+    )
 }
 
 /// Times both routes for every sampled PNU, `concurrency` PNUs at once, then reads the preview
@@ -283,12 +317,7 @@ pub(crate) async fn probe(
                 "{}{prefix}{pnu}",
                 config.live_base_url.trim_end_matches('/')
             );
-            let pack_url = format!(
-                "{}{prefix}{pnu}?{}=g{}",
-                config.preview_base_url.trim_end_matches('/'),
-                policy.preview_query_parameter,
-                config.generation
-            );
+            let pack_url = preview_url(config, &prefix, &policy.preview_query_parameter, pnu);
             (index, cold, live_url, pack_url)
         })
         .collect::<Vec<_>>();
@@ -297,12 +326,13 @@ pub(crate) async fn probe(
             let client = client.clone();
             async move {
                 let (live, pack) = if index % 2 == 0 {
-                    let live = timed_get(&client, &live_url).await;
-                    (live, timed_get(&client, &pack_url).await)
+                    let live = timed_get(&client, &live_url, Accept::Gzip).await;
+                    (live, timed_get(&client, &pack_url, Accept::Gzip).await)
                 } else {
-                    let pack = timed_get(&client, &pack_url).await;
-                    (timed_get(&client, &live_url).await, pack)
+                    let pack = timed_get(&client, &pack_url, Accept::Gzip).await;
+                    (timed_get(&client, &live_url, Accept::Gzip).await, pack)
                 };
+                let pack = require_gzip(pack, &pack_url);
                 (index, Probed { cold, live, pack })
             }
         })
@@ -322,12 +352,47 @@ pub(crate) async fn probe(
     }
     let worker_cpu = match &config.analytics {
         Some(analytics) => Some(
-            worker_cpu(
+            analytics::worker_cpu(
                 &client,
                 analytics,
-                started_at,
-                ended_at,
+                &Invocations {
+                    script: &config.preview_script,
+                    version: None,
+                    from: started_at,
+                    to: ended_at + chrono::Duration::seconds(5),
+                },
                 u64::try_from(pnus.len())?,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    let no_gzip = if config.no_gzip_sample_size == 0 {
+        None
+    } else {
+        let take = config.no_gzip_sample_size.min(pnus.len());
+        Some(
+            read_without_gzip(
+                &client,
+                &pnus[..take],
+                |pnu| preview_url(config, &prefix, &policy.preview_query_parameter, pnu),
+                &tally.live_digests,
+                config.concurrency,
+            )
+            .await?,
+        )
+    };
+    let load = match &config.load {
+        Some(plan) => Some(
+            load::run(
+                &client,
+                plan,
+                pnus,
+                |pnu| preview_url(config, &prefix, &policy.preview_query_parameter, pnu),
+                config
+                    .analytics
+                    .as_ref()
+                    .map(|analytics| (analytics, config.preview_script.as_str())),
             )
             .await?,
         ),
@@ -335,6 +400,16 @@ pub(crate) async fn probe(
     };
     let live_ms = timings(&mut tally.live_cold);
     let pack_ms = timings(&mut tally.pack_cold);
+    let live_warm_ms = timings(&mut tally.live_warm);
+    let pack_warm_ms = timings(&mut tally.pack_warm);
+    let slo = &policy.cutover_gate.slo;
+    let sent = u64::try_from(pnus.len())?;
+    #[allow(clippy::cast_precision_loss)]
+    let availability = if sent == 0 {
+        0.0
+    } else {
+        (sent - tally.pack_failed) as f64 / sent as f64
+    };
     let stand_in = is_stand_in(&config.live_base_url) || is_stand_in(&config.preview_base_url);
     let mut evidence = LatencyEvidence {
         schema_version: policy.cutover_gate.evidence_schema_version.clone(),
@@ -355,27 +430,34 @@ pub(crate) async fn probe(
         failed: tally.failed,
         increase_p50_ms: pack_ms.p50 - live_ms.p50,
         increase_p95_ms: pack_ms.p95 - live_ms.p95,
-        live_ms,
-        pack_ms,
-        bound_p50_ms: policy.cutover_gate.latency_max_increase_ms.p50,
-        bound_p95_ms: policy.cutover_gate.latency_max_increase_ms.p95,
+        bound_p50_ms: slo.latency_max_increase_ms.cold.p50,
+        bound_p95_ms: slo.latency_max_increase_ms.cold.p95,
         examples: tally.examples,
         passed: false,
         measured_at_utc: crate::by_pnu_serving_manifest_publish::now(),
         concurrency: u64::try_from(config.concurrency)?,
         cold_answered: u64::try_from(tally.pack_cold_count)?,
         warm_answered: u64::try_from(tally.pack_warm.len())?,
-        live_warm_ms: timings(&mut tally.live_warm),
-        pack_warm_ms: timings(&mut tally.pack_warm),
+        increase_cold_ms: Increase::between(&live_ms, &pack_ms),
+        increase_warm_ms: Increase::between(&live_warm_ms, &pack_warm_ms),
+        live_warm_ms,
+        pack_warm_ms,
+        availability,
+        load,
         failures: tally.failures,
         server_timing: ServerTimingSummary {
             answers: u64::try_from(tally.server_total.len())?,
             total_ms: timings(&mut tally.server_total),
             r2_ms: timings(&mut tally.server_r2),
             sources: tally.sources,
+            outcomes: tally.outcomes,
         },
+        encodings: tally.encodings,
+        no_gzip,
         worker_cpu,
         bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
+        live_ms,
+        pack_ms,
     };
     evidence.passed = evidence.verdict()?;
     Ok(evidence)
@@ -385,6 +467,8 @@ pub(crate) async fn probe(
 #[derive(Default)]
 struct Tally {
     answered: u64,
+    /// Preview reads that did not answer 200.
+    pack_failed: u64,
     mismatched: u64,
     failed: u64,
     examples: Vec<String>,
@@ -397,6 +481,10 @@ struct Tally {
     server_total: Vec<f64>,
     server_r2: Vec<f64>,
     sources: BTreeMap<String, u64>,
+    outcomes: BTreeMap<String, u64>,
+    encodings: BTreeMap<String, u64>,
+    /// The live answer's content per PNU, which the no-gzip reads are held to.
+    live_digests: HashMap<String, [u8; 32]>,
 }
 
 impl Tally {
@@ -413,6 +501,22 @@ impl Tally {
                 for source in parsed.sources {
                     *self.sources.entry(source).or_default() += 1;
                 }
+                if let Some(outcome) = parsed.outcome {
+                    *self.outcomes.entry(outcome).or_default() += 1;
+                }
+            }
+        }
+        for (side, outcome) in [("live", &read.live), ("pack", &read.pack)] {
+            if let Ok(answer) = outcome {
+                *self
+                    .encodings
+                    .entry(format!("{side}:{}", answer.encoding()))
+                    .or_default() += 1;
+            }
+        }
+        if let Ok(live) = &read.live {
+            if let Ok(digest) = normalized_digest(&live.body) {
+                self.live_digests.insert(pnu.to_owned(), digest);
             }
         }
         match (&read.live, &read.pack) {
@@ -433,6 +537,9 @@ impl Tally {
             }
             (live, pack) => {
                 self.failed += 1;
+                if pack.is_err() {
+                    self.pack_failed += 1;
+                }
                 for (side, outcome) in [("live", live), ("pack", pack)] {
                     if let Err(failure) = outcome {
                         *self
@@ -460,19 +567,36 @@ impl Tally {
     }
 }
 
-/// One GET, timed until the whole body is in; anything but 200 is a failure of its class.
-async fn timed_get(client: &reqwest::Client, url: &str) -> Result<Answer, Failure> {
+/// One GET asking for `accept`, timed until the whole body is in; anything but 200 is a failure
+/// of its class. A gzip body is decoded after the clock stops (the client's work, not the
+/// route's); an encoding not asked for is a failure.
+pub(crate) async fn timed_get(
+    client: &reqwest::Client,
+    url: &str,
+    accept: Accept,
+) -> Result<Answer, Failure> {
     let started = Instant::now();
-    let response = client.get(url).send().await.map_err(|error| Failure {
-        class: request_class(&error, "request"),
-        detail: format!("GET {url}: {error:#}"),
-    })?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT_ENCODING, accept.header())
+        .send()
+        .await
+        .map_err(|error| Failure {
+            class: request_class(&error, "request"),
+            detail: format!("GET {url}: {error:#}"),
+        })?;
     let status = response.status();
     let server_timing = response
         .headers()
         .get("server-timing")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let content_encoding = response
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && value != "identity");
     let body = response.bytes().await.map_err(|error| Failure {
         class: request_class(&error, "body"),
         detail: format!("GET {url} body: {error:#}"),
@@ -489,11 +613,95 @@ async fn timed_get(client: &reqwest::Client, url: &str) -> Result<Answer, Failur
             ),
         });
     }
+    let body = match content_encoding.as_deref() {
+        None => body.to_vec(),
+        Some("gzip") => {
+            let mut decoded = Vec::new();
+            flate2::read::MultiGzDecoder::new(body.as_ref())
+                .read_to_end(&mut decoded)
+                .map_err(|error| Failure {
+                    class: "gzip-decode".to_owned(),
+                    detail: format!("GET {url} answered gzip that does not decode: {error}"),
+                })?;
+            decoded
+        }
+        Some(other) => {
+            return Err(Failure {
+                class: format!("encoding-{other}"),
+                detail: format!(
+                    "GET {url} asked for {} and answered {other}",
+                    accept.header()
+                ),
+            })
+        }
+    };
     Ok(Answer {
         ms,
-        body: body.to_vec(),
+        body,
         server_timing,
+        content_encoding,
     })
+}
+
+/// The no-gzip sample: `pnus` read from the preview with `Accept-Encoding: identity`, each held to
+/// the live answer's content for the same PNU.
+///
+/// # Errors
+/// Returns an error when a count does not fit.
+pub(crate) async fn read_without_gzip(
+    client: &reqwest::Client,
+    pnus: &[String],
+    url_of: impl Fn(&str) -> String,
+    live_digests: &HashMap<String, [u8; 32]>,
+    concurrency: usize,
+) -> anyhow::Result<NoGzipEvidence> {
+    let jobs = pnus
+        .iter()
+        .map(|pnu| (pnu.clone(), url_of(pnu)))
+        .collect::<Vec<_>>();
+    let answers = stream::iter(jobs)
+        .map(|(pnu, url)| {
+            let client = client.clone();
+            async move { (pnu, timed_get(&client, &url, Accept::Identity).await) }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .collect::<Vec<_>>()
+        .await;
+    let mut evidence = NoGzipEvidence {
+        sent: u64::try_from(pnus.len())?,
+        ..NoGzipEvidence::default()
+    };
+    let mut latency = Vec::new();
+    for (pnu, answer) in answers {
+        let answer = match answer {
+            Ok(answer) => answer,
+            Err(failure) => {
+                *evidence.failures.entry(failure.class).or_default() += 1;
+                continue;
+            }
+        };
+        evidence.answered += 1;
+        latency.push(answer.ms);
+        if answer.content_encoding.is_none() {
+            evidence.identity += 1;
+        }
+        if let Some(outcome) = answer
+            .server_timing
+            .as_deref()
+            .and_then(|timing| parse_server_timing(timing).outcome)
+        {
+            *evidence.outcomes.entry(outcome).or_default() += 1;
+        }
+        match live_digests.get(&pnu) {
+            Some(live) if normalized_digest(&answer.body).ok().as_ref() != Some(live) => {
+                evidence.mismatched += 1;
+            }
+            Some(_) => {}
+            None => evidence.not_compared += 1,
+        }
+    }
+    evidence.latency_ms = timings(&mut latency);
+    Ok(evidence)
 }
 
 fn request_class(error: &reqwest::Error, phase: &str) -> String {
@@ -510,6 +718,8 @@ fn request_class(error: &reqwest::Error, phase: &str) -> String {
 /// description of every `pack-{section}` metric.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct ParsedServerTiming {
+    /// The path the Worker took (`document`, `document-decompressed`, `r2-unavailable`, …).
+    pub(crate) outcome: Option<String>,
     pub(crate) total_ms: Option<f64>,
     pub(crate) r2_ms: Option<f64>,
     pub(crate) sources: Vec<String>,
@@ -529,6 +739,7 @@ pub(crate) fn parse_server_timing(header: &str) -> ParsedServerTiming {
             }
         }
         match name {
+            "outcome" => parsed.outcome = description,
             "total" => parsed.total_ms = duration,
             "r2" => parsed.r2_ms = duration,
             _ if name.starts_with("pack-") => {
@@ -540,109 +751,6 @@ pub(crate) fn parse_server_timing(header: &str) -> ParsedServerTiming {
         }
     }
     parsed
-}
-
-const CPU_QUERY: &str = "query($account: String!, $script: String!, $from: Time!, $to: Time!) { \
-    viewer { accounts(filter: {accountTag: $account}) { \
-    workersInvocationsAdaptive(limit: 100, filter: {scriptName: $script, datetime_geq: $from, \
-    datetime_leq: $to}) { sum { requests } dimensions { status } \
-    quantiles { cpuTimeP50 cpuTimeP99 } } } } }";
-
-/// The preview Worker's CPU over `[from, to]` from Workers analytics, waiting until it counts
-/// nearly every one of the `expected` requests the probe sent (it lags them).
-///
-/// # Errors
-/// Returns an error when the API refuses or answers something unreadable.
-pub(crate) async fn worker_cpu(
-    client: &reqwest::Client,
-    analytics: &AnalyticsConfig,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    expected: u64,
-) -> anyhow::Result<WorkerCpu> {
-    let window_end = to + chrono::Duration::seconds(5);
-    let waited = Instant::now();
-    loop {
-        let cpu = query_worker_cpu(client, analytics, from, window_end).await?;
-        if cpu.requests * 100 >= expected * ANALYTICS_COVERAGE_PERCENT
-            || waited.elapsed() >= analytics.wait
-        {
-            return Ok(cpu);
-        }
-        tracing::info!(
-            counted = cpu.requests,
-            expected,
-            "waiting for Workers analytics to count the probe"
-        );
-        tokio::time::sleep(analytics.poll).await;
-    }
-}
-
-async fn query_worker_cpu(
-    client: &reqwest::Client,
-    analytics: &AnalyticsConfig,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-) -> anyhow::Result<WorkerCpu> {
-    let (from_utc, to_utc) = (
-        from.to_rfc3339_opts(SecondsFormat::Secs, true),
-        to.to_rfc3339_opts(SecondsFormat::Secs, true),
-    );
-    let answer: JsonValue = client
-        .post(&analytics.endpoint)
-        .bearer_auth(&analytics.api_token)
-        .json(&json!({
-            "query": CPU_QUERY,
-            "variables": {
-                "account": analytics.account_id,
-                "script": analytics.script,
-                "from": from_utc,
-                "to": to_utc,
-            },
-        }))
-        .send()
-        .await
-        .context("Workers analytics did not answer")?
-        .error_for_status()
-        .context("Workers analytics refused the query")?
-        .json()
-        .await
-        .context("Workers analytics answered something that is not JSON")?;
-    if let Some(errors) = answer.get("errors").filter(|errors| !errors.is_null()) {
-        bail!("Workers analytics answered errors: {errors}");
-    }
-    let groups = answer
-        .pointer("/data/viewer/accounts/0/workersInvocationsAdaptive")
-        .and_then(JsonValue::as_array)
-        .context("Workers analytics answered no invocation groups")?;
-    let mut cpu = WorkerCpu {
-        script: analytics.script.clone(),
-        from_utc,
-        to_utc,
-        ..WorkerCpu::default()
-    };
-    for group in groups {
-        let requests = group
-            .pointer("/sum/requests")
-            .and_then(JsonValue::as_u64)
-            .context("an invocation group has no request count")?;
-        let status = group
-            .pointer("/dimensions/status")
-            .and_then(JsonValue::as_str)
-            .context("an invocation group has no status")?;
-        let quantile = |name: &str| {
-            group
-                .pointer(&format!("/quantiles/{name}"))
-                .and_then(JsonValue::as_f64)
-                .with_context(|| format!("an invocation group has no {name}"))
-        };
-        // Microseconds; the largest of any group, so no status can hide a slow tail.
-        cpu.cpu_p50_ms = cpu.cpu_p50_ms.max(quantile("cpuTimeP50")? / 1000.0);
-        cpu.cpu_p99_ms = cpu.cpu_p99_ms.max(quantile("cpuTimeP99")? / 1000.0);
-        cpu.requests += requests;
-        *cpu.statuses.entry(status.to_owned()).or_default() += requests;
-    }
-    Ok(cpu)
 }
 
 /// Nearest-rank percentiles.
@@ -658,6 +766,7 @@ pub(crate) fn timings(samples: &mut [f64]) -> Timings {
     Timings {
         p50: rank(0.50),
         p95: rank(0.95),
+        p99: rank(0.99),
         mean: samples.iter().sum::<f64>() / samples.len() as f64,
         max: samples[samples.len() - 1],
     }

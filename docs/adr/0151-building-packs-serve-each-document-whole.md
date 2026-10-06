@@ -78,3 +78,46 @@ CPU 를 줄이려고 잰 것(미리보기, 같은 배치, 600건씩, Workers 분
   PoP 에는 해당이 없다. Workers Paid 는 CPU 한도를 바꿀 뿐 진입 PoP 를 바꾸지 않는다. Worker 배치(`placement`)는
   Free 에서도 되며, Worker 를 버킷 가까이(측정: `aws:ap-northeast-1` → `remote-NRT`, R2 왕복 p50 76ms) 옮겨
   R2 왕복을 줄인다. 운영 Worker 의 배치 변경은 별도 결정이다.
+
+## Revision (2026-10-05): 전환을 대기업 운영 방식으로 — SLO, 부하, 단계 배포, 감시
+
+소유자 결정(Workers Paid 로 옮기되 전환은 요금제와 무관하게 이 기준을 지킨다)으로 정한 것이다. 위 결정은 그대로다.
+
+1. **SLO 는 계약에 둔다**(`by_pnu_section_packs.cutover_gate.slo`, 이유와 함께). 가용성(미리보기 읽기의 200 비율)
+   ≥ 99.95%, 지연 증가 한도(차가운·따뜻한 읽기 각각 p50·p95 50ms, p99 150ms), CPU p99 ≤ 5ms. 관문 (나)의 증거는
+   이 모두를 단언한다. 이전의 `latency_max_increase_ms`(차가운 p50·p95 만)는 SLO 로 옮기고 지웠다(한 값은 한 곳).
+2. **관문 (나)는 부하 단계를 갖는다**(`cutover_gate.load_test`): 초당 25건 10분, 동시 최대 64. 근거: Workers Free 의
+   하루 상한 100,000 건을 한 시간의 10분의 1 에 몰아넣는 양이고, 제품이 잡은 출시 패널 요청률보다 높다. 표본에서
+   시드 해시로 되풀이해 뽑아 차가운 읽기와 따뜻한 읽기가 섞인다. 동시 한도에 걸린 요청은 줄 세우지 않고 버리며 가용성에서
+   뺀다(줄을 세우면 목표 요청률을 못 낸 것이 가려진다). 그 구간의 Worker CPU 와 `exceededResources` 0 도 판정에 든다.
+3. **묶음 경로는 Worker 버전 비율로 올리고 내린다.** 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off` 인 버전은
+   manifest 가 묶음을 적어도 객체로 답한다. 그래서 (1) 새 코드를 꺼진 채 단계 배포하고, (2) manifest 를 발행하고,
+   (3) 켠 버전을 계약의 `canary.steps_percent`(1·10·50·100%)로 옮긴다. 단계마다 `hold_seconds`(15분) 뒤
+   `check-building-gateway-version-health` 가 Cloudflare 분석으로 판정하고, 어긋나면 `scripts/ops/building-gateway-canary.sh`
+   가 모든 요청을 옛 버전으로 되돌린다. manifest 되돌리기는 둘째 줄이다.
+   - Workers 분석에는 버전마다의 HTTP 상태가 없다(Worker 가 낸 503 은 `success` 호출이다). 5xx 는 운영 주소의 존
+     분석에서 클라이언트 요청(`requestSource: eyeball`)만 센다. 같은 주소 아래에 Worker 자신의 Cache API 호출(조회
+     실패 GET 504, 쓰기 PUT 204)이 기록되기 때문이다(2026-10-05: 클라이언트 응답 898 옆에 908·873건).
+4. **전환 뒤 감시**: `foundation-building-serving-monitor.timer`(매시)가 운영 주소에서 표본 20건을 읽어, 발행기가 R2 에서
+   직접 푼 문서와, 객체가 남아 있는 동안 객체 문서와 비교하고 p95 를 본다. 실패는 `OnFailure` 로 Slack 에 간다. 데이터
+   잡이 아닌 호스트 점검이라 데이터베이스 백업처럼 systemd 타이머다(ADR-0118 §1).
+5. **객체는 대체 경로로 남긴다**: 감시가 `fallback.objects_kept_clean_days`(30일) 동안 깨끗할 때까지 객체 레인은 발행된
+   채 되돌릴 수 있다. 정리는 그 뒤의 별도 결정이고, 승인 없이 지우지 않는다.
+6. **분석 자격증명은 계약이 이름 짓는 파일 하나**(`by_pnu_section_packs.cloudflare_analytics`,
+   `/etc/foundation-platform/cloudflare-analytics.env`, root 0600, Account Analytics Read)에서 유닛의 `EnvironmentFile` 로만
+   읽는다. 그 파일이 없으면 관문 (나)의 측정과 카나리아 판정은 시작 전에 파일과 변수 이름을 대며 거부한다. CPU 없는
+   증거는 어차피 관문을 열 수 없으니 30분 측정을 먼저 쓰지 않는다.
+7. **측정은 브라우저처럼 gzip 을 청한다**(`Accept-Encoding: gzip`). 묶음 경로의 요점은 저장된 덩어리를 그대로 내는
+   것이라, gzip 을 청했는데 `Content-Encoding: gzip` 이 아닌 미리보기 답은 실패(`pack:not-gzip`)다. 증거는 쪽마다 받은
+   인코딩과 미리보기가 간 경로(`Server-Timing` 의 `outcome`)를 센다. 그 뒤 표본 앞 `no_gzip_sample_size`(200)건을
+   `Accept-Encoding: identity` 로 다시 읽어, Worker 가 푸는 유일한 경로가 200·무압축·같은 내용인지 본다.
+8. **gzip 답과 푼 답은 다른 표현이라 강한 `ETag` 도 다르다**(RFC 9110 §8.8.3): 푼 답은 `"<etag>-<offset>-identity"`.
+   엣지는 Worker 가 받는 `Accept-Encoding` 을 `br, gzip` 으로 바꾸고 클라이언트 원래 값을 `cf.clientAcceptEncoding` 에
+   남기므로, Worker 는 그 값을 보고 표현을 고른다. 그러지 않으면 엣지가 gzip 답을 대신 풀어 gzip 의 태그가 다른 바이트에
+   붙는다. HEAD 는 같은 표현의 머리글을 몸 없이 낸다.
+9. **계정은 Workers Paid 다**(2026-10-06 확인). 운영 Worker 에 명시 CPU 한도 `limits.cpu_ms` 를 둔다. 값은 계약
+   `building_by_pnu_gateway.cpu_limit_ms`(50 ms, 이유 포함)이고 `wrangler.jsonc` 는 그 투영이며 미리보기도 물려받는다.
+   기본값(30초)이면 폭주 요청 하나가 몇 초의 CPU 를 청구한다. 관문의 CPU p99 한도(5 ms)는 요금제와 무관하게 그대로다.
+   묶음 경로는 객체 경로만큼(CPU p50 1.95 ms) 싸야 한다는 것이 그 한도의 뜻이기 때문이다.
+10. **관문 (가)는 덩어리를 푼 바이트 그대로를 객체 바이트와 견준다.** 다시 파싱해 직렬화한 문서로 견주면, 같은 문서를
+    다른 바이트로 담은 덩어리(키 순서·공백·숫자 표기)가 통과하는데 Worker 는 그 바이트를 그대로 낸다.

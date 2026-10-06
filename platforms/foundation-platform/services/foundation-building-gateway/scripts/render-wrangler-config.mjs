@@ -23,6 +23,12 @@ export function render(contract) {
   // The cut-over gate's preview (root ADR-0147 §6): its own Worker on its own hostname, so the
   // edge cache behaves as on the live custom domains, never a live route, and the binding that
   // lets it serve an unpublished pack generation set on it alone.
+  // An explicit CPU limit (Workers Paid, root ADR-0151 Revision): the contract's value, never the
+  // plan's 30 s default, and inherited by the preview so the gate measures what the live Worker runs.
+  const cpuMs = gateway.cpu_limit_ms;
+  if (!Number.isSafeInteger(cpuMs) || cpuMs < 1 || typeof gateway.cpu_limit_reason !== "string") {
+    throw new Error("building_by_pnu_gateway.cpu_limit_ms must be a positive integer with a reason");
+  }
   const packs = gateway.section_packs;
   const preview = packs?.preview_worker;
   if (preview !== undefined) {
@@ -38,6 +44,7 @@ export function render(contract) {
       compatibility_date: gateway.compatibility_date,
       workers_dev: false,
       keep_vars: true,
+      limits: { cpu_ms: cpuMs },
       routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
       r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
       ...(preview === undefined

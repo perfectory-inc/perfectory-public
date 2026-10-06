@@ -222,6 +222,12 @@ async function resolvePlan(
   return plan;
 }
 
+/// The served state's fingerprint without its packs: what an object-only version caches under.
+function objectFingerprint(plan: ServingPlan): string {
+  const newest = plan.patches[0];
+  return newest === undefined ? `v${plan.base}` : `v${plan.base}p${newest.generation}`;
+}
+
 /// The edge cache identity of one PNU's answer under one served state.
 function servingCacheUrl(requestUrl: string, plan: Pick<ServingPlan, "fingerprint">): string {
   const url = new URL(requestUrl);
@@ -365,7 +371,10 @@ async function packResponse(
   // The member is the served document's gzip, exactly as the object lane served it uncompressed:
   // it goes out as it is, nothing decompressed or parsed (root ADR-0151). A client that does not
   // accept gzip gets it decompressed here, the one path that spends CPU on the body.
-  const etag = `"${resolved.etag}"`;
+  // The two are different representations (RFC 9110 §8.8.3): each has its own strong tag, so a
+  // cache or client never takes the gzip bytes for the identity ones under one validator.
+  const gzip = acceptsGzip(request);
+  const etag = gzip ? `"${resolved.etag}"` : `"${resolved.etag}-identity"`;
   const headers = corsHeaders(origin, allowed);
   headers.set("Cache-Control", policy.cache_control);
   headers.set("Content-Type", policy.content_type);
@@ -375,7 +384,7 @@ async function packResponse(
   if (matchesEtag(request, etag)) {
     return timed(new Response(null, { status: 304, headers }), "not-modified");
   }
-  if (acceptsGzip(request)) {
+  if (gzip) {
     headers.set("Content-Encoding", "gzip");
     headers.set("Content-Length", resolved.member.byteLength.toString());
     const body = request.method === "HEAD" ? null : resolved.member;
@@ -391,10 +400,14 @@ async function packResponse(
 }
 
 /// Whether the client takes `Content-Encoding: gzip` (RFC 9110 §12.5.3): named with a nonzero
-/// weight, or covered by `*`.
+/// weight, or covered by `*`. The edge rewrites a Worker's incoming `Accept-Encoding` to
+/// `br, gzip` and keeps the client's own in `cf.clientAcceptEncoding`; that is the one asked, so
+/// the representation (and its entity tag) is the one the client gets, not one the edge converts.
 function acceptsGzip(request: Request): boolean {
+  const client = (request as { cf?: { clientAcceptEncoding?: unknown } }).cf?.clientAcceptEncoding;
+  const raw = typeof client === "string" ? client : (request.headers.get("Accept-Encoding") ?? "");
   const accepted = new Map<string, number>();
-  for (const field of (request.headers.get("Accept-Encoding") ?? "").split(",")) {
+  for (const field of raw.split(",")) {
     const [coding, ...parameters] = field.trim().toLowerCase().split(";");
     if (coding === undefined || coding === "") continue;
     const weight = parameters.map((parameter) => parameter.trim()).find((parameter) => parameter.startsWith("q="));
@@ -484,8 +497,11 @@ async function fetchBuilding(
 
   // A preview names an unpublished pack generation: only a preview version (its binding set)
   // serves one, and the live route serves a generation only when the manifest already names it.
-  let packs = plan.packs;
-  let fingerprint = plan.fingerprint;
+  // A version whose serving binding is off answers from objects while the manifest already names
+  // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
+  const servesPacks = env[lanePacks.serving_binding] !== "off";
+  let packs = servesPacks ? plan.packs : undefined;
+  let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
   // A preview version says how it answered (`Server-Timing`); the live route does not.
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null) {

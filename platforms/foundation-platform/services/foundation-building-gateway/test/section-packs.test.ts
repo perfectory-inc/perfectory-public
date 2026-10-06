@@ -153,6 +153,52 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     }
   });
 
+  it("the gzip and the decompressed answers carry different entity tags, each validating only itself", async () => {
+    await serve(sectionPacks([]));
+    const gzip = await get(PNU_A, "", { "Accept-Encoding": "gzip" });
+    const identity = await get(PNU_A, "", { "Accept-Encoding": "identity" });
+    await Promise.all([gzip.arrayBuffer(), identity.arrayBuffer()]);
+    const gzipTag = gzip.headers.get("etag") ?? "";
+    const identityTag = identity.headers.get("etag") ?? "";
+    expect(gzipTag).toMatch(/^"[0-9a-f]+-[0-9]+"$/);
+    expect(identityTag).toMatch(/^"[0-9a-f]+-[0-9]+-identity"$/);
+    expect(identityTag).not.toBe(gzipTag);
+    expect((await get(PNU_A, "", { "Accept-Encoding": "gzip", "If-None-Match": gzipTag })).status).toBe(304);
+    expect((await get(PNU_A, "", { "Accept-Encoding": "identity", "If-None-Match": identityTag })).status).toBe(304);
+    // A tag of the other representation is not a match: the client gets the bytes it asked for.
+    const crossed = await get(PNU_A, "", { "Accept-Encoding": "identity", "If-None-Match": gzipTag });
+    expect(crossed.status).toBe(200);
+    expect(await crossed.text()).toBe(documents.base[PNU_A]);
+    const crossedGzip = await get(PNU_A, "", { "Accept-Encoding": "gzip", "If-None-Match": identityTag });
+    expect(crossedGzip.status).toBe(200);
+    await crossedGzip.arrayBuffer();
+  });
+
+  it("HEAD answers the headers of the GET it stands for, with no body, in either encoding", async () => {
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    await serve(sectionPacks([]));
+    for (const acceptEncoding of ["gzip", "identity"]) {
+      const got = await get(PNU_A, "", { "Accept-Encoding": acceptEncoding });
+      await got.arrayBuffer();
+      const head = await runtime.dispatchFetch(url(PNU_A, ""), {
+        method: "HEAD",
+        headers: { "Accept-Encoding": acceptEncoding },
+      });
+      expect(head.status, acceptEncoding).toBe(200);
+      expect(await head.text(), acceptEncoding).toBe("");
+      for (const name of ["etag", "content-encoding", "content-length", "content-type", "cache-control", "vary"]) {
+        expect(head.headers.get(name), `${acceptEncoding} ${name}`).toBe(got.headers.get(name));
+      }
+    }
+    const identity = await runtime.dispatchFetch(url(PNU_A, ""), {
+      method: "HEAD",
+      headers: { "Accept-Encoding": "identity" },
+    });
+    expect(identity.headers.get("content-length")).toBe(
+      new TextEncoder().encode(documents.base[PNU_A]).byteLength.toString(),
+    );
+  });
+
   it("a PNU no pack holds is a typed 404, in its dong or in a dong without packs", async () => {
     await serve(sectionPacks([]));
     for (const pnu of [UNKNOWN_IN_DONG, OTHER_DONG]) {
@@ -242,6 +288,23 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     runtime = await start();
     await serve(sectionPacks([]));
     expect((await get(PNU_A, "?packs=g1")).status).toBe(200);
+  });
+
+  it("a version whose serving binding is off answers from objects under a pack manifest", async () => {
+    const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
+    const objectKey = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;
+    for (const [binding, expected] of [
+      ["off", object],
+      ["on", documents.base[PNU_A]],
+    ] as const) {
+      await runtime?.dispose();
+      runtime = await start({ [PACKS.serving_binding]: binding });
+      await (await runtime.getR2Bucket(R2_BINDING)).put(objectKey, object);
+      await serve(sectionPacks([]));
+      const response = await get(PNU_A);
+      expect(response.status, binding).toBe(200);
+      expect(await response.text(), binding).toBe(expected);
+    }
   });
 
   it("the gateway says it reads the section_packs block", async () => {

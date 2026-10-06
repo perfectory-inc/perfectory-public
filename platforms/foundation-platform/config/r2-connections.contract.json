@@ -154,6 +154,7 @@
       "env_file": "/etc/foundation-platform/cloudflare-analytics.env",
       "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
       "api_token_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN",
+      "zone_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ZONE_ID",
       "token_scope": "Account Analytics: Read",
       "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics; the token is read only through the unit's EnvironmentFile (root:root 0600), never from the repository or a shell"
     },
@@ -167,17 +168,30 @@
     },
     "cutover_gate": {
       "evidence_schema_version": "foundation-platform.by_pnu_section_pack_gate_evidence.v1",
-      "latency_max_increase_ms": {
-        "p50": 50,
-        "p95": 50
-      },
       "latency_sample_size": 10000,
       "sample_seed": "foundation-platform.section-pack-cutover.v1",
       "sample_candidates_per_million": 2000,
       "probe_concurrency": 8,
       "probe_concurrency_reason": "the 2026-10-05 sequential probe took 3h45m for 10,000 PNUs; 8 requests in flight finish the sample within 30 minutes while each read is still timed on its own",
       "worker_cpu_p99_max_ms": 5,
-      "worker_cpu_reason": "the account runs Workers Free (10 ms CPU per request); on 2026-10-05 the preview's pack path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The gate demands half the limit at p99 and no exceededResources, read from Workers analytics for the probe window"
+      "worker_cpu_reason": "on 2026-10-05, under Workers Free (10 ms CPU per request), the preview's old join path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The account is on Workers Paid since 2026-10-06, but the bound stays where it was: the pack path must cost about what the object path costs (CPU p50 1.95 ms), not merely fit the plan's limit. The gate demands p99 within it and no exceededResources, read from Workers analytics for the probe window",
+      "no_gzip_sample_size": 200,
+      "no_gzip_sample_reason": "the paired reads and the load phase ask for gzip as browsers do, so the pack answer must be the stored member passed through (Content-Encoding: gzip); a client that does not accept gzip takes the one path that decompresses in the Worker, and 200 of the sample PNUs read that way must answer 200 without Content-Encoding and with the same content",
+      "slo": {
+        "availability_min": 0.9995,
+        "availability_reason": "the owner's bound for the pack path: at most one non-200 answer in 2,000 for PNUs the lane serves, counted over the paired probe and the load phase",
+        "latency_max_increase_ms": {
+          "cold": { "p50": 50, "p95": 50, "p99": 150 },
+          "warm": { "p50": 50, "p95": 50, "p99": 150 }
+        },
+        "latency_reason": "the pack path may not be noticeably slower than the object path it replaces: 50 ms at p50 and p95 is below a perceptible panel delay; p99 gets 150 ms because the tail is dominated by the client-to-edge path (2026-10-05: ai-server to LAX p95 3-4 s on both routes)"
+      },
+      "load_test": {
+        "requests_per_second": 25,
+        "duration_seconds": 600,
+        "max_in_flight": 64,
+        "reason": "25 requests/s for 10 minutes is 15,000 reads, the Workers Free daily cap (100,000) compressed into a tenth of an hour, and above any launch-day panel rate the product has planned; the PNUs are the gate sample drawn with replacement, so legal dongs repeat and the mix holds cold and warm reads"
+      }
     }
   },
   "building_by_pnu_gateway": {
@@ -191,6 +205,8 @@
     "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
     "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
     "compatibility_date": "2026-04-26",
+    "cpu_limit_ms": 50,
+    "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is ten times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
     "object_key": {
       "root": "serving/buildings/by-pnu",
       "generation_dir_pattern": "v[1-9][0-9]{0,17}",
@@ -228,6 +244,23 @@
       ],
       "anchor_section": "documents",
       "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW",
+      "serving_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_SERVING",
+      "serving_binding_reason": "a Worker version whose binding is off answers from objects even when the manifest names section packs, so the pack path is rolled out by version percentage (the canary) and rolled back by moving traffic, with the manifest left as it is",
+      "canary": {
+        "steps_percent": [1, 10, 50, 100],
+        "hold_seconds": 900,
+        "min_requests_per_step": 200,
+        "reason": "Cloudflare gradual deployments split by request; 15 minutes per step lets Workers analytics (one to two minutes behind) count at least min_requests_per_step on the new version before its error rate, CPU and wall time are compared with the old one"
+      },
+      "monitor": {
+        "pnus": 20,
+        "latency_p95_max_ms": 3000,
+        "reason": "hourly (infra/systemd/foundation-building-serving-monitor.timer), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+      },
+      "fallback": {
+        "objects_kept_clean_days": 30,
+        "reason": "the object lane stays published and restorable (manifest revert) until the monitor has been clean this long after the cut-over; retiring objects is a separate owner decision and objects are never deleted without it (append-only)"
+      },
       "preview_worker": {
         "wrangler_env": "preview",
         "worker_name": "foundation-building-gateway-preview",

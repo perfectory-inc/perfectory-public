@@ -32,7 +32,9 @@ last_reviewed: 2026-10-05
   항목은 객체 레인이 쓰던 문서 바이트를 gzip 한 덩어리다. Worker 는 법정동 묶음의 머리에서 이분 탐색해 그 덩어리를
   풀지도 파싱하지도 않고 `Content-Encoding: gzip` 으로 낸다(gzip 을 받지 않는 클라이언트에게만 풀어 준다). 그래서
   CPU 는 객체 경로와 같은 일이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
-  1102(503)를 냈다(ADR-0151). `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치다. 패치는 `patch_floor` 위의 것 중
+  1102(503)를 냈다(ADR-0151). gzip 여부는 엣지가 바꿔 쓴 `Accept-Encoding` 이 아니라 클라이언트 원래 값
+  (`cf.clientAcceptEncoding`)으로 정한다. `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치이고, 푼 답은 다른 표현이라
+  `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 패치는 `patch_floor` 위의 것 중
   법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404, 없으면 404, 목록의 묶음이 없거나 형식이 어긋나면 503 이다.
   `_capabilities` 는 `[1, 2, 3]`.
   - 읽기(계약 `by_pnu_section_packs.read_path`): 범위 없는 GET 하나가 머리를 찾는다. 묶음이 `whole_pack_max_bytes`
@@ -46,6 +48,9 @@ last_reviewed: 2026-10-05
     종류·경과)를 남긴다.
   - 미리보기 버전은 `Server-Timing` 을 낸다: `outcome`, `r2;dur=…;desc="gets=… retries=…"`, 항목마다
     `pack-{항목};dur=…;desc="{memory|edge|r2}-{whole|head}[+range]"`, `total`.
+  - 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off` 인 버전은 manifest 가 묶음을 적어도 객체로 답한다.
+    묶음 경로는 이 바인딩만 다른 두 버전 사이의 비율로 올리고 내린다(`scripts/ops/building-gateway-canary.sh`,
+    ADR-0151 Revision).
   `?packs=g{n}` 은 미리보기 Worker(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`, 계약
   `section_packs.preview_worker`, `wrangler.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
   manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).

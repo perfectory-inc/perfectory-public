@@ -1,4 +1,4 @@
-//! The building lane served from section packs (root ADR-0147).
+//! The building lane served from section packs (root ADR-0147, ADR-0151).
 //!
 //! | command                                          | does                                    |
 //! |--------------------------------------------------|-----------------------------------------|
@@ -7,14 +7,20 @@
 //! | `probe-building-by-pnu-section-pack-latency`     | gate (나): cold first read, live vs pack |
 //! | `publish-building-by-pnu-section-packs`          | the manifest's `section_packs` block     |
 //! | `inspect-building-by-pnu-section-packs`          | one PNU's fragments and answer          |
+//! | `check-building-gateway-version-health`          | one canary step's verdict, from analytics |
+//! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
 //!
 //! Environment variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`).
 
+mod analytics;
 mod bake;
 mod equality;
 mod gate;
+mod health;
 mod inspect;
 mod latency;
+mod load;
+mod monitor;
 mod publish;
 mod read;
 pub(crate) mod sections;
@@ -32,6 +38,8 @@ pub(crate) enum PackCommand {
     ProbeLatency,
     Publish,
     Inspect,
+    CheckVersionHealth,
+    Monitor,
 }
 
 impl PackCommand {
@@ -43,6 +51,8 @@ impl PackCommand {
             "probe-building-by-pnu-section-pack-latency" => Self::ProbeLatency,
             "publish-building-by-pnu-section-packs" => Self::Publish,
             "inspect-building-by-pnu-section-packs" => Self::Inspect,
+            "check-building-gateway-version-health" => Self::CheckVersionHealth,
+            "monitor-building-by-pnu-serving" => Self::Monitor,
             _ => return None,
         })
     }
@@ -58,6 +68,8 @@ impl PackCommand {
             Self::ProbeLatency => latency::run().await,
             Self::Publish => publish::run().await,
             Self::Inspect => inspect::run().await,
+            Self::CheckVersionHealth => health::run().await,
+            Self::Monitor => monitor::run().await,
         }
     }
 }
