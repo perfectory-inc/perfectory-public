@@ -29,6 +29,8 @@ describe("generated Wrangler configuration", () => {
     // Placed beside the bucket (ADR-0154), by the contract's region hint.
     expect(config.placement).toEqual({ region: gateway.placement.region });
     expect(gateway.cpu_limit_ms).toBeGreaterThan(connectionContract.by_pnu_section_packs.cutover_gate.worker_cpu_p99_max_ms);
+    // Every answer names its version (ADR-0157): the metadata binding the Worker reads it from.
+    expect(config.version_metadata).toEqual({ binding: gateway.version_metadata_binding });
     expect(text).not.toMatch(/remote|account_id|access_key|secret/i);
     expect(text).not.toContain('"*"');
   });
@@ -72,6 +74,10 @@ describe("generated Wrangler configuration", () => {
     expect((env as Record<string, unknown> | undefined)?.limits).toBeUndefined();
     // And runs where the live Worker runs, so the gate compares the two paths under one placement.
     expect((env as Record<string, unknown> | undefined)?.placement).toEqual({ region: gateway.placement.region });
+    // Bindings are not inherited: the preview names its version from its own metadata binding.
+    expect((env as Record<string, unknown> | undefined)?.version_metadata).toEqual({
+      binding: gateway.version_metadata_binding,
+    });
     expect(config.vars).toBeUndefined();
   });
 

@@ -174,8 +174,10 @@
       "sample_candidates_per_million": 2000,
       "probe_concurrency": 8,
       "probe_concurrency_reason": "the 2026-10-05 sequential probe took 3h45m for 10,000 PNUs; 8 requests in flight finish the sample within 30 minutes while each read is still timed on its own",
-      "worker_cpu_p99_max_ms": 5,
-      "worker_cpu_reason": "on 2026-10-05, under Workers Free (10 ms CPU per request), the preview's old join path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The account is on Workers Paid since 2026-10-06, but the bound stays where it was: the pack path must cost about what the object path costs (CPU p50 1.95 ms), not merely fit the plan's limit. The gate demands p99 within it and no exceededResources, read from Workers analytics for the probe window",
+      "worker_cpu_p99_max_ms": 10,
+      "worker_cpu_reason": "on 2026-10-05, under Workers Free (10 ms CPU per request), the preview's old join path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The account is on Workers Paid since 2026-10-06, which has no 10 ms cut-off (cpu_limit_ms is ours). The first bound, 5 ms, was set from the object path at LAX (CPU p50 1.95 ms) and sat below the paths themselves at the placement the Worker now runs at: on 2026-10-06 the canary's code phase measured the live object path at Tokyo (aws:ap-northeast-1) at p50 2.93 ms and p99 5.67 ms against 1.76 and 3.70 ms for the old version at LAX, and the preview's pack path at Tokyo at p99 6.4 ms, so the gate rolled back a version that held every other bound. 10 ms is above every measured healthy path with about half again as headroom, and five times below cpu_limit_ms. The gate demands p99 within it and no exceededResources, read from Workers analytics for the probe window",
+      "worker_cpu_p99_max_increase_ms": 4,
+      "worker_cpu_increase_reason": "a canary step also holds the new version's CPU p99 to the old version's p99 plus this much, both read from Workers analytics over the step, so a version that doubles the cost of a cheap path is refused even while it stays under worker_cpu_p99_max_ms. 2026-10-06: the code phase's new version measured p99 5.67 ms against 3.70 ms for the old (+1.97 ms, the same object-path code moved from LAX to Tokyo placement), and single minutes of it reached 12.9 ms, so 4 ms admits a placement move and still refuses a path that adds a full old p99 on top",
       "no_gzip_sample_size": 200,
       "no_gzip_sample_reason": "the paired reads and the load phase ask for gzip as browsers do, so the pack answer must be the stored member passed through (Content-Encoding: gzip); a client that does not accept gzip takes the one path that decompresses in the Worker, and 200 of the sample PNUs read that way must answer 200 without Content-Encoding and with the same content",
       "slo": {
@@ -208,8 +210,11 @@
     "compatibility_date": "2026-04-26",
     "placement": { "region": "aws:ap-northeast-1" },
     "placement_reason": "the bucket's location is APAC and the Worker reads it on every cold answer, while this zone's Korean traffic enters at LAX. Measured 2026-10-06 from ai-server, 1,000 PNUs per run, live copy and preview at the same placement: an R2 read of an object read before takes ~190 ms run at LAX, ~40 ms at Tokyo (aws:ap-northeast-1), ~70 ms at Seoul (aws:ap-northeast-2) and ~120 ms at Singapore (aws:ap-southeast-1). At Tokyo a cold pack answer is within the cut-over bounds of the object path (ADR-0154); the object path's own edge-cache hits pay the LAX-Tokyo hop (warm p50 444 -> 553 ms), which is what makes the pack path's edge copies affordable to drop. Placement travels with the uploaded version (2026-10-06, a throwaway Worker split 50/50 between an unplaced version and one uploaded with this hint answered both unplaced and remote-NRT), so the canary's code phase rolls it out and back like any other change",
+    "version_metadata_binding": "FOUNDATION_PLATFORM_WORKER_VERSION",
+    "version_header": "Foundation-Worker-Version",
+    "version_header_reason": "every answer names the Worker version that produced it (the version metadata binding's id), so a canary step counts its pinned reads by the version that actually served them instead of trusting Workers analytics to have counted them, which is sampled and minutes late (2026-10-06: 137 of 300). A version id is not a secret: Cloudflare's own version-override header that pins a request takes the same id",
     "cpu_limit_ms": 50,
-    "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is ten times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
+    "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is five times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
     "object_key": {
       "root": "serving/buildings/by-pnu",
       "generation_dir_pattern": "v[1-9][0-9]{0,17}",
@@ -253,12 +258,14 @@
         "steps_percent": [1, 10, 50, 100],
         "hold_seconds": 900,
         "min_requests_per_step": 200,
-        "reason": "Cloudflare gradual deployments split by request; 15 minutes per step lets Workers analytics (one to two minutes behind) count at least min_requests_per_step on the new version before its error rate, CPU and wall time are compared with the old one",
+        "reason": "Cloudflare gradual deployments split by request; a step holds 15 minutes, then needs min_requests_per_step pinned reads answered by the new version itself (each answer names the version that served it in version_header) before its error rate, CPU and wall time are compared with the old one",
+        "analytics_min_coverage": 0.3,
+        "analytics_min_coverage_reason": "Workers analytics (workersInvocationsAdaptive) is sampled and late: its sum of requests is already scaled by the sample interval, but on 2026-10-06 it had counted 137 of the 300 pinned reads the new version answered (old version: 296 of 300) when the gate's ten-minute wait ran out, and 304 once the late rows arrived. So whether reads reached the new version is judged from the pinned answers, and analytics is used only for CPU, cut-offs and errors, which a sample answers; it must still have counted this share of the new version's pinned answers, so an analytics answer about the wrong version or window cannot pass as clean",
         "synthetic_load": {
           "requests_per_second": 5,
           "duration_seconds": 60,
           "max_in_flight": 16,
-          "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment, so a misdirected pin shows up as too few requests on the new version), and judges each version on its own answers (every one 200 and gzip) as well as on analytics"
+          "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment), counts the answers that name the new version in version_header (a misdirected pin shows up as too few of them), and judges each version on its own answers (every one 200 and gzip) as well as on analytics"
         }
       },
       "monitor": {

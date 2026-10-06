@@ -109,6 +109,10 @@ pub(crate) struct LoadEvidence {
     pub(crate) latency_ms: Timings,
     pub(crate) server_timing: ServerTimingSummary,
     pub(crate) worker_cpu: Option<WorkerCpu>,
+    /// The answers by the Worker version each named (root ADR-0157); an answer that named none is
+    /// not counted here.
+    #[serde(default)]
+    pub(crate) versions: BTreeMap<String, u64>,
 }
 
 /// What the preview Worker said about its own answers (`Server-Timing`): its total and R2 wait,
@@ -169,6 +173,10 @@ pub(crate) struct WorkerCpu {
     pub(crate) wall_p99_ms: f64,
     /// Invocations per status (`success`, `exceededResources`, …).
     pub(crate) statuses: BTreeMap<String, u64>,
+    /// The largest average sample interval of any status group (1 is unsampled); `requests` is
+    /// already scaled by it.
+    #[serde(default)]
+    pub(crate) sample_interval_max: f64,
 }
 
 impl WorkerCpu {

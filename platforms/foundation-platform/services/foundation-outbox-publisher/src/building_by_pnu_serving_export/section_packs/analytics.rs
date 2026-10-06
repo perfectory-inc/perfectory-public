@@ -5,6 +5,12 @@
 //! Workers analytics records no HTTP status per invocation: a Worker that answers 503 itself is a
 //! `success` invocation. A platform cut-off (CPU or memory, error 1102) is `exceededResources`.
 //! So the gate reads CPU and cut-offs per version here, and 5xx per hostname from the zone.
+//!
+//! `workersInvocationsAdaptive` is sampled (`avg { sampleInterval }` above 1) and its rows arrive
+//! minutes late. Its `sum { requests }` is already scaled by the sample interval (2026-10-06: 304
+//! counted for 300 pinned reads at an average interval of 1.2), so it is not scaled again; but at
+//! the end of a step's wait it had counted 137 of them. A canary step therefore counts its reads
+//! from their answers and holds analytics only to a coverage of them (root ADR-0157).
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -114,8 +120,8 @@ fn rfc3339(at: DateTime<Utc>) -> String {
 
 const INVOCATIONS_QUERY: &str = "query($account: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject!) { \
     viewer { accounts(filter: {accountTag: $account}) { \
-    workersInvocationsAdaptive(limit: 100, filter: $filter) { sum { requests } dimensions { status } \
-    quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } } } } }";
+    workersInvocationsAdaptive(limit: 100, filter: $filter) { sum { requests } \
+    avg { sampleInterval } dimensions { status } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } } } } }";
 
 /// The script's invocations over the window, waiting until analytics counts nearly every one of
 /// the `expected` requests that were sent (it lags them).
@@ -198,6 +204,13 @@ pub(crate) async fn query_invocations(
         cpu.cpu_p99_ms = cpu.cpu_p99_ms.max(quantile("cpuTimeP99")? / 1000.0);
         cpu.wall_p50_ms = cpu.wall_p50_ms.max(quantile("wallTimeP50")? / 1000.0);
         cpu.wall_p99_ms = cpu.wall_p99_ms.max(quantile("wallTimeP99")? / 1000.0);
+        // Absent on an older answer; the largest of any group says how sampled the window was.
+        if let Some(interval) = group
+            .pointer("/avg/sampleInterval")
+            .and_then(JsonValue::as_f64)
+        {
+            cpu.sample_interval_max = cpu.sample_interval_max.max(interval);
+        }
         cpu.requests += requests;
         *cpu.statuses.entry(status.to_owned()).or_default() += requests;
     }

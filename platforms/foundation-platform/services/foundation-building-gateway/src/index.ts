@@ -34,7 +34,7 @@ const PNU_PREFIX_LENGTHS = { min: 1, max: 19 } as const;
 const manifestCacheUrl = "https://foundation-building-gateway.invalid/serving-manifest";
 
 interface Env {
-  [binding: string]: string | Pick<R2Bucket, "get">;
+  [binding: string]: string | Pick<R2Bucket, "get"> | Pick<WorkerVersionMetadata, "id">;
 }
 
 interface ServingPatch {
@@ -445,7 +445,22 @@ function capabilities(): Response {
   );
 }
 
-async function fetchBuilding(
+/// Every answer names the Worker version that produced it (`version_header`, root ADR-0157), so a
+/// canary step counts its pinned reads by the version that served them. Set on the answer as it
+/// leaves: an edge copy is shared by every version and never carries one.
+function withVersion(response: Response, env: Env): Response {
+  const metadata = env[policy.version_metadata_binding];
+  if (typeof metadata === "object" && "id" in metadata && typeof metadata.id === "string" && metadata.id !== "") {
+    response.headers.set(policy.version_header, metadata.id);
+  }
+  return response;
+}
+
+async function fetchBuilding(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  return withVersion(await answerBuilding(request, env, ctx), env);
+}
+
+async function answerBuilding(
   request: Request,
   env: Env,
   ctx: ExecutionContext,

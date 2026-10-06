@@ -97,6 +97,10 @@ pub(crate) struct ByPnuGatewayPolicy {
     pub(crate) content_type: String,
     pub(crate) cache_control: String,
     pub(crate) manifest_cache_control: String,
+    /// The response header in which the lane's Worker names the version that produced each
+    /// answer (root ADR-0157); a lane with a canary must name one.
+    #[serde(default)]
+    pub(crate) version_header: Option<String>,
     /// The lane's section packs (root ADR-0147); only the lanes that serve from packs name one.
     #[serde(default)]
     pub(crate) section_packs: Option<LaneSectionPacks>,
@@ -127,6 +131,10 @@ pub(crate) struct LaneSectionPacks {
 pub(crate) struct CanaryPolicy {
     pub(crate) hold_seconds: u64,
     pub(crate) min_requests_per_step: u64,
+    /// The least share of the new version's pinned answers Workers analytics must have counted
+    /// before its CPU, cut-offs and errors are judged (root ADR-0157): analytics is sampled and
+    /// late, so it never decides whether the reads reached the version.
+    pub(crate) analytics_min_coverage: f64,
     /// The reads a step sends to each of its two versions (pinned by version override), so a step
     /// is judged on enough requests whatever the live traffic is.
     pub(crate) synthetic_load: LoadTestPolicy,
@@ -198,9 +206,11 @@ pub(crate) struct CutoverGatePolicy {
     pub(crate) sample_candidates_per_million: u64,
     /// How many PNUs the latency probe reads at once; each read is still timed on its own.
     pub(crate) probe_concurrency: usize,
-    /// The most CPU the preview Worker may spend on a request at p99, from Workers analytics for
-    /// the probe window; the account's plan limit is twice this.
+    /// The most CPU the Worker may spend on a request at p99, from Workers analytics for the probe
+    /// window or the canary step; the Worker's own `cpu_limit_ms` is above it.
     pub(crate) worker_cpu_p99_max_ms: f64,
+    /// The most a canary step's new version may add to the old version's CPU p99 (root ADR-0157).
+    pub(crate) worker_cpu_p99_max_increase_ms: f64,
     /// How many sample PNUs the probe also reads from the preview without gzip (the Worker's
     /// decompressing path); every one must answer 200, uncompressed, with the same content.
     pub(crate) no_gzip_sample_size: usize,
@@ -332,6 +342,8 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || gate.probe_concurrency == 0
         || gate.worker_cpu_p99_max_ms.is_nan()
         || gate.worker_cpu_p99_max_ms <= 0.0
+        || gate.worker_cpu_p99_max_increase_ms.is_nan()
+        || gate.worker_cpu_p99_max_increase_ms < 0.0
         || !(gate.slo.availability_min > 0.0 && gate.slo.availability_min <= 1.0)
         || [
             &gate.slo.latency_max_increase_ms.cold,
@@ -345,11 +357,11 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
     {
         return Err("by_pnu_section_packs holds values the pack format cannot honour".to_owned());
     }
-    for lane in [
+    for gateway in [
         &contract.parcel_by_pnu_gateway,
         &contract.building_by_pnu_gateway,
     ] {
-        let Some(lane) = &lane.section_packs else {
+        let Some(lane) = &gateway.section_packs else {
             continue;
         };
         let mut seen = std::collections::BTreeSet::new();
@@ -369,7 +381,15 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
                 || u64::from(load.requests_per_second) * load.duration_seconds
                     < canary.min_requests_per_step
                 || canary.hold_seconds < load.duration_seconds
+                || !(canary.analytics_min_coverage > 0.0 && canary.analytics_min_coverage <= 1.0)
         });
+        // A step counts its pinned reads by the version each answer names.
+        if lane.canary.is_some() && gateway.version_header.as_deref().is_none_or(str::is_empty) {
+            return Err(format!(
+                "{} has a canary and names no version_header its answers carry",
+                gateway.worker_name
+            ));
+        }
         if !named
             || synthetic_starved
             || !seen.contains(lane.anchor_section.as_str())
