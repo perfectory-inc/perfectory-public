@@ -48,7 +48,7 @@ jobs:
           workspaces: |
             consoles/dawneer
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
       # flag policy. The sign-in suite brings its own fake issuer and Foundation.
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
@@ -83,7 +83,7 @@ jobs:
         with:
           workspaces: |
             consoles/dawneer
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh

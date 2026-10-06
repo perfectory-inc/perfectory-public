@@ -70,7 +70,7 @@ jobs:
             products/gongzzang
             tools/xtask
           shared-key: walking-skeleton
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
 
       - name: Install sqlx-cli + postgres client
         run: |

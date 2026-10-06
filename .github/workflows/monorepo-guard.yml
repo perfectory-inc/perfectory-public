@@ -33,7 +33,7 @@ jobs:
         with:
           workspaces: |
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       # `verify` runs the repository guard first and then the area's own
       # fmt/clippy/test, so this one command replaces the previous bare
       # `bash scripts/guard/monorepo-guard.sh` rather than running beside it —

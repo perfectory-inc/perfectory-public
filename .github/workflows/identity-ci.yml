@@ -52,7 +52,7 @@ jobs:
           workspaces: |
             platforms/identity-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the
       # one flag policy. Runs from the repo root (this workflow defaults to the area).
       - name: Verify (fmt, clippy, test)
@@ -103,7 +103,7 @@ jobs:
           workspaces: |
             platforms/identity-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       # `role_grant_postgres` creates and migrates its own throwaway database, but
       # `live_provisioning` connects to the one it is given and writes straight to
       # `identity.service_principal`. The lane runs both, so the shared database
@@ -234,7 +234,7 @@ jobs:
           workspaces: |
             platforms/identity-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       - name: Regenerate OpenAPI contract
         run: cargo run --locked --quiet -p identity-api --bin export-openapi -- /tmp/identity.v1.json
       - name: Verify deterministic contract
@@ -260,7 +260,7 @@ jobs:
         with:
           workspaces: |
             platforms/identity-platform
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'w1kch9812-cmd/ci-speed' }}
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh
