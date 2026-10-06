@@ -131,14 +131,15 @@ def plan_derivation(
     derivation_run_id: str,
     now: datetime,
     jibun: cg.JibunEvidence | cg.EditionEvidence | None = None,
-    official_links: Sequence[tuple[str, str]] | None = None,
+    official_links: Sequence[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
     """Everything one run decides, without touching the lakehouse.
 
     Returns the change rows not yet recorded, the crosswalk the change table will hold once they
     are appended (its view over the recorded rows and these), the steward list and the counts.
     Pure, so the planted-failure tests drive it directly. `official_links` are the
-    필지고유번호변동연혁 (old PNU, new PNU) rows of the pairing window; None leaves that step off.
+    필지고유번호변동연혁 (old PNU, new PNU, 토지이동일자 YYYYMMDD) rows of the pairing window; None
+    leaves that step off.
     """
 
     pairing = contract["pairing"]
@@ -179,6 +180,12 @@ def plan_derivation(
                 for status in sorted({item.get("status", "steward") for item in review})
             },
             **awaiting_counts(review),
+            # Parcels the official rows move without deciding a 동's pair (boundary adjustments), by old
+            # code: parcel-lineage evidence, never a pair (root ADR-0156).
+            "official_partial_moves": result.official_partial_moves,
+            # Decisive official evidence dated outside a code's change window that names another code:
+            # not this change's evidence, so no conflict, but each is on the review list for a person.
+            "official_off_window_decisive": result.official_off_window_decisive,
         },
     }
 
@@ -411,21 +418,22 @@ def drop_non_polygons(parcels: Sequence[tuple[str, str, float | None]], edition:
     return kept
 
 
-def _read_link_file(path: str) -> list[tuple[str, str]]:
-    """`--official-links`: one `OLD_PNU NEW_PNU` pair per line."""
+def _read_link_file(path: str) -> list[tuple[str, str, str]]:
+    """`--official-links`: one `OLD_PNU NEW_PNU YYYYMMDD` link (the 토지이동일자) per line."""
 
     links = []
     for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
         parts = line.split()
-        if len(parts) != 2 or not all(len(part) == 19 and part.isdigit() for part in parts):
-            raise ValueError(f"{path}:{number}: expected 'OLD_PNU NEW_PNU', two 19-digit PNUs")
-        links.append((parts[0], parts[1]))
+        if (len(parts) != 3 or not all(len(part) == 19 and part.isdigit() for part in parts[:2])
+                or not re.fullmatch(r"\d{8}", parts[2])):
+            raise ValueError(f"{path}:{number}: expected 'OLD_PNU NEW_PNU YYYYMMDD', two 19-digit PNUs and the date")
+        links.append((parts[0], parts[1], parts[2]))
     return links
 
 
-def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str]]:
+def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str, str]]:
     """The window's links, by the loader's one rule (`pnch.official_links`); the filter here only
     keeps the rest of the country's history out of the driver."""
 
@@ -471,7 +479,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--official-history-table",
                         help="The 필지고유번호변동연혁 table (namespace.table) whose links dated in the pairing window "
                              "are the official step (root ADR-0150). Off without it.")
-    parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU' per line, the window's links.")
+    parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU YYYYMMDD' per line, the window's links.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")

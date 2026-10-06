@@ -67,10 +67,13 @@ lineage_stewardship (06:50, spark 3자리)
 | 3 | 지번 겹침 (`derived:parcel-jibun:<판 쌍>`) | 폐지를 감싸는 두 판에서, 같은 시도·변경일에 새로 생겨 필지를 가진 동 중 옛 동의 같은 땅(지목·면적 일치)을 가장 많이 가진 하나가 계약의 `jibun_overlap_min_share` 이상(ADR-0113 §5, ADR-0148) |
 | 4 | 상위 단위 묶기 (`derived:children`) | 2·3 으로 짝지어진 동들의 지번이 하한 이상 한 시군구(시도)로 갔다 |
 
-2 와 3 이 같은 동을 서로 다른 새 코드로 정하면, 또는 지번 짝(이미 기록된 것 포함)이나 날짜·이름 짝이 공식 행이 옮기는
-코드(하나·분할·사슬) 어느 것도 아니면
-(루트 [ADR-0150](../../../../docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md)) 짝 맞추기는 `PairingConflict` 로 멈춘다: 두 답을 다 적고
-아무것도 쓰지 않는다(4 절). 어느 쪽도 조용히 이기지 않는다. 공식 필지 행이 옛 동을 여러 새 동으로 나누면 짝이 아니라 `split` 이다.
+2 와 3 이 같은 동을 서로 다른 새 코드로 정하면, 또는 지번 짝(이미 기록된 것 포함)이나 날짜·이름 짝이 같은 변경의
+결정적인 공식 근거가 옮기는 코드(하나·분할·사슬) 어느 것도 아니면
+(루트 [ADR-0150](../../../../docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md),
+[ADR-0156](../../../../docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md)) 짝 맞추기는 `PairingConflict` 로 멈춘다: 두 답을 다 적고
+아무것도 쓰지 않는다(4 절). 결정적인 근거는 동 단위 행, 또는 앞 판 필지의 `jibun_overlap_min_share` 이상을 한 코드로 옮기는
+필지 행이다. 같은 변경은 토지이동일자가 code.go.kr 폐지일이나 그 다음 날인 행이다. 그보다 적은 필지 행(경계 조정)이나 다른
+날의 행은 짝을 반박하지 않고, 요약의 `official_partial_moves`(옛 코드별 필지 수)에 보인다. 다른 날의 결정적 근거가 짝과 다른 코드를 가리키면 실행은 계속되지만 요약의 `official_off_window_decisive` 와 스튜어드 목록(`status` = `official_disagrees_off_window`, 승인 대상 아님)에 남는다. 사람이 두 원천을 확인한다(4 절). 어느 쪽도 조용히 이기지 않는다. 공식 필지 행이 옛 동을 여러 새 동으로 나누면 짝이 아니라 `split` 이다.
 
 1–4 는 아무것도 바뀌지 않을 때까지 되풀이한다. 남은 코드는 목록에 상태(판단 대기·분할·스튜어드)와 함께
 남는다(5 절). 폴리곤은 어느 단계의 근거도 아니다(ADR-0113 §4).
@@ -226,7 +229,7 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |
 | 계보 단위 0a | `read back a crosswalk other than the one this run planned` | 쓰고 다시 읽은 변경표의 view 가 계획과 다르다(그 사이 다른 쓰기) | 투영은 바뀌지 않았다. 다른 쓰기를 찾고 단위를 다시 돌린다 |
-| 계보 단위 0a | `PairingConflict` (`the official parcel-number history (…) says …, the 지번 step … says …` 또는 `… the pair from derived:… says …`) | 공식 이력과 지번 겹침(또는 이미 기록된 파생 짝)이 같은 동을 서로 다른 새 코드로 정했다 | 아무것도 쓰지 않았다. 두 원천을 확인한다: 판이 잘못 적재됐으면 판을 바로잡고, 공식 이력이 틀렸으면 스튜어드 짝으로 기록한다(5 절) |
+| 계보 단위 0a | `PairingConflict` (`the official parcel-number history (…) says …, the 지번 step … says …` 또는 `… (dong_level 또는 parcel_level, dated …) moves it into …, the pair from derived:… says …`) | 공식 이력과 지번 겹침(또는 이미 기록된 파생 짝)이 같은 동을 서로 다른 새 코드로 정했다. 파생 짝은 같은 변경 기간의 결정적 공식 근거와만 비교한다(ADR-0156) | 아무것도 쓰지 않았다. 두 원천을 확인한다: 판이 잘못 적재됐으면 판을 바로잡고, 공식 이력이 틀렸으면 스튜어드 짝으로 기록한다(5 절) |
 | 30527 수집 | `the header is not …`, `fields, the header`, `PNU parts are not` | 제공자 파일 형식이 바뀌었다 | 아무것도 넘기지 않았고 상태도 그대로다. 원본은 Bronze 에 있다. 계약의 `header`·`pnu_parts` 를 맞추는 PR 을 낸다 |
 | 30527 수집 | `rows have no date, above the contract's share` | 날짜를 읽을 수 없는 행이 계약의 한계를 넘었다(열이 밀렸다) | 위와 같다 |
 | 30527 수집 | `shrunk from` | 같은 파일이 직전 판보다 계약의 한계 넘게 줄었다 | 깨진 파일이다. 다음 날 다시 받는다. 계속되면 제공자 화면을 확인한다 |

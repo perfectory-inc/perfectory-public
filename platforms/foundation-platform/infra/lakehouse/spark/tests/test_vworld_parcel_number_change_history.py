@@ -86,15 +86,15 @@ class ParserTest(unittest.TestCase):
         self.assertEqual([(r["old_pnu"], r["new_pnu"], r["duplicate_count"], r["source_line_number"]) for r in rows],
                          [(a, b, 3, 2), (b, c, 1, 5)])
         # The chain A -> B -> C on two dates is two links, each in its own window.
-        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(a, b), (b, c)])
-        self.assertEqual(job.official_links(rows, date(2099, 6, 1)), [(b, c)])
+        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(a, b, "20990101"), (b, c, "20990701")])
+        self.assertEqual(job.official_links(rows, date(2099, 6, 1)), [(b, c, "20990701")])
 
     def test_a_date_after_the_collection_is_quarantined(self):
         body = text(line(dong("9999910100"), dong("9999810100"), ymd="20990916"),
                     line(dong("9999910200"), dong("9999810200"), ymd="20990917"))
         rows = job.parse_rows(body, CONTRACT, date(2099, 9, 15))
         self.assertEqual([r["quarantine_reason"] for r in rows], [None, "implausible_land_mov_ymd"])
-        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(dong("9999910100"), dong("9999810100"))])
+        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(dong("9999910100"), dong("9999810100"), "20990916")])
 
     def test_a_row_without_a_date_is_kept_and_quarantined(self):
         last = job.parse_rows(SAMPLE, CONTRACT)[-1]
@@ -117,7 +117,7 @@ class ParserTest(unittest.TestCase):
                                    "99999|10100|1|999|999|99998|10100|1|0999|0999|52|20990701|99999"), CONTRACT)
         self.assertEqual([r["quarantine_reason"] for r in rows], [None, "malformed_pnu"])
         self.assertFalse(rows[1]["is_dong_level"])
-        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(dong("9999910100"), dong("9999810100"))])
+        self.assertEqual(job.official_links(rows, date(2099, 1, 1)), [(dong("9999910100"), dong("9999810100"), "20990701")])
 
     def test_a_moved_header_short_row_or_letters_in_every_pnu_are_refused_whole(self):
         moved = HEADER.replace("OLD_BOBN|OLD_BUBN", "OLD_BUBN|OLD_BOBN")
@@ -145,9 +145,9 @@ class ParserTest(unittest.TestCase):
     def test_the_pairing_reads_dated_unquarantined_links_in_its_window_once(self):
         rows = job.parse_rows(SAMPLE, CONTRACT)
         links = job.official_links([*rows, *rows], date(2099, 1, 1))  # an old-name file repeats the rows
-        self.assertIn((dong("9999910100"), dong("9999810100")), links)
-        self.assertNotIn((parcel("9999010200", 1), parcel("9999110200", 1)), links, "1989 is outside the window")
-        self.assertNotIn((parcel("9999910400", 2000), parcel("9999910500", 2000)), links, "a quarantined row is no evidence")
+        self.assertIn((dong("9999910100"), dong("9999810100"), "20990701"), links)
+        self.assertNotIn((parcel("9999010200", 1), parcel("9999110200", 1), "19890501"), links, "1989 is outside the window")
+        self.assertNotIn((parcel("9999910400", 2000), parcel("9999910500", 2000)), [link[:2] for link in links], "a quarantined row is no evidence")
         self.assertEqual(len(links), len(set(links)))
 
 

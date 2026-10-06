@@ -184,6 +184,12 @@ def dong_row(code):
     return f"{code}000000000"
 
 
+def dated(links, day=DAY):
+    """Official links (old PNU, new PNU) as the pairing reads them: with their 토지이동일자."""
+
+    return [(old, new, day) for old, new in links]
+
+
 def renamed_table():
     """시도 98 merges into 99 on DAY, and the 동 갑동 is renamed 새갑동 at the same time."""
 
@@ -456,7 +462,7 @@ class OfficialParcelHistoryTest(unittest.TestCase):
     def test_official_links_into_one_new_dong_settle_it(self):
         # 심은 재지번: 새갑동의 지번은 옛 갑동과 하나도 겹치지 않는다. 공식 이력만이 잇는다.
         jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(901, 902)}, "b->a")
-        links = [(pnu("9811010100", 1), pnu("9911010100", 901)), (pnu("9811010100", 2), pnu("9911010100", 902))]
+        links = dated([(pnu("9811010100", 1), pnu("9911010100", 901)), (pnu("9811010100", 2), pnu("9911010100", 902))])
         without = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, min_share=MIN_SHARE)
         self.assertEqual([i["old_code"] for i in without.review], ["9811010100"])
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
@@ -470,12 +476,12 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         table = as_rows(table_html(rows))
         jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(1, 2)}, "b->a")
         # The official parcel rows decide only when they link (the contract's share of) the old 동's parcels.
-        agree = [(pnu("9811010100", 1), pnu("9911010100", 1)), (pnu("9811010100", 2), pnu("9911010100", 2))]
+        agree = dated([(pnu("9811010100", 1), pnu("9911010100", 1)), (pnu("9811010100", 2), pnu("9911010100", 2))])
         pair = {p["old_code"]: p for p in cg.pair_changes(table, FLOOR, jibun=jibun, official_links=agree,
                                                          min_share=MIN_SHARE).pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
         # 심은 불일치: 공식 이력은 다른동, 지번은 새갑동. 둘 중 하나를 고르지 않고 멈춘다(아무것도 쓰지 않는다).
-        disagree = [(pnu("9811010100", 1), pnu("9911010300", 9))]
+        disagree = dated([(pnu("9811010100", 1), pnu("9911010300", 9)), (pnu("9811010100", 2), pnu("9911010300", 10))])
         with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*9911010100"):
             cg.pair_changes(table, FLOOR, jibun=jibun, official_links=disagree, min_share=MIN_SHARE)
         with self.assertRaises(cg.PairingConflict):
@@ -485,14 +491,14 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         rows = merged_table()
         rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
         rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
-        links = [(pnu("9811010100", 1), pnu("9911010100", 901)), (pnu("9811010100", 2), pnu("9911010300", 902))]
+        links = dated([(pnu("9811010100", 1), pnu("9911010100", 901)), (pnu("9811010100", 2), pnu("9911010300", 902))])
         result = cg.pair_changes(as_rows(table_html(rows)), FLOOR, official_links=links, min_share=MIN_SHARE)
         self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
         # Not one pair: the official rows split it, and the review says where they went.
         [item] = [i for i in result.review if i["old_code"] == "9811010100"]
         self.assertEqual((item["status"], item["split_into"]), ("split", {"9911010100": 1, "9911010300": 1}))
         # The same when the provider's 동-level rows name two new 동 (measured: one 화성 동 in 2026-02).
-        dong_links = [(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))]
+        dong_links = dated([(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))])
         result = cg.pair_changes(as_rows(table_html(rows)), FLOOR, official_links=dong_links, min_share=MIN_SHARE)
         [item] = [i for i in result.review if i["old_code"] == "9811010100"]
         self.assertEqual((item["status"], sorted(item["split_into"])), ("split", ["9911010100", "9911010300"]))
@@ -506,11 +512,11 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         table = as_rows(table_html(rows))
         recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010100", "run0", NOW,
                                          level="eupmyeondong", rule_verdict="jibun")]
-        disagree = [(dong_row("9811010100"), dong_row("9911010300"))]
+        disagree = dated([(dong_row("9811010100"), dong_row("9911010300"))])
         with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*derived:parcel-jibun.*9911010100"):
             pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
         # Agreeing official evidence, or none, leaves the recorded pair standing.
-        agree = [(dong_row("9811010100"), dong_row("9911010100"))]
+        agree = dated([(dong_row("9811010100"), dong_row("9911010100"))])
         pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, agree)
         pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW)
         # A steward's pair is a person's decision with its reason, not re-judged here.
@@ -527,13 +533,13 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         table = as_rows(table_html(rows))
         recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010400", "run0", NOW,
                                          level="eupmyeondong", rule_verdict="jibun")]
-        split = [(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))]
+        split = dated([(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))])
         with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010100, 9911010300.*9911010400"):
             pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, split)
         # A chain: the official target was abolished again, so it settles nothing, yet the derived pair
         # names another code.
         rows.append(row("9911010500", "합성특별시 가구 옛동", "폐지", "9911000000", created=DAY, abolished="20990801"))
-        chain = [(dong_row("9811010100"), dong_row("9911010500"))]
+        chain = dated([(dong_row("9811010100"), dong_row("9911010500"))])
         with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010500"):
             pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run1", NOW, None, chain)
         # Naming one of the split's codes is not a contradiction.
@@ -544,13 +550,13 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         # Review of #341: one boundary-adjustment row (1 of the 동's 40 parcels) must not decide where the
         # 동 went. It waits, and says why.
         jibun = cg.JibunEvidence({"9811010100": lots(*range(1, 41))}, {"9911010100": lots(901)}, "b->a")
-        stray = [(pnu("9811010100", 7), pnu("9911010100", 901))]
+        stray = dated([(pnu("9811010100", 7), pnu("9911010100", 901))])
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=stray, min_share=MIN_SHARE)
         self.assertNotIn("9811010100", {p["old_code"] for p in result.pairs})
         [item] = [i for i in result.review if i["old_code"] == "9811010100"]
         self.assertEqual((item["status"], item["waiting_for"]), ("awaiting_data", "official partial: 1 of 40 parcels linked"))
         # Linking the contract's share of them decides it.
-        enough = [(pnu("9811010100", n), pnu("9911010100", 900 + n)) for n in range(1, 41)]
+        enough = dated([(pnu("9811010100", n), pnu("9911010100", 900 + n)) for n in range(1, 41)])
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=enough, min_share=MIN_SHARE)
         pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["detail"]), ("9911010100", "parcel_level"))
@@ -561,11 +567,70 @@ class OfficialParcelHistoryTest(unittest.TestCase):
 
     def test_a_date_and_name_pair_the_official_history_contradicts_stops_the_run(self):
         # 갑동 → 합성특별시 가구 갑동 by the name rule; 심은 공식 이력은 을동으로 옮겼다고 한다.
-        disagree = [(dong_row("9811010100"), dong_row("9911010200"))]
+        disagree = dated([(dong_row("9811010100"), dong_row("9911010200"))])
         with self.assertRaisesRegex(cg.PairingConflict, "date\\+name"):
             cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=disagree, min_share=MIN_SHARE)
-        agree = [(dong_row("9811010100"), dong_row("9911010100"))]
+        agree = dated([(dong_row("9811010100"), dong_row("9911010100"))])
         cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=agree, min_share=MIN_SHARE)
+
+    # --- only decisive evidence of the same change contradicts a pair (root ADR-0156) -------------
+
+    EARLIER = "20990415"
+    HELD = cg.JibunEvidence({"9811010100": lots(*range(1, 201))}, {"9911010100": lots(*range(14, 201))}, "b->a")
+
+    def merger_with(self, links):
+        return pairs_job.plan_derivation(as_rows(table_html(merged_table())), [], CONTRACT, CADASTRAL, "run", NOW,
+                                         self.HELD, links)
+
+    def test_a_boundary_adjustment_months_before_a_merger_does_not_contradict_it(self):
+        # The production shape of 2026-10-06: 13 of 갑동's 200 parcels moved into 을동 months before the
+        # merger renamed the whole 동. The adjustment is the parcels' lineage, not the 동's pair.
+        adjustment = dated([(pnu("9811010100", n), pnu("9811010200", 900 + n)) for n in range(1, 14)], self.EARLIER)
+        plan = self.merger_with(adjustment)
+        pairs = {row["old_code"]: (row["new_code"], row["source"]) for row in plan["fresh_changes"]}
+        self.assertEqual(pairs["9811010100"], ("9911010100", f"derived:code-go-kr:date+name:{DAY}"))
+        self.assertEqual(plan["counts"]["official_partial_moves"], {"9811010100": 13})
+        self.assertEqual(plan["counts"]["official_off_window_decisive"], {})
+
+    def test_decisive_evidence_on_another_day_is_put_before_a_person_not_ignored(self):
+        # Review of #348: a whole-동 row on another day is another change, so it does not stop the run;
+        # but if the provider dated the same reorganization more than a day off, the pair written may be
+        # wrong. It is reported and listed, and no rule or approval clears it.
+        plan = self.merger_with(dated([(dong_row("9811010100"), dong_row("9911010200"))], self.EARLIER))
+        self.assertIn(("9811010100", "9911010100"), {(r["old_code"], r["new_code"]) for r in plan["fresh_changes"]})
+        self.assertEqual(plan["counts"]["official_off_window_decisive"],
+                         {"9811010100": [{"new": "9911010200", "changed_on": self.EARLIER, "kind": "dong_level", "share": None}]})
+        [item] = [i for i in plan["review"] if i["old_code"] == "9811010100"]
+        self.assertEqual((item["kind"], item["status"], item["paired_with"]),
+                         ("official_off_window", "official_disagrees_off_window", ["9911010100"]))
+        self.assertEqual(plan["counts"]["review_by_status"].get("official_disagrees_off_window"), 1)
+        with self.assertRaisesRegex(ValueError, "not on the steward list"):
+            pairs_job.steward_rows(plan["review"], ["9811010100=9911010200"], "steward-a", "checked", None, "run", NOW)
+        # Parcel rows moving the contract's share elsewhere on another day, with their share.
+        parcels = dated([(pnu("9811010100", n), pnu("9911010200", n)) for n in range(1, 201)], "20991001")
+        found = self.merger_with(parcels)["counts"]["official_off_window_decisive"]["9811010100"]
+        self.assertEqual(found, [{"new": "9911010200", "changed_on": "20991001", "kind": "parcel_level", "share": 1.0}])
+        # Off-window evidence naming the pair's own code says nothing new.
+        agree = dated([(dong_row("9811010100"), dong_row("9911010100"))], self.EARLIER)
+        self.assertEqual(self.merger_with(agree)["counts"]["official_off_window_decisive"], {})
+
+    def test_a_partial_move_on_the_day_of_the_change_does_not_contradict_it(self):
+        partial = dated([(pnu("9811010100", n), pnu("9911010200", 900 + n)) for n in range(1, 14)])
+        plan = self.merger_with(partial)
+        self.assertIn(("9811010100", "9911010100"), {(r["old_code"], r["new_code"]) for r in plan["fresh_changes"]})
+        self.assertEqual(plan["counts"]["official_partial_moves"], {"9811010100": 13})
+
+    def test_a_decisive_move_on_the_day_of_the_change_elsewhere_still_stops_the_run(self):
+        adjustment = dated([(pnu("9811010100", n), pnu("9811010200", 900 + n)) for n in range(1, 14)], self.EARLIER)
+        whole = dated([(dong_row("9811010100"), dong_row("9911010200"))])
+        with self.assertRaisesRegex(cg.PairingConflict, "9811010100: .*dong_level.*9911010200.*date\\+name.*9911010100"):
+            self.merger_with(adjustment + whole)
+        # The day after the 폐지일 is the same change (폐지일 = 생성일 − 1).
+        with self.assertRaisesRegex(cg.PairingConflict, "dong_level"):
+            self.merger_with(dated([(dong_row("9811010100"), dong_row("9911010200"))], cg._next_day(DAY)))
+        parcels = dated([(pnu("9811010100", n), pnu("9911010200", n)) for n in range(1, 201)])
+        with self.assertRaisesRegex(cg.PairingConflict, "9811010100: .*parcel_level.*9911010200.*9911010100"):
+            self.merger_with(adjustment + parcels)
 
     def test_a_boundary_that_is_not_a_polygon_is_skipped_and_counted_up_to_the_contract_bound(self):
         # Review of #339: one point geometry failed the whole run.
@@ -586,7 +651,7 @@ class OfficialParcelHistoryTest(unittest.TestCase):
 
     def test_one_dong_level_row_settles_a_renumbered_dong(self):
         # The provider writes a renumbered 동 as one row (대장구분 0, 본번·부번 0000), not one per parcel.
-        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        links = dated([(dong_row("9811010100"), dong_row("9911010100"))])
         self.assertTrue(cg.is_dong_level_link(links[0][0]))
         self.assertFalse(cg.is_dong_level_link(pnu("9811010100", 1)))
         result = cg.pair_changes(renamed_table(), FLOOR, official_links=links, min_share=MIN_SHARE)
@@ -599,14 +664,14 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         # The 지번 sets split 갑동 below the contract's line (not a pair on their own); the official row
         # decides it first, and the 지번 step never sees it.
         jibun = cg.JibunEvidence({"9811010100": lots(*range(1, 21))}, {"9911010100": lots(*range(1, 19))}, "b->a")
-        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        links = dated([(dong_row("9811010100"), dong_row("9911010100"))])
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
         pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
         self.assertEqual(pair["rule_verdict"], "official_parcel_history")
 
     def test_official_and_jibun_agreeing_is_one_official_pair(self):
         jibun = cg.JibunEvidence({"9811010100": lots(1, 2)}, {"9911010100": lots(1, 2)}, "b->a")
-        links = [(dong_row("9811010100"), dong_row("9911010100"))]
+        links = dated([(dong_row("9811010100"), dong_row("9911010100"))])
         result = cg.pair_changes(renamed_table(), FLOOR, jibun=jibun, official_links=links, min_share=MIN_SHARE)
         self.assertEqual([p["rule_verdict"] for p in result.pairs if p["old_code"] == "9811010100"],
                          ["official_parcel_history"])
@@ -616,7 +681,7 @@ class OfficialParcelHistoryTest(unittest.TestCase):
             root = Path(tmp)
             (root / "table.html").write_text(table_html([*merged_table()[:5], row(
                 "9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY), *merged_table()[6:]]), encoding="utf-8")
-            (root / "links.txt").write_text(f"{dong_row('9811010100')} {dong_row('9911010100')}\n", encoding="utf-8")
+            (root / "links.txt").write_text(f"{dong_row('9811010100')} {dong_row('9911010100')} {DAY}\n", encoding="utf-8")
             base = ["--snapshot-date", "2099-07-02", "--table-source-record-id", "k", "--validate-only",
                     "--table-html", str(root / "table.html"), "--summary-output", str(root / "summary.json")]
             pairs_job.main(base)
@@ -625,8 +690,12 @@ class OfficialParcelHistoryTest(unittest.TestCase):
             on = json.loads((root / "summary.json").read_text(encoding="utf-8"))
             self.assertEqual(on["pairs_by_evidence"].get("official_parcel_history"), 1)
             self.assertEqual(on["review_items"], off["review_items"] - 1)
-            (root / "links.txt").write_text(f"{dong_row('9811010100')[:14]} {dong_row('9911010100')}\n", encoding="utf-8")
+            (root / "links.txt").write_text(f"{dong_row('9811010100')[:14]} {dong_row('9911010100')} {DAY}\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "19-digit"):
+                pairs_job.main(base + ["--official-links", str(root / "links.txt")])
+            # An undated link cannot say which change it belongs to.
+            (root / "links.txt").write_text(f"{dong_row('9811010100')} {dong_row('9911010100')}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "YYYYMMDD"):
                 pairs_job.main(base + ["--official-links", str(root / "links.txt")])
 
 # --- the handoff ------------------------------------------------------------------------------

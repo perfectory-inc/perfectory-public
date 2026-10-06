@@ -383,6 +383,11 @@ class EditionEvidence:
 class PairingResult:
     pairs: list[dict[str, str]] = field(default_factory=list)
     review: list[dict[str, Any]] = field(default_factory=list)
+    # {old code: how many of its parcels the official parcel rows move without deciding where the 동 went}
+    official_partial_moves: dict[str, int] = field(default_factory=dict)
+    # {old code: [{new, changed_on, kind, share}]}: decisive official evidence dated outside its change
+    # window naming a code its pair does not (`off_window_moves`); each is also on the review list
+    official_off_window_decisive: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 def pair_changes(
@@ -390,7 +395,7 @@ def pair_changes(
     floor_date: str,
     decided: Sequence[Mapping[str, str]] = (),
     jibun: JibunEvidence | EditionEvidence | None = None,
-    official_links: Iterable[tuple[str, str]] | None = None,
+    official_links: Iterable[tuple[str, str, str]] | None = None,
     min_share: float = pl.SPLIT_SIGNAL_OVERLAP,
     land_tolerance: tuple[float, float] | None = None,
 ) -> PairingResult:
@@ -407,15 +412,20 @@ def pair_changes(
        the same. Exactly one such code is a pair. It runs top-down, so a 시군구 paired here relates
        the 읍면동 under it.
     2. **Official parcel-number history** (`official:parcel-history`, root ADR-0150): the
-       필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU)). A 동-level row
-       (`is_dong_level_link`) naming exactly one current code settles it (`detail` `dong_level`);
-       otherwise the parcel rows do, when they carry every linked parcel of the old code into one
-       new code (`parcel_level`), and a code they carry into several is a split. This is how a code
-       whose 지번 were renumbered is settled. Off when `official_links` is None. It decides before the
-       지번 step; where both settle a code they must agree, and a disagreement raises
+       필지고유번호변동연혁 links (`official_links`, (old PNU, new PNU, 토지이동일자 YYYYMMDD)). A
+       동-level row (`is_dong_level_link`) naming exactly one current code settles it (`detail`
+       `dong_level`); otherwise the parcel rows do, when they carry every linked parcel of the old
+       code into one new code (`parcel_level`), and a code they carry into several is a split. This is
+       how a code whose 지번 were renumbered is settled. Off when `official_links` is None. It decides
+       before the 지번 step; where both settle a code they must agree, and a disagreement raises
        `PairingConflict` naming both answers. A pair the change table already records, or the date +
-       name rule settles, from a derived source is held against it too: official evidence that
-       arrives after a derived pair was recorded and says otherwise stops the run.
+       name rule or the 지번 step settles, from a derived source is held against it too
+       (`hold_against_official`), but only against decisive official evidence of the same event:
+       동-level rows, or parcel rows moving at least `min_share` of the old code's parcels into one
+       code, dated in the old code's change window (its 폐지일 or the day after). Parcel rows moving
+       fewer (a boundary adjustment of a few parcels, often months earlier, while the 동 lives on)
+       are evidence for those parcels' lineage, never for the 동's pair; they are counted in
+       `official_partial_moves` (root ADR-0156).
     3. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 and 2 cannot settle (a
        renamed, split or merged 동): of the codes at its level that newly hold parcels in the later
        snapshot, lie in its 시도 or one a 시도 pair carries it onto, and were created in its change
@@ -454,10 +464,14 @@ def pair_changes(
     links_by_old: dict[str, dict[str, int]] = {}
     linked_lots: dict[str, set[str]] = {}
     dong_links_by_old: dict[str, set[str]] = {}
-    for old_pnu, new_pnu in official_links or ():
+    # {old code: [(old lot, or "" for a 동-level row; new code; 토지이동일자)]}, for the same-event test
+    dated_by_old: dict[str, list[tuple[str, str, str]]] = {}
+    for old_pnu, new_pnu, changed_on in official_links or ():
         if old_pnu[:10] == new_pnu[:10]:
             continue
-        if is_dong_level_link(old_pnu) and is_dong_level_link(new_pnu):
+        whole = is_dong_level_link(old_pnu) and is_dong_level_link(new_pnu)
+        dated_by_old.setdefault(old_pnu[:10], []).append(("" if whole else old_pnu[10:], new_pnu[:10], changed_on))
+        if whole:
             dong_links_by_old.setdefault(old_pnu[:10], set()).add(new_pnu[:10])
         else:
             news = links_by_old.setdefault(old_pnu[:10], {})
@@ -538,17 +552,24 @@ def pair_changes(
                 todo.extend(new[:2] for new in successors.get(sido + "00000000", ()))
         return scope
 
+    def change_window(old: str) -> set[str]:
+        """The days `old`'s own change is dated on: its 폐지일 and the day after (폐지일 = 생성일 − 1
+        is the same change, as the name rule reads it), or none when the table gives no 폐지일."""
+
+        row = by_code.get(old)
+        day = row.get("abolished_date", "") if row else ""
+        return {day, _next_day(day)} if day else set()
+
     def jibun_candidates(old: str, ev: JibunEvidence) -> list[str]:
         """The codes the 지번 step may weigh for `old`: at its level, newly holding parcels, in its
         own or its successor 시도, and created in its change window (its 폐지일 or the day after,
         as the name rule reads it). Without the last two, any code created since the floor whose lot
         range covers `old`'s, a 리 across the country with 본번 1–2000, outscores its real successor."""
 
-        row = by_code.get(old)
-        day = row.get("abolished_date", "") if row else ""
-        if not day:
+        window = change_window(old)
+        if not window:
             return []
-        window, scope, level = {day, _next_day(day)}, sido_scope(old), code_level(old)
+        scope, level = sido_scope(old), code_level(old)
         return sorted(
             new for new in newly_held(ev)
             if code_level(new) == level and new[:2] in scope and by_code[new].get("created_date", "") in window
@@ -574,12 +595,6 @@ def pair_changes(
         unique = len(scored) == 1 or scored[0][0] > scored[1][0]
         return scored[0][1], scored[0][0] / len(before), unique
 
-    def official_targets(old: str) -> set[str]:
-        """Every code the official rows move `old` (or any of its parcels) into, settled or not: one
-        code, several (a split), or one abolished again (a chain)."""
-
-        return dong_links_by_old.get(old, set()) | set(links_by_old.get(old, {}))
-
     def parcel_coverage(old: str) -> tuple[int, int] | None:
         """(how many of `old`'s parcels in the earlier edition the official parcel rows link, how many
         it held), or None when no edition says what it held."""
@@ -604,20 +619,76 @@ def pair_changes(
             return next(iter(news)), "parcel_level"
         return "", ""
 
+    def event_moves(old: str) -> tuple[set[str], str, set[str]]:
+        """(the codes decisive official evidence of `old`'s own change moves it into, which rows said
+        so, the parcel lots of that decisive move). Decisive: its 동-level rows (one code, a split's
+        several, or a chain's next hop), else parcel rows moving at least `min_share` of the parcels
+        it held in the earlier edition into one code. Only rows dated in its change window count: a
+        move on another day is another event (a boundary adjustment while the 동 lived on)."""
+
+        window = change_window(old)
+        targets, how, lots = decisive_moves(old, [(lot, new) for lot, new, day in dated_by_old.get(old, ()) if day in window])
+        return set(targets), how, lots
+
+    def decisive_moves(old: str, rows: Sequence[tuple[str, str]]) -> tuple[dict[str, float | None], str, set[str]]:
+        """Of official rows `rows` ((old lot, or "" for a 동-level row; new code)): ({each code they
+        decisively move `old` into: its share of the old parcels, None for a 동-level row}, which rows
+        said so, the parcel lots of that move). Its 동-level rows decide first; else parcel rows
+        moving at least `min_share` of the parcels it held in the earlier edition into one code."""
+
+        whole = {new for lot, new in rows if not lot}
+        if whole:
+            return {new: None for new in whole}, "dong_level", set()
+        ev, _ = evidence(old)
+        before = set(ev.before.get(old, {})) if ev is not None else set()
+        moved: dict[str, set[str]] = {}
+        for lot, new in rows:
+            if lot in before:
+                moved.setdefault(new, set()).add(lot)
+        decisive = {new: held for new, held in moved.items() if len(held) / len(before) >= min_share}
+        return ({new: len(held) / len(before) for new, held in decisive.items()}, "parcel_level",
+                set().union(*decisive.values()))
+
+    def off_window_moves(old: str) -> list[dict[str, Any]]:
+        """Decisive official evidence dated outside `old`'s change window that moves it somewhere its
+        pair does not name. Not this change's evidence, so it contradicts nothing (`event_moves`), but
+        if the provider dated the same reorganization more than a day off, the pair written may be
+        wrong: a person looks (root ADR-0156)."""
+
+        window, paired = change_window(old), successors.get(old, set())
+        by_day: dict[str, list[tuple[str, str]]] = {}
+        for lot, new, day in dated_by_old.get(old, ()):
+            if day not in window:
+                by_day.setdefault(day, []).append((lot, new))
+        found = []
+        for day in sorted(by_day):
+            targets, how, _ = decisive_moves(old, by_day[day])
+            found.extend(
+                {"new": new, "changed_on": day, "kind": how, "share": None if share is None else round(share, 4)}
+                for new, share in sorted(targets.items()) if new not in paired
+            )
+        return found
+
     def hold_against_official(old: str, new: str, source: str) -> None:
-        """A derived pair (recorded, the date + name rule's, or the 지번 step's) must name a code the
-        official history moves `old` into, whenever it names any: a single answer, one of a split, or
-        the next hop of a chain."""
+        """A derived pair (recorded, the date + name rule's, or the 지번 step's) must name a code that
+        decisive official evidence of the same change (`event_moves`) moves `old` into, whenever that
+        evidence names any: a single answer, one of a split, or the next hop of a chain."""
 
         if code_level(old) not in LEAF_LEVELS or not source.startswith(DERIVED_SOURCES):
             return
-        targets = official_targets(old)
+        targets, how, _ = event_moves(old)
         if targets and new not in targets:
-            official, how = official_answer(old)
-            said = f"({how}) says {official}" if official else f"moves it into {', '.join(sorted(targets))}"
             raise PairingConflict(
-                f"{old}: the official parcel-number history {said}, the pair from {source} says "
-                f"{new}; nothing is written until the evidence is reconciled")
+                f"{old}: the official parcel-number history ({how}, dated {'/'.join(sorted(change_window(old)))}) "
+                f"moves it into {', '.join(sorted(targets))}, the pair from {source} says {new}; nothing is "
+                "written until the evidence is reconciled")
+
+    def partial_moves(old: str) -> int:
+        """How many of `old`'s parcels the official parcel rows move outside a decisive move of its own
+        change: evidence for those parcels' lineage, not for the 동's pair."""
+
+        _, _, decided = event_moves(old)
+        return len(linked_lots.get(old, set()) - decided)
 
     def jibun_answer(old: str) -> tuple[str, float]:
         """The code the 지번 step settles `old` on and its share, or ("", 0.0). Called after the
@@ -731,6 +802,27 @@ def pair_changes(
                 # The evidence an awaiting_data item waits for, one name per kind (which edition,
                 # or the official record), for the daily counts.
                 "waiting_for": missing,
+                "as_of": row.get("abolished_date", "") if row else "",
+                "name": row.get("full_name", "") if row else "",
+            }
+        )
+    result.official_partial_moves = {old: n for old in sorted(olds, key=order) if (n := partial_moves(old))}
+    for old in sorted(olds, key=order):
+        found = off_window_moves(old) if code_level(old) in LEAF_LEVELS else []
+        if not found:
+            continue
+        result.official_off_window_decisive[old] = found
+        row = by_code.get(old)
+        # Its own kind: the steward list approves only `pair` items, so no rule or approval clears it;
+        # a person reads the two sources (runbook `legal-dong-code-changes.md` 4 절).
+        result.review.append(
+            {
+                "kind": "official_off_window",
+                "old_code": old,
+                "level": code_level(old),
+                "status": "official_disagrees_off_window",
+                "paired_with": sorted(successors.get(old, set())),
+                "official": found,
                 "as_of": row.get("abolished_date", "") if row else "",
                 "name": row.get("full_name", "") if row else "",
             }
