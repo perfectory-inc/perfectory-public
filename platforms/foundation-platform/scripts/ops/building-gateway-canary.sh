@@ -149,7 +149,7 @@ deploy_failed() {
 
 # Moves traffic from <old> to <new> along the contract's steps, judging each.
 roll_out() {
-  local old="$1" new="$2" percent
+  local old="$1" new="$2" percent compared
   for percent in ${STEPS}; do
     if (( percent >= 100 )); then
       wrangler versions deploy "${new}@100%" --name "${WORKER}" --yes --message "canary 100%" \
@@ -161,7 +161,12 @@ roll_out() {
     fi
     log "holding ${HOLD}s at ${percent}%"
     [[ "${EXECUTE}" != yes ]] || sleep "${HOLD}"
-    if ! judge "${new}" "${old}"; then
+    # At 100% the old version is no longer deployed: it serves nothing, a pin to it is not
+    # honoured, and there is nothing to compare. The comparison was judged at every split step;
+    # the last step is judged on the absolute bounds alone.
+    compared="${old}"
+    (( percent < 100 )) || compared=""
+    if ! judge "${new}" "${compared}"; then
       roll_back "${old}" || deploy_failed "${old}" "the rollback after a breach at ${percent}%"
       refuse "the new version breached at ${percent}%; all traffic is back on ${old}" 1
     fi

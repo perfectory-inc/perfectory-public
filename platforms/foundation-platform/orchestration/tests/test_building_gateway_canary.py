@@ -97,7 +97,12 @@ class Canary(unittest.TestCase):
                 self.assertIn(f"{OLD}@{100 - percent}% {NEW}@{percent}%", deploy)
             else:
                 self.assertIn(f"{NEW}@100%", deploy)
-        self.assertEqual(calls.count(f"health {NEW} {OLD}"), len(steps))
+        # Every split step is judged against the old version; at 100% the old version is no
+        # longer deployed, so the last step is judged on the new version alone (2026-10-06: a
+        # comparison against an undeployed version failed a healthy rollout at 100%).
+        split = [percent for percent in steps if percent < 100]
+        self.assertEqual(calls.count(f"health {NEW} {OLD}"), len(split))
+        self.assertEqual(sum(call.strip() == f"health {NEW}" for call in calls), len(steps) - len(split))
 
     def test_a_breach_rolls_every_request_back_and_stops(self):
         result = self.run_script("--execute", "packs", OLD, FAIL_AT=str(CANARY["steps_percent"][1]))
