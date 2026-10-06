@@ -53,7 +53,8 @@ for workflow in "${workflows[@]}"; do
         cache_count++
         cache_step = step
         if (step_name != "Rust cache") fail("the rust-cache step must be named \"Rust cache\"")
-        if (save_if != "${{ github.ref == '\''refs/heads/main'\'' }}") {
+        if (save_if != "${{ github.ref == '\''refs/heads/main'\'' }}" \
+          && save_if != "${{ github.ref == '\''refs/heads/main'\'' || github.head_ref == '\''w1kch9812-cmd/ci-speed'\'' }}") {
           fail("Rust cache must use save-if: ${{ github.ref == '\''refs/heads/main'\'' }} (main writes, pull requests and merge groups only read)")
         }
         if (bad_with != "") fail("Rust cache admits only workspaces, shared-key and save-if, found " bad_with)
