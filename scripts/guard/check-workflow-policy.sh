@@ -255,6 +255,8 @@ for workflow in "${workflows[@]}"; do
   # The docs generated-artifact checks carry `!cancelled()` so one CI round
   # reports every stale document instead of stopping at the first; that
   # condition only widens execution and the job still fails on any of them.
+  # "Prepare npm advisory fix" runs only after the job has already failed and
+  # turns the OSV report into a patch artifact (root ADR-0158); it gates nothing.
   foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
   awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" '
     function flush_step() {
@@ -263,6 +265,7 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Clean Compose resources" && step_if == "always()") \
         || (step_name == "Clean Kafka compose resources" && step_if == "always()") \
         || (step_name == "Dump API log on failure" && step_if == "failure()") \
+        || (step_name == "Prepare npm advisory fix" && step_if == "failure()") \
         || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()") \
         || (step_name == "Check generated public-data catalog" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Check generated pipeline map and API example" && step_if == "${{ !cancelled() }}") \

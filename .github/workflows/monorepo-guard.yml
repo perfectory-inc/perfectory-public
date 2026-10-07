@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [main]
   merge_group:
+  # A new advisory reaches main without any commit. The daily run finds it before
+  # the next pull request does, and the failed run carries the prepared fix
+  # (root ADR-0158): bash tools/npm/open-advisory-fix-pr.sh <run-id>.
+  schedule:
+    - cron: "17 21 * * *"
 permissions:
   contents: read
 
@@ -19,7 +24,7 @@ jobs:
   guard:
     name: required/repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -44,7 +49,32 @@ jobs:
       # nowhere. This workflow is the right home: it has no `paths:` filter, so an
       # xtask change can never fail to retrigger it (xtask-path-coverage.sh treats
       # an unfiltered workflow as covered by construction).
+      # The guard chain renders and checks every tree's npm overrides
+      # (scripts/guard/npm-security-overrides.sh); it runs on the Node the trees pin.
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0 (SHA pin, ADR 0028)
+        with:
+          node-version: "24.20.0"
       - name: Repository guard and harness verification
         run: cargo xtask verify tooling
       - name: REUSE license compliance
         run: bash scripts/ci/reuse-lint.sh
+      # Every tracked Cargo.lock and pnpm-lock.yaml in the repository, so the
+      # ratchet belongs to the repository context rather than to one area's CI.
+      - name: Repository OSV vulnerability ratchet
+        run: bash scripts/ci/osv-vulnerability-gate.sh --report-path target/supply-chain/osv-report.json
+      # When the ratchet (or anything before it) fails, raise the npm floors the
+      # report asks for, regenerate every lock with the pinned toolchain and keep
+      # the result as a patch. Nothing is pushed: no workflow holds a write token
+      # (tools/github/workflow-permissions.json). The maintainer applies it with
+      # bash tools/npm/open-advisory-fix-pr.sh <run-id> (root ADR-0158).
+      - name: Prepare npm advisory fix
+        if: failure()
+        run: bash tools/npm/prepare-advisory-fix.sh target/supply-chain/osv-report.json target/supply-chain/npm-advisory-fix
+      - name: Upload supply-chain artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (SHA pin, ADR 0028)
+        with:
+          name: repository-supply-chain
+          path: target/supply-chain/
+          if-no-files-found: warn

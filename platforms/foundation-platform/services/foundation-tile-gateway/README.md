@@ -40,7 +40,7 @@ ADR-0111의 A1 범위이며, 전국 base release를 서빙한다. changed-tile p
 
 ## 로컬 검증
 
-Node·pnpm 버전과 overrides는 parcel gateway의 `package.json`과 동일하게 고정한다.
+Node·pnpm 버전은 parcel gateway의 `package.json`과 동일하게 고정한다. `pnpm.overrides`는 손으로 고치지 않는다 — `tools/npm/security-overrides.contract.json`에서 렌더된다(루트 ADR-0158).
 
 ```bash
 pnpm install --frozen-lockfile

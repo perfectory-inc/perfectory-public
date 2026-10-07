@@ -198,3 +198,5 @@ last_reviewed: 2026-07-28
 - [ADR-0156 — 파생 짝을 반박하는 것은 같은 변경의 결정적인 공식 근거뿐이다](./0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md)
 
 - [ADR-0157 — 카나리아 단계는 도달을 자기 답으로 세고, CPU 한도는 측정에서 정한다](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)
+
+- [ADR-0158 — npm 오버라이드는 정본 하나에서 생성하고, 새 권고는 준비된 변경으로 도착한다](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md)
