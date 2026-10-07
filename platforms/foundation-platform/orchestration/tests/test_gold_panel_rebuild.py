@@ -292,12 +292,13 @@ class GoldPanelRebuild(unittest.TestCase):
 
 
 class Registration(unittest.TestCase):
-    def test_the_job_is_off_alone_in_the_spark_pool_and_runs_before_the_bake(self):
+    def test_the_job_is_alone_in_the_spark_pool_and_runs_before_the_bake(self):
         listing = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
         jobs = {job["id"]: job for job in listing["jobs"]}
         job = jobs["gold_panel_rebuild"]
-        self.assertFalse(job["enabled"])
-        self.assertTrue(job["disabled_reason"].strip())
+        # Switched on after its supervised first run (2026-10-07, runbook gold-panel-rebuild.md 4).
+        self.assertTrue(job["enabled"])
+        self.assertNotIn("disabled_reason", job)
         self.assertEqual((job["pool"], job["pool_slots"], job["retries"]), ("spark", 3, 0))
         bake = jobs["by_pnu_serving_bake"]
         # Waiting together, Airflow starts the heavier: the Gold first, then the bake.

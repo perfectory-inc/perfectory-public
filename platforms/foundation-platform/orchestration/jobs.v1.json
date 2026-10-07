@@ -195,12 +195,11 @@
         "silver-land-right-registration-to-gold-parcel-panel",
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
-      "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host has rebuilt gold.building_panel (whose current snapshot predates unit_pnu, root ADR-0125) and the by-PNU bake has baked it; switching it on is a separate deploy step (runbook docs/runbooks/gold-panel-rebuild.md, 'Turning it on')."
+      "enabled": true
     },
     {
       "id": "by_pnu_serving_bake",
-      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once the building manifest carries a section_packs block (root ADR-0147), the building lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section.",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once the building manifest carries a section_packs block (root ADR-0147), the building lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Until the parcel lane serves section packs (root ADR-0147 §8) the unit bakes the building lane alone: reflecting a new parcel Gold snapshot in the object lane could rewrite up to 39.86M objects that the pack cut-over replaces.",
       "capabilities": [
         "building_section_pack_patches"
       ],
@@ -218,8 +217,7 @@
         "gold-building-panel-to-building-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "Replaces the hand-kept server script that baked this lane before 2026-10. Off until one supervised run of the repository job on the data host has baked and published a generation whose object count matched its Gold row count; switching it on is a separate deploy step (runbook docs/runbooks/parcel-by-pnu-serving-bake.md, 'Scheduled bake')."
+      "enabled": true
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused, and fails the deploy, leaving the DAGs paused, when it does not succeed. It marks the jobs short enough to run inside a deploy; the long Spark jobs are left to their schedule.",

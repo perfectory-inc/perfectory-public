@@ -256,8 +256,8 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
     def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
-        self.refused(lambda jobs: bake(jobs).update(disabled_reason="  "))
-        self.refused(lambda jobs: bake(jobs).pop("disabled_reason"))
+        self.refused(lambda jobs: bake(jobs).update(enabled=False, disabled_reason="  "))
+        self.refused(lambda jobs: bake(jobs).update(enabled=False))
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))

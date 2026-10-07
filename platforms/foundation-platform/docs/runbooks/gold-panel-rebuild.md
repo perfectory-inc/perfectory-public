@@ -87,7 +87,8 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 
 ## 4. 켜는 순서 (Turning it on)
 
-작업은 `enabled: false` 로 등록돼 있다. 호스트는 꺼진 작업의 시작을 거부한다.
+작업은 `enabled: false` 로 등록됐고, 아래 순서를 2026-10-07 에 마쳐 켰다(필지 dry run 39,861,511행·1,435초·컨테이너
+최대 18.5GiB, OOM 없음; 무조건 재생성 한 번). 호스트는 꺼진 작업의 시작을 거부한다.
 
 1. 감독 실행: FLOOR·계보·접기 둘·굽기 DAG 를 일시정지하고 `systemctl show -p ActiveState` 로 모두 inactive 확인.
 2. 같은 스크립트를 `--dry-run` 으로 먼저 돌려 `dry run passed` 와 행 수를 확인한다
