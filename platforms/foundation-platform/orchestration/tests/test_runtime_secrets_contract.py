@@ -55,7 +55,7 @@ class PlantedDefects(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="runtime-secrets-")
         self.addCleanup(self.temp.cleanup)
         self.area = pathlib.Path(self.temp.name)
-        for relative in ("config", "infra/systemd", "scripts/ops", "scripts/recovery", "docs/runbooks"):
+        for relative in ("config", "infra/systemd", "scripts/ops", "scripts/recovery", "scripts/deploy", "docs/runbooks"):
             shutil.copytree(AREA / relative, self.area / relative)
         shutil.copy(AREA / "infra/systemd/building-register-floor.env.example", self.area / "infra/systemd")
         self.assertEqual(runtime_secrets.check(self.area), [], "the copy starts clean")

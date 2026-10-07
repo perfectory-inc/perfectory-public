@@ -566,6 +566,24 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 바꾸지 않고 보기만: 같은 작업을 `--mode plan` 으로 돌린다. 실행 기록은
 `/var/lib/foundation-platform/lakehouse-migrate/runs/<시각>/run.log`.
 
+## 평소 배포: 서버가 main 을 스스로 받는다
+
+[ADR-0159](../../../../docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md).
+`foundation-autodeploy.timer` 가 10분마다 main 의 머리를 보고, check run 이 모두 통과한 새 커밋이면
+`scripts/deploy/foundation-deploy.sh <sha>` 로 배포한다. 절차 전체와 그 작업 목록은 그 스크립트와
+`orchestration/jobs.v1.json` 에 있다.
+
+| 할 일 | 명령 (root) |
+|---|---|
+| 자동 배포 켜기 (1회) | `echo FOUNDATION_DEPLOYER=<Airflow 상태를 가진 계정> > /etc/foundation-platform/release-deploy.conf` 뒤 다음 배포의 `timers` 가 타이머를 켠다 |
+| 잠시 끄기 | `touch /etc/foundation-platform/autodeploy.off` (지우면 다시 돈다) |
+| 지금 상태 | `journalctl -u foundation-autodeploy.service -n 50`, `ls /var/lib/perfectory/autodeploy/{deployed,refused,failed}` |
+| 손으로 한 커밋 배포 | `bash /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-deploy.sh <sha>` |
+| 실패한 커밋 다시 시도 | 원인을 고친 새 커밋을 main 에 올린다. 같은 커밋을 다시 하려면 `/var/lib/perfectory/autodeploy/failed/<sha>` 를 지운다 |
+
+검사가 실패한 커밋(`refused`)과 배포가 실패한 커밋(`failed`)은 한 번만 Slack 으로 알리고 다시 시도하지 않는다.
+배포 뒤 작업(`started_once_after_deploy`)이 실패하면 DAG 는 멈춘 채로 남는다.
+
 ## 릴리스 인증 전환 (1회)
 
 [ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md) 이전 운영 릴리스(비상 릴리스 — id 는 [`tools/release-retention.contract.json`](../../../../tools/release-retention.contract.json) 의 `emergency_release` 한 곳에만 있다)는 tar 로 풀린 쓰기 가능 트리이고, 안에

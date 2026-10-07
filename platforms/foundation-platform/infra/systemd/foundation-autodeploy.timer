@@ -1,0 +1,10 @@
+[Unit]
+Description=Look for a new main commit to deploy every ten minutes (root ADR-0159)
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=10min
+Unit=foundation-autodeploy.service
+
+[Install]
+WantedBy=timers.target

@@ -1214,12 +1214,20 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
     systemctl enable --now foundation-postgres-backup.timer
+    # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
+    # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
+    autodeploy=off
+    if [[ -r /etc/foundation-platform/release-deploy.conf ]]; then
+      systemctl enable --now foundation-autodeploy.timer
+      autodeploy="$(systemctl is-enabled foundation-autodeploy.timer)"
+    fi
     if [[ "${floor_status}" != 0 ]]; then
       printf 'timers incomplete: %s was not installed; its FLOOR config or state is invalid\n' \
         "${floor_unit}" >&2
       exit 65
     fi
-    printf 'timers-ok backup=%s\n' "$(systemctl is-enabled foundation-postgres-backup.timer)"
+    printf 'timers-ok backup=%s autodeploy=%s\n' \
+      "$(systemctl is-enabled foundation-postgres-backup.timer)" "${autodeploy}"
     ;;
   rollback)
     [[ "$#" == 1 ]] || usage
