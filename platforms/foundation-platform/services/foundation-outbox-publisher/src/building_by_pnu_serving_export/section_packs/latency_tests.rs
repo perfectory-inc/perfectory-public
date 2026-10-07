@@ -285,6 +285,16 @@ async fn the_no_gzip_sample_must_answer_uncompressed_and_equal() -> anyhow::Resu
         worker_cpu: full.worker_cpu.clone(),
         ..gate::LoadEvidence::default()
     });
+    // This stand-in names no Server-Timing, so nothing shows its cold reads came from R2: the
+    // cold bound measured nothing it can vouch for, and the gate stays shut on that alone.
+    full.no_gzip = Some(no_gzip_held(2));
+    assert_eq!(
+        full.cold_read_paths,
+        [("untimed".to_owned(), full.cold_answered)].into()
+    );
+    assert!(!full.verdict()?, "untimed cold reads passed");
+    full.cold_read_paths = [(gate::COLD_PATH_R2.to_owned(), full.cold_answered)].into();
+    full.no_gzip = Some(no_gzip);
     assert!(!full.verdict()?, "a gzip answer to identity passed");
     full.no_gzip = Some(no_gzip_held(2));
     assert!(full.verdict()?, "{full:?}");
