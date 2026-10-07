@@ -1,4 +1,4 @@
-//! The building lane served from section packs (root ADR-0147, ADR-0151).
+//! A by-PNU lane served from section packs (root ADR-0147, ADR-0151).
 //!
 //! | command                                          | does                                    |
 //! |--------------------------------------------------|-----------------------------------------|
@@ -11,6 +11,8 @@
 //! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
 //!
 //! Environment variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`).
+
+use crate::by_pnu_gateway_contract::ByPnuLane;
 
 mod analytics;
 mod bake;
@@ -30,9 +32,9 @@ mod latency_tests;
 #[cfg(test)]
 mod tests;
 
-/// One section pack command.
+/// What a section pack command does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PackCommand {
+pub(crate) enum PackCommandKind {
     Export,
     VerifyEquality,
     ProbeLatency,
@@ -42,19 +44,39 @@ pub(crate) enum PackCommand {
     Monitor,
 }
 
+/// One section pack command of one lane.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PackCommand {
+    pub(crate) lane: ByPnuLane,
+    pub(crate) kind: PackCommandKind,
+}
+
 impl PackCommand {
     /// The command a name spells, if it is one of these.
     pub(crate) fn parse(name: &str) -> Option<Self> {
-        Some(match name {
-            "export-building-by-pnu-section-packs" => Self::Export,
-            "verify-building-by-pnu-section-pack-equality" => Self::VerifyEquality,
-            "probe-building-by-pnu-section-pack-latency" => Self::ProbeLatency,
-            "publish-building-by-pnu-section-packs" => Self::Publish,
-            "inspect-building-by-pnu-section-packs" => Self::Inspect,
-            "check-building-gateway-version-health" => Self::CheckVersionHealth,
-            "monitor-building-by-pnu-serving" => Self::Monitor,
+        let (lane, kind) = match name {
+            "export-building-by-pnu-section-packs" => {
+                (ByPnuLane::Building, PackCommandKind::Export)
+            }
+            "verify-building-by-pnu-section-pack-equality" => {
+                (ByPnuLane::Building, PackCommandKind::VerifyEquality)
+            }
+            "probe-building-by-pnu-section-pack-latency" => {
+                (ByPnuLane::Building, PackCommandKind::ProbeLatency)
+            }
+            "publish-building-by-pnu-section-packs" => {
+                (ByPnuLane::Building, PackCommandKind::Publish)
+            }
+            "inspect-building-by-pnu-section-packs" => {
+                (ByPnuLane::Building, PackCommandKind::Inspect)
+            }
+            "check-building-gateway-version-health" => {
+                (ByPnuLane::Building, PackCommandKind::CheckVersionHealth)
+            }
+            "monitor-building-by-pnu-serving" => (ByPnuLane::Building, PackCommandKind::Monitor),
             _ => return None,
-        })
+        };
+        Some(Self { lane, kind })
     }
 
     /// Runs the command.
@@ -62,14 +84,15 @@ impl PackCommand {
     /// # Errors
     /// Whatever the command refuses.
     pub(crate) async fn run(self) -> anyhow::Result<()> {
-        match self {
-            Self::Export => bake::run().await,
-            Self::VerifyEquality => equality::run().await,
-            Self::ProbeLatency => latency::run().await,
-            Self::Publish => publish::run().await,
-            Self::Inspect => inspect::run().await,
-            Self::CheckVersionHealth => health::run().await,
-            Self::Monitor => monitor::run().await,
+        let lane = self.lane;
+        match self.kind {
+            PackCommandKind::Export => bake::run(lane).await,
+            PackCommandKind::VerifyEquality => equality::run(lane).await,
+            PackCommandKind::ProbeLatency => latency::run(lane).await,
+            PackCommandKind::Publish => publish::run(lane).await,
+            PackCommandKind::Inspect => inspect::run(lane).await,
+            PackCommandKind::CheckVersionHealth => health::run(lane).await,
+            PackCommandKind::Monitor => monitor::run(lane).await,
         }
     }
 }

@@ -19,7 +19,7 @@ use tokio::task::JoinSet;
 use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::gate::{LoadEvidence, ServerTimingSummary};
 use super::latency::{parse_server_timing, require_gzip, timed_get, timings, Accept};
-use crate::by_pnu_gateway_contract::{section_pack_policy, LoadTestPolicy};
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane, LoadTestPolicy};
 
 /// One load phase.
 #[derive(Clone, Debug)]
@@ -61,6 +61,7 @@ pub(crate) fn drawn(number: u64, sample_len: usize) -> anyhow::Result<usize> {
 /// # Errors
 /// Returns an error when the sample is empty or analytics refuses.
 pub(crate) async fn run(
+    lane: ByPnuLane,
     client: &reqwest::Client,
     plan: &LoadPlan,
     pnus: &[String],
@@ -86,7 +87,7 @@ pub(crate) async fn run(
         let client = client.clone();
         tasks.spawn(async move {
             // The preview answers browsers with the member as stored; anything else is a failure.
-            let answer = require_gzip(timed_get(&client, &url, Accept::Gzip).await, &url);
+            let answer = require_gzip(timed_get(lane, &client, &url, Accept::Gzip).await, &url);
             drop(permit);
             answer
         });

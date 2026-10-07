@@ -18,11 +18,12 @@ use std::path::PathBuf;
 use anyhow::{ensure, Context};
 use serde::Serialize;
 
-use super::super::{optional_env, LANE};
+use super::super::optional_env;
 use super::equality::write_evidence;
 use super::gate::{self, EqualityEvidence, Timings};
 use super::inspect;
 use super::latency::{normalized_digest, timed_get, timings, Accept, REQUEST_TIMEOUT};
+use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -51,12 +52,12 @@ pub(crate) struct MonitorReport {
 ///
 /// # Errors
 /// Returns an error when the inputs cannot be read, or any check fails.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    let env = |name: &str| optional_env(&LANE.env(name));
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    let env = |name: &str| optional_env(&lane.env(name));
     let required = |name: &str| -> anyhow::Result<String> {
-        env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
+        env(name)?.with_context(|| format!("{} is required", lane.env(name)))
     };
-    let policy = LANE
+    let policy = lane
         .section_packs()?
         .monitor
         .as_ref()
@@ -75,10 +76,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             .as_str(),
         local_root(env("OUTPUT_ROOT")?),
     )?;
-    let store = ByPnuServingStore::open(LANE, &output)?;
+    let store = ByPnuServingStore::open(lane, &output)?;
     let base_url = match env("MONITOR_BASE_URL")? {
         Some(url) => url,
-        None => format!("https://{}", LANE.policy()?.public_hostname),
+        None => format!("https://{}", lane.policy()?.public_hostname),
     };
     let report = check(&store, &base_url, &pnus, policy.latency_p95_max_ms).await?;
     if let Some(path) = env("MONITOR_REPORT_PATH")? {
@@ -108,12 +109,13 @@ pub(crate) async fn check(
     pnus: &[String],
     latency_p95_max_ms: f64,
 ) -> anyhow::Result<MonitorReport> {
-    let prefix = &LANE.policy()?.request_path.prefix;
+    let lane = store.lane();
+    let prefix = &lane.policy()?.request_path.prefix;
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()?;
     let (manifest, _) = store.read_manifest().await?;
-    let served = ServedManifest::parse(LANE, &manifest)?;
+    let served = ServedManifest::parse(lane, &manifest)?;
     let mut report = MonitorReport {
         base_url: base_url.to_owned(),
         pnus: pnus.len(),
@@ -130,7 +132,7 @@ pub(crate) async fn check(
     let mut latency = Vec::new();
     for pnu in pnus {
         let url = format!("{}{prefix}{pnu}", base_url.trim_end_matches('/'));
-        let answer = match timed_get(&client, &url, Accept::Gzip).await {
+        let answer = match timed_get(lane, &client, &url, Accept::Gzip).await {
             Ok(answer) => answer,
             Err(failure) => {
                 report.failures.push(format!("{pnu}: {}", failure.class));
@@ -141,7 +143,7 @@ pub(crate) async fn check(
         latency.push(answer.ms);
         let live = normalized_digest(&answer.body)?;
         let object = object_document(store, &served, pnu).await?;
-        let lane = if served.section_packs.is_some() {
+        let served_bytes = if served.section_packs.is_some() {
             let inspected = inspect::inspect(store, pnu, None).await?;
             ensure!(
                 inspected["answer"] == "document",
@@ -152,7 +154,7 @@ pub(crate) async fn check(
         } else {
             object.clone()
         };
-        if lane.as_deref().map(normalized_digest).transpose()? != Some(live) {
+        if served_bytes.as_deref().map(normalized_digest).transpose()? != Some(live) {
             report.drifted_from_served.push(pnu.clone());
         }
         match object {
@@ -189,6 +191,6 @@ async fn object_document(
             return Ok(None);
         }
     }
-    let key = by_pnu::object_key(LANE, served.base_generation, pnu)?;
+    let key = by_pnu::object_key(store.lane(), served.base_generation, pnu)?;
     Ok(Some(store.read_bytes(&key).await?))
 }

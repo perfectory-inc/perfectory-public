@@ -1,4 +1,4 @@
-//! `verify-building-by-pnu-section-pack-equality`: gate (가) of the cut-over (root ADR-0147 §6).
+//! `verify-<lane>-by-pnu-section-pack-equality`: gate (가) of the cut-over (root ADR-0147 §6).
 //!
 //! The comparison itself happens in the bake, before any write: every document is read back from
 //! the pack bytes it went into, joined the way the gateway joins it, and compared byte for byte with
@@ -20,13 +20,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{ensure, Context};
 
-use super::super::{optional_env, LANE};
-use super::bake::{PackExportSummary, SUMMARY_SCHEMA_VERSION};
+use super::super::optional_env;
+use super::bake::{summary_schema_version, PackExportSummary};
 use super::gate::{self, EqualityEvidence};
-use crate::by_pnu_gateway_contract::section_pack_policy;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 
 #[derive(Clone, Debug)]
 pub(crate) struct EqualityConfig {
+    pub(crate) lane: ByPnuLane,
     pub(crate) summary_dir: PathBuf,
     pub(crate) generation: u64,
     /// The Gold snapshot's row count, from the catalog.
@@ -35,13 +36,13 @@ pub(crate) struct EqualityConfig {
 }
 
 impl EqualityConfig {
-    async fn from_env() -> anyhow::Result<Self> {
+    async fn from_env(lane: ByPnuLane) -> anyhow::Result<Self> {
         let required = |name: &str| -> anyhow::Result<String> {
-            optional_env(&LANE.env(name))?
-                .with_context(|| format!("{} is required", LANE.env(name)))
+            optional_env(&lane.env(name))?
+                .with_context(|| format!("{} is required", lane.env(name)))
         };
         let summary_dir = PathBuf::from(required("PACK_SUMMARY_DIR")?);
-        let stated = optional_env(&LANE.env("PACK_EXPECTED_DOCUMENT_COUNT"))?
+        let stated = optional_env(&lane.env("PACK_EXPECTED_DOCUMENT_COUNT"))?
             .map(|raw| raw.parse::<u64>())
             .transpose()
             .context("the expected document count must be a number")?;
@@ -51,8 +52,13 @@ impl EqualityConfig {
             .transpose()?
             .with_context(|| format!("{} holds no pack export summary", summary_dir.display()))?;
         Ok(Self {
-            expected_documents: gate::gold_record_count(&first.gold_iceberg_snapshot_id, stated)
-                .await?,
+            lane,
+            expected_documents: gate::gold_record_count(
+                lane,
+                &first.gold_iceberg_snapshot_id,
+                stated,
+            )
+            .await?,
             summary_dir,
             generation: required("PACK_GENERATION")?
                 .parse()
@@ -82,9 +88,9 @@ fn read_summary(path: &Path) -> anyhow::Result<PackExportSummary> {
 ///
 /// # Errors
 /// Returns an error when a summary cannot be read or the evidence does not pass.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    super::sections::check_contract_sections()?;
-    let config = EqualityConfig::from_env().await?;
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    super::sections::check_contract_sections(lane)?;
+    let config = EqualityConfig::from_env(lane).await?;
     let evidence = verify(&config)?;
     write_evidence(&config.evidence_path, &evidence)?;
     tracing::info!(
@@ -92,7 +98,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         expected = evidence.expected_documents,
         sample = evidence.sample.len(),
         passed = evidence.passed,
-        "building section pack equality checked"
+        lane = lane.unit(),
+        "section pack equality checked"
     );
     ensure!(
         evidence.passed,
@@ -118,14 +125,14 @@ pub(crate) fn write_evidence(path: &Path, evidence: &impl serde::Serialize) -> a
 /// Refuses summaries of another kind, generation, snapshot or section list, and a patch.
 pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence> {
     let paths = summary_paths(&config.summary_dir)?;
-    let sections = LANE.section_packs()?.sections.clone();
+    let sections = config.lane.section_packs()?.sections.clone();
     let mut snapshot: Option<String> = None;
     let (mut compared, mut equal) = (0_u64, 0_u64);
     let mut candidates = Vec::new();
     for path in &paths {
         let summary = read_summary(path)?;
         ensure!(
-            summary.schema_version == SUMMARY_SCHEMA_VERSION
+            summary.schema_version == summary_schema_version(config.lane)
                 && summary.generation == config.generation
                 && summary.section_generations.is_empty()
                 && summary.patch.is_none()
@@ -182,7 +189,7 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
     let mut evidence = EqualityEvidence {
         schema_version: gate_policy.evidence_schema_version.clone(),
         kind: gate::EQUALITY_KIND.to_owned(),
-        lane: LANE.unit().to_owned(),
+        lane: config.lane.unit().to_owned(),
         pack_generation: config.generation,
         gold_iceberg_snapshot_id: snapshot,
         sections,

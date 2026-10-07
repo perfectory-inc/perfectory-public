@@ -37,13 +37,13 @@ use anyhow::{ensure, Context};
 use chrono::{Duration as ChronoDuration, Utc};
 use serde::Serialize;
 
-use super::super::{optional_env, LANE};
+use super::super::optional_env;
 use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::equality::write_evidence;
 use super::gate::{self, EqualityEvidence, LoadEvidence, WorkerCpu, EXCEEDED_RESOURCES};
 use super::latency::REQUEST_TIMEOUT;
 use super::load::{self, LoadPlan};
-use crate::by_pnu_gateway_contract::{section_pack_policy, CanaryPolicy};
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane, CanaryPolicy};
 
 /// The header Cloudflare reads to pin a request to one version of a gradual deployment.
 pub(crate) const VERSION_OVERRIDE_HEADER: &str = "Cloudflare-Workers-Version-Overrides";
@@ -83,8 +83,8 @@ struct Preflight {
     responses_counted: u64,
 }
 
-fn canary() -> anyhow::Result<&'static CanaryPolicy> {
-    LANE.section_packs()?
+fn canary(lane: ByPnuLane) -> anyhow::Result<&'static CanaryPolicy> {
+    lane.section_packs()?
         .canary
         .as_ref()
         .context("the contract names no canary for this lane")
@@ -113,20 +113,20 @@ pub(crate) fn required_zone() -> anyhow::Result<String> {
 ///
 /// # Errors
 /// Returns an error when analytics cannot be read, or any check fails.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    let env = |name: &str| optional_env(&LANE.env(name));
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    let env = |name: &str| optional_env(&lane.env(name));
     let required = |name: &str| -> anyhow::Result<String> {
-        env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
+        env(name)?.with_context(|| format!("{} is required", lane.env(name)))
     };
     let analytics = AnalyticsConfig::required("the canary health check")?;
     let zone_id = required_zone()?;
     let client = reqwest::Client::new();
     if env("CANARY_PREFLIGHT")?.as_deref() == Some("true") {
-        let answer = preflight(&client, &analytics, &zone_id).await?;
+        let answer = preflight(lane, &client, &analytics, &zone_id).await?;
         println!("{}", serde_json::to_string_pretty(&answer)?);
         return Ok(());
     }
-    let canary = canary()?;
+    let canary = canary(lane)?;
     let window_seconds = match env("CANARY_WINDOW_SECONDS")? {
         Some(raw) => raw
             .parse::<i64>()
@@ -138,11 +138,12 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         gate::read::<EqualityEvidence>(&PathBuf::from(required("MONITOR_SAMPLE_PATH")?))?;
     let base_url = match env("CANARY_BASE_URL")? {
         Some(url) => url,
-        None => format!("https://{}", LANE.policy()?.public_hostname),
+        None => format!("https://{}", lane.policy()?.public_hostname),
     };
     let new_version = required("CANARY_NEW_VERSION")?;
     let old_version = env("CANARY_OLD_VERSION")?;
     let pinned = drive(
+        lane,
         &LoadPlan::from_contract(&canary.synthetic_load),
         &base_url,
         &equality.sample,
@@ -151,6 +152,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     )
     .await?;
     let report = check(
+        lane,
         &client,
         &analytics,
         &new_version,
@@ -174,11 +176,12 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
 /// Both analytics queries over the last quarter hour; an error from either refuses.
 async fn preflight(
+    lane: ByPnuLane,
     client: &reqwest::Client,
     analytics: &AnalyticsConfig,
     zone_id: &str,
 ) -> anyhow::Result<Preflight> {
-    let policy = LANE.policy()?;
+    let policy = lane.policy()?;
     let to = Utc::now();
     let from = to - ChronoDuration::minutes(15);
     let invocations = analytics::query_invocations(
@@ -215,8 +218,8 @@ async fn preflight(
 ///
 /// # Errors
 /// Returns an error when the header or the client cannot be built.
-pub(crate) fn pinned_client(version: &str) -> anyhow::Result<reqwest::Client> {
-    let worker = &LANE.policy()?.worker_name;
+pub(crate) fn pinned_client(lane: ByPnuLane, version: &str) -> anyhow::Result<reqwest::Client> {
+    let worker = &lane.policy()?.worker_name;
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         VERSION_OVERRIDE_HEADER,
@@ -234,20 +237,24 @@ pub(crate) fn pinned_client(version: &str) -> anyhow::Result<reqwest::Client> {
 /// # Errors
 /// Returns an error when the sample is empty or a client cannot be built.
 pub(crate) async fn drive(
+    lane: ByPnuLane,
     plan: &LoadPlan,
     base_url: &str,
     sample: &[String],
     new_version: &str,
     old_version: Option<&str>,
 ) -> anyhow::Result<Pinned> {
-    let prefix = &LANE.policy()?.request_path.prefix;
+    let prefix = &lane.policy()?.request_path.prefix;
     let url_of = |pnu: &str| format!("{base_url}{prefix}{pnu}");
-    let new_client = pinned_client(new_version)?;
-    let new = load::run(&new_client, plan, sample, url_of, None);
+    let new_client = pinned_client(lane, new_version)?;
+    let new = load::run(lane, &new_client, plan, sample, url_of, None);
     let (new, old) = match old_version {
         Some(version) => {
-            let old_client = pinned_client(version)?;
-            let (new, old) = tokio::join!(new, load::run(&old_client, plan, sample, url_of, None));
+            let old_client = pinned_client(lane, version)?;
+            let (new, old) = tokio::join!(
+                new,
+                load::run(lane, &old_client, plan, sample, url_of, None)
+            );
             (new?, Some(old?))
         }
         None => (new.await?, None),
@@ -260,6 +267,7 @@ pub(crate) async fn drive(
 /// # Errors
 /// Returns an error when analytics cannot be read.
 pub(crate) async fn check(
+    lane: ByPnuLane,
     client: &reqwest::Client,
     analytics: &AnalyticsConfig,
     new_version: &str,
@@ -269,8 +277,8 @@ pub(crate) async fn check(
     pinned: Pinned,
 ) -> anyhow::Result<HealthReport> {
     let gate = &section_pack_policy()?.cutover_gate;
-    let policy = LANE.policy()?;
-    let canary = canary()?;
+    let policy = lane.policy()?;
+    let canary = canary(lane)?;
     let to = Utc::now() + ChronoDuration::seconds(5);
     // The window holds at least the pinned reads and the analytics lag behind them.
     let window_seconds = window_seconds

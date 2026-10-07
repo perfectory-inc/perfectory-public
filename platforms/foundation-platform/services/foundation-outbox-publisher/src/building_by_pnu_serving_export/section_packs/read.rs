@@ -4,8 +4,8 @@
 //! the PNU, else the section's base pack. The anchor section decides whether the PNU answers;
 //! every other section must agree with it (a document beside a document, a tombstone or nothing
 //! beside a tombstone), and a disagreement is an error, never a partial document. The Worker
-//! (`foundation-building-gateway/src/packs.ts`) follows the same rules; the golden fixtures pin
-//! both.
+//! (`foundation-building-gateway/src/packs.ts`, `foundation-parcel-gateway/src/packs.ts`) follows the
+//! same rules; the golden fixtures pin both.
 
 use anyhow::{bail, ensure, Context};
 
@@ -16,11 +16,10 @@ use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_store::ByPnuServingStore;
 use crate::r2_layout::by_pnu_packs;
 
-const LANE: ByPnuLane = ByPnuLane::Building;
-
 /// What is read, per section: the base generation and the patches above the section's floor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PackView {
+    pub(crate) lane: ByPnuLane,
     pub(crate) sections: Vec<SectionView>,
 }
 
@@ -34,8 +33,9 @@ pub(crate) struct SectionView {
 
 impl PackView {
     /// What a manifest's `section_packs` block serves.
-    pub(crate) fn served(state: &SectionPacksState) -> Self {
+    pub(crate) fn served(lane: ByPnuLane, state: &SectionPacksState) -> Self {
         Self {
+            lane,
             sections: state
                 .sections
                 .iter()
@@ -55,10 +55,11 @@ impl PackView {
     /// yet published, the one the cut-over gate examines.
     ///
     /// # Errors
-    /// Returns an error when the contract has no building sections.
-    pub(crate) fn unpublished(generation: u64) -> anyhow::Result<Self> {
+    /// Returns an error when the contract has no sections for the lane.
+    pub(crate) fn unpublished(lane: ByPnuLane, generation: u64) -> anyhow::Result<Self> {
         Ok(Self {
-            sections: LANE
+            lane,
+            sections: lane
                 .section_packs()?
                 .sections
                 .iter()
@@ -83,6 +84,7 @@ pub(crate) struct SectionPacksOfUnit {
 /// Every section's packs of one legal dong.
 #[derive(Clone, Debug)]
 pub(crate) struct UnitPacks {
+    pub(crate) lane: ByPnuLane,
     pub(crate) sections: Vec<SectionPacksOfUnit>,
 }
 
@@ -123,7 +125,7 @@ pub(crate) async fn load_unit(
                 .is_ok()
             {
                 let key = by_pnu_packs::pack_key(
-                    LANE,
+                    view.lane,
                     &section.name,
                     section.generation,
                     Some(*patch),
@@ -133,7 +135,8 @@ pub(crate) async fn load_unit(
             }
         }
         let base = if base_units(&section.name, unit) {
-            let key = by_pnu_packs::pack_key(LANE, &section.name, section.generation, None, unit)?;
+            let key =
+                by_pnu_packs::pack_key(view.lane, &section.name, section.generation, None, unit)?;
             Some(read_pack(store, &key).await?)
         } else {
             None
@@ -144,7 +147,10 @@ pub(crate) async fn load_unit(
             base,
         });
     }
-    Ok(UnitPacks { sections })
+    Ok(UnitPacks {
+        lane: view.lane,
+        sections,
+    })
 }
 
 async fn read_pack(store: &ByPnuServingStore, key: &str) -> anyhow::Result<Pack> {
@@ -188,7 +194,7 @@ pub(crate) fn find(section: &SectionPacksOfUnit, pnu: &str) -> anyhow::Result<Fo
 /// # Errors
 /// Refuses sections that disagree with the anchor.
 pub(crate) fn resolve(packs: &UnitPacks, pnu: &str) -> anyhow::Result<Resolved> {
-    let anchor = &LANE.section_packs()?.anchor_section;
+    let anchor = &packs.lane.section_packs()?.anchor_section;
     let mut found = Vec::with_capacity(packs.sections.len());
     for section in &packs.sections {
         found.push((section.name.clone(), find(section, pnu)?));
@@ -230,8 +236,11 @@ pub(crate) fn resolve(packs: &UnitPacks, pnu: &str) -> anyhow::Result<Resolved> 
 /// is another answer than the object's, and gate (가) must see it as one.
 ///
 /// # Errors
-/// Refuses fragments that do not join or are not a building document.
-pub(crate) fn joined_bytes(fragments: &[(String, Found)]) -> anyhow::Result<Vec<u8>> {
+/// Refuses fragments that do not join or are not a document of the lane.
+pub(crate) fn joined_bytes(
+    lane: ByPnuLane,
+    fragments: &[(String, Found)],
+) -> anyhow::Result<Vec<u8>> {
     let mut parts = Vec::with_capacity(fragments.len());
     for (name, found) in fragments {
         let Found::Document { bytes, .. } = found else {
@@ -239,7 +248,7 @@ pub(crate) fn joined_bytes(fragments: &[(String, Found)]) -> anyhow::Result<Vec<
         };
         parts.push((name.as_str(), bytes.as_slice()));
     }
-    sections::join(&parts)?;
+    sections::join(lane, &parts)?;
     let [(_, bytes)] = parts.as_slice() else {
         bail!(
             "a served document is one member, got {} fragments",

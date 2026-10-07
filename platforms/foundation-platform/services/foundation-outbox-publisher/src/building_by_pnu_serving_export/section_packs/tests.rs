@@ -25,7 +25,7 @@ use super::gate::{self, LatencyEvidence, Timings};
 use super::latency::{self, LatencyConfig};
 use super::publish::{self, ChangeSetPaths, PublishConfig};
 use super::read::{self, PackView, Resolved};
-use super::sections::{self, KNOWN_SECTIONS};
+use super::sections::{self, PackDocument, PackProvenance, Renderer, KNOWN_SECTIONS};
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 use crate::by_pnu_pack::tests::assert_golden;
@@ -113,6 +113,25 @@ fn provenance(snapshot: &str) -> GoldSnapshotProvenance {
         metadata_location: "s3://fixture/metadata.json".to_owned(),
         manifest_list_location: "s3://fixture/manifest.avro".to_owned(),
     }
+}
+
+fn pack_provenance(snapshot: &str) -> PackProvenance {
+    let provenance = provenance(snapshot);
+    PackProvenance {
+        table: provenance.table,
+        iceberg_snapshot_id: provenance.iceberg_snapshot_id,
+        metadata_location: provenance.metadata_location,
+        manifest_list_location: provenance.manifest_list_location,
+    }
+}
+
+fn as_pack(
+    document: &super::super::building_document::BuildingByPnuDocument,
+) -> anyhow::Result<PackDocument> {
+    Ok(PackDocument {
+        pnu: document.pnu.clone(),
+        bytes: document.to_bytes()?,
+    })
 }
 
 fn object(row: &JsonMap<String, JsonValue>, snapshot: &str) -> anyhow::Result<Vec<u8>> {
@@ -210,6 +229,7 @@ impl Lane {
         generation: u64,
     ) -> anyhow::Result<PackExportSummary> {
         let config = BakeConfig {
+            lane: LANE,
             output: self.output(),
             generation: patch.is_none().then_some(generation),
             sections: sections.to_vec(),
@@ -227,9 +247,9 @@ impl Lane {
         bake::bake(
             &config,
             &self.store,
-            &provenance(snapshot),
+            &pack_provenance(snapshot),
             rows,
-            &ApprovedBuildingLinks::default(),
+            &Renderer::Building(ApprovedBuildingLinks::default()),
         )
         .await
     }
@@ -249,6 +269,7 @@ impl Lane {
     /// Gate (가) over the bake summaries in `summaries`, with the Gold row count stated.
     fn equality(&self, summaries: &Path, expected: u64) -> anyhow::Result<PathBuf> {
         let config = EqualityConfig {
+            lane: LANE,
             summary_dir: summaries.to_path_buf(),
             generation: 1,
             expected_documents: expected,
@@ -416,6 +437,7 @@ impl Lane {
         change_set: Option<ChangeSetPaths>,
     ) -> anyhow::Result<crate::by_pnu_section_pack_manifest::SectionPacksState> {
         let config = PublishConfig {
+            lane: LANE,
             output: self.output(),
             summary_dir: summaries,
             expected_gold_snapshot: snapshot.to_owned(),
@@ -457,7 +479,7 @@ impl Lane {
             .await?
             .section_packs
             .context("packs are published")?;
-        let view = PackView::served(&state);
+        let view = PackView::served(LANE, &state);
         let unit = by_pnu_packs::unit_of(pnu)?;
         let mut bases = BTreeSet::new();
         for section in &view.sections {
@@ -500,7 +522,7 @@ async fn serve_capabilities(gateway: &MockServer, versions: &[u32]) {
 
 fn joined(resolved: Resolved) -> anyhow::Result<Vec<u8>> {
     match resolved {
-        Resolved::Document(fragments) => read::joined_bytes(&fragments),
+        Resolved::Document(fragments) => read::joined_bytes(LANE, &fragments),
         other => anyhow::bail!("expected a document, got {other:?}"),
     }
 }
@@ -768,6 +790,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
     let rows = vec![spark_row()?, empty_row(PNU_B)];
     let lane = Lane::serving_objects("equality", &rows).await?;
     let config = BakeConfig {
+        lane: LANE,
         output: lane.output(),
         generation: Some(1),
         sections: LANE.section_packs()?.sections.clone(),
@@ -793,7 +816,15 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
         )?,
         documents[1].clone(),
     ];
-    let laid_out = |from: &[super::super::building_document::BuildingByPnuDocument]| {
+    let documents = documents
+        .iter()
+        .map(as_pack)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let changed = changed
+        .iter()
+        .map(as_pack)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let laid_out = |from: &[PackDocument]| {
         config
             .sections
             .iter()
@@ -803,7 +834,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
                     bake::lay_out_pack(
                         &config,
                         1,
-                        &provenance(SNAPSHOT),
+                        &pack_provenance(SNAPSHOT),
                         section,
                         UNIT,
                         from,
@@ -813,28 +844,28 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             })
             .collect::<anyhow::Result<Vec<_>>>()
     };
-    let checked = bake::check_round_trip(&laid_out(&documents)?, &[], &documents, &[], None)?;
+    let checked = bake::check_round_trip(LANE, &laid_out(&documents)?, &[], &documents, &[], None)?;
     assert_eq!((checked.compared, checked.equal), (2, 2));
     checked.require_equal(UNIT)?;
     assert!(
-        bake::check_round_trip(&laid_out(&changed)?, &[], &documents, &[], None).is_err(),
+        bake::check_round_trip(LANE, &laid_out(&changed)?, &[], &documents, &[], None).is_err(),
         "packs of another document were accepted"
     );
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
     let one = lane.summaries("one", &[&base])?;
     let (evidence, _) = gate::read::<gate::EqualityEvidence>(&lane.equality(&one, 2)?)?;
     assert!(evidence.passed);
-    assert!(gate::require_equality(&evidence, 1, SNAPSHOT, 2).is_ok());
+    assert!(gate::require_equality(LANE, &evidence, 1, SNAPSHOT, 2).is_ok());
     assert!(
-        gate::require_equality(&evidence, 1, NEXT_SNAPSHOT, 2).is_err(),
+        gate::require_equality(LANE, &evidence, 1, NEXT_SNAPSHOT, 2).is_err(),
         "another snapshot"
     );
     assert!(
-        gate::require_equality(&evidence, 1, SNAPSHOT, 3).is_err(),
+        gate::require_equality(LANE, &evidence, 1, SNAPSHOT, 3).is_err(),
         "another row count"
     );
     assert!(
-        gate::require_equality(&evidence, 2, SNAPSHOT, 2).is_err(),
+        gate::require_equality(LANE, &evidence, 2, SNAPSHOT, 2).is_err(),
         "another generation"
     );
     let (missing, _) = gate::read::<gate::EqualityEvidence>(&lane.equality(&one, 5)?)?;
@@ -908,6 +939,7 @@ fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyh
     };
     let answer = joined(read::resolve(
         &read::UnitPacks {
+            lane: LANE,
             sections: vec![served.clone()],
         },
         PNU_A,
@@ -917,7 +949,11 @@ fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyh
         documents[0].to_bytes()?,
         "the member was re-serialised"
     );
-    let checked = bake::check_round_trip(&[], &[served], &documents, &[], None)?;
+    let documents = documents
+        .iter()
+        .map(as_pack)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let checked = bake::check_round_trip(LANE, &[], &[served], &documents, &[], None)?;
     assert_eq!((checked.compared, checked.equal), (2, 0));
     assert!(checked.require_equal(UNIT).is_err());
     Ok(())
@@ -947,6 +983,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
     let equality = lane.equality(&lane.summaries("base", &[&base])?, 2)?;
     let config = |path: &Path, generation: u64| LatencyConfig {
+        lane: LANE,
         generation,
         live_base_url: "https://live.example.test".to_owned(),
         preview_base_url: "https://preview.example.test".to_owned(),
@@ -976,10 +1013,10 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     // Live evidence of another sample does not open the publish.
     let other = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
     let (mut live, _) = gate::read::<gate::LatencyEvidence>(&other)?;
-    assert!(gate::require_latency(&live, 1, &drawn).is_ok());
+    assert!(gate::require_latency(LANE, &live, 1, &drawn).is_ok());
     live.sample_sha256 = gate::sample_digest(&[PNU_B.to_owned()]);
     assert!(
-        gate::require_latency(&live, 1, &drawn).is_err(),
+        gate::require_latency(LANE, &live, 1, &drawn).is_err(),
         "another sample opened the gate"
     );
 
@@ -1161,9 +1198,9 @@ async fn a_new_generation_is_served_and_patches_follow_it() -> anyhow::Result<()
 /// The first publish holds the Gold row count to the catalog: a stated count must agree.
 #[test]
 fn a_stated_gold_row_count_must_match_the_catalog() -> anyhow::Result<()> {
-    assert_eq!(gate::cross_check(5, None, SNAPSHOT)?, 5);
-    assert_eq!(gate::cross_check(5, Some(5), SNAPSHOT)?, 5);
-    assert!(gate::cross_check(5, Some(6), SNAPSHOT).is_err());
+    assert_eq!(gate::cross_check(LANE, 5, None, SNAPSHOT)?, 5);
+    assert_eq!(gate::cross_check(LANE, 5, Some(5), SNAPSHOT)?, 5);
+    assert!(gate::cross_check(LANE, 5, Some(6), SNAPSHOT).is_err());
     Ok(())
 }
 
@@ -1192,6 +1229,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         uuid::Uuid::now_v7()
     ));
     let config = |live: &MockServer, pack: &MockServer| LatencyConfig {
+        lane: LANE,
         generation: 1,
         live_base_url: live.uri(),
         preview_base_url: pack.uri(),
@@ -1229,7 +1267,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
     drawn_as_probed.sample_sha256 = gate::sample_digest(&pnus);
     assert_eq!(evidence.sample_sha256, drawn_as_probed.sample_sha256);
     assert!(
-        gate::require_latency(&evidence, 1, &drawn_as_probed).is_err(),
+        gate::require_latency(LANE, &evidence, 1, &drawn_as_probed).is_err(),
         "a simulation opened the gate"
     );
 

@@ -260,7 +260,7 @@ enum Command {
     ExportIndustrialComplexSilverHandoff,
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
-    BuildingSectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
+    SectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
     ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
@@ -498,7 +498,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_silver_export::run())
         }
         Command::ExportBuildingByPnuServing => Box::pin(building_by_pnu_serving_export::run()),
-        Command::BuildingSectionPacks(command) => Box::pin(command.run()),
+        Command::SectionPacks(command) => Box::pin(command.run()),
         Command::ExportParcelByPnuServing => Box::pin(parcel_by_pnu_serving_export::run()),
         Command::ShowParcelByPnuServingState => Box::pin(by_pnu_serving_state::run_parcel()),
         Command::ShowBuildingByPnuServingState => Box::pin(by_pnu_serving_state::run_building()),
@@ -1473,7 +1473,7 @@ where
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some("wait-trino-ready") => Ok(Command::WaitTrinoReady),
         Some(other) => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
-            .map(Command::BuildingSectionPacks)
+            .map(Command::SectionPacks)
             .with_context(|| format!("unknown outbox-publisher command '{other}'")),
     }
 }

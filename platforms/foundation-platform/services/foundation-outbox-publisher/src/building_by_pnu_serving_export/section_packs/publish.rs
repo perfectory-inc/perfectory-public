@@ -1,4 +1,4 @@
-//! `publish-building-by-pnu-section-packs`: points the building gateway at section packs (root
+//! `publish-<lane>-by-pnu-section-packs`: points a lane's gateway at section packs (root
 //! ADR-0147 §4–§6).
 //!
 //! The manifest stays one v2 envelope; this command writes its `section_packs` block and leaves
@@ -28,10 +28,10 @@ use anyhow::{bail, ensure, Context};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::super::{building_document, optional_env, LANE};
-use super::bake::{PackEntry, PackExportSummary, SUMMARY_SCHEMA_VERSION};
+use super::super::optional_env;
+use super::bake::{summary_schema_version, PackEntry, PackExportSummary};
 use super::{equality, gate};
-use crate::by_pnu_gateway_contract::section_pack_policy;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 use crate::by_pnu_pack::Pack;
 use crate::by_pnu_section_pack_manifest::{
     CutoverRecord, PackPatch, SectionPacksState, SectionState,
@@ -52,6 +52,7 @@ const INSTALLED_JOBS: &str = "/opt/foundation-platform/current/orchestration/job
 
 #[derive(Clone, Debug)]
 pub(crate) struct PublishConfig {
+    pub(crate) lane: ByPnuLane,
     pub(crate) output: ProfileStoreConfig,
     /// The export summaries; none for a reflect, which writes no pack.
     pub(crate) summary_dir: Option<PathBuf>,
@@ -73,15 +74,15 @@ pub(crate) struct ChangeSetPaths {
 }
 
 impl PublishConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let env = |name: &str| optional_env(&LANE.env(name));
+    fn from_env(lane: ByPnuLane) -> anyhow::Result<Self> {
+        let env = |name: &str| optional_env(&lane.env(name));
         let required = |name: &str| -> anyhow::Result<String> {
-            env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
+            env(name)?.with_context(|| format!("{} is required", lane.env(name)))
         };
         ensure!(
             env("CONFIRM_PACK_PUBLISH")?.is_some_and(|value| value.eq_ignore_ascii_case("true")),
             "{} must be true",
-            LANE.env("CONFIRM_PACK_PUBLISH")
+            lane.env("CONFIRM_PACK_PUBLISH")
         );
         let change_set = match env("CHANGE_SET_SUMMARY_PATH")? {
             Some(summary) => Some(ChangeSetPaths {
@@ -92,6 +93,7 @@ impl PublishConfig {
             None => None,
         };
         Ok(Self {
+            lane,
             output: ProfileStoreConfig::parse(
                 env("OUTPUT_STORAGE_DRIVER")?
                     .unwrap_or_else(|| "local".to_owned())
@@ -115,23 +117,24 @@ impl PublishConfig {
 ///
 /// # Errors
 /// Refuses on any failed gate; the manifest is then unchanged.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    super::sections::check_contract_sections()?;
-    let mut config = PublishConfig::from_env()?;
-    let stated = optional_env(&LANE.env("PACK_EXPECTED_DOCUMENT_COUNT"))?
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    super::sections::check_contract_sections(lane)?;
+    let mut config = PublishConfig::from_env(lane)?;
+    let stated = optional_env(&lane.env("PACK_EXPECTED_DOCUMENT_COUNT"))?
         .map(|raw| raw.parse::<u64>())
         .transpose()
         .context("the expected document count must be a number")?;
     config.gold_record_count =
-        Some(gate::gold_record_count(&config.expected_gold_snapshot, stated).await?);
-    let store = ByPnuServingStore::open(LANE, &config.output)?;
-    let gateway = format!("https://{}", LANE.policy()?.public_hostname);
+        Some(gate::gold_record_count(lane, &config.expected_gold_snapshot, stated).await?);
+    let store = ByPnuServingStore::open(lane, &config.output)?;
+    let gateway = format!("https://{}", lane.policy()?.public_hostname);
     let state = publish(&config, &store, &gateway).await?;
     tracing::info!(
         reflected_gold_iceberg_snapshot_id = %state.reflected_gold_iceberg_snapshot_id,
         document_count = state.document_count,
         patches = state.patches.len(),
-        "building section packs published"
+        lane = lane.unit(),
+        "section packs published"
     );
     Ok(())
 }
@@ -145,10 +148,13 @@ pub(crate) async fn publish(
     store: &ByPnuServingStore,
     gateway_base_url: &str,
 ) -> anyhow::Result<SectionPacksState> {
-    let (bytes, version) = store.read_manifest().await.context(
-        "the building lane has no readable manifest; packs are published over a served lane",
-    )?;
-    let live = ServedManifest::parse(LANE, &bytes)
+    let (bytes, version) = store.read_manifest().await.with_context(|| {
+        format!(
+            "the {} lane has no readable manifest; packs are published over a served lane",
+            config.lane.unit()
+        )
+    })?;
+    let live = ServedManifest::parse(config.lane, &bytes)
         .context("the live manifest cannot be read; refusing to replace it")?;
     ensure!(
         live.wire_schema_version == 2 && live.document_schema_version.is_some(),
@@ -158,7 +164,7 @@ pub(crate) async fn publish(
     let mut state = match &config.summary_dir {
         None => reflected(config, &live)?,
         Some(dir) => {
-            let summaries = read_summaries(dir, &config.expected_gold_snapshot)?;
+            let summaries = read_summaries(config.lane, dir, &config.expected_gold_snapshot)?;
             match summaries[0].patch {
                 None => base(config, store, &live, &summaries, gateway_base_url).await?,
                 Some(patch) => patched(config, store, &live, &summaries, patch).await?,
@@ -170,8 +176,8 @@ pub(crate) async fn publish(
     state.reflected_gold_snapshot_tag = Some(
         pins::pin(
             &snapshot_pins,
-            LANE,
-            gold_table(LANE),
+            config.lane,
+            gold_table(config.lane),
             &state.reflected_gold_iceberg_snapshot_id,
             &published_at_utc,
         )
@@ -229,29 +235,33 @@ fn with_packs(
 }
 
 /// Every `*.json` export summary of the directory, all of one snapshot and one patch.
-fn read_summaries(dir: &Path, expected_snapshot: &str) -> anyhow::Result<Vec<PackExportSummary>> {
+fn read_summaries(
+    lane: ByPnuLane,
+    dir: &Path,
+    expected_snapshot: &str,
+) -> anyhow::Result<Vec<PackExportSummary>> {
     let paths = equality::summary_paths(dir)?;
     let mut summaries = Vec::with_capacity(paths.len());
     for path in &paths {
         let summary: PackExportSummary = serde_json::from_slice(&std::fs::read(path)?)
             .with_context(|| format!("{} is not a pack export summary", path.display()))?;
         ensure!(
-            summary.schema_version == SUMMARY_SCHEMA_VERSION,
+            summary.schema_version == summary_schema_version(lane),
             "{} is a {} summary",
             path.display(),
             summary.schema_version
         );
         ensure!(
-            summary.gold_table == gold_table(LANE)
+            summary.gold_table == gold_table(lane)
                 && summary.gold_iceberg_snapshot_id == expected_snapshot
                 && summary.document_schema_version
-                    == building_document::BUILDING_DOCUMENT_SCHEMA_VERSION,
+                    == manifest_publish::document_schema_version(lane),
             "{} is of {} snapshot {} ({}), not of {} snapshot {expected_snapshot} as baked now",
             path.display(),
             summary.gold_table,
             summary.gold_iceberg_snapshot_id,
             summary.document_schema_version,
-            gold_table(LANE)
+            gold_table(lane)
         );
         summaries.push(summary);
     }
@@ -272,14 +282,15 @@ fn read_summaries(dir: &Path, expected_snapshot: &str) -> anyhow::Result<Vec<Pac
 /// Per section: its generation and its packs, from every summary. A patch's sections each carry
 /// their own generation.
 fn packs_by_section(
+    lane: ByPnuLane,
     summaries: &[PackExportSummary],
 ) -> anyhow::Result<BTreeMap<String, (u64, Vec<PackEntry>)>> {
     let mut by_section: BTreeMap<String, (u64, Vec<PackEntry>)> = BTreeMap::new();
     let mut keys = BTreeSet::new();
     for summary in summaries {
         for pack in &summary.packs {
-            let parsed = by_pnu_packs::parse_pack_key(LANE, &pack.key)
-                .with_context(|| format!("{} is not a building pack key", pack.key))?;
+            let parsed = by_pnu_packs::parse_pack_key(lane, &pack.key)
+                .with_context(|| format!("{} is not a {} pack key", pack.key, lane.unit()))?;
             ensure!(
                 parsed.section == pack.section
                     && parsed.unit == pack.unit
@@ -373,8 +384,8 @@ async fn base(
             summary.gold_record_count
         );
     }
-    let by_section = packs_by_section(summaries)?;
-    let contract = &LANE.section_packs()?.sections;
+    let by_section = packs_by_section(config.lane, summaries)?;
+    let contract = &config.lane.section_packs()?.sections;
     let mut units: Option<BTreeSet<String>> = None;
     for (section, (generation, packs)) in &by_section {
         let documents: u64 = packs.iter().map(|pack| pack.documents).sum();
@@ -435,20 +446,20 @@ async fn base(
                 "the first pack publish is one generation of every section"
             );
             manifest_publish::require_gateway_reads(
-                LANE,
+                config.lane,
                 gateway_base_url,
                 policy.manifest_section_packs_schema_version,
             )
             .await?;
-            require_scheduled_pack_bake(&config.installed_jobs)?;
+            require_scheduled_pack_bake(config.lane, &config.installed_jobs)?;
             let cutover = cutover_gate(config, generation, snapshot, expected)?;
             Ok(SectionPacksState {
                 schema_version: policy.manifest_section_packs_schema_version,
                 format_version: policy.format_version,
                 unit_prefix_length: policy.unit_prefix_length,
-                document_schema_version: building_document::BUILDING_DOCUMENT_SCHEMA_VERSION
+                document_schema_version: manifest_publish::document_schema_version(config.lane)
                     .to_owned(),
-                gold_table: gold_table(LANE).to_owned(),
+                gold_table: gold_table(config.lane).to_owned(),
                 reflected_gold_iceberg_snapshot_id: snapshot.to_owned(),
                 reflected_gold_snapshot_tag: None,
                 document_count: expected,
@@ -515,8 +526,8 @@ async fn base(
 ///
 /// # Errors
 /// Refuses an unreadable job list, a missing job and a job that does not declare the capability.
-pub(crate) fn require_scheduled_pack_bake(jobs_path: &Path) -> anyhow::Result<()> {
-    let wanted = &LANE.section_packs()?.scheduled_bake;
+pub(crate) fn require_scheduled_pack_bake(lane: ByPnuLane, jobs_path: &Path) -> anyhow::Result<()> {
+    let wanted = &lane.section_packs()?.scheduled_bake;
     let jobs: serde_json::Value =
         serde_json::from_slice(&std::fs::read(jobs_path).with_context(|| {
             format!(
@@ -566,14 +577,20 @@ fn cutover_gate(
         bail!(
             "the first pack publish is the cut-over (root ADR-0147 §6): it needs {} and {} of \
              generation {generation}, both passing",
-            LANE.env("PACK_EQUALITY_EVIDENCE_PATH"),
-            LANE.env("PACK_LATENCY_EVIDENCE_PATH")
+            config.lane.env("PACK_EQUALITY_EVIDENCE_PATH"),
+            config.lane.env("PACK_LATENCY_EVIDENCE_PATH")
         );
     };
     let (equality, equality_sha256) = gate::read::<gate::EqualityEvidence>(equality)?;
-    gate::require_equality(&equality, generation, snapshot, expected_documents)?;
+    gate::require_equality(
+        config.lane,
+        &equality,
+        generation,
+        snapshot,
+        expected_documents,
+    )?;
     let (latency, latency_sha256) = gate::read::<gate::LatencyEvidence>(latency)?;
-    gate::require_latency(&latency, generation, &equality)?;
+    gate::require_latency(config.lane, &latency, generation, &equality)?;
     Ok(CutoverRecord {
         equality_evidence_sha256: equality_sha256,
         latency_evidence_sha256: latency_sha256,
@@ -608,13 +625,13 @@ fn change_set(
     let paths = config.change_set.as_ref().with_context(|| {
         format!(
             "a pack patch or reflect names its change set ({})",
-            LANE.env("CHANGE_SET_SUMMARY_PATH")
+            config.lane.env("CHANGE_SET_SUMMARY_PATH")
         )
     })?;
     let change: ChangeSetSummary = serde_json::from_slice(&std::fs::read(&paths.summary)?)
         .context("the change set summary does not parse")?;
-    let upserts = read_pnu_list(LANE, &paths.upserts)?;
-    let deletes = read_pnu_list(LANE, &paths.deletes)?;
+    let upserts = read_pnu_list(config.lane, &paths.upserts)?;
+    let deletes = read_pnu_list(config.lane, &paths.deletes)?;
     let snapshot = config.expected_gold_snapshot.as_str();
     ensure!(
         change.input.baseline_snapshot_id == current.reflected_gold_iceberg_snapshot_id
@@ -648,7 +665,7 @@ fn reflected(config: &PublishConfig, live: &ServedManifest) -> anyhow::Result<Se
          empty change set",
         upserts.len(),
         deletes.len(),
-        LANE.env("PACK_SUMMARY_DIR")
+        config.lane.env("PACK_SUMMARY_DIR")
     );
     let mut next = current.clone();
     next.reflected_gold_iceberg_snapshot_id = config.expected_gold_snapshot.clone();
@@ -683,7 +700,7 @@ async fn patched(
         "patch {patch} is not above every patch number in use ({used:?}, newest published {})",
         current.newest_patch()
     );
-    let by_section = packs_by_section(summaries)?;
+    let by_section = packs_by_section(config.lane, summaries)?;
     let mut units: Option<BTreeSet<String>> = None;
     for section in &current.sections {
         let (generation, packs) = by_section.get(&section.name).with_context(|| {
