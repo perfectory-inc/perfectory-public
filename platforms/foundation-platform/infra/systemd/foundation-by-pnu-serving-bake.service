@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform by-PNU serving bake: Gold parcel then building panel to one R2 object per PNU (ADR-0122, ADR-0138; parcels ADR-0096, buildings ADR-0100)
+Description=Foundation Platform by-PNU serving bake: Gold panels to R2 by-PNU serving, objects or section packs (ADR-0122, ADR-0138, ADR-0147)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -15,9 +15,12 @@ EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
-# The lanes run one after the other in this one unit: side by side they would not fit the host
-# memory budget (root ADR-0138). A failed lane does not stop the other; the unit fails if either did.
-ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh all
+# The building lane alone until the parcel lane serves section packs (root ADR-0147 §8): the parcel
+# lane still serves one object per PNU, and reflecting one new Gold snapshot there could rewrite up
+# to 39.86M objects that the pack cut-over replaces anyway. `all` (parcel, then building, one after
+# the other: side by side they would not fit the host memory budget, root ADR-0138) comes back with
+# that cut-over.
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh building
 # A national first bake runs for days of R2 writes; the next start resumes where this one stopped.
 TimeoutStartSec=20h
 # Measured on ai-server on 2026-10-03 (root ADR-0138): the export of one real parcel shard of
