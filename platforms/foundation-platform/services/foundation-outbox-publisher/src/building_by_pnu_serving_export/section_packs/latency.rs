@@ -130,7 +130,10 @@ impl LatencyConfig {
                 .context("the contract names no preview Worker for this lane")?
                 .worker_name
                 .clone(),
-            load: Some(LoadPlan::from_contract(&gate.load_test)),
+            load: Some(LoadPlan::from_contract(
+                &gate.load_test,
+                load::LOAD_DRAW.to_owned(),
+            )),
             no_gzip_sample_size: gate.no_gzip_sample_size,
         })
     }

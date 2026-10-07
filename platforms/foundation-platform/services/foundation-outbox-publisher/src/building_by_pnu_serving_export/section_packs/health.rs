@@ -4,7 +4,9 @@
 //! A step first reads `canary.synthetic_load` gate-sample PNUs from the live hostname at each of
 //! its two versions, pinned with Cloudflare's `Cloudflare-Workers-Version-Overrides` header: before
 //! launch the live hostname carries almost no traffic, so a 1% step would never count enough real
-//! requests on the new version. Then the new version is held to:
+//! requests on the new version. Both versions read the same PNUs, drawn by the new version
+//! ([`load::canary_draw`]), so each rollout meets PNUs no earlier one warmed and its versions
+//! are compared cold with cold, then warm with warm. Then the new version is held to:
 //!
 //! | check | source | bound |
 //! |---|---|---|
@@ -144,7 +146,7 @@ pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let old_version = env("CANARY_OLD_VERSION")?;
     let pinned = drive(
         lane,
-        &LoadPlan::from_contract(&canary.synthetic_load),
+        &LoadPlan::from_contract(&canary.synthetic_load, load::canary_draw(&new_version)),
         &base_url,
         &equality.sample,
         &new_version,

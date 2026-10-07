@@ -27,14 +27,30 @@ pub(crate) struct LoadPlan {
     pub(crate) requests_per_second: u32,
     pub(crate) duration: Duration,
     pub(crate) max_in_flight: usize,
+    /// What salts the draw besides the contract's seed ([`drawn`]): [`LOAD_DRAW`] for gate (나),
+    /// the new version for a canary step ([`canary_draw`]).
+    pub(crate) draw: String,
+}
+
+/// Gate (나)'s draw: the same PNUs every run, so two runs of the gate compare like with like.
+pub(crate) const LOAD_DRAW: &str = "load";
+
+/// A canary step's draw. Each rollout reads PNUs of its own: with the gate's fixed draw every
+/// rollout read the same PNUs, which earlier runs had left in the old version's edge copies,
+/// while the new version's pack path read them from R2, so a step compared warm answers with
+/// cold ones and refused a healthy version on CPU (2026-10-07, building, 1% step). Salted with the
+/// new version, both versions meet the step's first reads cold.
+pub(crate) fn canary_draw(new_version: &str) -> String {
+    format!("canary:{new_version}")
 }
 
 impl LoadPlan {
-    pub(crate) fn from_contract(policy: &LoadTestPolicy) -> Self {
+    pub(crate) fn from_contract(policy: &LoadTestPolicy, draw: String) -> Self {
         Self {
             requests_per_second: policy.requests_per_second,
             duration: Duration::from_secs(policy.duration_seconds),
             max_in_flight: policy.max_in_flight,
+            draw,
         }
     }
 
@@ -43,13 +59,13 @@ impl LoadPlan {
     }
 }
 
-/// The sample index request `number` reads: a seeded hash, the same every run.
+/// The sample index request `number` reads: a seeded hash, the same every run of the same draw.
 ///
 /// # Errors
 /// Returns an error when the contract cannot be read.
-pub(crate) fn drawn(number: u64, sample_len: usize) -> anyhow::Result<usize> {
+pub(crate) fn drawn(draw: &str, number: u64, sample_len: usize) -> anyhow::Result<usize> {
     let seed = &section_pack_policy()?.cutover_gate.sample_seed;
-    let digest = Sha256::digest(format!("{seed}:load:{number}").as_bytes());
+    let digest = Sha256::digest(format!("{seed}:{draw}:{number}").as_bytes());
     let mut first = [0_u8; 8];
     first.copy_from_slice(&digest[..8]);
     let len = u64::try_from(sample_len.max(1))?;
@@ -83,7 +99,7 @@ pub(crate) async fn run(
             shed += 1;
             continue;
         };
-        let url = url_of(&pnus[drawn(number, pnus.len())?]);
+        let url = url_of(&pnus[drawn(&plan.draw, number, pnus.len())?]);
         let client = client.clone();
         tasks.spawn(async move {
             // The preview answers browsers with the member as stored; anything else is a failure.

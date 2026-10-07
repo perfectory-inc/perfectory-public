@@ -468,6 +468,7 @@ async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
         requests_per_second: 40,
         duration: Duration::from_secs(1),
         max_in_flight: 8,
+        draw: load::LOAD_DRAW.to_owned(),
     };
     let client = reqwest::Client::new();
     let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", fast.uri());
@@ -482,7 +483,7 @@ async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
     let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", slow.uri());
     let narrow = LoadPlan {
         max_in_flight: 2,
-        ..plan
+        ..plan.clone()
     };
     let shed = load::run(ByPnuLane::Building, &client, &narrow, &pnus(), url, None).await?;
     assert!(shed.shed > 0, "{shed:?}");
@@ -508,13 +509,41 @@ async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
 #[test]
 fn the_load_draw_is_seeded_and_repeats() -> anyhow::Result<()> {
     let first = (0..200)
-        .map(|n| load::drawn(n, 5))
+        .map(|n| load::drawn(load::LOAD_DRAW, n, 5))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let again = (0..200)
-        .map(|n| load::drawn(n, 5))
+        .map(|n| load::drawn(load::LOAD_DRAW, n, 5))
         .collect::<anyhow::Result<Vec<_>>>()?;
     assert_eq!(first, again);
     assert!((0..5).all(|index| first.contains(&index)));
+    Ok(())
+}
+
+/// A canary step draws by its new version: the same rollout reads the same PNUs at every step,
+/// and another rollout reads others, so no rollout meets PNUs an earlier one left warm on the old
+/// version alone (2026-10-07: the fixed draw compared warm with cold and failed a healthy step).
+#[test]
+fn each_rollout_draws_its_own_pnus() -> anyhow::Result<()> {
+    let draw = |salt: &str| {
+        (0..300)
+            .map(|n| load::drawn(salt, n, 10_000))
+            .collect::<anyhow::Result<Vec<_>>>()
+    };
+    let rollout = draw(&load::canary_draw("11111111-1111-4111-8111-111111111111"))?;
+    assert_eq!(
+        rollout,
+        draw(&load::canary_draw("11111111-1111-4111-8111-111111111111"))?
+    );
+    let other = draw(&load::canary_draw("22222222-2222-4222-8222-222222222222"))?;
+    let gate = draw(load::LOAD_DRAW)?;
+    let shared = |a: &[usize], b: &[usize]| a.iter().filter(|index| b.contains(index)).count();
+    // 300 of 10,000 drawn twice share about 9 by chance; the fixed draw shared all 300.
+    assert!(
+        shared(&rollout, &other) < 30,
+        "{}",
+        shared(&rollout, &other)
+    );
+    assert!(shared(&rollout, &gate) < 30, "{}", shared(&rollout, &gate));
     Ok(())
 }
 
@@ -810,6 +839,7 @@ async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
         requests_per_second: 20,
         duration: Duration::from_secs(1),
         max_in_flight: 8,
+        draw: load::canary_draw(NEW),
     };
     let pinned = super::health::drive(
         ByPnuLane::Building,

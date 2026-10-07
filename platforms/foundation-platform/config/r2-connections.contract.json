@@ -99,7 +99,7 @@
           "requests_per_second": 5,
           "duration_seconds": 60,
           "max_in_flight": 16,
-          "reason": "as the building lane's: before launch the live hostname carries too few requests for a step to reach min_requests_per_step, so each step reads 300 gate-sample PNUs from the live hostname pinned to each version"
+          "reason": "as the building lane's: before launch the live hostname carries too few requests for a step to reach min_requests_per_step, so each step reads 300 gate-sample PNUs, drawn by the new version id, from the live hostname pinned to each version"
         }
       },
       "monitor": {
@@ -319,7 +319,7 @@
           "requests_per_second": 5,
           "duration_seconds": 60,
           "max_in_flight": 16,
-          "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment), counts the answers that name the new version in version_header (a misdirected pin shows up as too few of them), and judges each version on its own answers (every one 200 and gzip) as well as on analytics"
+          "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment), counts the answers that name the new version in version_header (a misdirected pin shows up as too few of them), and judges each version on its own answers (every one 200 and gzip) as well as on analytics. The PNUs are drawn by the new version id (load::canary_draw): with one fixed draw every rollout read the PNUs earlier runs had left in the old version's edge copies while the new version read them from R2, and on 2026-10-07 the 1% step refused a healthy version on CPU, cold against warm"
         }
       },
       "monitor": {
