@@ -190,6 +190,19 @@ mod tests {
         Ok(())
     }
 
+    /// Each lane's packs live under its own root, and one lane never reads the other's keys.
+    #[test]
+    fn each_lane_keys_its_packs_under_its_own_root() -> anyhow::Result<()> {
+        let parcel = pack_key(ByPnuLane::Parcel, "documents", 1, None, UNIT)?;
+        let building = pack_key(ByPnuLane::Building, "documents", 1, None, UNIT)?;
+        assert!(parcel.starts_with(&format!("{}/", ByPnuLane::Parcel.section_packs()?.root)));
+        assert_ne!(parcel, building);
+        assert!(parse_pack_key(ByPnuLane::Parcel, &parcel).is_some());
+        assert_eq!(parse_pack_key(ByPnuLane::Building, &parcel), None);
+        assert_eq!(parse_pack_key(ByPnuLane::Parcel, &building), None);
+        Ok(())
+    }
+
     #[test]
     fn keys_outside_the_grammar_are_refused() {
         for bad in [
@@ -197,7 +210,7 @@ mod tests {
             pack_key(ByPnuLane::Building, "documents", 0, None, UNIT),
             pack_key(ByPnuLane::Building, "documents", 1, Some(0), UNIT),
             pack_key(ByPnuLane::Building, "documents", 1, None, "99999"),
-            pack_key(ByPnuLane::Parcel, "documents", 1, None, UNIT),
+            pack_key(ByPnuLane::Parcel, "zonings", 1, None, UNIT),
         ] {
             assert!(bad.is_err(), "{bad:?}");
         }

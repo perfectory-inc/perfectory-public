@@ -10,7 +10,10 @@
 //! | `check-building-gateway-version-health`          | one canary step's verdict, from analytics |
 //! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
 //!
-//! Environment variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`).
+//! Each command exists for the parcel lane too, with `parcel` in place of `building`
+//! (`export-parcel-by-pnu-section-packs`, `check-parcel-gateway-version-health`, ...). Environment
+//! variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`,
+//! `FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_`).
 
 use crate::by_pnu_gateway_contract::ByPnuLane;
 
@@ -74,6 +77,19 @@ impl PackCommand {
                 (ByPnuLane::Building, PackCommandKind::CheckVersionHealth)
             }
             "monitor-building-by-pnu-serving" => (ByPnuLane::Building, PackCommandKind::Monitor),
+            "export-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Export),
+            "verify-parcel-by-pnu-section-pack-equality" => {
+                (ByPnuLane::Parcel, PackCommandKind::VerifyEquality)
+            }
+            "probe-parcel-by-pnu-section-pack-latency" => {
+                (ByPnuLane::Parcel, PackCommandKind::ProbeLatency)
+            }
+            "publish-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Publish),
+            "inspect-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Inspect),
+            "check-parcel-gateway-version-health" => {
+                (ByPnuLane::Parcel, PackCommandKind::CheckVersionHealth)
+            }
+            "monitor-parcel-by-pnu-serving" => (ByPnuLane::Parcel, PackCommandKind::Monitor),
             _ => return None,
         };
         Some(Self { lane, kind })

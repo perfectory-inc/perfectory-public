@@ -15,13 +15,14 @@
 //! The documents are rendered by the lane's object export builder ([`Renderer`]), so a pack holds
 //! exactly what an object would have held.
 
-use anyhow::{bail, ensure, Context};
-use lakehouse_domain::{LakehouseTableContract, GOLD_BUILDING_PANEL};
+use anyhow::{ensure, Context};
+use lakehouse_domain::{LakehouseTableContract, GOLD_BUILDING_PANEL, GOLD_PARCEL_PANEL};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::super::building_document::{self, BuildingByPnuDocument};
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::parcel_by_pnu_serving_export::parcel_document::{self, PARCEL_DOCUMENT_SCHEMA_VERSION};
 
 pub(crate) const DOCUMENTS: &str = "documents";
 /// Every section this file can cut.
@@ -51,13 +52,10 @@ pub(crate) fn check_contract_sections(lane: ByPnuLane) -> anyhow::Result<()> {
 }
 
 /// The lane's Gold table, as the scan reads it.
-///
-/// # Errors
-/// Refuses a lane that bakes no packs.
-pub(crate) fn gold_table(lane: ByPnuLane) -> anyhow::Result<&'static LakehouseTableContract> {
+pub(crate) const fn gold_table(lane: ByPnuLane) -> &'static LakehouseTableContract {
     match lane {
-        ByPnuLane::Building => Ok(&GOLD_BUILDING_PANEL),
-        ByPnuLane::Parcel => bail!("the parcel lane bakes no section packs yet"),
+        ByPnuLane::Building => &GOLD_BUILDING_PANEL,
+        ByPnuLane::Parcel => &GOLD_PARCEL_PANEL,
     }
 }
 
@@ -82,6 +80,8 @@ pub(crate) struct PackProvenance {
 pub(crate) enum Renderer {
     /// The building document reads the approved building links from the runtime database.
     Building(ApprovedBuildingLinks),
+    /// The parcel document is the Gold row alone.
+    Parcel,
 }
 
 impl Renderer {
@@ -92,7 +92,7 @@ impl Renderer {
     pub(crate) async fn load(lane: ByPnuLane) -> anyhow::Result<Self> {
         match lane {
             ByPnuLane::Building => Ok(Self::Building(ApprovedBuildingLinks::load_current().await?)),
-            ByPnuLane::Parcel => bail!("the parcel lane bakes no section packs yet"),
+            ByPnuLane::Parcel => Ok(Self::Parcel),
         }
     }
 
@@ -118,6 +118,19 @@ impl Renderer {
                 Ok(PackDocument {
                     bytes: document.to_bytes()?,
                     pnu: document.pnu,
+                })
+            }
+            Self::Parcel => {
+                let provenance = parcel_document::GoldSnapshotProvenance {
+                    table: provenance.table.clone(),
+                    iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
+                    metadata_location: provenance.metadata_location.clone(),
+                    manifest_list_location: provenance.manifest_list_location.clone(),
+                };
+                let artifact = parcel_document::build(&provenance, row)?;
+                Ok(PackDocument {
+                    pnu: artifact.pnu,
+                    bytes: artifact.body,
                 })
             }
         }
@@ -154,7 +167,24 @@ pub(crate) fn join(lane: ByPnuLane, fragments: &[(&str, &[u8])]) -> anyhow::Resu
                 .context("the documents fragment is not a building document")?;
             Ok(())
         }
-        ByPnuLane::Parcel => bail!("the parcel lane bakes no section packs yet"),
+        ByPnuLane::Parcel => {
+            // The parcel document is Serialize-only (it borrows its row), so its member is held
+            // to the shape the object lane wrote: an object of the parcel schema naming a PNU.
+            let document: JsonValue =
+                serde_json::from_slice(bytes).context("the documents fragment is not JSON")?;
+            ensure!(
+                document.get("schema_version").and_then(JsonValue::as_str)
+                    == Some(PARCEL_DOCUMENT_SCHEMA_VERSION)
+                    && document
+                        .get("pnu")
+                        .and_then(JsonValue::as_str)
+                        .is_some_and(
+                            |pnu| pnu.len() == 19 && pnu.bytes().all(|b| b.is_ascii_digit())
+                        ),
+                "the documents fragment is not a {PARCEL_DOCUMENT_SCHEMA_VERSION} document"
+            );
+            Ok(())
+        }
     }
 }
 
@@ -189,7 +219,71 @@ mod tests {
 
     #[test]
     fn the_contract_names_exactly_the_sections_the_bake_cuts() -> anyhow::Result<()> {
-        check_contract_sections(ByPnuLane::Building)
+        check_contract_sections(ByPnuLane::Building)?;
+        check_contract_sections(ByPnuLane::Parcel)
+    }
+
+    /// A synthetic `gold.parcel_panel` row (repository-reserved 99999 namespace).
+    fn parcel_row() -> JsonMap<String, JsonValue> {
+        let serde_json::Value::Object(row) = serde_json::json!({
+            "pnu": "9999900000100000000",
+            "area_m2": 512,
+            "zonings_json": "[{\"zone_code\":\"UQA320\",\"zone_name\":\"synthetic zone\",\"anchor_code\":\"UQA320\",\"inclusion_code\":\"1\"}]",
+            "price_json": "{\"price_per_m2\":123000,\"base_year\":2026,\"base_month\":1,\"announced_date\":\"2026-01-01\"}",
+            "characteristics_json": null,
+            "forest_ledger_json": null,
+            "transfer_history_json": "[]",
+            "land_rights_json": "[]",
+            "land_right_total": 0,
+        }) else {
+            unreachable!("a JSON object literal")
+        };
+        row
+    }
+
+    fn parcel_provenance() -> PackProvenance {
+        PackProvenance {
+            table: "gold.parcel_panel".to_owned(),
+            iceberg_snapshot_id: "999990000000000001".to_owned(),
+            metadata_location: "s3://fixture/metadata.json".to_owned(),
+            manifest_list_location: "s3://fixture/manifest.avro".to_owned(),
+        }
+    }
+
+    /// The parcel pack holds the object lane's bytes exactly: the renderer is the object
+    /// export's own builder, and the validator takes what it wrote.
+    #[test]
+    fn a_parcel_pack_holds_the_object_bytes() -> anyhow::Result<()> {
+        let row = parcel_row();
+        let document = Renderer::Parcel.render(&parcel_provenance(), &row)?;
+        let object = parcel_document::build(
+            &parcel_document::GoldSnapshotProvenance {
+                table: "gold.parcel_panel".to_owned(),
+                iceberg_snapshot_id: "999990000000000001".to_owned(),
+                metadata_location: "s3://fixture/metadata.json".to_owned(),
+                manifest_list_location: "s3://fixture/manifest.avro".to_owned(),
+            },
+            &row,
+        )?;
+        assert_eq!(document.pnu, object.pnu);
+        assert_eq!(document.bytes, object.body);
+        let bytes = fragment(&document, DOCUMENTS)?;
+        join(ByPnuLane::Parcel, &[(DOCUMENTS, bytes.as_slice())])?;
+        Ok(())
+    }
+
+    /// A building document is not a parcel document, and neither is a parcel one without its PNU.
+    #[test]
+    fn a_parcel_pack_refuses_another_lanes_member() -> anyhow::Result<()> {
+        let building = pack_document(&fixture_document()?)?;
+        assert!(join(ByPnuLane::Parcel, &[(DOCUMENTS, building.bytes.as_slice())]).is_err());
+        let parcel = Renderer::Parcel.render(&parcel_provenance(), &parcel_row())?;
+        assert!(join(ByPnuLane::Building, &[(DOCUMENTS, parcel.bytes.as_slice())]).is_err());
+        let mut nameless: JsonValue = serde_json::from_slice(&parcel.bytes)?;
+        nameless["pnu"] = JsonValue::Null;
+        let nameless = serde_json::to_vec(&nameless)?;
+        assert!(join(ByPnuLane::Parcel, &[(DOCUMENTS, nameless.as_slice())]).is_err());
+        Ok(())
     }
 
     /// The pack holds the served bytes exactly, and reading them back gives the same bytes: the

@@ -262,7 +262,7 @@ pub(crate) struct PackEntry {
 pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     sections::check_contract_sections(lane)?;
     let config = BakeConfig::from_env(lane)?;
-    let table = sections::gold_table(lane)?.table_name;
+    let table = sections::gold_table(lane).table_name;
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )?;
@@ -318,7 +318,7 @@ async fn scan(
         &snapshot.snapshot_id.to_string(),
     )?;
     let rows = scan_snapshot_rows_kept(
-        sections::gold_table(config.lane)?,
+        sections::gold_table(config.lane),
         lakehouse,
         snapshot,
         |row| match row.get("pnu").and_then(JsonValue::as_str) {

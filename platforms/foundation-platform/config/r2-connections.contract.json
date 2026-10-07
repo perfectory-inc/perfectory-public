@@ -71,7 +71,17 @@
     "content_type": "application/json; charset=utf-8",
     "cache_control": "public, max-age=3600",
     "manifest_cache_control": "no-cache, max-age=0",
-    "manifest_edge_cache_seconds": 60
+    "manifest_edge_cache_seconds": 60,
+    "section_packs": {
+      "root": "serving/parcels/packs",
+      "sections": ["documents"],
+      "anchor_section": "documents",
+      "sections_reason": "the parcel document is already one joined document per PNU (zonings, price, characteristics, forest ledger, transfer history, land rights), and the building lane showed that the Worker must hand out the stored member as it is rather than join fragments per request (root ADR-0151); one section holds it whole",
+      "scheduled_bake": {
+        "job": "by_pnu_serving_bake",
+        "capability": "parcel_section_pack_patches"
+      }
+    }
   },
   "connections": {
     "lakehouse": {
