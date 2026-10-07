@@ -3,7 +3,7 @@
 //! A pack is one R2 object, written once. One range read of its head (prefix, header, index)
 //! answers which PNUs it holds; one more range read returns one document, gzip-compressed by
 //! itself so it can be decoded alone. The writer and the reader are both here so they share
-//! every constant; the gateway Worker's reader (`services/foundation-building-gateway`) is held
+//! every constant; the gateway Worker's reader (`services/foundation-by-pnu-gateway`) is held
 //! to the same bytes by the golden pack the tests below pin and the Worker's tests read.
 //!
 //! ```text

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import contract from "../../../config/r2-connections.contract.json";
-import { fetchBuilding } from "../src/index";
+import { fetchByPnu } from "../src/index";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,7 +13,7 @@ it.each(["manifest", "object"])("%s read failure is a CORS-readable, uncacheable
     }
     throw new Error("synthetic R2 failure");
   }) };
-  const response = await fetchBuilding(
+  const response = await fetchByPnu(
     new Request(`https://buildings.example.test${policy.request_path.prefix}9999900000100000000`, { headers: { Origin: "http://localhost:3000" } }),
     { [policy.r2_binding]: bucket as unknown as Pick<R2Bucket, "get">, [policy.allowed_origins_binding]: "http://localhost:3000" },
     { waitUntil: vi.fn() } as unknown as ExecutionContext,

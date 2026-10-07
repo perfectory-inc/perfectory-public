@@ -2,20 +2,27 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-10-05
+last_reviewed: 2026-10-08
 ---
 
-# Foundation Building Gateway
+# Foundation By-PNU Gateway
 
-비공개 lakehouse R2의 미리 구운 건물·층·호 by-PNU JSON 객체를 서빙하는 Cloudflare module Worker다
-(루트 ADR-0100). 브라우저는 PNU만 알고, 현재 서빙 세대는 R2 의 serving manifest 가 고정한다.
+비공개 lakehouse R2의 미리 구운 by-PNU 문서(필지 상세, 건물·층·호)를 서빙하는 Cloudflare module
+Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서빙 세대는 R2 의 serving manifest 가 고정한다.
+
+**한 소스, 두 레인**(루트 ADR-0160): 필지 Worker(`foundation-parcel-gateway`, `catalog.perfectory.io`)와
+건물 Worker(`foundation-building-gateway`, `buildings.perfectory.io`)는 이 소스 하나를 레인만 바꿔 묶는다.
+레인은 묶을 때 정해진다(`src/lane.ts`, Wrangler 의 `define`). 배포는 레인의 설정 파일로 한다:
+`wrangler deploy -c wrangler.parcel.jsonc` / `-c wrangler.building.jsonc`. 시험은 레인마다 따로 돈다
+(`vitest.config.ts` 의 두 project; `parcel-*.test.ts` 가 필지 레인). 레인의 차이는 코드가 아니라 계약
+블록(`parcel_by_pnu_gateway`, `building_by_pnu_gateway`)에만 있다.
 
 ## 계약과 응답
 
 [`r2-connections.contract.json`](../../config/r2-connections.contract.json)의
 `building_by_pnu_gateway`가 Worker/binding 이름, bucket 연결, 요청 경로 prefix, 키 root·세대
 디렉터리·PNU pattern·suffix, manifest 주소, CORS 문법, content type과 cache 정책의 유일한
-정의다. `wrangler.jsonc`는 `config:render`가 만드는 투영이므로 직접 고치지 않는다.
+정의다. `wrangler.building.jsonc`·`wrangler.parcel.jsonc`는 `config:render`가 레인마다 만드는 투영이므로 직접 고치지 않는다.
 
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한 `/buildings/by-pnu/{pnu}` (PNU 19자리, 11번째
   자리는 대장 구분 `[1289]`)
@@ -58,7 +65,7 @@ last_reviewed: 2026-10-05
     묶음 경로는 이 바인딩만 다른 두 버전 사이의 비율로 올리고 내린다(`scripts/ops/building-gateway-canary.sh`,
     ADR-0151 Revision).
   `?packs=g{n}` 은 미리보기 Worker(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`, 계약
-  `section_packs.preview_worker`, `wrangler.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
+  `section_packs.preview_worker`, `wrangler.<레인>.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
   manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
   레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.

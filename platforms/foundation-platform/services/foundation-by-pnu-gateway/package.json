@@ -1,5 +1,5 @@
 {
-  "name": "@perfectory/foundation-building-gateway",
+  "name": "@perfectory/foundation-by-pnu-gateway",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
@@ -15,7 +15,7 @@
     "config:render": "node scripts/render-wrangler-config.mjs --write",
     "test": "vitest run --passWithNoTests=false",
     "typecheck": "tsc --noEmit",
-    "verify:local": "node scripts/verify-local.mjs"
+    "verify:local": "node scripts/verify-local.mjs building && node scripts/verify-local.mjs parcel"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260426.1",

@@ -4,7 +4,7 @@
 //! the PNU, else the section's base pack. The anchor section decides whether the PNU answers;
 //! every other section must agree with it (a document beside a document, a tombstone or nothing
 //! beside a tombstone), and a disagreement is an error, never a partial document. The Worker
-//! (`foundation-building-gateway/src/packs.ts`, `foundation-parcel-gateway/src/packs.ts`) follows the
+//! (`foundation-by-pnu-gateway/src/packs.ts`, one source for both lanes) follows the
 //! same rules; the golden fixtures pin both.
 
 use anyhow::{bail, ensure, Context};

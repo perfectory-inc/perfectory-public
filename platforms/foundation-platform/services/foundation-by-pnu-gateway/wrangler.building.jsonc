@@ -1,0 +1,66 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "foundation-building-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-26",
+  "workers_dev": false,
+  "keep_vars": true,
+  "define": {
+    "__FOUNDATION_BY_PNU_LANE__": "\"building\""
+  },
+  "limits": {
+    "cpu_ms": 50
+  },
+  "placement": {
+    "region": "aws:ap-northeast-1"
+  },
+  "routes": [
+    {
+      "pattern": "buildings.perfectory.io",
+      "custom_domain": true
+    },
+    {
+      "pattern": "buildings.gongzzang.app",
+      "custom_domain": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+      "bucket_name": "foundation-platform-lakehouse-prod"
+    }
+  ],
+  "version_metadata": {
+    "binding": "FOUNDATION_PLATFORM_WORKER_VERSION"
+  },
+  "env": {
+    "preview": {
+      "name": "foundation-building-gateway-preview",
+      "workers_dev": false,
+      "define": {
+        "__FOUNDATION_BY_PNU_LANE__": "\"building\""
+      },
+      "placement": {
+        "region": "aws:ap-northeast-1"
+      },
+      "routes": [
+        {
+          "pattern": "buildings-preview.perfectory.io",
+          "custom_domain": true
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+          "bucket_name": "foundation-platform-lakehouse-prod"
+        }
+      ],
+      "version_metadata": {
+        "binding": "FOUNDATION_PLATFORM_WORKER_VERSION"
+      },
+      "vars": {
+        "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW": "true"
+      }
+    }
+  }
+}

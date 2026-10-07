@@ -6,7 +6,7 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 
 describe("generated Wrangler configuration", () => {
   it("projects the single R2 contract without credentials", async () => {
-    const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const text = await readFile(new URL("../wrangler.building.jsonc", import.meta.url), "utf8");
     const config = JSON.parse(text) as Record<string, unknown>;
     const gateway = connectionContract.building_by_pnu_gateway;
     const lakehouse = connectionContract.connections.lakehouse;
@@ -36,7 +36,7 @@ describe("generated Wrangler configuration", () => {
   });
 
   it("serves exactly the hostnames the contract names, and nothing wildcarded", async () => {
-    const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const text = await readFile(new URL("../wrangler.building.jsonc", import.meta.url), "utf8");
     const config = JSON.parse(text) as { routes?: { pattern: string; custom_domain: boolean }[] };
     const gateway = connectionContract.building_by_pnu_gateway;
 
@@ -54,7 +54,7 @@ describe("generated Wrangler configuration", () => {
   });
 
   it("the cut-over preview is its own Worker on its own custom domain, never a live route", async () => {
-    const text = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const text = await readFile(new URL("../wrangler.building.jsonc", import.meta.url), "utf8");
     const config = JSON.parse(text) as {
       vars?: unknown;
       env?: Record<string, { name: string; workers_dev: boolean; routes: unknown; vars: Record<string, string> }>;

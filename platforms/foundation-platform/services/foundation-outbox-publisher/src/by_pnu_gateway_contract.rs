@@ -1,8 +1,8 @@
 //! Typed access to the by-PNU gateway sections of the R2 connection contract.
 //!
 //! The contract JSON is the SSOT (root ADR-0096 parcels, ADR-0100 buildings, ADR-0141 patches):
-//! the exports, the manifest publisher, and the `foundation-parcel-gateway` and
-//! `foundation-building-gateway` Workers all read the same blocks, so the key grammar the uploader
+//! the exports, the manifest publisher, and the by-PNU gateway Worker
+//! (`services/foundation-by-pnu-gateway`, both lanes) all read the same blocks, so the key grammar the uploader
 //! writes under and the grammar the Workers resolve are one fact. Both lanes share one shape.
 
 use std::sync::OnceLock;
