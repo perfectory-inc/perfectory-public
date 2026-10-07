@@ -808,7 +808,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             building_document::document_with_approvals(&provenance(SNAPSHOT), row, &approvals)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let changed = vec![
+    let changed = [
         building_document::document_with_approvals(
             &provenance(SNAPSHOT),
             &changed_row()?,
