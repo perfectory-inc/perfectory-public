@@ -150,7 +150,9 @@ class Canary(unittest.TestCase):
         deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
         self.assertIn(f"{OLD}@100%", deploys[-1])
         self.assertIn("canary rollback", deploys[-1])
-        self.assertIn("wrangler deployments status --name foundation-building-gateway", calls)
+        self.assertIn(
+            "wrangler deployments status --name foundation-building-gateway --config wrangler.building.jsonc", calls
+        )
         # No step after the failed one was judged.
         self.assertEqual(calls.count(f"health {NEW} {OLD}"), 1)
 

@@ -43,6 +43,7 @@ describe("foundation building gateway", () => {
     buildingBody = await readFile(new URL("fixtures/building.json", import.meta.url), "utf8");
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("building") },
       bundle: true,
       format: "esm",
       platform: "browser",
@@ -461,6 +462,7 @@ describe("foundation building gateway patch generations (root ADR-0141)", () => 
     baseBody = await readFile(new URL("fixtures/building.json", import.meta.url), "utf8");
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("building") },
       bundle: true,
       format: "esm",
       platform: "browser",

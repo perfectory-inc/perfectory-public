@@ -91,6 +91,7 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
   ): Promise<Miniflare> {
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("building") },
       bundle: true,
       format: "esm",
       platform: "browser",

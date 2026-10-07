@@ -15,19 +15,19 @@
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 124 |
+| Foundation Platform | 123 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 184 |
+| Monorepo | 185 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 242 |
-| README | 115 |
+| ADR | 243 |
+| README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
 | contract | 5 |
@@ -162,10 +162,9 @@ platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
 platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
 platforms/foundation-platform/services/foundation-api/README.md
-platforms/foundation-platform/services/foundation-building-gateway/README.md
+platforms/foundation-platform/services/foundation-by-pnu-gateway/README.md
 platforms/foundation-platform/services/foundation-map-edit-gateway/README.md
 platforms/foundation-platform/services/foundation-outbox-publisher/README.md
-platforms/foundation-platform/services/foundation-parcel-gateway/README.md
 platforms/foundation-platform/services/foundation-profile-gateway/README.md
 platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md
 platforms/foundation-platform/services/foundation-tile-gateway/README.md
@@ -549,6 +548,7 @@ docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-d
 docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md
 docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md
 docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md
+docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -745,6 +745,7 @@ tools/github/README.md
 | `docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -883,10 +884,9 @@ tools/github/README.md
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-api/README.md` | Foundation Platform | README | current |
-| `platforms/foundation-platform/services/foundation-building-gateway/README.md` | Foundation Platform | README | current |
+| `platforms/foundation-platform/services/foundation-by-pnu-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-map-edit-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-outbox-publisher/README.md` | Foundation Platform | README | current |
-| `platforms/foundation-platform/services/foundation-parcel-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-profile-gateway/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/services/foundation-tile-gateway/README.md` | Foundation Platform | README | current |

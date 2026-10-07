@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { fetchBuilding } from "../src/index";
+import { fetchByPnu } from "../src/index";
 import {
   answerCacheUrl,
   PackFormatError,
@@ -336,7 +336,7 @@ describe("R2 retries within a deadline", () => {
       }),
     };
     const started = Date.now();
-    const response = await fetchBuilding(
+    const response = await fetchByPnu(
       new Request(`https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`),
       {
         [policy.r2_binding]: bucket as unknown as Pick<R2Bucket, "get">,
@@ -368,7 +368,7 @@ describe("R2 retries within a deadline", () => {
       [PACKS.preview_binding]: "true",
     };
     const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
-    const get = () => fetchBuilding(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env, ctx);
+    const get = () => fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env, ctx);
     const cold = await get();
     const coldBody = new Uint8Array(await cold.arrayBuffer());
     expect(cold.headers.get("server-timing")).toContain('desc="r2-whole"');
@@ -411,7 +411,7 @@ describe("R2 retries within a deadline", () => {
     });
     const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
     const get = (version: string) =>
-      fetchBuilding(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(version), ctx);
+      fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(version), ctx);
     const first = await get("11111111-1111-4111-8111-111111111111");
     expect(first.headers.get("server-timing")).toContain('desc="r2-whole"');
     await Promise.all(pending);
@@ -443,7 +443,7 @@ describe("R2 retries within a deadline", () => {
       ...(preview ? { [PACKS.preview_binding]: "true" } : {}),
     });
     const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
-    const preview = await fetchBuilding(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(true), ctx);
+    const preview = await fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(true), ctx);
     expect(preview.headers.get("content-encoding")).toBe("gzip");
     expect(preview.status).toBe(200);
     const timing = preview.headers.get("server-timing") ?? "";
@@ -451,7 +451,7 @@ describe("R2 retries within a deadline", () => {
     expect(timing).toMatch(/r2;dur=\d+;desc="gets=1 retries=0"/);
     for (const section of PACKS.sections) expect(timing).toContain(`pack-${section};dur=`);
     expect(timing).toMatch(/total;dur=\d+/);
-    const live = await fetchBuilding(new Request(url), env(false), ctx);
+    const live = await fetchByPnu(new Request(url), env(false), ctx);
     expect(live.status).toBe(404);
     expect(live.headers.get("server-timing")).toBeNull();
   });

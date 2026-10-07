@@ -5,11 +5,18 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// One proof per lane (root ADR-0160): `node scripts/verify-local.mjs building|parcel` runs that
+// lane's Wrangler config against a local R2.
+const lane = process.argv[2];
+if (lane !== "building" && lane !== "parcel") {
+  throw new Error("usage: verify-local.mjs <building|parcel>");
+}
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const contract = JSON.parse(
   await readFile(new URL("../../../config/r2-connections.contract.json", import.meta.url), "utf8"),
 );
-const gateway = contract.building_by_pnu_gateway;
+const gateway = contract[`${lane}_by_pnu_gateway`];
+const wranglerConfig = `wrangler.${lane}.jsonc`;
 const connection = contract.connections[gateway.connection];
 const bucket = connection.expected_values.FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET;
 // Synthetic PNU in the repository-reserved namespace (scripts/guard/public-fixture-safety.py).
@@ -19,11 +26,14 @@ const objectKey = `${gateway.object_key.root}/v${servedGeneration}/${pnu}${gatew
 const staleKey = `${gateway.object_key.root}/v1/${pnu}${gateway.object_key.suffix}`;
 const requestPath = `${gateway.request_path.prefix}${pnu}`;
 const bronzeKey = "bronze/vworld/2026/raw.jsonl";
-const port = Number.parseInt(process.env.FOUNDATION_BUILDING_GATEWAY_LOCAL_PORT ?? "18789", 10);
-const prefix = join(tmpdir(), "foundation-building-gateway-");
+const port = Number.parseInt(
+  process.env.FOUNDATION_BY_PNU_GATEWAY_LOCAL_PORT ?? (lane === "building" ? "18789" : "18788"),
+  10,
+);
+const prefix = join(tmpdir(), `foundation-${lane}-gateway-`);
 const proofRoot = await mkdtemp(prefix);
 const persistDir = join(proofRoot, "r2-state");
-const buildingFixture = join(proofRoot, "building.json");
+const documentFixture = join(proofRoot, "document.json");
 const staleFixture = join(proofRoot, "stale.json");
 const manifestFixture = join(proofRoot, "manifest.json");
 const bronzeFixture = join(proofRoot, "bronze.jsonl");
@@ -125,25 +135,25 @@ async function removeProofRoot(path) {
 }
 
 try {
-  const buildingBody = Buffer.from(`{"pnu":"${pnu}","generation":${servedGeneration}}\n`);
+  const documentBody = Buffer.from(`{"pnu":"${pnu}","generation":${servedGeneration}}\n`);
   const staleBody = Buffer.from(`{"pnu":"${pnu}","generation":1}\n`);
   const manifestBody = Buffer.from(
     `${JSON.stringify({
       schema_version: 1,
-      unit: "building-by-pnu",
+      unit: `${lane}-by-pnu`,
       current_generation: servedGeneration,
-      gold_table: "gold.building_panel",
+      gold_table: `gold.${lane}_panel`,
       gold_iceberg_snapshot_id: "999990000000000001",
       object_count: 1,
       published_at_utc: "2026-01-01T00:00:00Z",
     })}\n`,
   );
-  await writeFile(buildingFixture, buildingBody);
+  await writeFile(documentFixture, documentBody);
   await writeFile(staleFixture, staleBody);
   await writeFile(manifestFixture, manifestBody);
   await writeFile(bronzeFixture, "{}\n");
   for (const [key, file] of [
-    [objectKey, buildingFixture],
+    [objectKey, documentFixture],
     [staleKey, staleFixture],
     [gateway.object_key.manifest_object, manifestFixture],
   ]) {
@@ -179,6 +189,8 @@ try {
     [
       wranglerBin,
       "dev",
+      "--config",
+      wranglerConfig,
       "--local",
       "--persist-to",
       persistDir,
@@ -193,7 +205,7 @@ try {
 
   const canonical = await request(requestPath);
   assertStatus("canonical GET", canonical.status, 200);
-  if (!canonical.body.equals(buildingBody)) {
+  if (!canonical.body.equals(documentBody)) {
     throw new Error(
       "canonical GET bytes drifted — the manifest generation was not the one served",
     );
@@ -210,7 +222,7 @@ try {
     304,
   );
   assertStatus(
-    "unbaked building",
+    `unbaked ${lane}`,
     (await request(`${gateway.request_path.prefix}9999900000200000000`)).status,
     404,
   );
@@ -250,7 +262,7 @@ try {
     ).status,
     403,
   );
-  process.stdout.write("OK foundation-building-gateway local Wrangler/R2 proof\n");
+  process.stdout.write(`OK ${gateway.worker_name} local Wrangler/R2 proof\n`);
 } catch (error) {
   if (logHandle !== undefined) {
     await logHandle.sync();
@@ -261,7 +273,7 @@ try {
   await stopServer();
   await logHandle?.close();
   const resolved = resolve(proofRoot);
-  const safePrefix = `${resolve(tmpdir())}${sep}foundation-building-gateway-`;
+  const safePrefix = `${resolve(tmpdir())}${sep}foundation-${lane}-gateway-`;
   if (!resolved.startsWith(safePrefix) || dirname(resolved) !== resolve(tmpdir())) {
     throw new Error(`refusing to remove unexpected proof path: ${resolved}`);
   }

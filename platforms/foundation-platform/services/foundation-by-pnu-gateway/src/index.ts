@@ -13,12 +13,10 @@ import {
   type ReadTrace,
   type Resolved,
 } from "./packs";
+import { cacheOrigin, lanePacks, policy, UNIT } from "./lane";
 
-const policy = connectionContract.building_by_pnu_gateway;
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
-const lanePacks = policy.section_packs;
-const UNIT = "building-by-pnu";
 /// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, and 3,
 /// the `section_packs` block a v2 envelope can carry (root ADR-0147). The publisher asks for this
 /// list at `request_path.capabilities` before it writes the first manifest of a newer schema.
@@ -31,7 +29,7 @@ const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
 const PNU_PREFIX_LENGTHS = { min: 1, max: 19 } as const;
 // A synthetic cache identity for the parsed manifest: the manifest's own R2 key is not a public
 // URL of this Worker, and caching under a request URL would let a client shape the cache.
-const manifestCacheUrl = "https://foundation-building-gateway.invalid/serving-manifest";
+const manifestCacheUrl = `${cacheOrigin}/serving-manifest`;
 
 interface Env {
   [binding: string]: string | Pick<R2Bucket, "get"> | Pick<WorkerVersionMetadata, "id">;
@@ -67,7 +65,10 @@ function canonicalRequest(url: URL): CanonicalRequest | null {
   // The exact schema query separates v2 browser/edge caches from year-only documents; the preview
   // query names one unpublished pack generation (the cut-over gate's latency probe).
   const preview = url.search.match(previewPattern);
-  if (url.search !== "" && url.search !== "?schema=2" && preview === null) return null;
+  // A lane may accept a query that names a document variant for browser and edge caches
+  // (contract `request_path.accepted_queries`, the building lane's `schema=2`).
+  const accepted = (policy.request_path.accepted_queries as readonly string[]).some((query) => url.search === `?${query}`);
+  if (url.search !== "" && !accepted && preview === null) return null;
   const prefix = policy.request_path.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
@@ -139,7 +140,7 @@ function isGeneration(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
-/// The pointer is an outage boundary, not a data boundary: a building that was never baked is a
+/// The pointer is an outage boundary, not a data boundary: a PNU that was never baked is a
 /// 404, but a manifest that cannot be read or does not validate means the whole lane is not
 /// serving, and that must surface as 503 rather than as millions of spurious 404s. A v1
 /// manifest is a base with no patches.
@@ -463,11 +464,11 @@ function workerVersion(env: Env): string | null {
   return null;
 }
 
-async function fetchBuilding(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  return withVersion(await answerBuilding(request, env, ctx), env);
+async function fetchByPnu(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  return withVersion(await answerByPnu(request, env, ctx), env);
 }
 
-async function answerBuilding(
+async function answerByPnu(
   request: Request,
   env: Env,
   ctx: ExecutionContext,
@@ -619,7 +620,7 @@ async function answerBuilding(
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return fetchBuilding(request, env, ctx);
+    return fetchByPnu(request, env, ctx);
   },
 };
 
@@ -627,7 +628,7 @@ export {
   canonicalPnu,
   canonicalRequest,
   corsHeaders,
-  fetchBuilding,
+  fetchByPnu,
   MANIFEST_SCHEMA_VERSIONS,
   parseAllowedOrigins,
   parseManifest,

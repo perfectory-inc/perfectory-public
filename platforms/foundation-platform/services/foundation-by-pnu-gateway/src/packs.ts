@@ -1,7 +1,8 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { cacheOrigin, lanePacks } from "./lane";
 
 /// Section packs (root ADR-0147, ADR-0151): one R2 object per (section, legal dong), head + index +
-/// body. The building lane has one section, `documents`, whose entry for a PNU is its served
+/// body. Each lane has one section, `documents`, whose entry for a PNU is its served
 /// document as one gzip member; the Worker answers with that member as it is
 /// (`Content-Encoding: gzip`), without decompressing or parsing it. The byte layout and the
 /// resolution order are the publisher's (`foundation-outbox-publisher/src/by_pnu_pack.rs`,
@@ -9,7 +10,6 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 /// both sides to the same bytes.
 
 const packPolicy = connectionContract.by_pnu_section_packs;
-const lanePacks = connectionContract.building_by_pnu_gateway.section_packs;
 const PREFIX_BYTES = 20;
 const INDEX_ENTRY_BYTES = 28;
 const PNU_BYTES = 19;
@@ -472,7 +472,7 @@ async function readDocument(
   return { member, etag };
 }
 
-const answerCacheOrigin = "https://foundation-building-gateway.invalid/answer/";
+const answerCacheOrigin = `${cacheOrigin}/answer/`;
 const ANSWER_ETAG_HEADER = "X-Member-Etag";
 
 /// The edge cache identity of one PNU's served member under one served state: the plan's

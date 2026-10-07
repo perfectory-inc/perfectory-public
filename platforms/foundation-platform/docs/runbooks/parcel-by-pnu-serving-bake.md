@@ -14,7 +14,7 @@ last_reviewed: 2026-10-04
 - Spark 잡: `infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py`
 - 굽기·발행: `services/foundation-outbox-publisher` 의
   `export-parcel-by-pnu-serving` / `publish-parcel-by-pnu-serving-manifest`
-- 서빙 Worker: `services/foundation-parcel-gateway` (경로·캐시·CORS 의 정의는
+- 서빙 Worker: `services/foundation-by-pnu-gateway` 의 필지 레인(`wrangler.parcel.jsonc`, 루트 ADR-0160; 경로·캐시·CORS 의 정의는
   `config/r2-connections.contract.json` 의 `parcel_by_pnu_gateway`)
 
 ## 0. 전제
@@ -119,10 +119,10 @@ v2 로 읽는다.
 `wrangler login`(브라우저 1클릭) 뒤에는 전부 명령이다:
 
 ```bash
-cd services/foundation-parcel-gateway
+cd services/foundation-by-pnu-gateway
 corepack pnpm install --frozen-lockfile && corepack pnpm run config:render
-npx wrangler deploy --var "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<쉼표구분 origin>"
-# Worker 생성 + R2 binding 은 deploy 가 wrangler.jsonc 에서 만든다.
+npx wrangler deploy -c wrangler.parcel.jsonc --var "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<쉼표구분 origin>"
+# Worker 생성 + R2 binding 은 deploy 가 wrangler.parcel.jsonc 에서 만든다.
 # keep_vars: true 라 CORS 값은 다음 deploy 에도 보존된다.
 ```
 

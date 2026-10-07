@@ -9,7 +9,7 @@ const PNU_C: &str = "9999900000200000000";
 pub(crate) fn golden_dir() -> anyhow::Result<std::path::PathBuf> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
     Ok(std::path::Path::new(&manifest_dir)
-        .join("../foundation-building-gateway/test/fixtures/section-packs"))
+        .join("../foundation-by-pnu-gateway/test/fixtures/section-packs"))
 }
 
 /// Compares `bytes` with the golden file `name`. On a difference the test fails and leaves what

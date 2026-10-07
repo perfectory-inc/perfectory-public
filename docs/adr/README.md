@@ -202,3 +202,5 @@ last_reviewed: 2026-07-28
 - [ADR-0158 — npm 오버라이드는 정본 하나에서 생성하고, 새 권고는 준비된 변경으로 도착한다](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md)
 
 - [ADR-0159 — 서버는 검사를 통과한 main 을 스스로 받아 배포한다](./0159-the-host-deploys-main-by-itself-once-its-checks-pass.md)
+
+- [ADR-0160 — 필지·건물 by-PNU Worker 는 소스 하나를 레인만 바꿔 묶는다](./0160-one-by-pnu-gateway-source-serves-both-lanes.md)

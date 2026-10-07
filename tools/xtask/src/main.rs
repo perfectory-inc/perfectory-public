@@ -543,12 +543,7 @@ const AREAS: &[Area] = &[
                 test_script: "test",
             },
             NodeTests {
-                dir: "services/foundation-parcel-gateway",
-                scripts: &["config:check", "typecheck", "test", "build:check"],
-                test_script: "test",
-            },
-            NodeTests {
-                dir: "services/foundation-building-gateway",
+                dir: "services/foundation-by-pnu-gateway",
                 scripts: &["config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
@@ -2348,25 +2343,21 @@ mod tests {
         let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
         let plans = node_test_plans(foundation, Path::new("platforms/foundation-platform"));
 
-        assert_eq!(plans.len(), 5);
+        assert_eq!(plans.len(), 4);
         assert_eq!(
             plans[0].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-profile-gateway")
         );
         assert_eq!(
             plans[1].current_dir,
-            PathBuf::from("platforms/foundation-platform/services/foundation-parcel-gateway")
+            PathBuf::from("platforms/foundation-platform/services/foundation-by-pnu-gateway")
         );
         assert_eq!(
             plans[2].current_dir,
-            PathBuf::from("platforms/foundation-platform/services/foundation-building-gateway")
-        );
-        assert_eq!(
-            plans[3].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-tile-gateway")
         );
         assert_eq!(
-            plans[4].current_dir,
+            plans[3].current_dir,
             PathBuf::from("platforms/foundation-platform/services/foundation-map-edit-gateway")
         );
         for plan in &plans {

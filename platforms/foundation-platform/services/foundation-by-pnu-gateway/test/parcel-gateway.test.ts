@@ -43,6 +43,7 @@ describe("foundation parcel gateway", () => {
     parcelBody = await readFile(new URL("fixtures/parcel.json", import.meta.url), "utf8");
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("parcel") },
       bundle: true,
       format: "esm",
       platform: "browser",
@@ -444,6 +445,7 @@ describe("foundation parcel gateway patch generations (root ADR-0141)", () => {
     baseBody = await readFile(new URL("fixtures/parcel.json", import.meta.url), "utf8");
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("parcel") },
       bundle: true,
       format: "esm",
       platform: "browser",

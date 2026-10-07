@@ -4,7 +4,7 @@
 //! namespaces (`scripts/guard/public-fixture-safety.py`).
 //!
 //! The same run writes the golden packs and documents the gateway Worker's tests read
-//! (`services/foundation-building-gateway/test/fixtures/section-packs/`), so the Rust writer and
+//! (`services/foundation-by-pnu-gateway/test/fixtures/section-packs/`), so the Rust writer and
 //! the TypeScript reader are held to one set of bytes.
 
 use std::collections::BTreeSet;

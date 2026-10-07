@@ -1,14 +1,24 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
-const outputUrl = new URL("../wrangler.jsonc", import.meta.url);
+/// One source, one Wrangler config per by-PNU lane (root ADR-0160): `wrangler.building.jsonc` and
+/// `wrangler.parcel.jsonc`, each the contract's `<lane>_by_pnu_gateway` block and a `define` that
+/// fixes the lane the bundle serves (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`.
+export const LANES = ["building", "parcel"];
 
-export function render(contract) {
-  const gateway = contract.building_by_pnu_gateway;
+const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
+
+export function outputUrl(lane) {
+  return new URL(`../wrangler.${lane}.jsonc`, import.meta.url);
+}
+
+export function render(contract, lane) {
+  const block = `${lane}_by_pnu_gateway`;
+  const gateway = contract[block];
+  if (gateway === undefined) throw new Error(`the contract has no ${block}`);
   const connection = contract.connections[gateway.connection];
   if (connection === undefined) {
-    throw new Error(`building_by_pnu_gateway.connection does not exist: ${gateway.connection}`);
+    throw new Error(`${block}.connection does not exist: ${gateway.connection}`);
   }
   const bucket = connection.expected_values.FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET;
   if (typeof bucket !== "string" || bucket === "") {
@@ -18,32 +28,33 @@ export function render(contract) {
   // domains the contract names, so moving the serving address is a one-line contract change.
   const hostnames = [gateway.public_hostname, ...(gateway.public_hostname_aliases ?? [])];
   if (hostnames.some((hostname) => typeof hostname !== "string" || hostname === "")) {
-    throw new Error("building_by_pnu_gateway.public_hostname(_aliases) must be non-empty strings");
+    throw new Error(`${block}.public_hostname(_aliases) must be non-empty strings`);
   }
-  // The cut-over gate's preview (root ADR-0147 §6): its own Worker on its own hostname, so the
-  // edge cache behaves as on the live custom domains, never a live route, and the binding that
-  // lets it serve an unpublished pack generation set on it alone.
   // An explicit CPU limit (Workers Paid, root ADR-0151 Revision): the contract's value, never the
   // plan's 30 s default, and inherited by the preview so the gate measures what the live Worker runs.
   const cpuMs = gateway.cpu_limit_ms;
   if (!Number.isSafeInteger(cpuMs) || cpuMs < 1 || typeof gateway.cpu_limit_reason !== "string") {
-    throw new Error("building_by_pnu_gateway.cpu_limit_ms must be a positive integer with a reason");
+    throw new Error(`${block}.cpu_limit_ms must be a positive integer with a reason`);
   }
   // Where the Worker runs (ADR-0154): beside the bucket, for the live Worker and the preview alike,
   // so the cut-over gate compares the two paths under one placement.
-  const placement = gateway.placement;
-  const region = placement?.region;
+  const region = gateway.placement?.region;
   if (typeof region !== "string" || !/^(aws|gcp|azure):[a-z0-9-]+$/.test(region) || typeof gateway.placement_reason !== "string") {
-    throw new Error("building_by_pnu_gateway.placement must name a cloud region hint, with a reason");
+    throw new Error(`${block}.placement must name a cloud region hint, with a reason`);
   }
   // Every answer names the version that produced it (ADR-0157), from Cloudflare's version metadata
   // binding; bindings are not inherited, so the preview gets its own.
   const versionBinding = gateway.version_metadata_binding;
   if (typeof versionBinding !== "string" || !/^FOUNDATION_PLATFORM_[A-Z0-9_]+$/.test(versionBinding)) {
-    throw new Error("building_by_pnu_gateway.version_metadata_binding must name a FOUNDATION_PLATFORM_ binding");
+    throw new Error(`${block}.version_metadata_binding must name a FOUNDATION_PLATFORM_ binding`);
   }
   const versionMetadata = { binding: versionBinding };
+  // `define` is not inherited by an environment either: the preview bundles the same lane.
+  const define = { __FOUNDATION_BY_PNU_LANE__: JSON.stringify(lane) };
   const packs = gateway.section_packs;
+  // The cut-over gate's preview (root ADR-0147 §6): its own Worker on its own hostname, so the
+  // edge cache behaves as on the live custom domains, never a live route, and the binding that
+  // lets it serve an unpublished pack generation set on it alone.
   const preview = packs?.preview_worker;
   if (preview !== undefined) {
     if (preview.worker_name === gateway.worker_name || hostnames.includes(preview.public_hostname)) {
@@ -58,6 +69,7 @@ export function render(contract) {
       compatibility_date: gateway.compatibility_date,
       workers_dev: false,
       keep_vars: true,
+      define,
       limits: { cpu_ms: cpuMs },
       placement: { region },
       routes: hostnames.map((hostname) => ({ pattern: hostname, custom_domain: true })),
@@ -70,6 +82,7 @@ export function render(contract) {
               [preview.wrangler_env]: {
                 name: preview.worker_name,
                 workers_dev: false,
+                define,
                 placement: { region },
                 routes: [{ pattern: preview.public_hostname, custom_domain: true }],
                 r2_buckets: [{ binding: gateway.r2_binding, bucket_name: bucket }],
@@ -90,14 +103,16 @@ async function main() {
     throw new Error("usage: render-wrangler-config.mjs <--write|--check>");
   }
   const contract = JSON.parse(await readFile(contractUrl, "utf8"));
-  const expected = render(contract);
-  if (mode === "--write") {
-    await writeFile(outputUrl, expected, "utf8");
-    return;
-  }
-  const actual = await readFile(outputUrl, "utf8");
-  if (actual !== expected) {
-    throw new Error(`${fileURLToPath(outputUrl)} drifted; run pnpm run config:render`);
+  for (const lane of LANES) {
+    const expected = render(contract, lane);
+    if (mode === "--write") {
+      await writeFile(outputUrl(lane), expected, "utf8");
+      continue;
+    }
+    const actual = await readFile(outputUrl(lane), "utf8");
+    if (actual !== expected) {
+      throw new Error(`${fileURLToPath(outputUrl(lane))} drifted; run pnpm run config:render`);
+    }
   }
 }
 

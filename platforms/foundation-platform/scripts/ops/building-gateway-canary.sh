@@ -49,7 +49,9 @@ if [[ "${1:-}" == "--execute" ]]; then
 fi
 PHASE="${1:-}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-GATEWAY_DIR="${PLATFORM_ROOT}/services/foundation-building-gateway"
+# One Worker source for both by-PNU lanes (root ADR-0160); this lane's Wrangler config.
+GATEWAY_DIR="${PLATFORM_ROOT}/services/foundation-by-pnu-gateway"
+WRANGLER_CONFIG=wrangler.building.jsonc
 CONTRACT="${PLATFORM_ROOT}/config/r2-connections.contract.json"
 
 contract() {
@@ -75,7 +77,7 @@ run() {
   fi
 }
 
-wrangler() { run npx wrangler "$@"; }
+wrangler() { run npx wrangler "$@" --config "${WRANGLER_CONFIG}"; }
 
 # The version at 100% now; a rollout starts only from a single version.
 current_version() {
@@ -83,7 +85,7 @@ current_version() {
     echo "<version-now-at-100%>"
     return
   fi
-  (cd "${GATEWAY_DIR}" && npx wrangler deployments status --name "${WORKER}" --json) | python3 -c '
+  (cd "${GATEWAY_DIR}" && npx wrangler deployments status --name "${WORKER}" --json --config "${WRANGLER_CONFIG}") | python3 -c '
 import json, sys
 versions = json.load(sys.stdin)["versions"]
 full = [v["version_id"] for v in versions if v.get("percentage") == 100]
@@ -102,6 +104,7 @@ upload() {
   [[ -n "${CORS_ALLOWED_ORIGINS:-}" ]] || refuse "CORS_ALLOWED_ORIGINS is required (the live Worker's value)"
   local out id
   out="$(cd "${GATEWAY_DIR}" && npx wrangler versions upload \
+    --config "${WRANGLER_CONFIG}" \
     --var "${BINDING}:${serving}" \
     --var "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:${CORS_ALLOWED_ORIGINS}" \
     --message "${message}" 2>&1)" || { printf '%s\n' "${out}" >&2; refuse "the upload failed" 70; }
@@ -129,7 +132,7 @@ roll_back() {
 # The deployment as Cloudflare holds it now, shouted: what a person must see when a step failed.
 show_split() {
   log "!!! the live Worker's deployment is now:"
-  (cd "${GATEWAY_DIR}" && npx wrangler deployments status --name "${WORKER}") >&2 \
+  (cd "${GATEWAY_DIR}" && npx wrangler deployments status --name "${WORKER}" --config "${WRANGLER_CONFIG}") >&2 \
     || log "!!! and it cannot be read; check it in the dashboard before anything else"
 }
 

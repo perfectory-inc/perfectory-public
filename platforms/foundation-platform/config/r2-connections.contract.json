@@ -42,6 +42,13 @@
     "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
     "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
     "compatibility_date": "2026-04-26",
+    "placement": { "region": "aws:ap-northeast-1" },
+    "placement_reason": "the same bucket and the same Korean traffic as the building gateway (building_by_pnu_gateway.placement_reason, measured 2026-10-06): an R2 read is ~40 ms at Tokyo against ~190 ms at LAX. Placement travels with the uploaded version, so the parcel Worker's code phase rolls it out and back like any other change",
+    "version_metadata_binding": "FOUNDATION_PLATFORM_WORKER_VERSION",
+    "version_header": "Foundation-Worker-Version",
+    "version_header_reason": "as the building gateway's (root ADR-0157): a canary step counts its pinned reads by the version that answered them",
+    "cpu_limit_ms": 50,
+    "cpu_limit_reason": "as the building gateway's (Workers Paid, root ADR-0151 Revision): an explicit limit of the contract's, inherited by the preview so the gate measures what the live Worker runs",
     "object_key": {
       "root": "serving/parcels/by-pnu",
       "generation_dir_pattern": "v[1-9][0-9]{0,17}",
@@ -53,7 +60,8 @@
     },
     "request_path": {
       "prefix": "/parcels/by-pnu/",
-      "capabilities": "/parcels/by-pnu/_capabilities"
+      "capabilities": "/parcels/by-pnu/_capabilities",
+      "accepted_queries": []
     },
     "cors": {
       "grammar": "comma-separated-serialized-http-origins-v1",
@@ -77,6 +85,18 @@
       "sections": ["documents"],
       "anchor_section": "documents",
       "sections_reason": "the parcel document is already one joined document per PNU (zonings, price, characteristics, forest ledger, transfer history, land rights), and the building lane showed that the Worker must hand out the stored member as it is rather than join fragments per request (root ADR-0151); one section holds it whole",
+      "preview_binding": "FOUNDATION_PLATFORM_PARCEL_PACK_PREVIEW",
+      "serving_binding": "FOUNDATION_PLATFORM_PARCEL_PACK_SERVING",
+      "serving_binding_reason": "as the building gateway's: a Worker version whose binding is off answers from objects even when the manifest names section packs, so the pack path is rolled out by version percentage and rolled back by moving traffic",
+      "preview_worker": {
+        "wrangler_env": "preview",
+        "worker_name": "foundation-parcel-gateway-preview",
+        "public_hostname": "catalog-preview.perfectory.io"
+      },
+      "fallback": {
+        "objects_kept_clean_days": 30,
+        "reason": "as the building lane's: the object lane stays published and restorable (manifest revert) until the monitor has been clean this long after the cut-over; objects are never deleted without an owner decision (append-only)"
+      },
       "scheduled_bake": {
         "job": "by_pnu_serving_bake",
         "capability": "parcel_section_pack_patches"
@@ -239,7 +259,9 @@
     },
     "request_path": {
       "prefix": "/buildings/by-pnu/",
-      "capabilities": "/buildings/by-pnu/_capabilities"
+      "capabilities": "/buildings/by-pnu/_capabilities",
+      "accepted_queries": ["schema=2"],
+      "accepted_queries_reason": "the exact schema query separates v2 browser and edge caches from year-only documents; any other query is refused, so a client cannot shape the cache"
     },
     "cors": {
       "grammar": "comma-separated-serialized-http-origins-v1",
