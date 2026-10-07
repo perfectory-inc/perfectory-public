@@ -3,13 +3,20 @@
 //!
 //! The sample is the one the equality evidence drew (a seeded hash of the PNU over the whole bake,
 //! `equality.rs`): about 10,000 PNUs, so the check costs about 10,000 live object reads and 10,000
-//! preview requests, not a read of every pack. Each PNU is read once from the live route (objects)
-//! and once from a preview Worker serving the unpublished pack generation
+//! preview requests, not a read of every pack. Each PNU is read once from the object path and
+//! once from a preview Worker serving the unpublished pack generation
 //! (`?{preview_query_parameter}=g{N}`), alternating which goes first, each timed on its own until
 //! the whole body is in. The contract's `probe_concurrency` PNUs are in flight at once, so the
 //! sample finishes in minutes rather than hours. Both answers must be 200 and equal in content
 //! (`source` aside, numbers compared as numbers: the Worker's join prints `50` where the object
 //! holds `50.0`).
+//!
+//! The object path is the preview's own (its URL without the query) unless `PACK_LIVE_BASE_URL`
+//! names another: the same Worker at the same placement, with edge copies of its own version, so
+//! a fresh preview upload reads R2 on both sides, and both sides say so in `Server-Timing`. The
+//! gate counts each cold read by where each side answered it from and holds both to
+//! `slo.cold_reads_not_from_r2_max_share`: on 2026-10-07 the pack side was first measured against
+//! its own edge copies, then against the production route's (contract `comparison_reason`).
 //!
 //! A read is cold when it is the run's first of its legal dong (the pack unit), warm otherwise.
 //! The bound holds the cold reads: the pack p50 and p95 may exceed the live ones of the same PNUs
@@ -100,15 +107,16 @@ impl LatencyConfig {
         // Evidence without the Worker's CPU can never open the gate, so the probe refuses before
         // spending half an hour of reads on it.
         let analytics = Some(AnalyticsConfig::required("gate (나)")?);
+        let preview_base_url = required("PACK_PREVIEW_BASE_URL")?;
         Ok(Self {
             generation: required("PACK_GENERATION")?
                 .parse()
                 .context("the pack generation must be a number")?,
-            live_base_url: env("PACK_LIVE_BASE_URL")?.map_or_else(
-                || Ok(format!("https://{}", LANE.policy()?.public_hostname)),
-                Ok::<_, anyhow::Error>,
-            )?,
-            preview_base_url: required("PACK_PREVIEW_BASE_URL")?,
+            // The object side is the preview's own object path unless named: same Worker, same
+            // placement, edge copies of its own version, so both sides read R2 cold and say so
+            // (contract `cutover_gate.comparison_reason`).
+            live_base_url: env("PACK_LIVE_BASE_URL")?.unwrap_or_else(|| preview_base_url.clone()),
+            preview_base_url,
             equality_evidence: PathBuf::from(required("PACK_EQUALITY_EVIDENCE_PATH")?),
             evidence_path: PathBuf::from(required("PACK_LATENCY_EVIDENCE_PATH")?),
             concurrency,
@@ -457,6 +465,7 @@ pub(crate) async fn probe(
         },
         encodings: tally.encodings,
         cold_read_paths: tally.cold_read_paths,
+        cold_live_read_paths: tally.cold_live_read_paths,
         no_gzip,
         worker_cpu,
         bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
@@ -489,6 +498,8 @@ struct Tally {
     encodings: BTreeMap<String, u64>,
     /// The cold reads by where the preview answered them from (`gate::cold_read_path`).
     cold_read_paths: BTreeMap<String, u64>,
+    /// The same on the object side, which only the preview's object path says.
+    cold_live_read_paths: BTreeMap<String, u64>,
     /// The live answer's content per PNU, which the no-gzip reads are held to.
     live_digests: HashMap<String, [u8; 32]>,
 }
@@ -532,15 +543,19 @@ impl Tally {
                     self.live_cold.push(live.ms);
                     self.pack_cold.push(pack.ms);
                     self.pack_cold_count += 1;
-                    let sources = pack
-                        .server_timing
-                        .as_deref()
-                        .map(|timing| parse_server_timing(timing).sources)
-                        .unwrap_or_default();
-                    *self
-                        .cold_read_paths
-                        .entry(gate::cold_read_path(&sources).to_owned())
-                        .or_default() += 1;
+                    for (answer, paths) in [
+                        (pack, &mut self.cold_read_paths),
+                        (live, &mut self.cold_live_read_paths),
+                    ] {
+                        let sources = answer
+                            .server_timing
+                            .as_deref()
+                            .map(|timing| parse_server_timing(timing).sources)
+                            .unwrap_or_default();
+                        *paths
+                            .entry(gate::cold_read_path(&sources).to_owned())
+                            .or_default() += 1;
+                    }
                 } else {
                     self.live_warm.push(live.ms);
                     self.pack_warm.push(pack.ms);
@@ -767,7 +782,7 @@ pub(crate) fn parse_server_timing(header: &str) -> ParsedServerTiming {
             "outcome" => parsed.outcome = description,
             "total" => parsed.total_ms = duration,
             "r2" => parsed.r2_ms = duration,
-            _ if name.starts_with("pack-") => {
+            _ if name.starts_with("pack-") || name == "object" => {
                 if let Some(description) = description {
                     parsed.sources.push(description);
                 }

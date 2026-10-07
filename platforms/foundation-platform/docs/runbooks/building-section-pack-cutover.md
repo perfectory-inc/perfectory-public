@@ -42,7 +42,7 @@ last_reviewed: 2026-10-05
 | `…_PACK_EXPECTED_DOCUMENT_COUNT` | 관문 (가)·발행 | 선택. 적으면 카탈로그가 기록한 Gold 행 수와 같아야 한다. 기준은 언제나 카탈로그다 |
 | `…_INSTALLED_JOBS_PATH` | 첫 발행 | 설치된 릴리스의 `orchestration/jobs.v1.json`. 없으면 `/opt/foundation-platform/current/` 의 것 |
 | `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
-| `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기와 운영 경로 |
+| `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기, 비교할 객체 경로(기본은 미리보기 자신의 객체 경로 — 계약 `cutover_gate.comparison_reason`) |
 | `…_PACK_PROBE_CONCURRENCY` | 관문 (나) | 선택. 동시에 읽는 PNU 수. 없으면 계약의 `probe_concurrency` |
 | `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면(파일이 아직 없으면) 탐침과 카나리아 판정이 시작 전에 파일과 변수 이름을 대며 거부한다 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
@@ -169,6 +169,11 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
   한도가 캐시를 잰 것이므로 통과가 아니다. 2026-10-07 에는 같은 표본을 앞서 읽은 실행이 남긴 엣지 사본에서 차가운
   읽기 10,000건 중 9,952건이 답해 첫 읽기를 45번만 재고도 통과했다. 미리보기의 엣지 사본 이름에는 Worker 버전이
   들어가므로, **다시 잴 때는 이 절 첫 단계의 미리보기 올리기(`wrangler deploy --env preview`)부터 다시 해** 새 버전으로 차갑게 시작한다.
+- 비교 상대(객체 경로)도 같은 미리보기 Worker 가 답한다(질의 없는 주소). 같은 코드·같은 배치이고 엣지 사본도 그
+  버전 것이라, 새로 올린 미리보기에서는 양쪽 모두 R2 에서 처음 읽는다. 객체 경로도 미리보기에서는
+  `Server-Timing` 에 `object;desc="r2-object"`·`"edge-answer"` 로 어디서 답했는지 말하고, 증거
+  `cold_live_read_paths` 가 그것을 센다. 운영 주소는 그것을 말하지 않으므로 운영 주소와 비교한 증거로는 통과하지
+  못한다. 2026-10-07 운영 주소와 비교했을 때는 앞선 측정들이 데운 운영 엣지 사본(캐시)과 R2 첫 읽기를 비교한 셈이었다.
 - 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
   때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(10ms, ADR-0157) 이하여야 통과다.
   2026-10-05 에는 계정이 Workers Free(요청당 10ms)라 넘은 요청이 오류 1102, 곧 503 이 되었다. 2026-10-06 부터 Workers

@@ -553,6 +553,20 @@ async function answerBuilding(
     // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
     return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
   }
+  // A preview version's object path is what gate (b) holds the pack path to (root ADR-0147 §6):
+  // its edge copies are its own version's, so a fresh preview upload answers its first reads from
+  // R2 on both paths, and it says which it did. The live route's object path is untouched.
+  const version = timing === null ? null : workerVersion(env);
+  if (version !== null) fingerprint = `${fingerprint}-preview-${version}`;
+  const objectTimed = (response: Response, source: string): Response => {
+    if (timing !== null) {
+      response.headers.set(
+        "Server-Timing",
+        `outcome;desc="object", object;desc="${source}", total;dur=${Date.now() - timing.started}`,
+      );
+    }
+    return response;
+  };
   const cacheUrl = servingCacheUrl(request.url, { fingerprint });
   if (request.method === "GET") {
     const ifNoneMatch = request.headers.get("If-None-Match");
@@ -561,7 +575,7 @@ async function answerBuilding(
         ? new Request(cacheUrl)
         : new Request(cacheUrl, { headers: { "If-None-Match": ifNoneMatch } });
     const cached = await caches.default.match(cacheRequest);
-    if (cached !== undefined) return withCors(cached, origin, allowed);
+    if (cached !== undefined) return objectTimed(withCors(cached, origin, allowed), "edge-answer");
   }
 
   let found: Found;
@@ -600,7 +614,7 @@ async function answerBuilding(
   if (request.method === "GET") {
     ctx.waitUntil(caches.default.put(new Request(cacheUrl), response.clone()));
   }
-  return withCors(response, origin, allowed);
+  return objectTimed(withCors(response, origin, allowed), "r2-object");
 }
 
 export default {
