@@ -257,10 +257,33 @@ pub(crate) struct LatencyEvidence {
     /// `None` when the no-gzip sample was not read; such a file never opens the gate.
     #[serde(default)]
     pub(crate) no_gzip: Option<NoGzipEvidence>,
+    /// The cold reads by where the preview's sections came from (`cold_read_path`). A file that
+    /// counts none read from R2 (one written before this was counted) never opens the gate.
+    #[serde(default)]
+    pub(crate) cold_read_paths: BTreeMap<String, u64>,
 }
 
 /// The environment a production probe names.
 pub(crate) const PRODUCTION_ENVIRONMENT: &str = "production-preview";
+
+/// A cold read every section of which the preview read from R2: the first read the bound is about.
+pub(crate) const COLD_PATH_R2: &str = "r2";
+
+/// Where a cold read's answer came from, by the sources the preview's `Server-Timing` named for
+/// its sections: `edge-copy` when any came from the PNU's edge copy, `r2` when every one was read
+/// from R2, `memory` when some came from the isolate's memory instead, `untimed` when it named
+/// none. Anything but `r2` was warmed before the run and measures a cache, not a first read.
+pub(crate) fn cold_read_path(sources: &[String]) -> &'static str {
+    if sources.is_empty() {
+        "untimed"
+    } else if sources.iter().any(|source| source.starts_with("edge-")) {
+        "edge-copy"
+    } else if sources.iter().all(|source| source.starts_with("r2-")) {
+        COLD_PATH_R2
+    } else {
+        "memory"
+    }
+}
 
 impl LatencyEvidence {
     /// The verdict the timings give against the contract as it is now.
@@ -283,6 +306,7 @@ impl LatencyEvidence {
         Ok(self.sample_size >= u64::try_from(gate.latency_sample_size)?
             && self.mismatched == 0
             && enough_answered
+            && self.cold_reads_measured_r2(slo.cold_reads_not_from_r2_max_share)
             && self.availability >= slo.availability_min
             && self
                 .increase_cold_ms
@@ -298,6 +322,17 @@ impl LatencyEvidence {
                     && load.availability >= slo.availability_min
                     && cpu_within(&load.worker_cpu)
             }))
+    }
+
+    /// Whether the cold bound measured first reads: at most `max_share` of the cold reads were
+    /// answered without reading R2.
+    fn cold_reads_measured_r2(&self, max_share: f64) -> bool {
+        let from_r2 = self.cold_read_paths.get(COLD_PATH_R2).copied().unwrap_or(0);
+        #[allow(clippy::cast_precision_loss)]
+        let not_from_r2 = self.cold_answered.saturating_sub(from_r2) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        let allowed = self.cold_answered as f64 * max_share;
+        self.cold_answered > 0 && from_r2 <= self.cold_answered && not_from_r2 <= allowed
     }
 }
 

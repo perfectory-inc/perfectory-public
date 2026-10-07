@@ -139,6 +139,27 @@ fn server_timing_is_read_as_the_worker_writes_it() {
     );
 }
 
+/// A cold read counts as a first read only when every section came from R2: an edge copy or a
+/// head held in isolate memory was warmed before the run (2026-10-07: 9,952 of 10,000 cold reads
+/// were edge copies an earlier run had left).
+#[test]
+fn a_cold_read_is_a_first_read_only_when_r2_answered_every_section() {
+    let path = |sources: &[&str]| {
+        gate::cold_read_path(
+            &sources
+                .iter()
+                .map(|source| (*source).to_owned())
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(path(&["r2-head+range", "r2-whole"]), gate::COLD_PATH_R2);
+    assert_eq!(path(&["edge-answer"]), "edge-copy");
+    assert_eq!(path(&["r2-whole", "edge-answer"]), "edge-copy");
+    assert_eq!(path(&["memory-head+range"]), "memory");
+    assert_eq!(path(&["r2-whole", "memory-whole"]), "memory");
+    assert_eq!(path(&[]), "untimed");
+}
+
 /// Five PNUs, each route 200 ms slow, four in flight: a sequential probe would take two seconds,
 /// this one well under; each read is still timed on its own (at least the route's delay).
 #[tokio::test]
@@ -157,6 +178,11 @@ async fn reads_run_concurrently_and_are_split_cold_and_warm() -> anyhow::Result<
         (5, 0, 0)
     );
     assert_eq!((evidence.cold_answered, evidence.warm_answered), (2, 3));
+    // Both cold reads read every section from R2: the cold bound measured first reads.
+    assert_eq!(
+        evidence.cold_read_paths,
+        [(gate::COLD_PATH_R2.to_owned(), 2)].into()
+    );
     assert!(evidence.pack_ms.p50 >= 200.0 && evidence.pack_warm_ms.p50 >= 200.0);
     assert!(evidence.live_ms.p50 >= 200.0 && evidence.live_warm_ms.p50 >= 200.0);
     assert_eq!(evidence.concurrency, 4);
@@ -259,6 +285,16 @@ async fn the_no_gzip_sample_must_answer_uncompressed_and_equal() -> anyhow::Resu
         worker_cpu: full.worker_cpu.clone(),
         ..gate::LoadEvidence::default()
     });
+    // This stand-in names no Server-Timing, so nothing shows its cold reads came from R2: the
+    // cold bound measured nothing it can vouch for, and the gate stays shut on that alone.
+    full.no_gzip = Some(no_gzip_held(2));
+    assert_eq!(
+        full.cold_read_paths,
+        [("untimed".to_owned(), full.cold_answered)].into()
+    );
+    assert!(!full.verdict()?, "untimed cold reads passed");
+    full.cold_read_paths = [(gate::COLD_PATH_R2.to_owned(), full.cold_answered)].into();
+    full.no_gzip = Some(no_gzip);
     assert!(!full.verdict()?, "a gzip answer to identity passed");
     full.no_gzip = Some(no_gzip_held(2));
     assert!(full.verdict()?, "{full:?}");

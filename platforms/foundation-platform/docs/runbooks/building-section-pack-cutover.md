@@ -164,6 +164,11 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
   `no_gzip`). Worker 가 푸는 유일한 경로다. 모두 200·`Content-Encoding` 없음·운영 경로와 같은 내용이어야 통과다.
 - 미리보기의 `Server-Timing`(전체, R2 대기, 묶음이 `r2-whole`·`r2-head+range`·`edge-…`·`memory-…` 중 어디서 왔는지)을
   모아 증거의 `server_timing` 에 적는다.
+- 차가운 읽기는 미리보기가 어디서 답했는지로 다시 센다(증거 `cold_read_paths`: `r2`·`edge-copy`·`memory`·`untimed`).
+  모든 항목을 R2 에서 읽은 것(`r2`)만 첫 읽기다. 나머지가 `slo.cold_reads_not_from_r2_max_share`(1%)를 넘으면 차가운
+  한도가 캐시를 잰 것이므로 통과가 아니다. 2026-10-07 에는 같은 표본을 앞서 읽은 실행이 남긴 엣지 사본에서 차가운
+  읽기 10,000건 중 9,952건이 답해 첫 읽기를 45번만 재고도 통과했다. 미리보기의 엣지 사본 이름에는 Worker 버전이
+  들어가므로, **다시 잴 때는 이 절 첫 단계의 미리보기 올리기(`wrangler deploy --env preview`)부터 다시 해** 새 버전으로 차갑게 시작한다.
 - 탐침 구간의 미리보기 Worker CPU 를 Workers 분석에서 읽는다(분석은 1–2분 늦게 센다. 탐침은 보낸 요청의 95% 가 셀
   때까지 최대 10분 기다린다). `exceededResources` 가 0 이고 p99 가 `worker_cpu_p99_max_ms`(10ms, ADR-0157) 이하여야 통과다.
   2026-10-05 에는 계정이 Workers Free(요청당 10ms)라 넘은 요청이 오류 1102, 곧 503 이 되었다. 2026-10-06 부터 Workers

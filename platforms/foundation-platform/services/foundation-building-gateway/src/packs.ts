@@ -94,13 +94,15 @@ export function parseSectionPacks(raw: unknown, patchCeiling: number): PackPlan 
 }
 
 /// Every contract section at one unpublished generation with no patches: the preview a cut-over
-/// gate probes.
-export function previewPlan(generation: number): PackPlan {
+/// gate probes. The fingerprint names the preview's Worker version, so a fresh upload answers its
+/// first reads from R2 instead of from edge copies an earlier probe left (2026-10-07: 9,952 of
+/// 10,000 cold reads of gate (b) were such copies; contract `cold_reads_not_from_r2_max_share`).
+export function previewPlan(generation: number, version: string | null): PackPlan {
   return {
     sections: lanePacks.sections.map((name) => ({ name, generation, patchFloor: 0 })),
     patches: [],
     unitLength: packPolicy.unit_prefix_length,
-    fingerprint: `preview-g${generation}`,
+    fingerprint: version === null ? `preview-g${generation}` : `preview-g${generation}-${version}`,
   };
 }
 

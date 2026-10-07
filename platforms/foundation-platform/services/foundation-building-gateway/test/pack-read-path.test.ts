@@ -165,7 +165,7 @@ describe("one-hop small packs and head + range large packs", () => {
     expect(READ.whole_pack_max_bytes).toBeGreaterThan(0);
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects);
-    const resolved = await resolvePacks(reads(bucket), previewPlan(1), PNU_A);
+    const resolved = await resolvePacks(reads(bucket), previewPlan(1, null), PNU_A);
     expect(resolved.kind).toBe("document");
     // One unranged GET per section, no range reads.
     expect(asked).toHaveLength(PACKS.sections.length);
@@ -178,11 +178,11 @@ describe("one-hop small packs and head + range large packs", () => {
       base: Record<string, string>;
     };
     const small = strictBucket(objects);
-    const whole = await resolvePacks(reads(small.bucket), previewPlan(1), PNU_A);
+    const whole = await resolvePacks(reads(small.bucket), previewPlan(1, null), PNU_A);
     forgetPacks();
     edge.clear();
     const large = strictBucket(objects, { reportedSize: READ.whole_pack_max_bytes + 1 });
-    const ranged = await resolvePacks(reads(large.bucket), previewPlan(1), PNU_A);
+    const ranged = await resolvePacks(reads(large.bucket), previewPlan(1, null), PNU_A);
     // The large path read each head, cancelled the rest, and read each document by a range whose
     // entity tag is compared on the answer, not sent as a condition (ADR-0154).
     expect(large.asked.filter((read) => read.range === undefined)).toHaveLength(PACKS.sections.length);
@@ -223,7 +223,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
   it("never reads a pack twice within an isolate", async () => {
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects);
-    const plan = previewPlan(1);
+    const plan = previewPlan(1, null);
     await resolvePacks(reads(bucket), plan, PNU_A);
     const r2 = asked.length;
     const trace = new ReadTrace();
@@ -239,13 +239,13 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
       edge.clear();
       edgeAsked.length = 0;
       const { bucket, asked } = strictBucket(objects, { reportedSize });
-      const first = await resolvePacks(reads(bucket), previewPlan(1), PNU_A);
+      const first = await resolvePacks(reads(bucket), previewPlan(1, null), PNU_A);
       await Promise.all(pending);
       expect(edge.size).toBe(0);
       forgetPacks();
       const before = asked.length;
       const trace = new ReadTrace();
-      const second = await resolvePacks(reads(bucket, { trace }), previewPlan(1), PNU_A);
+      const second = await resolvePacks(reads(bucket, { trace }), previewPlan(1, null), PNU_A);
       expect(second).toEqual(first);
       expect(asked.length).toBeGreaterThan(before);
       expect([...trace.sections.values()].every((source) => source.startsWith("r2-"))).toBe(true);
@@ -260,7 +260,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
       reportedSize: READ.whole_pack_max_bytes + 1,
       rangeEtag: "a-newer-tag",
     });
-    await expect(resolvePacks(reads(bucket), previewPlan(1), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
+    await expect(resolvePacks(reads(bucket), previewPlan(1, null), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
     // Read once, refused, and not retried: retrying cannot make it right.
     const ranged = asked.filter((read) => read.key === name && read.range !== undefined);
     expect(ranged).toHaveLength(1);
@@ -275,7 +275,7 @@ describe("R2 retries within a deadline", () => {
     const trace = new ReadTrace();
     const resolved = await resolvePacks(
       reads(bucket, { trace, sleep: async (ms) => void slept.push(ms) }),
-      previewPlan(1),
+      previewPlan(1, null),
       PNU_A,
     );
     expect(resolved.kind).toBe("document");
@@ -290,7 +290,7 @@ describe("R2 retries within a deadline", () => {
   it("a persistent R2 error ends as unavailable after the bounded attempts", async () => {
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects, { failures: Number.POSITIVE_INFINITY });
-    await expect(resolvePacks(reads(bucket), previewPlan(1), PNU_A)).rejects.toBeInstanceOf(PackReadUnavailable);
+    await expect(resolvePacks(reads(bucket), previewPlan(1, null), PNU_A)).rejects.toBeInstanceOf(PackReadUnavailable);
     expect(asked.length).toBeLessThanOrEqual(PACKS.sections.length * READ.r2_attempts);
   });
 
@@ -302,7 +302,7 @@ describe("R2 retries within a deadline", () => {
     const { bucket, asked } = strictBucket(objects, { stalls: 1 });
     const trace = new ReadTrace();
     const started = Date.now();
-    const resolved = await resolvePacks(reads(bucket, { trace }), previewPlan(1), PNU_A);
+    const resolved = await resolvePacks(reads(bucket, { trace }), previewPlan(1, null), PNU_A);
     const elapsed = Date.now() - started;
     expect(resolved.kind).toBe("document");
     expect(trace.failures).toEqual([`${PACKS.anchor_section}:pack:timeout`]);
@@ -374,8 +374,8 @@ describe("R2 retries within a deadline", () => {
     expect(cold.headers.get("server-timing")).toContain('desc="r2-whole"');
     await Promise.all(pending);
     // The copy sits under the plan's fingerprint: another generation names another entry.
-    expect(edge.has(answerCacheUrl(previewPlan(1).fingerprint, PNU_A))).toBe(true);
-    expect(answerCacheUrl(previewPlan(2).fingerprint, PNU_A)).not.toBe(answerCacheUrl(previewPlan(1).fingerprint, PNU_A));
+    expect(edge.has(answerCacheUrl(previewPlan(1, null).fingerprint, PNU_A))).toBe(true);
+    expect(answerCacheUrl(previewPlan(2, null).fingerprint, PNU_A)).not.toBe(answerCacheUrl(previewPlan(1, null).fingerprint, PNU_A));
     // A new isolate, the pack copy gone from it: only the answer's edge copy is left.
     forgetPacks();
     expect([...edge.keys()].filter((url) => url.includes("/pack/"))).toEqual([]);
@@ -389,6 +389,42 @@ describe("R2 retries within a deadline", () => {
     expect(warm.headers.get("etag")).toBe(cold.headers.get("etag"));
     expect(warm.headers.get("content-encoding")).toBe("gzip");
     expect(new Uint8Array(await warm.arrayBuffer())).toEqual(coldBody);
+  });
+
+  // 2026-10-07: gate (b) passed with 9,952 of its 10,000 cold reads answered from edge copies an
+  // earlier probe of the same sample had left, so a fresh preview upload must start cold.
+  it("a new preview version reads R2 for a PNU an earlier version left an edge copy of", async () => {
+    const policy = GATEWAY;
+    const objects = await goldenPacks();
+    const { bucket: packs, asked } = strictBucket(objects);
+    const bucket = {
+      get: async (wanted: string, options?: unknown) =>
+        wanted === policy.object_key.manifest_object
+          ? { body: null, text: async () => JSON.stringify({ schema_version: 1, unit: "building-by-pnu", current_generation: 1 }) }
+          : packs.get(wanted, options as R2GetOptions),
+    };
+    const env = (version: string) => ({
+      [policy.r2_binding]: bucket as unknown as Pick<R2Bucket, "get">,
+      [policy.allowed_origins_binding]: "https://app.example.test",
+      [PACKS.preview_binding]: "true",
+      [policy.version_metadata_binding]: { id: version, tag: "" },
+    });
+    const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
+    const get = (version: string) =>
+      fetchBuilding(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(version), ctx);
+    const first = await get("11111111-1111-4111-8111-111111111111");
+    expect(first.headers.get("server-timing")).toContain('desc="r2-whole"');
+    await Promise.all(pending);
+    forgetPacks();
+    // The same version answers from its copy; a new upload of the preview does not see it.
+    expect((await get("11111111-1111-4111-8111-111111111111")).headers.get("server-timing")).toContain('desc="edge-answer"');
+    const before = asked.length;
+    const next = await get("22222222-2222-4222-8222-222222222222");
+    expect(next.status).toBe(200);
+    const timing = next.headers.get("server-timing") ?? "";
+    expect(timing).not.toContain("edge-answer");
+    expect(timing).toContain('desc="r2-whole"');
+    expect(asked.length).toBeGreaterThan(before);
   });
 
   it("a preview answer carries Server-Timing; the live route's answer does not", async () => {
