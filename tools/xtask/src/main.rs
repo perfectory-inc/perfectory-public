@@ -1540,14 +1540,28 @@ fn debian_package_installed(package: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// apt with a bound on how long one mirror may stall. apt's own default waits on a silent
+/// connection for as long as it stays open: on 2026-10-07 two merge-queue runs sat at
+/// `Get: https://archive.ubuntu.com/ubuntu noble-security InRelease` for 23 minutes, until the
+/// job's timeout cancelled the Postgres lane and the queue dropped both PRs. With a timeout and
+/// retries a stalled mirror costs seconds, and the install below still judges the result.
 fn apt(sudo: bool) -> Command {
-    if sudo {
+    let mut c = if sudo {
         let mut c = Command::new("sudo");
         c.arg("apt-get");
         c
     } else {
         Command::new("apt-get")
-    }
+    };
+    c.args([
+        "-o",
+        "Acquire::http::Timeout=30",
+        "-o",
+        "Acquire::https::Timeout=30",
+        "-o",
+        "Acquire::Retries=3",
+    ]);
+    c
 }
 
 fn is_root() -> bool {
