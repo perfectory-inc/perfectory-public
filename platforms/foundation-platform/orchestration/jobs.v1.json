@@ -36,7 +36,8 @@
       "pipeline_graph_edges": [
         "daily-source-sweep-to-source-building-hub-bulk"
       ],
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "outbox_publish",
@@ -51,7 +52,8 @@
         "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
         "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
       ],
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "map_edit_fold_admin",
@@ -68,7 +70,8 @@
         "silver-map-edit-ledger-to-gold-administrative-boundary-served",
         "gold-administrative-boundary-served-to-admin-tiles"
       ],
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "map_edit_fold_complex",
@@ -85,7 +88,8 @@
         "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
         "gold-industrial-complex-boundary-served-to-complex-tiles"
       ],
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "lineage_stewardship",
@@ -120,7 +124,8 @@
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "vworld_parcel_edition",
@@ -160,7 +165,8 @@
       "pool": "default_pool",
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
-      "enabled": true
+      "enabled": true,
+      "started_once_after_deploy": true
     },
     {
       "id": "gold_panel_rebuild",
@@ -216,6 +222,7 @@
       "disabled_reason": "Replaces the hand-kept server script that baked this lane before 2026-10. Off until one supervised run of the repository job on the data host has baked and published a generation whose object count matched its Gold row count; switching it on is a separate deploy step (runbook docs/runbooks/parcel-by-pnu-serving-bake.md, 'Scheduled bake')."
     }
   ],
+  "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused, and fails the deploy, leaving the DAGs paused, when it does not succeed. It marks the jobs short enough to run inside a deploy; the long Spark jobs are left to their schedule.",
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches says the bake patches section packs once the building manifest names them (root ADR-0147); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",

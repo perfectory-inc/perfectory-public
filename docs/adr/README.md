@@ -200,3 +200,5 @@ last_reviewed: 2026-07-28
 - [ADR-0157 — 카나리아 단계는 도달을 자기 답으로 세고, CPU 한도는 측정에서 정한다](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)
 
 - [ADR-0158 — npm 오버라이드는 정본 하나에서 생성하고, 새 권고는 준비된 변경으로 도착한다](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md)
+
+- [ADR-0159 — 서버는 검사를 통과한 main 을 스스로 받아 배포한다](./0159-the-host-deploys-main-by-itself-once-its-checks-pass.md)

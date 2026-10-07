@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **508개**
+- 문서 파일: **509개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 183 |
+| Monorepo | 184 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 241 |
+| ADR | 242 |
 | README | 115 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -548,6 +548,7 @@ docs/adr/0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md
 docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md
 docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md
 docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md
+docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -743,6 +744,7 @@ tools/github/README.md
 | `docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
