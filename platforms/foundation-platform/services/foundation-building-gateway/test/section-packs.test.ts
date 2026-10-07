@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
@@ -83,7 +85,10 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
   let runtime: Miniflare | undefined;
   let documents: Documents;
 
-  async function start(bindings: Record<string, string | { id: string; tag: string }> = {}): Promise<Miniflare> {
+  async function start(
+    bindings: Record<string, string | { id: string; tag: string }> = {},
+    cachePersist?: string,
+  ): Promise<Miniflare> {
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
       bundle: true,
@@ -100,6 +105,7 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
       r2Buckets: [R2_BINDING],
       bindings: { FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: ALLOWED_ORIGIN, ...bindings },
       cache: true,
+      ...(cachePersist === undefined ? {} : { cachePersist }),
     });
     const bucket = await started.getR2Bucket(R2_BINDING);
     for (const section of PACKS.sections) {
@@ -277,6 +283,41 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
       const object = await get(PNU_A);
       expect([attempt, object.status, named(object)]).toEqual([attempt, 200, VERSION]);
     }
+  });
+
+  // Gate (b) holds the pack path to the preview's own object path, both read cold (2026-10-07:
+  // the live route's edge copies, warmed by earlier probes, answered its side of the comparison).
+  it("a preview's object path says where it answered from, under edge copies of its own version", async () => {
+    const object = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;
+    const persist = await mkdtemp(join(tmpdir(), "building-gateway-cache-"));
+    const source = (response: { headers: { get(name: string): string | null } }) =>
+      /object;desc="([^"]+)"/.exec(response.headers.get("server-timing") ?? "")?.[1] ?? null;
+    const preview = async (version: string) => {
+      await runtime?.dispose();
+      runtime = await start({ [PACKS.preview_binding]: "true", [GATEWAY.version_metadata_binding]: { id: version, tag: "" } }, persist);
+      await (await runtime.getR2Bucket(R2_BINDING)).put(object, `{"pnu":"${PNU_A}"}
+`);
+      await serve(undefined);
+    };
+    const A = "11111111-1111-4111-8111-111111111111";
+    await preview(A);
+    expect(source(await get(PNU_A))).toBe("r2-object");
+    expect(source(await get(PNU_A))).toBe("edge-answer");
+    // A new upload of the preview does not answer from the earlier version's copy...
+    await preview("22222222-2222-4222-8222-222222222222");
+    expect(source(await get(PNU_A))).toBe("r2-object");
+    // ...while that copy is still there for its own version: the cache did persist across runtimes.
+    await preview(A);
+    expect(source(await get(PNU_A))).toBe("edge-answer");
+    // The live route says nothing about how it answered.
+    await runtime?.dispose();
+    runtime = await start({}, persist);
+    await (await runtime.getR2Bucket(R2_BINDING)).put(object, `{"pnu":"${PNU_A}"}
+`);
+    await serve(undefined);
+    const live = await get(PNU_A);
+    expect(live.status).toBe(200);
+    expect(live.headers.get("server-timing")).toBeNull();
   });
 
   it("a listed pack that is missing, or sections that disagree, are an outage, not a document", async () => {

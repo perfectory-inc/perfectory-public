@@ -349,6 +349,7 @@ impl Lane {
                 ..gate::NoGzipEvidence::default()
             }),
             cold_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
+            cold_live_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
         };
         let path = self
             .work
@@ -379,6 +380,17 @@ impl Lane {
         ]
         .into();
         let path = self.work.join("latency-edge-copies.json");
+        equality::write_evidence(&path, &evidence)?;
+        Ok(path)
+    }
+
+    /// Passing evidence but for its object side, which answered from edge copies (or named no
+    /// source, as the production route does): the comparison held R2 reads to cache hits.
+    fn latency_against_a_warm_object_side(&self, equality: &Path) -> anyhow::Result<PathBuf> {
+        let passing = self.latency(equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+        let (mut evidence, _) = gate::read::<LatencyEvidence>(&passing)?;
+        evidence.cold_live_read_paths = [("untimed".to_owned(), evidence.cold_answered)].into();
+        let path = self.work.join("latency-warm-object-side.json");
         equality::write_evidence(&path, &evidence)?;
         Ok(path)
     }
@@ -568,6 +580,18 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
             summaries.clone(),
             SNAPSHOT,
             Some((equality.clone(), cached)),
+            None
+        )
+        .await
+        .is_err());
+    // Fast, but held to an object side that did not read R2 (the production route, warmed by
+    // earlier probes, 2026-10-07): an unfair comparison opens nothing either.
+    let unfair = lane.latency_against_a_warm_object_side(&equality)?;
+    assert!(lane
+        .publish(
+            summaries.clone(),
+            SNAPSHOT,
+            Some((equality.clone(), unfair)),
             None
         )
         .await

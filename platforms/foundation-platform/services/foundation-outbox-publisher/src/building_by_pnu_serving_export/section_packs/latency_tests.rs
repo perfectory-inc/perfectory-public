@@ -26,6 +26,9 @@ const PNUS: [&str; 5] = [
 ];
 const TIMING: &str = r#"outcome;desc="document", r2;dur=120;desc="gets=5 retries=0", pack-buildings;dur=120;desc="r2-head+range", pack-floors;dur=60;desc="r2-whole", total;dur=140"#;
 
+/// The preview's object path, read from R2: the object side of a fair comparison.
+const OBJECT_TIMING: &str = r#"outcome;desc="object", object;desc="r2-object", total;dur=90"#;
+
 fn pnus() -> Vec<String> {
     PNUS.iter().map(|pnu| (*pnu).to_owned()).collect()
 }
@@ -128,6 +131,14 @@ fn server_timing_is_read_as_the_worker_writes_it() {
             sources: vec!["r2-head+range".to_owned(), "r2-whole".to_owned()],
         }
     );
+    // The preview's object path names its one source as `object`.
+    assert_eq!(
+        latency::parse_server_timing(
+            r#"outcome;desc="object", object;desc="r2-object", total;dur=9"#
+        )
+        .sources,
+        vec!["r2-object".to_owned()]
+    );
     assert_eq!(
         latency::parse_server_timing(r#"outcome;desc="edge-response", total;dur=7"#),
         ParsedServerTiming {
@@ -182,6 +193,11 @@ async fn reads_run_concurrently_and_are_split_cold_and_warm() -> anyhow::Result<
     assert_eq!(
         evidence.cold_read_paths,
         [(gate::COLD_PATH_R2.to_owned(), 2)].into()
+    );
+    // This object-side stand-in names no source, as the production route does: unfair.
+    assert_eq!(
+        evidence.cold_live_read_paths,
+        [("untimed".to_owned(), 2)].into()
     );
     assert!(evidence.pack_ms.p50 >= 200.0 && evidence.pack_warm_ms.p50 >= 200.0);
     assert!(evidence.live_ms.p50 >= 200.0 && evidence.live_warm_ms.p50 >= 200.0);
@@ -294,6 +310,11 @@ async fn the_no_gzip_sample_must_answer_uncompressed_and_equal() -> anyhow::Resu
     );
     assert!(!full.verdict()?, "untimed cold reads passed");
     full.cold_read_paths = [(gate::COLD_PATH_R2.to_owned(), full.cold_answered)].into();
+    assert!(
+        !full.verdict()?,
+        "an object side that named no source passed"
+    );
+    full.cold_live_read_paths = [(gate::COLD_PATH_R2.to_owned(), full.cold_answered)].into();
     full.no_gzip = Some(no_gzip);
     assert!(!full.verdict()?, "a gzip answer to identity passed");
     full.no_gzip = Some(no_gzip_held(2));
@@ -341,7 +362,7 @@ fn analytics_config(server: &MockServer) -> AnalyticsConfig {
 #[tokio::test]
 async fn worker_cpu_is_read_from_analytics_and_gates() -> anyhow::Result<()> {
     let bound = section_pack_policy()?.cutover_gate.worker_cpu_p99_max_ms;
-    let live = route(200, 0, None, false).await;
+    let live = route(200, 0, Some(OBJECT_TIMING), false).await;
     let pack = route(200, 0, Some(TIMING), true).await;
     let within = analytics(json!([
         {"sum": {"requests": 5}, "dimensions": {"status": "success"},
