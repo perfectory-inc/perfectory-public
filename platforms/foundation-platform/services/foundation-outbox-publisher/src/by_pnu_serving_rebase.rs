@@ -157,6 +157,13 @@ pub async fn run_parcel() -> anyhow::Result<()> {
     let store = ByPnuServingStore::open(LANE, &output)?;
     let (manifest_bytes, _) = store.read_manifest().await?;
     let served = ServedManifest::parse(LANE, &manifest_bytes)?;
+    // A lane served from section packs no longer serves its objects: the objects stopped taking
+    // the daily changes the packs take, so a re-base read from them would publish a stale view.
+    ensure!(
+        served.section_packs.is_none(),
+        "the parcel lane is served from section packs; a verified re-base reads served objects \
+         and does not apply to it (root ADR-0147)"
+    );
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )
