@@ -62,7 +62,7 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   - 미리보기 버전은 `Server-Timing` 을 낸다: `outcome`, `r2;dur=…;desc="gets=… retries=…"`, 항목마다
     `pack-{항목};dur=…;desc="{memory|edge|r2}-{whole|head}[+range]"`, `total`.
   - 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off` 인 버전은 manifest 가 묶음을 적어도 객체로 답한다.
-    묶음 경로는 이 바인딩만 다른 두 버전 사이의 비율로 올리고 내린다(`scripts/ops/building-gateway-canary.sh`,
+    묶음 경로는 이 바인딩만 다른 두 버전 사이의 비율로 올리고 내린다(`scripts/ops/by-pnu-gateway-canary.sh <레인>`,
     ADR-0151 Revision).
   `?packs=g{n}` 은 미리보기 Worker(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`, 계약
   `section_packs.preview_worker`, `wrangler.<레인>.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는

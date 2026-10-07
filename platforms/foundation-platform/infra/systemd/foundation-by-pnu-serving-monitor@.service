@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform building serving monitor: read the live building hostname and hold it to the lane's documents (root ADR-0151)
+Description=Foundation Platform %i serving monitor: read the live %i hostname and hold it to the lane's documents (root ADR-0151, ADR-0160)
 After=network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
@@ -9,12 +9,14 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
-# The R2 lakehouse reader the by-PNU bake reads with (the manifest, packs and objects), and the
-# monitor's own file: FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_MONITOR_SAMPLE_PATH.
+# The R2 lakehouse reader the by-PNU bake reads with (the manifest, packs and objects), and each
+# lane's own file: FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING_MONITOR_SAMPLE_PATH. Both lanes' files
+# are loaded; their variables carry the lane, so an instance reads only its own.
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=-/etc/foundation-platform/building-serving-monitor.env
-ExecStart=/opt/foundation-platform/current/scripts/ops/building-serving-monitor.sh
+EnvironmentFile=-/etc/foundation-platform/parcel-serving-monitor.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-monitor.sh %i
 TimeoutStartSec=10m
 # Twenty sequential reads and twenty documents: far below this.
 MemoryMax=512M

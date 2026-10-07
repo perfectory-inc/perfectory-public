@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **509개**
-- 언어 분류: **{'english': 37, 'korean': 316, 'mixed': 156}**
+- 감사 문서: **510개**
+- 언어 분류: **{'english': 37, 'korean': 317, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **230개 정상 / 0개 누락 / 279개 해당 없음**
+- 메타데이터: **231개 정상 / 0개 누락 / 279개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -167,11 +167,11 @@
 | `docs/adr/0144-region-code-changes-are-derived-from-downloaded-data-only.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
 | `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0154-building-pack-read-path-is-placed-beside-the-bucket.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
@@ -180,7 +180,7 @@
 | `docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -282,7 +282,7 @@
 | `platforms/foundation-platform/docs/openapi/pipeline-graph.v1.json` | Foundation Platform | contract | current | english | not applicable: machine contract | 2 |
 | `platforms/foundation-platform/docs/README.md` | Foundation Platform | README | current | korean | ok | 9 |
 | `platforms/foundation-platform/docs/runbooks/building-hub-bulk-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 0 |
-| `platforms/foundation-platform/docs/runbooks/building-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/building-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/canonical-release-proof.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/data-catalog.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
@@ -299,6 +299,7 @@
 | `platforms/foundation-platform/docs/runbooks/map-edit-fold.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 3 |
+| `platforms/foundation-platform/docs/runbooks/parcel-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |

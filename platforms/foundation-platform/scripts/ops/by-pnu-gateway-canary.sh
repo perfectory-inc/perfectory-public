@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
-# Gradual rollout of the building gateway's pack path, by Worker version percentage
-# (root ADR-0151 Revision, contract building_by_pnu_gateway.section_packs.canary).
+# Gradual rollout of a by-PNU gateway's pack path, by Worker version percentage
+# (root ADR-0151 Revision, contract <lane>_by_pnu_gateway.section_packs.canary). One Worker source
+# serves both lanes (root ADR-0160); the lane picks its contract block and Wrangler config.
 #
-#   building-gateway-canary.sh [--execute] code            # new code, packs held off
-#   building-gateway-canary.sh [--execute] packs <off-version-id>
-#   building-gateway-canary.sh [--execute] rollback <version-id>
-#   building-gateway-canary.sh status
+#   by-pnu-gateway-canary.sh <building|parcel> [--execute] code     # new code, packs held off
+#   by-pnu-gateway-canary.sh <building|parcel> [--execute] packs <off-version-id>
+#   by-pnu-gateway-canary.sh <building|parcel> [--execute] rollback <version-id>
+#   by-pnu-gateway-canary.sh <building|parcel> status
 #
 # Dry run by default: every command is printed, nothing is uploaded or deployed. --execute runs
 # them. Run it from a checkout of the merged release, where wrangler is logged in to the account;
 # it never touches the manifest.
 #
 # The two phases:
-#   code   uploads this checkout with FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off (it serves
+#   code   uploads this checkout with the lane's serving binding off (it serves
 #          objects even when the manifest names packs) and moves traffic from the version now at
 #          100% to it, step by step. After it, `_capabilities` answers [1, 2, 3] and the first
 #          pack publish (runbook §5) can run; nothing a user sees changes.
 #   packs  uploads the same code with the binding on and moves traffic from the off version to
 #          it, step by step. A user reads packs only from here on.
 # Every step holds canary.hold_seconds, then the health command judges the new version against
-# the old one (check-building-gateway-version-health: reads pinned to each version, then Cloudflare
+# the old one (check-<lane>-gateway-version-health: reads pinned to each version, then Cloudflare
 # analytics). A breach rolls all traffic back to the old version at once and stops with exit 1.
 # `rollback` does the same by hand; the manifest revert (runbook §6) is the second line, never
 # needed for a version problem.
@@ -35,13 +36,17 @@
 #                          Default: the release's publisher on this host, which reads the analytics
 #                          token from the environment the contract names. On a workstation, point it
 #                          at the host that holds the token, e.g.
-#                          'ssh ai-server sudo /opt/foundation-platform/current/scripts/ops/building-gateway-health.sh @NEW@ @OLD@'
+#                          'ssh ai-server sudo /opt/foundation-platform/current/scripts/ops/by-pnu-gateway-health.sh <lane> @NEW@ @OLD@'
 set -euo pipefail
 
 # Logs go to stderr: the functions that answer a version id answer it on stdout.
-log() { printf '%s building-gateway-canary: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
+log() { printf '%s by-pnu-gateway-canary %s: %s\n' "$(date -u +%FT%TZ)" "${LANE:-}" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
+USAGE="usage: by-pnu-gateway-canary.sh <building|parcel> [--execute] code|packs <off-version>|rollback <version>|status"
 
+LANE="${1:-}"
+[[ "${LANE}" == building || "${LANE}" == parcel ]] || refuse "${USAGE}"
+shift
 EXECUTE=no
 if [[ "${1:-}" == "--execute" ]]; then
   EXECUTE=yes
@@ -51,7 +56,8 @@ PHASE="${1:-}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # One Worker source for both by-PNU lanes (root ADR-0160); this lane's Wrangler config.
 GATEWAY_DIR="${PLATFORM_ROOT}/services/foundation-by-pnu-gateway"
-WRANGLER_CONFIG=wrangler.building.jsonc
+WRANGLER_CONFIG="wrangler.${LANE}.jsonc"
+GATEWAY="${LANE}_by_pnu_gateway"
 CONTRACT="${PLATFORM_ROOT}/config/r2-connections.contract.json"
 
 contract() {
@@ -64,11 +70,11 @@ print(" ".join(str(item) for item in value) if isinstance(value, list) else valu
 PY
 }
 
-WORKER="$(contract building_by_pnu_gateway.worker_name)"
-BINDING="$(contract building_by_pnu_gateway.section_packs.serving_binding)"
-STEPS="$(contract building_by_pnu_gateway.section_packs.canary.steps_percent)"
-HOLD="${CANARY_HOLD_SECONDS:-$(contract building_by_pnu_gateway.section_packs.canary.hold_seconds)}"
-HEALTH="${CANARY_HEALTH_COMMAND:-${PLATFORM_ROOT}/scripts/ops/building-gateway-health.sh @NEW@ @OLD@}"
+WORKER="$(contract "${GATEWAY}.worker_name")"
+BINDING="$(contract "${GATEWAY}.section_packs.serving_binding")"
+STEPS="$(contract "${GATEWAY}.section_packs.canary.steps_percent")"
+HOLD="${CANARY_HOLD_SECONDS:-$(contract "${GATEWAY}.section_packs.canary.hold_seconds")}"
+HEALTH="${CANARY_HEALTH_COMMAND:-${PLATFORM_ROOT}/scripts/ops/by-pnu-gateway-health.sh ${LANE} @NEW@ @OLD@}"
 
 run() {
   log "+ $*"
@@ -146,7 +152,7 @@ deploy_failed() {
     refuse "${what} failed; every request is back on ${old}" 2
   fi
   log "!!! THE ROLLBACK FAILED TOO: traffic is split as shown above. Finish it by hand:"
-  log "!!!   building-gateway-canary.sh --execute rollback ${old}"
+  log "!!!   by-pnu-gateway-canary.sh ${LANE} --execute rollback ${old}"
   exit 3
 }
 
@@ -196,7 +202,7 @@ case "${PHASE}" in
     ;;
   packs)
     old="${2:-}"
-    [[ -n "${old}" ]] || refuse "usage: building-gateway-canary.sh [--execute] packs <off-version-id>"
+    [[ -n "${old}" ]] || refuse "usage: by-pnu-gateway-canary.sh ${LANE} [--execute] packs <off-version-id>"
     preflight
     # The packs phase starts where the code phase ended, the off version alone at 100%: any other
     # id would roll packs out against a version that is not serving, and roll back onto it.
@@ -207,13 +213,13 @@ case "${PHASE}" in
     roll_out "${old}" "${new}"
     ;;
   rollback)
-    [[ -n "${2:-}" ]] || refuse "usage: building-gateway-canary.sh [--execute] rollback <version-id>"
+    [[ -n "${2:-}" ]] || refuse "usage: by-pnu-gateway-canary.sh ${LANE} [--execute] rollback <version-id>"
     roll_back "$2" || { show_split; refuse "the rollback to $2 failed; the deployment is shown above" 3; }
     ;;
   status)
     EXECUTE=yes wrangler deployments status --name "${WORKER}"
     ;;
   *)
-    refuse "usage: building-gateway-canary.sh [--execute] code|packs <off-version>|rollback <version>|status"
+    refuse "${USAGE}"
     ;;
 esac

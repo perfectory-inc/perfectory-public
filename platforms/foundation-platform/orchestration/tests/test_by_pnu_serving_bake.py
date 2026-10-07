@@ -931,5 +931,46 @@ class SectionPackBake(unittest.TestCase):
             self.assertIn(command, script)
 
 
+class ParcelSectionPackBake(unittest.TestCase):
+    """The parcel lane once its manifest names section packs (root ADR-0147 §8, ADR-0160): the same
+    run as the building lane's, with the parcel commands, and no verified re-base."""
+
+    setUp = ByPnuServingBake.setUp
+    exports = ByPnuServingBake.exports
+    published = ByPnuServingBake.published
+    PREFIX = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+
+    def bake(self, **env):
+        state = packs_state(sections=[{"name": "documents", "generation": 1, "patch_floor": 0}])
+        return ByPnuServingBake.bake(self, "parcel", FAKE_PACKS=env.pop("FAKE_PACKS", state), **env)
+
+    def test_a_change_set_from_the_parcel_packs_is_baked_as_a_parcel_pack_patch(self):
+        result, calls = self.bake(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [export] = self.exports(calls)
+        self.assertEqual(export["command"], "export-parcel-by-pnu-section-packs")
+        self.assertIn(self.PREFIX + "TARGET_PATCH", export["env"])
+        [publish] = self.published(calls)
+        self.assertEqual(publish["command"], "publish-parcel-by-pnu-section-packs")
+        self.assertFalse(any(call["command"].endswith("-serving") or call["command"].endswith("-manifest")
+                             for call in calls), "an object command ran on a lane serving packs")
+
+    def test_a_verified_rebase_of_a_lane_serving_packs_is_refused(self):
+        result, calls = self.bake(FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE="true",
+                                  FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON="drill")
+        self.assertEqual(result.returncode, 64, result.stderr + result.stdout)
+        self.assertIn("serves section packs; a verified re-base reads served objects", result.stdout)
+        self.assertEqual(self.exports(calls), [])
+        self.assertEqual(self.published(calls), [])
+
+    def test_the_job_declares_the_parcel_capability(self):
+        contract = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+        wanted = contract["parcel_by_pnu_gateway"]["section_packs"]["scheduled_bake"]
+        jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
+        [job] = [job for job in jobs if job["id"] == wanted["job"]]
+        self.assertIn(wanted["capability"], job["capabilities"])
+        self.assertIn("gold-parcel-panel-to-parcel-by-pnu-section-packs", job["pipeline_graph_edges"])
+
+
 if __name__ == "__main__":
     unittest.main()

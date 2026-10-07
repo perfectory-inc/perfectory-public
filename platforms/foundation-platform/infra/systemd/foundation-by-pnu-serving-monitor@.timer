@@ -1,0 +1,14 @@
+[Unit]
+Description=Read the live %i by-PNU hostname every hour (root ADR-0151, ADR-0160)
+
+[Timer]
+# A host check, not a data job: like the database backup it stays a systemd timer (root ADR-0118
+# §1). The release installs it; each lane's instance is enabled after that lane's cut-over
+# (building: docs/runbooks/building-section-pack-cutover.md §5; parcel: parcel-section-pack-cutover.md).
+OnCalendar=*-*-* *:17:00
+Persistent=true
+RandomizedDelaySec=2m
+Unit=foundation-by-pnu-serving-monitor@%i.service
+
+[Install]
+WantedBy=timers.target

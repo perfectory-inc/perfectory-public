@@ -199,9 +199,10 @@
     },
     {
       "id": "by_pnu_serving_bake",
-      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once the building manifest carries a section_packs block (root ADR-0147), the building lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Until the parcel lane serves section packs (root ADR-0147 §8) the unit bakes the building lane alone: reflecting a new parcel Gold snapshot in the object lane could rewrite up to 39.86M objects that the pack cut-over replaces.",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Until the parcel lane serves section packs (root ADR-0147 §8) the unit bakes the building lane alone: reflecting a new parcel Gold snapshot in the object lane could rewrite up to 39.86M objects that the pack cut-over replaces.",
       "capabilities": [
-        "building_section_pack_patches"
+        "building_section_pack_patches",
+        "parcel_section_pack_patches"
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
@@ -215,13 +216,14 @@
       "pipeline_graph_edges": [
         "gold-parcel-panel-to-parcel-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-serving",
-        "gold-building-panel-to-building-by-pnu-section-packs"
+        "gold-building-panel-to-building-by-pnu-section-packs",
+        "gold-parcel-panel-to-parcel-by-pnu-section-packs"
       ],
       "enabled": true
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused, and fails the deploy, leaving the DAGs paused, when it does not succeed. It marks the jobs short enough to run inside a deploy; the long Spark jobs are left to their schedule.",
-  "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches says the bake patches section packs once the building manifest names them (root ADR-0147); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
+  "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
   "serving_surfaces_without_a_job": [

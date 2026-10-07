@@ -198,7 +198,9 @@ PY
 [[ -n "${packs_patch_listed:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
 LANE_SERVES=objects
 if [[ "${packs}" == yes ]]; then
-  [[ "${UNIT}" == building ]] || { log "refused: the ${UNIT} lane names section packs; only the building lane bakes them"; exit 65; }
+  # A verified re-base reads the served objects (root ADR-0146), which stop taking the daily
+  # changes once packs serve: from them it would publish a stale view of the lane.
+  [[ "${REBASE}" == false ]] || { log "refused: the ${UNIT} lane serves section packs; a verified re-base reads served objects and does not apply to it (root ADR-0147)"; exit 64; }
   LANE_SERVES=packs
   base="${packs_generation}" base_objects="${packs_count}" reflected="${packs_reflected}"
   patch_count="${packs_live}" newest_patch="${packs_newest}" cumulative="${packs_cumulative}"

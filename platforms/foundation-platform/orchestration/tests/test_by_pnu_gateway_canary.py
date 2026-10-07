@@ -1,8 +1,9 @@
-"""The building gateway's gradual rollout (scripts/ops/building-gateway-canary.sh, root ADR-0151).
+"""The by-PNU gateways' gradual rollout (scripts/ops/by-pnu-gateway-canary.sh, root ADR-0151, ADR-0160).
 
 A fake `npx` stands in for wrangler and records every call; a fake health command passes or fails
 a step. The steps come from the contract, a breach rolls every request back to the old version and
-stops, and a dry run deploys nothing.
+stops, and a dry run deploys nothing. The building lane is the one exercised in depth; the parcel
+lane is held to its own contract block and Wrangler config.
 """
 
 import json
@@ -13,12 +14,12 @@ import tempfile
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
-SCRIPT = PLATFORM / "scripts" / "ops" / "building-gateway-canary.sh"
+SCRIPT = PLATFORM / "scripts" / "ops" / "by-pnu-gateway-canary.sh"
 CONTRACT = json.loads((PLATFORM / "config" / "r2-connections.contract.json").read_text(encoding="utf-8"))
 CANARY = CONTRACT["building_by_pnu_gateway"]["section_packs"]["canary"]
 SECRETS = json.loads((PLATFORM / "config" / "runtime-secrets.contract.json").read_text(encoding="utf-8"))
 ENV_FILE = next(g["path"] for g in SECRETS["groups"] if g["name"] == "cloudflare-analytics")
-HEALTH = PLATFORM / "scripts" / "ops" / "building-gateway-health.sh"
+HEALTH = PLATFORM / "scripts" / "ops" / "by-pnu-gateway-health.sh"
 OLD = "11111111-1111-4111-8111-111111111111"
 NEW = "22222222-2222-4222-8222-222222222222"
 
@@ -71,9 +72,9 @@ class Canary(unittest.TestCase):
             "CORS_ALLOWED_ORIGINS": "https://app.example.test",
         }
 
-    def run_script(self, *args, **env):
+    def run_script(self, *args, lane="building", **env):
         return subprocess.run(
-            ["bash", str(SCRIPT), *args],
+            ["bash", str(SCRIPT), lane, *args],
             env={**self.env, **env},
             capture_output=True,
             text=True,
@@ -125,7 +126,7 @@ class Canary(unittest.TestCase):
     @unittest.skipIf(pathlib.Path(ENV_FILE).exists(), "this host holds the analytics file")
     def test_the_health_check_names_the_missing_analytics_file(self):
         result = subprocess.run(
-            ["bash", str(HEALTH), "--preflight"], capture_output=True, text=True, check=False
+            ["bash", str(HEALTH), "building", "--preflight"], capture_output=True, text=True, check=False
         )
         self.assertEqual(result.returncode, 78, result.stderr)
         self.assertIn(f"{ENV_FILE} does not exist", result.stderr)
@@ -166,6 +167,25 @@ class Canary(unittest.TestCase):
         rolled = self.run_script("--execute", "rollback", OLD, FAKE_FAIL_ROLLBACK="1")
         self.assertEqual(rolled.returncode, 3, rolled.stderr)
         self.assertIn("deployment is shown above", rolled.stderr)
+
+    def test_the_parcel_lane_rolls_out_its_own_worker_with_its_own_binding(self):
+        parcel = CONTRACT["parcel_by_pnu_gateway"]
+        result = self.run_script("--execute", "code", lane="parcel")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        upload = next(call for call in calls if call.startswith("wrangler versions upload"))
+        self.assertIn(f"{parcel['section_packs']['serving_binding']}:off", upload)
+        self.assertIn("--config wrangler.parcel.jsonc", upload)
+        deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
+        self.assertEqual(len(deploys), len(parcel["section_packs"]["canary"]["steps_percent"]))
+        self.assertTrue(all(f"--name {parcel['worker_name']} " in call for call in deploys), deploys)
+        self.assertFalse([call for call in calls if "building" in call], calls)
+
+    def test_an_unknown_lane_is_refused_before_anything_runs(self):
+        result = self.run_script("--execute", "code", lane="buildings")
+        self.assertEqual(result.returncode, 64, result.stderr)
+        self.assertIn("<building|parcel>", result.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_a_dry_run_deploys_nothing(self):
         result = self.run_script("code")

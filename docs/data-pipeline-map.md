@@ -291,8 +291,9 @@ Silver·Gold **34표**,
 | 매일 원천 확인 (`daily-source-sweep`) | 실행 경로 있음 | 건축HUB 목록을 매일 살펴 새 파일을 수집한다. |
 | 수집 객체 등록부 (`lakehouse-object-registry`) | 실행 경로 있음 | 수집 원장 전체에서 객체 재고를 등록·대조한다. |
 | 건물 by-PNU 서빙 문서 (`building-by-pnu-serving`) | 실행 경로 있음 | gold.building_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0100). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
-| 건물 by-PNU 항목별 묶음 파일 (`building-by-pnu-section-packs`) | 일부 연결 | gold.building_panel 문서를 항목(buildings·floors·units·unit_prices)×법정동 묶음 파일(머리+색인+본문)로 굽는다(루트 ADR-0147). 전환 관문(전수 비교·응답 시간) 통과 전에는 객체가 서빙한다. |
+| 건물 by-PNU 묶음 파일 (`building-by-pnu-section-packs`) | 실행 경로 있음 | gold.building_panel 의 PNU 문서를 법정동 묶음 파일(머리+색인+본문, 문서 통째의 gzip 덩어리)로 굽는다(루트 ADR-0147, ADR-0151). 2026-10-07 부터 운영 주소가 이 묶음으로 서빙하고, 매일 바뀐 문서는 패치 묶음으로 반영한다. |
 | 필지 by-PNU 서빙 문서 (`parcel-by-pnu-serving`) | 실행 경로 있음 | gold.parcel_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0096). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
+| 필지 by-PNU 묶음 파일 (`parcel-by-pnu-section-packs`) | 일부 연결 | gold.parcel_panel 의 PNU 문서(용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권을 합친 한 문서)를 법정동 묶음 파일로 굽는다(루트 ADR-0147 §8, ADR-0160). 건물 묶음과 같은 형식·관문·Worker 소스를 쓴다. 전환 전에는 객체가 서빙한다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
 | 스튜어드 검토 화면 (`steward-review-surface`) | 예정 | 사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항). |
 
@@ -368,7 +369,8 @@ Silver·Gold **34표**,
 | 카탈로그 변경 전달 → 다우니어 이벤트 수신기 | `publish-outbox-once` |
 | 브이월드 공간·토지 파일 → 산업단지 기본 정보 | `build-industrial-complex-address-resolution`<br>`export-industrial-complex-bronze-raw-jsonl`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` |
 | 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export.rs` |
-| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 항목별 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 by-PNU 제공용 패널 → 필지 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_by_pnu_serving_export.rs` |
 | 지도 편집 저장소 → 지도 편집 원장 | `export-map-edit-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |

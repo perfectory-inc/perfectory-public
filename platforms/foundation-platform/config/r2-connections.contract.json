@@ -88,6 +88,25 @@
       "preview_binding": "FOUNDATION_PLATFORM_PARCEL_PACK_PREVIEW",
       "serving_binding": "FOUNDATION_PLATFORM_PARCEL_PACK_SERVING",
       "serving_binding_reason": "as the building gateway's: a Worker version whose binding is off answers from objects even when the manifest names section packs, so the pack path is rolled out by version percentage and rolled back by moving traffic",
+      "canary": {
+        "steps_percent": [1, 10, 50, 100],
+        "hold_seconds": 900,
+        "min_requests_per_step": 200,
+        "reason": "as the building lane's (root ADR-0151 Revision, ADR-0157): a step holds 15 minutes, then needs min_requests_per_step pinned reads answered by the new version itself before its error rate, CPU and wall time are compared with the old one",
+        "analytics_min_coverage": 0.3,
+        "analytics_min_coverage_reason": "as the building lane's: Workers analytics is sampled and late, so whether reads reached the new version is judged from the pinned answers and analytics only for CPU, cut-offs and errors",
+        "synthetic_load": {
+          "requests_per_second": 5,
+          "duration_seconds": 60,
+          "max_in_flight": 16,
+          "reason": "as the building lane's: before launch the live hostname carries too few requests for a step to reach min_requests_per_step, so each step reads 300 gate-sample PNUs from the live hostname pinned to each version"
+        }
+      },
+      "monitor": {
+        "pnus": 20,
+        "latency_p95_max_ms": 3000,
+        "reason": "as the building lane's: hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance parcel), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist; a 5xx, a document that differs, or a p95 above the bound is an alert"
+      },
       "preview_worker": {
         "wrangler_env": "preview",
         "worker_name": "foundation-parcel-gateway-preview",
@@ -306,7 +325,7 @@
       "monitor": {
         "pnus": 20,
         "latency_p95_max_ms": 3000,
-        "reason": "hourly (infra/systemd/foundation-building-serving-monitor.timer), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+        "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
       },
       "fallback": {
         "objects_kept_clean_days": 30,
