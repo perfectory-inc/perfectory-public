@@ -18,8 +18,7 @@ use anyhow::{ensure, Context};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::super::LANE;
-use crate::by_pnu_gateway_contract::section_pack_policy;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 
 pub(crate) const EQUALITY_KIND: &str = "local_full_equality";
 pub(crate) const LATENCY_KIND: &str = "live_sample_and_latency";
@@ -377,12 +376,16 @@ pub(crate) fn is_sample_candidate(pnu: &str) -> anyhow::Result<bool> {
 /// # Errors
 /// Refuses an unreadable catalog, an expired snapshot or one whose summary records no row count,
 /// and a stated count that differs.
-pub(crate) async fn gold_record_count(snapshot: &str, stated: Option<u64>) -> anyhow::Result<u64> {
+pub(crate) async fn gold_record_count(
+    lane: ByPnuLane,
+    snapshot: &str,
+    stated: Option<u64>,
+) -> anyhow::Result<u64> {
     let catalog = lakehouse_infrastructure::IcebergRestCatalog::new(
         lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
             .context("failed to configure the Iceberg catalog")?,
     )?;
-    let table = lakehouse_domain::GOLD_BUILDING_PANEL.table_name;
+    let table = crate::by_pnu_serving_manifest_publish::gold_table(lane);
     let recorded = catalog
         .load_snapshot_record_count(
             table,
@@ -392,7 +395,7 @@ pub(crate) async fn gold_record_count(snapshot: &str, stated: Option<u64>) -> an
         )
         .await?
         .with_context(|| format!("{table} does not exist in the catalog"))?;
-    cross_check(recorded, stated, snapshot)
+    cross_check(lane, recorded, stated, snapshot)
 }
 
 /// The catalog's count, refused when a stated one differs.
@@ -400,6 +403,7 @@ pub(crate) async fn gold_record_count(snapshot: &str, stated: Option<u64>) -> an
 /// # Errors
 /// Names both counts.
 pub(crate) fn cross_check(
+    lane: ByPnuLane,
     recorded: u64,
     stated: Option<u64>,
     snapshot: &str,
@@ -407,7 +411,7 @@ pub(crate) fn cross_check(
     ensure!(
         stated.is_none_or(|stated| stated == recorded),
         "{} states {} Gold rows but the catalog records {recorded} for snapshot {snapshot}",
-        LANE.env("PACK_EXPECTED_DOCUMENT_COUNT"),
+        lane.env("PACK_EXPECTED_DOCUMENT_COUNT"),
         stated.unwrap_or_default()
     );
     Ok(recorded)
@@ -449,22 +453,23 @@ pub(crate) fn read<T: serde::de::DeserializeOwned>(
 /// # Errors
 /// Names the first unmet condition.
 pub(crate) fn require_equality(
+    lane: ByPnuLane,
     evidence: &EqualityEvidence,
     generation: u64,
     snapshot: &str,
     expected_documents: u64,
 ) -> anyhow::Result<()> {
     ensure!(
-        evidence.kind == EQUALITY_KIND && evidence.lane == LANE.unit(),
+        evidence.kind == EQUALITY_KIND && evidence.lane == lane.unit(),
         "the equality evidence is a {} file of {}, not {EQUALITY_KIND} of {}",
         evidence.kind,
         evidence.lane,
-        LANE.unit()
+        lane.unit()
     );
     ensure!(
         evidence.pack_generation == generation
             && evidence.gold_iceberg_snapshot_id == snapshot
-            && evidence.sections == LANE.section_packs()?.sections,
+            && evidence.sections == lane.section_packs()?.sections,
         "the equality evidence examined generation {} of Gold snapshot {} ({:?}), not generation \
          {generation} of {snapshot} in every contract section",
         evidence.pack_generation,
@@ -488,16 +493,17 @@ pub(crate) fn require_equality(
 /// # Errors
 /// Names the first unmet condition.
 pub(crate) fn require_latency(
+    lane: ByPnuLane,
     evidence: &LatencyEvidence,
     generation: u64,
     equality: &EqualityEvidence,
 ) -> anyhow::Result<()> {
     ensure!(
-        evidence.kind == LATENCY_KIND && evidence.lane == LANE.unit(),
+        evidence.kind == LATENCY_KIND && evidence.lane == lane.unit(),
         "the live evidence is a {} file of {}, not {LATENCY_KIND} of {}",
         evidence.kind,
         evidence.lane,
-        LANE.unit()
+        lane.unit()
     );
     ensure!(
         evidence.pack_generation == generation,

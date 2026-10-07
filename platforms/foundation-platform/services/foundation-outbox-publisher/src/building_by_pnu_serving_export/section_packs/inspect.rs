@@ -1,4 +1,4 @@
-//! `inspect-building-by-pnu-section-packs`: what the packs say about one PNU (root ADR-0147 §7).
+//! `inspect-<lane>-by-pnu-section-packs`: what the packs say about one PNU (root ADR-0147 §7).
 //!
 //! Prints, as one JSON document on stdout: for every section, which pack answered (base or patch),
 //! the entry's state and the section's fragment; then the gateway's answer for the PNU and, when
@@ -8,8 +8,9 @@
 use anyhow::Context;
 use serde_json::{json, Value as JsonValue};
 
-use super::super::{optional_env, LANE};
+use super::super::optional_env;
 use super::read::{self, Found, PackView, Resolved};
+use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -19,10 +20,10 @@ use crate::r2_layout::{by_pnu, by_pnu_packs};
 ///
 /// # Errors
 /// Returns an error when the PNU is malformed or a pack cannot be read.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    let env = |name: &str| optional_env(&LANE.env(name));
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    let env = |name: &str| optional_env(&lane.env(name));
     let pnu =
-        env("INSPECT_PNU")?.with_context(|| format!("{} is required", LANE.env("INSPECT_PNU")))?;
+        env("INSPECT_PNU")?.with_context(|| format!("{} is required", lane.env("INSPECT_PNU")))?;
     let output = ProfileStoreConfig::parse(
         env("OUTPUT_STORAGE_DRIVER")?
             .unwrap_or_else(|| "local".to_owned())
@@ -33,7 +34,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .map(|raw| raw.parse::<u64>())
         .transpose()
         .context("the pack generation must be a number")?;
-    let store = ByPnuServingStore::open(LANE, &output)?;
+    let store = ByPnuServingStore::open(lane, &output)?;
     let report = inspect(&store, &pnu, generation).await?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
@@ -48,25 +49,26 @@ pub(crate) async fn inspect(
     pnu: &str,
     generation: Option<u64>,
 ) -> anyhow::Result<JsonValue> {
-    by_pnu::check_pnu(LANE, pnu)?;
+    let lane = store.lane();
+    by_pnu::check_pnu(lane, pnu)?;
     let unit = by_pnu_packs::unit_of(pnu)?.to_owned();
     let (view, from) = match generation {
         Some(generation) => (
-            PackView::unpublished(generation)?,
+            PackView::unpublished(lane, generation)?,
             format!("generation {generation}"),
         ),
         None => {
             let (bytes, _) = store.read_manifest().await?;
-            let served = ServedManifest::parse(LANE, &bytes)?;
+            let served = ServedManifest::parse(lane, &bytes)?;
             let state = served
                 .section_packs
                 .context("the live manifest names no section packs; name PACK_GENERATION")?;
-            (PackView::served(&state), "manifest".to_owned())
+            (PackView::served(lane, &state), "manifest".to_owned())
         }
     };
     let mut bases = Vec::new();
     for section in &view.sections {
-        let key = by_pnu_packs::pack_key(LANE, &section.name, section.generation, None, &unit)?;
+        let key = by_pnu_packs::pack_key(lane, &section.name, section.generation, None, &unit)?;
         if store
             .list_pack_keys(&section.name, section.generation, None)
             .await?
@@ -104,7 +106,7 @@ pub(crate) async fn inspect(
     let (answer, document) = match read::resolve(&packs, pnu) {
         Ok(Resolved::Document(fragments)) => (
             "document".to_owned(),
-            serde_json::from_slice::<JsonValue>(&read::joined_bytes(&fragments)?)?,
+            serde_json::from_slice::<JsonValue>(&read::joined_bytes(lane, &fragments)?)?,
         ),
         Ok(Resolved::Tombstone) => ("tombstone".to_owned(), JsonValue::Null),
         Ok(Resolved::Absent) => ("absent".to_owned(), JsonValue::Null),

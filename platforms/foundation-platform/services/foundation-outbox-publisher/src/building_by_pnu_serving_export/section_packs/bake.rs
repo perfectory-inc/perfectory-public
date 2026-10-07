@@ -1,4 +1,4 @@
-//! `export-building-by-pnu-section-packs`: Gold into section packs (root ADR-0147 §1, §4, §5).
+//! `export-<lane>-by-pnu-section-packs`: Gold into section packs (root ADR-0147 §1, §4, §5).
 //!
 //! One run reads one Gold snapshot (sharded by PNU prefix, as the object export is) and writes,
 //! per legal dong of the shard and per section asked for, one pack, create-only:
@@ -10,13 +10,13 @@
 //!   `n` is the generation the lane serves that section from (the manifest's `section_packs`), only
 //!   for the dongs the change set touches.
 //!
-//! The documents go through the object export's own builder (`building_document`), so a pack
+//! The documents go through the lane's object export builder (`sections::Renderer`), so a pack
 //! holds exactly what an object would have held. Before a dong's packs are written, the gateway's
 //! answer for every PNU of the dong is joined from them and compared with that builder's object
 //! document (gate 가). A section re-baked alone is joined with the other sections exactly as the
 //! lane serves them (their base and patches, read from the bucket), so a re-bake whose ids no
 //! longer line up with the served sections is refused before anything of the dong is written.
-//! The summary names every pack with its counts; `publish-building-by-pnu-section-packs` checks
+//! The summary names every pack with its counts; `publish-<lane>-by-pnu-section-packs` checks
 //! the listing against it.
 //!
 //! A shard prefix is at most a legal dong long, so no dong is split across runs. A generation that
@@ -31,7 +31,6 @@ use std::time::Instant;
 
 use anyhow::{ensure, Context};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
-use lakehouse_domain::GOLD_BUILDING_PANEL;
 use lakehouse_infrastructure::{
     IcebergRestCatalog, IcebergSnapshotManifestList, LakehouseCatalogConfig,
 };
@@ -39,13 +38,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-use super::super::building_document::{self, BuildingByPnuDocument, GoldSnapshotProvenance};
 use super::super::{
     optional_env, parse_max_concurrency, read_pnu_allowlist, refuse_a_moved_table, select_rows,
-    write_summary, LANE, MAX_ROWS_PER_RUN,
+    write_summary, MAX_ROWS_PER_RUN,
 };
-use super::{gate, read, sections};
-use crate::building_link_evidence::ApprovedBuildingLinks;
+use super::sections::{self, PackDocument, PackProvenance, Renderer};
+use super::{gate, read};
+use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_pack::{self, Pack, PackIdentity, PackWriter};
 use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::ServedManifest;
@@ -55,14 +54,20 @@ use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
 use crate::r2_layout::by_pnu_packs;
 
-pub(crate) const SUMMARY_SCHEMA_VERSION: &str =
-    "foundation-platform.building_by_pnu_section_pack_export_summary.v1";
+/// The schema of a lane's export summary; the publish reads only its own lane's.
+pub(crate) const fn summary_schema_version(lane: ByPnuLane) -> &'static str {
+    match lane {
+        ByPnuLane::Building => "foundation-platform.building_by_pnu_section_pack_export_summary.v1",
+        ByPnuLane::Parcel => "foundation-platform.parcel_by_pnu_section_pack_export_summary.v1",
+    }
+}
 const DEFAULT_MAX_CONCURRENCY: usize = 16;
 /// How many differing PNUs a refusal names.
 const MAX_DIFFERING: usize = 20;
 
 #[derive(Clone, Debug)]
 pub(crate) struct BakeConfig {
+    pub(crate) lane: ByPnuLane,
     pub(crate) output: ProfileStoreConfig,
     /// The generation a base bake writes. A patch names none: each section's patch goes under the
     /// generation the lane serves that section from.
@@ -77,12 +82,12 @@ pub(crate) struct BakeConfig {
 }
 
 impl BakeConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let env = |name: &str| optional_env(&LANE.env(name));
+    fn from_env(lane: ByPnuLane) -> anyhow::Result<Self> {
+        let env = |name: &str| optional_env(&lane.env(name));
         ensure!(
             env("CONFIRM_PACK_EXPORT")?.is_some_and(|value| value.eq_ignore_ascii_case("true")),
             "{} must be true",
-            LANE.env("CONFIRM_PACK_EXPORT")
+            lane.env("CONFIRM_PACK_EXPORT")
         );
         let generation = env("PACK_GENERATION")?
             .map(|raw| {
@@ -90,11 +95,11 @@ impl BakeConfig {
                     .ok()
                     .filter(|generation| *generation >= 1)
                     .with_context(|| {
-                        format!("{} must be a positive integer", LANE.env("PACK_GENERATION"))
+                        format!("{} must be a positive integer", lane.env("PACK_GENERATION"))
                     })
             })
             .transpose()?;
-        let contract = &LANE.section_packs()?.sections;
+        let contract = &lane.section_packs()?.sections;
         let sections = match env("PACK_SECTIONS")? {
             None => contract.clone(),
             Some(raw) => raw
@@ -107,20 +112,20 @@ impl BakeConfig {
         ensure!(
             !sections.is_empty() && sections.iter().all(|name| contract.contains(name)),
             "{} names sections outside the contract's {contract:?}",
-            LANE.env("PACK_SECTIONS")
+            lane.env("PACK_SECTIONS")
         );
-        let patch = patch_export::from_env(LANE, optional_env)?;
+        let patch = patch_export::from_env(lane, optional_env)?;
         ensure!(
             patch.is_some() != generation.is_some(),
             "a base names its generation as {}; a patch names none, each section's patch goes \
              under the generation the lane serves it from",
-            LANE.env("PACK_GENERATION")
+            lane.env("PACK_GENERATION")
         );
         let upserts = env("PNU_ALLOWLIST_PATH")?
             .map(|raw| {
                 let path = std::path::Path::new(raw.as_str());
                 if patch.is_some() {
-                    patch_export::read_pnu_list(LANE, path)
+                    patch_export::read_pnu_list(lane, path)
                 } else {
                     read_pnu_allowlist(path)
                 }
@@ -129,7 +134,7 @@ impl BakeConfig {
         ensure!(
             patch.is_none() || (upserts.is_some() && sections == *contract),
             "a patch names its upserts as {} and writes every section",
-            LANE.env("PNU_ALLOWLIST_PATH")
+            lane.env("PNU_ALLOWLIST_PATH")
         );
         let unit_length = crate::by_pnu_gateway_contract::section_pack_policy()?.unit_prefix_length;
         let pnu_prefix = env("PNU_PREFIX")?;
@@ -138,10 +143,11 @@ impl BakeConfig {
                 (1..=unit_length).contains(&prefix.len())
                     && prefix.bytes().all(|byte| byte.is_ascii_digit()),
                 "{} must be 1 to {unit_length} digits: a pack is one whole legal dong",
-                LANE.env("PNU_PREFIX")
+                lane.env("PNU_PREFIX")
             );
         }
         Ok(Self {
+            lane,
             output: ProfileStoreConfig::parse(
                 env("OUTPUT_STORAGE_DRIVER")?
                     .unwrap_or_else(|| "local".to_owned())
@@ -160,7 +166,7 @@ impl BakeConfig {
                 .unwrap_or(DEFAULT_MAX_CONCURRENCY),
             summary_path: PathBuf::from(
                 env("PACK_SUMMARY_PATH")?
-                    .with_context(|| format!("{} is required", LANE.env("PACK_SUMMARY_PATH")))?,
+                    .with_context(|| format!("{} is required", lane.env("PACK_SUMMARY_PATH")))?,
             ),
         })
     }
@@ -253,26 +259,27 @@ pub(crate) struct PackEntry {
 ///
 /// # Errors
 /// Refuses on any failed check; packs already written stay (create-only, same bytes on re-run).
-pub(crate) async fn run() -> anyhow::Result<()> {
-    sections::check_contract_sections()?;
-    let config = BakeConfig::from_env()?;
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    sections::check_contract_sections(lane)?;
+    let config = BakeConfig::from_env(lane)?;
+    let table = sections::gold_table(lane)?.table_name;
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )?;
     let snapshot = catalog
-        .load_current_snapshot_manifest_list(GOLD_BUILDING_PANEL.table_name)
+        .load_current_snapshot_manifest_list(table)
         .await?
-        .context("gold.building_panel has no current snapshot to export")?;
+        .with_context(|| format!("{table} has no current snapshot to export"))?;
     let lakehouse = LakehouseObjectReader::from_env()?;
-    let store = ByPnuServingStore::open(LANE, &config.output)?;
-    let approvals = ApprovedBuildingLinks::load_current().await?;
+    let store = ByPnuServingStore::open(lane, &config.output)?;
+    let renderer = Renderer::load(lane).await?;
     let (rows, gold_record_count) = scan(&config, &lakehouse, &snapshot).await?;
     let mut summary = bake(
         &config,
         &store,
         &snapshot_provenance(&snapshot),
         &rows,
-        &approvals,
+        &renderer,
     )
     .await?;
     summary.gold_record_count = Some(gold_record_count);
@@ -284,13 +291,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         tombstone_count = summary.tombstone_count,
         packs = summary.packs.len(),
         elapsed_seconds = summary.elapsed_seconds,
-        "building section pack export succeeded"
+        lane = lane.unit(),
+        "section pack export succeeded"
     );
     Ok(())
 }
 
-fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> GoldSnapshotProvenance {
-    GoldSnapshotProvenance {
+fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> PackProvenance {
+    PackProvenance {
         table: snapshot.table_name.clone(),
         iceberg_snapshot_id: snapshot.snapshot_id.to_string(),
         metadata_location: snapshot.metadata_location.clone(),
@@ -310,7 +318,7 @@ async fn scan(
         &snapshot.snapshot_id.to_string(),
     )?;
     let rows = scan_snapshot_rows_kept(
-        &GOLD_BUILDING_PANEL,
+        sections::gold_table(config.lane)?,
         lakehouse,
         snapshot,
         |row| match row.get("pnu").and_then(JsonValue::as_str) {
@@ -330,7 +338,7 @@ async fn scan(
         !rows.keep_limit_exceeded,
         "this shard keeps more than {MAX_ROWS_PER_RUN} rows; shard the run with {}, not a bigger \
          heap",
-        LANE.env("PNU_PREFIX")
+        config.lane.env("PNU_PREFIX")
     );
     ensure!(
         rows.decoded_row_count == rows.manifest_record_count,
@@ -370,12 +378,15 @@ impl Plan {
 }
 
 /// The `section_packs` block of the live manifest.
-async fn served_state(store: &ByPnuServingStore) -> anyhow::Result<Option<SectionPacksState>> {
+async fn served_state(
+    lane: ByPnuLane,
+    store: &ByPnuServingStore,
+) -> anyhow::Result<Option<SectionPacksState>> {
     let (bytes, _) = store
         .read_manifest()
         .await
-        .context("the building lane has no readable manifest")?;
-    Ok(ServedManifest::parse(LANE, &bytes)
+        .with_context(|| format!("the {} lane has no readable manifest", lane.unit()))?;
+    Ok(ServedManifest::parse(lane, &bytes)
         .context("the live manifest cannot be read")?
         .section_packs)
 }
@@ -386,9 +397,9 @@ async fn served_state(store: &ByPnuServingStore) -> anyhow::Result<Option<Sectio
 async fn plan(
     config: &BakeConfig,
     store: &ByPnuServingStore,
-    provenance: &GoldSnapshotProvenance,
+    provenance: &PackProvenance,
 ) -> anyhow::Result<Plan> {
-    let contract = &LANE.section_packs()?.sections;
+    let contract = &config.lane.section_packs()?.sections;
     if let (None, Some(generation)) = (&config.patch, config.generation) {
         if config.sections == *contract {
             return Ok(Plan {
@@ -401,7 +412,7 @@ async fn plan(
             });
         }
     }
-    let state = served_state(store).await?.with_context(|| {
+    let state = served_state(config.lane, store).await?.with_context(|| {
         if config.patch.is_some() {
             "a pack patch goes over the packs the lane serves, and the manifest names none"
         } else {
@@ -450,7 +461,7 @@ async fn plan(
             "section {name} generation may only move forward from {served}, not to {generation}"
         );
     }
-    let mut view = read::PackView::served(&state);
+    let mut view = read::PackView::served(config.lane, &state);
     view.sections
         .retain(|section| !config.sections.contains(&section.name));
     let mut bases = BTreeMap::new();
@@ -459,7 +470,9 @@ async fn plan(
             .list_pack_keys(&section.name, section.generation, None)
             .await?
             .iter()
-            .filter_map(|key| by_pnu_packs::parse_pack_key(LANE, key).map(|parsed| parsed.unit))
+            .filter_map(|key| {
+                by_pnu_packs::parse_pack_key(config.lane, key).map(|parsed| parsed.unit)
+            })
             .collect::<BTreeSet<_>>();
         bases.insert(section.name.clone(), units);
     }
@@ -477,8 +490,8 @@ async fn plan(
 struct Run<'a> {
     config: &'a BakeConfig,
     store: &'a ByPnuServingStore,
-    provenance: &'a GoldSnapshotProvenance,
-    approvals: &'a ApprovedBuildingLinks,
+    provenance: &'a PackProvenance,
+    renderer: &'a Renderer,
     plan: &'a Plan,
 }
 
@@ -490,9 +503,9 @@ struct Run<'a> {
 pub(crate) async fn bake(
     config: &BakeConfig,
     store: &ByPnuServingStore,
-    provenance: &GoldSnapshotProvenance,
+    provenance: &PackProvenance,
     rows: &[JsonMap<String, JsonValue>],
-    approvals: &ApprovedBuildingLinks,
+    renderer: &Renderer,
 ) -> anyhow::Result<PackExportSummary> {
     let started = Instant::now();
     let selected = select_rows(rows, config.upserts.as_ref(), config.pnu_prefix.as_deref())?;
@@ -503,7 +516,7 @@ pub(crate) async fn bake(
         let pnu = row
             .get("pnu")
             .and_then(JsonValue::as_str)
-            .context("gold.building_panel row is missing pnu")?;
+            .context("a Gold row is missing pnu")?;
         units
             .entry(by_pnu_packs::unit_of(pnu)?.to_owned())
             .or_default()
@@ -553,7 +566,7 @@ pub(crate) async fn bake(
         config,
         store,
         provenance,
-        approvals,
+        renderer,
         plan: &plan,
     };
     // Futures are built in a loop, not in a `map` closure: a closure over borrowed rows makes
@@ -607,7 +620,7 @@ pub(crate) async fn bake(
             total.tombstones
         );
     }
-    let anchor = &LANE.section_packs()?.anchor_section;
+    let anchor = &config.lane.section_packs()?.anchor_section;
     let generation = plan
         .generations
         .get(anchor)
@@ -615,8 +628,11 @@ pub(crate) async fn bake(
         .copied()
         .context("the run bakes no section")?;
     Ok(PackExportSummary {
-        schema_version: SUMMARY_SCHEMA_VERSION.to_owned(),
-        document_schema_version: building_document::BUILDING_DOCUMENT_SCHEMA_VERSION.to_owned(),
+        schema_version: summary_schema_version(config.lane).to_owned(),
+        document_schema_version: crate::by_pnu_serving_manifest_publish::document_schema_version(
+            config.lane,
+        )
+        .to_owned(),
         gold_table: provenance.table.clone(),
         gold_iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
         generation,
@@ -642,7 +658,7 @@ pub(crate) async fn bake(
 async fn refuse_a_foreign_generation(
     config: &BakeConfig,
     store: &ByPnuServingStore,
-    provenance: &GoldSnapshotProvenance,
+    provenance: &PackProvenance,
     plan: &Plan,
 ) -> anyhow::Result<()> {
     let patch = config.patch.as_ref().map(|patch| patch.patch);
@@ -713,7 +729,7 @@ async fn write_unit(
 ) -> anyhow::Result<(Vec<PackEntry>, UnitCheck)> {
     let documents = rows
         .iter()
-        .map(|row| building_document::document_with_approvals(run.provenance, row, run.approvals))
+        .map(|row| run.renderer.render(run.provenance, row))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let patch = run.config.patch.as_ref().map(|patch| patch.patch);
     let mut laid_out = Vec::with_capacity(run.config.sections.len());
@@ -746,7 +762,14 @@ async fn write_unit(
         }
         None => Vec::new(),
     };
-    let check = check_round_trip(&laid_out, &served, &documents, deleted, patch)?;
+    let check = check_round_trip(
+        run.config.lane,
+        &laid_out,
+        &served,
+        &documents,
+        deleted,
+        patch,
+    )?;
     check.require_equal(unit)?;
     let mut packs = Vec::with_capacity(laid_out.len());
     for (section, bytes) in laid_out {
@@ -758,14 +781,14 @@ async fn write_unit(
 pub(super) fn lay_out_pack(
     config: &BakeConfig,
     generation: u64,
-    provenance: &GoldSnapshotProvenance,
+    provenance: &PackProvenance,
     section: &str,
     unit: &str,
-    documents: &[BuildingByPnuDocument],
+    documents: &[PackDocument],
     deleted: &[String],
 ) -> anyhow::Result<Vec<u8>> {
     let mut writer = PackWriter::new(PackIdentity {
-        lane: LANE.unit().to_owned(),
+        lane: config.lane.unit().to_owned(),
         section: section.to_owned(),
         generation,
         patch: config.patch.as_ref().map(|patch| patch.patch),
@@ -783,10 +806,10 @@ pub(super) fn lay_out_pack(
 }
 
 fn entries<'a>(
-    documents: &'a [BuildingByPnuDocument],
+    documents: &'a [PackDocument],
     deleted: &'a [String],
-) -> Vec<(&'a str, Option<&'a BuildingByPnuDocument>)> {
-    let mut entries: Vec<(&str, Option<&BuildingByPnuDocument>)> = documents
+) -> Vec<(&'a str, Option<&'a PackDocument>)> {
+    let mut entries: Vec<(&str, Option<&PackDocument>)> = documents
         .iter()
         .map(|document| (document.pnu.as_str(), Some(document)))
         .chain(deleted.iter().map(|pnu| (pnu.as_str(), None)))
@@ -805,9 +828,10 @@ fn entries<'a>(
 ///   as a document. Both are tallied in [`UnitCheck`], so `equal` is counted, not assumed.
 /// - Every delete answers as a tombstone.
 pub(super) fn check_round_trip(
+    lane: ByPnuLane,
     laid_out: &[(String, Vec<u8>)],
     served: &[read::SectionPacksOfUnit],
-    documents: &[BuildingByPnuDocument],
+    documents: &[PackDocument],
     deleted: &[String],
     patch: Option<u64>,
 ) -> anyhow::Result<UnitCheck> {
@@ -837,7 +861,7 @@ pub(super) fn check_round_trip(
     // Contract order; a section neither baked here nor served beside them has no pack in this
     // dong, and a document then cannot answer.
     let mut joined = Vec::new();
-    for name in &LANE.section_packs()?.sections {
+    for name in &lane.section_packs()?.sections {
         joined.push(
             baked
                 .iter()
@@ -851,16 +875,19 @@ pub(super) fn check_round_trip(
                 }),
         );
     }
-    let packs = read::UnitPacks { sections: joined };
+    let packs = read::UnitPacks {
+        lane,
+        sections: joined,
+    };
     let mut check = UnitCheck::default();
     for document in documents {
         let answer = match read::resolve(&packs, &document.pnu) {
-            Ok(read::Resolved::Document(fragments)) => read::joined_bytes(&fragments).ok(),
+            Ok(read::Resolved::Document(fragments)) => read::joined_bytes(lane, &fragments).ok(),
             _ => None,
         };
         check.tally(
             &document.pnu,
-            answer.as_deref() == Some(document.to_bytes()?.as_slice()),
+            answer.as_deref() == Some(document.bytes.as_slice()),
         );
         if patch.is_none() && gate::is_sample_candidate(&document.pnu)? {
             check.candidates.push(document.pnu.clone());
@@ -910,7 +937,7 @@ async fn write_pack(
     section: String,
     unit: &str,
     bytes: Vec<u8>,
-    documents: &[BuildingByPnuDocument],
+    documents: &[PackDocument],
     deleted: &[String],
 ) -> anyhow::Result<PackEntry> {
     let patch = run.config.patch.as_ref().map(|patch| patch.patch);
@@ -924,7 +951,7 @@ async fn write_pack(
         Vec::new()
     };
     let head = by_pnu_pack::read_prefix(&bytes)?.head_length();
-    let key = by_pnu_packs::pack_key(LANE, &section, generation, patch, unit)?;
+    let key = by_pnu_packs::pack_key(run.config.lane, &section, generation, patch, unit)?;
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
     let created = run
         .store

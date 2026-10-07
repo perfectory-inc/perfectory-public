@@ -14,7 +14,7 @@ use super::analytics::AnalyticsConfig;
 use super::gate;
 use super::latency::{self, LatencyConfig, ParsedServerTiming};
 use super::load::{self, LoadPlan};
-use crate::by_pnu_gateway_contract::section_pack_policy;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 
 /// Three PNUs of one legal dong, then two of another.
 const PNUS: [&str; 5] = [
@@ -98,6 +98,7 @@ fn no_gzip_held(sent: u64) -> gate::NoGzipEvidence {
 fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyConfig {
     let work = std::env::temp_dir();
     LatencyConfig {
+        lane: ByPnuLane::Building,
         generation: 1,
         live_base_url: live.uri(),
         preview_base_url: pack.uri(),
@@ -470,7 +471,7 @@ async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
     };
     let client = reqwest::Client::new();
     let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", fast.uri());
-    let held = load::run(&client, &plan, &pnus(), url, None).await?;
+    let held = load::run(ByPnuLane::Building, &client, &plan, &pnus(), url, None).await?;
     assert_eq!((held.sent, held.shed, held.answered), (40, 0, 40));
     assert_eq!(held.availability, 1.0);
     assert_eq!(held.server_timing.answers, 40);
@@ -483,21 +484,21 @@ async fn the_load_phase_paces_and_counts_what_it_sheds() -> anyhow::Result<()> {
         max_in_flight: 2,
         ..plan
     };
-    let shed = load::run(&client, &narrow, &pnus(), url, None).await?;
+    let shed = load::run(ByPnuLane::Building, &client, &narrow, &pnus(), url, None).await?;
     assert!(shed.shed > 0, "{shed:?}");
     assert_eq!(shed.sent + shed.shed, 40);
     assert!(shed.availability < 1.0);
 
     let failing = route(503, 0, None, true).await;
     let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", failing.uri());
-    let failed = load::run(&client, &plan, &pnus(), url, None).await?;
+    let failed = load::run(ByPnuLane::Building, &client, &plan, &pnus(), url, None).await?;
     assert_eq!(failed.failures.get("http-503"), Some(&40));
     assert_eq!(failed.availability, 0.0);
 
     // The load asks for gzip as browsers do; a preview that answers plain bytes fails every read.
     let plain = route(200, 0, None, false).await;
     let url = |pnu: &str| format!("{}/buildings/by-pnu/{pnu}", plain.uri());
-    let not_gzip = load::run(&client, &plan, &pnus(), url, None).await?;
+    let not_gzip = load::run(ByPnuLane::Building, &client, &plan, &pnus(), url, None).await?;
     assert_eq!(not_gzip.failures.get("not-gzip"), Some(&40));
     Ok(())
 }
@@ -745,6 +746,7 @@ async fn a_sampled_late_analytics_answer_does_not_fail_a_step_that_reached() -> 
     let config = analytics_config(&server);
     let judge = |pinned| {
         super::health::check(
+            ByPnuLane::Building,
             &client,
             &config,
             NEW_VERSION,
@@ -809,7 +811,15 @@ async fn a_canary_step_pins_its_reads_to_each_version() -> anyhow::Result<()> {
         duration: Duration::from_secs(1),
         max_in_flight: 8,
     };
-    let pinned = super::health::drive(&plan, &server.uri(), &pnus(), NEW, Some(OLD)).await?;
+    let pinned = super::health::drive(
+        ByPnuLane::Building,
+        &plan,
+        &server.uri(),
+        &pnus(),
+        NEW,
+        Some(OLD),
+    )
+    .await?;
     assert_eq!(pinned.new.failures.get("http-503"), Some(&20));
     let old = pinned
         .old

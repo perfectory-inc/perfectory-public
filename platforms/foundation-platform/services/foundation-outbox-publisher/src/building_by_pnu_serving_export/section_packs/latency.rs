@@ -50,20 +50,21 @@ use futures_util::{stream, StreamExt as _};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use super::super::{optional_env, LANE};
+use super::super::optional_env;
 use super::analytics::{self, AnalyticsConfig, Invocations};
 use super::equality::write_evidence;
 use super::gate::{
     self, EqualityEvidence, Increase, LatencyEvidence, NoGzipEvidence, ServerTimingSummary, Timings,
 };
 use super::load::{self, LoadPlan};
-use crate::by_pnu_gateway_contract::section_pack_policy;
+use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 use crate::r2_layout::by_pnu_packs;
 
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug)]
 pub(crate) struct LatencyConfig {
+    pub(crate) lane: ByPnuLane,
     pub(crate) generation: u64,
     pub(crate) live_base_url: String,
     pub(crate) preview_base_url: String,
@@ -85,10 +86,10 @@ pub(crate) struct LatencyConfig {
 }
 
 impl LatencyConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let env = |name: &str| optional_env(&LANE.env(name));
+    fn from_env(lane: ByPnuLane) -> anyhow::Result<Self> {
+        let env = |name: &str| optional_env(&lane.env(name));
         let required = |name: &str| -> anyhow::Result<String> {
-            env(name)?.with_context(|| format!("{} is required", LANE.env(name)))
+            env(name)?.with_context(|| format!("{} is required", lane.env(name)))
         };
         let gate = &section_pack_policy()?.cutover_gate;
         let concurrency = match env("PACK_PROBE_CONCURRENCY")? {
@@ -99,7 +100,7 @@ impl LatencyConfig {
                 .with_context(|| {
                     format!(
                         "{} must be a positive integer",
-                        LANE.env("PACK_PROBE_CONCURRENCY")
+                        lane.env("PACK_PROBE_CONCURRENCY")
                     )
                 })?,
             None => gate.probe_concurrency,
@@ -109,6 +110,7 @@ impl LatencyConfig {
         let analytics = Some(AnalyticsConfig::required("gate (나)")?);
         let preview_base_url = required("PACK_PREVIEW_BASE_URL")?;
         Ok(Self {
+            lane,
             generation: required("PACK_GENERATION")?
                 .parse()
                 .context("the pack generation must be a number")?,
@@ -121,7 +123,7 @@ impl LatencyConfig {
             evidence_path: PathBuf::from(required("PACK_LATENCY_EVIDENCE_PATH")?),
             concurrency,
             analytics,
-            preview_script: LANE
+            preview_script: lane
                 .section_packs()?
                 .preview_worker
                 .as_ref()
@@ -138,8 +140,8 @@ impl LatencyConfig {
 ///
 /// # Errors
 /// Returns an error when the sample cannot be read or the evidence does not pass.
-pub(crate) async fn run() -> anyhow::Result<()> {
-    let config = LatencyConfig::from_env()?;
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+    let config = LatencyConfig::from_env(lane)?;
     let pnus = sample(&config)?;
     let evidence = probe(&config, &pnus).await?;
     write_evidence(&config.evidence_path, &evidence)?;
@@ -156,7 +158,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         failures = ?evidence.failures,
         worker_cpu = ?evidence.worker_cpu,
         passed = evidence.passed,
-        "building section pack live sample probed"
+        lane = lane.unit(),
+        "section pack live sample probed"
     );
     ensure!(
         evidence.passed,
@@ -311,7 +314,8 @@ pub(crate) async fn probe(
     pnus: &[String],
 ) -> anyhow::Result<LatencyEvidence> {
     let policy = section_pack_policy()?;
-    let prefix = LANE.policy()?.request_path.prefix.clone();
+    let lane = config.lane;
+    let prefix = lane.policy()?.request_path.prefix.clone();
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .pool_max_idle_per_host(config.concurrency.max(1))
@@ -337,11 +341,17 @@ pub(crate) async fn probe(
             let client = client.clone();
             async move {
                 let (live, pack) = if index % 2 == 0 {
-                    let live = timed_get(&client, &live_url, Accept::Gzip).await;
-                    (live, timed_get(&client, &pack_url, Accept::Gzip).await)
+                    let live = timed_get(lane, &client, &live_url, Accept::Gzip).await;
+                    (
+                        live,
+                        timed_get(lane, &client, &pack_url, Accept::Gzip).await,
+                    )
                 } else {
-                    let pack = timed_get(&client, &pack_url, Accept::Gzip).await;
-                    (timed_get(&client, &live_url, Accept::Gzip).await, pack)
+                    let pack = timed_get(lane, &client, &pack_url, Accept::Gzip).await;
+                    (
+                        timed_get(lane, &client, &live_url, Accept::Gzip).await,
+                        pack,
+                    )
                 };
                 let pack = require_gzip(pack, &pack_url);
                 (index, Probed { cold, live, pack })
@@ -384,6 +394,7 @@ pub(crate) async fn probe(
         let take = config.no_gzip_sample_size.min(pnus.len());
         Some(
             read_without_gzip(
+                lane,
                 &client,
                 &pnus[..take],
                 |pnu| preview_url(config, &prefix, &policy.preview_query_parameter, pnu),
@@ -396,6 +407,7 @@ pub(crate) async fn probe(
     let load = match &config.load {
         Some(plan) => Some(
             load::run(
+                lane,
                 &client,
                 plan,
                 pnus,
@@ -425,7 +437,7 @@ pub(crate) async fn probe(
     let mut evidence = LatencyEvidence {
         schema_version: policy.cutover_gate.evidence_schema_version.clone(),
         kind: gate::LATENCY_KIND.to_owned(),
-        lane: LANE.unit().to_owned(),
+        lane: lane.unit().to_owned(),
         pack_generation: config.generation,
         live_base_url: config.live_base_url.clone(),
         preview_base_url: config.preview_base_url.clone(),
@@ -601,6 +613,7 @@ impl Tally {
 /// of its class. A gzip body is decoded after the clock stops (the client's work, not the
 /// route's); an encoding not asked for is a failure.
 pub(crate) async fn timed_get(
+    lane: ByPnuLane,
     client: &reqwest::Client,
     url: &str,
     accept: Accept,
@@ -623,7 +636,7 @@ pub(crate) async fn timed_get(
         .map(str::to_owned);
     // A contract that cannot be read names no header: the answer then names no version, which a
     // canary step counts against the new version, never for it.
-    let version = LANE
+    let version = lane
         .policy()
         .ok()
         .and_then(|policy| policy.version_header.as_deref())
@@ -689,6 +702,7 @@ pub(crate) async fn timed_get(
 /// # Errors
 /// Returns an error when a count does not fit.
 pub(crate) async fn read_without_gzip(
+    lane: ByPnuLane,
     client: &reqwest::Client,
     pnus: &[String],
     url_of: impl Fn(&str) -> String,
@@ -702,7 +716,7 @@ pub(crate) async fn read_without_gzip(
     let answers = stream::iter(jobs)
         .map(|(pnu, url)| {
             let client = client.clone();
-            async move { (pnu, timed_get(&client, &url, Accept::Identity).await) }
+            async move { (pnu, timed_get(lane, &client, &url, Accept::Identity).await) }
         })
         .buffer_unordered(concurrency.max(1))
         .collect::<Vec<_>>()
