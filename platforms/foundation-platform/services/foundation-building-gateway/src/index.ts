@@ -449,11 +449,18 @@ function capabilities(): Response {
 /// canary step counts its pinned reads by the version that served them. Set on the answer as it
 /// leaves: an edge copy is shared by every version and never carries one.
 function withVersion(response: Response, env: Env): Response {
+  const version = workerVersion(env);
+  if (version !== null) response.headers.set(policy.version_header, version);
+  return response;
+}
+
+/// This Worker version's id from the version metadata binding, `null` when it holds none.
+function workerVersion(env: Env): string | null {
   const metadata = env[policy.version_metadata_binding];
   if (typeof metadata === "object" && "id" in metadata && typeof metadata.id === "string" && metadata.id !== "") {
-    response.headers.set(policy.version_header, metadata.id);
+    return metadata.id;
   }
-  return response;
+  return null;
 }
 
 async function fetchBuilding(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -536,7 +543,7 @@ async function answerBuilding(
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null) {
     if (timing !== null) {
-      packs = previewPlan(previewGeneration);
+      packs = previewPlan(previewGeneration, workerVersion(env));
       fingerprint = packs.fingerprint;
     } else if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);

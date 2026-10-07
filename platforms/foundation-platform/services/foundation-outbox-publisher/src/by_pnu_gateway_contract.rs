@@ -226,6 +226,9 @@ pub(crate) struct ServingSlo {
     /// The least share of reads that answer 200.
     pub(crate) availability_min: f64,
     pub(crate) latency_max_increase_ms: ColdAndWarm,
+    /// The most of the cold reads the preview may have answered without reading R2 (its edge copy,
+    /// isolate memory, or no `Server-Timing` at all): above it the cold bound measured a cache.
+    pub(crate) cold_reads_not_from_r2_max_share: f64,
 }
 
 /// A bound for the cold reads (first of their legal dong) and one for the warm reads.
@@ -345,6 +348,7 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || gate.worker_cpu_p99_max_increase_ms.is_nan()
         || gate.worker_cpu_p99_max_increase_ms < 0.0
         || !(gate.slo.availability_min > 0.0 && gate.slo.availability_min <= 1.0)
+        || !(0.0..1.0).contains(&gate.slo.cold_reads_not_from_r2_max_share)
         || [
             &gate.slo.latency_max_increase_ms.cold,
             &gate.slo.latency_max_increase_ms.warm,

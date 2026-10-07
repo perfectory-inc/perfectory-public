@@ -456,6 +456,7 @@ pub(crate) async fn probe(
             outcomes: tally.outcomes,
         },
         encodings: tally.encodings,
+        cold_read_paths: tally.cold_read_paths,
         no_gzip,
         worker_cpu,
         bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
@@ -486,6 +487,8 @@ struct Tally {
     sources: BTreeMap<String, u64>,
     outcomes: BTreeMap<String, u64>,
     encodings: BTreeMap<String, u64>,
+    /// The cold reads by where the preview answered them from (`gate::cold_read_path`).
+    cold_read_paths: BTreeMap<String, u64>,
     /// The live answer's content per PNU, which the no-gzip reads are held to.
     live_digests: HashMap<String, [u8; 32]>,
 }
@@ -529,6 +532,15 @@ impl Tally {
                     self.live_cold.push(live.ms);
                     self.pack_cold.push(pack.ms);
                     self.pack_cold_count += 1;
+                    let sources = pack
+                        .server_timing
+                        .as_deref()
+                        .map(|timing| parse_server_timing(timing).sources)
+                        .unwrap_or_default();
+                    *self
+                        .cold_read_paths
+                        .entry(gate::cold_read_path(&sources).to_owned())
+                        .or_default() += 1;
                 } else {
                     self.live_warm.push(live.ms);
                     self.pack_warm.push(pack.ms);

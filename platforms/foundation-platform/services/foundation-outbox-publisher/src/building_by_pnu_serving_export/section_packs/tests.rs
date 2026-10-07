@@ -348,10 +348,37 @@ impl Lane {
                 identity: 200,
                 ..gate::NoGzipEvidence::default()
             }),
+            cold_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
         };
         let path = self
             .work
             .join(format!("latency-{environment}-{increase_ms}.json"));
+        equality::write_evidence(&path, &evidence)?;
+        Ok(path)
+    }
+
+    /// Passing evidence but for where its cold reads came from: all but the bound's worth from
+    /// edge copies, one more than the contract admits.
+    fn latency_from_edge_copies(&self, equality: &Path) -> anyhow::Result<PathBuf> {
+        let passing = self.latency(equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+        let (mut evidence, _) = gate::read::<LatencyEvidence>(&passing)?;
+        let share = section_pack_policy()?
+            .cutover_gate
+            .slo
+            .cold_reads_not_from_r2_max_share;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let admitted = (evidence.cold_answered as f64 * share).floor() as u64;
+        let edge = admitted + 1;
+        evidence.cold_read_paths = [
+            (gate::COLD_PATH_R2.to_owned(), evidence.cold_answered - edge),
+            ("edge-copy".to_owned(), edge),
+        ]
+        .into();
+        let path = self.work.join("latency-edge-copies.json");
         equality::write_evidence(&path, &evidence)?;
         Ok(path)
     }
@@ -529,6 +556,18 @@ async fn the_building_lane_cuts_over_to_packs_and_patches_them() -> anyhow::Resu
             summaries.clone(),
             SNAPSHOT,
             Some((equality.clone(), slow)),
+            None
+        )
+        .await
+        .is_err());
+    // Fast, but its cold reads came from edge copies an earlier run had left: it measured a cache,
+    // not a first read (2026-10-07), and opens nothing.
+    let cached = lane.latency_from_edge_copies(&equality)?;
+    assert!(lane
+        .publish(
+            summaries.clone(),
+            SNAPSHOT,
+            Some((equality.clone(), cached)),
             None
         )
         .await
