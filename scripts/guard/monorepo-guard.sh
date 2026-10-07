@@ -56,7 +56,7 @@ for g in hook-isolation-self-test \
          third-party-artifact-policy-self-test \
          gitleaks-policy-self-test \
          osv-vulnerability-ratchet-self-test \
-         npm-security-overrides-self-test npm-security-overrides \
+         npm-security-overrides-self-test npm-security-overrides npm-advisory-fix-guards-self-test \
          actions-cache-controls-self-test billing-budgets-self-test \
          tiles-slice-proof-env-self-test \
          foundation-ci-scope-self-test \

@@ -17,6 +17,8 @@ for command_name in gh git node; do
   }
 done
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
+# shellcheck source=tools/npm/advisory-fix-guards.sh
+source "$root/tools/npm/advisory-fix-guards.sh"
 cd "$root"
 if [ -n "$(git status --porcelain=v1 --untracked-files=no)" ]; then
   echo "FAIL open-advisory-fix-pr: the working tree has changes" >&2
@@ -32,6 +34,7 @@ branch="$login/npm-advisory-fix-$(date -u +%Y%m%d-%H%M%S)"
 git switch --quiet --create "$branch" origin/main
 
 if [ "$#" -eq 1 ]; then
+  advisory_fix_require_main_run "$1" "$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
   gh run download "$1" --name repository-supply-chain --dir "$work"
   fix="$work/npm-advisory-fix"
   if [ ! -s "$fix/npm-advisory-fix.patch" ]; then
@@ -39,6 +42,7 @@ if [ "$#" -eq 1 ]; then
     echo "FAIL open-advisory-fix-pr: run $1 prepared no patch" >&2
     exit 1
   fi
+  advisory_fix_require_patch_paths "$fix/npm-advisory-fix.patch"
   git apply --index "$fix/npm-advisory-fix.patch"
 else
   report="$work/osv-report.json"
