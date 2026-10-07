@@ -1159,6 +1159,16 @@ case "${command}" in
       rm -f /etc/systemd/system/foundation-map-edit-fold.timer \
         /etc/systemd/system/foundation-map-edit-fold.service
     fi
+    # Likewise the building serving monitor became the building instance of the by-PNU monitor
+    # template (root ADR-0160). A host whose building timer was on keeps the hourly read under the
+    # new name (enabled after the reload below); one where it was off keeps it off.
+    building_monitor_was_on=no
+    if [[ -e /etc/systemd/system/foundation-building-serving-monitor.timer ]]; then
+      ! systemctl is-enabled --quiet foundation-building-serving-monitor.timer || building_monitor_was_on=yes
+      systemctl disable --now foundation-building-serving-monitor.timer || true
+      rm -f /etc/systemd/system/foundation-building-serving-monitor.timer \
+        /etc/systemd/system/foundation-building-serving-monitor.service
+    fi
     # A job Airflow runs (orchestration/jobs.v1.json `enabled`) loses its timer in the release that
     # switches its DAG on (root ADR-0122 §4), so it runs in exactly one place. Its service stays:
     # systemd still runs it, Airflow only starts it.
@@ -1211,6 +1221,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The by-PNU bakes' work files: on the data disk, the only path their unit may write.
     install -d -o foundation-platform -g foundation-platform /data/foundation-platform/by-pnu-bake
     systemctl daemon-reload
+    [[ "${building_monitor_was_on}" == no ]] \
+      || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
     systemctl enable --now foundation-postgres-backup.timer

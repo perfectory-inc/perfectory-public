@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **509개**
+- 문서 파일: **510개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 123 |
+| Foundation Platform | 124 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 39 |
+| runbook | 40 |
 
 ## 책임별 문서 트리
 
@@ -142,6 +142,7 @@ platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md
 platforms/foundation-platform/docs/runbooks/map-edit-fold.md
 platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md
 platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md
+platforms/foundation-platform/docs/runbooks/parcel-section-pack-cutover.md
 platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md
 platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md
 platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md
@@ -864,6 +865,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/map-edit-fold.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/parcel-section-pack-cutover.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current |

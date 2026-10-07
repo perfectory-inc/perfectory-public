@@ -126,7 +126,7 @@ pub(crate) struct LaneSectionPacks {
 }
 
 /// One gradual deployment step's hold before its health is judged, and the traffic it needs. The
-/// step percentages are read by `scripts/ops/building-gateway-canary.sh`.
+/// step percentages are read by `scripts/ops/by-pnu-gateway-canary.sh`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct CanaryPolicy {
     pub(crate) hold_seconds: u64,
