@@ -54,8 +54,11 @@ pub(crate) trait LakehouseByteReader: Send + Sync {
 impl LakehouseByteReader for LakehouseObjectReader {
     async fn read(&self, location: &str) -> anyhow::Result<Vec<u8>> {
         let key = lakehouse_object_key(location, self.bucket_name.as_str())?;
+        // Byte ranges, each retried: the SDK retries a request but not a body that breaks off
+        // midway, and on 2026-10-08 such breaks ("streaming error", a different Gold file each
+        // time) failed six of 126 parcel pack shards, each after reading for up to 20 minutes.
         self.storage
-            .get_object_bytes(key.as_str())
+            .get_object_bytes_range_retried(key.as_str())
             .await
             .with_context(|| format!("failed to read lakehouse object {location}"))
     }
