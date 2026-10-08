@@ -58,7 +58,7 @@ PY
 
 on_error() {
   printf '%s stewardship FAILED at line %s run=%s\n' "$(date -u +%FT%TZ)" "$1" "${run_id}" >> "${journal}"
-  notify_slack "🔴 필지 계보 스튜어드 순환 실패(줄 $1) — ${run_log}"
+  # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
 

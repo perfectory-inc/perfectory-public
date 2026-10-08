@@ -38,7 +38,7 @@ on_error() {
   printf '%s sweep FAILED at line %s (tail of run log follows)\n' \
     "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
   tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true
-  notify_slack "🔴 daily-source-sweep 실패 (line ${line}) — 서버 ${STATE_ROOT}/last-run.log 를 볼 것"
+  # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
 

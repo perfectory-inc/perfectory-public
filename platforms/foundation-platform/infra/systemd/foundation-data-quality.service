@@ -3,6 +3,7 @@ Description=Foundation Platform data quality: run the data contracts' executable
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
 
 [Service]
 Type=oneshot
