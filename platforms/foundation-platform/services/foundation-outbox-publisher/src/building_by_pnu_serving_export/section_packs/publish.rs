@@ -590,10 +590,20 @@ fn cutover_gate(
         expected_documents,
     )?;
     let (latency, latency_sha256) = gate::read::<gate::LatencyEvidence>(latency)?;
-    gate::require_latency(config.lane, &latency, generation, &equality)?;
+    let latency_waiver = gate::require_latency_or_waiver(
+        config.lane,
+        &latency,
+        &latency_sha256,
+        generation,
+        &equality,
+    )?;
+    if let Some(waiver) = &latency_waiver {
+        tracing::warn!(lane = config.lane.unit(), waiver = %waiver, "cut-over latency gate waived");
+    }
     Ok(CutoverRecord {
         equality_evidence_sha256: equality_sha256,
         latency_evidence_sha256: latency_sha256,
+        latency_waiver,
     })
 }
 

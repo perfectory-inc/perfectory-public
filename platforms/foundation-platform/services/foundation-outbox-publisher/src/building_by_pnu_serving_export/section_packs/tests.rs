@@ -1020,6 +1020,40 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         "another sample opened the gate"
     );
 
+    // A refused verdict opens the publish only through a contract waiver pinned to that very
+    // evidence file (root ADR-0162), and a waiver never accepts a content mismatch.
+    let waiver = section_pack_policy()?
+        .cutover_gate
+        .latency_waivers
+        .first()
+        .context("the contract holds no latency waiver to exercise")?;
+    let waived_lane =
+        ByPnuLane::from_unit(&waiver.lane).context("a waiver names an unknown lane")?;
+    let (mut refused, _) = gate::read::<gate::LatencyEvidence>(&other)?;
+    refused.lane = waived_lane.unit().to_owned();
+    refused.pack_generation = waiver.generation;
+    refused.passed = false;
+    let waive = |evidence: &gate::LatencyEvidence, sha256: &str| {
+        gate::require_latency_or_waiver(waived_lane, evidence, sha256, waiver.generation, &drawn)
+    };
+    assert!(gate::require_latency(waived_lane, &refused, waiver.generation, &drawn).is_err());
+    assert!(waive(&refused, &waiver.latency_evidence_sha256)?.is_some());
+    assert!(
+        waive(&refused, &"0".repeat(64)).is_err(),
+        "a waiver accepted another measurement"
+    );
+    let mut wrong_sample = refused.clone();
+    wrong_sample.sample_sha256 = gate::sample_digest(&[PNU_B.to_owned()]);
+    assert!(
+        waive(&wrong_sample, &waiver.latency_evidence_sha256).is_err(),
+        "a waiver accepted evidence of another sample"
+    );
+    refused.mismatched = 1;
+    assert!(
+        waive(&refused, &waiver.latency_evidence_sha256).is_err(),
+        "a waiver accepted a content mismatch"
+    );
+
     // The preview Worker's CPU is part of the gate: unmeasured, cut off by the platform, or over
     // the contract's p99 bound, the evidence does not pass.
     let (passing, _) = gate::read::<gate::LatencyEvidence>(&other)?;

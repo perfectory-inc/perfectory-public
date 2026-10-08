@@ -76,6 +76,9 @@ pub(crate) struct PackPatch {
 pub(crate) struct CutoverRecord {
     pub(crate) equality_evidence_sha256: String,
     pub(crate) latency_evidence_sha256: String,
+    /// The contract waiver that accepted a latency verdict the gate refused (root ADR-0162).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) latency_waiver: Option<String>,
 }
 
 impl SectionPacksState {

@@ -246,7 +246,17 @@
         "duration_seconds": 600,
         "max_in_flight": 64,
         "reason": "25 requests/s for 10 minutes is 15,000 reads, the Workers Free daily cap (100,000) compressed into a tenth of an hour, and above any launch-day panel rate the product has planned; the PNUs are the gate sample drawn with replacement, so legal dongs repeat and the mix holds cold and warm reads"
-      }
+      },
+      "latency_waivers": [
+        {
+          "lane": "parcel-by-pnu",
+          "generation": 1,
+          "latency_evidence_sha256": "64482ef5c9d0a896b6ce0a9196eb6b8797b768f26cf7716176effe146d3c427c",
+          "decided_on": "2026-10-08",
+          "reason": "owner decision before launch: publish parcel documents/g1 although cold first reads are +214 ms at p50 and +206 ms at p95 (bound +50) and Worker CPU p99 is 10.9 ms (bound 10). Content matched for all 39,861,511 PNUs (gate 가) and for every probe answer; warm reads are 114 ms faster. Cause: parcel packs are large (median 1.67 MB, 3% within the 256 KiB one-read size), so a cold read takes two R2 round trips; splitting large packs is deferred by the owner"
+        }
+      ],
+      "latency_waivers_reason": "a waiver is the owner accepting one measurement, pinned by the evidence file's sha256: it accepts that file's latency and CPU verdict and nothing else (lane, generation, sample, environment and every compared answer must still hold), and a new measurement is judged again (root ADR-0162)"
     }
   },
   "building_by_pnu_gateway": {

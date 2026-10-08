@@ -127,10 +127,11 @@ case "${ACTION}" in
     command="probe-${LANE}-by-pnu-section-pack-latency"
     ;;
   publish)
-    for evidence in equality latency; do
-      python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("passed") else 1)' \
-        "${WORK}/${evidence}.json" 2>/dev/null || refuse "${WORK}/${evidence}.json did not pass" 65
-    done
+    # Gate (가) must have passed. Gate (나) must exist; whether it opens the publish is the
+    # publisher's to judge, since only it applies the contract's latency waivers (root ADR-0162).
+    python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("passed") else 1)' \
+      "${WORK}/equality.json" 2>/dev/null || refuse "${WORK}/equality.json did not pass" 65
+    [[ -s "${WORK}/latency.json" ]] || refuse "${WORK}/latency.json does not exist; run latency first" 65
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
     snapshot="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["gold_iceberg_snapshot_id"])' \
       "$(ls "${WORK}"/summaries/*.json | head -1)")"

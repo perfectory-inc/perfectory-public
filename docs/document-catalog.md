@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **511개**
+- 문서 파일: **512개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 186 |
+| Monorepo | 187 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 244 |
+| ADR | 245 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -551,6 +551,7 @@ docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prep
 docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md
 docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md
 docs/adr/0161-pack-cutover-root-steps-run-through-one-granted-script.md
+docs/adr/0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -749,6 +750,7 @@ tools/github/README.md
 | `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0161-pack-cutover-root-steps-run-through-one-granted-script.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
