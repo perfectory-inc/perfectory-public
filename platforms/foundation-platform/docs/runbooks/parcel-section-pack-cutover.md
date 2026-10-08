@@ -53,11 +53,26 @@ last_reviewed: 2026-10-08
 
 8단계 전까지 예약 굽기는 필지를 굽지 않는다. 그동안 필지 패널은 마지막으로 구운 객체(또는 묶음)를 서빙한다.
 
-## 2. 감시
+## 1-1. 루트 단계 (루트 ADR-0161)
+
+관문·발행·감시 표본·단계 판정은 운영자 계정이 허용된 스크립트로 실행한다(첫 설치:
+`sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh operator-access <계정>`).
 
 ```bash
-echo 'FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_MONITOR_SAMPLE_PATH=<WORK>/equality.json' |
-  sudo install -m 0640 -o root -g foundation-platform /dev/stdin /etc/foundation-platform/parcel-serving-monitor.env
+op=/opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
+sudo -n $op parcel equality 1        # 관문 (가), 분리 실행
+sudo -n $op parcel latency 1         # 관문 (나), 미리보기 Worker 를 올린 뒤
+sudo -n $op parcel status 1          # 두 실행의 상태와 로그 끝
+sudo -n $op parcel publish 1         # 두 관문이 통과한 뒤
+sudo -n $op parcel monitor-sample 1  # 감시·단계 판정의 표본 파일
+# 단계 배포: CANARY_HEALTH_COMMAND='ssh <host> sudo -n '$op' parcel health @NEW@ @OLD@'
+```
+
+## 2. 감시
+
+표본 파일은 위의 `monitor-sample` 이 쓴다. 그 뒤 타이머를 켠다.
+
+```bash
 sudo systemctl enable --now foundation-by-pnu-serving-monitor@parcel.timer
 ```
 
