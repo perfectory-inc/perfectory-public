@@ -3,6 +3,7 @@ Description=Foundation Platform daily source sweep (ADR-0077)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
 
 [Service]
 Type=oneshot

@@ -2,26 +2,10 @@
 # outbox 우체부 한 틱 (root ADR-0079). 30분 타이머가 돌린다.
 #
 # publish-outbox-once 는 성공 시 무음이므로 판정은 원장이 한다: 실행 후에도 pending 이
-# 남는 것은 정상(다음 틱이 잇는다), 명령 실패만 슬랙으로 외친다.
+# 남는 것은 정상(다음 틱이 잇는다), 명령 실패만 유닛이 슬랙으로 외친다
+# (OnFailure=foundation-unit-failed@, 모든 예약 작업 공통).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
-
-SLACK_TOKEN_FILE="${FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
-SLACK_CHANNEL="${FOUNDATION_SOURCE_SWEEP_SLACK_CHANNEL:-#alerts}"
-
-notify_slack() {
-  local token payload
-  token="$(tr -d '\r\n' < "${SLACK_TOKEN_FILE}")" || return 0
-  payload="$(python3 - "${SLACK_CHANNEL}" "$1" <<'PY'
-import json, sys
-print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2]}, ensure_ascii=False))
-PY
-)"
-  curl -sS --max-time 30 -H "Authorization: Bearer ${token}" \
-    -H "Content-Type: application/json; charset=utf-8" \
-    -d "${payload}" https://slack.com/api/chat.postMessage >/dev/null 2>&1 || true
-}
-trap 'notify_slack "🔴 outbox-publish 틱 실패 (line ${LINENO}) — journalctl -u foundation-outbox-publish"' ERR
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — compose 와 같은 재료로 조립한다
 # (foundation_admin + FOUNDATION_ADMIN_PASSWORD; 훑기 스크립트의 전례).

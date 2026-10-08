@@ -79,7 +79,7 @@ on_error() {
   local line="$1"
   printf '%s fold FAILED at line %s\n' "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
   tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true
-  notify_slack "🔴 map-edit-fold(${UNIT}) 실패 (line ${line}) — 서버 ${STATE_ROOT}/last-run.log 를 볼 것"
+  # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
 

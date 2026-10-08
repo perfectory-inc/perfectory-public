@@ -3,6 +3,7 @@ Description=Foundation Platform map edit fold for the %i unit: bake admin polygo
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
 
 [Service]
 Type=oneshot
