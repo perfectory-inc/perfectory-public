@@ -204,3 +204,4 @@ last_reviewed: 2026-07-28
 - [ADR-0159 — 서버는 검사를 통과한 main 을 스스로 받아 배포한다](./0159-the-host-deploys-main-by-itself-once-its-checks-pass.md)
 
 - [ADR-0160 — 필지·건물 by-PNU Worker 는 소스 하나를 레인만 바꿔 묶는다](./0160-one-by-pnu-gateway-source-serves-both-lanes.md)
+- [ADR-0161 — 묶음 전환의 루트 단계는 허용된 스크립트 하나로 실행한다](./0161-pack-cutover-root-steps-run-through-one-granted-script.md)
