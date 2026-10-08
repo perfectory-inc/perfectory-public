@@ -43,6 +43,14 @@ SERVICE_OWNER="${FOUNDATION_OPERATOR_SERVICE_OWNER:-foundation-platform}"
 SERVICE_GROUP="${FOUNDATION_OPERATOR_SERVICE_GROUP:-foundation-platform}"
 ROOT_OWNER="${FOUNDATION_OPERATOR_ROOT_OWNER:-root}"
 P="FOUNDATION_PLATFORM_${LANE^^}_BY_PNU_SERVING"
+# sudo runs the control checkout's copy; the work is done by the current release's own copy, which
+# binds its publisher from its own directory like every job (root ADR-0134 §3).
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+release_ops="$(cd "${RELEASE}/scripts/ops" 2>/dev/null && pwd -P)" || refuse "no current release at ${RELEASE}" 65
+if [[ "${here}" != "${release_ops}" ]]; then
+  [[ -x "${release_ops}/by-pnu-pack-operator.sh" ]] || refuse "the current release has no ${0##*/}; it is older than this script" 65
+  exec "${release_ops}/by-pnu-pack-operator.sh" "${LANE}" "${ACTION}" "$@"
+fi
 UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 contract() {
@@ -98,7 +106,7 @@ esac
 if systemctl is-active --quiet "${UNIT}"; then refuse "${UNIT} is already running" 75; fi
 install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}/logs"
 # The admitted binary of the current release, as every job binds it (root ADR-0134 §3).
-source "${RELEASE}/scripts/ops/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 release_id="${RELEASE_ID}"
 props=() env=()
 case "${ACTION}" in

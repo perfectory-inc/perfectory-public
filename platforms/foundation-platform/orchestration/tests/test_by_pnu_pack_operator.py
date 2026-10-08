@@ -50,7 +50,9 @@ class PackOperator(unittest.TestCase):
         for part in ("config", "scripts/deploy", "infra/systemd"):
             shutil.copytree(PLATFORM / part, release / part)
         (release / "scripts/ops").mkdir(parents=True)
-        shutil.copy(PLATFORM / "scripts/ops/admitted-writer-runtime.sh", release / "scripts/ops")
+        # The granted copy hands every action to the release's own copy of itself.
+        for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh"):
+            shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops")
         health = release / "scripts/ops/by-pnu-gateway-health.sh"
         health.write_text(FAKE_HEALTH)
         health.chmod(0o755)
