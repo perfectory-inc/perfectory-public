@@ -218,6 +218,23 @@ pub(crate) struct CutoverGatePolicy {
     pub(crate) slo: ServingSlo,
     /// The load phase the probe runs against the preview after the paired reads.
     pub(crate) load_test: LoadTestPolicy,
+    /// Owner decisions that accept one refused latency verdict, each pinned to its evidence file
+    /// (root ADR-0162).
+    #[serde(default)]
+    pub(crate) latency_waivers: Vec<LatencyWaiver>,
+}
+
+/// An owner's acceptance of one measured latency verdict the gate refused (root ADR-0162).
+#[derive(Debug, Deserialize)]
+pub(crate) struct LatencyWaiver {
+    /// The lane's unit (`parcel-by-pnu`, `building-by-pnu`).
+    pub(crate) lane: String,
+    pub(crate) generation: u64,
+    /// The sha256 of the latency evidence file the decision was made on; another measurement,
+    /// even of the same generation, is not waived.
+    pub(crate) latency_evidence_sha256: String,
+    pub(crate) decided_on: String,
+    pub(crate) reason: String,
 }
 
 /// The pack path's service level objectives against the object path it replaces.

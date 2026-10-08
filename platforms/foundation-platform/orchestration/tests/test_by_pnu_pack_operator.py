@@ -131,15 +131,21 @@ class PackOperator(unittest.TestCase):
         # The earlier evidence is kept, never overwritten.
         self.assertEqual(len(list(work.glob("latency-*.json"))), 1)
 
-    def test_publish_refuses_until_both_gates_passed_and_pins_the_bake_snapshot(self):
+    def test_publish_needs_gate_ga_passed_and_gate_na_measured_and_pins_the_bake_snapshot(self):
         work = self.work()
-        (work / "equality.json").write_text(json.dumps({"passed": True}))
-        (work / "latency.json").write_text(json.dumps({"passed": False}))
+        (work / "equality.json").write_text(json.dumps({"passed": False}))
         result, calls = self.run_operator("parcel", "publish", "1")
         self.assertEqual(result.returncode, 65, result.stderr)
-        self.assertIn("latency.json did not pass", result.stderr)
+        self.assertIn("equality.json did not pass", result.stderr)
         self.assertEqual(calls, [])
-        (work / "latency.json").write_text(json.dumps({"passed": True}))
+        (work / "equality.json").write_text(json.dumps({"passed": True}))
+        result, calls = self.run_operator("parcel", "publish", "1")
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertIn("latency.json does not exist", result.stderr)
+        self.assertEqual(calls, [])
+        # A refused gate (나) still reaches the publisher: it alone applies the contract's waivers
+        # (root ADR-0162) and refuses the rest.
+        (work / "latency.json").write_text(json.dumps({"passed": False}))
         result, calls = self.run_operator("parcel", "publish", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
         args, env, _ = self.unit(calls)

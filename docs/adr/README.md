@@ -205,3 +205,4 @@ last_reviewed: 2026-07-28
 
 - [ADR-0160 — 필지·건물 by-PNU Worker 는 소스 하나를 레인만 바꿔 묶는다](./0160-one-by-pnu-gateway-source-serves-both-lanes.md)
 - [ADR-0161 — 묶음 전환의 루트 단계는 허용된 스크립트 하나로 실행한다](./0161-pack-cutover-root-steps-run-through-one-granted-script.md)
+- [ADR-0162 — 거부된 속도 관문은 측정 파일에 묶인 결정으로만 연다](./0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md)

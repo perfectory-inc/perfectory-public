@@ -492,7 +492,62 @@ pub(crate) fn require_equality(
 ///
 /// # Errors
 /// Names the first unmet condition.
+#[cfg(test)]
 pub(crate) fn require_latency(
+    lane: ByPnuLane,
+    evidence: &LatencyEvidence,
+    generation: u64,
+    equality: &EqualityEvidence,
+) -> anyhow::Result<()> {
+    require_latency_identity(lane, evidence, generation, equality)?;
+    require_latency_verdict(evidence)
+}
+
+/// [`require_latency`], except that a failed verdict is accepted when the contract's
+/// `cutover_gate.latency_waivers` names exactly this evidence file (its sha256), its lane and its
+/// generation (root ADR-0162). A waiver accepts the measured latency and CPU only: the evidence must
+/// still be of this lane, generation, sample and environment, and every answer the probe compared
+/// must have matched. Returns the waiver's reason when one was used.
+///
+/// # Errors
+/// Names the first unmet condition.
+pub(crate) fn require_latency_or_waiver(
+    lane: ByPnuLane,
+    evidence: &LatencyEvidence,
+    evidence_sha256: &str,
+    generation: u64,
+    equality: &EqualityEvidence,
+) -> anyhow::Result<Option<String>> {
+    require_latency_identity(lane, evidence, generation, equality)?;
+    let Err(refusal) = require_latency_verdict(evidence) else {
+        return Ok(None);
+    };
+    let Some(waiver) = section_pack_policy()?
+        .cutover_gate
+        .latency_waivers
+        .iter()
+        .find(|waiver| {
+            waiver.lane == lane.unit()
+                && waiver.generation == generation
+                && waiver.latency_evidence_sha256 == evidence_sha256
+        })
+    else {
+        return Err(refusal);
+    };
+    ensure!(
+        evidence.mismatched == 0 && evidence.answered > 0,
+        "a latency waiver accepts latency, never content: the live evidence has {} mismatched of \
+         {} answered",
+        evidence.mismatched,
+        evidence.answered
+    );
+    Ok(Some(format!(
+        "{} (decided {}; the gate refused: {refusal:#})",
+        waiver.reason, waiver.decided_on
+    )))
+}
+
+fn require_latency_identity(
     lane: ByPnuLane,
     evidence: &LatencyEvidence,
     generation: u64,
@@ -520,6 +575,10 @@ pub(crate) fn require_latency(
          live route against the preview Worker opens the gate",
         evidence.environment
     );
+    Ok(())
+}
+
+fn require_latency_verdict(evidence: &LatencyEvidence) -> anyhow::Result<()> {
     ensure!(
         evidence.verdict()? && evidence.passed,
         "the live evidence does not pass: sample {} (answered {}, mismatched {}, failed {}), \
