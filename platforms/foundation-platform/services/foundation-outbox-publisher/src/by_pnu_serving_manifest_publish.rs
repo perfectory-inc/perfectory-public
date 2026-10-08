@@ -476,8 +476,18 @@ fn new_base(
     object_count: u64,
 ) -> anyhow::Result<ServingManifest> {
     if let Some(existing) = existing {
+        // A v1 manifest may be restated as v2 over the same generation, unchanged: same base, same
+        // snapshot, same count. A lane whose reflected snapshot predates row_digest cannot get a
+        // patch, and packs are published only over a v2 manifest; restating it is the one way to
+        // v2 that bakes nothing (2026-10-08, parcel g2). The listing and its sampled documents are
+        // verified as for any base.
+        let live = &existing.manifest;
+        let restates_v1 = live.wire_schema_version == 1
+            && generation == live.base_generation
+            && snapshot == live.gold_iceberg_snapshot_id
+            && object_count == live.base_object_count;
         ensure!(
-            generation > existing.manifest.base_generation,
+            generation > existing.manifest.base_generation || restates_v1,
             "the base generation may only move forward: the manifest serves {}, got {generation}; \
              a changed document goes into a patch, not into a served generation",
             existing.manifest.base_generation

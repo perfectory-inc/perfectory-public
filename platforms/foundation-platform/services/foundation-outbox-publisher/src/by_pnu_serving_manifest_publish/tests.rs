@@ -608,6 +608,47 @@ async fn a_v1_manifest_is_patched_once_the_gateway_reads_v2() -> anyhow::Result<
 }
 
 #[tokio::test]
+async fn a_v1_manifest_is_restated_as_v2_over_its_own_generation_once() -> anyhow::Result<()> {
+    for lane in LANES {
+        let fx = fixture(lane, "restate").await?;
+        fx.put(
+            &by_pnu::object_key(lane, 3, PNU_A)?,
+            &fx.document(PNU_A, BASE_SNAPSHOT),
+        )
+        .await?;
+        write_v1_manifest(&fx, 1)?;
+        serve_capabilities(&fx.gateway, lane, &[1, 2]).await;
+        let listing = |snapshot: &str, count: u64| {
+            PublishInput::Listing(ListingExpectation {
+                target_generation: 3,
+                expected_gold_iceberg_snapshot_id: snapshot.to_owned(),
+                expected_object_count: count,
+            })
+        };
+        // Anything but the same base, snapshot and count is not a restatement.
+        for (snapshot, count) in [(NEXT_SNAPSHOT, 1), (BASE_SNAPSHOT, 2)] {
+            assert!(fx.publish(listing(snapshot, count), false).await.is_err());
+            assert_eq!(fx.live().await?.wire_schema_version, 1);
+        }
+        let manifest = fx.publish(listing(BASE_SNAPSHOT, 1), false).await?;
+        assert_eq!(manifest.schema_version, 2);
+        assert_eq!((manifest.base_generation, manifest.object_count), (3, 1));
+        assert_eq!(manifest.reflected_gold_iceberg_snapshot_id, BASE_SNAPSHOT);
+        assert_eq!(
+            manifest.document_schema_version,
+            document_schema_version(lane)
+        );
+        // Once it is v2, the same generation stands still again.
+        let again = fx
+            .publish(listing(BASE_SNAPSHOT, 1), false)
+            .await
+            .expect_err("a v2 manifest was restated over its own generation");
+        assert!(again.to_string().contains("only move forward"), "{again:#}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_rollback_drops_the_newest_patches_and_nothing_else() -> anyhow::Result<()> {
     for lane in LANES {
         let fx = fixture(lane, "rollback").await?;
