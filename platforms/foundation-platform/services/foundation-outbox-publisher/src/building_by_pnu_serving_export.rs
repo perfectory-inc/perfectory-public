@@ -38,7 +38,7 @@ use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
 use crate::by_pnu_serving_store::{local_root, refuse_removed_switches, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
+use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, KeptPrefix, LakehouseObjectReader};
 use building_document::{GoldSnapshotProvenance, BUILDING_DOCUMENT_SCHEMA_VERSION};
 
 const LANE: ByPnuLane = ByPnuLane::Building;
@@ -166,6 +166,9 @@ struct ServingExportSummary {
     /// Shard filter this run kept, when one was set — the summary says what it covers.
     pnu_prefix: Option<String>,
     data_file_count: u64,
+    /// Rows the Gold snapshot holds by its manifests, every one accounted for: decoded from a file
+    /// the shard read, or in a file whose PNU bounds exclude the shard (root ADR-0164). The bake
+    /// holds every shard to the same value.
     scanned_row_count: u64,
     exported_row_count: u64,
     output_storage_driver: &'static str,
@@ -320,10 +323,11 @@ async fn export(
             None => true, // 식별자 없는 행은 남겨서 문서 조립이 사유를 말하며 거부하게 한다
         },
         Some(MAX_ROWS_PER_RUN),
+        // Only the data files whose PNU bounds can hold the shard are opened (root ADR-0164).
+        config.pnu_prefix.as_deref().map(KeptPrefix::pnu),
     )
     .await?;
     let data_file_count = rows.data_file_count;
-    let scanned_row_count = rows.decoded_row_count;
     // The scan stopped at the first kept row past the cap, holding the cap and no more.
     ensure!(
         !rows.keep_limit_exceeded,
@@ -332,6 +336,8 @@ async fn export(
         snapshot.table_name,
         snapshot.snapshot_id,
     );
+    rows.ensure_complete()?;
+    let scanned_row_count = rows.manifest_record_count;
     if let Some(expected_row_count) = config.expected_row_count {
         ensure!(
             expected_row_count == scanned_row_count,
@@ -340,11 +346,6 @@ async fn export(
             snapshot.snapshot_id
         );
     }
-    ensure!(
-        scanned_row_count == rows.manifest_record_count,
-        "scanned {scanned_row_count} rows but the manifests declared {} rows",
-        rows.manifest_record_count
-    );
 
     patch_export::refuse_live_deletes(
         config.patch.as_ref(),

@@ -47,7 +47,7 @@ use crate::by_pnu_serving_manifest::{read_tombstone, ServedManifest};
 use crate::by_pnu_serving_manifest_publish::{document_schema_version, gold_table};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
+use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, KeptPrefix, LakehouseObjectReader};
 use crate::parcel_by_pnu_serving_export::parcel_document::{self, GoldSnapshotProvenance};
 use crate::r2_layout::by_pnu;
 
@@ -929,6 +929,8 @@ async fn scan_gold_shard(
             false // nothing is kept: the digest is all the comparison needs
         },
         None,
+        // Only the data files whose PNU bounds can hold the shard are opened (root ADR-0164).
+        Some(KeptPrefix::pnu(prefix.as_str())),
     )
     .await?;
     if let Some(error) = failure
@@ -937,17 +939,12 @@ async fn scan_gold_shard(
     {
         return Err(error);
     }
-    ensure!(
-        rows.decoded_row_count == rows.manifest_record_count,
-        "scanned {} rows but the manifests declared {}",
-        rows.decoded_row_count,
-        rows.manifest_record_count
-    );
+    rows.ensure_complete()?;
     Ok(GoldShard {
         digests: digests
             .into_inner()
             .map_err(|_| anyhow::anyhow!("the digest map lock was poisoned"))?,
-        table_rows: rows.decoded_row_count,
+        table_rows: rows.manifest_record_count,
     })
 }
 

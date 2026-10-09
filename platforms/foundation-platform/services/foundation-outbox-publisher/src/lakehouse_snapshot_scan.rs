@@ -6,6 +6,8 @@
 //! Iceberg manifest decoding never appears (root ADR-0040 decision 8).
 
 pub(crate) mod iceberg_scan;
+#[cfg(test)]
+mod pruning_tests;
 
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -68,17 +70,83 @@ impl LakehouseByteReader for LakehouseObjectReader {
 pub(crate) struct ScannedRows {
     /// Contract-shaped rows the keep-filter retained, in decode order.
     pub(crate) rows: Vec<JsonMap<String, JsonValue>>,
-    /// Number of Parquet data files the manifests pointed at.
+    /// Number of Parquet data files the manifests pointed at, read or skipped.
     pub(crate) data_file_count: u64,
-    /// Row count the manifests declared, before decoding.
+    /// Row count the manifests declared for the whole snapshot, read or skipped.
     pub(crate) manifest_record_count: u64,
-    /// Rows decoded across every data file, counted before any keep-filter dropped them.
-    /// This is what must equal `manifest_record_count` — the retained rows never can when a
-    /// filter is in play.
+    /// Data files the scan did not open because their manifest bounds prove they hold no row
+    /// under the scan's prefix (`ScannedDataFile::excludes_prefix`).
+    pub(crate) skipped_data_file_count: u64,
+    /// Row count the manifests declared for the skipped files.
+    pub(crate) skipped_record_count: u64,
+    /// Row count the manifests declared for the files the scan read.
+    pub(crate) read_record_count: u64,
+    /// Rows decoded across every file read, counted before any keep-filter dropped them. This is
+    /// what must equal `read_record_count` — the retained rows never can when a filter is in play.
     pub(crate) decoded_row_count: u64,
     /// The scan stopped because more rows passed the keep-filter than the caller's limit. The
-    /// counts above then cover only the files read so far, and `rows` holds exactly the limit.
+    /// read and decoded counts then cover only the files read so far, and `rows` holds exactly
+    /// the limit.
     pub(crate) keep_limit_exceeded: bool,
+}
+
+impl ScannedRows {
+    /// Refuses a scan that did not account for every row of the snapshot: each file it read was
+    /// decoded to the row count its manifest declared, and the files it read and the files it
+    /// skipped on proof of their bounds together are the whole snapshot (root ADR-0164).
+    pub(crate) fn ensure_complete(&self) -> anyhow::Result<()> {
+        ensure!(
+            !self.keep_limit_exceeded,
+            "the scan stopped at its keep limit, so it did not reach every data file"
+        );
+        ensure!(
+            self.decoded_row_count == self.read_record_count,
+            "scanned {} rows but the manifests declared {} for the data files read",
+            self.decoded_row_count,
+            self.read_record_count
+        );
+        ensure!(
+            self.read_record_count
+                .checked_add(self.skipped_record_count)
+                == Some(self.manifest_record_count),
+            "read {} and skipped {} rows but the manifests declared {}",
+            self.read_record_count,
+            self.skipped_record_count,
+            self.manifest_record_count
+        );
+        Ok(())
+    }
+}
+
+/// The rows a scan keeps when only values of one column under one prefix matter.
+///
+/// The scan then drops every row whose `column` is a value outside the prefix — a row without a
+/// value is left to the keep-filter — and skips each data file whose manifest proves it holds no
+/// row the scan would keep, so the rows returned are the same whether a file was read or skipped.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct KeptPrefix<'a> {
+    /// Contract column whose value must start with `prefix`.
+    pub(crate) column: &'a str,
+    /// Leading text a kept value carries.
+    pub(crate) prefix: &'a str,
+}
+
+impl<'a> KeptPrefix<'a> {
+    /// A by-PNU shard: the rows whose `pnu` starts with `prefix`.
+    #[must_use]
+    pub(crate) const fn pnu(prefix: &'a str) -> Self {
+        Self {
+            column: "pnu",
+            prefix,
+        }
+    }
+
+    fn admits(&self, row: &JsonMap<String, JsonValue>) -> bool {
+        match row.get(self.column) {
+            Some(JsonValue::String(value)) => value.starts_with(self.prefix),
+            _ => true,
+        }
+    }
 }
 
 /// Snapshot-level statistics read only from Iceberg manifests.
@@ -121,7 +189,7 @@ pub(crate) async fn scan_snapshot_rows(
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<ScannedRows> {
-    scan_snapshot_rows_kept(contract, lakehouse, snapshot, |_| true, None).await
+    scan_snapshot_rows_kept(contract, lakehouse, snapshot, |_| true, None, None).await
 }
 
 /// Decodes every live row of one Iceberg snapshot, retaining only rows `keep` accepts.
@@ -134,45 +202,89 @@ pub(crate) async fn scan_snapshot_rows(
 /// file: a by-PNU shard over its row cap is refused holding the cap, not the whole shard. The
 /// bake's memory cap is sized to the row cap (root ADR-0138), so a first run's unsplit shard of
 /// several million parcels would otherwise be killed by it before it could refuse and split.
+///
+/// With `prefix`, rows outside it are dropped before `keep` sees them, and a data file whose
+/// manifest bounds prove it holds none of the prefix is not opened at all. The parcel bake's 126
+/// shards each read all 33 files of `gold.parcel_panel` for one prefix on 2026-10-08; once the
+/// table is written in PNU order (root ADR-0164), a shard reads the few files of its own range.
+/// `ScannedRows::ensure_complete` still accounts for every row of the snapshot.
 pub(crate) async fn scan_snapshot_rows_kept(
     contract: &LakehouseTableContract,
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
     keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
     max_kept: Option<usize>,
+    prefix: Option<KeptPrefix<'_>>,
 ) -> anyhow::Result<ScannedRows> {
+    if let Some(prefix) = prefix {
+        ensure!(
+            contract
+                .columns
+                .iter()
+                .any(|column| column.name == prefix.column),
+            "{} has no column {} to keep a prefix of",
+            contract.table_name,
+            prefix.column
+        );
+    }
     let data_files = snapshot_data_files(lakehouse, snapshot).await?;
-
-    let mut rows = Vec::new();
-    let mut manifest_record_count = 0_u64;
-    let mut decoded_row_count = 0_u64;
+    let mut scanned = ScannedRows {
+        rows: Vec::new(),
+        data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
+        manifest_record_count: 0,
+        skipped_data_file_count: 0,
+        skipped_record_count: 0,
+        read_record_count: 0,
+        decoded_row_count: 0,
+        keep_limit_exceeded: false,
+    };
+    let mut read = Vec::with_capacity(data_files.len());
     for data_file in &data_files {
-        manifest_record_count = manifest_record_count
+        scanned.manifest_record_count = scanned
+            .manifest_record_count
             .checked_add(data_file.record_count)
             .context("manifest record count overflow")?;
-        let decoded = iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?)?;
-        decoded_row_count = decoded_row_count
-            .checked_add(u64::try_from(decoded.len()).context("decoded row count overflow")?)
-            .context("decoded row count overflow")?;
-        if keep_within(&mut rows, decoded, &keep, max_kept) {
-            return Ok(ScannedRows {
-                rows,
-                data_file_count: u64::try_from(data_files.len())
-                    .context("data file count overflow")?,
-                manifest_record_count,
-                decoded_row_count,
-                keep_limit_exceeded: true,
-            });
+        if prefix.is_some_and(|prefix| data_file.excludes_prefix(prefix.column, prefix.prefix)) {
+            scanned.skipped_data_file_count += 1;
+            scanned.skipped_record_count = scanned
+                .skipped_record_count
+                .checked_add(data_file.record_count)
+                .context("skipped record count overflow")?;
+        } else {
+            read.push(data_file);
         }
     }
+    if let Some(prefix) = prefix {
+        tracing::info!(
+            table = snapshot.table_name.as_str(),
+            column = prefix.column,
+            prefix = prefix.prefix,
+            data_files = scanned.data_file_count,
+            skipped_data_files = scanned.skipped_data_file_count,
+            skipped_records = scanned.skipped_record_count,
+            "skipped the data files whose bounds exclude the prefix"
+        );
+    }
 
-    Ok(ScannedRows {
-        rows,
-        data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
-        manifest_record_count,
-        decoded_row_count,
-        keep_limit_exceeded: false,
-    })
+    let keep = |row: &JsonMap<String, JsonValue>| {
+        prefix.is_none_or(|prefix| prefix.admits(row)) && keep(row)
+    };
+    for data_file in read {
+        scanned.read_record_count = scanned
+            .read_record_count
+            .checked_add(data_file.record_count)
+            .context("read record count overflow")?;
+        let decoded = iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?)?;
+        scanned.decoded_row_count = scanned
+            .decoded_row_count
+            .checked_add(u64::try_from(decoded.len()).context("decoded row count overflow")?)
+            .context("decoded row count overflow")?;
+        if keep_within(&mut scanned.rows, decoded, keep, max_kept) {
+            scanned.keep_limit_exceeded = true;
+            return Ok(scanned);
+        }
+    }
+    Ok(scanned)
 }
 
 /// Appends the rows `keep` accepts, up to `max_kept` in total. Returns whether a row past the
