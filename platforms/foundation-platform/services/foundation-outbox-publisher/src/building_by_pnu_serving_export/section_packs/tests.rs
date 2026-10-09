@@ -469,6 +469,21 @@ impl Lane {
             .collect()
     }
 
+    /// Replaces the lane's manifest with the v1 one an older publisher wrote over generation 1.
+    fn write_v1_manifest(&self, snapshot: &str, object_count: usize) -> anyhow::Result<()> {
+        let path = self.root.join(by_pnu::manifest_key(LANE)?);
+        std::fs::write(
+            path,
+            format!(
+                "{{\"schema_version\":1,\"unit\":\"{}\",\"current_generation\":1,\
+                 \"gold_table\":\"gold.building_panel\",\"gold_iceberg_snapshot_id\":\"{snapshot}\",\
+                 \"object_count\":{object_count},\"published_at_utc\":\"2026-01-01T00:00:00Z\"}}\n",
+                LANE.unit()
+            ),
+        )?;
+        Ok(())
+    }
+
     async fn live(&self) -> anyhow::Result<ServedManifest> {
         ServedManifest::parse(LANE, &self.store.read_manifest().await?.0)
     }
@@ -779,6 +794,39 @@ fn write_worker_golden(
     let mut body = serde_json::to_vec_pretty(&documents)?;
     body.push(b'\n');
     assert_golden("documents.json", &body)
+}
+
+/// A lane still on a v1 manifest gets v2 from its first pack publish, once the base's sample
+/// documents read back as its own (2026-10-09, parcel g2); a base the manifest names under another
+/// snapshot is refused and the v1 manifest stays.
+#[tokio::test]
+async fn the_first_pack_publish_restates_a_v1_manifest() -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    for (label, v1_snapshot) in [("v1-same", SNAPSHOT), ("v1-other", NEXT_SNAPSHOT)] {
+        let lane = Lane::serving_objects(label, &rows).await?;
+        lane.write_v1_manifest(v1_snapshot, rows.len())?;
+        assert_eq!(lane.live().await?.wire_schema_version, 1);
+        let outcome = lane.cut_over(&rows).await;
+        if v1_snapshot == SNAPSHOT {
+            outcome?;
+            let live = lane.live().await?;
+            assert_eq!(live.wire_schema_version, 2);
+            assert_eq!(
+                live.document_schema_version.as_deref(),
+                Some(BUILDING_DOCUMENT_SCHEMA_VERSION)
+            );
+            assert_eq!((live.base_generation, live.object_count), (1, 2));
+            assert!(live.section_packs.is_some());
+        } else {
+            let error = outcome.expect_err("a base of another snapshot was restated");
+            assert!(
+                format!("{error:#}").contains("baked from gold snapshot"),
+                "{error:#}"
+            );
+            assert_eq!(lane.live().await?.wire_schema_version, 1);
+        }
+    }
+    Ok(())
 }
 
 /// Gate (가) refuses: packs whose bytes do not read back as the documents they were cut from stop

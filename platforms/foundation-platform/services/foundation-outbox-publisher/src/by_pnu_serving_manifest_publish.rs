@@ -476,18 +476,8 @@ fn new_base(
     object_count: u64,
 ) -> anyhow::Result<ServingManifest> {
     if let Some(existing) = existing {
-        // A v1 manifest may be restated as v2 over the same generation, unchanged: same base, same
-        // snapshot, same count. A lane whose reflected snapshot predates row_digest cannot get a
-        // patch, and packs are published only over a v2 manifest; restating it is the one way to
-        // v2 that bakes nothing (2026-10-08, parcel g2). The listing and its sampled documents are
-        // verified as for any base.
-        let live = &existing.manifest;
-        let restates_v1 = live.wire_schema_version == 1
-            && generation == live.base_generation
-            && snapshot == live.gold_iceberg_snapshot_id
-            && object_count == live.base_object_count;
         ensure!(
-            generation > existing.manifest.base_generation || restates_v1,
+            generation > existing.manifest.base_generation,
             "the base generation may only move forward: the manifest serves {}, got {generation}; \
              a changed document goes into a patch, not into a served generation",
             existing.manifest.base_generation
@@ -677,12 +667,25 @@ async fn verify_document(
     pnu: &str,
     snapshot: &str,
 ) -> anyhow::Result<()> {
-    let lane = store.lane();
     let stored = store
         .read_bytes(key)
         .await
         .with_context(|| format!("the listing names {key} but it cannot be read back"))?;
-    let document: serde_json::Value = serde_json::from_slice(&stored)
+    check_document(store.lane(), key, pnu, snapshot, &stored)
+}
+
+/// That `stored` (read from `key`) is this lane's document of `pnu`, baked from `snapshot`.
+///
+/// # Errors
+/// Names the first thing that differs.
+pub(crate) fn check_document(
+    lane: ByPnuLane,
+    key: &str,
+    pnu: &str,
+    snapshot: &str,
+    stored: &[u8],
+) -> anyhow::Result<()> {
+    let document: serde_json::Value = serde_json::from_slice(stored)
         .with_context(|| format!("{key} does not hold a JSON document"))?;
     let schema = document_schema_version(lane);
     ensure!(
