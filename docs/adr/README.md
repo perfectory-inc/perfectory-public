@@ -210,4 +210,4 @@ last_reviewed: 2026-07-28
 - [ADR-0164 — 패널 Gold 는 PNU 순서로 쓰고, by-PNU 굽기 조각은 자기 앞자리를 담을 수 있는 파일만 읽는다](./0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md)
 - [ADR-0165 — 더니어 운영 현황은 데이터 카탈로그의 실행·품질 기록과 작업 목록을 읽어 보인다](./0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md)
 - [ADR-0166 — 묶음 세대 굽기와 무조건 Gold 재생성도 허용된 운영 스크립트로 실행한다](./0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md)
-- [ADR-0167 — 서버는 머지 큐가 통과시킨 트리를 main 의 두 번째 검사를 기다리지 않고 배포한다](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md)
+- [ADR-0167 — 서버는 머지 큐가 통과시킨 트리를 바로 배포하고, 운영자가 띄운 유닛이 끝나길 기다린다](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md)

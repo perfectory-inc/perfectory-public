@@ -160,11 +160,24 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             text = text.replace(line, f"{name}={value}", 1)
         self.script = root / "foundation-autodeploy.sh"
         self.script.write_text(text)
+        # systemctl answers from FIXTURE_UNITS ("unit:transient" pairs, transient yes|no).
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        systemctl = self.bin / "systemctl"
+        systemctl.write_text(
+            '#!/usr/bin/env bash\n'
+            'for pair in ${FIXTURE_UNITS:-}; do\n'
+            '  unit="${pair%%:*}"; transient="${pair#*:}"\n'
+            '  if [[ "$1" == list-units ]]; then printf "%s loaded active running x\\n" "${unit}"\n'
+            '  elif [[ "$1" == show && "${!#}" == "${unit}" ]]; then printf "%s\\n" "${transient}"; fi\n'
+            'done\n')
+        systemctl.chmod(0o755)
 
     def tick(self, head=HEAD, checks="deploy 49 check runs passed", **env):
         result = subprocess.run(
             ["bash", str(self.script)],
-            env={**os.environ, "FIXTURE_ROOT": str(self.root), "FIXTURE_HEAD": head, "FIXTURE_CHECKS": checks, **env},
+            env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FIXTURE_ROOT": str(self.root),
+                 "FIXTURE_HEAD": head, "FIXTURE_CHECKS": checks, **env},
             capture_output=True, text=True, check=False,
         )
         return result
@@ -183,6 +196,19 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.deployed(), [HEAD])
         self.assertTrue((self.state / "deployed" / HEAD).exists())
+
+    def test_an_operators_unit_holds_the_deploy_until_it_ends(self):
+        result = self.tick(FIXTURE_UNITS="foundation-gold-panel-rebuild-unconditional.service:yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the operator's foundation-gold-panel-rebuild-unconditional", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_a_registered_job_running_is_left_to_the_deploys_own_wait(self):
+        result = self.tick(FIXTURE_UNITS="foundation-map-edit-fold.service:no")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [HEAD])
 
     def test_checks_still_running_wait_without_deploying(self):
         result = self.tick(checks="wait still running: ci")
