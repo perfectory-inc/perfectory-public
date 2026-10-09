@@ -212,3 +212,4 @@ last_reviewed: 2026-07-28
 - [ADR-0166 — 묶음 세대 굽기와 무조건 Gold 재생성도 허용된 운영 스크립트로 실행한다](./0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md)
 - [ADR-0167 — 서버는 머지 큐가 통과시킨 트리를 바로 배포하고, 운영자가 띄운 유닛이 끝나길 기다린다](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md)
 - [ADR-0168 — 매일 훑기는 VWorld 토지 데이터셋도 받고, 하루 새 바이트 예산 안에서만 받는다](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md)
+- [ADR-0169 — Silver 레인은 원천 판을 장부에서 고르고, 예약 작업이 스스로 채운다](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)

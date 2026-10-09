@@ -49,6 +49,7 @@ mod bounded_live_ingestion_gate_check;
 mod bronze_catalog_recovery_evidence;
 mod bronze_catalog_recovery_execute;
 mod bronze_catalog_recovery_manifest;
+mod bronze_object_members;
 mod bronze_object_storage;
 mod bronze_schema_profile;
 mod building_hub_bronze_catalog_recovery;
@@ -318,6 +319,7 @@ enum Command {
     LoadParcelCatalogProjection,
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
+    MeasureBronzeObjectMembers,
     ExportLineageStewardFold,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -646,6 +648,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(unit_official_price_projection_load::run())
         }
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
+        Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
         Command::SealParcelPublicationEvidence => {
@@ -1235,6 +1238,7 @@ where
         Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
+        Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

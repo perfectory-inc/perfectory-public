@@ -172,6 +172,31 @@ impl R2ObjectStorageConfig {
     ///
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn from_env() -> Result<Self, PublishError> {
+        Self::lakehouse_from_env(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        )
+    }
+
+    /// Builds the same lakehouse configuration with the read-only key pair (root ADR-0152).
+    ///
+    /// A command that only reads Bronze back takes this one, so the unit running it never needs
+    /// the writer pair beside it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PublishError` when a required R2 environment variable is missing.
+    pub fn lakehouse_reader_from_env() -> Result<Self, PublishError> {
+        Self::lakehouse_from_env(
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        )
+    }
+
+    fn lakehouse_from_env(
+        access_key_env: &str,
+        secret_key_env: &str,
+    ) -> Result<Self, PublishError> {
         let endpoint = optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")?.map_or_else(
             || {
                 required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
@@ -185,10 +210,8 @@ impl R2ObjectStorageConfig {
             endpoint,
             region: optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
                 .unwrap_or_else(|| "auto".to_owned()),
-            access_key_id: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID")?,
-            secret_access_key: required_env(
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-            )?,
+            access_key_id: required_env(access_key_env)?,
+            secret_access_key: required_env(secret_key_env)?,
         })
     }
 }
@@ -365,6 +388,33 @@ impl R2ObjectStorage {
             body.extend_from_slice(&chunk);
         }
         Ok(body)
+    }
+
+    /// Reads bytes `start..=end` of an object with the same bounded retries as a whole-object
+    /// ranged read, as one request when nothing fails.
+    ///
+    /// For a caller that knows the object's length already (the Bronze ledger records it) and
+    /// wants a few exact ranges, such as a ZIP's end records and central directory, without the
+    /// `HeadObject` and fixed-size chunks a seekable reader spends.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PublishError` when the key or range is invalid or the range cannot be read after
+    /// retrying (including a range past the end of the object).
+    pub async fn get_object_range(
+        &self,
+        key: &str,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<u8>, PublishError> {
+        validate_relative_r2_object_key(key, "key")?;
+        let start = i64::try_from(start).map_err(|_| {
+            PublishError::Infrastructure(format!("R2 range start {start} does not fit i64"))
+        })?;
+        let end = i64::try_from(end).map_err(|_| {
+            PublishError::Infrastructure(format!("R2 range end {end} does not fit i64"))
+        })?;
+        self.get_object_range_with_retries(key, start, end).await
     }
 
     async fn get_object_range_with_retries(

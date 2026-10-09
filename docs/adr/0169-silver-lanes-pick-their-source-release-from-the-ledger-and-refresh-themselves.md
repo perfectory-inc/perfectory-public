@@ -31,6 +31,26 @@
 1. **ZIP 안 이름은 장부 옆에 쌓는다.** 새 표 `catalog.bronze_object_member`(쌓기만, ADR 전 데이터 원칙)에 Bronze 객체마다
    안 파일 이름·크기·날짜를 남긴다. 매일 수집(ADR-0168) 뒤 같은 단위가 아직 잰 적 없는 객체만 범위 요청으로 잰다.
    과거 객체는 같은 명령을 한 번 돌려 채운다. 재는 일은 필지 판의 도구를 일반화한 하나다.
+   구현(마이그레이션 `20261009150000_a_bronze_object_keeps_its_zip_members.sql`):
+   - 표 둘. `catalog.bronze_object_measurement` 는 객체 한 번의 읽기다: `outcome` 이 `zip`·`not_zip`·`unreadable`
+     (정해진 결과, 객체마다 하나 — 부분 유일 색인 `bronze_object_measurement_settled_key`)이거나 `failed`(바이트를
+     못 받음; 이력으로 쌓이고 다음 실행이 다시 잰다). `catalog.bronze_object_member` 는 중앙 디렉터리 항목마다
+     한 행이다: 위치(`member_index`, 이름은 겹칠 수 있어 키가 아니다), 이름, 이름을 읽은 방식
+     (`member_name_encoding`: UTF-8 표시·Info-ZIP 유니코드 경로·표시 없는 UTF-8·CP949·대체 문자), 두 크기(ZIP64
+     추가 필드 포함), 머리의 MS-DOS 시각(시간대 없음). 두 표 모두 UPDATE·DELETE·TRUNCATE 를 거부하고, 읽기는
+     세어 둔 개수만큼의 항목을 같은 트랜잭션에서 가져야 한다(트리거 둘).
+   - 명령 `measure-bronze-object-members`(발행기). 장부의 `size_bytes` 로 끝을 알므로 `HeadObject` 없이 끝 128 KiB 를
+     한 번 읽는다. 중앙 디렉터리가 그 앞에 있으면 한 번, ZIP64 끝 레코드가 그 앞에 있으면 또 한 번: 객체마다
+     GET 1–3 번이고 객체 전체는 받지 않는다. 같은 객체를 두 번 재면 아무것도 더하지 않는다.
+   - `zip` 크레이트로 열지 않는다. 열 때 끝 레코드를 객체 앞까지 거꾸로 훑어(zip 2.4 `find_central_directory`)
+     ZIP 이 아닌 객체를 범위 읽기로 통째로 받게 되고, UTF-8 표시 없는 이름을 CP437 로 읽어 한글 이름을 바꾼다.
+     그래서 끝 레코드·디렉터리 해석만 직접 두고(`bronze_object_members/zip_directory.rs`), 시험은 `zip` 크레이트가
+     쓴 파일을 그 크레이트의 읽기와 견준다.
+   - 실행은 `scripts/ops/bronze-object-members.sh` 하나다. 잴 원천의 기본 목록(`vworldkr__land*,hubgokr__*`)은 그
+     스크립트에만 있고, 읽기 전용 키 쌍으로만 읽는다(`config/runtime-secrets.contract.json` 의 실행
+     `bronze-object-members`, ADR-0153). 과거 채우기는 운영자가 이 실행으로 돌린다. 매일 수집
+     (`daily-source-sweep.sh`)이 수집 뒤 이 스크립트를 부르는 연결은 sweep 쪽 변경이 하고, 그때 sweep 단위가
+     `lakehouse-reader` 묶음을 함께 싣는다.
 2. **계약에는 규칙만, 사실은 장부에.** 각 레인 계약은 안 파일 이름에서 시도와 판을 읽는 규칙(이름 형식), 완전성
    (`load_granularity` 와 그 개수, 예: 시도 17), 넘김 경로를 갖는다. `objects[]` 와 `selected_vintage` 는 지운다.
    판 선택은 "완전한 판 중 가장 새것" 하나다: 각 시도에 그 판의 객체가 있고(같은 시도·판이 둘이면 제공자 갱신일이 늦은
@@ -52,3 +72,5 @@
 - 매일 레인마다 장부 조회 한 번과 Silver 확인 한 번이 돈다. 바뀐 것이 없으면 수 초다.
 - 과거 객체 측정은 객체마다 수 KB 범위 읽기다(수천 개, R2 읽기 몇 원).
 - 손으로 잰 `objects[]` 는 과거 적재의 증거였다. 그 증거는 Silver 스냅숏 요약(`source_snapshot_id`)과 새 표가 대신한다.
+- 필지 판의 측정 도구(`vworld_parcel_edition_members.py`)는 필지 판 제안이 새 표를 읽게 될 때(5항 ④, 필지 경계)까지
+  남는다. 그때 지운다; 그 전까지 ZIP 안 이름을 재는 곳이 둘이다.
