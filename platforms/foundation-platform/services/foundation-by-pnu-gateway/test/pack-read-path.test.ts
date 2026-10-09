@@ -14,6 +14,7 @@ import {
   previewPlan,
   readPack,
   resolvePacks,
+  type PackPlan,
   type PackReads,
 } from "../src/packs";
 
@@ -30,6 +31,12 @@ const PACKS = GATEWAY.section_packs;
 const READ = connectionContract.by_pnu_section_packs.read_path;
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
 const key = (section: string) => packKey({ name: section, generation: 1 }, null, UNIT);
+/// Generation 1 as a manifest without parts names it: these tests count the pack reads, and a
+/// preview's parts index probe (root ADR-0163, section-pack-parts.test.ts) is a read of its own.
+function unpartedPlan(): PackPlan {
+  const plan = previewPlan(1, null);
+  return { ...plan, sections: plan.sections.map(({ name, generation, patchFloor }) => ({ name, generation, patchFloor })) };
+}
 
 interface Asked {
   key: string;
@@ -165,7 +172,7 @@ describe("one-hop small packs and head + range large packs", () => {
     expect(READ.whole_pack_max_bytes).toBeGreaterThan(0);
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects);
-    const resolved = await resolvePacks(reads(bucket), previewPlan(1, null), PNU_A);
+    const resolved = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
     expect(resolved.kind).toBe("document");
     // One unranged GET per section, no range reads.
     expect(asked).toHaveLength(PACKS.sections.length);
@@ -178,11 +185,11 @@ describe("one-hop small packs and head + range large packs", () => {
       base: Record<string, string>;
     };
     const small = strictBucket(objects);
-    const whole = await resolvePacks(reads(small.bucket), previewPlan(1, null), PNU_A);
+    const whole = await resolvePacks(reads(small.bucket), unpartedPlan(), PNU_A);
     forgetPacks();
     edge.clear();
     const large = strictBucket(objects, { reportedSize: READ.whole_pack_max_bytes + 1 });
-    const ranged = await resolvePacks(reads(large.bucket), previewPlan(1, null), PNU_A);
+    const ranged = await resolvePacks(reads(large.bucket), unpartedPlan(), PNU_A);
     // The large path read each head, cancelled the rest, and read each document by a range whose
     // entity tag is compared on the answer, not sent as a condition (ADR-0154).
     expect(large.asked.filter((read) => read.range === undefined)).toHaveLength(PACKS.sections.length);
@@ -223,7 +230,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
   it("never reads a pack twice within an isolate", async () => {
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects);
-    const plan = previewPlan(1, null);
+    const plan = unpartedPlan();
     await resolvePacks(reads(bucket), plan, PNU_A);
     const r2 = asked.length;
     const trace = new ReadTrace();
@@ -239,13 +246,13 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
       edge.clear();
       edgeAsked.length = 0;
       const { bucket, asked } = strictBucket(objects, { reportedSize });
-      const first = await resolvePacks(reads(bucket), previewPlan(1, null), PNU_A);
+      const first = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
       await Promise.all(pending);
       expect(edge.size).toBe(0);
       forgetPacks();
       const before = asked.length;
       const trace = new ReadTrace();
-      const second = await resolvePacks(reads(bucket, { trace }), previewPlan(1, null), PNU_A);
+      const second = await resolvePacks(reads(bucket, { trace }), unpartedPlan(), PNU_A);
       expect(second).toEqual(first);
       expect(asked.length).toBeGreaterThan(before);
       expect([...trace.sections.values()].every((source) => source.startsWith("r2-"))).toBe(true);
@@ -260,7 +267,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
       reportedSize: READ.whole_pack_max_bytes + 1,
       rangeEtag: "a-newer-tag",
     });
-    await expect(resolvePacks(reads(bucket), previewPlan(1, null), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
+    await expect(resolvePacks(reads(bucket), unpartedPlan(), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
     // Read once, refused, and not retried: retrying cannot make it right.
     const ranged = asked.filter((read) => read.key === name && read.range !== undefined);
     expect(ranged).toHaveLength(1);
@@ -275,7 +282,7 @@ describe("R2 retries within a deadline", () => {
     const trace = new ReadTrace();
     const resolved = await resolvePacks(
       reads(bucket, { trace, sleep: async (ms) => void slept.push(ms) }),
-      previewPlan(1, null),
+      unpartedPlan(),
       PNU_A,
     );
     expect(resolved.kind).toBe("document");
@@ -290,7 +297,7 @@ describe("R2 retries within a deadline", () => {
   it("a persistent R2 error ends as unavailable after the bounded attempts", async () => {
     const objects = await goldenPacks();
     const { bucket, asked } = strictBucket(objects, { failures: Number.POSITIVE_INFINITY });
-    await expect(resolvePacks(reads(bucket), previewPlan(1, null), PNU_A)).rejects.toBeInstanceOf(PackReadUnavailable);
+    await expect(resolvePacks(reads(bucket), unpartedPlan(), PNU_A)).rejects.toBeInstanceOf(PackReadUnavailable);
     expect(asked.length).toBeLessThanOrEqual(PACKS.sections.length * READ.r2_attempts);
   });
 
@@ -302,7 +309,7 @@ describe("R2 retries within a deadline", () => {
     const { bucket, asked } = strictBucket(objects, { stalls: 1 });
     const trace = new ReadTrace();
     const started = Date.now();
-    const resolved = await resolvePacks(reads(bucket, { trace }), previewPlan(1, null), PNU_A);
+    const resolved = await resolvePacks(reads(bucket, { trace }), unpartedPlan(), PNU_A);
     const elapsed = Date.now() - started;
     expect(resolved.kind).toBe("document");
     expect(trace.failures).toEqual([`${PACKS.anchor_section}:pack:timeout`]);

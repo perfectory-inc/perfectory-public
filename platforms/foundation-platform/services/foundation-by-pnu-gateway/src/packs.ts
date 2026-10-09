@@ -1,9 +1,9 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { cacheOrigin, lanePacks } from "./lane";
+import { cacheOrigin, lanePacks, UNIT } from "./lane";
 
 /// Section packs (root ADR-0147, ADR-0151): one R2 object per (section, legal dong), head + index +
-/// body. Each lane has one section, `documents`, whose entry for a PNU is its served
-/// document as one gzip member; the Worker answers with that member as it is
+/// body, or one per part of a large dong (ADR-0163). Each lane has one section, `documents`, whose
+/// entry for a PNU is its served document as one gzip member; the Worker answers with that member as it is
 /// (`Content-Encoding: gzip`), without decompressing or parsing it. The byte layout and the
 /// resolution order are the publisher's (`foundation-outbox-publisher/src/by_pnu_pack.rs`,
 /// `.../section_packs/{read,sections}.rs`); the golden packs in `test/fixtures/section-packs/` hold
@@ -19,12 +19,26 @@ const STATE_TOMBSTONE = 2;
 /// isolate keeps, and how R2 is retried.
 const readPolicy = packPolicy.read_path;
 const magic = new TextEncoder().encode(packPolicy.magic);
+/// Parts (root ADR-0163): a large dong is cut into packs of `{dong}-{part}` by `fnv1a32`, and its
+/// part count is read from the section generation's one parts index.
+const partsPolicy = packPolicy.parts;
+const partedUnitPattern = new RegExp(`^(?:${partsPolicy.unit_pattern})$`);
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+/// The parts index a section generation is read under: the one the manifest names by key and
+/// sha256, or, for a preview (which has no manifest block), the index at its conventional key
+/// when the bake wrote one.
+export type PackParts =
+  | { kind: "named"; key: string; sha256: string; partedUnits: number }
+  | { kind: "conventional"; key: string };
 
 export interface PackSection {
   name: string;
   generation: number;
   /// Patches up to this number are already in the generation.
   patchFloor: number;
+  /// Absent for a section whose every dong is one pack.
+  parts?: PackParts;
 }
 
 export interface PackPatch {
@@ -48,31 +62,60 @@ function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+/// The conventional key of a section generation's parts index (root ADR-0163):
+/// `{root}/{section}/g{n}/parts.json`.
+export function partsKey(section: Pick<PackSection, "name" | "generation">): string {
+  return `${lanePacks.root}/${section.name}/g${section.generation}/${partsPolicy.index_file_name}`;
+}
+
+/// A section entry's `parts`: the index's key (which must be the generation's conventional one),
+/// the sha256 of its bytes and the number of dongs it names; `null` when it is malformed.
+function parseParts(raw: unknown, section: Pick<PackSection, "name" | "generation">): PackParts | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { key, sha256, parted_units: partedUnits } = raw as Record<string, unknown>;
+  if (key !== partsKey(section) || typeof sha256 !== "string" || !SHA256_PATTERN.test(sha256) || !isCount(partedUnits)) {
+    return null;
+  }
+  return { kind: "named", key, sha256, partedUnits };
+}
+
 /// Reads a manifest's `section_packs` block; `null` when it is not one this Worker can trust,
-/// which the caller answers as an outage.
+/// which the caller answers as an outage. Version 3 names no parts; version 4 (root ADR-0163) is
+/// the block whose sections name a parts index, and one that names none is not a version 4 block.
 export function parseSectionPacks(raw: unknown, patchCeiling: number): PackPlan | null {
   if (typeof raw !== "object" || raw === null) return null;
   const block = raw as Record<string, unknown>;
+  const parted = block.schema_version === packPolicy.manifest_section_packs_parted_schema_version;
   if (
-    block.schema_version !== packPolicy.manifest_section_packs_schema_version ||
+    (!parted && block.schema_version !== packPolicy.manifest_section_packs_schema_version) ||
     block.format_version !== packPolicy.format_version
   ) {
     return null;
   }
   const unitLength = block.unit_prefix_length;
   if (!isPositive(unitLength) || unitLength > 19) return null;
+  // A part unit is a dong of the contract's unit length and a part (`parts.unit_pattern`).
+  if (parted && unitLength !== packPolicy.unit_prefix_length) return null;
   if (!Array.isArray(block.sections) || block.sections.length !== lanePacks.sections.length) return null;
   const sections: PackSection[] = [];
   for (const [index, entry] of (block.sections as unknown[]).entries()) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { name, generation, patch_floor: patchFloor } = entry as Record<string, unknown>;
+    const { name, generation, patch_floor: patchFloor, parts: rawParts } = entry as Record<string, unknown>;
     if (typeof name !== "string" || name !== lanePacks.sections[index] || !isPositive(generation) || !isCount(patchFloor)) {
       return null;
     }
-    sections.push({ name, generation, patchFloor });
+    if (rawParts === undefined) {
+      sections.push({ name, generation, patchFloor });
+      continue;
+    }
+    if (!parted) return null;
+    const parts = parseParts(rawParts, { name, generation });
+    if (parts === null) return null;
+    sections.push({ name, generation, patchFloor, parts });
   }
+  if (parted && sections.every((section) => section.parts === undefined)) return null;
   if (!Array.isArray(block.patches) || block.patches.length > patchCeiling) return null;
-  const unitPattern = new RegExp(`^[0-9]{${unitLength}}$`);
+  const unitPattern = parted ? partedUnitPattern : new RegExp(`^[0-9]{${unitLength}}$`);
   const patches: PackPatch[] = [];
   for (const entry of block.patches as unknown[]) {
     if (typeof entry !== "object" || entry === null) return null;
@@ -97,9 +140,16 @@ export function parseSectionPacks(raw: unknown, patchCeiling: number): PackPlan 
 /// gate probes. The fingerprint names the preview's Worker version, so a fresh upload answers its
 /// first reads from R2 instead of from edge copies an earlier probe left (2026-10-07: 9,952 of
 /// 10,000 cold reads of gate (b) were such copies; contract `cold_reads_not_from_r2_max_share`).
+/// A preview has no manifest block to name a parts index, so each section reads the one at the
+/// generation's conventional key, and a generation without one is unparted (root ADR-0163).
 export function previewPlan(generation: number, version: string | null): PackPlan {
   return {
-    sections: lanePacks.sections.map((name) => ({ name, generation, patchFloor: 0 })),
+    sections: lanePacks.sections.map((name) => ({
+      name,
+      generation,
+      patchFloor: 0,
+      parts: { kind: "conventional", key: partsKey({ name, generation }) },
+    })),
     patches: [],
     unitLength: packPolicy.unit_prefix_length,
     fingerprint: version === null ? `preview-g${generation}` : `preview-g${generation}-${version}`,
@@ -135,6 +185,14 @@ export class ReadTrace {
   /// Per section: milliseconds waiting on R2, every attempt included.
   readonly sectionR2Ms = new Map<string, number>();
   readonly failures: string[] = [];
+  /// The parts index reads (root ADR-0163), apart from the pack reads above: an isolate reads a
+  /// section's index once, so they are not part of what a first read of a PNU costs.
+  partsGets = 0;
+  /// Per section: where its parts index came from, `r2`, `memory` or `absent` (a preview's
+  /// generation without one).
+  readonly parts = new Map<string, string>();
+  /// Per section: milliseconds waiting on R2 for its parts index.
+  readonly partsR2Ms = new Map<string, number>();
 
   note(section: string, label: string): void {
     const previous = this.sections.get(section);
@@ -177,10 +235,11 @@ function copyBytes(copy: PackCopy): number {
   return copy.head.index.byteLength + (copy.bytes?.byteLength ?? 0);
 }
 
-/// Forgets every pack this isolate remembers (tests, to stand for a new isolate).
+/// Forgets every pack and parts index this isolate remembers (tests, to stand for a new isolate).
 export function forgetPacks(): void {
   packMemory.clear();
   packMemoryBytes = 0;
+  partsMemory.clear();
 }
 
 function remember(key: string, copy: PackCopy): void {
@@ -303,17 +362,19 @@ function within<T>(work: Promise<T>, milliseconds: number): Promise<T> {
 /// make it right.
 async function withRetry<T>(
   reads: PackReads,
-  what: { section: string; key: string; phase: "pack" | "range" },
+  what: { section: string; key: string; phase: "pack" | "range" | "parts" },
   attempt: () => Promise<T>,
 ): Promise<T> {
   const sleep = reads.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const random = reads.random ?? Math.random;
+  const parts = what.phase === "parts";
   let lastClass = "deadline";
   for (let tried = 0; tried < readPolicy.r2_attempts; tried += 1) {
     const left = reads.deadline - Date.now();
     if (left <= 0) break;
     const started = Date.now();
-    reads.trace.r2Gets += 1;
+    if (parts) reads.trace.partsGets += 1;
+    else reads.trace.r2Gets += 1;
     try {
       return await within(attempt(), Math.min(left, readPolicy.r2_attempt_timeout_ms));
     } catch (error) {
@@ -332,7 +393,12 @@ async function withRetry<T>(
         }),
       );
     } finally {
-      reads.trace.waited(what.section, Date.now() - started);
+      const waited = Date.now() - started;
+      if (parts) {
+        reads.trace.partsR2Ms.set(what.section, (reads.trace.partsR2Ms.get(what.section) ?? 0) + waited);
+      } else {
+        reads.trace.waited(what.section, waited);
+      }
     }
     if (tried + 1 < readPolicy.r2_attempts) {
       const backoff = random() * readPolicy.r2_retry_base_ms * 2 ** tried;
@@ -397,6 +463,130 @@ async function fetchPack(bucket: Pick<R2Bucket, "get">, key: string): Promise<Pa
   const head = parseHead(joined(chunks, length).slice(0, wanted), object.etag);
   if (head === null) throw new PackFormatError("pack head is shorter than declared");
   return { head, bytes: null };
+}
+
+/// FNV-1a, 32 bit, over the ASCII bytes of `text` (the contract's `parts.hash_definition`): the
+/// hash that places a PNU in its dong's part. The publisher's twin is `r2_layout::by_pnu_packs`;
+/// both are held to the contract's `parts.hash_test_vectors`.
+export function fnv1a32(text: string): number {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash = Math.imul(hash ^ byte, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/// The part counts of one section generation: the dongs of more than one part, by dong.
+export type PartCounts = ReadonlyMap<string, number>;
+
+const NO_PARTS: PartCounts = new Map();
+/// Parts indexes this isolate holds, least recently used first, by identity (`sha256:<hex>` for a
+/// manifest-named index, `key:<key>` for a preview's): an index is immutable, and a lane reads one
+/// generation per section (two across a publish), so a handful is enough.
+const PARTS_MEMORY_ENTRIES = 4;
+const partsMemory = new Map<string, PartCounts>();
+
+function rememberParts(identity: string, counts: PartCounts): void {
+  partsMemory.delete(identity);
+  partsMemory.set(identity, counts);
+  for (const oldest of partsMemory.keys()) {
+    if (partsMemory.size <= PARTS_MEMORY_ENTRIES) break;
+    partsMemory.delete(oldest);
+  }
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/// A parts index's bytes, checked against the section generation it is read for: the contract's
+/// index schema, this lane's unit, the section and generation, the contract's hash, and every
+/// entry a dong of the unit length with a count of at least 2 whose last part is still a unit the
+/// contract allows. A manifest-named index must also name exactly as many dongs as the manifest says.
+function parsePartsIndex(bytes: Uint8Array, section: PackSection, partedUnits: number | null): PartCounts {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes));
+  } catch {
+    throw new PackFormatError("parts index is not JSON");
+  }
+  if (typeof raw !== "object" || raw === null) throw new PackFormatError("parts index is not an object");
+  const index = raw as Record<string, unknown>;
+  if (
+    index.schema_version !== partsPolicy.index_schema_version ||
+    index.unit !== UNIT ||
+    index.section !== section.name ||
+    index.generation !== section.generation ||
+    index.hash !== partsPolicy.hash ||
+    typeof index.parts !== "object" ||
+    index.parts === null ||
+    Array.isArray(index.parts)
+  ) {
+    throw new PackFormatError("parts index is not this section generation's");
+  }
+  const dongPattern = new RegExp(`^[0-9]{${packPolicy.unit_prefix_length}}$`);
+  const counts = new Map<string, number>();
+  for (const [dong, count] of Object.entries(index.parts as Record<string, unknown>)) {
+    if (
+      !dongPattern.test(dong) ||
+      typeof count !== "number" ||
+      !Number.isSafeInteger(count) ||
+      count < 2 ||
+      !partedUnitPattern.test(`${dong}-${count - 1}`)
+    ) {
+      throw new PackFormatError("parts index entry is not a dong of more than one part");
+    }
+    counts.set(dong, count);
+  }
+  if (partedUnits !== null && counts.size !== partedUnits) {
+    throw new PackFormatError("parts index names another number of dongs than the manifest");
+  }
+  return counts;
+}
+
+/// The part counts a section generation is read under: none for an unparted section; else its
+/// index from isolate memory, or read once from R2. A manifest-named index that is missing, or
+/// whose bytes do not hash to the manifest's sha256, is an outage, never a guess; a preview's
+/// conventional index that is absent leaves the generation unparted.
+async function partCounts(reads: PackReads, section: PackSection): Promise<PartCounts> {
+  const parts = section.parts;
+  if (parts === undefined) return NO_PARTS;
+  const identity = parts.kind === "named" ? `sha256:${parts.sha256}` : `key:${parts.key}`;
+  const remembered = partsMemory.get(identity);
+  if (remembered !== undefined) {
+    rememberParts(identity, remembered);
+    reads.trace.parts.set(section.name, "memory");
+    return remembered;
+  }
+  const bytes = await withRetry(reads, { section: section.name, key: parts.key, phase: "parts" }, async () => {
+    const object = await reads.bucket.get(parts.key);
+    if (object === null) return null;
+    if (!("body" in object)) throw new PackFormatError("parts index read returned no body");
+    return new Uint8Array(await object.arrayBuffer());
+  });
+  let counts: PartCounts;
+  if (bytes === null) {
+    if (parts.kind === "named") throw new PackFormatError(`listed parts index ${parts.key} is missing`);
+    reads.trace.parts.set(section.name, "absent");
+    counts = NO_PARTS;
+  } else {
+    if (parts.kind === "named" && (await sha256Hex(bytes)) !== parts.sha256) {
+      throw new PackFormatError(`parts index ${parts.key} does not hash to the manifest's sha256`);
+    }
+    counts = parsePartsIndex(bytes, section, parts.kind === "named" ? parts.partedUnits : null);
+    reads.trace.parts.set(section.name, "r2");
+  }
+  rememberParts(identity, counts);
+  return counts;
+}
+
+/// The unit of `pnu` (root ADR-0163): its dong, or `{dong}-{fnv1a32(pnu) mod K}` when the
+/// generation's index gives the dong K > 1 parts.
+export function partUnit(counts: PartCounts, unitLength: number, pnu: string): string {
+  const dong = pnu.slice(0, unitLength);
+  const count = counts.get(dong) ?? 1;
+  return count === 1 ? dong : `${dong}-${fnv1a32(pnu) % count}`;
 }
 
 interface Entry {
@@ -510,12 +700,19 @@ export function packKey(section: Pick<PackSection, "name" | "generation">, patch
   return `${lanePacks.root}/${section.name}/g${section.generation}/${patchDir}${unit}${packPolicy.suffix}`;
 }
 
-/// The document of `pnu` in one section: the newest patch naming its dong and holding it, else the
-/// base. A patch the manifest lists but R2 lacks is an outage, not an absence.
+/// The document of `pnu` in one section: the newest patch naming its unit and holding it, else the
+/// base. A patch the manifest lists but R2 lacks is an outage, not an absence. The base and the
+/// patches of a parted generation share its parts (root ADR-0163 §4), so a patch naming a parted
+/// dong by its bare dong was written under other part counts: an outage too.
 async function findDocument(reads: PackReads, plan: PackPlan, section: PackSection, pnu: string): Promise<Resolved> {
-  const unit = pnu.slice(0, plan.unitLength);
+  const unit = partUnit(await partCounts(reads, section), plan.unitLength, pnu);
+  const dong = pnu.slice(0, plan.unitLength);
   for (const patch of plan.patches) {
-    if (patch.patch <= section.patchFloor || !patch.units.has(unit)) continue;
+    if (patch.patch <= section.patchFloor) continue;
+    if (unit !== dong && patch.units.has(dong)) {
+      throw new PackFormatError(`patch p${patch.patch} names parted dong ${dong} unparted`);
+    }
+    if (!patch.units.has(unit)) continue;
     const key = packKey(section, patch.patch, unit);
     const copy = await readPack(reads, section.name, key);
     if (copy === null) throw new PackFormatError(`listed patch pack ${key} is missing`);

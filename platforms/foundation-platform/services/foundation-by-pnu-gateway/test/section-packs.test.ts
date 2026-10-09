@@ -403,7 +403,12 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     const response = await runtime.dispatchFetch(`https://buildings.example.test${GATEWAY.request_path.capabilities}`);
     const body = (await response.json()) as { manifest_schema_versions: number[] };
     expect(body.manifest_schema_versions).toContain(PACK_POLICY.manifest_section_packs_schema_version);
-    expect(body.manifest_schema_versions).toEqual([1, 2, 3]);
+    expect(body.manifest_schema_versions).toEqual([
+      1,
+      2,
+      PACK_POLICY.manifest_section_packs_schema_version,
+      PACK_POLICY.manifest_section_packs_parted_schema_version,
+    ]);
   });
 });
 

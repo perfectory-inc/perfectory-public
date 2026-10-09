@@ -44,7 +44,16 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 배치는 계약 `placement`(버킷 옆 Tokyo, ADR-0154)를
   운영과 미리보기 둘 다에 투영한다. 패치는 `patch_floor` 위의 것 중
   법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404, 없으면 404, 목록의 묶음이 없거나 형식이 어긋나면 503 이다.
-  `_capabilities` 는 `[1, 2, 3]`.
+  `_capabilities` 는 `[1, 2, 3, 4]`(뒤의 둘은 계약 `manifest_section_packs_schema_version`·
+  `manifest_section_packs_parted_schema_version`).
+  - 조각(루트 ADR-0163, 계약 `by_pnu_section_packs.parts`): schema 4 블록의 항목은 `parts: {key, sha256,
+    parted_units}` 로 그 세대의 조각 목록 객체(`{root}/{항목}/g{n}/parts.json`)를 가리킨다. Worker 는 그 객체를
+    isolate 마다 한 번 읽어 sha256·스키마·항목·세대·해시·조각 수(2 이상)를 확인하고 메모리에 둔다(몇 개까지).
+    어긋나거나 없으면 503 이다. PNU 의 단위는 법정동, 또는 목록이 K > 1 이라 하면 `{법정동}-{fnv1a32(PNU) mod K}` 이고,
+    기본 묶음과 그 세대의 패치 묶음이 같은 단위를 쓴다. schema 3 블록은 `parts` 를 가질 수 없고, schema 4 블록은
+    하나는 가져야 한다. 미리보기(`?packs=g{n}`)는 manifest 블록이 없으니 관례 키의 목록을 읽고, 없으면 조각 없는
+    세대로 읽는다. 목록 읽기는 미리보기 `Server-Timing` 에 `parts-{항목};dur=…;desc="{r2|memory|absent} gets=…"` 로
+    따로 적는다(`r2` 의 gets 는 묶음 읽기만 센다).
   - 읽기(계약 `by_pnu_section_packs.read_path`): 범위 없는 GET 하나가 머리를 찾는다. 묶음이 `whole_pack_max_bytes`
     이하면 그 GET 으로 통째 읽고 문서도 그 바이트에서 꺼낸다(R2 한 번). 크면 머리까지만 읽고 끊은 뒤 문서를
     범위 읽기로 꺼내고, 답의 `etag` 가 머리의 것과 다르면 합치지 않는다(조건 `onlyIf` 는 보내지 않는다: 키가
