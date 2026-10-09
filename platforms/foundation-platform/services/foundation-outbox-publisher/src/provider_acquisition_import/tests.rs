@@ -533,6 +533,7 @@ async fn a_rerun_of_the_same_bytes_writes_nothing_and_other_bytes_are_refused() 
             checksum_sha256: sha256_hex(&body),
             size_bytes: body.len() as u64,
             observed_e_tag: None,
+            observed_last_modified: None,
         }),
         ..RecordingObjectStorage::default()
     };
@@ -550,6 +551,7 @@ async fn a_rerun_of_the_same_bytes_writes_nothing_and_other_bytes_are_refused() 
             checksum_sha256: "0".repeat(64),
             size_bytes: 7,
             observed_e_tag: None,
+            observed_last_modified: None,
         }),
         ..RecordingObjectStorage::default()
     };
