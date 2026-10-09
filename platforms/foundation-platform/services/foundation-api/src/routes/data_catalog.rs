@@ -15,7 +15,9 @@ use axum::{
 };
 use foundation_contracts::data_catalog::{
     DataCatalogEntity, DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood,
-    DataCatalogSearchPage,
+    DataCatalogSearchPage, DataContractQuality, DataQualityCheck, DataQualityDetail,
+    DataQualityResult, DataQualityStatus, ScheduledJobRun, ScheduledJobRunOutcome,
+    ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -26,6 +28,8 @@ use utoipa::{IntoParams, Modify, OpenApi};
 use super::api_error::ApiError;
 use crate::state::AppState;
 
+mod operations;
+
 const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
 const MAX_PAGE: u32 = 50;
 const MAX_NEIGHBOURS: u32 = 200;
@@ -35,15 +39,24 @@ const MAX_NEIGHBOURS: u32 = 200;
     info(
         title = "Foundation Platform staff data catalog API",
         version = "1.0.0",
-        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119)."
+        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165)."
     ),
-    paths(search, entity),
+    paths(search, entity, operations::scheduled_jobs, operations::quality_checks),
     components(schemas(
         DataCatalogEntity,
         DataCatalogEntityKind,
         DataCatalogField,
         DataCatalogNeighbourhood,
         DataCatalogSearchPage,
+        ScheduledJobsStatus,
+        ScheduledJobStatus,
+        ScheduledJobRun,
+        ScheduledJobRunOutcome,
+        DataQualityStatus,
+        DataContractQuality,
+        DataQualityCheck,
+        DataQualityResult,
+        DataQualityDetail,
         ApiErrorResponse,
         InternalApiErrorResponse,
     )),
@@ -87,6 +100,14 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/entity",
             super::protected_route(get(entity), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/scheduled-jobs",
+            super::protected_route(get(operations::scheduled_jobs), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/quality-checks",
+            super::protected_route(get(operations::quality_checks), state, read, None),
         )
 }
 
@@ -243,14 +264,19 @@ fn http() -> &'static reqwest::Client {
     })
 }
 
-/// Asks the catalog store one of the fixed questions above and returns its `data`.
+/// Asks the catalog store one of the fixed entity questions above and returns its `data`.
 async fn graphql(query: &str, variables: JsonValue) -> Result<JsonValue, ApiError> {
+    ask(&format!("{query}\n{ENTITY_FRAGMENT}"), variables).await
+}
+
+/// Asks the catalog store one fixed `GraphQL` document and returns its `data`.
+async fn ask(document: &str, variables: JsonValue) -> Result<JsonValue, ApiError> {
     let base = std::env::var(GMS_URL_ENV)
         .ok()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::Unavailable("the data catalog is not configured".to_owned()))?;
     let url = format!("{}/api/graphql", base.trim_end_matches('/'));
-    let body = json!({ "query": format!("{query}\n{ENTITY_FRAGMENT}"), "variables": variables });
+    let body = json!({ "query": document, "variables": variables });
     let response = http().post(url).json(&body).send().await.map_err(|error| {
         tracing::warn!(%error, "data catalog unreachable");
         ApiError::Unavailable("the data catalog is not reachable".to_owned())

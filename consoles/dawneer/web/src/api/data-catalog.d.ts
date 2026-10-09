@@ -21,6 +21,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/quality-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every data contract the catalog holds and the latest result of each of its checks. */
+        get: operations["listDataQualityChecks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-catalog/v1/scheduled-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every scheduled job, its next start and its latest run. */
+        get: operations["listScheduledJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-catalog/v1/search": {
         parameters: {
             query?: never;
@@ -105,6 +139,55 @@ export interface components {
              */
             total: number;
         };
+        /** @description One data contract and the latest result of each of its checks. */
+        DataContractQuality: {
+            /** @description Its checks. */
+            checks: components["schemas"]["DataQualityCheck"][];
+            /** @description The contract's id (the dataset it promises). */
+            contract_id: string;
+            /** @description The contract's entity in the data catalog. */
+            dataset_urn: string;
+        };
+        /** @description One check a data contract defines and its latest result. */
+        DataQualityCheck: {
+            /** @description The check's identifier in the data catalog. */
+            assertion_urn: string;
+            /**
+             * Format: date-time
+             * @description When that result was reported.
+             */
+            checked_at?: string | null;
+            /** @description What the job reported with it (counts, missing columns), as it wrote them. */
+            details: components["schemas"]["DataQualityDetail"][];
+            /** @description The column it checks, for a column check. */
+            field?: string | null;
+            /** @description The catalog's kind for it (for example `FIELD` or `DATA_SCHEMA`), as the catalog names it. */
+            kind: string;
+            /** @description Its latest result. */
+            result: components["schemas"]["DataQualityResult"];
+        };
+        /** @description One key and value the quality job reported with a result. */
+        DataQualityDetail: {
+            /** @description The key, as the job wrote it. */
+            key: string;
+            /** @description The value, as the job wrote it. */
+            value: string;
+        };
+        /**
+         * @description The latest result of a data-quality check.
+         * @enum {string}
+         */
+        DataQualityResult: "success" | "failure" | "error" | "not_run";
+        /** @description Every data contract the data catalog holds, with its checks' latest results. */
+        DataQualityStatus: {
+            /** @description The contracts, by id. */
+            contracts: components["schemas"]["DataContractQuality"][];
+            /**
+             * Format: date-time
+             * @description When Foundation read this.
+             */
+            read_at: string;
+        };
         /** @description Opaque internal-error body returned by Foundation API handlers. */
         InternalApiErrorResponse: {
             /**
@@ -114,6 +197,69 @@ export interface components {
             correlation_id: string;
             /** @description Stable opaque diagnostic. */
             error: string;
+        };
+        /** @description The latest run of a scheduled job that the data catalog holds. */
+        ScheduledJobRun: {
+            /**
+             * Format: date-time
+             * @description When the run completed; absent while it runs.
+             */
+            finished_at?: string | null;
+            /** @description The scheduler's own word for the result, as it sent it, when it sent one. */
+            native_result?: string | null;
+            /** @description How it stands. */
+            outcome: components["schemas"]["ScheduledJobRunOutcome"];
+            /** @description The run's identifier in the data catalog. */
+            run_urn: string;
+            /**
+             * Format: date-time
+             * @description When the run started, from its first recorded start.
+             */
+            started_at?: string | null;
+        };
+        /**
+         * @description How a scheduled job's run stands, in the run record the scheduler sent to the data catalog
+         *     (`OpenLineage`, root ADR-0118 §2): started and not yet complete, or complete with a result.
+         * @enum {string}
+         */
+        ScheduledJobRunOutcome: "running" | "succeeded" | "failed" | "skipped" | "up_for_retry" | "unknown";
+        /** @description One scheduled job: what the job list says about it and its latest run. */
+        ScheduledJobStatus: {
+            /** @description The job's entity in the data catalog that holds the latest run, once a run reported. */
+            catalog_job_urn?: string | null;
+            /** @description The scheduler's name for the job (its Airflow DAG). */
+            dag_id: string;
+            /** @description What the job does, as the job list says. */
+            description: string;
+            /** @description Why it is off and what turns it on, for a job that is off. */
+            disabled_reason?: string | null;
+            /** @description Whether the scheduler runs it. */
+            enabled: boolean;
+            /** @description The job's id in the job list (`orchestration/jobs.v1.json`). */
+            job_id: string;
+            last_run?: null | components["schemas"]["ScheduledJobRun"];
+            /**
+             * Format: date-time
+             * @description The next time its schedule starts it; absent for a job that is off.
+             */
+            next_run_at?: string | null;
+            /** @description When it runs: the job list's cron schedule, in UTC. */
+            schedule: string;
+        };
+        /** @description Every scheduled job and its latest run. */
+        ScheduledJobsStatus: {
+            /** @description Every job in the job list, in its order. */
+            jobs: components["schemas"]["ScheduledJobStatus"][];
+            /**
+             * Format: date-time
+             * @description When Foundation read this.
+             */
+            read_at: string;
+            /**
+             * @description Why the runs could not be read, when the data catalog did not answer. The jobs are still
+             *     listed, and then no job's missing run means it never ran.
+             */
+            run_history_error?: string | null;
         };
     };
     responses: never;
@@ -174,6 +320,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listDataQualityChecks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataQualityStatus"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The data catalog is not configured or not reachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listScheduledJobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledJobsStatus"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The job list could not be read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalApiErrorResponse"];
                 };
             };
         };

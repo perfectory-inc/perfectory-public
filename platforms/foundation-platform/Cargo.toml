@@ -66,6 +66,9 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 
 # 직렬화·타입
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+# The next start of a scheduled job from its cron schedule in orchestration/jobs.v1.json (root
+# ADR-0165), the same five-field cron Airflow reads, instead of a hand-written cron evaluator.
+croner = { version = "4", default-features = false, features = ["chrono"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 regex = "1"

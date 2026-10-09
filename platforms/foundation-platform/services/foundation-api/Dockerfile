@@ -19,6 +19,10 @@ COPY --from=builder /workspace/target/release/foundation-migrate /usr/local/bin/
 # until the registry was carried here and named by its environment variable (2026-09-30).
 COPY docs/catalog/pipeline-graph.v1.json /usr/local/share/foundation-platform/pipeline-graph.v1.json
 ENV FOUNDATION_PLATFORM_PIPELINE_GRAPH_REGISTRY_PATH=/usr/local/share/foundation-platform/pipeline-graph.v1.json
+# GET /data-catalog/v1/scheduled-jobs lists the jobs of this job list (root ADR-0165), carried the
+# same way and for the same reason.
+COPY orchestration/jobs.v1.json /usr/local/share/foundation-platform/jobs.v1.json
+ENV FOUNDATION_PLATFORM_SCHEDULED_JOBS_PATH=/usr/local/share/foundation-platform/jobs.v1.json
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \

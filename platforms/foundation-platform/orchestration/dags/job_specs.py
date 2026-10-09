@@ -234,8 +234,13 @@ def load_specs(jobs=None, graph=None):
     graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
     if jobs.get("schema_version") != JOBS_SCHEMA:
         raise JobListError(f"jobs schema_version is not {JOBS_SCHEMA}")
+    # The DAG ids are declared once (jobs.v1.json `dag_id_prefix`): foundation-api reads the same
+    # field to find each job's runs in the data catalog (root ADR-0165).
+    dag_id_prefix = jobs.get("dag_id_prefix")
+    if not isinstance(dag_id_prefix, str) or not re.fullmatch(r"[a-z][a-z0-9_]*_", dag_id_prefix):
+        raise JobListError("jobs.v1.json dag_id_prefix must be a lower_snake name ending in '_'")
 
-    pools = {DEFAULT_POOL, *declared_pools(jobs)}
+    pools ={DEFAULT_POOL, *declared_pools(jobs)}
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {edge["id"]: edge for edge in graph["edges"]}
 
@@ -298,7 +303,7 @@ def load_specs(jobs=None, graph=None):
         specs.append(
             JobSpec(
                 job_id=job_id,
-                dag_id=f"foundation_{job_id}",
+                dag_id=f"{dag_id_prefix}{job_id}",
                 description=job["description"],
                 schedule=job["schedule"],
                 timeout_minutes=int(job["timeout_minutes"]),

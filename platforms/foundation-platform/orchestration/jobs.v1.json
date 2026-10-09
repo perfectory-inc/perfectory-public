@@ -1,5 +1,7 @@
 {
   "schema_version": "foundation-platform.orchestration_jobs.v1",
+  "dag_id_prefix": "foundation_",
+  "dag_id_prefix_means": "A job's Airflow DAG id is this prefix and its id. orchestration/dags/job_specs.py names the DAGs with it, and foundation-api (GET /data-catalog/v1/scheduled-jobs, root ADR-0165) finds each job's run records in the data catalog under the flow its DAG reports as.",
   "description": "Every scheduled data job (root ADR-0118, ADR-0122). What a job runs, as whom, with which environment and time limit is its systemd service in infra/systemd and nowhere else. This list adds when it runs, its resource pool, the pipeline-graph edges it carries out (its lineage, read from docs/catalog/pipeline-graph.v1.json) and whether Airflow runs it yet. A job that checks data rather than moving it names no edges and sets reads_data_contracts: its inputs are the tables the data contracts cover.",
   "pools": {
     "spark": {
