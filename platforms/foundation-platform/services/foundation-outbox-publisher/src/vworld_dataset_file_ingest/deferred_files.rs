@@ -1,5 +1,5 @@
-//! Listed files a run does not download, and why: the new-bytes budget kept them (root ADR-0168),
-//! or the provider gives them only through its RAON download agent (ADR-0170).
+//! Listed files a run does not download because the provider gives them only through its RAON
+//! download agent (root ADR-0170). The regular lane has no byte budget (ADR-0172).
 //!
 //! A run that excludes RAON selection archives (`SelectionArchive`, over about 500 MB) still says
 //! which of them Bronze lacks. The daily sweep hands exactly those to the large-file lane
@@ -11,7 +11,7 @@ use collection_infrastructure::{VWorldDatasetFileInventoryItem, VWorldDatasetFil
 
 use super::{
     partition_held_files, SelectedVWorldDatasetFile, VWorldDatasetFileIngestItemEvidence,
-    VWorldDatasetFileJob, DEFERRED_BY_BUDGET_STATUS,
+    VWorldDatasetFileJob,
 };
 
 /// File status of a listed RAON selection archive Bronze does not hold (root ADR-0170).
@@ -85,13 +85,6 @@ where
     }));
     reports.sort_by_key(|(index, _)| *index);
     Ok(reports.into_iter().map(|(_, report)| report).collect())
-}
-
-pub(super) fn deferred_by_budget_report(
-    job: &VWorldDatasetFileJob,
-    file: &VWorldDatasetFileInventoryItem,
-) -> VWorldDatasetFileIngestItemEvidence {
-    deferred_report(job, file, DEFERRED_BY_BUDGET_STATUS)
 }
 
 /// A listed file reported with its listed size (`size_kib` × 1024); its body was not opened.

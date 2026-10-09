@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 관은 매일 원천을 살핀다 (root ADR-0077, 레인 둘은 ADR-0168).
+# 관은 매일 원천을 살핀다 (root ADR-0077, vworld 레인은 ADR-0168·0172, raon 레인은 ADR-0170).
 #
 # systemd 타이머가 매일 새벽 이 스크립트를 돌린다. 레인마다 provider 목록을 다시 계획하고, 이미 가진
 # 파일은 건너뛰며, 새 파일만 Bronze 로 받는다.
@@ -8,8 +8,9 @@
 #   vworld  VWorld 토지 데이터셋 파일. 어느 데이터셋인지는 엔드포인트 카탈로그가 정한다
 #           (daily_collection 이 source_sweep 인 vworld_dataset 엔드포인트) — 이 스크립트는 목록을
 #           갖지 않는다. 같은 파일 번호·같은 제공자 갱신일·원장에 체크섬이 있으면 가진 것이다. 새 파일은
-#           내용 해시 키로 쓴다(ADR-0152). 가지지 않은 파일의 목록 크기 합이 카탈로그의 new_bytes_budget
-#           을 넘으면 하나도 받지 않고 실패한다 — 밀린 것은 운영자가 예산을 올려 일부러 받는다(런북).
+#           내용 해시 키로 쓴다(ADR-0152). 가지지 않은 파일은 크기와 무관하게 전부 받는다(ADR-0172): 파일마다
+#           따로 커밋되고, 멈춘 실행은 다음 실행이 이어 받는다(받은 것은 건너뛴다). 한 실행이 받은 바이트가
+#           카탈로그의 landed_bytes_notice 를 넘으면 슬랙에 안내 한 줄만 보낸다 — 거부도 실패도 아니다.
 #   raon    제공자가 RAON 에이전트로만 주는 대용량 파일(ADR-0170). 한 실행 상한(카탈로그의
 #           selection_archive_new_bytes_budget)이 0 이면 레인은 꺼져 있다: 원장에 없는 선택 묶음의 수·목록
 #           크기·파일 id 를 journal 에 적고 슬랙에 안내 한 줄만 보낸다(실패 아님). 상한이 양수이고 증거가
@@ -127,8 +128,7 @@ hub_rc=0
   "${PUBLISHER_BIN}" ingest-building-hub-bulk-collection; } >> "${run_log}" 2>&1 || hub_rc=$?
 
 # 2. vworld 레인. 계획은 카탈로그가 source_sweep 으로 표시한 엔드포인트만, 요약 파일 없이 만든다.
-#    예산은 계획이 카탈로그에서 옮겨 온 값이고, 운영자가 밀린 것을 받을 때만
-#    FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET 으로 그 실행 하나의 값을 바꾼다(런북).
+#    바이트 예산은 없다(ADR-0172) — 가지지 않은 파일은 전부 받는다.
 export FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH="${CATALOG}"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_DAILY_COLLECTION=source_sweep
 unset FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH
@@ -142,24 +142,13 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${SPOOL_DIR}"
 vworld_rc=0
 { "${PUBLISHER_BIN}" plan-vworld-dataset-collection &&
-  budget="${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-$(python3 -I - "${vworld_plan_path}" <<'PY'
-import json, sys
-plan = json.load(open(sys.argv[1], encoding="utf-8"))
-budget = plan.get("new_bytes_budget")
-if plan.get("status") != "ready" or not isinstance(budget, int):
-    sys.exit(f"vworld plan is {plan.get('status')} with budget {budget!r}: {plan.get('blockers')}")
-print(budget)
-PY
-)}" &&
-  [[ "${budget}" =~ ^[0-9]+$ ]] &&
   "${PUBLISHER_BIN}" inventory-vworld-dataset-files &&
-  FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET="${budget}" \
-    "${PUBLISHER_BIN}" ingest-vworld-dataset-files; } >> "${run_log}" 2>&1 || vworld_rc=$?
+  "${PUBLISHER_BIN}" ingest-vworld-dataset-files; } >> "${run_log}" 2>&1 || vworld_rc=$?
 
 # 3. raon 레인(ADR-0170). 상한은 카탈로그의 selection_archive_new_bytes_budget, 운영자가 그 실행 하나만
 #    FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET 로 바꾼다 — raon-large-files.sh 와 같은 규칙이다. 상한 0 은
 #    "레인 꺼짐": 스크립트를 부르지 않고 4 에서 밀린 파일을 적고 안내만 한다. 상한이 양수이고 vworld 레인이
-#    원장에 없는 RAON 선택 묶음을 증거에 적었을 때만 돈다. vworld 레인이 예산으로 거부됐어도 증거는 선택
+#    원장에 없는 RAON 선택 묶음을 증거에 적었을 때만 돈다. vworld 레인의 파일이 실패해도 증거는 선택
 #    묶음을 적으므로 레인은 서로 독립이다.
 raon_deferred="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1], encoding="utf-8")).get("deferred_selection_archive_file_count") or 0))' \
   "${vworld_evidence_path}" 2>/dev/null || echo 0)"
@@ -174,10 +163,10 @@ fi
 
 # 4. 증거를 요약해 journal 한 줄 + 슬랙 알림으로 바꾼다. 증거가 없으면 그 레인은 실패다.
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
-  "${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-}" "${vworld_inventory_path}" \
+  "${vworld_plan_path}" "${vworld_inventory_path}" \
   "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" <<'PY'
 import json, os, sys
-(hub_path, hub_rc, vworld_path, vworld_rc, override, inventory_path, raon_deferred, raon_rc, raon_path,
+(hub_path, hub_rc, vworld_path, vworld_rc, plan_path, inventory_path, raon_deferred, raon_rc, raon_path,
  raon_budget) = sys.argv[1:11]
 
 def load(path):
@@ -208,24 +197,29 @@ if vworld is None:
     vworld_line = f"vworld status=no-evidence rc={vworld_rc}"
     failed.append("vworld")
 else:
-    budget = vworld.get("new_bytes_budget") or {}
+    inventory = load(inventory_path) or {}
+    # What this run had to fetch (every listed file not already held) and what it landed, both by
+    # count and bytes: pending is the provider's listed size, landed what Bronze committed (ADR-0172).
+    listed = {(f.get("download_ds_id"), f.get("file_no")): (f.get("size_kib") or 0) * 1024
+              for job in inventory.get("jobs", []) for f in job.get("files", [])}
+    files = vworld.get("files", [])
+    pending = [f for f in files if f.get("status") != "skipped_existing"]
+    pending_bytes = sum(listed.get((f.get("download_ds_id"), f.get("file_no")), 0) for f in pending)
+    landed = [f for f in files if f.get("status") == "succeeded"]
+    landed_bytes = sum(f.get("size_bytes") or 0 for f in landed)
     vworld_line = (f"vworld planned={vworld.get('selected_file_count')} new={vworld.get('succeeded_file_count')} "
                    f"skipped={vworld.get('skipped_file_count')} failed={vworld.get('failed_file_count')} "
-                   f"deferred={vworld.get('deferred_by_budget_file_count')} "
-                   f"pending_bytes={budget.get('pending_listed_bytes')} budget={budget.get('budget')} "
+                   f"pending={len(pending)} pending_bytes={pending_bytes} landed_bytes={landed_bytes} "
                    f"status={vworld.get('status')}")
     # Files the provider lists only as RAON selection archives (over about 500 MB) are not taken by
     # this lane (ADR-0168); the count is journaled so their absence is visible, not silent.
-    inventory = load(inventory_path) or {}
     vworld_line += f" selection_archives_not_swept={inventory.get('selection_archive_file_count')}"
-    if override:
-        vworld_line += " budget_override=1"
-    if vworld.get("status") == "blocked_new_bytes_budget":
-        notes.append(f"VWorld 새 파일 {budget.get('pending_file_count')}건 {gib(budget.get('pending_listed_bytes', 0))}이 "
-                     f"하루 예산 {gib(budget.get('budget', 0))}을 넘어 하나도 받지 않았다 — 밀린 것은 런북 vworld-dataset-file-bronze-ingest.md "
-                     f"'VWorld 밀린 파일 받기'로 운영자가 받는다 (ADR-0168)")
-        failed.append("vworld")
-    elif vworld_rc != "0" or vworld.get("failed_file_count"):
+    # A signal, never a limit (ADR-0172): an unusually large day is said once.
+    notice = (load(plan_path) or {}).get("landed_bytes_notice")
+    if isinstance(notice, int) and landed_bytes > notice:
+        info.append(f"ℹ️ daily-source-sweep: VWorld 레인이 한 실행에 {len(landed)}건 {gib(landed_bytes)}을 받았다 — "
+                    f"평소보다 많다(안내 기준 {gib(notice)}). 막지 않았다; 제공자가 과거 판을 다시 올렸는지 볼 것 (ADR-0172)")
+    if vworld_rc != "0" or vworld.get("failed_file_count"):
         failed.append("vworld")
     new_names += [f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}"
                   for f in vworld.get("files", []) if f.get("status") == "succeeded"]

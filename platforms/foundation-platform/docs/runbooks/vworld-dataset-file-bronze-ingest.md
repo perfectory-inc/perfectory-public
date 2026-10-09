@@ -137,48 +137,37 @@ Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반�
 - 건너뛰기는 키 모양을 보지 않는다(루트 ADR-0168): 같은 파일 번호·같은 제공자 갱신일·원장에 체크섬이 있으면 번호 키
   (`<ds>-<no>.zip`)로 받은 것도 가진 것이다. 키 모양이 필요한 소비자(30527 넘김)는 키를 스스로 검사하고
   `FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1` 로 받는다.
-- `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET` 이 있으면 live 실행은 다운로드 전에 가지지 않은 파일의 목록
-  크기(`size_kib`) 합을 그 값과 비교하고, 넘으면 아무것도 받지 않는다. evidence 상태는 `blocked_new_bytes_budget`, 그 파일들은
-  `deferred_new_bytes_budget` 이다.
+- 바이트 예산은 없다(루트 ADR-0172). 가지지 않은 파일은 전부 받고, 파일마다 따로 커밋한다. 멈춘 실행(시간 초과·OOM·
+  배포)은 다음 실행이 이어 받는다 — 이미 커밋된 파일은 `skipped_existing` 이다.
 
-## 매일 훑기의 VWorld 레인 (루트 ADR-0168)
+## 매일 훑기의 VWorld 레인 (루트 ADR-0168, ADR-0172)
 
 `foundation-source-sweep.service`(작업 `source_sweep`, `scripts/ops/daily-source-sweep.sh`)가 hub 레인 다음에 이 런북의 세
 명령을 돈다. 대상은 엔드포인트 카탈로그(`docs/catalog/public-source-endpoint-catalog.v1.json`)에서
 `daily_collection` 이 `source_sweep` 인 `vworld_dataset` 엔드포인트이고, 목록은 그 카탈로그 하나뿐이다 — 데이터셋을 더하거나
-빼려면 그 필드를 고친다. 하루 예산은 같은 카탈로그의 `daily_collections.source_sweep.new_bytes_budget` 이다.
+빼려면 그 필드를 고친다. 받는 양에는 상한이 없다. 같은 카탈로그의 `daily_collections.source_sweep.landed_bytes_notice`
+는 안내 기준일 뿐이다: 한 실행이 그보다 많이 받으면 슬랙에 ℹ️ 한 줄이 가고, 실행은 막히지도 실패하지도 않는다.
 
 - 계획: `FOUNDATION_PLATFORM_VWORLD_DATASET_DAILY_COLLECTION=source_sweep`, 요약 CSV 없이. 예상 파일 수가 없으므로 목록 수
   어긋남 경고도 없다.
 - 수집: 내용 해시 키(`content_addressed`, ADR-0152), RAON 선택 묶음(`SelectionArchive`) 제외, 강제 재수집 없음.
 - 기록: `/var/lib/foundation-platform/source-sweep/journal.log` 의 한 줄에 `hub ... | vworld planned= new= skipped= failed=
-  deferred= pending_bytes= budget= status=` 가 남고(같은 줄과 실패 이유가 `journalctl -u foundation-source-sweep.service`
-  에도 간다, 루트 ADR-0174), 증거는 같은 디렉터리의 `vworld-evidence.json` 이다. 신규·실패는 hub 와
+  pending= pending_bytes= landed_bytes= status=` 가 남고(`pending` 은 이번 실행이 받아야 했던 파일 — 가지지 않았던 것 — 과 그
+  목록 크기, `landed_bytes` 는 실제로 커밋한 바이트), 증거는 같은 디렉터리의 `vworld-evidence.json` 이다(같은 줄과 실패 이유가 `journalctl -u foundation-source-sweep.service` 에도 간다, 루트 ADR-0174). 신규·실패는 hub 와
   같은 슬랙 메시지에 실린다.
 - Silver 반영은 하지 않는다. 슬랙 알림을 받은 사람이 각 데이터셋의 적재 런북으로 반영한다(ADR-0077 §5).
 - RAON 선택 묶음(루트 ADR-0170): 수집은 그 파일들을 받지 않되, 원장이 가진 것인지는 같은 확인으로 묻는다. 가진 것은
   `skipped_existing`, 갖지 않은 것은 `deferred_selection_archive` 로 증거의 `selection_archives` 에 따로 적고(`files`
-  와 예산에는 들어가지 않는다) 그 수를 `deferred_selection_archive_file_count` 로 센다. 0 이 아니면 매일 훑기가 raon
+  에는 들어가지 않는다) 그 수를 `deferred_selection_archive_file_count` 로 센다. 0 이 아니면 매일 훑기가 raon
   레인(`scripts/ops/raon-large-files.sh`)을 부른다 — [제공기관 수집 런북](./provider-acquisition-fargate.md)의
   "데이터 호스트의 RAON 대용량 레인". journal 줄은 `| raon ...` 으로 끝난다.
 
-### VWorld 밀린 파일 받기 (운영자)
+### 밀린 파일과 실행 시간 (루트 ADR-0172)
 
-매일 실행이 예산 초과로 멈추면(슬랙 🔴, journal `status=blocked_new_bytes_budget`) 가지지 않은 파일이 하루치보다 많다는
-뜻이다 — 첫 실행, 오래 멈췄던 뒤, 제공자가 과거 판을 다시 올린 날. `vworld-evidence.json` 의 `new_bytes_budget`
-(`pending_file_count`, `pending_listed_bytes`)과 `deferred_new_bytes_budget` 파일 목록을 보고, 받을 만하면 그 실행 하나만
-예산을 올려 같은 스크립트를 돌린다. 환경 파일은 계약이 정한다(`config/runtime-secrets.contract.json` 의 run
-`source-sweep-vworld-backlog`, 루트 ADR-0153).
-
-```bash
-sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
-  $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties source-sweep-vworld-backlog) \
-  -E FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET=<pending_listed_bytes 이상의 바이트 수> \
-  /opt/foundation-platform/current/scripts/ops/daily-source-sweep.sh
-```
-
-journal 줄에 `budget_override=1` 이 붙는다. 받은 뒤의 매일 실행은 다시 카탈로그 예산으로 돈다. 매일 단위가 도는 동안에는
-돌리지 않는다 — 시작할 때 스풀의 남은 파일을 지운다.
+밀린 파일을 받는 별도 운영자 절차는 없다. 매일 실행이 가지지 않은 것을 전부 받는다. 단위의 상한
+(`TimeoutStartSec=8h`, Airflow `timeout_minutes` 490)에 걸려 멈춘 실행은 실패로 알려지지만, 그때까지 커밋한 파일은 남고
+다음 실행이 나머지를 받는다. 바로 이어 받으려면 `airflow-runtime.sh trigger source_sweep`. 매일 단위와 겹쳐 손으로 같은
+스크립트를 돌리지 않는다 — 시작할 때 스풀의 남은 파일을 지운다.
 
 ### 스풀 (루트 ADR-0168 §9)
 

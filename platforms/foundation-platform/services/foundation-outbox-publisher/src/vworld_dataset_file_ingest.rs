@@ -70,7 +70,6 @@ pub async fn run() -> anyhow::Result<()> {
     config.cookie_header = resolve_vworld_dataset_cookie_header(&config, &selected_files).await?;
 
     let live_write = live_write_enabled(config.live_write.as_deref());
-    let mut budget_check = None;
     let mut indexed_reports = if live_write {
         // Fail fast (and log the resolved target) before any provider file body streams to the
         // first put, instead of discovering a misconfigured R2 target mid-download.
@@ -85,59 +84,15 @@ pub async fn run() -> anyhow::Result<()> {
             deferred_files::held_or_deferred_selection_archive_reports(archives, &repo, &uow)
                 .await
                 .context("failed to check held VWorld selection archives")?;
-        let mut to_fetch = selected_files.into_iter().enumerate().collect::<Vec<_>>();
-        let mut held_reports = Vec::new();
-        if let Some(budget) = config.new_bytes_budget {
-            // Root ADR-0168: before any body is opened, learn which listed files Bronze already
-            // holds and refuse the run whole when the rest is more than the budget. A backlog is
-            // fetched by an operator who raised the budget on purpose, never by a daily run that
-            // happened to find it.
-            let force_refetch = crate::public_data_control_support::bronze_force_refetch_enabled()?;
-            let (held, pending) =
-                partition_held_files(to_fetch, force_refetch, &repo, &uow).await?;
-            let check = NewBytesBudgetCheck {
-                budget,
-                pending_listed_bytes: listed_bytes(
-                    pending.iter().map(|(_, selected)| &selected.file),
-                ),
-                pending_file_count: pending.len() as u64,
-            };
-            budget_check = Some(check);
-            if check.is_exceeded() {
-                let mut reports = held;
-                reports.extend(pending.into_iter().map(|(index, selected)| {
-                    (
-                        index,
-                        deferred_files::deferred_by_budget_report(&selected.job, &selected.file),
-                    )
-                }));
-                reports.sort_by_key(|(index, _)| *index);
-                let evidence = ingest_evidence(
-                    &config,
-                    reports.into_iter().map(|(_, report)| report).collect(),
-                    archive_reports,
-                    live_write,
-                    NEW_BYTES_BUDGET_EXCEEDED_STATUS,
-                    budget_check,
-                );
-                write_evidence(&config.evidence_path, &evidence)?;
-                bail!(
-                    "VWorld dataset file ingest refused before any download: {} files not held list {} bytes, above the new-bytes budget of {} (root ADR-0168) report={}",
-                    check.pending_file_count,
-                    check.pending_listed_bytes,
-                    check.budget,
-                    config.evidence_path.display()
-                );
-            }
-            held_reports = held;
-            to_fetch = pending;
-        }
+        // Root ADR-0172: no byte budget. Every listed file Bronze does not hold is fetched, each
+        // committed on its own; a run that is stopped resumes, because what it landed is skipped next.
+        let to_fetch = selected_files.into_iter().enumerate().collect::<Vec<_>>();
         let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for VWorld dataset file ingest")?;
         let spool = open_spool(&config)?;
         let payload_key = PayloadKey::for_run(config.bronze_key, spool.as_ref())?;
-        let mut fetched = stream::iter(to_fetch)
+        let fetched = stream::iter(to_fetch)
             .map(|(index, selected)| {
                 let config = config.clone();
                 let repo = &repo;
@@ -166,7 +121,6 @@ pub async fn run() -> anyhow::Result<()> {
             .buffer_unordered(config.max_in_flight)
             .collect::<Vec<_>>()
             .await;
-        fetched.extend(held_reports);
         fetched
     } else {
         stream::iter(selected_files.into_iter().enumerate())
@@ -211,7 +165,6 @@ pub async fn run() -> anyhow::Result<()> {
         archive_reports,
         live_write,
         ingest_status.evidence_status,
-        budget_check,
     );
     write_evidence(&config.evidence_path, &evidence)?;
     if ingest_status.should_bail {
@@ -224,33 +177,6 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     Ok(())
-}
-
-/// Evidence status of a run refused by its new-bytes budget (root ADR-0168).
-const NEW_BYTES_BUDGET_EXCEEDED_STATUS: &str = "blocked_new_bytes_budget";
-/// File status of a listed file the budget kept from being downloaded.
-const DEFERRED_BY_BUDGET_STATUS: &str = "deferred_new_bytes_budget";
-
-/// What one run would download that Bronze does not hold, against what it may (root ADR-0168).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
-struct NewBytesBudgetCheck {
-    budget: u64,
-    pending_listed_bytes: u64,
-    pending_file_count: u64,
-}
-
-impl NewBytesBudgetCheck {
-    const fn is_exceeded(self) -> bool {
-        self.pending_listed_bytes > self.budget
-    }
-}
-
-/// The provider's listed size of `files`, in bytes. The listing gives KiB (`size_kib`); the body is
-/// not opened to learn more.
-fn listed_bytes<'a>(files: impl Iterator<Item = &'a VWorldDatasetFileInventoryItem>) -> u64 {
-    files
-        .map(|file| file.size_kib.saturating_mul(1024))
-        .fold(0_u64, u64::saturating_add)
 }
 
 type IndexedFile = (usize, SelectedVWorldDatasetFile);
@@ -296,7 +222,6 @@ fn ingest_evidence(
     selection_archives: Vec<VWorldDatasetFileIngestItemEvidence>,
     live_write: bool,
     status: &'static str,
-    new_bytes_budget: Option<NewBytesBudgetCheck>,
 ) -> VWorldDatasetFileIngestEvidence {
     let count = |status: &str| {
         reports
@@ -318,8 +243,6 @@ fn ingest_evidence(
         skipped_file_count: count("skipped_existing"),
         provider_acquisition_blocked_file_count: count("provider_acquisition_blocked"),
         failed_file_count: count("failed"),
-        deferred_by_budget_file_count: count(DEFERRED_BY_BUDGET_STATUS),
-        new_bytes_budget,
         live_write_enabled: live_write,
         completion_claim_allowed: false,
         production_cutover_allowed: false,
@@ -350,9 +273,6 @@ struct VWorldDatasetFileIngestConfig {
     exclude_selection_archives: bool,
     defer_provider_acquisition_blocked: bool,
     bronze_key: BronzeKeyForm,
-    /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET`: the most listed bytes a live run
-    /// may download that Bronze does not hold (root ADR-0168). Unset, there is no budget.
-    new_bytes_budget: Option<u64>,
     /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR`: where a content-addressed run spools each
     /// body while hashing it (root ADR-0168). Required for `content_addressed`.
     spool_dir: Option<PathBuf>,
@@ -371,15 +291,7 @@ enum BronzeKeyForm {
 }
 
 const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
-const NEW_BYTES_BUDGET_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET";
 const SPOOL_DIR_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR";
-
-/// A budget is a whole number of bytes; zero is allowed and means "download nothing new".
-fn parse_new_bytes_budget(raw: &str) -> anyhow::Result<u64> {
-    raw.trim()
-        .parse::<u64>()
-        .with_context(|| format!("{NEW_BYTES_BUDGET_ENV} must be a whole number of bytes"))
-}
 
 fn parse_bronze_key_form(raw: Option<&str>) -> anyhow::Result<BronzeKeyForm> {
     match raw.map(str::trim) {
@@ -451,9 +363,6 @@ impl VWorldDatasetFileIngestConfig {
                 .as_deref(),
             ),
             bronze_key: parse_bronze_key_form(optional_env_value(BRONZE_KEY_ENV)?.as_deref())?,
-            new_bytes_budget: optional_env_value(NEW_BYTES_BUDGET_ENV)?
-                .map(|value| parse_new_bytes_budget(&value))
-                .transpose()?,
             spool_dir: optional_env_value(SPOOL_DIR_ENV)?.map(PathBuf::from),
         })
     }
@@ -517,16 +426,13 @@ struct VWorldDatasetFileIngestEvidence {
     skipped_file_count: u64,
     provider_acquisition_blocked_file_count: u64,
     failed_file_count: u64,
-    deferred_by_budget_file_count: u64,
-    /// The new-bytes budget check, when the run had one (root ADR-0168).
-    new_bytes_budget: Option<NewBytesBudgetCheck>,
     live_write_enabled: bool,
     completion_claim_allowed: bool,
     production_cutover_allowed: bool,
     national_rollout_allowed: bool,
     files: Vec<VWorldDatasetFileIngestItemEvidence>,
     /// Excluded RAON selection archives Bronze does not hold: the large-file lane's input (root
-    /// ADR-0170). Not in `files`, so they count against neither the budget nor the run's result.
+    /// ADR-0170). Not in `files`, so they do not count toward the run's result.
     deferred_selection_archive_file_count: u64,
     selection_archives: Vec<VWorldDatasetFileIngestItemEvidence>,
 }

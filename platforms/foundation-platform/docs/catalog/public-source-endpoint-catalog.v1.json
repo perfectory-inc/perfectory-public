@@ -31,8 +31,8 @@
   },
   "daily_collections": {
     "source_sweep": {
-      "$comment": "Root ADR-0168. The VWorld lane of the daily source sweep (scripts/ops/daily-source-sweep.sh) collects the vworld_dataset endpoints whose daily_collection is source_sweep. new_bytes_budget is the most listed bytes one run may download that Bronze does not hold; above it the lane downloads nothing and fails. selection_archive_new_bytes_budget (root ADR-0170) is the same rule for the files the provider gives only through its RAON agent (over about 500 MB), which the VWorld lane leaves out and scripts/ops/raon-large-files.sh fetches on the data host. It starts at 0: until an operator's supervised run (runbook provider-acquisition-fargate.md) has measured the lane, a daily run that finds large files Bronze lacks fetches none and says how many and how large; the pull request that records that run sets the measured budget.",
-      "new_bytes_budget": 17179869184,
+      "$comment": "Root ADR-0168. The VWorld lane of the daily source sweep (scripts/ops/daily-source-sweep.sh) collects the vworld_dataset endpoints whose daily_collection is source_sweep. It fetches every listed file Bronze does not hold, with no byte budget (root ADR-0172): each file commits on its own and a stopped run resumes. landed_bytes_notice is only a signal: a run that lands more bytes than it posts one informational Slack line; it never refuses or fails. selection_archive_new_bytes_budget (root ADR-0170) is the same rule for the files the provider gives only through its RAON agent (over about 500 MB), which the VWorld lane leaves out and scripts/ops/raon-large-files.sh fetches on the data host. It starts at 0: until an operator's supervised run (runbook provider-acquisition-fargate.md) has measured the lane, a daily run that finds large files Bronze lacks fetches none and says how many and how large; the pull request that records that run sets the measured budget.",
+      "landed_bytes_notice": 107374182400,
       "selection_archive_new_bytes_budget": 0
     }
   },

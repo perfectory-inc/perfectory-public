@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **526개**
-- 언어 분류: **{'english': 37, 'korean': 333, 'mixed': 156}**
+- 감사 문서: **527개**
+- 언어 분류: **{'english': 37, 'korean': 334, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **233개 정상 / 0개 누락 / 293개 해당 없음**
+- 메타데이터: **233개 정상 / 0개 누락 / 294개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -99,7 +99,7 @@
 | `docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0075-the-unit-load-fills-its-own-link.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0076-a-building-answers-for-its-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0079-the-outbox-gets-a-postman-on-a-schedule.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0080-the-issuer-answers-on-every-loopback.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -188,10 +188,11 @@
 | `docs/adr/0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0172-the-daily-vworld-sweep-fetches-everything-it-lacks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0174-a-jobs-journal-lines-reach-the-units-journal.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0175-workers-deploy-themselves-after-the-host-deploys-main.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |

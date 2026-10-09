@@ -194,7 +194,7 @@ fn compile_plan_accepts_utf8_bom_endpoint_catalog() -> TestResult {
 const DAILY_CATALOG: &str = r#"
 {
   "daily_collections": {
-    "source_sweep": { "new_bytes_budget": 1024 }
+    "source_sweep": { "landed_bytes_notice": 1024 }
   },
   "endpoints": [
     {
@@ -234,7 +234,7 @@ const DAILY_CATALOG: &str = r#"
 "#;
 
 /// The sweep plans exactly the endpoints the catalog marks, with no summary file, and carries the
-/// collection's budget; the jobs say their counts are unknown rather than zero.
+/// collection's notice threshold; the jobs say their counts are unknown rather than zero.
 #[test]
 fn a_daily_collection_plans_only_its_marked_endpoints_without_a_summary() -> TestResult {
     let report = compile_vworld_dataset_collection_plan(
@@ -257,7 +257,7 @@ fn a_daily_collection_plans_only_its_marked_endpoints_without_a_summary() -> Tes
     );
     assert_eq!(report.endpoint_count, 2);
     assert_eq!(report.inventory_dataset_count, 0);
-    assert_eq!(report.new_bytes_budget, Some(1024));
+    assert_eq!(report.landed_bytes_notice, Some(1024));
     assert_eq!(report.daily_collection.as_deref(), Some("source_sweep"));
     assert!(report.jobs.iter().all(|job| !job.expected_counts_known));
     assert_eq!(report.jobs[1].svc_cde, "MK");
@@ -276,7 +276,7 @@ fn without_a_daily_collection_every_endpoint_is_planned() -> TestResult {
         None,
     )?;
     assert_eq!(report.job_count, 3);
-    assert_eq!(report.new_bytes_budget, None);
+    assert_eq!(report.landed_bytes_notice, None);
     Ok(())
 }
 

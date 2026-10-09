@@ -31,12 +31,12 @@
     },
     {
       "id": "source_sweep",
-      "description": "Daily source sweep: re-plan the hub.go.kr list and the VWorld datasets the endpoint catalog marks source_sweep, skip files already held, land new ones in Bronze within the VWorld new-bytes budget (root ADR-0077, ADR-0168).",
+      "description": "Daily source sweep: re-plan the hub.go.kr list and the VWorld datasets the endpoint catalog marks source_sweep, skip files already held, land every new one in Bronze; a stopped run resumes (root ADR-0077, ADR-0168, ADR-0172).",
       "systemd_service": "foundation-source-sweep.service",
       "systemd_timer": "foundation-source-sweep.timer",
       "schedule": "40 3 * * *",
       "started_by": "schedule",
-      "timeout_minutes": 250,
+      "timeout_minutes": 490,
       "pool": "default_pool",
       "pipeline_graph_edges": [
         "daily-source-sweep-to-source-building-hub-bulk",
