@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **513개**
+- 문서 파일: **514개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 188 |
+| Monorepo | 189 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 246 |
+| ADR | 247 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -553,6 +553,7 @@ docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md
 docs/adr/0161-pack-cutover-root-steps-run-through-one-granted-script.md
 docs/adr/0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md
 docs/adr/0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md
+docs/adr/0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -753,6 +754,7 @@ tools/github/README.md
 | `docs/adr/0161-pack-cutover-root-steps-run-through-one-granted-script.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
