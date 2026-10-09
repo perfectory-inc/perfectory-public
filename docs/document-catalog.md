@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **516개**
+- 문서 파일: **517개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 191 |
+| Monorepo | 192 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 249 |
+| ADR | 250 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -556,6 +556,7 @@ docs/adr/0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md
 docs/adr/0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md
 docs/adr/0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md
 docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md
+docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -759,6 +760,7 @@ tools/github/README.md
 | `docs/adr/0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

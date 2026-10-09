@@ -51,3 +51,7 @@ FLOOR 설정 → 활성화·마이그레이션·타이머 → Airflow → 작업
   비교하게 고친 뒤에 자동으로 돌린다(2026-10-07 건물 묶음 1% 단계의 불공정 비교).
 - 출처: [Argo CD](https://argo-cd.readthedocs.io/en/stable/), [Flux](https://fluxcd.io/flux/concepts/),
   [GitHub check runs API](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference).
+
+---
+
+2026-10-09: §2 의 배포 판정은 [ADR-0167](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md) 이 고쳤다. 머지 큐 실행이 모두 통과한 커밋은 main 의 두 번째 검사를 기다리지 않고 배포한다.

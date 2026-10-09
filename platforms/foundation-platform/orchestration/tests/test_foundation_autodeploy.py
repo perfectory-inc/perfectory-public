@@ -27,8 +27,12 @@ sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
 
 
-def run(name, status="completed", conclusion="success"):
-    return {"name": name, "status": status, "conclusion": conclusion}
+def run(name, status="completed", conclusion="success", suite=1):
+    return {"name": name, "status": status, "conclusion": conclusion, "check_suite": {"id": suite}}
+
+
+def queue_run(suite, status="completed", conclusion="success"):
+    return {"check_suite_id": suite, "event": "merge_group", "status": status, "conclusion": conclusion}
 
 
 class TheVerdict(unittest.TestCase):
@@ -50,15 +54,45 @@ class TheVerdict(unittest.TestCase):
                 self.assertIn("ci", reason)
 
 
+class TheMergeQueueRunDecides(unittest.TestCase):
+    """main's commit is the tree the merge queue tested (root ADR-0167)."""
+
+    def test_a_passed_queue_deploys_while_mains_second_run_still_runs(self):
+        decision, reason = release_checks.verdict(
+            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
+        )
+        self.assertEqual(decision, "deploy")
+        self.assertIn("merge queue", reason)
+
+    def test_a_queue_still_running_waits(self):
+        for queue in ([queue_run(7, status="in_progress", conclusion=None)], [queue_run(7), queue_run(9, "queued", None)]):
+            with self.subTest(queue):
+                decision, _ = release_checks.verdict(
+                    [run("ci", suite=7), run("slow", status="in_progress", conclusion=None, suite=8)], queue
+                )
+                self.assertEqual(decision, "wait")
+
+    def test_a_failure_in_mains_second_run_still_refuses(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("ci", conclusion="failure", suite=8)], [queue_run(7)]
+        )
+        self.assertEqual(decision, "refuse")
+
+    def test_a_commit_the_queue_never_ran_waits_for_every_run(self):
+        decision, _ = release_checks.verdict([run("ci"), run("slow", status="queued", conclusion=None)], [])
+        self.assertEqual(decision, "wait")
+
+
 class TheChecksAreReadPageByPage(unittest.TestCase):
-    def serve(self, runs):
+    def serve(self, runs, queue=()):
         class Handler(http.server.BaseHTTPRequestHandler):
             asked = []
 
             def do_GET(self):
                 Handler.asked.append(self.path)
                 page = int(self.path.rsplit("page=", 1)[1])
-                body = json.dumps({"total_count": len(runs), "check_runs": runs[(page - 1) * 100:page * 100]})
+                key, items = ("workflow_runs", queue) if "/actions/runs?" in self.path else ("check_runs", runs)
+                body = json.dumps({"total_count": len(items), key: items[(page - 1) * 100:page * 100]})
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(body.encode())
@@ -77,7 +111,17 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("refuse "), result.stdout)
-        self.assertEqual(len(asked), 2)
+        self.assertEqual(len([path for path in asked if "/check-runs?" in path]), 2)
+
+    def test_the_queue_runs_are_asked_for_this_commit_and_event(self):
+        api, asked = self.serve(
+            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
+        )
+        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
+        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&event=merge_group&", "".join(asked))
 
     def test_an_unreachable_api_exits_2(self):
         result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],
@@ -116,11 +160,24 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             text = text.replace(line, f"{name}={value}", 1)
         self.script = root / "foundation-autodeploy.sh"
         self.script.write_text(text)
+        # systemctl answers from FIXTURE_UNITS ("unit:transient" pairs, transient yes|no).
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        systemctl = self.bin / "systemctl"
+        systemctl.write_text(
+            '#!/usr/bin/env bash\n'
+            'for pair in ${FIXTURE_UNITS:-}; do\n'
+            '  unit="${pair%%:*}"; transient="${pair#*:}"\n'
+            '  if [[ "$1" == list-units ]]; then printf "%s loaded active running x\\n" "${unit}"\n'
+            '  elif [[ "$1" == show && "${!#}" == "${unit}" ]]; then printf "%s\\n" "${transient}"; fi\n'
+            'done\n')
+        systemctl.chmod(0o755)
 
     def tick(self, head=HEAD, checks="deploy 49 check runs passed", **env):
         result = subprocess.run(
             ["bash", str(self.script)],
-            env={**os.environ, "FIXTURE_ROOT": str(self.root), "FIXTURE_HEAD": head, "FIXTURE_CHECKS": checks, **env},
+            env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FIXTURE_ROOT": str(self.root),
+                 "FIXTURE_HEAD": head, "FIXTURE_CHECKS": checks, **env},
             capture_output=True, text=True, check=False,
         )
         return result
@@ -139,6 +196,19 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.deployed(), [HEAD])
         self.assertTrue((self.state / "deployed" / HEAD).exists())
+
+    def test_an_operators_unit_holds_the_deploy_until_it_ends(self):
+        result = self.tick(FIXTURE_UNITS="foundation-gold-panel-rebuild-unconditional.service:yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the operator's foundation-gold-panel-rebuild-unconditional", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_a_registered_job_running_is_left_to_the_deploys_own_wait(self):
+        result = self.tick(FIXTURE_UNITS="foundation-map-edit-fold.service:no")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [HEAD])
 
     def test_checks_still_running_wait_without_deploying(self):
         result = self.tick(checks="wait still running: ci")
