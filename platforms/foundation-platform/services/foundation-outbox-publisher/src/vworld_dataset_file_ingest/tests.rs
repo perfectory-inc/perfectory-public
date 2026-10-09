@@ -520,7 +520,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-const CONTENT_BASE_KEY: &str = "bronze/source=vworldkr__boundary_census_emd/20991231DS99994-9007";
+pub(super) const CONTENT_BASE_KEY: &str =
+    "bronze/source=vworldkr__boundary_census_emd/20991231DS99994-9007";
 
 /// Root ADR-0152: a content-addressed run lands the bytes under `<file id>--sha256-<checksum>`,
 /// so a provider's new upload under a reused file number gets a key of its own.
@@ -761,7 +762,11 @@ async fn a_row_without_a_known_checksum_is_not_held() -> TestResult {
     Ok(())
 }
 
-fn selected(file_no: &str, size_kib: u64, updated_at: &str) -> super::SelectedVWorldDatasetFile {
+pub(super) fn selected(
+    file_no: &str,
+    size_kib: u64,
+    updated_at: &str,
+) -> super::SelectedVWorldDatasetFile {
     let mut file = test_inventory_file("30017", "20991231DS99994", file_no, "2026-05");
     file.size_kib = size_kib;
     file.updated_at = updated_at.to_owned();
@@ -846,7 +851,7 @@ fn the_bronze_key_form_is_one_of_two_words() -> TestResult {
     Ok(())
 }
 
-fn test_job() -> VWorldDatasetFileJob {
+pub(super) fn test_job() -> VWorldDatasetFileJob {
     VWorldDatasetFileJob {
         endpoint_slug: "vworld-dataset-boundary_census_emd".to_owned(),
         source_slug: "vworldkr__boundary_census_emd".to_owned(),
@@ -862,7 +867,7 @@ fn test_job() -> VWorldDatasetFileJob {
     }
 }
 
-fn test_config() -> VWorldDatasetFileIngestConfig {
+pub(super) fn test_config() -> VWorldDatasetFileIngestConfig {
     VWorldDatasetFileIngestConfig {
         file_inventory_path: "target/audit/test-vworld-inventory.json".into(),
         evidence_path: "target/audit/test-vworld-evidence.json".into(),
@@ -923,7 +928,7 @@ fn test_inventory_file(
     }
 }
 
-fn existing_bronze_object(
+pub(super) fn existing_bronze_object(
     source_partition_key: &str,
     object_key: &str,
     size_bytes: u64,
@@ -961,7 +966,7 @@ fn existing_bronze_object(
 }
 
 #[derive(Debug, Default)]
-struct RecordingUow {
+pub(super) struct RecordingUow {
     source: Mutex<Option<SourceCatalogEntry>>,
     run: Mutex<Option<IngestionRun>>,
     objects: Mutex<Vec<BronzeObject>>,
@@ -969,12 +974,12 @@ struct RecordingUow {
 }
 
 #[derive(Debug, Default)]
-struct RecordingRepo {
+pub(super) struct RecordingRepo {
     existing: Mutex<Option<BronzeObject>>,
 }
 
 impl RecordingRepo {
-    fn with_existing(object: BronzeObject) -> Self {
+    pub(super) fn with_existing(object: BronzeObject) -> Self {
         Self {
             existing: Mutex::new(Some(object)),
         }

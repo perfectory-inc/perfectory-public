@@ -213,3 +213,4 @@ last_reviewed: 2026-07-28
 - [ADR-0167 — 서버는 머지 큐가 통과시킨 트리를 바로 배포하고, 운영자가 띄운 유닛이 끝나길 기다린다](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md)
 - [ADR-0168 — 매일 훑기는 VWorld 토지 데이터셋도 받고, 하루 새 바이트 예산 안에서만 받는다](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md)
 - [ADR-0169 — Silver 레인은 원천 판을 장부에서 고르고, 예약 작업이 스스로 채운다](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)
+- [ADR-0170 — VWorld 대용량 파일은 데이터 호스트의 RAON 에이전트로 받는다](./0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md)

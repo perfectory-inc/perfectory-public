@@ -36,6 +36,12 @@ if [[ ! -x /opt/raonk-2018/raonk-2018 ]]; then
   exit 20
 fi
 
+# The image carries no Rust; the run mounts the admitted release's publisher here (root ADR-0170).
+if [[ ! -x /usr/local/bin/foundation-outbox-publisher ]]; then
+  echo "foundation-outbox-publisher is not mounted at /usr/local/bin/foundation-outbox-publisher" >&2
+  exit 22
+fi
+
 Xvfb "${display}" -screen 0 1280x720x24 >/tmp/raon-xvfb.out 2>/tmp/raon-xvfb.err &
 xvfb_pid=$!
 export DISPLAY="${display}"

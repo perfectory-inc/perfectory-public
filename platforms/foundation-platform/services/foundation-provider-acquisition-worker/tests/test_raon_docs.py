@@ -48,9 +48,10 @@ def test_raon_runbook_keeps_runtime_neutral_security_boundary() -> None:
     # point this test failed for a policy-mandated edit rather than for a missing contract. Rewording
     # must not fail it; deleting a contract must.
     required_contracts = [
-        # Runtime-neutral: this document selects no runtime.
-        "런타임 중립 참고 문서",
-        "Fargate를 선택하지 않음",
+        # This document selects no runtime; ADRs do (root ADR-0170 chose the data host for the
+        # VWorld RAON large files).
+        "런타임은 ADR이 고른다",
+        "Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않는다",
         # The adapter acquires; Rust owns validation, storage, lineage, and commit.
         "수집 adapter일 뿐이다",
         "Rust가 소유한다",
@@ -59,7 +60,10 @@ def test_raon_runbook_keeps_runtime_neutral_security_boundary() -> None:
         "공개 증거에는 cookie",
         "CreateOnly",
         "BronzeCommitter",
-        "<provider-linux-package-url>",
+        # No package URL exists; the pin is one contract file (root ADR-0170).
+        "config/provider-agent-packages.contract.json",
+        "raon-large-files.sh",
+        "selection_archive_new_bytes_budget",
         "<dataset-id>",
         "private operations",
     ]

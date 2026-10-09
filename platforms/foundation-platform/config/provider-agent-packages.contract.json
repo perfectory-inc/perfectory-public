@@ -1,0 +1,15 @@
+{
+  "$comment": "Root ADR-0170. Provider agent packages an image installs: where the bytes come from and which bytes they must be, stated once. It lives in the area's config, not tools/technology-versions.contract.json, because a release carries only this subtree and scripts/ops/raon-large-files.sh reads the pin at run time to pass it to the Dockerfiles as build arguments (RAON_DEB_URL, RAON_DEB_SHA256, which have no defaults); the build checks the downloaded bytes against the sha256 before installing them. orchestration/tests/test_raon_large_files_command.py refuses a second file that restates the URL or the checksum.",
+  "schema_version": 1,
+  "decision": "docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md",
+  "packages": {
+    "raonk-2018": {
+      "version": "2018.2.8",
+      "architecture": "amd64",
+      "url": "https://www.raonk.com/kupload/agent/raonk-2018_amd64.deb",
+      "size_bytes": 54364924,
+      "sha256": "f6f21f96b57551326c930fbc3de1cf9dabcf480a134923bcfe02e53aec248673",
+      "source": "The RAON K vendor's own site. VWorld publishes only the Windows agent: its RAON configuration names no installer URL and no allowed OS, so the page's default (windows) applies on Linux (traced 2026-10-09, ADR-0170). Every file in this package is byte-identical to the agent installed on the data host in July 2026."
+    }
+  }
+}

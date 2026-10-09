@@ -68,6 +68,7 @@ const PROVIDER_UPDATED_AT_ENV: &str =
 const RETIRED_LOCAL_ARTIFACT_PATH_ENV: &str =
     "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_LOCAL_ARTIFACT_PATH";
 const DIRECT_TO_BRONZE_ENV: &str = "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DIRECT_TO_BRONZE";
+const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY";
 
 pub(crate) struct LandingPayload {
     pub(crate) object_key: String,
@@ -114,6 +115,11 @@ pub(crate) struct ProviderAcquisitionBronzeCommitConfig {
     pub(crate) provider_file_period: Option<String>,
     pub(crate) provider_snapshot_date: Option<NaiveDate>,
     pub(crate) provider_updated_at: Option<NaiveDate>,
+    /// `FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY=content_addressed`: the key names the
+    /// staged bytes' SHA-256 (root ADR-0152, ADR-0170), as the daily sweep's VWorld lane keys what it
+    /// lands (ADR-0168). VWorld reuses a file number across releases, so a provider-file key could
+    /// not take the next release of the same file. Unset or `provider_file_id`: the plain key.
+    pub(crate) content_addressed: bool,
 }
 
 impl ProviderAcquisitionBronzeCommitConfig {
@@ -143,6 +149,7 @@ impl ProviderAcquisitionBronzeCommitConfig {
             provider_file_period: optional_lookup(lookup, PROVIDER_FILE_PERIOD_ENV)?,
             provider_snapshot_date: optional_date_lookup(lookup, PROVIDER_SNAPSHOT_DATE_ENV)?,
             provider_updated_at: optional_date_lookup(lookup, PROVIDER_UPDATED_AT_ENV)?,
+            content_addressed: parse_bronze_key(optional_lookup(lookup, BRONZE_KEY_ENV)?)?,
         }))
     }
 
@@ -610,23 +617,31 @@ where
             identity: identity.clone(),
         })
         .context("failed to plan provider acquisition Bronze object location")?;
+    let (object_key, writer) = if config.content_addressed {
+        staged_content_addressed_payload(storage, &location.object_key, staged, content_type)
+            .await?
+    } else {
+        let body = staged_file_body_stream(staged.path.clone()).await?;
+        (
+            location.object_key.clone(),
+            BronzeStreamingObjectStorageWriter::new(storage, content_type.to_owned(), body),
+        )
+    };
     let run = uow
         .create_ingestion_run(&ingestion_run(
             source.id,
             run_id,
             started_at,
-            initial_bronze_request_params(config, &identity, location.object_key.as_str()),
+            initial_bronze_request_params(config, &identity, object_key.as_str()),
         ))
         .await
         .context("failed to create provider acquisition ingestion run")?;
 
-    let body = staged_file_body_stream(staged.path.clone()).await?;
-    let writer = BronzeStreamingObjectStorageWriter::new(storage, content_type.to_owned(), body);
     let planned = PlannedStreamingBronzeObject {
         cache_control: BRONZE_CACHE_CONTROL.to_owned(),
         expected_size_bytes: staged.size_bytes,
         record: StreamingBronzeRecord {
-            object_key: location.object_key.clone(),
+            object_key,
             content_type: content_type.to_owned(),
             source_catalog_id: source.id,
             ingestion_run_id: run.id,
@@ -666,6 +681,55 @@ where
     .context("failed to complete provider acquisition ingestion run")?;
 
     Ok(outcome)
+}
+
+/// The content-addressed key of the staged bytes and the write port for it (root ADR-0152,
+/// ADR-0170), as the VWorld ingest's spool does (ADR-0168): absent, the staged file is uploaded;
+/// present with the same checksum and size, nothing is written and the committer reconciles the
+/// ledger (a rerun of the same release); present with other bytes, the file is refused, since a key
+/// that names one checksum cannot hold another.
+async fn staged_content_addressed_payload<'a, Storage>(
+    storage: &'a Storage,
+    base_key: &foundation_shared_kernel::ObjectKey,
+    staged: &StagedReplayObject,
+    content_type: &str,
+) -> Result<(
+    foundation_shared_kernel::ObjectKey,
+    BronzeStreamingObjectStorageWriter<'a, Storage>,
+)>
+where
+    Storage: ObjectStorageStreamingService + ?Sized,
+{
+    let object_key =
+        collection_domain::build_bronze_content_object_key(base_key, &staged.checksum_sha256)
+            .context("failed to name the content-addressed Bronze key")?;
+    let held = storage
+        .read_object_sha256_and_size_by_rehash(object_key.as_str())
+        .await
+        .with_context(|| format!("failed to read back {}", object_key.as_str()))?;
+    let writer = match held {
+        None => BronzeStreamingObjectStorageWriter::new(
+            storage,
+            content_type.to_owned(),
+            staged_file_body_stream(staged.path.clone()).await?,
+        ),
+        Some(held)
+            if held.checksum_sha256 == staged.checksum_sha256
+                && held.size_bytes == staged.size_bytes =>
+        {
+            BronzeStreamingObjectStorageWriter::already_present(storage, content_type.to_owned())
+        }
+        Some(held) => {
+            return Err(anyhow!(
+                "{} holds sha256 {} ({} bytes), not the {} staged bytes it names",
+                object_key.as_str(),
+                held.checksum_sha256,
+                held.size_bytes,
+                staged.size_bytes
+            ))
+        }
+    };
+    Ok((object_key, writer))
 }
 
 async fn staged_file_body_stream(
@@ -832,6 +896,17 @@ where
                 .with_context(|| format!("{name} must use YYYY-MM-DD"))
         })
         .transpose()
+}
+
+/// Whether `FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY` asks for a content-addressed key.
+fn parse_bronze_key(raw: Option<String>) -> Result<bool> {
+    match raw.as_deref().map(str::trim) {
+        None | Some("" | "provider_file_id") => Ok(false),
+        Some("content_addressed") => Ok(true),
+        Some(other) => Err(anyhow!(
+            "{BRONZE_KEY_ENV} must be provider_file_id or content_addressed, not {other:?}"
+        )),
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

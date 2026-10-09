@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **520개**
-- 언어 분류: **{'english': 37, 'korean': 327, 'mixed': 156}**
+- 감사 문서: **521개**
+- 언어 분류: **{'english': 37, 'korean': 328, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **232개 정상 / 0개 누락 / 288개 해당 없음**
+- 메타데이터: **232개 정상 / 0개 누락 / 289개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -30,7 +30,7 @@
 | `docs/adr/0004-verification-ssot.md` | Monorepo | ADR | current | korean | ok | 11 |
 | `docs/adr/0005-hooks-advisory-ci-authoritative.md` | Monorepo | ADR | current | korean | ok | 4 |
 | `docs/adr/0006-object-storage-first-serving.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 13 |
-| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 19 |
+| `docs/adr/0007-public-code-private-operations-boundary.md` | Monorepo | ADR | current | mixed | not applicable: ADR fields | 20 |
 | `docs/adr/0008-manual-dependency-updates-and-organization-branches.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0009-korean-first-documentation-and-multilingual-readiness.md` | Monorepo | ADR | current | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0010-live-resource-test-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
@@ -155,10 +155,10 @@
 | `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted | korean | ok | 3 |
 | `docs/adr/0132-release-activation-preserves-enabled-job-identities.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted | korean | ok | 12 |
+| `docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md` | Monorepo | ADR | accepted | korean | ok | 13 |
 | `docs/adr/0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md` | Monorepo | ADR | accepted | korean | ok | 4 |
-| `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
 | `docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 9 |
@@ -172,8 +172,8 @@
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
-| `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
-| `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0153-runtime-secrets-have-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0154-building-pack-read-path-is-placed-beside-the-bucket.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
@@ -188,8 +188,9 @@
 | `docs/adr/0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -311,7 +312,7 @@
 | `platforms/foundation-platform/docs/runbooks/parcel-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 3 |
-| `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/provider-outage-and-quota.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/public-data-bronze-lane-orchestration.md` | Foundation Platform | runbook | current | mixed | ok | 5 |
 | `platforms/foundation-platform/docs/runbooks/r2-inventory-audit.md` | Foundation Platform | runbook | current | mixed | ok | 0 |

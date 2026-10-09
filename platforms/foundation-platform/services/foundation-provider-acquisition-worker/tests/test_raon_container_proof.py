@@ -34,10 +34,8 @@ def test_raon_agent_container_proof_is_explicitly_pinned_and_runtime_local() -> 
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     entrypoint = ENTRYPOINT.read_text(encoding="utf-8")
 
-    assert "ARG RAON_DEB_URL" in dockerfile
-    assert "ARG RAON_DEB_SHA256" in dockerfile
+    assert_installs_the_pinned_package(dockerfile)
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
-    assert "sha256sum -c" in dockerfile
     assert "COPY services/foundation-provider-acquisition-worker" in dockerfile
     assert "COPY . ." not in dockerfile
     assert "COPY .env" not in dockerfile
@@ -60,27 +58,41 @@ def test_raon_agent_container_proof_is_explicitly_pinned_and_runtime_local() -> 
     assert "DATABASE_URL" not in entrypoint
 
 
-def test_raon_batch_container_includes_rust_importer_and_batch_entrypoint() -> None:
+def assert_installs_the_pinned_package(dockerfile: str) -> None:
+    # Root ADR-0170: the package URL and sha256 are build arguments without defaults; the one place
+    # they are pinned is config/provider-agent-packages.contract.json, which the build script reads.
+    # The downloaded bytes are checked before they are installed.
+    assert "\nARG RAON_DEB_URL\n" in dockerfile
+    assert "\nARG RAON_DEB_SHA256\n" in dockerfile
+    assert 'RUN test -n "${RAON_DEB_URL}"' in dockerfile
+    assert 'test -n "${RAON_DEB_SHA256}"' in dockerfile
+    fetch = dockerfile.index('curl -fsSL "${RAON_DEB_URL}" -o /tmp/raonk-2018_amd64.deb')
+    check = dockerfile.index('echo "${RAON_DEB_SHA256}  /tmp/raonk-2018_amd64.deb" | sha256sum -c -')
+    install = dockerfile.index("apt-get install -y --no-install-recommends /tmp/raonk-2018_amd64.deb")
+    assert fetch < check < install, "the bytes are checked before they are installed"
+    assert "raonk.com" not in dockerfile and "vworld.kr" not in dockerfile, "no URL is spelled here"
+
+
+def test_raon_batch_container_runs_the_releases_importer_and_the_batch_entrypoint() -> None:
     dockerfile = BATCH_DOCKERFILE.read_text(encoding="utf-8")
     entrypoint = BATCH_ENTRYPOINT.read_text(encoding="utf-8")
 
-    assert (
-        "FROM rust:1.96.0-bookworm@sha256:"
-        "5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc"
-        " AS rust-builder"
-    ) in dockerfile
-    assert "cargo build --locked --release -p foundation-outbox-publisher" in dockerfile
-    assert (
-        "COPY --from=rust-builder /src/target/release/foundation-outbox-publisher "
-        "/usr/local/bin/foundation-outbox-publisher"
-    ) in dockerfile
-    assert "ARG RAON_DEB_URL" in dockerfile
-    assert "ARG RAON_DEB_SHA256" in dockerfile
-    assert "sha256sum -c" in dockerfile
+    # No Rust is built into the image: the run mounts the admitted release's publisher (ADR-0170).
+    instructions = "\n".join(
+        line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "FROM rust:" not in instructions
+    assert "cargo build" not in instructions
+    assert "foundation-outbox-publisher" not in instructions
+    assert_installs_the_pinned_package(dockerfile)
     assert "Dockerfile.raon-agent-proof" not in dockerfile
     assert "COPY .env" not in dockerfile
     assert "USER app" in dockerfile
 
+    assert "[[ ! -x /usr/local/bin/foundation-outbox-publisher ]]" in entrypoint
+    assert entrypoint.index("foundation-outbox-publisher is not mounted") < entrypoint.index("Xvfb "), (
+        "a missing importer stops the run before the browser starts"
+    )
     assert "foundation_provider_acquisition.raon_batch" in entrypoint
     assert "PROVIDER_ACQUISITION_SELECTION_JSON" in entrypoint
     assert "PROVIDER_ACQUISITION_SELECTION_JSON_INLINE" in entrypoint
@@ -99,7 +111,6 @@ def test_raon_images_carry_the_naming_contract_consumed_by_python_and_rust() -> 
 
     assert NAMING_CONTRACT_COPY in proof_dockerfile
     assert NAMING_CONTRACT_COPY in batch_dockerfile
-    assert "COPY config /src/config" in batch_dockerfile
 
 
 def test_provider_acquisition_worker_installs_scrapling_browser_fetcher_extra() -> None:
@@ -115,7 +126,11 @@ def test_runbook_documents_container_proof_before_fargate_selection() -> None:
     assert "Dockerfile.raon-agent-proof" in runbook
     assert "Dockerfile.raon-batch" in runbook
     assert "RAON_DEB_SHA256" in runbook
+    assert "RAON_DEB_URL" in runbook
+    assert "raonk.com" not in runbook, "the package URL is pinned in one contract (root ADR-0170)"
     # Translated by the Korean-first migration (558c5beb); anchored on the sentences the runbook now
     # carries so a reword does not fail this and a removal does.
     assert "관리형 후보로 깔끔하지만 이 런북에서 선택하지 않는다" in runbook
-    assert "ai-server는 실험실용이지 운영" in runbook
+    # Root ADR-0170 chose the data host for the VWorld RAON large files, with a supervised first run.
+    assert "ADR-0170이 데이터 호스트를 골랐다" in runbook
+    assert "첫 감독 실행" in runbook

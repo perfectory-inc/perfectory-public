@@ -53,6 +53,12 @@ pub async fn run() -> anyhow::Result<()> {
         config.max_files,
         config.exclude_selection_archives,
     )?;
+    let archives = deferred_files::excluded_selection_archives(
+        &inventory.jobs,
+        config.max_jobs,
+        config.exclude_selection_archives,
+    );
+    let mut archive_reports = deferred_files::deferred_selection_archive_reports(&archives);
     if selected_files.len()
         == eligible_inventory_file_count(&inventory.jobs, config.exclude_selection_archives)
         && !config.full_download_confirmed
@@ -75,6 +81,10 @@ pub async fn run() -> anyhow::Result<()> {
             .context("failed to connect to database for VWorld dataset file ingest")?;
         let repo = PgBronzeIngestRepository::new(pool.clone());
         let uow = PgBronzeIngestUnitOfWork::new(pool);
+        archive_reports =
+            deferred_files::held_or_deferred_selection_archive_reports(archives, &repo, &uow)
+                .await
+                .context("failed to check held VWorld selection archives")?;
         let mut to_fetch = selected_files.into_iter().enumerate().collect::<Vec<_>>();
         let mut held_reports = Vec::new();
         if let Some(budget) = config.new_bytes_budget {
@@ -98,13 +108,14 @@ pub async fn run() -> anyhow::Result<()> {
                 reports.extend(pending.into_iter().map(|(index, selected)| {
                     (
                         index,
-                        deferred_by_budget_report(&selected.job, &selected.file),
+                        deferred_files::deferred_by_budget_report(&selected.job, &selected.file),
                     )
                 }));
                 reports.sort_by_key(|(index, _)| *index);
                 let evidence = ingest_evidence(
                     &config,
                     reports.into_iter().map(|(_, report)| report).collect(),
+                    archive_reports,
                     live_write,
                     NEW_BYTES_BUDGET_EXCEEDED_STATUS,
                     budget_check,
@@ -197,6 +208,7 @@ pub async fn run() -> anyhow::Result<()> {
     let evidence = ingest_evidence(
         &config,
         reports,
+        archive_reports,
         live_write,
         ingest_status.evidence_status,
         budget_check,
@@ -278,27 +290,10 @@ where
     Ok((held, pending))
 }
 
-fn deferred_by_budget_report(
-    job: &VWorldDatasetFileJob,
-    file: &VWorldDatasetFileInventoryItem,
-) -> VWorldDatasetFileIngestItemEvidence {
-    VWorldDatasetFileIngestItemEvidence {
-        endpoint_slug: job.endpoint_slug.clone(),
-        source_slug: job.source_slug.clone(),
-        download_ds_id: file.download_ds_id.clone(),
-        file_no: file.file_no.clone(),
-        provider_file_name: file.provider_file_name.clone(),
-        status: DEFERRED_BY_BUDGET_STATUS.to_owned(),
-        object_key: None,
-        size_bytes: Some(file.size_kib.saturating_mul(1024)),
-        error_message: None,
-        duration_ms: 0,
-    }
-}
-
 fn ingest_evidence(
     config: &VWorldDatasetFileIngestConfig,
     reports: Vec<VWorldDatasetFileIngestItemEvidence>,
+    selection_archives: Vec<VWorldDatasetFileIngestItemEvidence>,
     live_write: bool,
     status: &'static str,
     new_bytes_budget: Option<NewBytesBudgetCheck>,
@@ -330,6 +325,11 @@ fn ingest_evidence(
         production_cutover_allowed: false,
         national_rollout_allowed: false,
         files: reports,
+        deferred_selection_archive_file_count: selection_archives
+            .iter()
+            .filter(|report| report.status == deferred_files::DEFERRED_SELECTION_ARCHIVE_STATUS)
+            .count() as u64,
+        selection_archives,
     }
 }
 
@@ -525,6 +525,10 @@ struct VWorldDatasetFileIngestEvidence {
     production_cutover_allowed: bool,
     national_rollout_allowed: bool,
     files: Vec<VWorldDatasetFileIngestItemEvidence>,
+    /// Excluded RAON selection archives Bronze does not hold: the large-file lane's input (root
+    /// ADR-0170). Not in `files`, so they count against neither the budget nor the run's result.
+    deferred_selection_archive_file_count: u64,
+    selection_archives: Vec<VWorldDatasetFileIngestItemEvidence>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -1466,5 +1470,8 @@ fn truncate_failure_message(message: &str) -> String {
     format!("{}...", &message[..end])
 }
 
+mod deferred_files;
+#[cfg(test)]
+mod deferred_files_tests;
 #[cfg(test)]
 mod tests;

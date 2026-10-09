@@ -36,6 +36,9 @@ class RaonBatchJob:
     dataset_name: str
     base_ym: str | None = None
     updated_at: str | None = None
+    # The source's catalog name as the VWorld inventory gives it (provider acquisition plan v2), so
+    # the importer upserts the same source entry the daily sweep's VWorld lane does.
+    source_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,7 @@ def _job_from_item(item: object) -> RaonBatchJob:
         dataset_name=_required(item, "dataset_name"),
         base_ym=_optional(item, "base_ym"),
         updated_at=_optional(item, "updated_at"),
+        source_name=_optional(item, "source_name"),
     )
 
 
@@ -223,9 +227,12 @@ def _build_import_env(
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_STAGING_DIR"] = str(paths.staging_dir)
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_COMMIT_BRONZE"] = "1"
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DIRECT_TO_BRONZE"] = "1"
+    # VWorld reuses a file number across releases, so the key names the bytes (root ADR-0152,
+    # ADR-0170), as the daily sweep's VWorld lane keys what it lands (ADR-0168).
+    env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY"] = "content_addressed"
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_SLUG"] = job.source_slug
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_NAME"] = (
-        f"vworld.kr {job.operation} dataset file"
+        job.source_name or f"vworld.kr {job.operation} dataset file"
     )
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER"] = "vworld.kr"
     env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DATASET_NAME"] = job.dataset_name

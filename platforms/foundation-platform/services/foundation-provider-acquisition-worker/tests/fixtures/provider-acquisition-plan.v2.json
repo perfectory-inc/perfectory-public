@@ -1,0 +1,28 @@
+{
+  "schema_version": "foundation-platform.provider_acquisition_plan.v2",
+  "status": "ready",
+  "candidate_count": 1,
+  "max_files": null,
+  "new_bytes_budget": null,
+  "listed_bytes_total": 600,
+  "job_count": 1,
+  "jobs": [
+    {
+      "source_slug": "vworldkr__parcel",
+      "provider": "vworldkr",
+      "acquisition_method": "raon_kupload_browser",
+      "operation": "parcel",
+      "source_name": "V-World synthetic parcel dataset file",
+      "dataset_name": "parcel",
+      "download_ds_id": "20991231DS99991",
+      "file_no": "9001",
+      "provider_file_name": "9001.zip",
+      "provider_file_id": "20991231DS99991-9001",
+      "source_identity_key": "provider_file_id=20991231DS99991-9001",
+      "provider_resource_id": "vworld_dataset_file:20991231DS99991:9001",
+      "base_ym": "2099-12",
+      "updated_at": "2099-12-31",
+      "listed_bytes": 600
+    }
+  ]
+}

@@ -86,6 +86,19 @@ else:
     sys.exit("unexpected command " + command)
 """
 
+# The large-file lane's script (root ADR-0170) is a stand-in here: test_raon_large_files_command.py
+# runs the real one. It records how the sweep called it and answers as the scenario says.
+FAKE_RAON = r"""#!/usr/bin/env python3
+import json, os, sys
+state = os.environ["FAKE_STATE"]
+with open(os.path.join(state, "raon.log"), "a", encoding="utf-8") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+raon = json.load(open(os.path.join(state, "scenario.json"), encoding="utf-8")).get("raon") or {}
+if raon.get("summary") is not None:
+    json.dump(raon["summary"], open(os.environ["FOUNDATION_RAON_LARGE_FILES_SUMMARY_PATH"], "w"))
+sys.exit(raon.get("rc", 0))
+"""
+
 # curl ... -d <payload> https://slack.com/...: record the payload.
 FAKE_CURL = r"""#!/usr/bin/env python3
 import os, sys
@@ -98,12 +111,21 @@ HUB_QUIET = {"evidence": {"selected_job_count": 3, "succeeded_job_count": 0, "sk
                           "failed_job_count": 0, "status": "ready", "jobs": []}}
 
 
-def vworld_evidence(files, status="ready", budget=None):
+def vworld_evidence(files, status="ready", budget=None, archives=()):
     count = lambda s: sum(1 for f in files if f["status"] == s)
     return {"status": status, "selected_file_count": len(files), "succeeded_file_count": count("succeeded"),
             "skipped_file_count": count("skipped_existing"), "failed_file_count": count("failed"),
             "deferred_by_budget_file_count": count("deferred_new_bytes_budget"), "new_bytes_budget": budget,
-            "files": files}
+            "files": files, "selection_archives": list(archives),
+            "deferred_selection_archive_file_count": sum(
+                1 for f in archives if f["status"] == "deferred_selection_archive")}
+
+
+def raon_summary(status="ready", committed=1, failed=0, budget=2**34, files=None):
+    return {"run_id": "20991231T000000Z", "status": status, "planned": committed + failed, "committed": committed,
+            "failed": failed, "listed_bytes": 3 * 2**30, "budget": budget, "budget_override": False,
+            "files": files if files is not None else
+            [{"source_slug": "vworldkr__synthetic", "provider_file_id": "9991-70", "status": "committed"}]}
 
 
 def vfile(file_no, status):
@@ -118,9 +140,11 @@ class SweepCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh"):
+        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)
+        (release / "scripts/ops/raon-large-files.sh").chmod(0o755)
         (release / "docs/catalog").mkdir(parents=True)
         shutil.copy(CATALOG, release / "docs/catalog")
         (release / "config").mkdir()
@@ -154,8 +178,9 @@ class SweepCommand(unittest.TestCase):
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
 
-    def scenario(self, hub=HUB_QUIET, vworld=None):
-        (self.fake / "scenario.json").write_text(json.dumps({"hub": hub, "vworld": vworld or {}}), encoding="utf-8")
+    def scenario(self, hub=HUB_QUIET, vworld=None, raon=None):
+        (self.fake / "scenario.json").write_text(json.dumps({"hub": hub, "vworld": vworld or {}, "raon": raon}),
+                                                 encoding="utf-8")
 
     def run_job(self, env=None):
         return subprocess.run(["bash", str(self.script)], env=env or self.env, capture_output=True, text=True,
@@ -266,6 +291,84 @@ class SweepCommand(unittest.TestCase):
                 self.assertEqual(self.read("calls.log"), "", "nothing reached a provider or Bronze")
                 self.assertFalse(self.state.exists(), "no state was written")
 
+    # --- the large-file lane (root ADR-0170) ---
+
+    def archive(self, file_no, status="deferred_selection_archive"):
+        return vfile(file_no, status)
+
+    def test_without_deferred_archives_the_large_file_lane_does_not_run(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")],
+                                                          archives=[self.archive("70", "skipped_existing")])})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read("raon.log"), "", "held archives are nothing to fetch")
+        self.assertIn("| raon deferred=0", self.journal())
+
+    def test_deferred_archives_are_handed_to_the_large_file_lane_with_todays_evidence(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")],
+                                                          archives=[self.archive("70")])},
+                      raon={"summary": raon_summary()})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read("raon.log").split(), ["run", str(self.state / "vworld-evidence.json")])
+        line = self.journal().splitlines()[-1]
+        self.assertIn("raon deferred=1 planned=1 committed=1 failed=0", line)
+        self.assertIn("status=ready", line)
+        self.assertIn("vworldkr__synthetic:9991-70", self.read("slack.log"), "a landed large file is news")
+
+    def test_a_missing_large_file_prerequisite_turns_the_sweep_red_loudly(self):
+        # The lane's script refuses with 78 before any side effect (no package, no docker); the
+        # sweep must not read that as a quiet day.
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"rc": 78, "summary": None})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("raon deferred=1 status=no-summary rc=78", self.journal())
+        message = self.read("slack.log")
+        self.assertIn("🔴", message)
+        self.assertIn("raon", message)
+        self.assertIn("ADR-0170", message)
+
+    def test_large_files_over_their_budget_are_refused_and_said(self):
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"rc": 1, "summary": raon_summary(status="blocked_new_bytes_budget", committed=0,
+                                                             failed=0, files=[])})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("status=blocked_new_bytes_budget", self.journal().splitlines()[-1])
+        self.assertIn("RAON 대용량 파일", self.read("slack.log"))
+
+    def test_a_failed_large_file_is_a_failed_lane(self):
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"rc": 1, "summary": raon_summary(status="failed", committed=0, failed=1, files=[])})
+        self.assertNotEqual(self.run_job().returncode, 0)
+        self.assertIn("raon", self.read("slack.log"))
+
+    def test_the_large_file_lane_runs_even_when_the_vworld_lane_is_over_its_budget(self):
+        budget = {"budget": 2**34, "pending_listed_bytes": 3 * 2**34, "pending_file_count": 40}
+        self.scenario(vworld={"rc": 1, "evidence": vworld_evidence(
+            [vfile("7", "deferred_new_bytes_budget")], status="blocked_new_bytes_budget", budget=budget,
+            archives=[self.archive("70")])}, raon={"summary": raon_summary()})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0, "the vworld lane still failed")
+        self.assertIn("run ", self.read("raon.log"), "lanes are independent")
+        self.assertNotIn("raon", self.read("slack.log").split("레인 실패")[0].split("daily-source-sweep:")[1])
+
+    def test_yesterdays_large_file_summary_is_not_read_as_todays(self):
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"summary": raon_summary()})
+        self.assertEqual(self.run_job().returncode, 0)
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"rc": 1, "summary": None})
+        self.assertNotEqual(self.run_job().returncode, 0)
+        self.assertIn("raon deferred=1 status=no-summary rc=1", self.journal().splitlines()[-1])
+
+    def test_the_large_file_script_needs_nothing_the_sweep_unit_does_not_load(self):
+        # The sweep runs the lane's script rather than sourcing it, so the contract check of the unit
+        # does not follow it: its requirements must be the unit's.
+        raon = PLATFORM / "scripts/ops/raon-large-files.sh"
+        self.assertLessEqual(runtime_secrets.script_requirements(raon), set(NEEDS))
+
     def test_a_deprecated_login_name_is_accepted(self):
         self.scenario(vworld={"evidence": vworld_evidence([])})
         env = dict(self.env)
@@ -293,6 +396,10 @@ class SweptDatasets(unittest.TestCase):
         for name, collection in declared.items():
             self.assertIsInstance(collection["new_bytes_budget"], int, name)
             self.assertGreater(collection["new_bytes_budget"], 0, name)
+            # Zero is a decision, not a gap (root ADR-0170): the large-file lane fetches nothing on
+            # its own until an operator's supervised run has measured it.
+            self.assertIsInstance(collection["selection_archive_new_bytes_budget"], int, name)
+            self.assertGreaterEqual(collection["selection_archive_new_bytes_budget"], 0, name)
 
     def test_the_sweep_takes_only_vworld_dataset_files(self):
         self.assertTrue(self.swept(), "the VWorld lane sweeps something")
