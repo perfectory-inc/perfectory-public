@@ -70,6 +70,7 @@ mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
 mod code_go_kr_legal_dong_collect;
 mod collection_job_requeue;
+mod content_spool;
 mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;

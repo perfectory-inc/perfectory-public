@@ -171,5 +171,14 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
   /opt/foundation-platform/current/scripts/ops/daily-source-sweep.sh
 ```
 
-journal 줄에 `budget_override=1` 이 붙는다. 받은 뒤의 매일 실행은 다시 카탈로그 예산으로 돈다. 256MiB 를 넘는 파일은 내용
-해시 키로 받을 수 없어(ADR-0152 의 메모리 상한) 그 파일만 `failed` 로 남는다 — 그때는 이 런북의 수동 수집으로 받는다.
+journal 줄에 `budget_override=1` 이 붙는다. 받은 뒤의 매일 실행은 다시 카탈로그 예산으로 돈다. 매일 단위가 도는 동안에는
+돌리지 않는다 — 시작할 때 스풀의 남은 파일을 지운다.
+
+### 스풀 (루트 ADR-0168 §9)
+
+내용 해시 키(`content_addressed`)는 본문을 `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR` 의 임시 파일
+(`.provider-*.part`)에 받으며 해시를 재고, 그 파일에서 올린 뒤 지운다. 크기 상한은 없고, 본문을 읽기 전에 선언된 길이 +
+진행 중인 파일들 + 2GiB 가 스풀 파일시스템의 여유 공간 안에 들어야 한다(아니면 그 파일만 `failed`). 매일 훑기의 스풀은
+데이터 디스크의 `/data/foundation-platform/source-sweep/spool` 이 기본값이다(`FOUNDATION_SOURCE_SWEEP_SPOOL_DIR`로 바꾼다).
+목록 크기가 500MB 를 넘는 파일은 제공자가 선택 묶음(RAON)으로만 내주므로 이 레인이 받지 않는다 — 그런 파일의 새 판은
+evidence 에 오르지 않고, 이 런북의 수동 수집 몫이다.

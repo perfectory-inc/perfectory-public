@@ -188,7 +188,7 @@
 | `docs/adr/0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

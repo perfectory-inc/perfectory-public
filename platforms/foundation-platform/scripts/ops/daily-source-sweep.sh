@@ -55,6 +55,10 @@ STATE_ROOT="${FOUNDATION_SOURCE_SWEEP_STATE_ROOT:-/var/lib/foundation-platform/s
 SLACK_TOKEN_FILE="${FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_SOURCE_SWEEP_SLACK_CHANNEL:-#alerts}"
 CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
+# 내용 해시 키는 본문을 다 받은 뒤에 정해지므로, 본문은 해시를 재며 이 디렉터리에 받아 두었다가 올린다(ADR-0168).
+# 기본값은 데이터 디스크다 — 상태 디렉터리가 있는 루트 디스크는 작고 두 번 찼다(2026-10-02). 단위의
+# ReadWritePaths 와 릴리스 설치가 이 기본값을 만든다.
+SPOOL_DIR="${FOUNDATION_SOURCE_SWEEP_SPOOL_DIR:-/data/foundation-platform/source-sweep/spool}"
 
 mkdir -p "${STATE_ROOT}"
 journal="${STATE_ROOT}/journal.log"
@@ -66,6 +70,9 @@ vworld_inventory_path="${STATE_ROOT}/vworld-inventory.json"
 vworld_evidence_path="${STATE_ROOT}/vworld-evidence.json"
 # Yesterday's evidence must not read as today's: a lane that dies before writing leaves none.
 rm -f "${evidence_path}" "${vworld_plan_path}" "${vworld_inventory_path}" "${vworld_evidence_path}"
+# A run killed mid-file (OOM, timeout) leaves its spool files; the next run starts empty.
+mkdir -p "${SPOOL_DIR}"
+find "${SPOOL_DIR}" -mindepth 1 -maxdepth 1 -name '.provider-*.part' -delete
 : > "${run_log}"
 
 # 슬랙으로 한 줄 보낸다. 토큰은 변수로만 다루고 어디에도 찍지 않는다. 배달 실패가
@@ -129,6 +136,7 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${SPOOL_DIR}"
 vworld_rc=0
 { "${PUBLISHER_BIN}" plan-vworld-dataset-collection &&
   budget="${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-$(python3 -I - "${vworld_plan_path}" <<'PY'
@@ -147,9 +155,9 @@ PY
 
 # 3. 증거를 요약해 journal 한 줄 + 슬랙 알림으로 바꾼다. 증거가 없으면 그 레인은 실패다.
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
-  "${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-}" <<'PY'
+  "${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-}" "${vworld_inventory_path}" <<'PY'
 import json, os, sys
-hub_path, hub_rc, vworld_path, vworld_rc, override = sys.argv[1:6]
+hub_path, hub_rc, vworld_path, vworld_rc, override, inventory_path = sys.argv[1:7]
 
 def load(path):
     try:
@@ -185,6 +193,10 @@ else:
                    f"deferred={vworld.get('deferred_by_budget_file_count')} "
                    f"pending_bytes={budget.get('pending_listed_bytes')} budget={budget.get('budget')} "
                    f"status={vworld.get('status')}")
+    # Files the provider lists only as RAON selection archives (over about 500 MB) are not taken by
+    # this lane (ADR-0168); the count is journaled so their absence is visible, not silent.
+    inventory = load(inventory_path) or {}
+    vworld_line += f" selection_archives_not_swept={inventory.get('selection_archive_file_count')}"
     if override:
         vworld_line += " budget_override=1"
     if vworld.get("status") == "blocked_new_bytes_budget":

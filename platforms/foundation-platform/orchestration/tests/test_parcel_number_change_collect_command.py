@@ -60,6 +60,8 @@ elif command == "ingest-vworld-dataset-files":
     assert os.environ.get("FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH") == "1", "a reused file number must be fetched again"
     assert os.environ.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY") == "content_addressed", \
         "a reused file number needs a key of its own (root ADR-0152)"
+    assert os.environ.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR"), \
+        "a content-addressed run spools its bodies (root ADR-0168)"
     inventory = json.load(open(os.environ["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], encoding="utf-8"))
 
     def content_key(f):

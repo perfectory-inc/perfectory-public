@@ -18,7 +18,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/source-sweep
+# The VWorld lane spools each provider body on the data disk while it is hashed (root ADR-0168);
+# the root disk holding the state directory is small.
+ReadWritePaths=/var/lib/foundation-platform/source-sweep /data/foundation-platform/source-sweep
 
 [Install]
 WantedBy=multi-user.target

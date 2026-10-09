@@ -1251,6 +1251,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
       /var/lib/foundation-platform/lineage-stewardship/lakehouse
     # The by-PNU bakes' work files: on the data disk, the only path their unit may write.
     install -d -o foundation-platform -g foundation-platform /data/foundation-platform/by-pnu-bake
+    # The daily sweep's spool for content-addressed VWorld files (root ADR-0168): the unit names it in
+    # ReadWritePaths, and systemd refuses to start a unit whose path is missing.
+    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/source-sweep
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer

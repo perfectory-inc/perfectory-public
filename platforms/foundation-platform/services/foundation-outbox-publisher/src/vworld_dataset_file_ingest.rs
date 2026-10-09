@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{bail, Context};
 use chrono::{NaiveDate, Utc};
@@ -31,7 +31,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
-use crate::bulk_streaming_bronze::{stage_payload, BronzeStreamingObjectStorageWriter};
+use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
+use crate::content_spool::{spool_payload, SpoolDir};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 use crate::vworld_credentials::{
     optional_vworld_password, optional_vworld_username, vworld_password_name, vworld_username_name,
@@ -123,6 +124,8 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for VWorld dataset file ingest")?;
+        let spool = open_spool(&config)?;
+        let payload_key = PayloadKey::for_run(config.bronze_key, spool.as_ref())?;
         let mut fetched = stream::iter(to_fetch)
             .map(|(index, selected)| {
                 let config = config.clone();
@@ -132,13 +135,20 @@ pub async fn run() -> anyhow::Result<()> {
                 async move {
                     let SelectedVWorldDatasetFile { job, file } = selected;
                     let started_at = Utc::now();
-                    let report =
-                        match ingest_file_with_adapters(&job, &file, &config, repo, uow, storage)
-                            .await
-                        {
-                            Ok(report) => report,
-                            Err(error) => failed_file_report(&job, &file, started_at, error),
-                        };
+                    let report = match ingest_file_with_adapters(
+                        &job,
+                        &file,
+                        &config,
+                        payload_key,
+                        repo,
+                        uow,
+                        storage,
+                    )
+                    .await
+                    {
+                        Ok(report) => report,
+                        Err(error) => failed_file_report(&job, &file, started_at, error),
+                    };
                     (index, report)
                 }
             })
@@ -343,6 +353,9 @@ struct VWorldDatasetFileIngestConfig {
     /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET`: the most listed bytes a live run
     /// may download that Bronze does not hold (root ADR-0168). Unset, there is no budget.
     new_bytes_budget: Option<u64>,
+    /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR`: where a content-addressed run spools each
+    /// body while hashing it (root ADR-0168). Required for `content_addressed`.
+    spool_dir: Option<PathBuf>,
 }
 
 /// How a landed file's Bronze key is chosen (`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY`).
@@ -359,6 +372,7 @@ enum BronzeKeyForm {
 
 const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
 const NEW_BYTES_BUDGET_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET";
+const SPOOL_DIR_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR";
 
 /// A budget is a whole number of bytes; zero is allowed and means "download nothing new".
 fn parse_new_bytes_budget(raw: &str) -> anyhow::Result<u64> {
@@ -440,6 +454,7 @@ impl VWorldDatasetFileIngestConfig {
             new_bytes_budget: optional_env_value(NEW_BYTES_BUDGET_ENV)?
                 .map(|value| parse_new_bytes_budget(&value))
                 .transpose()?,
+            spool_dir: optional_env_value(SPOOL_DIR_ENV)?.map(PathBuf::from),
         })
     }
 }
@@ -581,8 +596,7 @@ async fn ingest_file(
     // evidence then names no key rather than one that does not exist.
     let (object_key, size_bytes) = if live_write_enabled(config.live_write.as_deref()) {
         let persisted =
-            persist_file_stream(run_id, started_at, job, file, downloaded, config.bronze_key)
-                .await?;
+            persist_file_stream(run_id, started_at, job, file, downloaded, config).await?;
         (Some(persisted.object_key), Some(persisted.size_bytes))
     } else if config.bronze_key == BronzeKeyForm::ContentAddressed {
         (None, expected_size_bytes)
@@ -611,6 +625,7 @@ async fn ingest_file_with_adapters<Repo, Uow, Storage>(
     job: &VWorldDatasetFileJob,
     file: &VWorldDatasetFileInventoryItem,
     config: &VWorldDatasetFileIngestConfig,
+    payload_key: PayloadKey<'_>,
     repo: &Repo,
     uow: &Uow,
     storage: &Storage,
@@ -666,7 +681,7 @@ where
         run_id,
         started_at,
         downloaded,
-        config.bronze_key,
+        payload_key,
         uow,
         storage,
     )
@@ -932,7 +947,7 @@ async fn persist_file_stream(
     job: &VWorldDatasetFileJob,
     inventory_file: &VWorldDatasetFileInventoryItem,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    config: &VWorldDatasetFileIngestConfig,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport> {
     // Single-file live-write path (the non-orchestrated `ingest_file` branch): validate + log the
     // resolved R2 target before the first put. Reached only when live write is enabled.
@@ -946,13 +961,14 @@ async fn persist_file_stream(
     let storage = live_write_bronze_streaming_object_storage_from_env()
         .await
         .context("failed to configure object storage for VWorld dataset file ingest")?;
+    let spool = open_spool(config)?;
     persist_file_stream_with_adapters(
         job,
         inventory_file,
         run_id,
         started_at,
         file,
-        bronze_key,
+        PayloadKey::for_run(config.bronze_key, spool.as_ref())?,
         &uow,
         storage.as_ref(),
     )
@@ -974,16 +990,18 @@ struct PlannedPayload<'a, Storage: ?Sized> {
 
 /// Chooses the key and the write port for one provider file.
 ///
-/// `ProviderFileId` streams the body to the provider-file key, as before. `ContentAddressed` reads
-/// the body whole to learn its SHA-256, names the key after it, and reads that key back: absent, the
-/// bytes are written; present with the same checksum and size, nothing is written and the
-/// committer reconciles the ledger row (a rerun of the same upload); present with other bytes, the
-/// file is refused, since a key that names one checksum cannot hold another.
+/// `ProviderFileId` streams the body to the provider-file key, as before. `ContentAddressed` writes
+/// the body to the spool while hashing it (root ADR-0168: no in-memory size cap), names the key after
+/// its SHA-256, and reads that key back: absent, the spooled bytes are uploaded (multipart above the
+/// single-put size); present with the same checksum and size, nothing is written and the committer
+/// reconciles the ledger row (a rerun of the same upload); present with other bytes, the file is
+/// refused, since a key that names one checksum cannot hold another. The spooled file belongs to the
+/// write port's body and is removed when that body is dropped, read or not.
 async fn plan_payload<'a, Storage>(
     location: &PublicDataBulkFileStorageLocationPlan,
     provider_file_id: &str,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    payload_key: PayloadKey<'_>,
     storage: &'a Storage,
 ) -> anyhow::Result<PlannedPayload<'a, Storage>>
 where
@@ -995,26 +1013,33 @@ where
             "provider file {provider_file_id} omitted Content-Length; streaming single-pass Bronze upload requires an exact length"
         )
     })?;
-    if bronze_key == BronzeKeyForm::ProviderFileId {
-        return Ok(PlannedPayload {
-            object_key: location.object_key.clone(),
+    let spool = match payload_key {
+        PayloadKey::ProviderFileId => {
+            return Ok(PlannedPayload {
+                object_key: location.object_key.clone(),
+                expected_size_bytes,
+                writer: BronzeStreamingObjectStorageWriter::new(
+                    storage,
+                    content_type,
+                    file.into_body_stream(),
+                ),
+            });
+        }
+        PayloadKey::ContentAddressed(spool) => spool,
+    };
+    let spooled = Arc::new(
+        spool_payload(
+            spool,
+            file.into_body_stream(),
+            &content_type,
             expected_size_bytes,
-            writer: BronzeStreamingObjectStorageWriter::new(
-                storage,
-                content_type,
-                file.into_body_stream(),
-            ),
-        });
-    }
-    let staged = stage_payload(
-        file.into_body_stream(),
-        &content_type,
-        expected_size_bytes,
-        provider_file_id,
-    )
-    .await?;
-    let object_key = build_bronze_content_object_key(&location.object_key, &staged.checksum_sha256)
-        .context("failed to name the content-addressed Bronze key")?;
+            provider_file_id,
+        )
+        .await?,
+    );
+    let object_key =
+        build_bronze_content_object_key(&location.object_key, &spooled.checksum_sha256)
+            .context("failed to name the content-addressed Bronze key")?;
     let held = storage
         .read_object_sha256_and_size_by_rehash(object_key.as_str())
         .await
@@ -1023,11 +1048,11 @@ where
         None => BronzeStreamingObjectStorageWriter::new(
             storage,
             content_type,
-            stream::iter([Ok::<_, CollectionError>(staged.bytes)]).boxed(),
+            Arc::clone(&spooled).body_stream(),
         ),
         Some(held)
-            if held.checksum_sha256 == staged.checksum_sha256
-                && held.size_bytes == expected_size_bytes =>
+            if held.checksum_sha256 == spooled.checksum_sha256
+                && held.size_bytes == spooled.size_bytes =>
         {
             BronzeStreamingObjectStorageWriter::already_present(storage, content_type)
         }
@@ -1045,6 +1070,37 @@ where
     })
 }
 
+/// How one run keys what it lands: by provider file id, or by content through a spool.
+#[derive(Clone, Copy)]
+enum PayloadKey<'s> {
+    ProviderFileId,
+    ContentAddressed(&'s SpoolDir),
+}
+
+impl<'s> PayloadKey<'s> {
+    fn for_run(bronze_key: BronzeKeyForm, spool: Option<&'s SpoolDir>) -> anyhow::Result<Self> {
+        match (bronze_key, spool) {
+            (BronzeKeyForm::ProviderFileId, _) => Ok(Self::ProviderFileId),
+            (BronzeKeyForm::ContentAddressed, Some(spool)) => Ok(Self::ContentAddressed(spool)),
+            (BronzeKeyForm::ContentAddressed, None) => {
+                bail!("{BRONZE_KEY_ENV}=content_addressed requires {SPOOL_DIR_ENV}")
+            }
+        }
+    }
+}
+
+/// The spool a content-addressed run writes through, opened once per run so its reservations are
+/// shared by every file in flight.
+fn open_spool(config: &VWorldDatasetFileIngestConfig) -> anyhow::Result<Option<SpoolDir>> {
+    match (config.bronze_key, config.spool_dir.as_deref()) {
+        (BronzeKeyForm::ContentAddressed, Some(path)) => SpoolDir::open(path).map(Some),
+        (BronzeKeyForm::ContentAddressed, None) => {
+            bail!("{BRONZE_KEY_ENV}=content_addressed requires {SPOOL_DIR_ENV}")
+        }
+        (BronzeKeyForm::ProviderFileId, _) => Ok(None),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn persist_file_stream_with_adapters<Uow, Storage>(
     job: &VWorldDatasetFileJob,
@@ -1052,7 +1108,7 @@ async fn persist_file_stream_with_adapters<Uow, Storage>(
     run_id: IngestionRunId,
     started_at: chrono::DateTime<Utc>,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    payload_key: PayloadKey<'_>,
     uow: &Uow,
     storage: &Storage,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport>
@@ -1083,7 +1139,7 @@ where
         &location,
         &identity.provider_file_id,
         file,
-        bronze_key,
+        payload_key,
         storage,
     )
     .await?;

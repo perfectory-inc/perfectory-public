@@ -46,3 +46,5 @@
 ---
 
 2026-10-09 개정 주석: 내용 주소 실행이 번호 키 객체로 건너뛰지 않던 조건(`holds_key_form`)은 [ADR-0168](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md) §3 이 없앴다. 가진 것은 파일 번호·제공자 갱신일·원장 체크섬으로 정하고, 키 모양이 필요한 소비자(30527 넘김)는 이 ADR §3 의 키 검사와 강제 재수집으로 지킨다.
+
+2026-10-09 개정 주석 둘: §1 의 256MiB 메모리 상한은 [ADR-0168](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md) §9 가 디스크 스풀로 바꿨다(`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR`).

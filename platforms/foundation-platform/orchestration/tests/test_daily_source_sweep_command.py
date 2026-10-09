@@ -67,13 +67,16 @@ elif command == "plan-vworld-dataset-collection":
               open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH"], "w"))
 elif command == "inventory-vworld-dataset-files":
     plan = json.load(open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH"], encoding="utf-8"))
-    json.dump({"status": "ready", "jobs": plan["jobs"]}, open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], "w"))
+    json.dump({"status": "ready", "jobs": plan["jobs"], "selection_archive_file_count": 3}, open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], "w"))
 elif command == "ingest-vworld-dataset-files":
     for name, value in [("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY", "content_addressed"),
                         ("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES", "1"),
                         ("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE", "1")]:
         assert env.get(name) == value, (name, env.get(name))
     assert "FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH" not in env, "a daily run must not refetch what it holds"
+    assert env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR"] == env["FOUNDATION_SOURCE_SWEEP_SPOOL_DIR"], \
+        "content-addressed files are spooled where the unit may write"
+    assert os.path.isdir(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR"])
     with open(os.path.join(state, "budget.log"), "a", encoding="utf-8") as log:
         log.write(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET"] + "\n")
     vworld = scenario["vworld"]
@@ -140,11 +143,13 @@ class SweepCommand(unittest.TestCase):
         self.state = root / "state"
         self.fake = root / "fake"
         self.fake.mkdir()
+        self.spool = root / "data/source-sweep/spool"
         token = root / "slack-token"
         token.write_text("planted-token\n")
         self.env = {
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FOUNDATION_SOURCE_SWEEP_STATE_ROOT": str(self.state),
             "FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE": str(token), "FAKE_STATE": str(self.fake),
+            "FOUNDATION_SOURCE_SWEEP_SPOOL_DIR": str(self.spool),
             **{name: "planted-" + name.lower() for name in NEEDS},
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
@@ -177,11 +182,35 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("vworldkr__synthetic:9991-7", self.read("slack.log"))
         self.assertNotIn("planted-user", result.stdout + result.stderr + self.read("slack.log") + self.journal())
 
+    def test_a_killed_runs_spool_files_are_cleared_and_nothing_else(self):
+        # A run killed mid-file (OOM, timeout) leaves its spool file; the next run starts empty.
+        self.spool.mkdir(parents=True)
+        (self.spool / ".provider-abc.part").write_bytes(b"partial")
+        (self.spool / "keep.txt").write_text("not a spool file")
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in self.spool.iterdir()), ["keep.txt"])
+
+    def test_the_unit_may_write_the_default_spool(self):
+        unit = (PLATFORM / "infra/systemd" / UNIT).read_text(encoding="utf-8")
+        writable = [path for line in unit.splitlines() if line.startswith("ReadWritePaths=")
+                    for path in line.split("=", 1)[1].split()]
+        script = SCRIPT.read_text(encoding="utf-8")
+        default = script.split('FOUNDATION_SOURCE_SWEEP_SPOOL_DIR:-', 1)[1].split("}", 1)[0]
+        self.assertTrue(default.startswith("/data/"), "the spool is on the data disk, not the small root disk")
+        self.assertTrue(any(default == w or default.startswith(w.rstrip("/") + "/") for w in writable),
+                        (default, writable))
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertTrue(any(w in release for w in writable if w.startswith("/data/")),
+                        "the release creates the unit's data-disk path")
+
     def test_a_quiet_day_leaves_a_line_and_no_message(self):
         self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])})
         result = self.run_job()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("vworld planned=1 new=0 skipped=1", self.journal())
+        self.assertIn("selection_archives_not_swept=3", self.journal(), "what the lane does not take is visible")
         self.assertEqual(self.read("slack.log"), "")
 
     def test_a_run_over_the_budget_downloads_nothing_and_fails_loudly(self):
