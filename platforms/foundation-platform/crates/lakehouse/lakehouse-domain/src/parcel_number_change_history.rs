@@ -9,7 +9,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -100,6 +100,7 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     columns: SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["changed_on", "old_pnu"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "old_pnu and new_pnu are 19 digits unless quarantine_reason is malformed_pnu",

@@ -67,6 +67,8 @@ pub struct LakehouseTableContract {
     pub partition_spec: &'static [&'static str],
     /// Sort order expressed as stable contract text.
     pub sort_order: &'static [&'static str],
+    /// How a write spreads the rows over data files (root ADR-0164).
+    pub write_distribution: LakehouseWriteDistribution,
     /// Quality gates that must pass before publish/promote.
     pub quality_gates: &'static [&'static str],
     /// What one load of this table carries, and how the re-run guard reads it.
@@ -123,6 +125,41 @@ impl LakehouseLoadUnit {
             Self::Object { .. } => "object",
             Self::Run { .. } => "run",
             Self::Derived => "derived",
+        }
+    }
+}
+
+/// How a write spreads a table's rows over its data files.
+///
+/// A reader can skip a data file only when the file's column bounds exclude what it looks for. Rows
+/// spread by hash land in files whose bounds each span nearly the whole key range, so nothing can
+/// be skipped: on 2026-10-08 every one of 126 by-PNU bake shards read all 33 data files of
+/// `gold.parcel_panel` to keep one PNU prefix of them, and the bake took about seven hours. Range
+/// distribution gives each file one contiguous slice of the sort order instead (root ADR-0164).
+///
+/// Declared rather than implied by `sort_order`: most tables list a sort order their loads apply
+/// within a task, and turning every one of them into a table-wide range sort would change loads
+/// nobody measured.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseWriteDistribution {
+    /// Rows are clustered by partition (Iceberg `write.distribution-mode=hash`). Files of one
+    /// partition overlap in every other column.
+    Hash,
+    /// The table's Iceberg sort order is the contract's `sort_order` and rows are range-partitioned
+    /// by it (`ALTER TABLE ... WRITE ORDERED BY`, which sets `write.distribution-mode=range`). Each
+    /// data file then holds one contiguous slice of the sort order, so the bounds Iceberg records
+    /// for the leading sort column tell a reader which files can hold a key.
+    Range,
+}
+
+impl LakehouseWriteDistribution {
+    /// The Iceberg `write.distribution-mode` value, which is also how the contract artifact
+    /// writes it.
+    #[must_use]
+    pub const fn mode(&self) -> &'static str {
+        match self {
+            Self::Hash => "hash",
+            Self::Range => "range",
         }
     }
 }
@@ -1770,6 +1807,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     // (root ADR-0035).
     partition_spec: &["source_snapshot_id"],
     sort_order: &["complex_name_normalized", "official_complex_code"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "(official_complex_code, source_snapshot_id) unique",
         "complex_name non-empty",
@@ -1805,6 +1843,7 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     // pruning there is to carry (root ADR-0066).
     partition_spec: &[],
     sort_order: &["complex_id", "boundary_kind", "valid_from_utc"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "geometry_srid = 5186",
         "bbox min/max ordering is valid",
@@ -1841,6 +1880,7 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     //   unpartitioned                          about 15 files    500 MB each
     partition_spec: &[],
     sort_order: &["pnu", "valid_from_utc"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "pnu passes shared PNU validation",
         "geometry_srid = 4326",
@@ -1874,6 +1914,7 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     // 두 자리)로 이미 존재한다.
     partition_spec: &[],
     sort_order: &["pnu", "zone_code"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "pnu_not_null",
         "zone_code_not_null",
@@ -1896,6 +1937,7 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     columns: SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "base_year", "base_month"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "pnu_not_null",
         "base_year_not_null",
@@ -1921,6 +1963,7 @@ pub const SILVER_LAND_USE_ZONE_CODES: LakehouseTableContract = LakehouseTableCon
     columns: SILVER_LAND_USE_ZONE_CODES_COLUMNS,
     partition_spec: &[],
     sort_order: &["ucode"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &["ucode_not_null", "uname_not_null"],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",
@@ -1939,6 +1982,7 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     columns: SILVER_BUILDING_REGISTER_FLOORS_COLUMNS,
     partition_spec: &["bucket(16, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "floor_index", "floor_row_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "floor_row_id_not_null",
         "normalization_status_in_allowed_values",
@@ -1981,6 +2025,7 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
     // sort order alone gives the file-level min/max a PNU-range read skips on (root ADR-0066).
     partition_spec: &[],
     sort_order: &["pnu", "mgm_bldrgst_pk"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "title_row_id_not_null",
         "register_parcel_key_not_null",
@@ -2016,6 +2061,7 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
         "unit_number",
         "unit_row_id",
     ],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "building_link_evidence_valid",
         "unit_row_id_not_null",
@@ -2045,6 +2091,7 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     columns: SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS,
     partition_spec: &["bucket(32, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "area_kind", "floor_index", "area_row_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "area_row_id_not_null",
         "register_parcel_key_not_null",
@@ -2070,6 +2117,7 @@ pub const SILVER_COMPLEX_PARCEL_MEMBERSHIPS: LakehouseTableContract = LakehouseT
     columns: SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
     partition_spec: &["sigungu_code", "bucket(256, pnu)"],
     sort_order: &["complex_id", "pnu", "membership_kind"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "pnu passes shared PNU validation",
         "one active inside or intersects membership per complex_id and pnu",
@@ -2096,6 +2144,7 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
     // (root ADR-0035).
     partition_spec: &["source_snapshot_id"],
     sort_order: &["name", "complex_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "one active row per complex_id",
         "parcel_count is non-negative",
@@ -2116,6 +2165,7 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
     columns: GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS,
     partition_spec: &["spatial_key_prefix"],
     sort_order: &["spatial_key", "complex_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "spatial_key is stable",
         "bbox min/max ordering is valid",
@@ -2204,6 +2254,7 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
     columns: SILVER_MAP_EDIT_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["unit", "change_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "geometry_srid is the Silver CRS of the unit",
         "(unit, change_seq) unique",
@@ -2281,6 +2332,7 @@ pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
         columns: GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS,
         partition_spec: &[],
         sort_order: &["complex_id"],
+        write_distribution: LakehouseWriteDistribution::Hash,
         quality_gates: &[
             "geometry_srid = 5186",
             "one row per complex_id",
@@ -2365,6 +2417,7 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     columns: SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS,
     partition_spec: &[],
     sort_order: &["source_snapshot_id", "canonical_code"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "geometry_srid = 4326",
         "(canonical_code, source_snapshot_id) unique",
@@ -2455,6 +2508,7 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
     partition_spec: &[],
     sort_order: &["administrative_unit_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "geometry_srid = 4326",
         "one row per administrative_unit_id",
@@ -2527,6 +2581,7 @@ pub const GOLD_PARCEL_BOUNDARY_SERVED: LakehouseTableContract = LakehouseTableCo
     // whole snapshot (root ADR-0066).
     partition_spec: &[],
     sort_order: &["pnu"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "geometry_srid = 4326",
         "one row per pnu",
@@ -2615,6 +2670,7 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     columns: REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS,
     partition_spec: &[],
     sort_order: &["snapshot_date", "region_cd"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "(snapshot_date, region_cd) unique",
@@ -2704,6 +2760,7 @@ pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTa
     columns: REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["effective_date", "old_code"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "change_key unique",
@@ -2798,6 +2855,7 @@ pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract
     columns: SILVER_PARCEL_LINEAGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["to_snapshot_id", "successor_pnu"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "grade is official, code_derived, evidence_strong, evidence_weak, needs_review or pending",
@@ -2875,6 +2933,7 @@ pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     columns: SILVER_PARCEL_REGISTRY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "valid_from"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "status is current, historic or redirected",
@@ -2941,6 +3000,7 @@ pub const GOLD_PLACE_ID_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     columns: GOLD_PLACE_ID_REGISTRY_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "one row per (unit, scope, place_id)",
         "status is current, historic or redirected",
@@ -3003,6 +3063,7 @@ pub const GOLD_PLACE_ID_BRIDGE: LakehouseTableContract = LakehouseTableContract 
     columns: GOLD_PLACE_ID_BRIDGE_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "a code maps to one place_id at any time",
         "valid_to is empty only for the open period",
@@ -3074,6 +3135,7 @@ pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContra
     columns: GOLD_PLACE_ID_CHANGELOG_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "change is added, retired, renumbered or redirected",
@@ -3143,6 +3205,7 @@ pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableCont
     columns: GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS,
     partition_spec: &["unit"],
     sort_order: &["subject_code"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "one row per (unit, subject_code)",
         "status is needs_review or pending",

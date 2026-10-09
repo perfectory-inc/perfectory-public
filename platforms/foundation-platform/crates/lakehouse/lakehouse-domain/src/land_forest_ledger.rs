@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_FOREST_LEDGER_COLUMNS: &[LakehouseColumn] = &[
@@ -113,6 +113,7 @@ pub const SILVER_LAND_FOREST_LEDGER: LakehouseTableContract = LakehouseTableCont
     columns: SILVER_LAND_FOREST_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "data_reference_date"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &["pnu_not_null", "area_m2_not_null"],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",

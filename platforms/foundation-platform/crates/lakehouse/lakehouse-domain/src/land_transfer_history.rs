@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_TRANSFER_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -123,6 +123,7 @@ pub const SILVER_LAND_TRANSFER_HISTORY: LakehouseTableContract = LakehouseTableC
     columns: SILVER_LAND_TRANSFER_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "transfer_history_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &["pnu_not_null", "transfer_history_seq_not_null"],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",

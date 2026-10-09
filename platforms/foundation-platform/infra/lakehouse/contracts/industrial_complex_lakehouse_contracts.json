@@ -107,6 +107,7 @@
         "dong_name",
         "ho_name"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "raw_columns_not_null",
@@ -309,6 +310,7 @@
         "complex_name_normalized",
         "official_complex_code"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "(official_complex_code, source_snapshot_id) unique",
         "complex_name non-empty",
@@ -435,6 +437,7 @@
         "boundary_kind",
         "valid_from_utc"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid = 5186",
         "bbox min/max ordering is valid",
@@ -522,6 +525,7 @@
         "source_snapshot_id",
         "canonical_code"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid = 4326",
         "(canonical_code, source_snapshot_id) unique",
@@ -649,6 +653,7 @@
         "pnu",
         "valid_from_utc"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu passes shared PNU validation",
         "geometry_srid = 4326",
@@ -766,6 +771,7 @@
         "pnu",
         "zone_code"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "zone_code_not_null",
@@ -889,6 +895,7 @@
       "sort_order": [
         "ucode"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "ucode_not_null",
         "uname_not_null"
@@ -993,6 +1000,7 @@
         "base_year",
         "base_month"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "base_year_not_null",
@@ -1120,6 +1128,7 @@
         "floor_index",
         "floor_row_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "floor_row_id_not_null",
         "normalization_status_in_allowed_values",
@@ -1141,6 +1150,7 @@
         "pnu",
         "mgm_bldrgst_pk"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "title_row_id_not_null",
         "register_parcel_key_not_null",
@@ -1496,6 +1506,7 @@
         "unit_number",
         "unit_row_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "building_link_evidence_valid",
         "unit_row_id_not_null",
@@ -1687,6 +1698,7 @@
         "floor_index",
         "area_row_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "area_row_id_not_null",
         "register_parcel_key_not_null",
@@ -1802,6 +1814,7 @@
         "pnu",
         "membership_kind"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu passes shared PNU validation",
         "one active inside or intersects membership per complex_id and pnu",
@@ -1892,6 +1905,7 @@
         "unit",
         "change_seq"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid is the Silver CRS of the unit",
         "(unit, change_seq) unique",
@@ -2083,6 +2097,7 @@
         "name",
         "complex_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "one active row per complex_id",
         "parcel_count is non-negative",
@@ -2157,6 +2172,7 @@
         "spatial_key",
         "complex_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "spatial_key is stable",
         "bbox min/max ordering is valid",
@@ -2250,6 +2266,7 @@
       "sort_order": [
         "pnu"
       ],
+      "write_distribution": "range",
       "quality_gates": [
         "one row per pnu",
         "pnu matches the cadastral grammar",
@@ -2414,6 +2431,7 @@
         "pnu",
         "data_reference_date"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "area_m2_not_null"
@@ -2532,6 +2550,7 @@
         "pnu",
         "data_reference_date"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "area_m2_not_null"
@@ -2660,6 +2679,7 @@
         "pnu",
         "transfer_history_seq"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "transfer_history_seq_not_null"
@@ -2788,6 +2808,7 @@
         "pnu",
         "right_serial_no"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "pnu_not_null",
         "right_serial_no_not_null"
@@ -2899,6 +2920,7 @@
         "mgmt_key",
         "base_date"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "raw_columns_not_null",
@@ -2973,6 +2995,7 @@
         "ho_name",
         "base_date"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "pnu_not_null",
@@ -3029,6 +3052,7 @@
       "sort_order": [
         "pnu"
       ],
+      "write_distribution": "range",
       "quality_gates": [
         "one row per pnu",
         "pnu matches the cadastral grammar",
@@ -3102,6 +3126,7 @@
       "sort_order": [
         "complex_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid = 5186",
         "one row per complex_id",
@@ -3183,6 +3208,7 @@
       "sort_order": [
         "administrative_unit_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid = 4326",
         "one row per administrative_unit_id",
@@ -3250,6 +3276,7 @@
       "sort_order": [
         "pnu"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "geometry_srid = 4326",
         "one row per pnu",
@@ -3332,6 +3359,7 @@
         "snapshot_date",
         "region_cd"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "(snapshot_date, region_cd) unique",
@@ -3412,6 +3440,7 @@
         "effective_date",
         "old_code"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "change_key unique",
@@ -3512,6 +3541,7 @@
         "changed_on",
         "old_pnu"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "old_pnu and new_pnu are 19 digits unless quarantine_reason is malformed_pnu",
@@ -3602,6 +3632,7 @@
         "to_snapshot_id",
         "successor_pnu"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "grade is official, code_derived, evidence_strong, evidence_weak, needs_review or pending",
@@ -3676,6 +3707,7 @@
         "pnu",
         "valid_from"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "status is current, historic or redirected",
@@ -3746,6 +3778,7 @@
       "sort_order": [
         "subject_code"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "one row per (unit, subject_code)",
         "status is needs_review or pending",
@@ -3810,6 +3843,7 @@
       "sort_order": [
         "place_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "one row per (unit, scope, place_id)",
         "status is current, historic or redirected",
@@ -3873,6 +3907,7 @@
       "sort_order": [
         "place_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "a code maps to one place_id at any time",
         "valid_to is empty only for the open period"
@@ -3945,6 +3980,7 @@
       "sort_order": [
         "place_id"
       ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "change is added, retired, renumbered or redirected"

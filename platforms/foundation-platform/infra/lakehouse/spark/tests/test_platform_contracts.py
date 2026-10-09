@@ -408,5 +408,78 @@ class LoadUnitTest(unittest.TestCase):
                     load_unit("silver.parcel_boundaries")
 
 
+class WriteDistributionTest(unittest.TestCase):
+    """How a write spreads rows over files is the contract's, not each writer's (root ADR-0164)."""
+
+    @staticmethod
+    def ranged(**overrides) -> dict:
+        return {
+            "table_name": "gold.example",
+            "current_row_predicate": None,
+            "columns": [
+                {"name": "pnu", "logical_type": "string", "required": True},
+                {"name": "source_snapshot_id", "logical_type": "string", "required": True},
+            ],
+            "partition_spec": ["source_snapshot_id"],
+            "sort_order": ["pnu"],
+            "write_distribution": "range",
+            **overrides,
+        }
+
+    def test_every_table_declares_a_known_distribution(self) -> None:
+        from platform_contracts import load_lakehouse_artifact, write_distribution_mode
+
+        for name, contract in load_lakehouse_artifact()["contracts"].items():
+            with self.subTest(table=name):
+                self.assertIn(write_distribution_mode(contract), ("hash", "range"))
+
+    def test_a_range_table_must_range_over_its_own_columns(self) -> None:
+        from platform_contracts import write_distribution_mode
+
+        self.assertEqual(write_distribution_mode(self.ranged()), "range")
+        for overrides in ({"sort_order": []}, {"sort_order": ["bucket(16, pnu)"]},
+                          {"sort_order": ["absent"]}, {"write_distribution": "none"}):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                write_distribution_mode(self.ranged(**overrides))
+
+    def test_the_table_is_created_and_ordered_from_the_contract(self) -> None:
+        from unittest.mock import MagicMock
+
+        import platform_contracts
+
+        spark = MagicMock()
+        live = [{}, {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}]
+        with patch.object(platform_contracts, "evolve_iceberg_table_to_contract", return_value=()), \
+                patch.object(platform_contracts, "table_properties", side_effect=live):
+            platform_contracts.ensure_contract_table(spark, "`c`.`gold`.`example`", self.ranged())
+        statements = [call.args[0] for call in spark.sql.call_args_list]
+        self.assertIn("'write.distribution-mode' = 'range'", statements[0])
+        self.assertEqual(statements[1], "ALTER TABLE `c`.`gold`.`example` WRITE ORDERED BY pnu")
+        self.assertEqual(len(statements), 2)
+
+    def test_an_order_the_table_did_not_take_is_an_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        import platform_contracts
+
+        with patch.object(platform_contracts, "table_properties", return_value={}), \
+                self.assertRaisesRegex(ValueError, "did not take"):
+            platform_contracts.apply_write_order(MagicMock(), "t", self.ranged())
+
+    def test_a_hash_table_is_created_as_before_and_not_reordered(self) -> None:
+        from unittest.mock import MagicMock
+
+        import platform_contracts
+
+        spark = MagicMock()
+        with patch.object(platform_contracts, "evolve_iceberg_table_to_contract", return_value=()), \
+                patch.object(platform_contracts, "table_properties", return_value={}):
+            platform_contracts.ensure_contract_table(
+                spark, "t", self.ranged(write_distribution="hash"))
+        statements = [call.args[0] for call in spark.sql.call_args_list]
+        self.assertEqual(len(statements), 1)
+        self.assertIn("'write.distribution-mode' = 'hash'", statements[0])
+
+
 if __name__ == "__main__":
     unittest.main()

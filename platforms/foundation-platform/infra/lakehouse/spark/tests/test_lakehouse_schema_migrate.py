@@ -29,7 +29,7 @@ class PlanTable(unittest.TestCase):
 
     def test_a_table_that_matches_needs_nothing(self) -> None:
         plan = migrate.plan_table(contract(("a", True), ("b", False)), ("a", "b"), True, "gold.t")
-        self.assertEqual(plan, {"add": [], "backfill": [], "reorder": False})
+        self.assertEqual(plan, {"add": [], "backfill": [], "reorder": False, "write_order": False})
 
     def test_an_optional_column_is_added_without_a_backfill(self) -> None:
         plan = migrate.plan_table(contract(("a", True), ("b", False)), ("a",), True, "gold.t")
@@ -69,6 +69,52 @@ class PlanTable(unittest.TestCase):
     def test_a_wrong_type_is_blocked_even_when_column_names_match(self) -> None:
         with self.assertRaisesRegex(migrate.MigrationBlocked, "type"):
             migrate.plan_table(contract(("a", True)), ("a",), True, "gold.t", actual_types={"a": "int"})
+
+
+class WriteOrder(unittest.TestCase):
+    """A range-distributed contract puts its sort order on the live table (root ADR-0164)."""
+
+    ORDERED = {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}
+
+    @staticmethod
+    def ranged(distribution: str = "range") -> dict:
+        return {**contract(("pnu", True), ("b", False)), "table_name": "gold.t",
+                "sort_order": ["pnu"], "write_distribution": distribution}
+
+    def test_a_range_table_without_the_order_is_planned_and_one_with_it_is_not(self) -> None:
+        for properties, expected in (
+            ({}, True),
+            ({"write.distribution-mode": "hash"}, True),
+            ({"write.distribution-mode": "range"}, True),
+            ({"write.distribution-mode": "hash", "sort-order": "pnu ASC NULLS FIRST"}, True),
+            ({"write.distribution-mode": "range", "sort-order": "pnu DESC NULLS LAST"}, True),
+            ({"write.distribution-mode": "range", "sort-order": "b ASC NULLS FIRST"}, True),
+            ({"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST, b ASC NULLS FIRST"}, True),
+            (self.ORDERED, False),
+        ):
+            with self.subTest(properties=properties):
+                plan = migrate.plan_table(self.ranged(), ("pnu", "b"), True, "gold.t",
+                                          actual_properties=properties)
+                self.assertIs(plan["write_order"], expected)
+
+    def test_a_hash_table_is_left_to_its_writer(self) -> None:
+        plan = migrate.plan_table(self.ranged("hash"), ("pnu", "b"), True, "gold.t", actual_properties={})
+        self.assertFalse(plan["write_order"])
+
+    def test_an_undeclared_distribution_is_refused_rather_than_defaulted(self) -> None:
+        undeclared = {k: v for k, v in self.ranged().items() if k != "write_distribution"}
+        with self.assertRaisesRegex(ValueError, "write_distribution"):
+            migrate.plan_table(undeclared, ("pnu", "b"), True, "gold.t", actual_properties=self.ORDERED)
+
+    def test_both_panel_gold_tables_are_range_ordered_by_pnu(self) -> None:
+        from platform_contracts import load_lakehouse_contract, sort_order, write_distribution_mode
+
+        for table in ("gold.parcel_panel", "gold.building_panel"):
+            with self.subTest(table=table):
+                declared = load_lakehouse_contract(table)
+                self.assertEqual(write_distribution_mode(declared), "range")
+                # The by-PNU bake prunes files on the bounds of the leading sort column.
+                self.assertEqual(sort_order(declared)[0], "pnu")
 
 
 class TemporaryExtraColumns(unittest.TestCase):

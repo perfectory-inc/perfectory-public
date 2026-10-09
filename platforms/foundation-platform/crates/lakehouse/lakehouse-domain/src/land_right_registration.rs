@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_RIGHT_REGISTRATION_COLUMNS: &[LakehouseColumn] = &[
@@ -123,6 +123,7 @@ pub const SILVER_LAND_RIGHT_REGISTRATION: LakehouseTableContract = LakehouseTabl
     columns: SILVER_LAND_RIGHT_REGISTRATION_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "right_serial_no"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &["pnu_not_null", "right_serial_no_not_null"],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",
