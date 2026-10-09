@@ -27,8 +27,12 @@ sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
 
 
-def run(name, status="completed", conclusion="success"):
-    return {"name": name, "status": status, "conclusion": conclusion}
+def run(name, status="completed", conclusion="success", suite=1):
+    return {"name": name, "status": status, "conclusion": conclusion, "check_suite": {"id": suite}}
+
+
+def queue_run(suite, status="completed", conclusion="success"):
+    return {"check_suite_id": suite, "event": "merge_group", "status": status, "conclusion": conclusion}
 
 
 class TheVerdict(unittest.TestCase):
@@ -50,15 +54,45 @@ class TheVerdict(unittest.TestCase):
                 self.assertIn("ci", reason)
 
 
+class TheMergeQueueRunDecides(unittest.TestCase):
+    """main's commit is the tree the merge queue tested (root ADR-0167)."""
+
+    def test_a_passed_queue_deploys_while_mains_second_run_still_runs(self):
+        decision, reason = release_checks.verdict(
+            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
+        )
+        self.assertEqual(decision, "deploy")
+        self.assertIn("merge queue", reason)
+
+    def test_a_queue_still_running_waits(self):
+        for queue in ([queue_run(7, status="in_progress", conclusion=None)], [queue_run(7), queue_run(9, "queued", None)]):
+            with self.subTest(queue):
+                decision, _ = release_checks.verdict(
+                    [run("ci", suite=7), run("slow", status="in_progress", conclusion=None, suite=8)], queue
+                )
+                self.assertEqual(decision, "wait")
+
+    def test_a_failure_in_mains_second_run_still_refuses(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("ci", conclusion="failure", suite=8)], [queue_run(7)]
+        )
+        self.assertEqual(decision, "refuse")
+
+    def test_a_commit_the_queue_never_ran_waits_for_every_run(self):
+        decision, _ = release_checks.verdict([run("ci"), run("slow", status="queued", conclusion=None)], [])
+        self.assertEqual(decision, "wait")
+
+
 class TheChecksAreReadPageByPage(unittest.TestCase):
-    def serve(self, runs):
+    def serve(self, runs, queue=()):
         class Handler(http.server.BaseHTTPRequestHandler):
             asked = []
 
             def do_GET(self):
                 Handler.asked.append(self.path)
                 page = int(self.path.rsplit("page=", 1)[1])
-                body = json.dumps({"total_count": len(runs), "check_runs": runs[(page - 1) * 100:page * 100]})
+                key, items = ("workflow_runs", queue) if "/actions/runs?" in self.path else ("check_runs", runs)
+                body = json.dumps({"total_count": len(items), key: items[(page - 1) * 100:page * 100]})
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(body.encode())
@@ -77,7 +111,17 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("refuse "), result.stdout)
-        self.assertEqual(len(asked), 2)
+        self.assertEqual(len([path for path in asked if "/check-runs?" in path]), 2)
+
+    def test_the_queue_runs_are_asked_for_this_commit_and_event(self):
+        api, asked = self.serve(
+            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
+        )
+        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
+        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&event=merge_group&", "".join(asked))
 
     def test_an_unreachable_api_exits_2(self):
         result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],

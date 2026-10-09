@@ -5,7 +5,8 @@
 # - main's head is read from GitHub anonymously (the repository is public, ADR-0136);
 # - nothing happens when the host already runs it, when it was refused or failed before (a newer
 #   commit on main is the way past it), or while /etc/foundation-platform/autodeploy.off exists;
-# - its check runs decide (release_checks.py): all passed deploys it, any still running waits for
+# - its check runs decide (release_checks.py): all passed, or all the merge queue ran on it passed
+#   (ADR-0167), deploys it; any still running waits for
 #   the next tick, any failed refuses it for good;
 # - the deploy is foundation-deploy.sh from the control checkout the host trusts now, not from the
 #   commit being deployed.
