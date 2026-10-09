@@ -15,6 +15,8 @@
 # 실패하면 슬랙 #alerts 가 안다. 모든 산출물은 실행마다 새 작업 폴더에 남는다.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 STATE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
@@ -57,7 +59,8 @@ PY
 }
 
 on_error() {
-  printf '%s stewardship FAILED at line %s run=%s\n' "$(date -u +%FT%TZ)" "$1" "${run_id}" >> "${journal}"
+  job_journal "${journal}" "stewardship FAILED at line $1 run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
   # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
@@ -90,7 +93,7 @@ probe_rc=0
 spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container_work}/probe.json" \
   || probe_rc=$?
 if [ "${probe_rc}" = 3 ]; then
-  printf '%s stewardship waiting: silver.parcel_lineage does not exist yet\n' "$(date -u +%FT%TZ)" >> "${journal}"
+  job_journal "${journal}" "stewardship waiting: silver.parcel_lineage does not exist yet"
   notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
   exit 0
 elif [ "${probe_rc}" != 0 ]; then
@@ -128,5 +131,5 @@ print(f"🗂 필지 계보 검토: 대기 {s.get('open', 0)}건 (ownership 불�
       f"지역 {regions} · 오늘 반영된 결정 {sys.argv[2]}건 · 새 근거로 다시 열림 {s.get('reopened_by_new_evidence', 0)}건")
 PY
 )"
-printf '%s stewardship ok run=%s %s\n' "$(date -u +%FT%TZ)" "${run_id}" "${summary}" >> "${journal}"
+job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"

@@ -582,7 +582,11 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 | 실패한 커밋 다시 시도 | 원인을 고친 새 커밋을 main 에 올린다. 같은 커밋을 다시 하려면 `/var/lib/perfectory/autodeploy/failed/<sha>` 를 지운다 |
 
 검사가 실패한 커밋(`refused`)과 배포가 실패한 커밋(`failed`)은 한 번만 Slack 으로 알리고 다시 시도하지 않는다.
-배포 뒤 작업(`started_once_after_deploy`)이 실패하면 DAG 는 멈춘 채로 남는다.
+배포 뒤 작업(`started_once_after_deploy`)이 실패해도 배포는 성공이고 DAG 는 다시 켜진다(루트 ADR-0173): 그 유닛의
+`OnFailure` 가 Slack 에 알리고, 배포 로그에 `the post-deploy run did not succeed under <sha>: <유닛>` 한 줄이 남으며,
+다음 예약 실행이 다시 한다. 이유는 `journalctl -u <유닛>` 에 있다(루트 ADR-0174). 배포가 새 릴리스로 바꾸기 전에
+멈추면 DAG 는 다시 켜지고, 활성화·마이그레이션 중에 멈추면 DAG 는 멈춘 채로 남으며 배포 로그에 `THE DAGS STAY PAUSED`
+줄이 남는다 — 고쳐서 다시 배포하거나, 릴리스를 확인한 뒤 켜진 작업의 DAG 를 손으로 켠다.
 
 ## 릴리스 인증 전환 (1회)
 

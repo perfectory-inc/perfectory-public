@@ -215,3 +215,5 @@ last_reviewed: 2026-07-28
 - [ADR-0169 — Silver 레인은 원천 판을 장부에서 고르고, 예약 작업이 스스로 채운다](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)
 - [ADR-0170 — VWorld 대용량 파일은 데이터 호스트의 RAON 에이전트로 받는다](./0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md)
 - [ADR-0171 — 예약 작업은 시계가 아니라 실행이 바꾼 데이터로 잇는다](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)
+- [ADR-0173 — 배포가 멈춘 DAG 는 배포가 어떻게 끝나든 조용히 멈춘 채로 남지 않는다](./0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md)
+- [ADR-0174 — 작업의 기록 줄과 실패한 실행 로그의 끝은 유닛 저널에 간다](./0174-a-jobs-journal-lines-reach-the-units-journal.md)

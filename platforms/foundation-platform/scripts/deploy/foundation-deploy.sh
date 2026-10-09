@@ -8,13 +8,18 @@
 # Root only. Every job list comes from orchestration/jobs.v1.json of the release being replaced:
 # the DAGs paused and the services waited for are its jobs, and the jobs started once under the new
 # release are those it marks `started_once_after_deploy`. Stops at the first failure; every step is
-# safe to re-run. A job that does not succeed after the switch leaves the DAGs paused.
+# safe to re-run. A job that does not succeed after the switch does not fail the deploy or keep the
+# DAGs paused (root ADR-0173): its unit's OnFailure alerts, the next scheduled run tries again, and
+# the deploy's log names it. A deploy that stops before the release switch unpauses the DAGs again;
+# one that stops during the switch leaves them paused and says so in capitals.
 #
 # The account that owns the Airflow runtime state (airflow-runtime.sh, $HOME/airflow-state) is the
 # host's deployer; it is named in /etc/foundation-platform/release-deploy.conf as
 # FOUNDATION_DEPLOYER=<account>, because it is a fact about the host, not about a release.
 set -euo pipefail
 [[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }
+# Read now, before step 1 moves the control checkout this script runs from to the new commit.
+source "$(dirname "${BASH_SOURCE[0]}")/deploy-start-once.sh"
 sha="${1:-}"
 [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || { echo "usage: foundation-deploy.sh <40-hex commit>" >&2; exit 64; }
 
@@ -57,6 +62,12 @@ mapfile -t units < <(jobs_of services)
 old="$(readlink -f "${release_root}/current")"; old="${old##*/}"
 
 log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
+# From here until step 7 the DAGs are paused. A deploy that stops before the release switch gives the
+# running release its schedule back; one that stops during the switch says loudly that they stay
+# paused (deploy-start-once.sh, root ADR-0173). A signal (the unit's time limit) ends it the same way.
+phase=before-switch
+trap 'deploy_paused_dags_on_exit "$?" "${phase}" "${sha}"' EXIT
+trap 'exit 143' TERM INT HUP
 for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
 echo "paused ${#jobs[@]} DAGs"
 # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
@@ -107,6 +118,7 @@ chown root:root "${floor}"; chmod 0644 "${floor}"
 rm -f "${floor}"
 
 log "4. activate, migrate, timers"
+phase=switching
 "${release}" activate "${sha}"
 "${release}" migrate
 "${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
@@ -116,26 +128,10 @@ log "5. Airflow picks up the release's DAGs and pools"
 as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up -d
 
 log "6. start once, under the new release, each job its registry marks started_once_after_deploy"
-mapfile -t once < <(jobs_of started-once)
-failed=()
-for entry in "${once[@]}"; do
-  service="${entry% *}"
-  # The job's own limit from the registry, and a minute for systemd to report it.
-  timeout "$(( ${entry##* } * 60 + 60 ))" systemctl start "${service}" || true
-  result="$(systemctl show -p Result --value "${service}")"
-  printf '%-45s %s\n' "${service}" "${result}"
-  [[ "${result}" == success ]] || failed+=("${service}")
-done
-if ((${#failed[@]} > 0)); then
-  for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null || true; done
-  echo "did not succeed under ${sha}: ${failed[*]}; the DAGs stay paused. See journalctl -u <unit>." >&2
-  exit 1
-fi
-
-log "7. unpause the enabled DAGs"
-mapfile -t jobs < <(jobs_of enabled)
-for id in "${jobs[@]}"; do airflow dags unpause "foundation_${id}" >/dev/null; done
-echo "unpaused ${#jobs[@]} DAGs"
+# Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).
+phase=after-switch
+start_once_then_unpause "${sha}"
+phase=done
 
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"

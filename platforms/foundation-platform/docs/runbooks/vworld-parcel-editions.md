@@ -51,7 +51,7 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 
    ```bash
    sudo systemctl start foundation-vworld-parcel-edition.service
-   tail -3 /var/lib/foundation-platform/vworld-parcel-edition/journal.log
+   journalctl -u foundation-vworld-parcel-edition.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
    ```
 
    계약이 제공자의 최신 판을 이미 가지면 `provider=<판> held` 한 줄이고 종료 코드는 0 이다. 2026-10-05 에 같은

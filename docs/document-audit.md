@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **522개**
-- 언어 분류: **{'english': 37, 'korean': 329, 'mixed': 156}**
+- 감사 문서: **524개**
+- 언어 분류: **{'english': 37, 'korean': 331, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **232개 정상 / 0개 누락 / 290개 해당 없음**
+- 메타데이터: **232개 정상 / 0개 누락 / 292개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -144,7 +144,7 @@
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 12 |
+| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 13 |
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -179,7 +179,7 @@
 | `docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0160-one-by-pnu-gateway-source-serves-both-lanes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0161-pack-cutover-root-steps-run-through-one-granted-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -191,7 +191,9 @@
 | `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
 | `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
-| `docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
+| `docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
+| `docs/adr/0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
+| `docs/adr/0174-a-jobs-journal-lines-reach-the-units-journal.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |

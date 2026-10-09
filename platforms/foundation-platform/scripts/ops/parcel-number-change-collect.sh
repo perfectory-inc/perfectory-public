@@ -21,6 +21,8 @@
 # 0 이 아닌 값으로 끝나고, Airflow 실패 알림이 슬랙에 간다(ADR-0122).
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152). 2026-10-05 첫 실행은 읽기 키가 없다는 것을 Bronze 에 20개를 쓴
 #    뒤에야 알았다. 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가 계약으로 본다
@@ -75,7 +77,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}/downloads"
 run_log="${work}/run.log"
-trap 'printf "%s parcel-number-change collect FAILED at line %s run=%s\n" "$(date -u +%FT%TZ)" "${LINENO}" "${run_id}" >> "${journal}"; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true' ERR
+trap 'job_journal "${journal}" "parcel-number-change collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
 # 1. 확인. 계획은 이 데이터셋 하나만 담은 목록에서 만든다 — 목록 전체를 받으면 다른 데이터셋 수백 파일의
 #    목록까지 매일 긁는다.
@@ -88,7 +90,7 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 "${PUBLISHER_BIN}" inventory-vworld-dataset-files >> "${run_log}" 2>&1
 changed="$(history changed-files --inventory "${work}/inventory.json" --state-dir "${STATE_ROOT}" --output "${work}/inventory-changed.json")"
 if [ "${changed}" = 0 ]; then
-  printf '%s parcel-number-change unchanged run=%s\n' "$(date -u +%FT%TZ)" "${run_id}" >> "${journal}"
+  job_journal "${journal}" "parcel-number-change unchanged run=${run_id}"
   echo '{"status": "unchanged", "files": 0}'
   exit 0
 fi
@@ -120,5 +122,4 @@ done < <(history landed-objects --evidence "${work}/ingest-evidence.json")
 result="$(history stage-handoff --inventory "${work}/inventory-changed.json" --evidence "${work}/ingest-evidence.json" \
   --download-dir "${work}/downloads" --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
 rm -rf "${work}/downloads" # the handoff holds its own copy
-printf '%s parcel-number-change collect ok run=%s %s\n' "$(date -u +%FT%TZ)" "${run_id}" "${result}" >> "${journal}"
-echo "${result}"
+job_journal "${journal}" "parcel-number-change collect ok run=${run_id} ${result}"

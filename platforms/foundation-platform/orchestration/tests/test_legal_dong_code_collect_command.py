@@ -36,7 +36,7 @@ class StewardCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("legal-dong-code-collect.sh", "admitted-writer-runtime.sh"):
+        for name in ("legal-dong-code-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         shutil.copytree(PLATFORM / JOBS, release / JOBS, ignore=shutil.ignore_patterns("__pycache__"))
@@ -75,6 +75,7 @@ class StewardCommand(unittest.TestCase):
         [decision] = self.staged()
         self.assertEqual(json.loads(decision.read_text(encoding="utf-8"))["approve"], ["9811010100=9911010100"])
         self.assertIn("steward decision staged", (self.state / "journal.log").read_text(encoding="utf-8"))
+        self.assertIn("legal-dong-code steward decision staged", result.stdout, "the unit's journal has it too")
 
     def test_an_unlisted_approval_is_refused_at_the_terminal_and_stages_nothing(self):
         result = self.steward("--approve", "9811010200=9911010200")

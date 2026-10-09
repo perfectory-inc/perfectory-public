@@ -140,7 +140,7 @@ class SweepCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh"):
+        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)
@@ -265,6 +265,20 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("40", message)
         self.assertIn("ADR-0168", message)
         self.assertIn("ingest-building-hub-bulk-collection", self.read("calls.log"), "the hub lane still ran")
+        # Why it failed is in the unit's journal, not only in files the operator cannot read (root ADR-0174).
+        self.assertIn("status=blocked_new_bytes_budget", result.stdout)
+        self.assertIn("daily-source-sweep: failed lanes: vworld", result.stderr)
+        self.assertIn("ADR-0168", result.stderr)
+
+    def test_a_failed_runs_reason_reaches_the_units_journal(self):
+        # 2026-10-09: `journalctl -u` said only "exit 1"; the reason was in root-only files.
+        self.scenario(hub={"die": True}, vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        summary = self.journal().splitlines()[-1].split(" ", 1)[1]
+        self.assertIn(summary, result.stdout.splitlines(), "the journal line is the unit's line too")
+        self.assertIn("  | hub ingest died", result.stderr, "the end of the run log is relayed")
+        self.assertNotIn("planted-", result.stdout + result.stderr)
 
     def test_an_operator_override_reaches_the_ingest_and_is_journaled(self):
         self.scenario(vworld={"evidence": vworld_evidence([vfile("7", "succeeded")])})

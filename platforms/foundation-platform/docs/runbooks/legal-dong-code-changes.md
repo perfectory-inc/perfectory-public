@@ -125,7 +125,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
    ```bash
    sudo systemctl start foundation-legal-dong-code.service
-   tail -3 /var/lib/foundation-platform/legal-dong-code/journal.log
+   journalctl -u foundation-legal-dong-code.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
    ls /var/lib/foundation-platform/legal-dong-code/pending/
    ```
 
@@ -184,7 +184,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
      ```bash
      sudo systemctl start foundation-parcel-number-change.service
-     tail -3 /var/lib/foundation-platform/parcel-number-change/journal.log
+     journalctl -u foundation-parcel-number-change.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
      ls /var/lib/foundation-platform/parcel-number-change/pending/
      ```
 
@@ -223,7 +223,8 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 ## 4. 알림이 뜻하는 것
 
 실패는 단위가 0 이 아닌 값으로 끝나는 것이다. 알림은 Airflow 실패 알림으로 슬랙에 간다(ADR-0122). 작업 기록은
-`/var/lib/foundation-platform/legal-dong-code/journal.log` 와 실행마다의 `runs/<시각>/run.log` 에 있다.
+`/var/lib/foundation-platform/legal-dong-code/journal.log` 와 실행마다의 `runs/<시각>/run.log` 에 있고, 운영자는
+`journalctl -u <유닛>` 으로 같은 줄과 실패한 실행 로그의 끝을 읽는다(ADR-0174; 상태 디렉터리는 서비스 계정만 읽는다).
 
 | 어디서 | 문구 | 뜻 | 할 일 |
 | --- | --- | --- | --- |

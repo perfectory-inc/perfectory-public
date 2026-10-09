@@ -165,6 +165,8 @@ class PairingOwed(unittest.TestCase):
         self.assertIsNone(self.marker())
         self.assertEqual(len(self.journal_lines()), 1)
         self.assertIn("legal-dong-code no pending handoff run=run1", self.journal_lines()[0])
+        # The unit's journal carries the same line (root ADR-0174).
+        self.assertIn("legal-dong-code no pending handoff run=run1", result.stdout.splitlines())
 
     def test_an_empty_host_owes_nothing(self):
         result = self.run_cycle()

@@ -6,6 +6,7 @@ records what it was asked to deploy and exits as told. release_checks.py itself 
 a local stand-in for the GitHub API.
 """
 
+import getpass
 import http.server
 import json
 import os
@@ -19,6 +20,8 @@ import unittest
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/deploy/foundation-autodeploy.sh"
 CHECKS = PLATFORM / "scripts/deploy/release_checks.py"
+DEPLOY = PLATFORM / "scripts/deploy/foundation-deploy.sh"
+START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 JOBS = PLATFORM / "orchestration/jobs.v1.json"
 CURRENT = "a" * 40
 HEAD = "b" * 40
@@ -246,6 +249,153 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         result = self.tick(FIXTURE_NO_HEAD="1")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.deployed(), [])
+
+
+class TheWholeDeploy(unittest.TestCase):
+    """foundation-deploy.sh end to end against stand-ins (root ADR-0159 as amended by ADR-0173).
+
+    A test copy points the script's fixed paths at a fixture host: the release now running (its job
+    registry, its Airflow runtime script), the control checkout, and the commit's checkout holding a
+    stand-in foundation-release.sh that fails at the step FIXTURE_FAIL_AT names. sudo runs the
+    command as this user, systemctl answers from FIXTURE_FAILING, git and chown do nothing. What runs
+    for real is the script's order of steps and what it does to the DAGs when one of them fails.
+    """
+
+    ENABLED = ("source_sweep", "outbox_publish", "map_edit_fold_admin")
+    DISABLED = ("vworld_parcel_edition",)
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="foundation-deploy-")
+        self.addCleanup(temp.cleanup)
+        root = self.root = pathlib.Path(temp.name)
+        old, old_control = "c" * 40, "d" * 40
+        release_root, control_root = root / "opt/foundation-platform", root / "opt/perfectory-control"
+        running = release_root / "releases" / old
+        (running / "orchestration").mkdir(parents=True)
+        (running / "scripts/deploy").mkdir(parents=True)
+        once = {"source_sweep": 5, "outbox_publish": 1}
+        jobs = [{"id": job, "enabled": job in self.ENABLED, "systemd_service": f"foundation-{job}.service",
+                 "timeout_minutes": once.get(job, 30), "started_once_after_deploy": job in once}
+                for job in self.ENABLED + self.DISABLED]
+        (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
+        # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>.
+        (running / "scripts/deploy/airflow-runtime.sh").write_text(
+            'if [[ "$1" == exec ]]; then shift 3; printf "%s\\n" "$*" >> "$FIXTURE_ROOT/airflow.log"\n'
+            '  [[ -z "${FIXTURE_AIRFLOW_FAILS:-}" || "$*" != *"$FIXTURE_AIRFLOW_FAILS"* ]]; fi\n')
+        (release_root / "current").symlink_to(pathlib.Path("releases") / old)
+        (release_root / "config" / old).mkdir(parents=True)
+        (release_root / "config" / old / "building-register-floor.env").write_text(
+            "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=x\nFOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=y\n")
+        (release_root / "artifacts" / HEAD).mkdir(parents=True)
+        (release_root / "artifacts" / HEAD / "build.json").write_text('{"publisher_image": "sha256:' + "e" * 64 + '"}')
+        trusted = control_root / "releases" / old_control
+        (trusted / "tools/github").mkdir(parents=True)
+        (trusted / "tools/github/repository-identity.json").write_text('{"full_name": "owner/repo"}')
+        (trusted / "scripts/github").mkdir(parents=True)
+        (trusted / "scripts/github/safe-git-transport.sh").write_text("exit 0\n")
+        (control_root / "current").symlink_to(pathlib.Path("releases") / old_control)
+        # The commit's checkout exists already, so step 1 only moves `current` to it.
+        new = control_root / "releases" / HEAD / "platforms/foundation-platform/scripts/deploy"
+        new.mkdir(parents=True)
+        (new / "foundation-release.sh").write_text(
+            '#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$FIXTURE_ROOT/release.log"\n'
+            '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]]\n')
+        (new / "foundation-release.sh").chmod(0o755)
+        (root / "var").mkdir()
+        conf = root / "release-deploy.conf"
+        conf.write_text(f"FOUNDATION_DEPLOYER={getpass.getuser()}\n")
+        text = DEPLOY.read_text(encoding="utf-8")
+        text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
+        for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
+                            ("mirror", root / "var/control-source.git")):
+            line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
+            text = text.replace(line, f"{name}={value}", 1)
+        text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root}/var/")
+        self.assertNotIn("/var/lib/perfectory", text)
+        scripts = root / "scripts"
+        scripts.mkdir()
+        (scripts / "foundation-deploy.sh").write_text(text)
+        (scripts / START_ONCE.name).write_bytes(START_ONCE.read_bytes())
+        self.script = scripts / "foundation-deploy.sh"
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        for name, body in (
+            ("sudo", 'while [[ "$1" == -* ]]; do [[ "$1" == -u ]] && shift; shift; done\nexec "$@"\n'),
+            ("git", 'if [[ "$*" == *" -o "* ]]; then : > "${@: -2:1}"; fi\nexit 0\n'),
+            ("chown", "exit 0\n"),
+            ("systemctl", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/systemctl.log"\n'
+                          'service="${!#}"; failing=" ${FIXTURE_FAILING:-} "\n'
+                          'case "$*" in\n'
+                          '  start*) [[ "${failing}" != *" ${service} "* ]] ;;\n'
+                          '  *ActiveState*) echo inactive ;;\n'
+                          '  *Result*) if [[ "${failing}" == *" ${service} "* ]]; then echo exit-code; else echo success; fi ;;\n'
+                          'esac\n'),
+        ):
+            (self.bin / name).write_text("#!/usr/bin/env bash\n" + body)
+            (self.bin / name).chmod(0o755)
+
+    def deploy(self, **env):
+        return subprocess.run(
+            ["bash", str(self.script), HEAD],
+            env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FIXTURE_ROOT": str(self.root), **env},
+            capture_output=True, text=True, check=False, timeout=120,
+        )
+
+    def dags(self):
+        """Each DAG's state after the deploy, from the last pause or unpause Airflow was told."""
+        state = {}
+        path = self.root / "airflow.log"
+        for line in (path.read_text().splitlines() if path.exists() else []):
+            verb, _, dag = line.removeprefix("dags ").partition(" ")
+            if verb in ("pause", "unpause"):
+                state[dag.removeprefix("foundation_")] = verb
+        return state
+
+    def released(self):
+        path = self.root / "release.log"
+        return path.read_text().split() if path.exists() else []
+
+    def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.released(), ["prepare", "floor-config", "activate", "migrate", "timers", "status"])
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+
+    def test_a_failed_post_deploy_run_leaves_every_enabled_dag_unpaused(self):
+        # 2026-10-09, three deploys in a row: the sweep's post-deploy run failed, the deploy exited at
+        # step 6 before step 7, and all 17 DAGs stayed paused for about three hours.
+        result = self.deploy(FIXTURE_FAILING="foundation-source_sweep.service")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DONE: production runs", result.stdout)
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertIn(f"the post-deploy run did not succeed under {HEAD}: foundation-source_sweep.service",
+                      result.stderr)
+        started = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("start")]
+        self.assertEqual(started, ["start foundation-source_sweep.service", "start foundation-outbox_publish.service"],
+                         "a failed run does not stop the next one from being started")
+
+    def test_a_deploy_that_stops_before_the_switch_gives_the_running_release_its_schedule_back(self):
+        result = self.deploy(FIXTURE_FAIL_AT="prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released(), ["prepare"], "nothing of the new release was activated")
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertIn("stopped (exit 1) before the release switch", result.stderr)
+
+    def test_a_deploy_that_stops_during_the_switch_keeps_the_dags_paused_and_says_so(self):
+        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.dags(), {job: "pause" for job in self.ENABLED + self.DISABLED},
+                         "jobs must not run on a release that is activated but not migrated")
+        self.assertIn("THE DAGS STAY PAUSED", result.stderr)
+
+    def test_a_dag_that_cannot_be_unpaused_fails_the_deploy_loudly(self):
+        result = self.deploy(FIXTURE_AIRFLOW_FAILS="unpause foundation_outbox_publish")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("DONE: production runs", result.stdout)
+        self.assertIn("DAGS MAY STILL BE PAUSED", result.stderr)
 
 
 class TheJobsADeployStartsOnce(unittest.TestCase):

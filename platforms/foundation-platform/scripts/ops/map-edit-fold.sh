@@ -11,6 +11,8 @@
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 유닛은 첫 인자다 — systemd 템플릿 `foundation-map-edit-fold@<unit>.service` 가 `%i` 로 넘긴다.
 UNIT="${1:-${FOUNDATION_MAP_EDIT_FOLD_UNIT:-complex}}"
@@ -77,8 +79,9 @@ PY
 
 on_error() {
   local line="$1"
-  printf '%s fold FAILED at line %s\n' "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
+  job_journal "${journal}" "fold unit=${UNIT} FAILED at line ${line}" >&2
   tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true
+  job_run_log_tail "${run_log}"
   # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
@@ -108,7 +111,7 @@ if [ "${oldest_age_hours}" -ge "${MAX_PENDING_AGE_HOURS}" ]; then
   notify_slack "🟠 지도 편집 ${pending}건이 ${oldest_age_hours}시간째 타일에 접히지 않음(${UNIT}) — 접기가 돌지 않는다"
 fi
 if [ "${pending}" = "0" ] && [ "${FOUNDATION_MAP_EDIT_FOLD_FORCE:-0}" != "1" ]; then
-  printf '%s fold unit=%s pending=0 overlay=%s skipped\n' "$(date -u +%FT%TZ)" "${UNIT}" "${overlay_status}" >> "${journal}"
+  job_journal "${journal}" "fold unit=${UNIT} pending=0 overlay=${overlay_status} skipped"
   exit 0
 fi
 
@@ -150,5 +153,5 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="map-edit-fold-$
   "${PUBLISHER_BIN}" bake-lakehouse-tiles >> "${run_log}" 2>&1
 
 result="$(grep -o 'lakehouse-tile-bake-ok.*' "${run_log}" | tail -1)"
-printf '%s fold unit=%s pending=%s %s\n' "$(date -u +%FT%TZ)" "${UNIT}" "${pending}" "${result}" >> "${journal}"
+job_journal "${journal}" "fold unit=${UNIT} pending=${pending} ${result}"
 notify_slack "🗺️ 지도 편집 ${pending}건을 ${UNIT} 타일에 접었다 — ${result}"
