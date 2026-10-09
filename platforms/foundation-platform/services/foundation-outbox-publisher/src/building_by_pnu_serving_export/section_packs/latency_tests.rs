@@ -109,6 +109,7 @@ fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyCo
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
         no_gzip_sample_size: 2,
+        sample_units: Vec::new(),
     }
 }
 

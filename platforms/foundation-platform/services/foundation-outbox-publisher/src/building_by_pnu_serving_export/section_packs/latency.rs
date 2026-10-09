@@ -83,6 +83,9 @@ pub(crate) struct LatencyConfig {
     /// How many sample PNUs are read again from the preview without gzip; 0 reads none (the gate
     /// stays shut).
     pub(crate) no_gzip_sample_size: usize,
+    /// The unit of each sampled PNU, from the equality evidence (root ADR-0163): a read is cold on
+    /// the first of its unit. Empty, each PNU's unit is its dong.
+    pub(crate) sample_units: Vec<String>,
 }
 
 impl LatencyConfig {
@@ -135,6 +138,7 @@ impl LatencyConfig {
                 load::LOAD_DRAW.to_owned(),
             )),
             no_gzip_sample_size: gate.no_gzip_sample_size,
+            sample_units: Vec::new(),
         })
     }
 }
@@ -144,8 +148,10 @@ impl LatencyConfig {
 /// # Errors
 /// Returns an error when the sample cannot be read or the evidence does not pass.
 pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
-    let config = LatencyConfig::from_env(lane)?;
+    let mut config = LatencyConfig::from_env(lane)?;
     let pnus = sample(&config)?;
+    let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
+    config.sample_units = equality.sample_units;
     let evidence = probe(&config, &pnus).await?;
     write_evidence(&config.evidence_path, &evidence)?;
     tracing::info!(
@@ -344,13 +350,7 @@ pub(crate) async fn probe(
         .timeout(REQUEST_TIMEOUT)
         .pool_max_idle_per_host(config.concurrency.max(1))
         .build()?;
-    let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
-    let units = if equality.sample == pnus {
-        equality.sample_units
-    } else {
-        Vec::new()
-    };
-    let cold = cold_reads(pnus, &units)?;
+    let cold = cold_reads(pnus, &config.sample_units)?;
     let started_at = Utc::now();
     // Owned per-PNU work: a stream of borrows trips the closure's lifetime inference.
     let jobs = pnus

@@ -1173,6 +1173,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
         no_gzip_sample_size: 0,
+        sample_units: Vec::new(),
     };
     let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
@@ -1453,6 +1454,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
         no_gzip_sample_size: 0,
+        sample_units: Vec::new(),
     };
     let live = route(5, body.clone()).await?;
     let close = route(15, joined.clone()).await?;
