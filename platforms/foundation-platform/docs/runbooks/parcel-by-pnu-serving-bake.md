@@ -190,7 +190,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 | --- | --- |
 | 작업 목록·일정·풀·켜짐 | `orchestration/jobs.v1.json` 의 `by_pnu_serving_bake` (두 레인을 한 작업이 차례로) |
 | 실행 계정·환경·시간 상한·메모리 상한·쓰기 경로 | `infra/systemd/foundation-by-pnu-serving-bake.service` |
-| 한 번의 실행 | `scripts/ops/by-pnu-serving-bake.sh building` — 필지가 묶음으로 서빙되기 전(루트 ADR-0147 §8)에는 건물 레인만 굽는다. 필지 객체 레인은 새 Gold 스냅숏 하나에 최대 3,986만 객체를 다시 쓸 수 있고, 그 객체는 묶음 전환이 대신한다. 전환 뒤 `all`(필지 다음 건물)로 돌아간다 |
+| 한 번의 실행 | `scripts/ops/by-pnu-serving-bake.sh all` — 필지 다음 건물, 차례로. 두 레인 모두 2026-10-09 부터 묶음으로 서빙한다(루트 ADR-0147) |
 | 할 일이 있는지 | `foundation-outbox-publisher show-<레인>-by-pnu-serving-state` (읽기 전용) |
 | 굽는 Gold 를 누가 만드는지 | 예약 작업 `gold_panel_rebuild` — Silver 입력이 바뀌면 굽기 전에 Gold 를 다시 만든다([gold-panel-rebuild.md](./gold-panel-rebuild.md), 루트 ADR-0139) |
 | 건물 레인이 묶음으로 서빙할 때 | 같은 실행이 객체 대신 항목별 묶음을 굽고 발행한다([building-section-pack-cutover.md](./building-section-pack-cutover.md) 7절, 루트 ADR-0147) |
