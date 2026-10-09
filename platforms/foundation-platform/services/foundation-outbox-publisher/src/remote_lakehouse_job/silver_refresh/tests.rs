@@ -238,11 +238,7 @@ fn the_lane_contracts_say_how_each_lane_runs() -> anyhow::Result<()> {
 }
 
 fn planted(lane: Lane, edit: impl FnOnce(&mut serde_json::Value)) -> anyhow::Result<String> {
-    let text = match lane {
-        Lane::Titles => include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-title-source-objects.json"),
-        Lane::ApartmentPrice => include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-apartment-price-source-objects.json"),
-        _ => anyhow::bail!("not planted"),
-    };
+    let (_, text) = lane.contract_source();
     let mut value: serde_json::Value = serde_json::from_str(text)?;
     edit(&mut value);
     Ok(value.to_string())

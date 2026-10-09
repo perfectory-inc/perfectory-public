@@ -57,7 +57,9 @@ impl Lane {
         format!("silver.{}", self.id().replace('-', "_"))
     }
 
-    const fn contract_source(self) -> (&'static str, &'static str) {
+    pub(in crate::remote_lakehouse_job) const fn contract_source(
+        self,
+    ) -> (&'static str, &'static str) {
         match self {
             Self::Titles => (
                 "hub-building-register-title-source-objects.json",
@@ -73,11 +75,11 @@ impl Lane {
             ),
             Self::ApartmentPrice => (
                 "hub-building-register-apartment-price-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-apartment-price-source-objects.json"),
+                foundation_outbox_publisher::building_register_apartment_price_silver_export::CONTRACT_JSON,
             ),
             Self::ExclusiveUnit => (
                 "hub-building-register-exclusive-unit-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-exclusive-unit-source-objects.json"),
+                foundation_outbox_publisher::building_register_exclusive_unit_silver_export::CONTRACT_JSON,
             ),
         }
     }
