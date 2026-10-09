@@ -38,7 +38,7 @@ fn exclusive_unit_stream_preserves_labels_raw_fields_and_invalid_pnus() -> anyho
     assert_eq!(report["pnu_ok"], 2);
     assert_eq!(report["pnu_bad"], 2);
     assert_eq!(report["rejected_rows"], 0);
-    assert_eq!(report["vintage"], "202608");
+    assert_eq!(report["vintage"], "209908");
     let rows = report["decoded_rows"].as_array().context("expected rows")?;
     let parts = report["parts"].as_array().context("expected parts")?;
     assert_eq!(parts.len(), 2);

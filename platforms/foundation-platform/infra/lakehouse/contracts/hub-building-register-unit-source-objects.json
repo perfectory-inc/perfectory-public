@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md",
+  "purpose": "전유부 Silver 레인(silver.building_register_units, root ADR-0072, ADR-0125)의 규칙. 원천 판은 여기 적지 않는다: Bronze 장부가 갖고, 레인이 읽는다.",
+  "source": "bronze/source=hubgokr__building_register_exclusive_unit",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 제공자 월 중 전유부·표제부·기본개요가 모두 있는 월이다(snapshot_date 는 그 월의 1일). 하나라도 없는 더 새 월은 건너뛴다. 한 역할의 객체가 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 세 파일의 이름 OPN<YYYYMMDD> 는 같은 날이어야 한다: 호실의 부모 키 증거는 같은 내보내기 날의 표제부·기본개요에서만 온다(root ADR-0125, ADR-0169 §2).",
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-register-units.service 의 실행 값(root ADR-0169 §3). 한 판이 한 source_snapshot_id 라서 한 묶음으로 적재하고, gold.building_panel 이 그 하나만 읽으므로 새 판은 표를 바꿔 쓴다(overwrite). 승인된 호실 정정은 내보내기가 DB 에서 읽는다(APPLY_APPROVED_OVERRIDES).",
+    "table": "silver.building_register_units",
+    "roles": {
+      "basis": "hubgokr__building_register_basis_outline",
+      "title": "hubgokr__building_register_main",
+      "unit": "hubgokr__building_register_exclusive_unit"
+    },
+    "export": "export-building-register-unit-silver-handoff",
+    "export_chunk_rows": 250000,
+    "spark": {"master": "local[8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
+  }
+}

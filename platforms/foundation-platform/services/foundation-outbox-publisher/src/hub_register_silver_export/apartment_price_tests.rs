@@ -152,7 +152,29 @@ fn refuses_truncated_wrong_member_invalid_utf8_and_oversized_rows() -> anyhow::R
 }
 
 #[test]
-fn layout_refuses_duplicate_or_missing_positions_and_old_selected_vintage() -> anyhow::Result<()> {
+fn the_vintage_is_the_provider_month_of_a_zip_of_this_source() -> anyhow::Result<()> {
+    let layout = crate::building_register_apartment_price_silver_export::layout()?;
+    let key = |name: &str| format!("{}/{name}", layout.source);
+    assert_eq!(
+        layout.vintage_of(&key(test_support::SYNTHETIC_ZIP))?,
+        "209908"
+    );
+    for refused in [
+        // another source's ZIP
+        "bronze/source=hubgokr__building_register_exclusive_unit/OPN20990820SYNTHETIC.zip"
+            .to_owned(),
+        // no provider date, an impossible one, a nested path
+        key("SYNTHETIC.zip"),
+        key("OPN20990230SYNTHETIC.zip"),
+        key("nested/OPN20990820SYNTHETIC.zip"),
+    ] {
+        assert!(layout.vintage_of(&refused).is_err(), "accepted {refused}");
+    }
+    Ok(())
+}
+
+#[test]
+fn layout_refuses_duplicate_or_missing_positions() -> anyhow::Result<()> {
     let original = crate::building_register_apartment_price_silver_export::layout()?;
     let mut duplicate = original.clone();
     duplicate
@@ -168,12 +190,9 @@ fn layout_refuses_duplicate_or_missing_positions_and_old_selected_vintage() -> a
         .context("expected fixture value")?
         .index = out_of_range.column_count;
     assert!(out_of_range.validate().is_err());
-    let mut missing = original.clone();
+    let mut missing = original;
     missing.columns.remove("price_won");
     assert!(missing.validate().is_err());
-    let mut old = original;
-    old.selected_vintage = "202607".into();
-    assert!(old.validate().is_err());
     Ok(())
 }
 

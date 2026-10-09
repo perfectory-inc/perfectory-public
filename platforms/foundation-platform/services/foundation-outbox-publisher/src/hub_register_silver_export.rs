@@ -47,6 +47,8 @@ const GENERATED_COLUMNS: [&str; 8] = [
 #[derive(Clone)]
 struct Config {
     input_object_key: String,
+    /// The provider month of the input, from its name (`Layout::vintage_of`).
+    vintage: String,
     output_prefix: OutputSink,
     source_snapshot_id: String,
     summary_path: Option<PathBuf>,
@@ -119,7 +121,7 @@ impl Report {
             input_object_key: config.input_object_key.clone(),
             source_snapshot_id: config.source_snapshot_id.clone(),
             output_object_prefix: config.prefix_name(),
-            vintage: layout.selected_vintage.clone(),
+            vintage: config.vintage.clone(),
             rows_per_part: layout.rows_per_part,
             rows_read: 0,
             rows_emitted: 0,
@@ -155,15 +157,23 @@ impl Report {
     }
 }
 
-/// Exports the selected measured national ZIP with bounded input/output memory.
+/// Exports one national ZIP of the layout's source with bounded input/output memory.
+///
+/// Which ZIP is the caller's: `{env}_INPUT_OBJECT_KEY` with the size the Bronze ledger records
+/// for it in `{env}_INPUT_OBJECT_BYTES`. The Silver refresh passes the newest complete release
+/// (root ADR-0169); a manual run passes the ledger row it means.
 ///
 /// # Errors
 /// Fails on invalid configuration, changed source layout/integrity or publication errors.
 pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
     let key = required_env(&format!("{env}_INPUT_OBJECT_KEY"))?;
+    let vintage = layout.vintage_of(&key)?;
+    let expected_bytes: u64 = required_env(&format!("{env}_INPUT_OBJECT_BYTES"))?
+        .parse()
+        .with_context(|| format!("{env}_INPUT_OBJECT_BYTES must be the ledger's byte count"))?;
     ensure!(
-        key == layout.selected()?.object_key,
-        "input must be the selected latest vintage object"
+        expected_bytes > 0,
+        "{env}_INPUT_OBJECT_BYTES must be positive"
     );
     let prefix = required_env(&format!("{env}_OUTPUT_OBJECT_PREFIX"))?;
     ensure!(
@@ -177,6 +187,7 @@ pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
     );
     let config = Config {
         input_object_key: key.clone(),
+        vintage,
         output_prefix: OutputSink::R2Object(prefix),
         source_snapshot_id: required_env(&format!("{env}_SOURCE_SNAPSHOT_ID"))?,
         summary_path: optional_env(&format!("{env}_SUMMARY_PATH"))?.map(PathBuf::from),
@@ -191,8 +202,8 @@ pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
     let source = open_source(&InputSource::R2Object(key), Some(&storage)).await?;
     if let SeekableSource::R2(reader) = &source {
         ensure!(
-            reader.object_bytes() == layout.selected()?.bytes,
-            "R2 object size differs from measured source contract"
+            reader.object_bytes() == expected_bytes,
+            "R2 object size differs from the Bronze ledger's"
         );
     }
     let sigungu_crosswalk = crate::sigungu_crosswalk::hub_sigungu_crosswalk().await?;
@@ -371,7 +382,7 @@ fn make_row(
     row.extend(GENERATED_COLUMNS.into_iter().map(str::to_owned).zip([
         json!(pnu),
         json!(fields),
-        json!(layout.selected_vintage),
+        json!(config.vintage),
         json!(config.input_object_key),
         json!(part_key),
         json!(line_number),

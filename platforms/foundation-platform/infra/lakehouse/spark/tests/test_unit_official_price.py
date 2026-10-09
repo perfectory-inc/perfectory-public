@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
-from unit_official_price import DICTIONARY_SQL, CONFLICTING_SQL, PRICES_SQL, JOIN_SQL, refuse_conflicting, parse_args
+from unit_official_price import (DICTIONARY_SQL, CONFLICTING_SQL, PRICES_SQL, JOIN_SQL, refuse_conflicting, parse_args,
+                                 newest_shared_vintage)
 
 
 class UnitOfficialPriceTest(unittest.TestCase):
@@ -74,9 +75,18 @@ class UnitOfficialPriceTest(unittest.TestCase):
         self.assertEqual([(r[4], r[5]) for r in rows], [("20260101", 100), ("20260601", 90)])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM price_source").fetchone()[0], 4)
 
+    def test_without_a_vintage_the_newest_month_both_tables_hold_is_joined(self):
+        self.assertIsNone(parse_args(["--sido", "99"]).vintage)
+        self.assertEqual(newest_shared_vintage(["209906", "209907"], ["209907", "209905"]), "209907")
+        # One lane has refreshed to a month the other has not: never mix them silently.
+        for exclusive, prices in ((["209907"], ["209908", "209907"]), ([], ["209907"])):
+            with self.subTest(exclusive=exclusive, prices=prices), self.assertRaises(ValueError):
+                newest_shared_vintage(exclusive, prices)
+
     def test_submission_requires_one_province_and_positive_snapshot_ids(self):
         self.assertEqual(parse_args(["--sido", "99", "--vintage", "202606"]).sido, "99")
-        for args in ([], ["--sido", "99999"], ["--sido", "99", "--price-snapshot-id", "0"]):
+        for args in ([], ["--sido", "99999"], ["--sido", "99", "--price-snapshot-id", "0"],
+                     ["--sido", "99", "--vintage", "2099"]):
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parse_args(args)
 

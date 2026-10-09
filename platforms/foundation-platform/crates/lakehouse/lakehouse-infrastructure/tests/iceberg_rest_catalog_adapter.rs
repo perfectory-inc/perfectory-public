@@ -368,6 +368,42 @@ async fn mount_gold(server: &MockServer, refs: serde_json::Value) {
 }
 
 #[tokio::test]
+async fn ingested_batch_objects_are_every_identity_the_held_snapshots_record(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00003.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "summary": {
+                        "operation": "append",
+                        "foundation.ingest-batch-objects": "fixture-load-a,fixture-load-b"}},
+                    {"snapshot-id": OTHER, "summary": {"operation": "replace"}},
+                    {"snapshot-id": 999_990_000_000_000_003_i64, "summary": {
+                        "operation": "overwrite",
+                        "foundation.ingest-batch-objects": "fixture-load-c"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let ingested = catalog
+        .load_ingested_batch_objects("gold.parcel_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+    assert_eq!(
+        ingested.into_iter().collect::<Vec<_>>(),
+        ["fixture-load-a", "fixture-load-b", "fixture-load-c"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;
     mount_catalog_config(&server, "cloudflare-catalog-prefix").await;

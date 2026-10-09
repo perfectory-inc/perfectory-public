@@ -22,6 +22,8 @@ pub(super) enum Job {
     Floor,
     /// `gold-panel-rebuild.sh`, which passes `-p` with the same prefix (root ADR-0139).
     GoldPanelRebuild,
+    /// `silver-refresh.sh`: the publisher passes `-p` with this prefix (root ADR-0169).
+    SilverRefresh,
 }
 
 impl Job {
@@ -29,6 +31,7 @@ impl Job {
         match self {
             Self::Floor => "foundation-floor",
             Self::GoldPanelRebuild => "foundation-gold-rebuild",
+            Self::SilverRefresh => "foundation-silver-refresh",
         }
     }
 }

@@ -69,26 +69,37 @@ def parse_args(argv=None):
     parser.add_argument("--exclusive-snapshot-id", type=int)
     parser.add_argument("--summary-output")
     args = parser.parse_args(argv)
-    if args.vintage is None:
-        contracts_dir = Path(__file__).resolve().parents[2] / "contracts"
-        selected = {
-            json.loads((contracts_dir / f"hub-building-register-{name}-source-objects.json").read_text(encoding="utf-8"))["selected_vintage"]
-            for name in ("apartment-price", "exclusive-unit")
-        }
-        if len(selected) != 1:
-            parser.error("source contracts select different vintages; specify --vintage")
-        args.vintage = selected.pop()
     for value, pattern, name in [
         (args.sido, r"[0-9]{2}", "sido"),
         (args.vintage, r"[0-9]{6}", "vintage"),
         (args.iceberg_catalog_name, r"[A-Za-z_][A-Za-z0-9_]*", "catalog"),
     ]:
-        if not re.fullmatch(pattern, value):
+        # No --vintage: main() takes the newest one both tables hold (newest_shared_vintage).
+        if value is not None and not re.fullmatch(pattern, value):
             parser.error(f"invalid {name}")
     for snapshot in (args.price_snapshot_id, args.exclusive_snapshot_id):
         if snapshot is not None and snapshot <= 0:
             parser.error("snapshot ids must be positive")
     return args
+
+
+def newest_shared_vintage(exclusive_vintages, price_vintages):
+    """The vintage to join when none is named: the newest month both Silver tables hold.
+
+    The two hub lanes load their newest complete release from the Bronze ledger on their own
+    (root ADR-0169), so for a while one table can hold a month the other does not yet. Joining
+    a price month to an older unit dictionary would be a silent mix, so that is refused until
+    both have it, as the two contracts' differing `selected_vintage` was refused before.
+    """
+    exclusive, prices = set(exclusive_vintages), set(price_vintages)
+    if not exclusive or not prices:
+        raise ValueError("a hub register table holds no vintage")
+    if max(exclusive) != max(prices):
+        raise ValueError(
+            f"the newest vintages differ (exclusive {max(exclusive)}, price {max(prices)}); "
+            "wait for both lanes or specify --vintage"
+        )
+    return max(exclusive)
 
 
 def read_snapshot(spark, qualified_table, requested):
@@ -118,6 +129,12 @@ def main(argv=None):
         prefix = f"`{args.iceberg_catalog_name}`.`silver`"
         exclusive, exclusive_snapshot = read_snapshot(spark, f"{prefix}.`building_register_exclusive_unit`", args.exclusive_snapshot_id)
         prices, price_snapshot = read_snapshot(spark, f"{prefix}.`building_register_apartment_price`", args.price_snapshot_id)
+        if args.vintage is None:
+            args.vintage = newest_shared_vintage(
+                [row.vintage for row in exclusive.select("vintage").distinct().collect()],
+                [row.vintage for row in prices.select("vintage").distinct().collect()],
+            )
+            print(json.dumps({"sido": args.sido, "vintage": args.vintage, "chosen_by": "newest_shared_vintage"}), flush=True)
         exclusive.where(F.col("vintage") == args.vintage).createOrReplaceTempView("exclusive_source")
         # Check the entire dictionary first: a key split across provinces must also be refused.
         dictionary = spark.sql(DICTIONARY_SQL)

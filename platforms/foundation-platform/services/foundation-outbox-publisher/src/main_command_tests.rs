@@ -26,6 +26,31 @@ fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result
 }
 
 #[test]
+fn silver_refresh_takes_its_lane_from_the_environment_not_an_argument() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "run-silver-refresh"])?,
+        Command::RunSilverRefresh
+    );
+    assert!(parse_command([
+        "publisher",
+        "run-silver-refresh",
+        "building-register-titles"
+    ])
+    .is_err());
+    assert_eq!(
+        parse_command(["publisher", "stop-silver-refresh"])?,
+        Command::StopSilverRefresh
+    );
+    assert!(parse_command([
+        "publisher",
+        "stop-silver-refresh",
+        "building-register-titles"
+    ])
+    .is_err());
+    Ok(())
+}
+
+#[test]
 fn floor_input_selection_command_accepts_no_arguments() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["publisher", "select-building-register-floor-inputs"])?,
