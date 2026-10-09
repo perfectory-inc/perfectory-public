@@ -208,3 +208,4 @@ last_reviewed: 2026-07-28
 - [ADR-0162 — 거부된 속도 관문은 측정 파일에 묶인 결정으로만 연다](./0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md)
 - [ADR-0163 — 큰 법정동 묶음은 한 번에 읽히는 크기의 조각으로 나눈다](./0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md)
 - [ADR-0164 — 패널 Gold 는 PNU 순서로 쓰고, by-PNU 굽기 조각은 자기 앞자리를 담을 수 있는 파일만 읽는다](./0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md)
+- [ADR-0166 — 묶음 세대 굽기와 무조건 Gold 재생성도 허용된 운영 스크립트로 실행한다](./0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md)
