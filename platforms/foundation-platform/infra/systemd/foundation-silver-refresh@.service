@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform Silver refresh of the %i lane: load the newest complete hub.go.kr release in the Bronze ledger, or report it unchanged (root ADR-0169, ADR-0171)
+Description=Foundation Platform Silver refresh of the %i lane: load the newest complete hub.go.kr or VWorld land release in the Bronze ledger, or report it unchanged (root ADR-0169, ADR-0171)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

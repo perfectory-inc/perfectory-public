@@ -105,7 +105,7 @@
 | `docs/adr/0080-the-issuer-answers-on-every-loopback.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0081-identity-endpoints-derive-from-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0084-the-registry-knows-every-collected-object.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0085-a-parcel-learns-its-price-from-the-assessment-ledger.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0086-the-pipeline-graph-names-every-dataset-once.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 7 |
@@ -323,7 +323,7 @@
 | `platforms/foundation-platform/docs/runbooks/README.md` | Foundation Platform | README | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/silver-refresh.md` | Foundation Platform | runbook | current | korean | ok | 3 |
+| `platforms/foundation-platform/docs/runbooks/silver-refresh.md` | Foundation Platform | runbook | current | korean | ok | 4 |
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 2 |

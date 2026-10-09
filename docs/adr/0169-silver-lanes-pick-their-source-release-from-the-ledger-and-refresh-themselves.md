@@ -8,7 +8,8 @@
   [ADR-0122](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)(예약 작업)
 - Amends: ADR-0077 §5(새 파일 반영은 사람이 한다), [ADR-0092](./0092-hub-registers-land-through-layout-contracts-and-streams.md)
   §1·§8(계약의 `selected_vintage`, `land-use-batch-load.sh` 적재), [ADR-0094](./0094-the-exclusive-register-bridges-prices-and-units.md)
-  §1(같은 것, 전유부 다리) — ②에서
+  §1(같은 것, 전유부 다리) — ②에서; [ADR-0083](./0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md)·0085·0087·0088·0089·0091 의
+  VWorld 토지 손 적재(계약의 `objects`·`selected_vintage`, 실행 경로) — ③에서
 
 ## Context
 
@@ -114,6 +115,34 @@
    - **④로 넘긴 것.** `unit_official_price` 는 시도마다 한 번(17 번), 두 부분 레인이 같은 월을 가진 뒤에 돈다.
      공동주택가격 레인의 하류 단계로 붙이면 한 레인이 다른 레인을 기다리게 된다. 그래서 ④에서 데이터 기반 예약
      (4항)과 함께 잇는다.
+
+   **③ 구현(2026-10-10).** VWorld 토지 레인 일곱: 토지특성(`land-characteristic`), 임야대장(`land-forest-ledger`),
+   개별공시지가(`land-individual-price`), 대지권등록(`land-right-registration`), 토지이동이력(`land-transfer-history`),
+   토지이용계획(`land-use-plan`), 용도지역 코드표(`land-use-zone-code`). 모양은 ②와 하나다(같은 유닛 템플릿·스크립트·
+   `run-silver-refresh`). 다른 것은 판을 고르는 1 단계와 판의 단위뿐이다(`remote_lakehouse_job/silver_refresh/land.rs`).
+   - **판.** 레인 원천의 장부 행을 ①의 ZIP 안 이름과 함께 한 번 읽는다(정해진 `zip` 읽기만). 계약의
+     `silver_refresh.member_name`(이름 형식, 이름 붙은 묶음 `region`·`vintage`)에 맞는 안 이름이 하나인 객체가 후보다.
+     `completeness`(시도 17, 코드표는 전국 1)를 모두 덮는 판 중 가장 새것이 판이다. 같은 시도·판이 둘이면 ②와 같은
+     규칙(`release::newest`)으로 가르고, 가를 수 없으면 거부한다. 덮지 못한 더 새 판은 `skipped_incomplete_release` 로
+     남긴다. 아직 정해진 읽기가 없는 객체가 하나라도 있으면 거부하고 측정 명령을 이름 짓는다: 그 객체가 가장 새 판일 수
+     있다. 내보내기가 거부할 객체(읽을 CSV 가 둘, 날짜가 아닌 판)는 후보에서 빼고 `refused_object` 로 남긴다.
+   - **이미 반영.** 토지 표의 적재 단위는 Bronze 객체(`source_record_id`)다. 판의 객체가 모두 표의 스냅숏 요약에
+     있으면 `already_loaded`, 더 새 판의 객체가 있으면 `newer_release_loaded` 다(②와 같이 Iceberg REST 로 읽는다).
+     손 적재로 들어간 판도 그래서 같은 판으로 읽힌다.
+   - **적재.** gold.parcel_panel 은 토지 표마다 `source_snapshot_id` 하나만 읽는다. 그래서 새 판은 표를 바꿔 쓴다:
+     객체마다 기존 내보내기(`export-land-*-silver-handoff`)를 발행기의 자식으로 돌려 R2 핸드오프 하나를 쓰고(이미 있으면
+     건너뛴다), 시도 순서로 `input_file_batch_size`(4) 개씩 적재한다. 첫 묶음이 `overwrite`, 나머지가 `append` 다.
+     `source_snapshot_id` 는 원천 slug 를 하이픈으로 쓴 이름과 판이다(`vworldkr-land-use-plan:<판>`, 손 적재와 같다).
+     묶음마다 Spark 요약의 `source_snapshot_ids` 가 그 하나인지 확인한다. 끊긴 실행은 기록에 없는 첫 묶음부터 잇는다
+     (`append_batch_once`).
+   - **계약.** 일곱 계약에서 `objects`·`selected_vintage`·`granularity_counts`·`excluded_objects` 와 손 측정 설명을
+     지우고 `release_rule` 과 `silver_refresh` 블록을 두었다. 내보내기 종류·환경 접두사·표는 내보내기 코드
+     (`land_use_silver_export::export_command`)에서 읽어 레인 쪽에 다시 적지 않는다. 계약에 판을 적으면 거부한다.
+   - **은퇴.** 손 적재 경로(`land-use-plan-handoff-export.sh`, `land-use-batch-load.sh`, `source_handoff_inputs.py`)를
+     지웠다. 남은 계약이 하나도 측정 목록을 갖지 않아 그것들이 읽을 것이 없다.
+   - **예약.** 레인 일곱은 `orchestration/jobs.v1.json` 의 `silver_refresh_land_*`(ADR-0171, source_sweep 이 시작)이고
+     꺼져 있다. 켜기 전 조건은 둘이다: 레인마다 첫 감독 실행([런북 5 절](../../platforms/foundation-platform/docs/runbooks/silver-refresh.md)),
+     그리고 매일 수집 뒤의 ZIP 안 이름 측정(①의 sweep 연결). 그 연결 전에는 새 객체마다 레인이 거부한다.
 
 ## Consequences
 

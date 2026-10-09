@@ -1,27 +1,28 @@
 {
   "schema_version": 1,
+  "decision": "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md",
+  "release_rule": "전국 객체 하나가 판이다. 안 이름이 silver_refresh.member_name 에 맞는 객체 중 장부 snapshot_date 가 가장 새것이고, 같은 날이 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 아직 잰 적 없는 객체가 있으면 거부한다(scripts/ops/bronze-object-members.sh, root ADR-0169 §1–2). 같은 표의 스프레드시트 사본(.xlsx)은 안 이름이 맞지 않아 후보가 아니다.",
   "source": "bronze/source=vworldkr__land_use_zone_code",
-  "measured_at_utc": "2026-09-05",
-  "how_measured": "The prefix holds exactly two objects; both were downloaded whole (36 KB) and opened. 30508-1.zip carries LART_LMISZONE.csv (1,270 code rows, EUC-KR, parent pointers); 30508-2.xlsx is a spreadsheet rendering of the same table that no loader reads.",
-  "why_this_file_exists": "The exporter that converts the code table and the loader that reads its handoff must derive the same names from one place. The .xlsx sibling is a named exclusion: loading both would state the same fact twice in two formats (root ADR-0083).",
-  "load_granularity": "object",
+  "why_this_file_exists": "The exporter that converts the code table and the loader that reads its handoff must derive the same names from one place. The .xlsx sibling holds no member the rule names, so it is never a candidate: loading both would state the same fact twice in two formats (root ADR-0083).",
   "handoff_prefix": "silver-handoff/vworldkr__land_use_zone_code",
   "handoff_prefix_reason": "Where the converted handoff lives — declared once here so the exporter and the loader cannot drift apart.",
   "handoff_suffix": ".jsonl.gz",
   "handoff_suffix_reason": "The converter names the object and the loader must derive the same name; .gz also tells the converter to compress and Spark to decompress.",
-  "objects": [
-    {
-      "object_key": "bronze/source=vworldkr__land_use_zone_code/30508-1.zip",
-      "bytes": 25693,
-      "dataset_name": "LART_LMISZONE.csv",
-      "granularity": "object"
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@land-use-zone-code.service 의 실행 값(root ADR-0169 §3 ③). gold.parcel_panel 은 토지 표마다 source_snapshot_id 하나만 읽으므로 새 판은 표를 바꿔 쓴다: 첫 적재 묶음이 overwrite, 나머지는 append. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다(손 적재가 쓴 값과 같다).",
+    "table": "silver.land_use_zone_code",
+    "source": "vworldkr__land_use_zone_code",
+    "member_name": "^LART_LMISZONE\\.csv$",
+    "completeness": {
+      "load_granularity": "national",
+      "count": 1
+    },
+    "export": "export-land-use-zone-code-silver-handoff",
+    "spark": {
+      "master": "local[2]",
+      "driver_memory": "4g",
+      "iceberg_write_mode": "overwrite",
+      "input_file_batch_size": 1
     }
-  ],
-  "excluded_objects": [
-    {
-      "object_key": "bronze/source=vworldkr__land_use_zone_code/30508-2.xlsx",
-      "bytes": 10641,
-      "reason": "spreadsheet rendering of the same table; not machine-loadable by this lane"
-    }
-  ]
+  }
 }

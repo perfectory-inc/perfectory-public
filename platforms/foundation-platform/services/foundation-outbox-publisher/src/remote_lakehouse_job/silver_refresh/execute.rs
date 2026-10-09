@@ -17,7 +17,7 @@ use foundation_outbox::R2ObjectStorage;
 use sha2::{Digest, Sha256};
 
 use super::{
-    lane::{ExportKind, LaneContract},
+    lane::{ExportKind, LaneContract, WriteMode},
     release::Release,
 };
 use foundation_outbox_publisher::silver_handoff_io::{open_source, InputSource};
@@ -162,6 +162,9 @@ pub(in crate::remote_lakehouse_job) fn export_environment(
             set(env_prefix, "SOURCE_SNAPSHOT_ID", identity.to_owned());
             set(env_prefix, "SUMMARY_PATH", path(EXPORT_SUMMARY));
         }
+        ExportKind::Land { .. } => {
+            anyhow::bail!("a land release exports object by object (land::export_environment)")
+        }
     }
     Ok(env)
 }
@@ -257,6 +260,8 @@ pub(in crate::remote_lakehouse_job) struct SparkLoad {
     pub expected_count: Option<u64>,
     /// Whether the input is in R2 (the read needs the lakehouse reader pair).
     pub reads_r2: bool,
+    /// How this load writes: a land release's first batch overwrites and the rest append.
+    pub write_mode: WriteMode,
 }
 
 impl SparkLoad {
@@ -272,6 +277,7 @@ impl SparkLoad {
             input_format,
             expected_count: None,
             reads_r2: false,
+            write_mode: contract.spark.iceberg_write_mode,
         }
     }
 }
@@ -344,7 +350,7 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
             "--write-mode",
             "iceberg",
             "--iceberg-write-mode",
-            spark.iceberg_write_mode.as_str(),
+            load.write_mode.as_str(),
             "--input-file-batch-size",
             "0",
             "--summary-output",
@@ -352,7 +358,7 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
         ]
         .map(str::to_owned),
     );
-    if spark.iceberg_write_mode == super::lane::WriteMode::Overwrite {
+    if load.write_mode == WriteMode::Overwrite {
         args.push("--allow-non-smoke-overwrite".to_owned());
     }
     if let Some(count) = load.expected_count {
@@ -421,4 +427,24 @@ pub(in crate::remote_lakehouse_job) fn keep_evidence(
         }
     }
     Ok(evidence)
+}
+
+/// Keeps more files of the work directory under the same `evidence/<identity>/` (a land
+/// release's export summaries, one per object).
+pub(in crate::remote_lakehouse_job) fn keep_files(
+    runtime: &Runtime,
+    identity: &str,
+    names: &[String],
+) -> anyhow::Result<()> {
+    let evidence = runtime.lane_root.join("evidence").join(identity);
+    fs::create_dir_all(&evidence)?;
+    for name in names {
+        let source = runtime.work().join(name);
+        let target = evidence.join(name);
+        if source.is_file() && !target.exists() {
+            fs::copy(&source, &target)
+                .with_context(|| format!("cannot keep {}", source.display()))?;
+        }
+    }
+    Ok(())
 }
