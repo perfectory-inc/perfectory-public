@@ -190,6 +190,26 @@
     "magic": "FPNUPACK",
     "format_version": 1,
     "manifest_section_packs_schema_version": 3,
+    "manifest_section_packs_parted_schema_version": 4,
+    "manifest_section_packs_parted_schema_version_reason": "a section_packs block whose sections name a parts index is version 4 (root ADR-0163): a Worker that reads only 3 would look a parted dong up under its unparted key and miss, so it must refuse the block instead. A block without parts stays 3, so the daily bake of an unparted generation never needs a newer Worker",
+    "parts": {
+      "part_target_bytes": 131072,
+      "part_target_bytes_reason": "half of read_path.whole_pack_max_bytes (262144): a dong of total size S is cut into ceil(S / 131072) parts by hash, so a part averages at most 128 KiB and stays under the 256 KiB whole-read bound with room for the hash's spread; the bake refuses any part above whole_pack_max_bytes rather than serve it by head and range (root ADR-0163)",
+      "hash": "fnv1a32",
+      "hash_definition": "FNV-1a, 32 bit: h = 0x811c9dc5; for each ASCII byte b of the 19-digit PNU: h = (h xor b) * 0x01000193 mod 2^32. A PNU's part is h mod K, K the dong's part count",
+      "hash_test_vectors": [
+        {"input": "a", "fnv1a32": 3826002220},
+        {"input": "foobar", "fnv1a32": 3214735720},
+        {"input": "9999900000100000000", "fnv1a32": 3542029603},
+        {"input": "9999900000100010000", "fnv1a32": 4070446944},
+        {"input": "9999900000200000000", "fnv1a32": 4072006550}
+      ],
+      "unit_pattern": "[0-9]{10}(-[0-9]{1,4})?",
+      "unit_pattern_reason": "a dong of one part keeps its unparted unit (the dong code); a dong of K > 1 parts writes one pack per part under {dong}-{part}, part in 0..K-1",
+      "index_file_name": "parts.json",
+      "index_schema_version": "foundation-platform.by_pnu_pack_parts.v1",
+      "index_reason": "the part count of every dong with more than one part, one immutable object per section generation ({root}/{section}/g{n}/parts.json, create-only); the manifest names it by key and sha256 and the Worker reads it once per isolate, since the manifest itself is parsed on every request and cannot carry ~19,000 counts"
+    },
     "unit_prefix_length": 10,
     "compression": "gzip",
     "suffix": ".pack",

@@ -494,27 +494,30 @@ impl Lane {
             .await?
             .section_packs
             .context("packs are published")?;
-        let view = PackView::served(LANE, &state);
-        let unit = by_pnu_packs::unit_of(pnu)?;
+        let view = PackView::served(&self.store, LANE, &state).await?;
+        let dong = by_pnu_packs::unit_of(pnu)?;
         let mut bases = BTreeSet::new();
         for section in &view.sections {
-            if self
+            let listed = self
                 .store
                 .list_pack_keys(&section.name, section.generation, None)
-                .await?
-                .contains(&by_pnu_packs::pack_key(
+                .await?;
+            for unit in section.parts.units_of_dong(dong)? {
+                if listed.contains(&by_pnu_packs::pack_key(
                     LANE,
                     &section.name,
                     section.generation,
                     None,
-                    unit,
-                )?)
-            {
-                bases.insert(section.name.clone());
+                    &unit,
+                )?) {
+                    bases.insert((section.name.clone(), unit));
+                }
             }
         }
-        let packs =
-            read::load_unit(&self.store, &view, unit, &|name, _| bases.contains(name)).await?;
+        let packs = read::load_unit(&self.store, &view, dong, &|name, unit| {
+            bases.contains(&(name.to_owned(), unit.to_owned()))
+        })
+        .await?;
         read::resolve(&packs, pnu)
     }
 }
@@ -796,6 +799,115 @@ fn write_worker_golden(
     assert_golden("documents.json", &body)
 }
 
+/// A dong above `parts.part_target_bytes` is cut into parts by the PNU's hash (root ADR-0163):
+/// every part is read whole by the gateway, every PNU is in exactly the part its hash names, the
+/// publish writes the parts index and asks for a gateway that reads the parted block, and a patch
+/// over the generation writes only the part of what changed.
+#[tokio::test]
+async fn a_large_dong_is_cut_into_parts_each_read_whole() -> anyhow::Result<()> {
+    const ROWS: u32 = 4_000;
+    let rows = (0..ROWS)
+        .map(|n| empty_row(&format!("{UNIT}1{n:04}0000")))
+        .collect::<Vec<_>>();
+    let lane = Lane::serving_objects("parts", &rows).await?;
+    let base = lane.bake(&rows, SNAPSHOT, None).await?;
+    let policy = section_pack_policy()?;
+    let cut = base
+        .parts
+        .get(sections::DOCUMENTS)
+        .and_then(|dongs| dongs.get(UNIT))
+        .copied()
+        .context("the dong was not cut")?;
+    assert!(cut > 1, "{cut}");
+    let parts =
+        by_pnu_packs::Parts::new(std::collections::BTreeMap::from([(UNIT.to_owned(), cut)]))?;
+    assert_eq!(base.packs.len(), usize::try_from(cut)?);
+    for pack in &base.packs {
+        assert!(
+            parts.units_of_dong(UNIT)?.contains(&pack.unit),
+            "{}",
+            pack.unit
+        );
+        assert!(
+            pack.bytes <= policy.read_path.whole_pack_max_bytes,
+            "{}",
+            pack.bytes
+        );
+    }
+    assert_eq!(
+        base.packs.iter().map(|pack| pack.documents).sum::<u64>(),
+        u64::from(ROWS)
+    );
+
+    // The publish needs a gateway that reads the parted block, and names the index it wrote.
+    let summaries = lane.summaries("parts", &[&base])?;
+    let equality = lane.equality(&summaries, u64::from(ROWS))?;
+    let latency = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+    let evidence = || Some((equality.clone(), latency.clone()));
+    assert!(
+        lane.publish_with(
+            Some(summaries.clone()),
+            SNAPSHOT,
+            u64::from(ROWS),
+            evidence(),
+            None
+        )
+        .await
+        .is_err(),
+        "a parted block went out to a gateway that reads only the unparted one"
+    );
+    serve_capabilities(
+        &lane.gateway,
+        &[
+            1,
+            2,
+            policy.manifest_section_packs_schema_version,
+            policy.manifest_section_packs_parted_schema_version,
+        ],
+    )
+    .await;
+    let state = lane
+        .publish_with(Some(summaries), SNAPSHOT, u64::from(ROWS), evidence(), None)
+        .await?;
+    assert_eq!(
+        state.schema_version,
+        policy.manifest_section_packs_parted_schema_version
+    );
+    let named = state.sections[0]
+        .parts
+        .clone()
+        .context("the index is named")?;
+    assert_eq!(named.parted_units, 1);
+    let view = PackView::served(&lane.store, LANE, &state).await?;
+    assert_eq!(view.sections[0].parts, parts);
+    for n in [0_u32, 1, 1_234, ROWS - 1] {
+        let pnu = format!("{UNIT}1{n:04}0000");
+        assert!(
+            matches!(lane.answer(&pnu).await?, Resolved::Document(_)),
+            "{pnu}"
+        );
+    }
+
+    // A patch over the generation writes the one part its change falls in.
+    let gone = format!("{UNIT}100070000");
+    let patch = lane
+        .bake(&[], NEXT_SNAPSHOT, Some((1, &[], &[gone.as_str()])))
+        .await?;
+    assert_eq!(
+        patch
+            .packs
+            .iter()
+            .map(|pack| pack.unit.clone())
+            .collect::<Vec<_>>(),
+        vec![parts.unit_of(&gone)?]
+    );
+    assert!(
+        patch.parts.is_empty(),
+        "a patch follows the generation's parts"
+    );
+    Ok(())
+}
+
 /// A lane still on a v1 manifest gets v2 from its first pack publish, once the base's sample
 /// documents read back as its own (2026-10-09, parcel g2); a base the manifest names under another
 /// snapshot is refused and the v1 manifest stays.
@@ -893,9 +1005,10 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             .sections
             .iter()
             .map(|section| {
-                Ok((
-                    section.clone(),
-                    bake::lay_out_pack(
+                Ok(bake::LaidOut {
+                    section: section.clone(),
+                    unit: UNIT.to_owned(),
+                    bytes: bake::lay_out_pack(
                         &config,
                         1,
                         &pack_provenance(SNAPSHOT),
@@ -904,7 +1017,9 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
                         from,
                         &[],
                     )?,
-                ))
+                    documents: documents.clone(),
+                    deleted: Vec::new(),
+                })
             })
             .collect::<anyhow::Result<Vec<_>>>()
     };
@@ -999,7 +1114,7 @@ fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyh
     let served = read::SectionPacksOfUnit {
         name: sections::DOCUMENTS.to_owned(),
         patches: Vec::new(),
-        base: Some(crate::by_pnu_pack::Pack::read(&writer.finish()?)?),
+        bases: vec![crate::by_pnu_pack::Pack::read(&writer.finish()?)?],
     };
     let answer = joined(read::resolve(
         &read::UnitPacks {
@@ -1058,6 +1173,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
         no_gzip_sample_size: 0,
+        sample_units: Vec::new(),
     };
     let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
@@ -1338,6 +1454,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         preview_script: "foundation-building-gateway-preview".to_owned(),
         load: None,
         no_gzip_sample_size: 0,
+        sample_units: Vec::new(),
     };
     let live = route(5, body.clone()).await?;
     let close = route(15, joined.clone()).await?;
@@ -1359,6 +1476,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         sample_seed: String::new(),
         sample: pnus.clone(),
         sample_sha256: String::new(),
+        sample_units: Vec::new(),
         passed: true,
         written_at_utc: String::new(),
     };

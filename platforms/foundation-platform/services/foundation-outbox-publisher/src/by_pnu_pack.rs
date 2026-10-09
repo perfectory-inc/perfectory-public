@@ -108,12 +108,8 @@ impl PackWriter {
     /// # Errors
     /// Refuses a unit that is not the contract's dong length of digits.
     pub(crate) fn new(identity: PackIdentity) -> anyhow::Result<Self> {
-        let unit_length = section_pack_policy()?.unit_prefix_length;
-        ensure!(
-            identity.unit.len() == unit_length && is_digits(&identity.unit),
-            "pack unit {:?} is not a {unit_length}-digit legal dong code",
-            identity.unit
-        );
+        // A legal dong, or one part of one (root ADR-0163): the contract's unit grammar.
+        crate::r2_layout::by_pnu_packs::check_unit(&identity.unit)?;
         ensure!(
             identity.patch.is_none_or(|patch| patch >= 1) && identity.generation >= 1,
             "pack generation and patch start at 1"
@@ -166,7 +162,9 @@ impl PackWriter {
 
     fn check_next(&self, pnu: &str) -> anyhow::Result<()> {
         ensure!(
-            pnu.len() == PNU_BYTES && is_digits(pnu) && pnu.starts_with(&self.identity.unit),
+            pnu.len() == PNU_BYTES
+                && is_digits(pnu)
+                && pnu.starts_with(crate::r2_layout::by_pnu_packs::dong_of(&self.identity.unit)),
             "{pnu:?} is not a 19-digit PNU of legal dong {}",
             self.identity.unit
         );
@@ -334,7 +332,10 @@ pub(crate) fn read_head(bytes: &[u8]) -> anyhow::Result<(PackHeader, Vec<IndexEn
     for raw in bytes[header_end..prefix.head_length()].chunks_exact(INDEX_ENTRY_BYTES) {
         let pnu = std::str::from_utf8(&raw[..PNU_BYTES])
             .ok()
-            .filter(|pnu| is_digits(pnu) && pnu.starts_with(&header.unit))
+            .filter(|pnu| {
+                is_digits(pnu)
+                    && pnu.starts_with(crate::r2_layout::by_pnu_packs::dong_of(&header.unit))
+            })
             .context("a pack index entry names no PNU of the pack's dong")?;
         let state = match raw[27] {
             STATE_DOCUMENT => EntryState::Document,

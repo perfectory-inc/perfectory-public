@@ -15,6 +15,11 @@
 //! The Gold row count every document is held to is the catalog's record of the summaries'
 //! snapshot (`gate::gold_record_count`); `PACK_EXPECTED_DOCUMENT_COUNT`, when an operator states
 //! it, must agree with it.
+//!
+//! When it passes, it writes each section generation's parts index (root ADR-0163) to the
+//! output store, create-only: gate (나)'s preview reads the generation as it will be served, so
+//! the index must exist before the probe, and this is the first step that sees every shard. The
+//! publish writes the same bytes again, which reuses them.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +28,10 @@ use anyhow::{ensure, Context};
 use super::super::optional_env;
 use super::bake::{summary_schema_version, PackExportSummary};
 use super::gate::{self, EqualityEvidence};
+use super::publish;
 use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
+use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
+use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 
 #[derive(Clone, Debug)]
 pub(crate) struct EqualityConfig {
@@ -107,6 +115,25 @@ pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         config.generation,
         config.evidence_path.display()
     );
+    let env = |name: &str| optional_env(&lane.env(name));
+    let output = ProfileStoreConfig::parse(
+        env("OUTPUT_STORAGE_DRIVER")?
+            .unwrap_or_else(|| "local".to_owned())
+            .as_str(),
+        local_root(env("OUTPUT_ROOT")?),
+    )?;
+    let store = ByPnuServingStore::open(lane, &output)?;
+    let summaries = summary_paths(&config.summary_dir)?
+        .iter()
+        .map(|path| read_summary(path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let by_section = publish::packs_by_section(lane, &summaries)?;
+    let named = publish::write_parts_indexes(lane, &store, &summaries, &by_section).await?;
+    tracing::info!(
+        lane = lane.unit(),
+        indexes = named.len(),
+        "parts indexes written for the preview and the publish"
+    );
     Ok(())
 }
 
@@ -129,6 +156,7 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
     let mut snapshot: Option<String> = None;
     let (mut compared, mut equal) = (0_u64, 0_u64);
     let mut candidates = Vec::new();
+    let mut anchor_parts = std::collections::BTreeMap::new();
     for path in &paths {
         let summary = read_summary(path)?;
         ensure!(
@@ -167,7 +195,16 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
         compared += summary.equality.compared;
         equal += summary.equality.equal;
         candidates.extend(summary.equality.sample_candidates);
+        for (dong, count) in summary
+            .parts
+            .get(&config.lane.section_packs()?.anchor_section)
+            .into_iter()
+            .flatten()
+        {
+            anchor_parts.insert(dong.clone(), *count);
+        }
     }
+    let anchor_parts = crate::r2_layout::by_pnu_packs::Parts::new(anchor_parts)?;
     let snapshot = snapshot.with_context(|| {
         format!(
             "{} holds no pack export summary",
@@ -199,6 +236,10 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
         equal,
         sample_seed: gate_policy.sample_seed.clone(),
         sample_sha256: gate::sample_digest(&sample),
+        sample_units: sample
+            .iter()
+            .map(|pnu| anchor_parts.unit_of(pnu))
+            .collect::<anyhow::Result<_>>()?,
         sample,
         passed: false,
         written_at_utc: crate::by_pnu_serving_manifest_publish::now(),

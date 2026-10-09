@@ -363,6 +363,33 @@ impl ByPnuServingStore {
         .await
     }
 
+    /// Writes one section generation's parts index create-only (root ADR-0163), reusing an
+    /// existing index only when the bytes match. Returns whether it was newly created.
+    ///
+    /// # Errors
+    /// Returns an error when the key is not that index's key, the provider rejects the write, or
+    /// the key already holds different bytes.
+    pub(crate) async fn write_parts_index_create_only(
+        &self,
+        section: &str,
+        generation: u64,
+        body: &[u8],
+        sha256: &str,
+    ) -> anyhow::Result<(String, bool)> {
+        let key = by_pnu_packs::parts_index_key(self.lane, section, generation)?;
+        let policy = section_pack_policy()?;
+        let created = self
+            .create_only(
+                &key,
+                body,
+                sha256,
+                "application/json",
+                &policy.cache_control,
+            )
+            .await?;
+        Ok((key, created))
+    }
+
     /// Every pack key of one section's base generation (`patch` `None`) or of one patch of it.
     ///
     /// # Errors
@@ -603,6 +630,35 @@ impl ByPnuServingStore {
             Backend::R2(storage, _) => storage.read_evidence_bytes(key).await,
         }
         .with_context(|| format!("failed to read serving object {key}"))
+    }
+
+    /// Reads one object's bytes, `None` when it is absent. Absence is asked of the store (an R2
+    /// HEAD that answers not-found, a missing local file), never inferred from a failed read: a
+    /// network failure is an error, not an absence.
+    ///
+    /// # Errors
+    /// Returns an error when the provider rejects the question or the read.
+    pub(crate) async fn read_optional_bytes(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        if self.exists(key).await? {
+            Ok(Some(self.read_bytes(key).await?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Whether one object exists: an R2 HEAD that answers not-found, or a missing local file, is
+    /// `false`; a failure to ask is an error.
+    ///
+    /// # Errors
+    /// Returns an error when the provider rejects the question.
+    pub(crate) async fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        match &self.backend {
+            Backend::Local(_, root) => Ok(root.join(key).is_file()),
+            Backend::R2(storage, _) => storage
+                .object_exists(key)
+                .await
+                .with_context(|| format!("failed to ask whether serving object {key} exists")),
+        }
     }
 
     async fn put(&self, request: PutObjectRequest) -> Result<(), PublishError> {

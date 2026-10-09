@@ -17,10 +17,16 @@ import { cacheOrigin, lanePacks, policy, UNIT } from "./lane";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
-/// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, and 3,
-/// the `section_packs` block a v2 envelope can carry (root ADR-0147). The publisher asks for this
-/// list at `request_path.capabilities` before it writes the first manifest of a newer schema.
-const MANIFEST_SCHEMA_VERSIONS = [1, 2, packPolicy.manifest_section_packs_schema_version] as const;
+/// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, 3, the
+/// `section_packs` block a v2 envelope can carry (root ADR-0147), and the block whose sections name
+/// a parts index (root ADR-0163). The publisher asks for this list at `request_path.capabilities`
+/// before it writes the first manifest of a newer schema.
+const MANIFEST_SCHEMA_VERSIONS = [
+  1,
+  2,
+  packPolicy.manifest_section_packs_schema_version,
+  packPolicy.manifest_section_packs_parted_schema_version,
+] as const;
 const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
 /// The prefix lengths a 19-digit PNU can have. A manifest declares its own; the contract's
 /// `pnu_prefix_length` and `max_patches` bind only the publisher writing the next manifest, so
@@ -308,6 +314,10 @@ function serverTiming(trace: ReadTrace | null, started: number, outcome: string)
     parts.push(`r2;dur=${trace.r2Ms};desc="gets=${trace.r2Gets} retries=${trace.retries}"`);
     for (const [section, source] of trace.sections) {
       parts.push(`pack-${section};dur=${trace.sectionR2Ms.get(section) ?? 0};desc="${source}"`);
+    }
+    // A parted section's index (root ADR-0163): read once per isolate, so named on its own.
+    for (const [section, source] of trace.parts) {
+      parts.push(`parts-${section};dur=${trace.partsR2Ms.get(section) ?? 0};desc="${source} gets=${trace.partsGets}"`);
     }
   }
   parts.push(`total;dur=${Date.now() - started}`);

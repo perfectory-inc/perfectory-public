@@ -196,6 +196,10 @@ pub(crate) struct PackExportSummary {
     pub(crate) packs: Vec<PackEntry>,
     /// Gate (가) of this run: documents read back from their packs and compared, before writing.
     pub(crate) equality: Equality,
+    /// Per section, the dongs this base bake cut into more than one part (root ADR-0163); empty
+    /// for a patch, which follows the served generation's parts.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) parts: BTreeMap<String, BTreeMap<String, u32>>,
     pub(crate) elapsed_seconds: f64,
 }
 
@@ -359,6 +363,9 @@ async fn scan(
 struct Plan {
     generations: BTreeMap<String, u64>,
     served: Option<ServedSections>,
+    /// A patch's sections cut their dongs as the served generation does (root ADR-0163); a base
+    /// bake decides its own parts and names none here.
+    parts: BTreeMap<String, by_pnu_packs::Parts>,
 }
 
 /// The sections a run does not bake, as the lane serves them: the view of them and, per section,
@@ -369,6 +376,10 @@ struct ServedSections {
 }
 
 impl Plan {
+    fn parts(&self, section: &str) -> by_pnu_packs::Parts {
+        self.parts.get(section).cloned().unwrap_or_default()
+    }
+
     fn generation(&self, section: &str) -> anyhow::Result<u64> {
         self.generations
             .get(section)
@@ -409,6 +420,7 @@ async fn plan(
                     .map(|name| (name.clone(), generation))
                     .collect(),
                 served: None,
+                parts: BTreeMap::new(),
             });
         }
     }
@@ -435,6 +447,7 @@ async fn plan(
             patch.patch,
             state.newest_patch()
         );
+        let view = read::PackView::served(store, config.lane, &state).await?;
         return Ok(Plan {
             generations: config
                 .sections
@@ -442,6 +455,11 @@ async fn plan(
                 .map(|name| Ok((name.clone(), served_generation(name)?)))
                 .collect::<anyhow::Result<_>>()?,
             served: None,
+            parts: view
+                .sections
+                .into_iter()
+                .map(|section| (section.name, section.parts))
+                .collect(),
         });
     }
     let generation = config
@@ -461,7 +479,7 @@ async fn plan(
             "section {name} generation may only move forward from {served}, not to {generation}"
         );
     }
-    let mut view = read::PackView::served(config.lane, &state);
+    let mut view = read::PackView::served(store, config.lane, &state).await?;
     view.sections
         .retain(|section| !config.sections.contains(&section.name));
     let mut bases = BTreeMap::new();
@@ -483,6 +501,7 @@ async fn plan(
             .map(|name| (name.clone(), generation))
             .collect(),
         served: Some(ServedSections { view, bases }),
+        parts: BTreeMap::new(),
     })
 }
 
@@ -586,8 +605,12 @@ pub(crate) async fn bake(
         joined_with_served: plan.served.is_some(),
         ..Equality::default()
     };
-    for (unit_packs, check) in written {
+    let mut parts: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    for (unit_packs, check, cut) in written {
         packs.extend(unit_packs);
+        for (section, (dong, count)) in cut {
+            parts.entry(section).or_default().insert(dong, count);
+        }
         equality.compared += check.compared;
         equality.equal += check.equal;
         equality.sample_candidates.extend(check.candidates);
@@ -650,6 +673,7 @@ pub(crate) async fn bake(
         totals,
         packs,
         equality,
+        parts,
         elapsed_seconds: started.elapsed().as_secs_f64(),
     })
 }
@@ -721,37 +745,49 @@ impl UnitCheck {
 /// One dong: its documents, every baked section's pack laid out and read back in memory, the
 /// gateway's answer joined from them (and from the served sections beside a section re-baked
 /// alone) and compared with the object documents (gate 가), then the packs written.
+/// One pack laid out for one unit of one dong: the section, the unit (the dong or one of its
+/// parts), the bytes, and the documents and deletes it holds.
+pub(super) struct LaidOut {
+    pub(super) section: String,
+    pub(super) unit: String,
+    pub(super) bytes: Vec<u8>,
+    pub(super) documents: Vec<PackDocument>,
+    pub(super) deleted: Vec<String>,
+}
+
+/// The dongs a base bake cut into parts, as `(section, (dong, count))`.
+type Cut = Vec<(String, (String, u32))>;
+
 async fn write_unit(
     run: &Run<'_>,
-    unit: &str,
+    dong: &str,
     rows: &[&JsonMap<String, JsonValue>],
     deleted: &[String],
-) -> anyhow::Result<(Vec<PackEntry>, UnitCheck)> {
+) -> anyhow::Result<(Vec<PackEntry>, UnitCheck, Cut)> {
     let documents = rows
         .iter()
         .map(|row| run.renderer.render(run.provenance, row))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let patch = run.config.patch.as_ref().map(|patch| patch.patch);
     let mut laid_out = Vec::with_capacity(run.config.sections.len());
+    let mut cut = Vec::new();
     if !documents.is_empty() || !deleted.is_empty() {
         for section in &run.config.sections {
-            laid_out.push((
-                section.clone(),
-                lay_out_pack(
-                    run.config,
-                    run.plan.generation(section)?,
-                    run.provenance,
-                    section,
-                    unit,
-                    &documents,
-                    deleted,
-                )?,
-            ));
+            let parts = lay_out_parts(run, section, dong, &documents, deleted)?;
+            if patch.is_none() {
+                if let Some(first) = parts.first() {
+                    let count = u32::try_from(parts.len())?;
+                    if first.unit != dong {
+                        cut.push((section.clone(), (dong.to_owned(), count)));
+                    }
+                }
+            }
+            laid_out.extend(parts);
         }
     }
     let served = match &run.plan.served {
         Some(served) => {
-            read::load_unit(run.store, &served.view, unit, &|section, unit| {
+            read::load_unit(run.store, &served.view, dong, &|section, unit| {
                 served
                     .bases
                     .get(section)
@@ -770,12 +806,89 @@ async fn write_unit(
         deleted,
         patch,
     )?;
-    check.require_equal(unit)?;
+    check.require_equal(dong)?;
     let mut packs = Vec::with_capacity(laid_out.len());
-    for (section, bytes) in laid_out {
-        packs.push(write_pack(run, section, unit, bytes, &documents, deleted).await?);
+    for pack in laid_out {
+        packs.push(write_pack(run, pack).await?);
     }
-    Ok((packs, check))
+    Ok((packs, check, cut))
+}
+
+/// One section of one dong, laid out as the packs it is written as (root ADR-0163). A patch
+/// follows the parts the served generation cut the dong into. A base bake lays the dong out
+/// whole and keeps it whole when it fits `parts.part_target_bytes`; otherwise it cuts the dong
+/// into `ceil(size / part_target_bytes)` parts by the PNU's hash. A part with nothing in it is
+/// not written, and no part may outgrow what the gateway reads whole.
+fn lay_out_parts(
+    run: &Run<'_>,
+    section: &str,
+    dong: &str,
+    documents: &[PackDocument],
+    deleted: &[String],
+) -> anyhow::Result<Vec<LaidOut>> {
+    let policy = crate::by_pnu_gateway_contract::section_pack_policy()?;
+    let generation = run.plan.generation(section)?;
+    let lay_out = |unit: &str, documents: &[PackDocument], deleted: &[String]| {
+        lay_out_pack(
+            run.config,
+            generation,
+            run.provenance,
+            section,
+            unit,
+            documents,
+            deleted,
+        )
+    };
+    let count = if run.config.patch.is_some() {
+        run.plan.parts(section).count(dong)
+    } else {
+        let whole = lay_out(dong, documents, deleted)?;
+        let parts = u64::try_from(whole.len())?.div_ceil(policy.parts.part_target_bytes);
+        if parts <= 1 {
+            return Ok(vec![LaidOut {
+                section: section.to_owned(),
+                unit: dong.to_owned(),
+                bytes: whole,
+                documents: documents.to_vec(),
+                deleted: deleted.to_vec(),
+            }]);
+        }
+        u32::try_from(parts)?
+    };
+    let mut laid_out = Vec::new();
+    for part in 0..count {
+        let unit = by_pnu_packs::part_unit(dong, part, count)?;
+        let mine = |pnu: &str| count <= 1 || by_pnu_packs::fnv1a32(pnu) % count == part;
+        let documents = documents
+            .iter()
+            .filter(|document| mine(&document.pnu))
+            .cloned()
+            .collect::<Vec<_>>();
+        let deleted = deleted
+            .iter()
+            .filter(|pnu| mine(pnu))
+            .cloned()
+            .collect::<Vec<_>>();
+        if documents.is_empty() && deleted.is_empty() {
+            continue;
+        }
+        let bytes = lay_out(&unit, &documents, &deleted)?;
+        ensure!(
+            count <= 1 || u64::try_from(bytes.len())? <= policy.read_path.whole_pack_max_bytes,
+            "{section} part {unit} is {} bytes, above the {} the gateway reads whole; raise the \
+             part count with a new generation rather than serve it by head and range",
+            bytes.len(),
+            policy.read_path.whole_pack_max_bytes
+        );
+        laid_out.push(LaidOut {
+            section: section.to_owned(),
+            unit,
+            bytes,
+            documents,
+            deleted,
+        });
+    }
+    Ok(laid_out)
 }
 
 pub(super) fn lay_out_pack(
@@ -829,34 +942,68 @@ fn entries<'a>(
 /// - Every delete answers as a tombstone.
 pub(super) fn check_round_trip(
     lane: ByPnuLane,
-    laid_out: &[(String, Vec<u8>)],
+    laid_out: &[LaidOut],
     served: &[read::SectionPacksOfUnit],
     documents: &[PackDocument],
     deleted: &[String],
     patch: Option<u64>,
 ) -> anyhow::Result<UnitCheck> {
-    let mut baked = Vec::with_capacity(laid_out.len());
-    for (section, bytes) in laid_out {
-        let pack = Pack::read(bytes)?;
-        for document in documents {
-            let entry = pack
-                .find(&document.pnu)
-                .with_context(|| format!("the {section} pack lost {}", document.pnu))?;
+    let mut baked: Vec<read::SectionPacksOfUnit> = Vec::new();
+    for laid in laid_out {
+        let section = &laid.section;
+        let pack = Pack::read(&laid.bytes)?;
+        for document in &laid.documents {
+            let entry = pack.find(&document.pnu).with_context(|| {
+                format!("the {section} pack {} lost {}", laid.unit, document.pnu)
+            })?;
             ensure!(
                 pack.document(entry)?.as_deref()
                     == Some(sections::fragment(document, section)?.as_slice()),
-                "the {section} pack does not read back the fragment of {}",
+                "the {section} pack {} does not read back the fragment of {}",
+                laid.unit,
                 document.pnu
             );
         }
-        baked.push(read::SectionPacksOfUnit {
-            name: section.clone(),
-            patches: patch
-                .map(|number| (number, pack.clone()))
-                .into_iter()
-                .collect(),
-            base: patch.is_none().then_some(pack),
-        });
+        ensure!(
+            pack.entries.len() == laid.documents.len() + laid.deleted.len(),
+            "the {section} pack {} holds {} entries for {} documents and {} deletes",
+            laid.unit,
+            pack.entries.len(),
+            laid.documents.len(),
+            laid.deleted.len()
+        );
+        let entry = match baked.iter_mut().find(|known| &known.name == section) {
+            Some(entry) => entry,
+            None => {
+                baked.push(read::SectionPacksOfUnit {
+                    name: section.clone(),
+                    patches: Vec::new(),
+                    bases: Vec::new(),
+                });
+                baked.last_mut().context("a section was just pushed")?
+            }
+        };
+        match patch {
+            Some(number) => entry.patches.push((number, pack)),
+            None => entry.bases.push(pack),
+        }
+    }
+    // Every document and delete is in exactly one unit of each baked section.
+    for section in &baked {
+        let held = section
+            .patches
+            .iter()
+            .map(|(_, pack)| pack)
+            .chain(section.bases.iter())
+            .map(|pack| pack.entries.len())
+            .sum::<usize>();
+        ensure!(
+            held == documents.len() + deleted.len(),
+            "the {} packs of this dong hold {held} entries for {} documents and {} deletes",
+            section.name,
+            documents.len(),
+            deleted.len()
+        );
     }
     // Contract order; a section neither baked here nor served beside them has no pack in this
     // dong, and a document then cannot answer.
@@ -871,7 +1018,7 @@ pub(super) fn check_round_trip(
                 .unwrap_or_else(|| read::SectionPacksOfUnit {
                     name: name.clone(),
                     patches: Vec::new(),
-                    base: None,
+                    bases: Vec::new(),
                 }),
         );
     }
@@ -904,7 +1051,7 @@ pub(super) fn check_round_trip(
             .patches
             .iter()
             .map(|(_, pack)| pack)
-            .chain(section.base.iter())
+            .chain(section.bases.iter())
         {
             beside.extend(
                 pack.entries
@@ -932,14 +1079,15 @@ pub(super) fn check_round_trip(
     Ok(check)
 }
 
-async fn write_pack(
-    run: &Run<'_>,
-    section: String,
-    unit: &str,
-    bytes: Vec<u8>,
-    documents: &[PackDocument],
-    deleted: &[String],
-) -> anyhow::Result<PackEntry> {
+async fn write_pack(run: &Run<'_>, laid: LaidOut) -> anyhow::Result<PackEntry> {
+    let LaidOut {
+        section,
+        unit,
+        bytes,
+        documents,
+        deleted,
+    } = laid;
+    let (unit, documents, deleted) = (unit.as_str(), documents.as_slice(), deleted.as_slice());
     let patch = run.config.patch.as_ref().map(|patch| patch.patch);
     let generation = run.plan.generation(&section)?;
     let pnus = if patch.is_some() {

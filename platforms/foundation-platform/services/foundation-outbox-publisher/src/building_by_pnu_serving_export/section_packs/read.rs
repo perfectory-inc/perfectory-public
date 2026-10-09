@@ -1,20 +1,22 @@
 //! Which pack answers for a PNU, read the way the gateway reads it (root ADR-0147 §3, §4).
 //!
-//! Per section: the newest patch whose unit list holds the PNU's legal dong and whose index holds
-//! the PNU, else the section's base pack. The anchor section decides whether the PNU answers;
+//! Per section: the newest patch whose unit list holds the PNU's unit and whose index holds the
+//! PNU, else the section's base pack. A PNU's unit is its legal dong, or the part of it the
+//! section generation's parts index cuts it into (root ADR-0163). The anchor section decides whether the PNU answers;
 //! every other section must agree with it (a document beside a document, a tombstone or nothing
 //! beside a tombstone), and a disagreement is an error, never a partial document. The Worker
 //! (`foundation-by-pnu-gateway/src/packs.ts`, one source for both lanes) follows the
 //! same rules; the golden fixtures pin both.
 
 use anyhow::{bail, ensure, Context};
+use sha2::{Digest, Sha256};
 
 use super::sections;
 use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_pack::{EntryState, Pack};
-use crate::by_pnu_section_pack_manifest::SectionPacksState;
+use crate::by_pnu_section_pack_manifest::{PartsRef, SectionPacksState};
 use crate::by_pnu_serving_store::ByPnuServingStore;
-use crate::r2_layout::by_pnu_packs;
+use crate::r2_layout::by_pnu_packs::{self, Parts, PartsIndexFile};
 
 /// What is read, per section: the base generation and the patches above the section's floor.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,56 +31,126 @@ pub(crate) struct SectionView {
     pub(crate) generation: u64,
     /// Newest first: (patch, the units it wrote packs for).
     pub(crate) patches: Vec<(u64, Vec<String>)>,
+    /// How `generation` cuts its dongs; empty when it cuts none.
+    pub(crate) parts: Parts,
 }
 
 impl PackView {
-    /// What a manifest's `section_packs` block serves.
-    pub(crate) fn served(lane: ByPnuLane, state: &SectionPacksState) -> Self {
-        Self {
-            lane,
-            sections: state
-                .sections
-                .iter()
-                .map(|section| SectionView {
-                    name: section.name.clone(),
-                    generation: section.generation,
-                    patches: state
-                        .patches_of(section)
-                        .map(|patch| (patch.patch, patch.units.clone()))
-                        .collect(),
-                })
-                .collect(),
+    /// What a manifest's `section_packs` block serves, with each section's parts index read and
+    /// checked against the sha256 the block names.
+    ///
+    /// # Errors
+    /// Returns an error when a named parts index cannot be read or is not the one named.
+    pub(crate) async fn served(
+        store: &ByPnuServingStore,
+        lane: ByPnuLane,
+        state: &SectionPacksState,
+    ) -> anyhow::Result<Self> {
+        let mut sections = Vec::with_capacity(state.sections.len());
+        for section in &state.sections {
+            let parts = match &section.parts {
+                Some(named) => {
+                    read_parts(store, lane, &section.name, section.generation, named).await?
+                }
+                None => Parts::default(),
+            };
+            sections.push(SectionView {
+                name: section.name.clone(),
+                generation: section.generation,
+                patches: state
+                    .patches_of(section)
+                    .map(|patch| (patch.patch, patch.units.clone()))
+                    .collect(),
+                parts,
+            });
         }
+        Ok(Self { lane, sections })
     }
 
     /// Every contract section at one base generation with no patches: a generation baked and not
-    /// yet published, the one the cut-over gate examines.
+    /// yet published, the one the cut-over gate examines. Its parts are the index the bake's
+    /// publish would name, read where it is written; a generation without one cuts no dong.
     ///
     /// # Errors
-    /// Returns an error when the contract has no sections for the lane.
-    pub(crate) fn unpublished(lane: ByPnuLane, generation: u64) -> anyhow::Result<Self> {
-        Ok(Self {
-            lane,
-            sections: lane
-                .section_packs()?
-                .sections
-                .iter()
-                .map(|name| SectionView {
-                    name: name.clone(),
-                    generation,
-                    patches: Vec::new(),
-                })
-                .collect(),
-        })
+    /// Returns an error when the contract has no sections for the lane, or an index there does
+    /// not read as this generation's.
+    pub(crate) async fn unpublished(
+        store: &ByPnuServingStore,
+        lane: ByPnuLane,
+        generation: u64,
+    ) -> anyhow::Result<Self> {
+        let mut sections = Vec::new();
+        for name in &lane.section_packs()?.sections {
+            let key = by_pnu_packs::parts_index_key(lane, name, generation)?;
+            let parts = match store.read_optional_bytes(&key).await? {
+                Some(bytes) => parse_parts(lane, name, generation, &key, &bytes)?,
+                None => Parts::default(),
+            };
+            sections.push(SectionView {
+                name: name.clone(),
+                generation,
+                patches: Vec::new(),
+                parts,
+            });
+        }
+        Ok(Self { lane, sections })
     }
 }
 
-/// One section's packs of one legal dong: its patches (newest first) and its base.
+/// A section generation's parts index, holding it to the key and bytes the manifest names.
+async fn read_parts(
+    store: &ByPnuServingStore,
+    lane: ByPnuLane,
+    section: &str,
+    generation: u64,
+    named: &PartsRef,
+) -> anyhow::Result<Parts> {
+    let key = by_pnu_packs::parts_index_key(lane, section, generation)?;
+    ensure!(
+        named.key == key,
+        "section {section} names its parts index at {}, not at {key}",
+        named.key
+    );
+    let bytes = store
+        .read_bytes(&key)
+        .await
+        .with_context(|| format!("the manifest names {key} but it cannot be read"))?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    ensure!(
+        sha256 == named.sha256,
+        "{key} hashes to {sha256}, not the {} the manifest names",
+        named.sha256
+    );
+    let parts = parse_parts(lane, section, generation, &key, &bytes)?;
+    ensure!(
+        u64::try_from(parts.counts().len())? == named.parted_units,
+        "{key} cuts {} dongs, not the {} the manifest names",
+        parts.counts().len(),
+        named.parted_units
+    );
+    Ok(parts)
+}
+
+fn parse_parts(
+    lane: ByPnuLane,
+    section: &str,
+    generation: u64,
+    key: &str,
+    bytes: &[u8],
+) -> anyhow::Result<Parts> {
+    let file: PartsIndexFile =
+        serde_json::from_slice(bytes).with_context(|| format!("{key} is not a parts index"))?;
+    file.parts_of(lane, section, generation)
+}
+
+/// One section's packs of one legal dong: its patches (newest first) and its base packs, one per
+/// unit of the dong (its parts, or the dong itself). A PNU is in exactly one unit, so searching
+/// them all finds the one the gateway would read.
 #[derive(Clone, Debug)]
 pub(crate) struct SectionPacksOfUnit {
     pub(crate) name: String,
     pub(crate) patches: Vec<(u64, Pack)>,
-    pub(crate) base: Option<Pack>,
+    pub(crate) bases: Vec<Pack>,
 }
 
 /// Every section's packs of one legal dong.
@@ -105,46 +177,56 @@ pub(crate) enum Resolved {
     Absent,
 }
 
-/// Reads one legal dong's packs. `base_units` and the view's patch unit lists say which packs
-/// exist; a pack that should exist and cannot be read is an error, not an absence.
+/// Reads one legal dong's packs, every unit of it in each section. `base_units` and the view's
+/// patch unit lists say which packs exist; a pack that should exist and cannot be read is an
+/// error, not an absence.
 ///
 /// # Errors
 /// Returns an error when a pack cannot be read or does not check out.
 pub(crate) async fn load_unit(
     store: &ByPnuServingStore,
     view: &PackView,
-    unit: &str,
+    dong: &str,
     base_units: &(dyn Fn(&str, &str) -> bool + Sync),
 ) -> anyhow::Result<UnitPacks> {
     let mut sections = Vec::with_capacity(view.sections.len());
     for section in &view.sections {
+        let units = section.parts.units_of_dong(dong)?;
         let mut patches = Vec::new();
-        for (patch, units) in &section.patches {
-            if units
-                .binary_search_by(|candidate| candidate.as_str().cmp(unit))
-                .is_ok()
-            {
+        for (patch, written) in &section.patches {
+            for unit in &units {
+                if written
+                    .binary_search_by(|candidate| candidate.as_str().cmp(unit))
+                    .is_ok()
+                {
+                    let key = by_pnu_packs::pack_key(
+                        view.lane,
+                        &section.name,
+                        section.generation,
+                        Some(*patch),
+                        unit,
+                    )?;
+                    patches.push((*patch, read_pack(store, &key).await?));
+                }
+            }
+        }
+        let mut bases = Vec::new();
+        for unit in &units {
+            if base_units(&section.name, unit) {
                 let key = by_pnu_packs::pack_key(
                     view.lane,
                     &section.name,
                     section.generation,
-                    Some(*patch),
+                    None,
                     unit,
                 )?;
-                patches.push((*patch, read_pack(store, &key).await?));
+                bases.push(read_pack(store, &key).await?);
             }
         }
-        let base = if base_units(&section.name, unit) {
-            let key =
-                by_pnu_packs::pack_key(view.lane, &section.name, section.generation, None, unit)?;
-            Some(read_pack(store, &key).await?)
-        } else {
-            None
-        };
         sections.push(SectionPacksOfUnit {
             name: section.name.clone(),
             patches,
-            base,
+            bases,
         });
     }
     Ok(UnitPacks {
@@ -176,7 +258,7 @@ pub(crate) fn find(section: &SectionPacksOfUnit, pnu: &str) -> anyhow::Result<Fo
             });
         }
     }
-    if let Some(pack) = &section.base {
+    for pack in &section.bases {
         if let Some(entry) = pack.find(pnu) {
             return Ok(Found::Document {
                 patch: None,

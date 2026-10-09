@@ -34,7 +34,7 @@ use super::{equality, gate};
 use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
 use crate::by_pnu_pack::Pack;
 use crate::by_pnu_section_pack_manifest::{
-    CutoverRecord, PackPatch, SectionPacksState, SectionState,
+    CutoverRecord, PackPatch, PartsRef, SectionPacksState, SectionState,
 };
 use crate::by_pnu_serving_manifest::{ServedManifest, ServingManifest, StoredManifest};
 use crate::by_pnu_serving_manifest_publish::{self as manifest_publish, gold_table};
@@ -363,7 +363,7 @@ fn read_summaries(
 
 /// Per section: its generation and its packs, from every summary. A patch's sections each carry
 /// their own generation.
-fn packs_by_section(
+pub(super) fn packs_by_section(
     lane: ByPnuLane,
     summaries: &[PackExportSummary],
 ) -> anyhow::Result<BTreeMap<String, (u64, Vec<PackEntry>)>> {
@@ -497,6 +497,7 @@ async fn base(
             by_section.get(section).map_or(0, |(_, packs)| packs.len()),
         )?)
     };
+    let parts = write_parts_indexes(config.lane, store, summaries, &by_section).await?;
     let section_state = |name: &str, patch_floor: u64| -> anyhow::Result<SectionState> {
         let (generation, _) = by_section
             .get(name)
@@ -508,6 +509,7 @@ async fn base(
             document_count: expected,
             pack_count: pack_count(name)?,
             patch_floor,
+            parts: parts.get(name).cloned(),
         })
     };
     let policy = section_pack_policy()?;
@@ -527,15 +529,9 @@ async fn base(
                 by_section.values().all(|(g, _)| *g == generation),
                 "the first pack publish is one generation of every section"
             );
-            manifest_publish::require_gateway_reads(
-                config.lane,
-                gateway_base_url,
-                policy.manifest_section_packs_schema_version,
-            )
-            .await?;
             require_scheduled_pack_bake(config.lane, &config.installed_jobs)?;
             let cutover = cutover_gate(config, generation, snapshot, expected)?;
-            Ok(SectionPacksState {
+            let mut state = SectionPacksState {
                 schema_version: policy.manifest_section_packs_schema_version,
                 format_version: policy.format_version,
                 unit_prefix_length: policy.unit_prefix_length,
@@ -551,7 +547,15 @@ async fn base(
                     .collect::<anyhow::Result<_>>()?,
                 patches: Vec::new(),
                 cutover: Some(cutover),
-            })
+            };
+            state.schema_version = state.schema_version_for_sections()?;
+            manifest_publish::require_gateway_reads(
+                config.lane,
+                gateway_base_url,
+                state.schema_version,
+            )
+            .await?;
+            Ok(state)
         }
         Some(current) => {
             let whole = by_section
@@ -596,9 +600,86 @@ async fn base(
                 next.document_count
             );
             next.reflected_gold_snapshot_tag = None;
+            // A generation that cuts dongs needs a gateway that reads the parted block; one the
+            // lane already serves it from has been asked before.
+            let version = next.schema_version_for_sections()?;
+            if version != current.schema_version {
+                manifest_publish::require_gateway_reads(config.lane, gateway_base_url, version)
+                    .await?;
+            }
+            next.schema_version = version;
             Ok(next)
         }
     }
+}
+
+/// Writes each baked section's parts index (root ADR-0163): the dongs the bake's summaries cut
+/// into more than one part, create-only under the section generation, and returns what the
+/// manifest names of each. A section none of whose dongs is cut has no index.
+///
+/// # Errors
+/// Refuses summaries that disagree on a dong's part count, and a write that fails or would
+/// replace other bytes.
+pub(super) async fn write_parts_indexes(
+    lane: ByPnuLane,
+    store: &ByPnuServingStore,
+    summaries: &[PackExportSummary],
+    by_section: &BTreeMap<String, (u64, Vec<PackEntry>)>,
+) -> anyhow::Result<BTreeMap<String, PartsRef>> {
+    let mut counts: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    for summary in summaries {
+        for (section, cut) in &summary.parts {
+            let section_counts = counts.entry(section.clone()).or_default();
+            for (dong, count) in cut {
+                if let Some(earlier) = section_counts.insert(dong.clone(), *count) {
+                    ensure!(
+                        earlier == *count,
+                        "two summaries cut {section} dong {dong} into {earlier} and {count} parts"
+                    );
+                }
+            }
+        }
+    }
+    ensure!(
+        counts
+            .keys()
+            .all(|section| by_section.contains_key(section)),
+        "a summary cuts a section no summary bakes"
+    );
+    let mut named = BTreeMap::new();
+    for (section, (generation, packs)) in by_section {
+        let section = section.clone();
+        let parts = by_pnu_packs::Parts::new(counts.remove(&section).unwrap_or_default())?;
+        // Every part a summary wrote is one the index names, and the other way round no part
+        // beyond the count exists.
+        for pack in packs {
+            let dong = by_pnu_packs::dong_of(&pack.unit);
+            ensure!(
+                parts.units_of_dong(dong)?.contains(&pack.unit),
+                "pack {} is not a unit of dong {dong} as the parts index cuts it",
+                pack.key
+            );
+        }
+        if parts.counts().is_empty() {
+            continue;
+        }
+        let file = by_pnu_packs::PartsIndexFile::new(lane, &section, *generation, &parts)?;
+        let mut body = serde_json::to_vec(&file)?;
+        body.push(b'\n');
+        let sha256 = format!("{:x}", Sha256::digest(&body));
+        let (key, _) = store
+            .write_parts_index_create_only(&section, *generation, &body, &sha256)
+            .await?;
+        named.insert(
+            section,
+            PartsRef {
+                key,
+                sha256,
+                parted_units: u64::try_from(parts.counts().len())?,
+            },
+        );
+    }
+    Ok(named)
 }
 
 /// The first pack publish only over an installed scheduled bake that patches packs (runbook 7절):
