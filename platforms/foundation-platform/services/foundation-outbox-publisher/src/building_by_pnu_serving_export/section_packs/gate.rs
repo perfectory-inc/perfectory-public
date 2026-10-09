@@ -43,6 +43,10 @@ pub(crate) struct EqualityEvidence {
     pub(crate) sample_seed: String,
     /// The live check's PNUs, in rank order.
     pub(crate) sample: Vec<String>,
+    /// The anchor section's unit of each sample PNU (its dong, or the part of it the bake cut it
+    /// into, root ADR-0163), in the sample's order: a read is cold on the first of its unit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) sample_units: Vec<String>,
     pub(crate) sample_sha256: String,
     pub(crate) passed: bool,
     pub(crate) written_at_utc: String,

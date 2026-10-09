@@ -287,14 +287,35 @@ struct Probed {
     pack: Result<Answer, Failure>,
 }
 
-/// Which reads are cold: the first of each legal dong in the sample's order.
+/// Which reads are cold: the first of each unit in the sample's order. `units` are the sample's
+/// units as the equality evidence names them (a dong, or one part of it, root ADR-0163); without
+/// them each PNU's unit is its dong.
 ///
 /// # Errors
-/// Returns an error for a PNU too short to name its dong.
-pub(crate) fn cold_reads(pnus: &[String]) -> anyhow::Result<Vec<bool>> {
+/// Returns an error for a PNU too short to name its dong, or units that are not the sample's.
+pub(crate) fn cold_reads(pnus: &[String], units: &[String]) -> anyhow::Result<Vec<bool>> {
+    ensure!(
+        units.is_empty() || units.len() == pnus.len(),
+        "the evidence names {} units for {} sample PNUs",
+        units.len(),
+        pnus.len()
+    );
     let mut seen = HashSet::new();
     pnus.iter()
-        .map(|pnu| Ok(seen.insert(by_pnu_packs::unit_of(pnu)?.to_owned())))
+        .enumerate()
+        .map(|(index, pnu)| {
+            let unit = match units.get(index) {
+                Some(unit) => {
+                    ensure!(
+                        by_pnu_packs::dong_of(unit) == by_pnu_packs::unit_of(pnu)?,
+                        "unit {unit} is not of {pnu}'s dong"
+                    );
+                    unit.clone()
+                }
+                None => by_pnu_packs::unit_of(pnu)?.to_owned(),
+            };
+            Ok(seen.insert(unit))
+        })
         .collect()
 }
 
@@ -323,7 +344,13 @@ pub(crate) async fn probe(
         .timeout(REQUEST_TIMEOUT)
         .pool_max_idle_per_host(config.concurrency.max(1))
         .build()?;
-    let cold = cold_reads(pnus)?;
+    let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
+    let units = if equality.sample == pnus {
+        equality.sample_units
+    } else {
+        Vec::new()
+    };
+    let cold = cold_reads(pnus, &units)?;
     let started_at = Utc::now();
     // Owned per-PNU work: a stream of borrows trips the closure's lifetime inference.
     let jobs = pnus

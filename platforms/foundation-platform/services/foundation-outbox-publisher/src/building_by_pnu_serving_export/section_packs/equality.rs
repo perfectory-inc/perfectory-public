@@ -129,6 +129,7 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
     let mut snapshot: Option<String> = None;
     let (mut compared, mut equal) = (0_u64, 0_u64);
     let mut candidates = Vec::new();
+    let mut anchor_parts = std::collections::BTreeMap::new();
     for path in &paths {
         let summary = read_summary(path)?;
         ensure!(
@@ -167,7 +168,16 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
         compared += summary.equality.compared;
         equal += summary.equality.equal;
         candidates.extend(summary.equality.sample_candidates);
+        for (dong, count) in summary
+            .parts
+            .get(&config.lane.section_packs()?.anchor_section)
+            .into_iter()
+            .flatten()
+        {
+            anchor_parts.insert(dong.clone(), *count);
+        }
     }
+    let anchor_parts = crate::r2_layout::by_pnu_packs::Parts::new(anchor_parts)?;
     let snapshot = snapshot.with_context(|| {
         format!(
             "{} holds no pack export summary",
@@ -199,6 +209,10 @@ pub(crate) fn verify(config: &EqualityConfig) -> anyhow::Result<EqualityEvidence
         equal,
         sample_seed: gate_policy.sample_seed.clone(),
         sample_sha256: gate::sample_digest(&sample),
+        sample_units: sample
+            .iter()
+            .map(|pnu| anchor_parts.unit_of(pnu))
+            .collect::<anyhow::Result<_>>()?,
         sample,
         passed: false,
         written_at_utc: crate::by_pnu_serving_manifest_publish::now(),

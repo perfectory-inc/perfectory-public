@@ -51,10 +51,10 @@ pub(crate) async fn inspect(
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
     by_pnu::check_pnu(lane, pnu)?;
-    let unit = by_pnu_packs::unit_of(pnu)?.to_owned();
+    let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
     let (view, from) = match generation {
         Some(generation) => (
-            PackView::unpublished(lane, generation)?,
+            PackView::unpublished(store, lane, generation).await?,
             format!("generation {generation}"),
         ),
         None => {
@@ -63,22 +63,26 @@ pub(crate) async fn inspect(
             let state = served
                 .section_packs
                 .context("the live manifest names no section packs; name PACK_GENERATION")?;
-            (PackView::served(lane, &state), "manifest".to_owned())
+            (
+                PackView::served(store, lane, &state).await?,
+                "manifest".to_owned(),
+            )
         }
     };
+    // The one base pack per section that can hold the PNU, asked for by key: listing a parted
+    // generation would read hundreds of thousands of keys for one PNU.
     let mut bases = Vec::new();
     for section in &view.sections {
+        let unit = section.parts.unit_of(pnu)?;
         let key = by_pnu_packs::pack_key(lane, &section.name, section.generation, None, &unit)?;
-        if store
-            .list_pack_keys(&section.name, section.generation, None)
-            .await?
-            .contains(&key)
-        {
-            bases.push(section.name.clone());
+        if store.exists(&key).await? {
+            bases.push((section.name.clone(), unit));
         }
     }
-    let packs = read::load_unit(store, &view, &unit, &|section, _| {
-        bases.iter().any(|name| name == section)
+    let packs = read::load_unit(store, &view, &dong, &|section, unit| {
+        bases
+            .iter()
+            .any(|(name, known)| name == section && known == unit)
     })
     .await?;
     let mut sections = Vec::new();
@@ -114,7 +118,8 @@ pub(crate) async fn inspect(
     };
     Ok(json!({
         "pnu": pnu,
-        "unit": unit,
+        "dong": dong,
+        "units": bases.iter().map(|(section, unit)| json!({"section": section, "unit": unit})).collect::<Vec<_>>(),
         "view": from,
         "sections": sections,
         "answer": answer,

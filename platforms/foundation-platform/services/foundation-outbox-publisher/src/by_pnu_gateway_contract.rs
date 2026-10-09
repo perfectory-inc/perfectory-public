@@ -168,6 +168,12 @@ pub(crate) struct SectionPackPolicy {
     pub(crate) format_version: u16,
     /// The `schema_version` of the manifest's `section_packs` block.
     pub(crate) manifest_section_packs_schema_version: u32,
+    /// The block's `schema_version` when a section names a parts index (root ADR-0163).
+    pub(crate) manifest_section_packs_parted_schema_version: u32,
+    /// How a large dong is cut into parts read whole (root ADR-0163).
+    pub(crate) parts: PackPartsPolicy,
+    /// What the gateway reads in one GET (root ADR-0147 Revision).
+    pub(crate) read_path: PackReadPathPolicy,
     /// Digits of the PNU one pack covers: the legal dong.
     pub(crate) unit_prefix_length: usize,
     pub(crate) compression: String,
@@ -181,6 +187,32 @@ pub(crate) struct SectionPackPolicy {
     /// Where the gate's Cloudflare analytics credentials come from.
     pub(crate) cloudflare_analytics: CloudflareAnalyticsPolicy,
     pub(crate) cutover_gate: CutoverGatePolicy,
+}
+
+/// Parts of a large dong (root ADR-0163): a dong of total size S is cut into
+/// `ceil(S / part_target_bytes)` parts, a PNU into part `fnv1a32(pnu) mod K`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct PackPartsPolicy {
+    pub(crate) part_target_bytes: u64,
+    pub(crate) hash: String,
+    pub(crate) hash_test_vectors: Vec<HashTestVector>,
+    pub(crate) unit_pattern: String,
+    pub(crate) index_file_name: String,
+    pub(crate) index_schema_version: String,
+}
+
+/// One input and its `fnv1a32`, which the publisher and the Worker are both held to.
+#[derive(Debug, Deserialize)]
+pub(crate) struct HashTestVector {
+    pub(crate) input: String,
+    pub(crate) fnv1a32: u32,
+}
+
+/// The gateway's read bounds the bake must respect.
+#[derive(Debug, Deserialize)]
+pub(crate) struct PackReadPathPolicy {
+    /// A pack at most this long is read whole in one GET; the bake refuses a larger part.
+    pub(crate) whole_pack_max_bytes: u64,
 }
 
 /// The environment variables that carry the analytics account and its read-only token. The file
@@ -377,6 +409,29 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || gate.load_test.max_in_flight == 0
     {
         return Err("by_pnu_section_packs holds values the pack format cannot honour".to_owned());
+    }
+    // The parts are computed by two languages (root ADR-0163): the hash must be the one both
+    // implement, and the test vectors must hold for the publisher's, here, at every start.
+    let parts = &packs.parts;
+    if parts.hash != "fnv1a32"
+        || parts.hash_test_vectors.is_empty()
+        || parts
+            .hash_test_vectors
+            .iter()
+            .any(|vector| crate::r2_layout::by_pnu_packs::fnv1a32(&vector.input) != vector.fnv1a32)
+        || parts.part_target_bytes == 0
+        || parts.part_target_bytes > packs.read_path.whole_pack_max_bytes
+        || parts.index_file_name.is_empty()
+        || parts.index_schema_version.is_empty()
+        || packs.manifest_section_packs_parted_schema_version
+            <= packs.manifest_section_packs_schema_version
+        || regex::Regex::new(&format!("^(?:{})$", parts.unit_pattern)).is_err()
+    {
+        return Err(
+            "by_pnu_section_packs.parts holds values the publisher and the Worker cannot both \
+             honour"
+                .to_owned(),
+        );
     }
     for gateway in [
         &contract.parcel_by_pnu_gateway,

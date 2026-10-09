@@ -115,7 +115,7 @@ fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyCo
 #[test]
 fn the_first_read_of_each_legal_dong_is_cold() -> anyhow::Result<()> {
     assert_eq!(
-        latency::cold_reads(&pnus())?,
+        latency::cold_reads(&pnus(), &[])?,
         vec![true, false, false, true, false]
     );
     Ok(())

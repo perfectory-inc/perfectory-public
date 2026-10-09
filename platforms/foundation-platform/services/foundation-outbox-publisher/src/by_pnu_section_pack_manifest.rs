@@ -58,6 +58,18 @@ pub(crate) struct SectionState {
     pub(crate) pack_count: u64,
     /// Patches up to this number are already in `generation`; 0 when none are.
     pub(crate) patch_floor: u64,
+    /// The parts index of `generation` (root ADR-0163); `None` when no dong of it is cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) parts: Option<PartsRef>,
+}
+
+/// Where a section generation's parts index is, and the bytes it must have.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct PartsRef {
+    pub(crate) key: String,
+    pub(crate) sha256: String,
+    /// How many dongs the index cuts into more than one part.
+    pub(crate) parted_units: u64,
 }
 
 /// One patch of the pack lane.
@@ -82,6 +94,21 @@ pub(crate) struct CutoverRecord {
 }
 
 impl SectionPacksState {
+    /// The block's `schema_version` for its sections: the parted one when any names a parts index.
+    ///
+    /// # Errors
+    /// Returns an error when the contract cannot be read.
+    pub(crate) fn schema_version_for_sections(&self) -> anyhow::Result<u32> {
+        let policy = section_pack_policy()?;
+        Ok(
+            if self.sections.iter().any(|section| section.parts.is_some()) {
+                policy.manifest_section_packs_parted_schema_version
+            } else {
+                policy.manifest_section_packs_schema_version
+            },
+        )
+    }
+
     /// The newest patch number any section holds, 0 when there is none.
     pub(crate) fn newest_patch(&self) -> u64 {
         self.patches.first().map_or(0, |patch| patch.patch).max(
@@ -110,12 +137,29 @@ impl SectionPacksState {
     /// patches that are not strictly newest first with sorted distinct units of the block's length.
     pub(crate) fn check_readable(&self) -> anyhow::Result<()> {
         let policy = section_pack_policy()?;
+        // A block whose sections name a parts index is the parted version, and only it may: a
+        // reader of the older version would look a cut dong up under its whole key (ADR-0163).
+        let wanted = self.schema_version_for_sections()?;
         ensure!(
-            self.schema_version == policy.manifest_section_packs_schema_version,
-            "section_packs schema_version {} is not the {} this reader knows",
+            self.schema_version == wanted,
+            "section_packs schema_version {} is not the {wanted} its sections need (this reader \
+             knows {} and {})",
             self.schema_version,
-            policy.manifest_section_packs_schema_version
+            policy.manifest_section_packs_schema_version,
+            policy.manifest_section_packs_parted_schema_version
         );
+        for section in &self.sections {
+            if let Some(parts) = &section.parts {
+                ensure!(
+                    parts.sha256.len() == 64
+                        && parts.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        && !parts.key.is_empty()
+                        && parts.parted_units > 0,
+                    "section {} names a malformed parts index",
+                    section.name
+                );
+            }
+        }
         ensure!(
             PNU_PREFIX_LENGTHS.contains(&self.unit_prefix_length),
             "section_packs unit_prefix_length {} is not a PNU prefix length",
@@ -147,8 +191,9 @@ impl SectionPacksState {
                     && !patch.units.is_empty()
                     && patch.units.windows(2).all(|pair| pair[0] < pair[1])
                     && patch.units.iter().all(|unit| {
-                        unit.len() == self.unit_prefix_length
-                            && unit.bytes().all(|byte| byte.is_ascii_digit())
+                        crate::r2_layout::by_pnu_packs::dong_of(unit).len()
+                            == self.unit_prefix_length
+                            && crate::r2_layout::by_pnu_packs::check_unit(unit).is_ok()
                     }),
                 "section_packs patch {} must hold changes under sorted distinct {}-digit units",
                 patch.patch,
@@ -233,6 +278,7 @@ pub(crate) mod tests {
                     document_count: 2,
                     pack_count: 1,
                     patch_floor: 0,
+                    parts: None,
                 })
                 .collect(),
             patches: Vec::new(),
