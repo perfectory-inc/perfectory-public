@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-10
 ---
 
 # 예약 작업 운영 (Airflow)
@@ -23,6 +23,23 @@ Airflow 가 일정·재시도·실행 이력·계보를 맡고, 작업 자체는
 | Airflow 가 서버에서 돌릴 수 있는 유일한 명령 | `scripts/ops/start-scheduled-job.sh` |
 | 작업이 시작 직전에 받는 검사 | `infra/systemd/foundation-release-admission.conf` — `timers` 가 각 작업 unit 에, 템플릿 인스턴스는 템플릿(`foundation-x@.service.d/`)에 설치한다 ([ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)) |
 | 배포기를 sudo 로 실행할 수 있는 경로 | 제어 체크아웃의 `foundation-release.sh` 하나 (`deployer-access` 가 설치) |
+
+## 시각으로 시작하는 작업과 입력으로 시작하는 작업
+
+[루트 ADR-0171](../../../../docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md).
+`jobs.v1.json` 의 `started_by` 가 정한다.
+
+- `schedule`: `schedule` 시각에 돈다(DAG 하나에 태스크 `run`, 출력이 있으면 `publish_outputs` 가 뒤따른다).
+- `inputs`: 다른 작업의 실행이 이 작업의 입력 자산을 바꿨다고 하면 곧 돌고, `schedule` 시각에도 돈다(대체).
+  Airflow 화면의 Assets 에서 자산(`iceberg://silver.…`, `perfectory://…`)과 그것을 기다리는 DAG 가 보인다.
+- 실행이 바뀐 것이 있는지는 유닛 저널의 마지막 `foundation-job-outcome changed|unchanged` 줄이 말한다. `run` 은 그
+  낱말만 XCom `outcome` 으로 남긴다. `unchanged` 면 `publish_outputs` 가 건너뛰어(skipped) 하류가 시작되지 않는다.
+  줄이 없으면 `changed` 로 센다.
+- `publish_outputs` 는 데이터 카탈로그에 실행을 보고하지 않는다. 카탈로그에는 지금처럼 DAG 와 `run` 의 실행만 있다.
+- 하류가 안 돌았을 때 볼 것: 상류 실행의 `run` 로그 끝 줄, `publish_outputs` 가 skipped 인지, 하류 DAG 가 멈춰
+  있었는지(멈춘 DAG 몫의 이벤트는 큐에 쌓이지 않는다). 대체 시각에는 어쨌든 돈다.
+- 손으로 이벤트를 만들 수 있다: Airflow 화면의 자산 페이지에서 "Create asset event". 손 적재 뒤 Gold 를 바로
+  돌릴 때 쓴다.
 
 ## 처음 설치
 

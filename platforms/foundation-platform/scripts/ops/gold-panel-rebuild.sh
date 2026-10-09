@@ -18,6 +18,9 @@
 #    commits nothing. A passing run commits one new Gold snapshot (the old ones stay in the
 #    table's history) that records the pins in its summary, so the next plan starts from it.
 #
+# `all` ends with `foundation-job-outcome changed` when a table committed a snapshot, `unchanged`
+# otherwise (root ADR-0171): Airflow starts the by-PNU bake only on `changed`.
+#
 # --dry-run runs the producer with --validate-only: the whole transform and every check, no
 # commit. The by-PNU bake (by-pnu-serving-bake.sh) bakes a Gold snapshot its published generation
 # does not serve, so a committed rebuild is baked on the bake's next turn.
@@ -86,8 +89,18 @@ if [[ -z "${GOLD_PANEL_REBUILD_LOCK_HELD:-}" ]]; then
 fi
 if [[ "${UNIT}" == all ]]; then
   status=0
+  # Each table that commits a snapshot names itself here; the job's last line says whether any did,
+  # which is what starts the by-PNU bake (root ADR-0171).
+  GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
+  export GOLD_PANEL_REBUILD_COMMITTED
   "${BASH_SOURCE[0]}" parcel ${OPTIONS[@]+"${OPTIONS[@]}"} || status=$?
   "${BASH_SOURCE[0]}" building ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
+  if [[ -s "${GOLD_PANEL_REBUILD_COMMITTED}" ]]; then
+    echo "foundation-job-outcome changed"
+  else
+    echo "foundation-job-outcome unchanged"
+  fi
+  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}"
   exit "${status}"
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -188,5 +201,6 @@ rows="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["row_
 if ((${#VALIDATE[@]})); then
   log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s; nothing was committed"
 else
+  [[ -z "${GOLD_PANEL_REBUILD_COMMITTED:-}" ]] || echo "${gold_table}" >>"${GOLD_PANEL_REBUILD_COMMITTED}"
   log "committed ${gold_table}: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s; the by-PNU bake serves it on its next turn"
 fi

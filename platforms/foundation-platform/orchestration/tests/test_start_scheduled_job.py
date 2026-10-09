@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -74,6 +75,8 @@ class TakingTurns(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
         self.assertTrue((self.starts / "bake").is_file())
+        # A run that starts says nothing of its own outcome: the unit's journal does.
+        self.assertNotIn("foundation-job-outcome", result.stdout)
 
     def test_a_second_bake_waits_until_the_jobs_it_blocks_have_started(self):
         self.record("bake", 2000)
@@ -82,6 +85,11 @@ class TakingTurns(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bake deferred: floor cannot run beside bake", result.stdout)
         self.assertEqual(asked, "", "a deferred job must not be started")
+        # Nothing ran, so the DAG records no output events and starts nothing downstream (ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
+        import job_specs  # noqa: E402
+        self.assertEqual(job_specs.job_outcome(result.stdout), "unchanged")
         self.assertEqual((self.starts / "bake").read_text(), "2000\n")
         # A job that never started here counts as waiting too.
         (self.starts / "floor").unlink()

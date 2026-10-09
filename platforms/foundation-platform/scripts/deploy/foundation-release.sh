@@ -1255,10 +1255,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # ReadWritePaths, and systemd refuses to start a unit whose path is missing.
     install -d -o foundation-platform -g foundation-platform /data/foundation-platform/source-sweep
     # The Silver refresh lanes' work: staged Bronze ZIPs, handoffs and Spark's spill (root ADR-0169).
-    # Its unit names this path in ReadWritePaths. The unit is not a registered job yet (its lanes
-    # are run under supervision), so its release admission is installed here, as the migration's.
+    # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
+    # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
-    install_release_admission foundation-silver-refresh@.service
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer

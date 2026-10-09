@@ -276,6 +276,11 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertIn("nothing to do: the served state (generation 2, 0 patches) already reflects Gold snapshot 101",
                       result.stdout)
         self.assertEqual([call["command"] for call in calls], ["show-parcel-by-pnu-serving-state"])
+        # The registered job (both lanes): nothing published, so the run says it changed nothing.
+        result, _ = self.bake("all", FAKE_GOLD="101")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.count("nothing to do"), 2, result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
 
     def test_a_complete_bake_publishes_the_next_generation_with_the_gold_row_count(self):
         result, calls = self.bake()
@@ -490,6 +495,8 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertLess(max(i for i, c in enumerate(commands) if "parcel" in c),
                         min(i for i, c in enumerate(commands) if "building" in c),
                         "the lanes ran side by side; the memory budget fits one at a time")
+        # A lane published: the job's last line says so (root ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
         # A parcel lane that fails still lets the building lane bake, and the job reports the failure.
         for path in self.state_root.glob("*/in-progress.json"):
             path.unlink()

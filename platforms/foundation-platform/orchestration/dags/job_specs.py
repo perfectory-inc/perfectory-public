@@ -6,6 +6,10 @@ Pure Python with no Airflow import, so the code the DAGs run is the code the tes
 - how a job runs:      its systemd service in infra/systemd (only checked to exist here)
 - inputs and outputs:  the endpoints of the pipeline-graph edges a job names
                        (docs/catalog/pipeline-graph.v1.json), named by infra/datahub/dataset_names.py
+- what starts a job:   its `started_by` (root ADR-0171): its schedule, or an event on one of its
+                       inputs that another job's run changed, with the schedule as the fallback.
+                       Which job feeds which is read from the same inputs and outputs, so there is
+                       no second list of dependencies.
 """
 
 import itertools
@@ -35,6 +39,16 @@ STARVATION_CYCLES = 20
 RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
 TIMER_NAME = re.compile(r"foundation-[a-z0-9-]+\.timer")
+# What starts a job (jobs.v1.json `started_by`, root ADR-0171). A `schedule` job starts at its
+# schedule. An `inputs` job starts when a run of another job reports that it changed one of the
+# job's inputs, and at its schedule as well (the fallback that catches what no event announces).
+STARTED_BY = ("schedule", "inputs")
+# The line a job's unit prints last to say whether its run changed its outputs (root ADR-0171 §3).
+# Only `unchanged` withholds the run's output events: a run that does not say counts as changed,
+# and the jobs it starts find nothing to do on their own.
+OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged)\r?$", re.MULTILINE)
+# The run's output is the journal of a run that can last a day; the line is at its end.
+OUTCOME_TAIL_BYTES = 64 * 1024
 
 sys.path.insert(0, str(PLATFORM_ROOT / "infra" / "datahub"))
 from dataset_names import name_of, platform_of  # noqa: E402
@@ -56,10 +70,38 @@ class JobSpec:
     enabled: bool
     inputs: list  # (namespace, name)
     outputs: list  # (namespace, name)
+    started_by: str = "schedule"  # STARTED_BY
+    producers: tuple = ()  # the other jobs whose outputs are among its inputs
 
 
 class JobListError(ValueError):
     pass
+
+
+def asset_uri(dataset):
+    """The Airflow asset of a pipeline-graph dataset: its catalog platform and name, one identity.
+
+    The scheme is the data catalog platform (`iceberg`, `perfectory`). No Airflow provider turns
+    these schemes into OpenLineage datasets, so an asset never adds a second lineage entity beside
+    the one the run task reports.
+    """
+    namespace, name = dataset
+    return f"{namespace}://{name}"
+
+
+def job_outcome(output):
+    """`changed` or `unchanged`, from the tail of what a run printed (bytes or text).
+
+    The last `foundation-job-outcome` line decides. No line counts as `changed`: a job that does not
+    say yet, or whose last lines the journal follower missed, still starts what reads its outputs,
+    which then finds nothing to do.
+    """
+    if output is None:
+        return "changed"
+    if isinstance(output, str):
+        output = output.encode("utf-8", "replace")
+    found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
+    return found[-1].decode() if found else "changed"
 
 
 def service_unit_file(service):
@@ -181,21 +223,27 @@ def hold_minutes(job):
 def longest_wait_minutes(starved, others, slots):
     """An upper bound on how long a job waits for its slots, and which jobs make it up.
 
-    A job that cannot run beside it holds it back: one with an equal or higher priority_weight may
-    start ahead of it once each, and one with a lower weight may already be running when its turn
-    comes (Airflow starts the heaviest waiting job that fits, so a lighter one never starts ahead
-    of it again while it fits). Each counts at its hold_minutes. Jobs that block it only together
-    (none of them alone) hold it until enough of them have finished. A `takes_turns` job starts at
-    most once between runs of the jobs it cannot run beside (start-scheduled-job.sh), so it counts
-    once like the others.
+    A job that cannot run beside it holds it back. One with an equal or higher priority_weight may
+    start ahead of it once each. So may a lighter one that needs fewer slots than it: Airflow skips
+    a waiting task that does not fit and starts a lighter one that does (scheduler_job_runner.py,
+    "we can execute tasks with lower priority if there's enough room"). A lighter one that needs at
+    least as many slots as it never fits where it does not, so it never starts ahead of it: it can
+    only already be running when its turn comes (root ADR-0171 §5). Each counts at its
+    hold_minutes. The jobs that can be running when its turn comes -- those lighter ones, and jobs
+    that block it only together -- hold it until enough of them have finished; the worst such set
+    counts once. A `takes_turns` job starts at most once between runs of the jobs it cannot run
+    beside (start-scheduled-job.sh), so it counts once like the others.
     """
     need = pool_slots(starved)
     blockers = [job for job in others if pool_slots(job) + need > slots]
-    total = sum(hold_minutes(job) for job in blockers)
+    only_running = [job for job in blockers
+                    if priority_weight(job) < priority_weight(starved) and pool_slots(job) >= need]
+    ahead = [job for job in blockers if job not in only_running]
+    total = sum(hold_minutes(job) for job in ahead)
     combined, combined_ids = 0, []
-    beside = [job for job in others if job not in blockers]
-    for size in range(2, len(beside) + 1):
-        for group in itertools.combinations(beside, size):
+    running = only_running + [job for job in others if job not in blockers]
+    for size in range(1, len(running) + 1):
+        for group in itertools.combinations(running, size):
             held = sum(pool_slots(job) for job in group)
             if held > slots or slots - held >= need:
                 continue  # cannot hold the pool together, or leaves room anyway
@@ -206,12 +254,49 @@ def longest_wait_minutes(starved, others, slots):
                     if hold_minutes(job) > combined:
                         combined, combined_ids = hold_minutes(job), [member["id"] for member in group]
                     break
-    return total + combined, [job["id"] for job in blockers] + combined_ids
+    return total + combined, [job["id"] for job in ahead] + combined_ids
 
 
-def pool_starvation(jobs):
+def started_by(job):
+    """What starts a job: `schedule` or `inputs` (jobs.v1.json `started_by`, required)."""
+    value = job.get("started_by")
+    if value not in STARTED_BY:
+        raise JobListError(f"{job['id']}: started_by must be one of {list(STARTED_BY)}")
+    return value
+
+
+def cycle_minutes(jobs, graph=None):
+    """Job id -> the shortest time between two starts of the job.
+
+    A scheduled job's is its schedule's. A job started by its inputs cannot start more often than
+    the jobs that feed it, nor than its own fallback schedule: its cycle is the shortest of those
+    (root ADR-0171 §5). The starvation bound counts a job's wait in these cycles.
+    """
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    feeders = producers(jobs, graph)
+    cycles = {}
+
+    def cycle(job_id, path=()):
+        if job_id in path:
+            raise JobListError(f"jobs start each other in a circle: {' -> '.join(path + (job_id,))}")
+        if job_id not in cycles:
+            job = by_id[job_id]
+            own = shortest_interval_minutes(job["schedule"])
+            if started_by(job) == "inputs":
+                own = min([own] + [cycle(feeder, path + (job_id,)) for feeder in feeders[job_id]])
+            cycles[job_id] = own
+        return cycles[job_id]
+
+    for job_id in by_id:
+        cycle(job_id)
+    return cycles
+
+
+def pool_starvation(jobs, graph=None):
     """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs."""
     problems = []
+    cycles = cycle_minutes(jobs, graph)
     for pool, slots in declared_pools(jobs).items():
         members = [job for job in jobs["jobs"] if job["pool"] == pool]
         for starved in members:
@@ -220,13 +305,66 @@ def pool_starvation(jobs):
                 continue
             others = [job for job in members if job is not starved]
             wait, blockers = longest_wait_minutes(starved, others, slots)
-            limit = STARVATION_CYCLES * shortest_interval_minutes(starved["schedule"])
+            limit = STARVATION_CYCLES * cycles[starved["id"]]
             if wait > limit:
                 problems.append(
                     f"{starved['id']} may wait {wait} minutes for pool {pool!r} behind {', '.join(blockers)}, "
                     f"over {STARVATION_CYCLES} of its runs ({limit} minutes); change the slots or the pool"
                 )
     return problems
+
+
+def datasets(jobs, graph):
+    """Job id -> (inputs, outputs): the datasets, (namespace, name), each job reads and writes.
+
+    A job's are the endpoints of the pipeline-graph edges it names; a job that checks the
+    data-contract tables (`reads_data_contracts`) reads those tables and writes nothing.
+    """
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+
+    def dataset(node_id):
+        node = nodes[node_id]
+        return (platform_of(node), name_of(node))
+
+    found = {}
+    for job in jobs["jobs"]:
+        job_id = job["id"]
+        reads_contracts = job.get("reads_data_contracts", False)
+        if bool(job["pipeline_graph_edges"]) == bool(reads_contracts):
+            raise JobListError(
+                f"{job_id}: a job states the pipeline-graph edges it carries out, or that it reads the "
+                "data-contract tables (reads_data_contracts) -- exactly one"
+            )
+        unknown = [edge for edge in job["pipeline_graph_edges"] if edge not in edges]
+        if unknown:
+            raise JobListError(f"{job_id}: pipeline-graph has no edge {unknown}")
+        carried = [edges[edge] for edge in job["pipeline_graph_edges"]]
+        if reads_contracts:
+            by_table = {node["table_name"]: node["id"] for node in graph["nodes"] if node.get("table_name")}
+            tables = sorted(path.name[: -len(".odcs.yaml")] for path in CONTRACTS.glob("*.odcs.yaml"))
+            unknown_tables = [table for table in tables if table not in by_table]
+            if not tables or unknown_tables:
+                raise JobListError(f"{job_id}: data contracts {unknown_tables or 'none'} have no pipeline-graph table")
+            found[job_id] = (sorted({dataset(by_table[table]) for table in tables}), [])
+        else:
+            found[job_id] = (sorted({dataset(edge["from"]) for edge in carried}),
+                             sorted({dataset(edge["to"]) for edge in carried}))
+    return found
+
+
+def producers(jobs, graph):
+    """Job id -> the other jobs that write one of its inputs, in job-list order.
+
+    This is the whole dependency graph between jobs: it is read from the edges each job carries
+    out, so it cannot disagree with the lineage the runs report (root ADR-0171 §1).
+    """
+    found = datasets(jobs, graph)
+    return {
+        job["id"]: [other["id"] for other in jobs["jobs"]
+                    if other["id"] != job["id"] and set(found[other["id"]][1]) & set(found[job["id"]][0])]
+        for job in jobs["jobs"]
+    }
 
 
 def load_specs(jobs=None, graph=None):
@@ -240,13 +378,10 @@ def load_specs(jobs=None, graph=None):
     if not isinstance(dag_id_prefix, str) or not re.fullmatch(r"[a-z][a-z0-9_]*_", dag_id_prefix):
         raise JobListError("jobs.v1.json dag_id_prefix must be a lower_snake name ending in '_'")
 
-    pools ={DEFAULT_POOL, *declared_pools(jobs)}
-    nodes = {node["id"]: node for node in graph["nodes"]}
-    edges = {edge["id"]: edge for edge in graph["edges"]}
-
-    def dataset(node_id):
-        node = nodes[node_id]
-        return (platform_of(node), name_of(node))
+    pools = {DEFAULT_POOL, *declared_pools(jobs)}
+    found = datasets(jobs, graph)
+    feeders = producers(jobs, graph)
+    by_id = {job["id"]: job for job in jobs["jobs"]}
 
     specs, seen_ids, seen_services = [], set(), set()
     for job in jobs["jobs"]:
@@ -278,28 +413,21 @@ def load_specs(jobs=None, graph=None):
         timer = job["systemd_timer"]
         if timer is not None and not TIMER_NAME.fullmatch(timer):
             raise JobListError(f"{job_id}: {timer!r} is not a foundation-*.timer name")
-        reads_contracts = job.get("reads_data_contracts", False)
-        if bool(job["pipeline_graph_edges"]) == bool(reads_contracts):
-            raise JobListError(
-                f"{job_id}: a job states the pipeline-graph edges it carries out, or that it reads the "
-                "data-contract tables (reads_data_contracts) -- exactly one"
-            )
-        unknown = [edge for edge in job["pipeline_graph_edges"] if edge not in edges]
-        if unknown:
-            raise JobListError(f"{job_id}: pipeline-graph has no edge {unknown}")
-
-        carried = [edges[edge] for edge in job["pipeline_graph_edges"]]
-        if reads_contracts:
-            by_table = {node["table_name"]: node["id"] for node in graph["nodes"] if node.get("table_name")}
-            tables = sorted(path.name[: -len(".odcs.yaml")] for path in CONTRACTS.glob("*.odcs.yaml"))
-            unknown_tables = [table for table in tables if table not in by_table]
-            if not tables or unknown_tables:
-                raise JobListError(f"{job_id}: data contracts {unknown_tables or 'none'} have no pipeline-graph table")
-            inputs = sorted({dataset(by_table[table]) for table in tables})
-            outputs = []
-        else:
-            inputs = sorted({dataset(edge["from"]) for edge in carried})
-            outputs = sorted({dataset(edge["to"]) for edge in carried})
+        inputs, outputs = found[job_id]
+        start = started_by(job)
+        if start == "inputs":
+            # Started by its inputs, it must have a job that can change one (otherwise only its
+            # fallback schedule would ever start it), and must not change its own inputs (every run
+            # that changed something would start it again).
+            if not feeders[job_id]:
+                raise JobListError(f"{job_id}: started by its inputs, but no job in the list writes any of them")
+            if job["enabled"] and not any(by_id[feeder]["enabled"] for feeder in feeders[job_id]):
+                raise JobListError(
+                    f"{job_id}: enabled and started by its inputs, but every job that writes them "
+                    f"({', '.join(feeders[job_id])}) is switched off"
+                )
+            if set(inputs) & set(outputs):
+                raise JobListError(f"{job_id}: started by its inputs, it writes one of them and would start itself")
         specs.append(
             JobSpec(
                 job_id=job_id,
@@ -316,9 +444,11 @@ def load_specs(jobs=None, graph=None):
                 enabled=job["enabled"],
                 inputs=inputs,
                 outputs=outputs,
+                started_by=start,
+                producers=tuple(feeders[job_id]),
             )
         )
-    starvation = pool_starvation(jobs)
+    starvation = pool_starvation(jobs, graph)
     if starvation:
         raise JobListError("; ".join(starvation))
     return specs

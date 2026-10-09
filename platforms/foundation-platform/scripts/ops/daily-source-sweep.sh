@@ -18,7 +18,8 @@
 #
 # 한 레인이 실패해도 다른 레인은 돈다. 신규 0 인 날도 journal 에 한 줄을 남긴다 — "아무 일도
 # 없었음"과 "확인 안 함"은 구별되어야 한다. 신규가 있거나 실패하면 슬랙 #alerts 가 안다.
-# Silver 반영은 이 스크립트가 하지 않는다(ADR-0077 §5).
+# Silver 반영은 이 스크립트가 하지 않는다(ADR-0077 §5). 마지막 줄 `foundation-job-outcome changed|unchanged`
+# 가 새 파일이 왔는지 말하고, changed 면 Airflow 가 이 원천을 읽는 Silver 레인을 시작한다(루트 ADR-0171).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
@@ -290,4 +291,8 @@ if [ -n "${info}" ]; then
 fi
 if [ "${new_count}" != "0" ]; then
   notify_slack "📦 새 원천 파일 ${new_count}건 도착 — 오늘 반영할 것 (ADR-0077 §5): $(field names)"
+  # 새 파일이 Bronze 에 왔다: 이 원천을 읽는 Silver 레인이 바로 시작된다(루트 ADR-0171).
+  echo "foundation-job-outcome changed"
+else
+  echo "foundation-job-outcome unchanged"
 fi

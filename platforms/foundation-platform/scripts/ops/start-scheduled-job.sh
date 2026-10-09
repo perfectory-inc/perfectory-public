@@ -11,6 +11,9 @@
 # bake) is deferred — reported, exit 0, nothing started — when a job in its pool that cannot run
 # beside it has not started since the deferred job last did. Airflow alone would let a light job
 # take the free slot again and again while a heavier one waits for all of them (root ADR-0138).
+#
+# The service's journal ends with its `foundation-job-outcome changed|unchanged` line, which the
+# DAG reads to decide whether the run's outputs start the jobs that read them (root ADR-0171).
 set -uo pipefail
 
 jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/orchestration/jobs.v1.json}"
@@ -59,6 +62,9 @@ PY
 )" || refuse "cannot read the start record ${starts}"
 if [[ -n "${turn}" ]]; then
   printf 'start-scheduled-job: %s %s\n' "${job}" "${turn}"
+  # Nothing ran, so nothing changed: no output events, nothing downstream starts (root ADR-0171).
+  # The job's own fallback schedule starts it again.
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 

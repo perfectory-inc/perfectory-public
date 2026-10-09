@@ -8,7 +8,7 @@
 
 ## 문서 규모
 
-- 문서 파일: **521개**
+- 문서 파일: **522개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
@@ -19,14 +19,14 @@
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 195 |
+| Monorepo | 196 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 253 |
+| ADR | 254 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -561,6 +561,7 @@ docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md
 docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md
 docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md
 docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md
+docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -768,6 +769,7 @@ tools/github/README.md
 | `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |

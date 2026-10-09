@@ -166,19 +166,22 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_a_long_bake_cannot_hold_every_slot_the_hourly_folds_need(self):
         # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
         # would wait behind it as well; with one, a fold always fits beside it (root ADR-0138).
+        # Lighter and as wide as a fold, it never starts ahead of one, but one run of it can already
+        # hold the pool when a fold's turn comes: FLOOR, lineage and the other fold, then the bake.
         def both_slots(jobs):
             bake(jobs)["pool_slots"] = 2
         jobs = copy.deepcopy(real_inputs()[0])
         both_slots(jobs)
         problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2460 minutes for pool 'spark'")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2295 minutes for pool 'spark'")
                             and "by_pnu_serving_bake" in problem for problem in problems), problems)
         self.refused(both_slots)
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
-        # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight) and by each
-        # lower-weight job already running when its turn comes: both folds, one panel Gold rebuild
-        # (not retried, root ADR-0139) and one bake run.
+        # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight), once by each
+        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, one
+        # bake run), and by what already holds the pool when its turn comes: one panel Gold rebuild
+        # (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
@@ -265,6 +268,188 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+def job(jobs, job_id):
+    return next(entry for entry in jobs["jobs"] if entry["id"] == job_id)
+
+
+LANES = [
+    "silver_refresh_building_register_titles",
+    "silver_refresh_building_register_units",
+    "silver_refresh_building_register_unit_areas",
+    "silver_refresh_building_register_apartment_price",
+    "silver_refresh_building_register_exclusive_unit",
+]
+
+
+class JobsStartedByTheirInputs(unittest.TestCase):
+    """Jobs chained by what their runs changed, read from the edges they carry out (root ADR-0171)."""
+
+    def refused(self, mutate, expected):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        mutate(jobs)
+        with self.assertRaises(job_specs.JobListError) as raised:
+            job_specs.load_specs(jobs, graph)
+        self.assertIn(expected, str(raised.exception))
+
+    def test_the_chain_from_source_to_serving(self):
+        specs = {spec.job_id: spec for spec in job_specs.load_specs()}
+        for lane in LANES:
+            self.assertEqual(specs[lane].started_by, "inputs")
+            self.assertEqual(specs[lane].producers, ("source_sweep",))
+        self.assertIn("building_register_floor", specs["gold_panel_rebuild"].producers)
+        self.assertLessEqual({"silver_refresh_building_register_titles", "silver_refresh_building_register_units",
+                              "silver_refresh_building_register_unit_areas"},
+                             set(specs["gold_panel_rebuild"].producers))
+        self.assertEqual(specs["by_pnu_serving_bake"].producers, ("gold_panel_rebuild",))
+        # What the outside world or staff drive stays on the clock.
+        for root in ["source_sweep", "outbox_publish", "map_edit_fold_admin", "map_edit_fold_complex",
+                     "lineage_stewardship", "building_register_floor", "data_quality"]:
+            self.assertEqual(specs[root].started_by, "schedule", root)
+
+    def test_the_new_lanes_wait_for_their_supervised_first_run(self):
+        jobs, _ = real_inputs()
+        for lane in LANES:
+            entry = job(jobs, lane)
+            self.assertFalse(entry["enabled"], lane)
+            self.assertIn("supervised", entry["disabled_reason"])
+            self.assertTrue(entry["systemd_service"].startswith("foundation-silver-refresh@building-register-"))
+
+    def test_started_by_is_stated_and_known(self):
+        self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
+        self.refused(lambda jobs: jobs["jobs"][0].update(started_by="upstream"), "started_by must be one of")
+
+    def test_a_job_no_listed_job_feeds_is_refused(self):
+        # Started by its inputs with nothing writing them, only its fallback would ever start it.
+        self.refused(lambda jobs: job(jobs, "outbox_publish").update(started_by="inputs"),
+                     "outbox_publish: started by its inputs, but no job in the list writes any of them")
+
+    def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
+        def bake_without_gold(jobs):
+            job(jobs, "gold_panel_rebuild").update(enabled=False, disabled_reason="planted")
+        self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
+                                        "that writes them (gold_panel_rebuild) is switched off")
+
+    def test_a_job_that_writes_its_own_input_is_refused(self):
+        # The fold reads the edit ledger it writes: started by its inputs, it would start itself.
+        self.refused(lambda jobs: job(jobs, "map_edit_fold_admin").update(started_by="inputs"),
+                     "map_edit_fold_admin: started by its inputs, it writes one of them")
+
+    def test_jobs_that_start_each_other_in_a_circle_are_refused(self):
+        def circle(jobs):
+            # FLOOR writes a Gold input; planted, Gold writes FLOOR's hub source. Both started by
+            # their inputs, each changed run would start the other, forever.
+            job(jobs, "building_register_floor")["started_by"] = "inputs"
+            job(jobs, "gold_panel_rebuild")["pipeline_graph_edges"].append(
+                "daily-source-sweep-to-source-building-hub-bulk")
+        self.refused(circle, "jobs start each other in a circle: building_register_floor -> gold_panel_rebuild "
+                             "-> building_register_floor")
+
+    def test_a_job_started_by_its_inputs_cycles_as_often_as_what_feeds_it(self):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        cycles = job_specs.cycle_minutes(jobs, graph)
+        self.assertEqual(cycles["gold_panel_rebuild"], 1440)
+        # A sweep every hour would start the lanes every hour, and through them Gold and the bake.
+        job(jobs, "source_sweep")["schedule"] = "40 * * * *"
+        cycles = job_specs.cycle_minutes(jobs, graph)
+        for job_id in [*LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
+            self.assertEqual(cycles[job_id], 60, job_id)
+        # ... and their waits, counted in those cycles, starve (the bound did not move).
+        problems = job_specs.pool_starvation(jobs, graph)
+        self.assertTrue(any(problem.startswith(f"{LANES[0]} may wait 3365 minutes") for problem in problems), problems)
+        self.assertTrue(any(problem.startswith("gold_panel_rebuild may wait 3360 minutes") for problem in problems))
+        # Its own fallback schedule counts as well.
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        job(jobs, "by_pnu_serving_bake")["schedule"] = "15 * * * *"
+        self.assertEqual(job_specs.cycle_minutes(jobs, graph)["by_pnu_serving_bake"], 60)
+
+
+class TheSilverLanesInTheSparkPool(unittest.TestCase):
+    """Five lanes of all three slots fit only because a lighter, as-wide job never jumps ahead."""
+
+    def spark(self, jobs):
+        return [entry for entry in jobs["jobs"] if entry["pool"] == "spark"]
+
+    def wait(self, jobs, job_id):
+        spark = self.spark(jobs)
+        starved = job(jobs, job_id)
+        return job_specs.longest_wait_minutes(starved, [entry for entry in spark if entry is not starved], 3)
+
+    def test_the_fold_waits_for_one_lane_at_most_and_still_fits_its_bound(self):
+        jobs = copy.deepcopy(real_inputs()[0])
+        wait, blockers = self.wait(jobs, "map_edit_fold_admin")
+        # FLOOR and lineage (heavier) and the other fold (as heavy) once each, then whatever holds
+        # the pool when its turn comes: the Gold rebuild's 165 minutes, longer than a lane's 160.
+        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5) + 165)
+        self.assertEqual(wait, job_specs.STARVATION_CYCLES * 60)
+        self.assertFalse(set(LANES) & set(blockers))
+        # Counted the way the bound counted before root ADR-0171, the five lanes would add up.
+        self.assertEqual(wait + 5 * 160, 2000)
+
+    def test_a_lane_that_holds_its_slots_longer_than_the_gold_rebuild_starves_the_folds(self):
+        jobs = copy.deepcopy(real_inputs()[0])
+        job(jobs, LANES[2])["timeout_minutes"] = 170
+        problems = job_specs.pool_starvation(jobs)
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1205 minutes")
+                            and LANES[2] in problem for problem in problems), problems)
+        jobs = copy.deepcopy(real_inputs()[0])
+        job(jobs, LANES[0])["retries"] = 1  # a retry holds the slots again
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1360 minutes")
+                            for problem in job_specs.pool_starvation(jobs)))
+
+    def test_lanes_weighted_above_the_folds_starve_them(self):
+        # Heavier, every lane may start ahead of a waiting fold: five of them, then the Gold rebuild.
+        jobs = copy.deepcopy(real_inputs()[0])
+        for lane in LANES:
+            job(jobs, lane)["priority_weight"] = 6
+        wait, blockers = self.wait(jobs, "map_edit_fold_admin")
+        self.assertEqual(wait, 1035 + 5 * 160 + 165)
+        self.assertLessEqual(set(LANES), set(blockers))
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2000 minutes")
+                            for problem in job_specs.pool_starvation(jobs)))
+
+    def test_a_lighter_narrower_job_still_counts_every_time(self):
+        # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
+        # start it ahead: it stays among the jobs counted ahead.
+        jobs = copy.deepcopy(real_inputs()[0])
+        wait, blockers = self.wait(jobs, "building_register_floor")
+        self.assertIn("by_pnu_serving_bake", blockers)
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165)
+
+    def test_the_real_list_fits(self):
+        self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
+
+
+class TheRunOutcome(unittest.TestCase):
+    """A run's last `foundation-job-outcome` line decides whether its outputs start anything."""
+
+    def test_changed_and_unchanged(self):
+        self.assertEqual(job_specs.job_outcome(b"loaded\nfoundation-job-outcome changed\nresult=success\n"), "changed")
+        self.assertEqual(job_specs.job_outcome(b"nothing to do\nfoundation-job-outcome unchanged\n"), "unchanged")
+        self.assertEqual(job_specs.job_outcome("foundation-job-outcome unchanged\r\n"), "unchanged")
+
+    def test_no_line_counts_as_changed(self):
+        for output in [b"", None, b"silver-refresh-outcome lane=x outcome=unchanged\n",
+                       b"foundation-job-outcome maybe\n", b"note: foundation-job-outcome unchanged\n",
+                       b"foundation-job-outcome unchanged but more\n"]:
+            with self.subTest(output=output):
+                self.assertEqual(job_specs.job_outcome(output), "changed")
+
+    def test_the_last_line_decides_and_only_the_tail_is_read(self):
+        self.assertEqual(job_specs.job_outcome(
+            b"foundation-job-outcome unchanged\nfoundation-job-outcome changed\n"), "changed")
+        early = b"foundation-job-outcome unchanged\n" + b"x" * job_specs.OUTCOME_TAIL_BYTES
+        self.assertEqual(job_specs.job_outcome(early), "changed")
+
+    def test_an_asset_is_the_dataset_the_run_reports(self):
+        for spec in job_specs.load_specs():
+            for dataset in spec.inputs + spec.outputs:
+                namespace, name = dataset
+                self.assertEqual(job_specs.asset_uri(dataset), f"{namespace}://{name}")
+        uris = {job_specs.asset_uri(dataset) for spec in job_specs.load_specs() for dataset in spec.inputs + spec.outputs}
+        datasets = {dataset for spec in job_specs.load_specs() for dataset in spec.inputs + spec.outputs}
+        self.assertEqual(len(uris), len(datasets), "two datasets share an asset")
 
 
 class ThePoolsTheSchedulerHas(unittest.TestCase):
