@@ -8,6 +8,7 @@ release layout is the host's (root ADR-0134), as in test_by_pnu_serving_bake.py.
 synthetic.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -282,6 +283,21 @@ class GoldPanelRebuild(unittest.TestCase):
                 result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), *args)
                 self.assertEqual(result.returncode, 64)
                 self.assertEqual(calls, [])
+
+    def test_one_rebuild_at_a_time_whoever_started_it(self):
+        # The scheduled unit and the operator's unconditional copy (root ADR-0166) share this lock;
+        # `all` holds it for both tables, so its own per-table runs are not refused.
+        state = self.root / "state"
+        state.mkdir()
+        with open(state / "rebuild.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), "all")
+        self.assertEqual(result.returncode, 75, result.stderr + result.stdout)
+        self.assertIn("another rebuild holds", result.stderr)
+        self.assertEqual(calls, [])
+        result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), "all")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(self.producer_calls(calls)), 2)
 
     def test_an_unknown_unit_or_option_is_refused(self):
         for args in (("everything",), ("parcel", "--force")):

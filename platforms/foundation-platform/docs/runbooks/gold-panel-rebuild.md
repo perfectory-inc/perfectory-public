@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-09
 ---
 
 # 필지·건물 패널 Gold 재생성 — 예약 작업 런북
@@ -61,6 +61,11 @@ Silver 적재(FLOOR·수동 적재·백필)        행을 바꾼 새 Silver 스�
    실행 요약·계보 이벤트는 같은 run 폴더의 `summary.json`·`lineage.json`.
 
 한 표가 실패해도 다른 표는 돈다. 단위는 실패하고 `foundation-unit-failed@` 가 슬랙으로 알린다.
+
+**한 번에 하나.** 스크립트는 `/var/lib/foundation-gold-panel-rebuild/rebuild.lock` 을 기다리지 않고 잡는다. 예약 단위,
+운영자의 무조건 재생성(`by-pnu-pack-operator.sh <레인> gold-rebuild`, 루트 ADR-0166: 이 단위 파일을 그대로 옮긴 임시 단위
+`foundation-gold-panel-rebuild-unconditional`), 감독 실행이 모두 같은 잠금을 쓴다. 잡혀 있으면 75 로 끝나고 아무것도
+계획하지 않는다.
 
 **Spark 컨테이너의 정리.** Spark 는 compose 프로젝트 `foundation-gold-rebuild-<INVOCATION_ID>` 에서 돈다. 시간 상한
 (160분)이 스크립트와 compose 클라이언트를 죽여도 컨테이너는 Docker 데몬의 것이라 20g 를 쥔 채 남는다. 그러면

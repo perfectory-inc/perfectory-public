@@ -99,6 +99,7 @@ if [[ "${REBASE}" == true ]]; then
     { log "refused: the verified re-base renders parcel documents; the ${UNIT} lane re-bases with a full bake"; exit 64; }
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 ENV_PREFIX="FOUNDATION_PLATFORM_${LANE}_BY_PNU_SERVING"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
 MAX_CONCURRENCY="${FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY:-128}"
@@ -127,10 +128,7 @@ export "${ENV_PREFIX}_RESUME_FROM_LISTING=true"
 # The building export checks the approved building links in the runtime database before serving.
 # Same source as FLOOR: compose's API connection on its loopback port, never a second stored URL.
 if [[ "${UNIT}" == building && -z "${DATABASE_URL:-}" ]]; then
-  if ! DATABASE_URL="$(docker compose --project-directory "${RELEASE_ROOT}" \
-    --env-file /dev/null -f "${RELEASE_ROOT}/docker-compose.yml" \
-    config --format json --no-env-resolution 2>/dev/null \
-    | python3 "${RELEASE_ROOT}/scripts/ops/runtime-database-url.py")"; then
+  if ! DATABASE_URL="$(by_pnu_runtime_database_url)"; then
     log "refused: cannot resolve the runtime database connection the building export reads"
     exit 78
   fi
@@ -472,7 +470,7 @@ if [[ "${mode}" == full ]]; then
   open_run "${gold}-${RUN_TAG}g${target}"
   generation="${target}" patch_env=() where="generation ${target}"
   plan="${STATE_ROOT}/shard-plan.txt"
-  if [[ -s "${plan}" ]]; then mapfile -t queue <"${plan}"; else queue=(1 2 3 4 5 6 7 8 9); fi
+  if [[ -s "${plan}" ]]; then mapfile -t queue <"${plan}"; else queue=("${BY_PNU_FIRST_SHARDS[@]}"); fi
   summary[target_generation]="${target}"
 else
   open_run "${gold}-${RUN_TAG}g${base}p${target}"
@@ -507,7 +505,7 @@ fi
 done_shards=()
 while ((${#queue[@]})); do
   prefix="${queue[0]}"; queue=("${queue[@]:1}")
-  [[ "${prefix}" =~ ^[0-9]{1,10}$ || "${prefix}" == all ]] || { log "refused: shard plan holds '${prefix}'"; exit 65; }
+  by_pnu_shard_valid "${prefix}" || [[ "${prefix}" == all ]] || { log "refused: shard plan holds '${prefix}'"; exit 65; }
   shard_summary="${summary_dir}/shard-${prefix}.json"
   if [[ -s "${shard_summary}" ]]; then done_shards+=("${prefix}"); continue; fi
   prefix_env=()
@@ -557,15 +555,15 @@ while ((${#queue[@]})); do
       log "FAILED: ${where} already holds objects this run did not write; nothing was published, the next run starts above it"
       exit 1
     fi
-    if grep -q 'shard the run with' "${attempt_log}"; then
+    if by_pnu_shard_over_row_cap "${attempt_log}"; then
+      children="$(by_pnu_shard_children "${prefix}")" ||
+        { log "refused: shard ${prefix} is at full PNU length and still too large"; exit 65; }
       if [[ "${prefix}" == all ]]; then
         log "the change set holds more rows than one run may keep; splitting it into shards 1..9"
-        queue+=(1 2 3 4 5 6 7 8 9)
       else
-        ((${#prefix} < 10)) || { log "refused: shard ${prefix} is at full PNU length and still too large"; exit 65; }
         log "shard ${prefix} holds more rows than one run may keep; splitting it into ${prefix}0..${prefix}9"
-        for digit in 0 1 2 3 4 5 6 7 8 9; do queue+=("${prefix}${digit}"); done
       fi
+      mapfile -t -O "${#queue[@]}" queue <<<"${children}"
       baked=split
       break
     fi
@@ -582,55 +580,8 @@ done
 [[ -z "${plan}" ]] || { printf '%s\n' "${done_shards[@]}" >"${plan}.next" && mv "${plan}.next" "${plan}"; }
 
 # 4. Complete? Then publish.
-counts="$(python3 -I - "${summary_dir}" "${gold}" "${mode}" "${LANE_SERVES}" "${generation}" "${target}" \
-  "${upserts:-0}" "${deletes:-0}" "${done_shards[@]}" <<'PY'
-import json, pathlib, sys
-run, gold, mode, serves = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
-generation, target, upserts, deletes = map(int, sys.argv[5:9])
-shards = sys.argv[9:]
-def refuse(reason):
-    sys.exit("by-pnu-serving-bake: refused to publish: " + reason)
-named = [shard for shard in shards if shard != "all"]
-nested = sorted(f"{a} inside {b}" for a in named for b in named if a != b and a.startswith(b))
-if nested or len(set(shards)) != len(shards) or ("all" in shards and len(shards) > 1):
-    refuse(f"shards overlap ({', '.join(nested) or 'repeated or whole-table shard'}); their rows would count twice")
-gold_rows, exported, tombstones = set(), 0, 0
-for prefix in shards:
-    summary = json.loads((run / f"shard-{prefix}.json").read_text())
-    if summary["gold_iceberg_snapshot_id"] != gold:
-        refuse(f"shard {prefix} baked Gold snapshot {summary['gold_iceberg_snapshot_id']}, not {gold}; "
-               "the table moved during the bake, the next run starts over")
-    want_patch = None if mode == "full" else target
-    if serves == "packs":
-        # A pack patch's sections each carry their served generation; the publisher holds them
-        # to the manifest. A base is one generation of every section.
-        said = (summary["generation"] if mode == "full" and not summary.get("section_generations")
-                else None, summary["patch"], summary["pnu_prefix"])
-        rows = summary.get("gold_record_count")
-    else:
-        said = (summary["target_generation"], summary.get("target_patch"), summary.get("pnu_prefix"))
-        rows = summary["scanned_row_count"]
-    want_generation = generation if serves == "objects" or mode == "full" else None
-    if said != (want_generation, want_patch, None if prefix == "all" else prefix):
-        refuse(f"shard {prefix}'s summary is for generation {said[0]} patch {said[1]} prefix {said[2]}")
-    gold_rows.add(rows)
-    exported += summary["exported_row_count"]
-    tombstones += summary.get("tombstone_count", 0)
-if len(gold_rows) != 1:
-    refuse(f"shards scanned different Gold row counts {sorted(gold_rows)}")
-(total,) = gold_rows
-if mode == "full":
-    if exported != total or tombstones:
-        refuse(f"incomplete bake: shards exported {exported} of the Gold snapshot's {total} rows "
-               f"({total - exported} missing); the manifest stays where it is")
-    print(total, 0)
-else:
-    if exported != upserts or tombstones != deletes:
-        refuse(f"incomplete patch: shards wrote {exported} of {upserts} upserts and {tombstones} of "
-               f"{deletes} tombstones; the manifest stays where it is")
-    print(exported, tombstones)
-PY
-)"
+counts="$(by_pnu_bake_complete "by-pnu-serving-bake: refused to publish" "${summary_dir}" "${gold}" "${mode}" \
+  "${LANE_SERVES}" "${generation}" "${target}" "${upserts:-0}" "${deletes:-0}" "${done_shards[@]}")"
 read -r expected tombstones <<<"${counts}"
 if [[ "${LANE_SERVES}" == packs ]]; then
   # The publisher holds a base to the Gold row count the catalog records, and a patch to its

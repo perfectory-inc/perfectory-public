@@ -68,7 +68,7 @@ class MeasureBuildingSectionPacks(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("measure-building-section-packs.sh", "admitted-writer-runtime.sh"):
+        for name in ("measure-building-section-packs.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh"):
             (release / "scripts/ops" / name).write_bytes((OPS / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)

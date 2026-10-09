@@ -69,6 +69,21 @@ if [[ -z "${INVOCATION_ID:-}" ]]; then
 fi
 [[ "${INVOCATION_ID}" =~ ^[0-9a-f]{32}$ ]] || { echo "gold-panel-rebuild: INVOCATION_ID is not a systemd invocation id" >&2; exit 64; }
 export INVOCATION_ID
+# One rebuild at a time, whoever started it: the scheduled unit, the operator's unconditional copy
+# of it (by-pnu-pack-operator.sh gold-rebuild, root ADR-0166) or a supervised run. Two would each
+# take the whole compose `spark` cap. Taken without waiting, like the bake's lane lock; `all` holds
+# it for both tables. Opened read-only, so a file a root run created stays usable by the service user.
+if [[ -z "${GOLD_PANEL_REBUILD_LOCK_HELD:-}" ]]; then
+  lock="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-panel-rebuild}/rebuild.lock"
+  mkdir -p "${lock%/*}"
+  [[ -e "${lock}" ]] || : >>"${lock}"
+  exec 8<"${lock}"
+  if ! flock -n 8; then
+    echo "gold-panel-rebuild: refused: another rebuild holds ${lock}; this run starts after it finishes" >&2
+    exit 75
+  fi
+  export GOLD_PANEL_REBUILD_LOCK_HELD=1
+fi
 if [[ "${UNIT}" == all ]]; then
   status=0
   "${BASH_SOURCE[0]}" parcel ${OPTIONS[@]+"${OPTIONS[@]}"} || status=$?
