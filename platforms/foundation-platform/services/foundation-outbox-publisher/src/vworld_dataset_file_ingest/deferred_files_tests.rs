@@ -84,7 +84,6 @@ fn deferred_archives_stay_out_of_the_runs_files_and_are_counted_apart() {
         deferred_selection_archive_reports(&archives),
         false,
         "ready",
-        None,
     );
     assert_eq!(
         evidence.selected_file_count, 0,
