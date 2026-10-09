@@ -8,14 +8,14 @@
 
 ## 문서 규모
 
-- 문서 파일: **519개**
+- 문서 파일: **520개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 124 |
+| Foundation Platform | 125 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 40 |
+| runbook | 41 |
 
 ## 책임별 문서 트리
 
@@ -155,6 +155,7 @@ platforms/foundation-platform/docs/runbooks/r2-vector-tile-manifest-smoke.md
 platforms/foundation-platform/docs/runbooks/README.md
 platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md
 platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md
+platforms/foundation-platform/docs/runbooks/silver-refresh.md
 platforms/foundation-platform/docs/runbooks/slo-alert-policy.md
 platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md
 platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md
@@ -896,6 +897,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/silver-refresh.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current |

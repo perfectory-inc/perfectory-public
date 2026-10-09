@@ -13,7 +13,7 @@ from silver_scalar_handoff_to_lakehouse import spark_type, write_silver_iceberg
 
 
 class ApartmentPriceContractTest(unittest.TestCase):
-    def test_measured_objects_and_consumed_positions(self):
+    def test_measured_layout_and_consumed_positions(self):
         path = SPARK.parent / "contracts/hub-building-register-apartment-price-source-objects.json"
         self.assertTrue(path.is_file(), "the HUB layout contract is missing")
         c = json.loads(path.read_text(encoding="utf-8"))
@@ -26,14 +26,18 @@ class ApartmentPriceContractTest(unittest.TestCase):
             "bonbeon": 11, "bubeon": 12, "base_date": 22, "price_won": 23, "notice_date": 24,
         })
         self.assertTrue(all(v["meaning"] for v in c["columns"].values()))
-        self.assertEqual(len(c["objects"]), 5)
-        self.assertEqual({o["vintage"] for o in c["objects"]}, {"202604", "202605", "202606", "202607", "202608"})
-        self.assertEqual(c["selected_vintage"], max(o["vintage"] for o in c["objects"]))
-        self.assertEqual(c["granularity_counts"], {"national": 1, "vintages": 5, "objects": 5})
-        self.assertEqual(len({o["object_key"] for o in c["objects"]}), 5)
-        self.assertTrue(all(o["bytes"] > 0 and o["object_key"].startswith(c["source"] + "/") for o in c["objects"]))
         self.assertEqual(c["handoff_suffix"], ".jsonl.gz")
         self.assertEqual(c["rows_per_part"], 10_000_000)
+
+    def test_the_release_is_the_ledgers_not_the_contracts(self):
+        # Root ADR-0169 §2: the contract keeps rules; which month loads is the Bronze ledger's.
+        c = json.loads((SPARK.parent / "contracts/hub-building-register-apartment-price-source-objects.json").read_text(encoding="utf-8"))
+        for hand_picked in ("selected_vintage", "objects", "granularity_counts"):
+            self.assertNotIn(hand_picked, c)
+        lane = c["silver_refresh"]
+        self.assertEqual(lane["table"], "silver.building_register_apartment_price")
+        self.assertEqual(lane["roles"], {"source": c["source"].removeprefix("bronze/source=")})
+        self.assertEqual(lane["spark"]["iceberg_write_mode"], "append")
 
     def test_silver_retains_raw_array_and_loads_each_part_once(self):
         c = load_lakehouse_contract("silver.building_register_apartment_price")

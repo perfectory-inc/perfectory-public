@@ -14,7 +14,7 @@ from silver_scalar_handoff_to_lakehouse import write_silver_iceberg
 
 
 class ExclusiveUnitContractTest(unittest.TestCase):
-    def test_measured_exclusive_unit_layout_and_objects(self):
+    def test_measured_exclusive_unit_layout(self):
         path = SPARK.parent / "contracts/hub-building-register-exclusive-unit-source-objects.json"
         assert path.is_file(), "the exclusive-unit source contract is missing"
         source = json.loads(path.read_text(encoding="utf-8"))
@@ -26,12 +26,10 @@ class ExclusiveUnitContractTest(unittest.TestCase):
             "bonbeon": 11, "bubeon": 12, "dong_name": 21, "ho_name": 22,
             "floor_kind": 24, "floor_no": 25,
         }
-        assert source["selected_vintage"] == "202608"
-        assert {o["vintage"]: o["bytes"] for o in source["objects"]} == {
-            "202604": 966116523, "202605": 967624253, "202606": 968762635,
-            "202607": 969813866, "202608": 917907836,
-        }
-        assert source["granularity_counts"] == {"national": 1, "vintages": 5, "objects": 5}
+        # Root ADR-0169 §2: which month loads is the Bronze ledger's, not this contract's.
+        assert not {"selected_vintage", "objects", "granularity_counts"} & set(source)
+        assert source["silver_refresh"]["table"] == "silver.building_register_exclusive_unit"
+        assert source["silver_refresh"]["roles"] == {"source": "hubgokr__building_register_exclusive_unit"}
         assert source["handoff_layout"] == "manifest_parts"
         assert source["rows_per_part"] == 10_000_000
         contract = load_lakehouse_contract("silver.building_register_exclusive_unit")

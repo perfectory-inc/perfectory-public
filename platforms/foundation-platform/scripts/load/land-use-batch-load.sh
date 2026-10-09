@@ -12,7 +12,8 @@
 # "this is all of it". The zone-code verb loads the single LMIS code-table handoff.
 #
 # Verbs: validate [table] | load [table] | zone-code-load. Default table: land_use_plan.
-# Manifest-part sources require SOURCE_HANDOFF_MANIFEST (the export SUMMARY_PATH).
+# The hub registers (공동주택가격·전유부 다리) no longer load here: their lanes pick the release from
+# the Bronze ledger and load themselves (scripts/ops/silver-refresh.sh, root ADR-0169).
 set -uo pipefail
 
 MODE="${1:-validate}"
@@ -98,7 +99,6 @@ fi
 
 # 키는 R2 를 훑어서 얻지 않는다. 변환기와 같은 목록 파일에서 같은 규칙으로 만든다.
 planner_args=(--contract "$CONTRACT_FILE" --bucket "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")
-[ -n "${SOURCE_HANDOFF_MANIFEST:-}" ] && planner_args+=(--manifest "$SOURCE_HANDOFF_MANIFEST")
 [ -n "${SOURCE_HANDOFF_OUTPUT_PREFIX:-}" ] && planner_args+=(--output-prefix "$SOURCE_HANDOFF_OUTPUT_PREFIX")
 # Process substitution hides the producer's exit code. Capture success before mapfile.
 if plan=$(python3 infra/lakehouse/spark/jobs/source_handoff_inputs.py "${planner_args[@]}"); then

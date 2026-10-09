@@ -426,6 +426,33 @@ impl IcebergRestCatalog {
             }))
     }
 
+    /// Every load identity the table's snapshots still record as appended: the
+    /// `foundation.ingest-batch-objects` summary property `append_batch_once`
+    /// (`infra/lakehouse/spark/jobs/lakehouse_ingest.py`) commits with the rows, read from the
+    /// table metadata exactly as that function reads it, so a caller can ask "is this load
+    /// already in the table?" without starting Spark (root ADR-0169 §3).
+    ///
+    /// Returns `Ok(None)` when the table does not exist. An expired snapshot's identities are
+    /// gone with its summary, which the Spark reader shares.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached.
+    pub async fn load_ingested_batch_objects(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<std::collections::BTreeSet<String>>, LakehouseError> {
+        Ok(self.load_table_response(table_name).await?.map(|payload| {
+            ingested_batch_objects(
+                payload
+                    .metadata
+                    .snapshots
+                    .iter()
+                    .map(|snapshot| &snapshot.summary),
+            )
+        }))
+    }
+
     /// Commits one tag `tag_name` on `snapshot_id` of `table_name`, only where no reference of
     /// that name exists yet (requirement `assert-ref-snapshot-id` with a null snapshot).
     ///
@@ -738,6 +765,23 @@ struct IcebergSnapshotMetadata {
     /// The writer's snapshot summary; Iceberg writers record `total-records` in it.
     #[serde(default)]
     summary: BTreeMap<String, serde_json::Value>,
+}
+
+/// The summary property `append_batch_once` commits with each append, and the separator between
+/// the identities it names (`lakehouse_ingest.py`: `INGEST_BATCH_OBJECTS_KEY`,
+/// `OBJECT_NAME_SEPARATOR`).
+const INGEST_BATCH_OBJECTS_KEY: &str = "foundation.ingest-batch-objects";
+const INGEST_OBJECT_SEPARATOR: char = ',';
+
+fn ingested_batch_objects<'a>(
+    summaries: impl Iterator<Item = &'a BTreeMap<String, serde_json::Value>>,
+) -> std::collections::BTreeSet<String> {
+    summaries
+        .filter_map(|summary| summary.get(INGEST_BATCH_OBJECTS_KEY)?.as_str())
+        .flat_map(|recorded| recorded.split(INGEST_OBJECT_SEPARATOR))
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn parse_table_name(table_name: &str) -> Result<(Vec<&str>, &str), LakehouseError> {

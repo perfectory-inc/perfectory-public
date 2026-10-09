@@ -8,21 +8,14 @@ pub(super) struct Column {
     pub(super) index: usize,
 }
 
-#[derive(Clone, Deserialize)]
-pub(super) struct SourceObject {
-    pub(super) object_key: String,
-    pub(super) bytes: u64,
-    pub(super) dataset_name: String,
-    pub(super) vintage: String,
-}
-
+/// The file layout of one hub national register (root ADR-0092). Which ZIP to read is not here:
+/// the Silver refresh picks it from the Bronze ledger and passes it in (root ADR-0169 §2).
 #[derive(Clone, Deserialize)]
 pub struct Layout {
     #[serde(skip)]
     expected_columns: BTreeSet<String>,
     schema_version: u32,
     pub(super) source: String,
-    pub(super) selected_vintage: String,
     pub(super) inner_file: String,
     csv_delimiter: String,
     encoding: String,
@@ -32,7 +25,6 @@ pub struct Layout {
     pub(super) handoff_suffix: String,
     pub(super) rows_per_part: u64,
     pub(super) max_row_bytes: u64,
-    pub(super) objects: Vec<SourceObject>,
 }
 
 impl Layout {
@@ -99,36 +91,25 @@ impl Layout {
                 && positions.iter().all(|i| *i < self.column_count),
             "duplicate or out-of-range HUB column index"
         );
-        ensure!(!self.objects.is_empty(), "source objects are empty");
         ensure!(
-            self.objects.iter().map(|o| &o.vintage).max() == Some(&self.selected_vintage),
-            "selected_vintage is not the latest measured vintage"
+            self.source.starts_with("bronze/source=hubgokr__") && !self.source.ends_with('/'),
+            "source must be a hub.go.kr Bronze prefix"
         );
-        let keys: BTreeSet<_> = self.objects.iter().map(|o| &o.object_key).collect();
-        let vintages: BTreeSet<_> = self.objects.iter().map(|o| &o.vintage).collect();
-        ensure!(
-            keys.len() == self.objects.len() && vintages.len() == self.objects.len(),
-            "national source objects/vintages must be unique"
-        );
-        for object in &self.objects {
-            ensure!(
-                object.bytes > 0
-                    && object.dataset_name == self.inner_file
-                    && object.object_key.starts_with(&format!("{}/", self.source))
-                    && object.object_key.strip_suffix(".zip").is_some()
-                    && object.vintage.len() == 6
-                    && object.vintage.bytes().all(|b| b.is_ascii_digit()),
-                "invalid measured HUB source object"
-            );
-        }
         Ok(())
     }
 
-    pub(super) fn selected(&self) -> anyhow::Result<&SourceObject> {
-        self.objects
-            .iter()
-            .find(|o| o.vintage == self.selected_vintage)
-            .context("selected national object is missing")
+    /// The `vintage` (`YYYYMM`) of one of this source's monthly ZIPs: the provider month its
+    /// `OPN<YYYYMMDD>` name carries, the month the ledger files it under.
+    ///
+    /// # Errors
+    /// Refuses a key outside this source or a name without a valid provider date.
+    pub fn vintage_of(&self, object_key: &str) -> anyhow::Result<String> {
+        let name = object_key
+            .strip_prefix(&format!("{}/", self.source))
+            .filter(|name| !name.contains('/'))
+            .with_context(|| format!("{object_key} is not an object of {}", self.source))?;
+        let day = crate::building_register_snapshot::object_date(name)?;
+        Ok(day.format("%Y%m").to_string())
     }
 
     pub(super) fn value<'a>(&self, fields: &[&'a str], name: &str) -> anyhow::Result<&'a str> {

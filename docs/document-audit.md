@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **519개**
-- 언어 분류: **{'english': 37, 'korean': 326, 'mixed': 156}**
+- 감사 문서: **520개**
+- 언어 분류: **{'english': 37, 'korean': 327, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **231개 정상 / 0개 누락 / 288개 해당 없음**
+- 메타데이터: **232개 정상 / 0개 누락 / 288개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -114,9 +114,9 @@
 | `docs/adr/0089-a-parcel-learns-its-transfer-history.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0090-a-transfer-event-is-named-by-three-sequences.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0091-a-parcel-learns-its-land-rights.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0093-a-land-right-belongs-to-a-unit.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
@@ -189,7 +189,7 @@
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
-| `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
+| `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
@@ -304,13 +304,13 @@
 | `platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md` | Foundation Platform | runbook | current | korean | ok | 4 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/lakehouse-registry.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md` | Foundation Platform | runbook | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/legal-dong-code-changes.md` | Foundation Platform | runbook | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/map-edit-fold.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md` | Foundation Platform | runbook | current | korean | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/parcel-by-pnu-serving-bake.md` | Foundation Platform | runbook | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/parcel-section-pack-cutover.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md` | Foundation Platform | runbook | current | korean | ok | 1 |
-| `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 2 |
+| `platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md` | Foundation Platform | runbook | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md` | Foundation Platform | runbook | current | mixed | ok | 1 |
 | `platforms/foundation-platform/docs/runbooks/provider-outage-and-quota.md` | Foundation Platform | runbook | current | korean | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/public-data-bronze-lane-orchestration.md` | Foundation Platform | runbook | current | mixed | ok | 5 |
@@ -321,6 +321,7 @@
 | `platforms/foundation-platform/docs/runbooks/README.md` | Foundation Platform | README | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md` | Foundation Platform | runbook | current | korean | ok | 2 |
 | `platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md` | Foundation Platform | runbook | current | korean | ok | 1 |
+| `platforms/foundation-platform/docs/runbooks/silver-refresh.md` | Foundation Platform | runbook | current | korean | ok | 3 |
 | `platforms/foundation-platform/docs/runbooks/slo-alert-policy.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current | mixed | ok | 0 |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current | korean | ok | 2 |

@@ -228,7 +228,11 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # 114 -> 115: root ADR-0153 makes config/runtime-secrets.contract.json the one source of host
 # environment files; the publisher embeds it to name the Cloudflare analytics file instead of
 # keeping a second copy of that path in r2-connections.contract.json.
-COMPILE_TIME_READ_BASELINE="${3:-115}"
+# 115 -> 118: root ADR-0169 step 2 gives the three hub register lanes the export had no contract
+# for (titles, units, unit areas) a source contract each, embedded once like the apartment-price and
+# exclusive-unit contracts: the Silver refresh reads its release rules from the same bytes the
+# export reads, and those two existing contracts are shared, not embedded a second time.
+COMPILE_TIME_READ_BASELINE="${3:-118}"
 
 cd "$repo_root"
 

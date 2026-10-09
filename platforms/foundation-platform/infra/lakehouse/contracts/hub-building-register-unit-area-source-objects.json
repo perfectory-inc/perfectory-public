@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md",
+  "purpose": "전유공용면적 Silver 레인(silver.building_register_unit_areas)의 규칙. 원천 판은 여기 적지 않는다: Bronze 장부가 갖고, 레인이 읽는다.",
+  "source": "bronze/source=hubgokr__building_register_exclusive_common_area",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다(snapshot_date 는 그 월의 1일). 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 파일 이름 OPN<YYYYMMDD> 가 그 월 안이어야 한다(root ADR-0169 §2).",
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-register-unit-areas.service 의 실행 값(root ADR-0169 §3). 한 판이 한 source_snapshot_id 라서 한 묶음으로 적재하고 새 판은 표를 바꿔 쓴다(overwrite). 옛 수동 실행값 28g 는 compose spark 상한 20g 를 넘어 쓸 수 없다; 16g 는 첫 감독 실행이 잰다.",
+    "table": "silver.building_register_unit_areas",
+    "roles": {"unit_area": "hubgokr__building_register_exclusive_common_area"},
+    "export": "export-building-register-unit-area-silver-handoff",
+    "export_chunk_rows": 250000,
+    "spark": {"master": "local[8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
+  }
+}

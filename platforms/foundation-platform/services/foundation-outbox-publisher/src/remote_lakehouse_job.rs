@@ -15,6 +15,7 @@ mod floor_history;
 mod floor_source;
 mod invocation_cleanup;
 mod scalar;
+mod silver_refresh;
 use scalar::build_silver_scalar_remote_script;
 
 const SUMMARY_BEGIN_MARKER: &str = "__FOUNDATION_PLATFORM_SPARK_SUMMARY_BEGIN__";
@@ -434,6 +435,18 @@ pub fn stop_gold_panel_rebuild() -> anyhow::Result<()> {
 
 pub async fn run_floor_cycle() -> anyhow::Result<()> {
     floor_cycle::run().await
+}
+
+/// `foundation-silver-refresh@<lane>.service`: refresh one Silver lane from the newest complete
+/// release in the Bronze ledger, or report it unchanged (root ADR-0169).
+pub async fn run_silver_refresh() -> anyhow::Result<()> {
+    silver_refresh::run().await
+}
+
+/// `ExecStopPost` of `foundation-silver-refresh@.service`: remove the Spark container a timed-out
+/// or killed run left behind.
+pub fn stop_silver_refresh() -> anyhow::Result<()> {
+    silver_refresh::stop()
 }
 
 impl RemoteCommandPlan {

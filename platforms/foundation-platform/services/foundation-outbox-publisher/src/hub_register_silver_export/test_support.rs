@@ -16,6 +16,9 @@ impl Seek for Fragmented {
     }
 }
 
+/// The national ZIP every fixture converts: a provider export of 2099-08-20, vintage `209908`.
+pub(super) const SYNTHETIC_ZIP: &str = "OPN20990820SYNTHETIC.zip";
+
 /// Converts with the identity crosswalk: fixtures use the reserved synthetic 시군구 99999, which
 /// the real seed declares a hub placeholder (ADR-0142), so composition is tested apart from it.
 pub(super) fn convert_fixture(
@@ -36,8 +39,10 @@ pub(super) fn convert_fixture_via(
     std::fs::create_dir_all(&temp)?;
     let result = (|| {
         layout.rows_per_part = rows_per_part;
+        let input_object_key = format!("{}/{SYNTHETIC_ZIP}", layout.source);
         let config = Config {
-            input_object_key: layout.selected()?.object_key.clone(),
+            vintage: layout.vintage_of(&input_object_key)?,
+            input_object_key,
             output_prefix: OutputSink::R2Object(format!(
                 "silver-handoff/{}",
                 layout.source.trim_start_matches("bronze/source=")

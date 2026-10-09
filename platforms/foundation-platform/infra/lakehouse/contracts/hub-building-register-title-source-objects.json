@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md",
+  "purpose": "표제부 Silver 레인(silver.building_register_titles, root ADR-0073)의 규칙. 원천 판은 여기 적지 않는다: Bronze 장부가 갖고, 레인이 읽는다.",
+  "source": "bronze/source=hubgokr__building_register_main",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다(snapshot_date 는 그 월의 1일). 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 파일 이름 OPN<YYYYMMDD> 가 그 월 안이어야 한다(root ADR-0169 §2).",
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-register-titles.service 의 실행 값(root ADR-0169 §3). 한 판이 한 source_snapshot_id 이고 gold.building_panel 은 그 하나만 읽으므로 새 판은 표를 바꿔 쓴다(overwrite, root ADR-0142 Consequences). 대지 PNU NULL 비율 게이트는 적재기가 표 계약대로 건다.",
+    "table": "silver.building_register_titles",
+    "roles": {"title": "hubgokr__building_register_main"},
+    "export": "export-building-register-title-silver-handoff",
+    "spark": {"master": "local[8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
+  }
+}

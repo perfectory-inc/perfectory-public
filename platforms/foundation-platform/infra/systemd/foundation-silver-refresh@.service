@@ -1,0 +1,39 @@
+[Unit]
+Description=Foundation Platform Silver refresh of the %i lane: load the newest complete hub.go.kr release in the Bronze ledger, or report it unchanged (root ADR-0169)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+# Spark (uid 185) shares the work directory through the service account's group.
+UMask=0007
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i
+# The timeout below kills the script and the compose client, not the Spark container the Docker
+# daemon owns. Spark runs in the Compose project named after this INVOCATION_ID; this removes that
+# project's one-off containers and networks and nothing else (root ADR-0128). It runs after every
+# exit, a success included, with any installed release's publisher.
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh cleanup
+# The export runs here, as a child of the publisher, not in a container: this bounds it, as the
+# FLOOR export's container is bounded (lakehouse-engine.contract.json execution_profile). Spark is
+# bounded by the compose `spark` cap, which the Docker daemon, not this unit, holds.
+MemoryMax=4G
+# FLOOR's bound. The largest national export measured by hand took 18 minutes (unit areas, root
+# ADR-0142); the first supervised run of each lane measures the whole run.
+TimeoutStartSec=4h
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# The lanes' work on the data disk (silver-refresh.sh's state root; the release creates it). The
+# root disk is small.
+ReadWritePaths=/data/foundation-platform/silver-refresh
