@@ -152,7 +152,8 @@ Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반�
   어긋남 경고도 없다.
 - 수집: 내용 해시 키(`content_addressed`, ADR-0152), RAON 선택 묶음(`SelectionArchive`) 제외, 강제 재수집 없음.
 - 기록: `/var/lib/foundation-platform/source-sweep/journal.log` 의 한 줄에 `hub ... | vworld planned= new= skipped= failed=
-  deferred= pending_bytes= budget= status=` 가 남고, 증거는 같은 디렉터리의 `vworld-evidence.json` 이다. 신규·실패는 hub 와
+  deferred= pending_bytes= budget= status=` 가 남고(같은 줄과 실패 이유가 `journalctl -u foundation-source-sweep.service`
+  에도 간다, 루트 ADR-0174), 증거는 같은 디렉터리의 `vworld-evidence.json` 이다. 신규·실패는 hub 와
   같은 슬랙 메시지에 실린다.
 - Silver 반영은 하지 않는다. 슬랙 알림을 받은 사람이 각 데이터셋의 적재 런북으로 반영한다(ADR-0077 §5).
 - RAON 선택 묶음(루트 ADR-0170): 수집은 그 파일들을 받지 않되, 원장이 가진 것인지는 같은 확인으로 묻는다. 가진 것은

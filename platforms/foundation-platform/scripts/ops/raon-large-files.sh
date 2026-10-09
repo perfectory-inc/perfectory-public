@@ -26,6 +26,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
+# journal 의 줄은 표준 출력에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 refuse() {
   echo "raon-large-files: refused before any side effect: $1" >&2
@@ -235,8 +237,7 @@ print(f"raon planned={s['planned']} committed={s['committed']} failed={s['failed
       + (" budget_override=1" if s["budget_override"] else ""))
 PY
 )"
-printf '%s %s\n' "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
-echo "${line}"
+job_journal "${journal}" "${line}"
 case "${line}" in
   *" status=ready "* | *" status=nothing-to-fetch "* | *" status=planned "*) exit 0 ;;
   *) exit 1 ;;

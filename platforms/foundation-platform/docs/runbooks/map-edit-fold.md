@@ -53,7 +53,7 @@ docker exec foundation-platform-runtime-postgres-1 psql -U foundation_admin -d f
    FROM catalog.vector_tile_publication_unit ORDER BY unit_key"
 # Airflow 의 최근 실행과 마지막 접기 기록
 bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh exec -T airflow-scheduler \n  airflow dags list-runs foundation_map_edit_fold_admin -o plain | head -5
-sudo tail -3 /var/lib/foundation-platform/map-edit-fold/journal.log
+journalctl -u 'foundation-map-edit-fold@*' --since today -o cat | tail -20  # journal.log 의 줄과 실패한 실행 로그의 끝(ADR-0174)
 ```
 
 ## 굽기 오븐 `bake-lakehouse-tiles` (루트 ADR-0133 §3)

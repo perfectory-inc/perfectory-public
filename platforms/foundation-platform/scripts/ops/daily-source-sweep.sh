@@ -23,6 +23,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다 — 운영자는 상태 디렉터리를 못 읽는다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152 §5). 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가
 #    계약으로 본다(config/runtime-secrets.contract.json, scripts/deploy/runtime_secrets.py check; ADR-0153).
@@ -93,9 +95,9 @@ PY
 
 on_error() {
   local line="$1"
-  printf '%s sweep FAILED at line %s (tail of run log follows)\n' \
-    "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
+  job_journal "${journal}" "sweep FAILED at line ${line} (tail of run log follows)" >&2
   tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true
+  job_run_log_tail "${run_log}"
   # Slack hears it from the unit (OnFailure=foundation-unit-failed@), once.
 }
 trap 'on_error ${LINENO}' ERR
@@ -278,10 +280,12 @@ field() { python3 -c 'import json, sys; v = json.loads(sys.argv[1])[sys.argv[2]]
 line="$(field line)"
 failed_lanes="$(field failed)"
 new_count="$(field new)"
-printf '%s sweep %s\n' "$(date -u +%FT%TZ)" "${line}" >> "${journal}"
+job_journal "${journal}" "sweep ${line}"
 
 if [ -n "${failed_lanes}" ]; then
   notes="$(field notes)"
+  echo "daily-source-sweep: failed lanes: ${failed_lanes}${notes:+ — ${notes}}" >&2
+  job_run_log_tail "${run_log}"
   notify_slack "🔴 daily-source-sweep: ${failed_lanes} 레인 실패 (${line})${notes:+ — ${notes}}"
   exit 1
 fi

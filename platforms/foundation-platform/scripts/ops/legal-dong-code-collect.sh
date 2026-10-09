@@ -20,6 +20,8 @@
 # -E: 함수·명령 치환 안에서 실패해도 ERR trap 이 journal 에 실패를 남긴다.
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 STATE_ROOT="${FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT:-/var/lib/foundation-platform/legal-dong-code}"
 JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
@@ -35,7 +37,7 @@ if [ "${1:-}" = steward ]; then
   shift
   "${PY[@]}" "${JOBS}/legal_dong_code_change_pairs.py" stage-steward-decision \
     --review "${STATE_ROOT}/steward-review.json" --output-dir "${STATE_ROOT}/steward/pending" "$@"
-  printf '%s legal-dong-code steward decision staged\n' "$(date -u +%FT%TZ)" >> "${journal}"
+  job_journal "${journal}" "legal-dong-code steward decision staged"
   exit 0
 fi
 
@@ -57,7 +59,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}/collect"
 run_log="${work}/run.log"
-trap 'printf "%s legal-dong-code collect FAILED at line %s run=%s\n" "$(date -u +%FT%TZ)" "${LINENO}" "${run_id}" >> "${journal}"; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true' ERR
+trap 'job_journal "${journal}" "legal-dong-code collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
 # 1. 표
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
@@ -66,5 +68,4 @@ env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
 # 2. 검사와 넘김
 result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" stage-handoff --collect-dir "${work}/collect" \
   --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
-printf '%s legal-dong-code collect ok run=%s %s\n' "$(date -u +%FT%TZ)" "${run_id}" "${result}" >> "${journal}"
-echo "${result}"
+job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"

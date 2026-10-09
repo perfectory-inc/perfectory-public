@@ -21,6 +21,8 @@
 # 어느 단계든 실패하면 0 이 아닌 값(3 이 아닌)으로 끝난다.
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+# journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
+source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152): 측정의 읽기 키가 없다는 것을 판 전부를 Bronze 에 받은 뒤에
 #    알면 안 된다. 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가 계약으로 본다
@@ -86,7 +88,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
-trap 'printf "%s vworld-parcel-edition FAILED at line %s run=%s\n" "$(date -u +%FT%TZ)" "${LINENO}" "${run_id}" >> "${journal}"; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true' ERR
+trap 'job_journal "${journal}" "vworld-parcel-edition FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
 # 1. 확인. 계획은 필지 데이터셋 하나만 담은 목록에서 만든다 — 목록 전체를 받으면 다른 데이터셋 수백
 #    파일의 목록까지 매일 긁는다.
@@ -100,7 +102,7 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 "${PUBLISHER_BIN}" inventory-vworld-dataset-files >> "${run_log}" 2>&1
 read -r edition held < <(editions provider-edition --inventory "${work}/inventory.json")
 if [ "${held}" = held ]; then
-  printf '%s vworld-parcel-edition provider=%s held run=%s\n' "$(date -u +%FT%TZ)" "${edition}" "${run_id}" >> "${journal}"
+  job_journal "${journal}" "vworld-parcel-edition provider=${edition} held run=${run_id}"
   # 제공자가 같은 기준월로 파일을 다시 올렸으면 계약은 앞 업로드를 말한다. 막지 않고 요약에 경고로 남긴다.
   reuploads="$(editions held-reuploads --edition "${edition}" --inventory "${work}/inventory.json")"
   if [ -n "${reuploads}" ]; then
@@ -149,8 +151,8 @@ mv -f "${STATE_ROOT}/proposed/${edition}.json.tmp" "${STATE_ROOT}/proposed/${edi
 # 4. 끝. 계약에 넣을 판이 있다. 알림은 이 작업이 직접 그 뜻으로 보낸다: Airflow 의 실패 알림은 "실패"라고만
 #    말한다. 작업은 재시도하지 않는다(jobs.v1.json retries 0) — 다시 돌아도 같은 판을 받고 같은 제안을 낸다.
 message="🟡 new edition waiting for contract entry: 연속지적도 ${edition} 판을 받아 계약 항목을 제안했다(${files} 파일). ${STATE_ROOT}/proposed/${edition}.json 을 vworld-parcel-source-objects.json 에 PR 로 넣는다 — 런북 vworld-parcel-editions.md. 결함이 아니다."
-printf '%s vworld-parcel-edition provider=%s new: collected %s files, proposed %s run=%s\n' \
-  "$(date -u +%FT%TZ)" "${edition}" "${files}" "${STATE_ROOT}/proposed/${edition}.json" "${run_id}" >> "${journal}"
+job_journal "${journal}" \
+  "vworld-parcel-edition provider=${edition} new: collected ${files} files, proposed ${STATE_ROOT}/proposed/${edition}.json run=${run_id}"
 notify_slack "${message}"
 echo "new edition waiting for contract entry: edition ${edition}; add ${STATE_ROOT}/proposed/${edition}.json to vworld-parcel-source-objects.json (runbook vworld-parcel-editions.md)" >&2
 exit "${AWAITING_CONTRACT}"

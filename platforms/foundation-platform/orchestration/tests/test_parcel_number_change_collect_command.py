@@ -116,7 +116,7 @@ class CollectCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-number-change-collect.sh", "admitted-writer-runtime.sh"):
+        for name in ("parcel-number-change-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         for relative in ("infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
@@ -175,9 +175,12 @@ class CollectCommand(unittest.TestCase):
         for obj in objects:
             self.assertRegex(obj["object_key"], rf"/{obj['file_key']}--sha256-{obj['checksum_sha256']}\.zip$",
                              "the handoff names each file by its bytes (root ADR-0152)")
+        # The journal lines are the unit's lines too (root ADR-0174).
+        self.assertIn("parcel-number-change collect ok run=", first.stdout)
         second = self.run_job()
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertIn('"unchanged"', second.stdout)
+        self.assertIn("parcel-number-change unchanged run=", second.stdout)
         self.assertEqual(len(self.handoffs()), 1, "an unchanged listing hands off nothing")
         calls = (self.fake / "calls.log").read_text(encoding="utf-8").split()
         self.assertEqual(calls.count("ingest-vworld-dataset-files"), 1)
@@ -208,6 +211,10 @@ class CollectCommand(unittest.TestCase):
         self.assertEqual(self.handoffs(), [])
         self.assertFalse((self.state / "accepted.json").exists())
         self.assertIn("FAILED", (self.state / "journal.log").read_text(encoding="utf-8"))
+        # The failure and the end of the run log reach the unit's journal (root ADR-0174); the
+        # stand-in publisher writes nothing to the run log, and that is said too.
+        self.assertIn("parcel-number-change collect FAILED at line", result.stderr)
+        self.assertRegex(result.stderr, r"run log \S+/run\.log is empty")
 
 
 if __name__ == "__main__":

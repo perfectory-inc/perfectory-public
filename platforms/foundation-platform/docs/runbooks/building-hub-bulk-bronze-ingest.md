@@ -182,8 +182,8 @@ sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundatio
 
 ```bash
 sudo /opt/foundation-platform/current/scripts/deploy/foundation-release.sh timers
-journalctl -u foundation-source-sweep.service --since today | tail -20
-tail -3 /var/lib/foundation-platform/source-sweep/journal.log
+# 요약 줄(journal.log 와 같은 줄), 실패면 그 이유와 실행 로그의 끝(ADR-0174)
+journalctl -u foundation-source-sweep.service --since today -o cat | tail -40
 ```
 
 첫 실행이 journal 에 한 줄을 남기고 끝나야 운영으로 인정한다(백업 타이머의 규칙). 바로 한 번 돌리려면 `airflow-runtime.sh trigger source_sweep`. 첫
