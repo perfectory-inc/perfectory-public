@@ -108,6 +108,18 @@ fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn bronze_object_member_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "measure-bronze-object-members"
+        ])?,
+        Command::MeasureBronzeObjectMembers
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,

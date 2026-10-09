@@ -1319,7 +1319,7 @@ mod tests {
     use foundation_disposable_database::{run_in_disposable_database, TestResult};
     use serde_json::Value as JsonValue;
 
-    static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    use crate::test_support::MIGRATOR;
 
     #[test]
     fn execution_evidence_selects_r2_succeeded_handoff_objects() -> anyhow::Result<()> {

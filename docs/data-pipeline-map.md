@@ -17,7 +17,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 현재 범위: 원천 **10그룹 / 136 endpoint**,
 Silver·Gold **34표**,
-서빙·운영 원장 **75표**.
+서빙·운영 원장 **77표**.
 
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
@@ -237,7 +237,7 @@ Silver·Gold **34표**,
 | 원천 등록부 | `catalog.source_catalog` |
 | 원천 기록 | `catalog.source_record` |
 | 파일 자산 | `catalog.file_asset` |
-| 수집 객체 원장 | `catalog.bronze_object` |
+| 수집 객체 원장 | `catalog.bronze_object`<br>`catalog.bronze_object_measurement`<br>`catalog.bronze_object_member` |
 | 수집 작업 | `catalog.collection_job` |
 | 수집 실행 | `catalog.ingestion_run` |
 | 레이크하우스 자산·버전 | `catalog.lakehouse_data_asset`<br>`catalog.lakehouse_dataset_version`<br>`catalog.lakehouse_object_artifact` |

@@ -241,8 +241,13 @@ class ExportScriptTest(unittest.TestCase):
         source = (ROOT / "crates" / "foundation-outbox" / "src" / "object_storage" / "r2.rs").read_text(
             encoding="utf-8"
         )
-        body = source.split("fn from_env()", 1)[1].split("\n    }", 1)[0]
-        required = set(re.findall(r'required_env\(\s*"([A-Z0-9_]+)"', body))
+        # `from_env` (the writer) names its key pair and hands it to the shared lakehouse builder,
+        # which demands those two and the rest itself (root ADR-0169 added the reader beside it).
+        writer = source.split("fn from_env()", 1)[1].split("\n    }", 1)[0]
+        shared = source.split("fn lakehouse_from_env(", 1)[1].split("\n    }", 1)[0]
+        required = set(re.findall(r'"([A-Z0-9_]+)"', writer)) | set(
+            re.findall(r'required_env\(\s*"([A-Z0-9_]+)"', shared)
+        )
         self.assertTrue(required, "r2.rs 에서 필수 변수를 못 읽었다 — 대조가 무의미해진다")
 
         code = self._code()

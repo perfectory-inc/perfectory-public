@@ -7,11 +7,11 @@
 
 ## 요약
 
-- 감사 문서: **518개**
-- 언어 분류: **{'english': 37, 'korean': 325, 'mixed': 156}**
+- 감사 문서: **519개**
+- 언어 분류: **{'english': 37, 'korean': 326, 'mixed': 156}**
 - 한글화 대상 유지 문서: **영문 전용 0개 / 혼합 표기 80개** (기계 계약·라우터·법률 예외 제외)
 - 유지 문서의 명백한 영문 문장: **0개**
-- 메타데이터: **231개 정상 / 0개 누락 / 287개 해당 없음**
+- 메타데이터: **231개 정상 / 0개 누락 / 288개 해당 없음**
 - 중복 파일명 후보: **0개**
 - 링크·참조 위반: **0개**
 - 승인 전 문서 유입 링크 0건: **0개**
@@ -99,7 +99,7 @@
 | `docs/adr/0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0075-the-unit-load-fills-its-own-link.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0076-a-building-answers-for-its-units.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
+| `docs/adr/0077-the-pipe-looks-at-its-sources-every-day.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0079-the-outbox-gets-a-postman-on-a-schedule.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0080-the-issuer-answers-on-every-loopback.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
@@ -144,12 +144,12 @@
 | `docs/adr/0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
-| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 10 |
+| `docs/adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0125-unit-building-links-require-source-parent-key-evidence.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md` | Monorepo | ADR | accepted | korean | ok | 5 |
-| `docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md` | Monorepo | ADR | accepted | korean | ok | 3 |
+| `docs/adr/0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md` | Monorepo | ADR | accepted | korean | ok | 4 |
 | `docs/adr/0129-compute-memory-counts-one-shot-spark-and-native-contracts.md` | Monorepo | ADR | accepted | korean | ok | 2 |
 | `docs/adr/0130-panel-input-snapshots-are-complete-and-bound-before-spark.md` | Monorepo | ADR | accepted | korean | ok | 5 |
 | `docs/adr/0131-parcel-lineage-binds-every-input-and-derivation-identity.md` | Monorepo | ADR | accepted | korean | ok | 3 |
@@ -168,7 +168,7 @@
 | `docs/adr/0145-one-source-of-truth-for-region-code-changes.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 11 |
 | `docs/adr/0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 3 |
 | `docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 12 |
-| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 5 |
+| `docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 6 |
 | `docs/adr/0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
 | `docs/adr/0151-building-packs-serve-each-document-whole.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 8 |
@@ -189,6 +189,7 @@
 | `docs/adr/0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0167-the-host-deploys-the-tree-the-merge-queue-passed.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 2 |
 | `docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 4 |
+| `docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md` | Monorepo | ADR | Accepted | korean | not applicable: ADR fields | 1 |
 | `docs/adr/README.md` | Monorepo | README | current | korean | ok | 4 |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current | korean | ok | 3 |
 | `docs/architecture/README.md` | Monorepo | README | current | korean | ok | 0 |
