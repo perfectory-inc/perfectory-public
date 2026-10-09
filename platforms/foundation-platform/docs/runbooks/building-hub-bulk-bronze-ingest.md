@@ -138,6 +138,10 @@ provider 파일 id 지문으로 받기 전에 건너뛰므로, 신규가 없는 
 슬랙 `#alerts` 로 파일 목록이 온다 — 그 알림이 "오늘 반영하라"는 신호다(반영 자동화는
 ADR-0077 §5 가 다음 결정으로 명명).
 
+같은 서비스가 hub 레인 다음에 VWorld 토지 데이터셋 레인을 돈다(루트 ADR-0168). 무엇을 받는지, 하루 예산, 밀린 파일을
+받는 운영자 절차는 [VWorld 데이터 파일 Bronze 수집 런북](./vworld-dataset-file-bronze-ingest.md)의 "매일 훑기의 VWorld
+레인"이다. 이 레인은 VWorld 로그인(recovery.env)도 쓴다 — 없으면 스크립트가 아무것도 하기 전에 78 로 끝난다.
+
 ### 설치 (서버 1회)
 
 1. **sweep 전용 환경 파일.** recovery.env 에 없는 값만 담는다 (Bronze 쓰기 자격):

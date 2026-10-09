@@ -158,8 +158,12 @@ fn compile_vworld_dataset_file_inventory_report(
         single_resource_file_count += job_single_count;
         selection_archive_file_count += job_selection_count;
 
-        let file_count_drifted = job_discovered_file_count != job.file_count;
-        let selection_archive_count_drifted = job_selection_count != job.large_file_count;
+        // A plan made without a provider summary states no expectation (root ADR-0168): its zero
+        // counts are not compared against the listing.
+        let file_count_drifted =
+            job.expected_counts_known && job_discovered_file_count != job.file_count;
+        let selection_archive_count_drifted =
+            job.expected_counts_known && job_selection_count != job.large_file_count;
         if file_count_drifted {
             warnings.push(format!(
                 "endpoint {} expected {} files, discovered {}",
@@ -308,6 +312,14 @@ struct VWorldDatasetCollectionPlanJob {
     ds_id: String,
     file_count: u64,
     large_file_count: u64,
+    /// False when the plan had no provider summary; plans written before the field say nothing and
+    /// keep the old meaning.
+    #[serde(default = "expected_counts_known_by_default")]
+    expected_counts_known: bool,
+}
+
+const fn expected_counts_known_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

@@ -28,11 +28,11 @@ use uuid::Uuid;
 
 use super::{
     download_request_from_inventory_file, eligible_inventory_file_count, existing_file_report,
-    failed_file_report, parse_bronze_key_form, parse_dataset_file_max_in_flight,
-    persist_file_stream_with_adapters, plan_streamed_file_location, select_inventory_files,
-    validate_inventory_file_identity, vworld_dataset_file_ingest_status,
-    vworld_dataset_login_config, BronzeKeyForm, VWorldDatasetFileIngestConfig,
-    VWorldDatasetFileJob,
+    failed_file_report, listed_bytes, parse_bronze_key_form, parse_dataset_file_max_in_flight,
+    parse_new_bytes_budget, partition_held_files, persist_file_stream_with_adapters,
+    plan_streamed_file_location, select_inventory_files, validate_inventory_file_identity,
+    vworld_dataset_file_ingest_status, vworld_dataset_login_config, BronzeKeyForm,
+    NewBytesBudgetCheck, VWorldDatasetFileIngestConfig, VWorldDatasetFileJob,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -335,16 +335,9 @@ async fn existing_file_report_marks_provider_file_as_skipped() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        started_at,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?
-    .ok_or("expected existing Bronze object to be detected")?;
+    let report = existing_file_report(&job, &inventory_file, started_at, &repo, &uow)
+        .await?
+        .ok_or("expected existing Bronze object to be detected")?;
 
     assert_eq!(report.status, "skipped_existing");
     assert_eq!(report.object_key.as_deref(), Some(existing_object_key));
@@ -368,15 +361,8 @@ async fn a_newer_release_under_the_same_file_number_is_downloaded() -> TestResul
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        test_started_at()?,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?;
+    let report =
+        existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow).await?;
 
     assert!(
         report.is_none(),
@@ -397,16 +383,9 @@ async fn without_a_listed_update_date_the_file_number_decides() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        test_started_at()?,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?
-    .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
+    let report = existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow)
+        .await?
+        .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
 
     assert_eq!(report.status, "skipped_existing");
     Ok(())
@@ -699,10 +678,11 @@ async fn a_content_addressed_body_shorter_than_declared_is_refused() -> TestResu
     Ok(())
 }
 
-/// A content-addressed run does not skip to an object held under a plain provider-file key: that
-/// key does not name its bytes (the 20 objects of 2026-10-05 16:41Z are such keys).
+/// Root ADR-0168: a release held under a plain provider-file key (every file landed before
+/// content-addressed keys) is held — same file id, same provider update date, checksum in the
+/// ledger. Refusing it would make the first content-addressed sweep download all of them again.
 #[tokio::test]
-async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
+async fn a_held_release_is_held_whatever_its_key_form() -> TestResult {
     let job = test_job();
     let inventory_file = test_inventory_file("30017", "20991231DS99994", "9007", "2026-05");
     let plain = existing_bronze_object(
@@ -716,14 +696,16 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
         &job,
         &inventory_file,
         test_started_at()?,
-        BronzeKeyForm::ContentAddressed,
         &RecordingRepo::with_existing(plain.clone()),
         &uow,
     )
-    .await?;
-    assert!(
-        held.is_none(),
-        "a plain key is not a content-addressed hold"
+    .await?
+    .ok_or("a plain key holding the listed release is held")?;
+    assert_eq!(held.status, "skipped_existing");
+    assert_eq!(
+        held.object_key.as_deref(),
+        Some(format!("{CONTENT_BASE_KEY}.zip").as_str()),
+        "the skip names the object it found, in whatever form it has"
     );
 
     let mut qualified = plain;
@@ -735,7 +717,6 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
         &job,
         &inventory_file,
         test_started_at()?,
-        BronzeKeyForm::ContentAddressed,
         &RecordingRepo::with_existing(qualified),
         &uow,
     )
@@ -743,6 +724,103 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
     .ok_or("a content key naming its own checksum is held")?;
     assert_eq!(held.status, "skipped_existing");
     Ok(())
+}
+
+/// A ledger row whose bytes the ledger does not know is not a hold, whatever else matches.
+#[tokio::test]
+async fn a_row_without_a_known_checksum_is_not_held() -> TestResult {
+    let mut unknown = existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        &format!("{CONTENT_BASE_KEY}.zip"),
+        5678,
+    )?;
+    for checksum in [String::new(), "test".to_owned(), "A".repeat(64)] {
+        unknown.checksum_sha256 = checksum;
+        let held = existing_file_report(
+            &test_job(),
+            &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+            test_started_at()?,
+            &RecordingRepo::with_existing(unknown.clone()),
+            &RecordingUow::default(),
+        )
+        .await?;
+        assert!(
+            held.is_none(),
+            "checksum {:?} is not known bytes",
+            unknown.checksum_sha256
+        );
+    }
+    Ok(())
+}
+
+fn selected(file_no: &str, size_kib: u64, updated_at: &str) -> super::SelectedVWorldDatasetFile {
+    let mut file = test_inventory_file("30017", "20991231DS99994", file_no, "2026-05");
+    file.size_kib = size_kib;
+    file.updated_at = updated_at.to_owned();
+    super::SelectedVWorldDatasetFile {
+        job: test_job(),
+        file,
+    }
+}
+
+/// Root ADR-0168: the budget counts only what Bronze does not hold. The held file (9007, its
+/// listed release) costs nothing; the newer release under the same number and the unseen file do.
+#[tokio::test]
+async fn the_budget_counts_only_files_bronze_does_not_hold() -> TestResult {
+    let repo = RecordingRepo::with_existing(existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        &format!("{CONTENT_BASE_KEY}.zip"),
+        5678,
+    )?);
+    let files = vec![
+        (0, selected("9007", 4, "2026-05-13")),
+        (1, selected("9008", 2, "2026-05-13")),
+    ];
+    let (held, pending) =
+        partition_held_files(files.clone(), false, &repo, &RecordingUow::default()).await?;
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].0, 0);
+    assert_eq!(held[0].1.status, "skipped_existing");
+    assert_eq!(
+        pending.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [1]
+    );
+    assert_eq!(listed_bytes(pending.iter().map(|(_, s)| &s.file)), 2 * 1024);
+
+    let newer = vec![(0, selected("9007", 4, "2026-09-15"))];
+    let (held, pending) =
+        partition_held_files(newer, false, &repo, &RecordingUow::default()).await?;
+    assert!(held.is_empty(), "a newer release is not held");
+    assert_eq!(pending.len(), 1);
+
+    let (held, pending) =
+        partition_held_files(files, true, &repo, &RecordingUow::default()).await?;
+    assert!(held.is_empty(), "a forced refetch holds nothing");
+    assert_eq!(pending.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn the_budget_is_exceeded_only_above_it() {
+    let at = NewBytesBudgetCheck {
+        budget: 2048,
+        pending_listed_bytes: 2048,
+        pending_file_count: 1,
+    };
+    assert!(!at.is_exceeded());
+    assert!(NewBytesBudgetCheck {
+        pending_listed_bytes: 2049,
+        ..at
+    }
+    .is_exceeded());
+    assert!(NewBytesBudgetCheck {
+        budget: 0,
+        pending_listed_bytes: 1,
+        ..at
+    }
+    .is_exceeded());
+    assert!(parse_new_bytes_budget("0").is_ok());
+    assert!(parse_new_bytes_budget("16GiB").is_err());
 }
 
 #[test]
@@ -793,6 +871,7 @@ fn test_config() -> VWorldDatasetFileIngestConfig {
         exclude_selection_archives: false,
         defer_provider_acquisition_blocked: false,
         bronze_key: BronzeKeyForm::ProviderFileId,
+        new_bytes_budget: None,
     }
 }
 
