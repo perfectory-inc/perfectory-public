@@ -363,7 +363,7 @@ fn read_summaries(
 
 /// Per section: its generation and its packs, from every summary. A patch's sections each carry
 /// their own generation.
-fn packs_by_section(
+pub(super) fn packs_by_section(
     lane: ByPnuLane,
     summaries: &[PackExportSummary],
 ) -> anyhow::Result<BTreeMap<String, (u64, Vec<PackEntry>)>> {
@@ -620,7 +620,7 @@ async fn base(
 /// # Errors
 /// Refuses summaries that disagree on a dong's part count, and a write that fails or would
 /// replace other bytes.
-async fn write_parts_indexes(
+pub(super) async fn write_parts_indexes(
     lane: ByPnuLane,
     store: &ByPnuServingStore,
     summaries: &[PackExportSummary],

@@ -112,7 +112,9 @@ props=() env=()
 case "${ACTION}" in
   equality)
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
-    env=("${P}_PACK_SUMMARY_DIR=${WORK}/summaries" "${P}_PACK_EQUALITY_EVIDENCE_PATH=${WORK}/equality.json")
+    # The gate writes the generation's parts index too (root ADR-0163), to the lane's R2 output.
+    env=("${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_PACK_SUMMARY_DIR=${WORK}/summaries"
+      "${P}_PACK_EQUALITY_EVIDENCE_PATH=${WORK}/equality.json")
     command="verify-${LANE}-by-pnu-section-pack-equality"
     ;;
   latency)

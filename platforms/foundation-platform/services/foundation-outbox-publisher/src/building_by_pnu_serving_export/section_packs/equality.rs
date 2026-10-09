@@ -15,6 +15,11 @@
 //! The Gold row count every document is held to is the catalog's record of the summaries'
 //! snapshot (`gate::gold_record_count`); `PACK_EXPECTED_DOCUMENT_COUNT`, when an operator states
 //! it, must agree with it.
+//!
+//! When it passes, it writes each section generation's parts index (root ADR-0163) to the
+//! output store, create-only: gate (나)'s preview reads the generation as it will be served, so
+//! the index must exist before the probe, and this is the first step that sees every shard. The
+//! publish writes the same bytes again, which reuses them.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +28,10 @@ use anyhow::{ensure, Context};
 use super::super::optional_env;
 use super::bake::{summary_schema_version, PackExportSummary};
 use super::gate::{self, EqualityEvidence};
+use super::publish;
 use crate::by_pnu_gateway_contract::{section_pack_policy, ByPnuLane};
+use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
+use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 
 #[derive(Clone, Debug)]
 pub(crate) struct EqualityConfig {
@@ -106,6 +114,25 @@ pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         "the bakes did not compare every Gold row of generation {}; see {}",
         config.generation,
         config.evidence_path.display()
+    );
+    let env = |name: &str| optional_env(&lane.env(name));
+    let output = ProfileStoreConfig::parse(
+        env("OUTPUT_STORAGE_DRIVER")?
+            .unwrap_or_else(|| "local".to_owned())
+            .as_str(),
+        local_root(env("OUTPUT_ROOT")?),
+    )?;
+    let store = ByPnuServingStore::open(lane, &output)?;
+    let summaries = summary_paths(&config.summary_dir)?
+        .iter()
+        .map(|path| read_summary(path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let by_section = publish::packs_by_section(lane, &summaries)?;
+    let named = publish::write_parts_indexes(lane, &store, &summaries, &by_section).await?;
+    tracing::info!(
+        lane = lane.unit(),
+        indexes = named.len(),
+        "parts indexes written for the preview and the publish"
     );
     Ok(())
 }
