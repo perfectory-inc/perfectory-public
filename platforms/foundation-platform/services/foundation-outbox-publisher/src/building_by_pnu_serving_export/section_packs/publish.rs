@@ -156,6 +156,11 @@ pub(crate) async fn publish(
     })?;
     let live = ServedManifest::parse(config.lane, &bytes)
         .context("the live manifest cannot be read; refusing to replace it")?;
+    let live = if live.wire_schema_version == 1 {
+        restate_v1(config, store, live).await?
+    } else {
+        live
+    };
     ensure!(
         live.wire_schema_version == 2 && live.document_schema_version.is_some(),
         "the live manifest is v{}; publish a v2 manifest of the objects before packs",
@@ -205,6 +210,83 @@ pub(crate) async fn publish(
 }
 
 /// The live manifest with a new `section_packs` block; every v2 field unchanged.
+/// How many sample documents of the served base a v1 manifest must hold before it is restated.
+const V1_RESTATE_SAMPLES: usize = 64;
+
+/// A v1 manifest restated as v2 by the first pack publish over it: the same base generation,
+/// count and snapshot, now naming the lane's document schema and prefix length (the gateway reads
+/// a v1 manifest as exactly that). A lane whose reflected snapshot predates row_digest cannot reach
+/// v2 by a patch, and restating it from a listing held every key of the base in memory (2026-10-08,
+/// parcel g2: 39.86M keys, killed after five hours). So the base is checked where the cut-over
+/// already looks: [`V1_RESTATE_SAMPLES`] PNUs of gate (가)'s sample must each be read from the base
+/// generation and hold this lane's document of that PNU, baked from the manifest's snapshot. A
+/// sample PNU the base does not hold (new in Gold since) is skipped; as many skips as samples
+/// refuses.
+async fn restate_v1(
+    config: &PublishConfig,
+    store: &ByPnuServingStore,
+    live: ServedManifest,
+) -> anyhow::Result<ServedManifest> {
+    let evidence = config.equality_evidence.as_ref().with_context(|| {
+        format!(
+            "the live manifest is v1; the first pack publish restates it from the base's sample \
+             documents and needs {}",
+            config.lane.env("PACK_EQUALITY_EVIDENCE_PATH")
+        )
+    })?;
+    let (equality, _) = gate::read::<gate::EqualityEvidence>(evidence)?;
+    // A gate sample is 10,000 PNUs; a smaller one (a test lane) is read whole.
+    let wanted = V1_RESTATE_SAMPLES.min(equality.sample.len());
+    ensure!(wanted > 0, "gate (가)'s sample is empty");
+    let (mut verified, mut unread) = (0_usize, 0_usize);
+    for pnu in &equality.sample {
+        if verified == wanted {
+            break;
+        }
+        let key = crate::r2_layout::by_pnu::object_key(config.lane, live.base_generation, pnu)?;
+        let Ok(stored) = store.read_bytes(&key).await else {
+            unread += 1;
+            ensure!(
+                unread < V1_RESTATE_SAMPLES,
+                "{unread} sample PNUs cannot be read from base generation {}; refusing to restate \
+                 the v1 manifest",
+                live.base_generation
+            );
+            continue;
+        };
+        manifest_publish::check_document(
+            config.lane,
+            &key,
+            pnu,
+            &live.gold_iceberg_snapshot_id,
+            &stored,
+        )?;
+        verified += 1;
+    }
+    ensure!(
+        verified == wanted,
+        "only {verified} sample documents of base generation {} were verified, not {wanted}",
+        live.base_generation
+    );
+    tracing::info!(
+        lane = config.lane.unit(),
+        base_generation = live.base_generation,
+        verified,
+        unread,
+        "restating the v1 manifest as v2 under the first pack publish"
+    );
+    Ok(ServedManifest {
+        wire_schema_version: 2,
+        document_schema_version: Some(
+            manifest_publish::document_schema_version(config.lane).to_owned(),
+        ),
+        pnu_prefix_length: Some(
+            crate::by_pnu_gateway_contract::by_pnu_serving_patch_policy()?.pnu_prefix_length,
+        ),
+        ..live
+    })
+}
+
 fn with_packs(
     live: &ServedManifest,
     state: SectionPacksState,
