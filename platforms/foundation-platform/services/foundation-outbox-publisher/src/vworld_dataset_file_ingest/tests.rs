@@ -28,11 +28,11 @@ use uuid::Uuid;
 
 use super::{
     download_request_from_inventory_file, eligible_inventory_file_count, existing_file_report,
-    failed_file_report, parse_bronze_key_form, parse_dataset_file_max_in_flight,
-    persist_file_stream_with_adapters, plan_streamed_file_location, select_inventory_files,
-    validate_inventory_file_identity, vworld_dataset_file_ingest_status,
-    vworld_dataset_login_config, BronzeKeyForm, VWorldDatasetFileIngestConfig,
-    VWorldDatasetFileJob,
+    failed_file_report, listed_bytes, parse_bronze_key_form, parse_dataset_file_max_in_flight,
+    parse_new_bytes_budget, partition_held_files, persist_file_stream_with_adapters,
+    plan_streamed_file_location, select_inventory_files, validate_inventory_file_identity,
+    vworld_dataset_file_ingest_status, vworld_dataset_login_config, BronzeKeyForm,
+    NewBytesBudgetCheck, PayloadKey, VWorldDatasetFileIngestConfig, VWorldDatasetFileJob,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -176,7 +176,7 @@ async fn persist_file_stream_records_file_metadata_after_storage_write() -> Test
         run_id,
         started_at,
         downloaded,
-        BronzeKeyForm::ProviderFileId,
+        PayloadKey::ProviderFileId,
         &uow,
         &storage,
     )
@@ -254,7 +254,7 @@ async fn persist_file_stream_recovers_missing_row_on_create_only_collision() -> 
         run_id,
         started_at,
         downloaded,
-        BronzeKeyForm::ProviderFileId,
+        PayloadKey::ProviderFileId,
         &uow,
         &storage,
     )
@@ -300,7 +300,7 @@ async fn persist_file_stream_marks_run_failed_when_storage_write_fails() -> Test
         run_id,
         started_at,
         downloaded,
-        BronzeKeyForm::ProviderFileId,
+        PayloadKey::ProviderFileId,
         &uow,
         &storage,
     )
@@ -335,16 +335,9 @@ async fn existing_file_report_marks_provider_file_as_skipped() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        started_at,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?
-    .ok_or("expected existing Bronze object to be detected")?;
+    let report = existing_file_report(&job, &inventory_file, started_at, &repo, &uow)
+        .await?
+        .ok_or("expected existing Bronze object to be detected")?;
 
     assert_eq!(report.status, "skipped_existing");
     assert_eq!(report.object_key.as_deref(), Some(existing_object_key));
@@ -368,15 +361,8 @@ async fn a_newer_release_under_the_same_file_number_is_downloaded() -> TestResul
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        test_started_at()?,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?;
+    let report =
+        existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow).await?;
 
     assert!(
         report.is_none(),
@@ -397,16 +383,9 @@ async fn without_a_listed_update_date_the_file_number_decides() -> TestResult {
     )?);
     let uow = RecordingUow::default();
 
-    let report = existing_file_report(
-        &job,
-        &inventory_file,
-        test_started_at()?,
-        BronzeKeyForm::ProviderFileId,
-        &repo,
-        &uow,
-    )
-    .await?
-    .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
+    let report = existing_file_report(&job, &inventory_file, test_started_at()?, &repo, &uow)
+        .await?
+        .ok_or("with nothing to tell releases apart, the held id is skipped as before")?;
 
     assert_eq!(report.status, "skipped_existing");
     Ok(())
@@ -547,6 +526,7 @@ const CONTENT_BASE_KEY: &str = "bronze/source=vworldkr__boundary_census_emd/2099
 /// so a provider's new upload under a reused file number gets a key of its own.
 #[tokio::test]
 async fn a_content_addressed_file_lands_under_its_checksum() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
     let raw_payload = b"PK\x03\x04vworld bytes".to_vec();
     let checksum = sha256_hex(&raw_payload);
     let uow = RecordingUow::default();
@@ -558,7 +538,7 @@ async fn a_content_addressed_file_lands_under_its_checksum() -> TestResult {
         test_run_id("018f0000-0000-7000-8000-000000000311")?,
         test_started_at()?,
         test_file_stream("SYNTHETIC_BOUNDARY_ARCHIVE.zip", raw_payload.clone()),
-        BronzeKeyForm::ContentAddressed,
+        PayloadKey::ContentAddressed(&spool.dir),
         &uow,
         &storage,
     )
@@ -574,6 +554,7 @@ async fn a_content_addressed_file_lands_under_its_checksum() -> TestResult {
     assert_eq!(objects.len(), 1);
     assert_eq!(objects[0].object_key.as_str(), expected_key);
     assert_eq!(objects[0].checksum_sha256, checksum);
+    spool.assert_empty()?;
     assert_eq!(report.object_key, expected_key);
     Ok(())
 }
@@ -583,6 +564,7 @@ async fn a_content_addressed_file_lands_under_its_checksum() -> TestResult {
 /// the run succeeds under the same key.
 #[tokio::test]
 async fn a_rerun_of_the_same_bytes_finds_its_object_and_writes_nothing() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
     let raw_payload = b"PK\x03\x04vworld bytes".to_vec();
     let checksum = sha256_hex(&raw_payload);
     let uow = RecordingUow::default();
@@ -602,7 +584,7 @@ async fn a_rerun_of_the_same_bytes_finds_its_object_and_writes_nothing() -> Test
         test_run_id("018f0000-0000-7000-8000-000000000312")?,
         test_started_at()?,
         test_file_stream("SYNTHETIC_BOUNDARY_ARCHIVE.zip", raw_payload),
-        BronzeKeyForm::ContentAddressed,
+        PayloadKey::ContentAddressed(&spool.dir),
         &uow,
         &storage,
     )
@@ -619,6 +601,7 @@ async fn a_rerun_of_the_same_bytes_finds_its_object_and_writes_nothing() -> Test
     assert_eq!(objects.len(), 1);
     assert_eq!(objects[0].object_key.as_str(), expected_key);
     assert_eq!(objects[0].checksum_sha256, checksum);
+    spool.assert_empty()?;
     assert_eq!(uow.completions()?[0].status, IngestionRunStatus::Succeeded);
     Ok(())
 }
@@ -626,6 +609,7 @@ async fn a_rerun_of_the_same_bytes_finds_its_object_and_writes_nothing() -> Test
 /// A key that names one checksum and holds another is refused before any run or write.
 #[tokio::test]
 async fn a_content_key_holding_other_bytes_is_refused() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
     let uow = RecordingUow::default();
     let storage = RecordingObjectStorage {
         rehash: Some(StreamingObjectRehash {
@@ -646,7 +630,7 @@ async fn a_content_key_holding_other_bytes_is_refused() -> TestResult {
             "SYNTHETIC_BOUNDARY_ARCHIVE.zip",
             b"PK\x03\x04vworld bytes".to_vec(),
         ),
-        BronzeKeyForm::ContentAddressed,
+        PayloadKey::ContentAddressed(&spool.dir),
         &uow,
         &storage,
     )
@@ -660,6 +644,7 @@ async fn a_content_key_holding_other_bytes_is_refused() -> TestResult {
     );
     assert_eq!(storage.streaming_writes()?.len(), 0);
     assert_eq!(uow.objects()?.len(), 0);
+    spool.assert_empty()?;
     assert_eq!(uow.completions()?.len(), 0);
     Ok(())
 }
@@ -667,6 +652,7 @@ async fn a_content_key_holding_other_bytes_is_refused() -> TestResult {
 /// A body that is not the length the provider declared is refused before it can be named.
 #[tokio::test]
 async fn a_content_addressed_body_shorter_than_declared_is_refused() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
     let uow = RecordingUow::default();
     let storage = RecordingObjectStorage::default();
     let short = VWorldDatasetFileStream::from_body_stream(
@@ -682,7 +668,7 @@ async fn a_content_addressed_body_shorter_than_declared_is_refused() -> TestResu
         test_run_id("018f0000-0000-7000-8000-000000000314")?,
         test_started_at()?,
         short,
-        BronzeKeyForm::ContentAddressed,
+        PayloadKey::ContentAddressed(&spool.dir),
         &uow,
         &storage,
     )
@@ -695,14 +681,16 @@ async fn a_content_addressed_body_shorter_than_declared_is_refused() -> TestResu
         "unexpected error: {error:#}"
     );
     assert_eq!(storage.streaming_writes()?.len(), 0);
+    spool.assert_empty()?;
     assert_eq!(uow.objects()?.len(), 0);
     Ok(())
 }
 
-/// A content-addressed run does not skip to an object held under a plain provider-file key: that
-/// key does not name its bytes (the 20 objects of 2026-10-05 16:41Z are such keys).
+/// Root ADR-0168: a release held under a plain provider-file key (every file landed before
+/// content-addressed keys) is held — same file id, same provider update date, checksum in the
+/// ledger. Refusing it would make the first content-addressed sweep download all of them again.
 #[tokio::test]
-async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
+async fn a_held_release_is_held_whatever_its_key_form() -> TestResult {
     let job = test_job();
     let inventory_file = test_inventory_file("30017", "20991231DS99994", "9007", "2026-05");
     let plain = existing_bronze_object(
@@ -716,14 +704,16 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
         &job,
         &inventory_file,
         test_started_at()?,
-        BronzeKeyForm::ContentAddressed,
         &RecordingRepo::with_existing(plain.clone()),
         &uow,
     )
-    .await?;
-    assert!(
-        held.is_none(),
-        "a plain key is not a content-addressed hold"
+    .await?
+    .ok_or("a plain key holding the listed release is held")?;
+    assert_eq!(held.status, "skipped_existing");
+    assert_eq!(
+        held.object_key.as_deref(),
+        Some(format!("{CONTENT_BASE_KEY}.zip").as_str()),
+        "the skip names the object it found, in whatever form it has"
     );
 
     let mut qualified = plain;
@@ -735,7 +725,6 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
         &job,
         &inventory_file,
         test_started_at()?,
-        BronzeKeyForm::ContentAddressed,
         &RecordingRepo::with_existing(qualified),
         &uow,
     )
@@ -743,6 +732,103 @@ async fn a_content_addressed_run_does_not_skip_to_a_plain_key() -> TestResult {
     .ok_or("a content key naming its own checksum is held")?;
     assert_eq!(held.status, "skipped_existing");
     Ok(())
+}
+
+/// A ledger row whose bytes the ledger does not know is not a hold, whatever else matches.
+#[tokio::test]
+async fn a_row_without_a_known_checksum_is_not_held() -> TestResult {
+    let mut unknown = existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        &format!("{CONTENT_BASE_KEY}.zip"),
+        5678,
+    )?;
+    for checksum in [String::new(), "test".to_owned(), "A".repeat(64)] {
+        unknown.checksum_sha256 = checksum;
+        let held = existing_file_report(
+            &test_job(),
+            &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+            test_started_at()?,
+            &RecordingRepo::with_existing(unknown.clone()),
+            &RecordingUow::default(),
+        )
+        .await?;
+        assert!(
+            held.is_none(),
+            "checksum {:?} is not known bytes",
+            unknown.checksum_sha256
+        );
+    }
+    Ok(())
+}
+
+fn selected(file_no: &str, size_kib: u64, updated_at: &str) -> super::SelectedVWorldDatasetFile {
+    let mut file = test_inventory_file("30017", "20991231DS99994", file_no, "2026-05");
+    file.size_kib = size_kib;
+    file.updated_at = updated_at.to_owned();
+    super::SelectedVWorldDatasetFile {
+        job: test_job(),
+        file,
+    }
+}
+
+/// Root ADR-0168: the budget counts only what Bronze does not hold. The held file (9007, its
+/// listed release) costs nothing; the newer release under the same number and the unseen file do.
+#[tokio::test]
+async fn the_budget_counts_only_files_bronze_does_not_hold() -> TestResult {
+    let repo = RecordingRepo::with_existing(existing_bronze_object(
+        "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
+        &format!("{CONTENT_BASE_KEY}.zip"),
+        5678,
+    )?);
+    let files = vec![
+        (0, selected("9007", 4, "2026-05-13")),
+        (1, selected("9008", 2, "2026-05-13")),
+    ];
+    let (held, pending) =
+        partition_held_files(files.clone(), false, &repo, &RecordingUow::default()).await?;
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].0, 0);
+    assert_eq!(held[0].1.status, "skipped_existing");
+    assert_eq!(
+        pending.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [1]
+    );
+    assert_eq!(listed_bytes(pending.iter().map(|(_, s)| &s.file)), 2 * 1024);
+
+    let newer = vec![(0, selected("9007", 4, "2026-09-15"))];
+    let (held, pending) =
+        partition_held_files(newer, false, &repo, &RecordingUow::default()).await?;
+    assert!(held.is_empty(), "a newer release is not held");
+    assert_eq!(pending.len(), 1);
+
+    let (held, pending) =
+        partition_held_files(files, true, &repo, &RecordingUow::default()).await?;
+    assert!(held.is_empty(), "a forced refetch holds nothing");
+    assert_eq!(pending.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn the_budget_is_exceeded_only_above_it() {
+    let at = NewBytesBudgetCheck {
+        budget: 2048,
+        pending_listed_bytes: 2048,
+        pending_file_count: 1,
+    };
+    assert!(!at.is_exceeded());
+    assert!(NewBytesBudgetCheck {
+        pending_listed_bytes: 2049,
+        ..at
+    }
+    .is_exceeded());
+    assert!(NewBytesBudgetCheck {
+        budget: 0,
+        pending_listed_bytes: 1,
+        ..at
+    }
+    .is_exceeded());
+    assert!(parse_new_bytes_budget("0").is_ok());
+    assert!(parse_new_bytes_budget("16GiB").is_err());
 }
 
 #[test]
@@ -793,6 +879,8 @@ fn test_config() -> VWorldDatasetFileIngestConfig {
         exclude_selection_archives: false,
         defer_provider_acquisition_blocked: false,
         bronze_key: BronzeKeyForm::ProviderFileId,
+        new_bytes_budget: None,
+        spool_dir: None,
     }
 }
 
@@ -1148,4 +1236,180 @@ impl ObjectStorageStreamingService for RecordingObjectStorage {
         // with no recorded row; the fake returns the configured rehash (or `None`).
         Ok(self.rehash.clone())
     }
+}
+
+/// A spool directory for one test, with a fixed free-space answer.
+struct TestSpool {
+    _temp: tempfile::TempDir,
+    dir: crate::content_spool::SpoolDir,
+}
+
+static TEST_FREE_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+impl TestSpool {
+    fn new(free_bytes: u64) -> anyhow::Result<Self> {
+        let temp = tempfile::tempdir()?;
+        // Tests run in parallel; only the refusal test lowers the answer, and only through its own
+        // closure-free function below.
+        let free: fn(&std::path::Path) -> anyhow::Result<u64> = if free_bytes == u64::MAX {
+            |_| Ok(u64::MAX)
+        } else {
+            TEST_FREE_BYTES.store(free_bytes, std::sync::atomic::Ordering::SeqCst);
+            |_| Ok(TEST_FREE_BYTES.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        let dir =
+            crate::content_spool::SpoolDir::with_free_bytes(&temp.path().join("spool"), free)?;
+        Ok(Self { _temp: temp, dir })
+    }
+
+    /// The spool holds no file: every spooled body was removed.
+    fn assert_empty(&self) -> anyhow::Result<()> {
+        let left = std::fs::read_dir(self.dir.path())?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<Result<Vec<_>, _>>()?;
+        anyhow::ensure!(left.is_empty(), "spool files left behind: {left:?}");
+        Ok(())
+    }
+}
+
+/// Root ADR-0168: a body far larger than one read chunk goes through the disk spool whole — the
+/// in-memory 256 MiB cap is gone — lands byte for byte under its checksum, and leaves no file.
+#[tokio::test]
+async fn a_large_body_is_spooled_to_disk_and_the_spool_file_is_removed() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
+    let raw_payload = (0..3 * 1024 * 1024 + 17)
+        .map(|index| u8::try_from(index % 251).unwrap_or(0))
+        .collect::<Vec<_>>();
+    let mut with_header = b"PK\x03\x04".to_vec();
+    with_header.extend_from_slice(&raw_payload);
+    let checksum = sha256_hex(&with_header);
+    let chunks = with_header
+        .chunks(64 * 1024)
+        .map(|chunk| Ok(Bytes::copy_from_slice(chunk)))
+        .collect::<Vec<Result<Bytes, CollectionError>>>();
+    let body = VWorldDatasetFileStream::from_body_stream(
+        "application/zip".to_owned(),
+        "SYNTHETIC_BOUNDARY_ARCHIVE.zip".to_owned(),
+        Some(with_header.len() as u64),
+        stream::iter(chunks).boxed(),
+    );
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage::default();
+
+    let report = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000321")?,
+        test_started_at()?,
+        body,
+        PayloadKey::ContentAddressed(&spool.dir),
+        &uow,
+        &storage,
+    )
+    .await?;
+
+    let writes = storage.streaming_writes()?;
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        writes[0].body, with_header,
+        "the upload is read back from the spool whole"
+    );
+    assert_eq!(
+        report.object_key,
+        format!("{CONTENT_BASE_KEY}--sha256-{checksum}.zip")
+    );
+    assert_eq!(uow.objects()?[0].checksum_sha256, checksum);
+    spool.assert_empty()?;
+    Ok(())
+}
+
+/// A failed upload still removes the spooled file.
+#[tokio::test]
+async fn a_failed_upload_removes_the_spool_file() -> TestResult {
+    let spool = TestSpool::new(u64::MAX)?;
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage {
+        failure_message: Some("synthetic storage outage".to_owned()),
+        ..RecordingObjectStorage::default()
+    };
+
+    let error = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000322")?,
+        test_started_at()?,
+        test_file_stream(
+            "SYNTHETIC_BOUNDARY_ARCHIVE.zip",
+            b"PK\x03\x04vworld bytes".to_vec(),
+        ),
+        PayloadKey::ContentAddressed(&spool.dir),
+        &uow,
+        &storage,
+    )
+    .await
+    .err()
+    .ok_or("a failed upload must fail the file")?;
+
+    assert!(
+        format!("{error:#}").contains("synthetic storage outage"),
+        "unexpected error: {error:#}"
+    );
+    spool.assert_empty()?;
+    Ok(())
+}
+
+/// A file whose declared length does not fit the spool's free space (with what is in flight and
+/// the kept margin) is refused before a byte of its body is read.
+#[tokio::test]
+async fn a_body_that_does_not_fit_the_spool_is_refused_before_it_is_read() -> TestResult {
+    let spool = TestSpool::new(crate::content_spool::SPOOL_MIN_FREE_BYTES + 10)?;
+    let read = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = std::sync::Arc::clone(&read);
+    let body = VWorldDatasetFileStream::from_body_stream(
+        "application/zip".to_owned(),
+        "SYNTHETIC_BOUNDARY_ARCHIVE.zip".to_owned(),
+        Some(11),
+        stream::iter([Ok(Bytes::from_static(b"PK\x03\x04seven"))])
+            .inspect(move |_| observed.store(true, std::sync::atomic::Ordering::SeqCst))
+            .boxed(),
+    );
+    let uow = RecordingUow::default();
+    let storage = RecordingObjectStorage::default();
+
+    let error = persist_file_stream_with_adapters(
+        &test_job(),
+        &test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_run_id("018f0000-0000-7000-8000-000000000323")?,
+        test_started_at()?,
+        body,
+        PayloadKey::ContentAddressed(&spool.dir),
+        &uow,
+        &storage,
+    )
+    .await
+    .err()
+    .ok_or("a body that does not fit must be refused")?;
+
+    assert!(
+        format!("{error:#}").contains("refused before its body was read"),
+        "unexpected error: {error:#}"
+    );
+    assert!(
+        !read.load(std::sync::atomic::Ordering::SeqCst),
+        "the body was read"
+    );
+    assert_eq!(storage.streaming_writes()?.len(), 0);
+    assert_eq!(uow.objects()?.len(), 0);
+    spool.assert_empty()?;
+    Ok(())
+}
+
+/// A content-addressed run without a spool directory is refused before anything runs.
+#[test]
+fn a_content_addressed_run_needs_a_spool() {
+    assert!(PayloadKey::for_run(BronzeKeyForm::ContentAddressed, None).is_err());
+    assert!(matches!(
+        PayloadKey::for_run(BronzeKeyForm::ProviderFileId, None),
+        Ok(PayloadKey::ProviderFileId)
+    ));
 }

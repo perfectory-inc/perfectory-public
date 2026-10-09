@@ -149,6 +149,55 @@ fn compile_report_records_provider_file_count_drift_without_blocking() -> TestRe
     Ok(())
 }
 
+/// A plan made without a provider summary (root ADR-0168) states zero counts that mean nothing;
+/// the listing is not reported as drifting from them.
+#[test]
+fn compile_report_does_not_compare_against_counts_a_plan_did_not_know() -> TestResult {
+    let plan_json = r#"
+    {
+      "status": "ready",
+      "job_count": 1,
+      "jobs": [
+        {
+          "endpoint_slug": "vworld-dataset-synthetic_a",
+          "source_slug": "vworldkr__synthetic_a",
+          "source_name": "synthetic a",
+          "dataset_name": "synthetic_a",
+          "base_uri": "https://www.vworld.kr",
+          "terms_url": null,
+          "operation": "synthetic_a",
+          "provider_module": "synthetic_a",
+          "svc_cde": "NA",
+          "ds_id": "9991",
+          "file_count": 0,
+          "large_file_count": 0,
+          "expected_counts_known": false
+        }
+      ]
+    }
+    "#;
+    let files_by_job = vec![(
+        "vworld-dataset-synthetic_a".to_owned(),
+        vec![test_file(
+            "NA",
+            "9991",
+            "7",
+            VWorldDatasetFileKind::SingleResourceFile,
+        )],
+    )];
+    let report = compile_vworld_dataset_file_inventory_report(
+        plan_json,
+        "target/plan.json",
+        &["vworld-dataset-synthetic_a".to_owned()],
+        files_by_job,
+    )?;
+    assert_eq!(report.status, "ready");
+    assert_eq!(report.discovered_file_count, 1);
+    assert!(report.count_drift.is_empty(), "{:?}", report.count_drift);
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    Ok(())
+}
+
 #[test]
 fn compile_report_blocks_when_provider_file_selector_does_not_match_plan() -> TestResult {
     let plan_json = r#"

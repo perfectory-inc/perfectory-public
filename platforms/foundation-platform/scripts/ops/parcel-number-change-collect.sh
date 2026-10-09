@@ -100,6 +100,9 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
 export FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
+# 내용 해시를 재는 동안 본문을 받아 두는 곳(ADR-0168). 이 데이터셋의 파일은 작아(전부 8MB 안팎) 단위의 상태
+# 디렉터리 안에 둔다; 실행 디렉터리와 함께 남지 않게 수집기가 파일마다 지운다.
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 "${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
 
 # 3. 되읽기·검사·넘김. 읽기만 하므로 읽기 키를 쓴다(0 에서 확인했다). 내용 해시가 아닌 키는 landed-objects 와

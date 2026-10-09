@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{bail, Context};
 use chrono::{NaiveDate, Utc};
@@ -13,9 +13,8 @@ use collection_application::{
     StreamingBronzeRecord,
 };
 use collection_domain::{
-    bronze_content_object_key_checksum, build_bronze_content_object_key, BronzeObject,
-    CollectionError, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
+    build_bronze_content_object_key, BronzeObject, CollectionError, IngestionRun,
+    IngestionRunStatus, IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::{
     PgBronzeIngestRepository, PgBronzeIngestUnitOfWork, VWorldDatasetFileClient,
@@ -32,7 +31,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
-use crate::bulk_streaming_bronze::{stage_payload, BronzeStreamingObjectStorageWriter};
+use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
+use crate::content_spool::{spool_payload, SpoolDir};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 use crate::vworld_credentials::{
     optional_vworld_password, optional_vworld_username, vworld_password_name, vworld_username_name,
@@ -64,6 +64,7 @@ pub async fn run() -> anyhow::Result<()> {
     config.cookie_header = resolve_vworld_dataset_cookie_header(&config, &selected_files).await?;
 
     let live_write = live_write_enabled(config.live_write.as_deref());
+    let mut budget_check = None;
     let mut indexed_reports = if live_write {
         // Fail fast (and log the resolved target) before any provider file body streams to the
         // first put, instead of discovering a misconfigured R2 target mid-download.
@@ -74,10 +75,58 @@ pub async fn run() -> anyhow::Result<()> {
             .context("failed to connect to database for VWorld dataset file ingest")?;
         let repo = PgBronzeIngestRepository::new(pool.clone());
         let uow = PgBronzeIngestUnitOfWork::new(pool);
+        let mut to_fetch = selected_files.into_iter().enumerate().collect::<Vec<_>>();
+        let mut held_reports = Vec::new();
+        if let Some(budget) = config.new_bytes_budget {
+            // Root ADR-0168: before any body is opened, learn which listed files Bronze already
+            // holds and refuse the run whole when the rest is more than the budget. A backlog is
+            // fetched by an operator who raised the budget on purpose, never by a daily run that
+            // happened to find it.
+            let force_refetch = crate::public_data_control_support::bronze_force_refetch_enabled()?;
+            let (held, pending) =
+                partition_held_files(to_fetch, force_refetch, &repo, &uow).await?;
+            let check = NewBytesBudgetCheck {
+                budget,
+                pending_listed_bytes: listed_bytes(
+                    pending.iter().map(|(_, selected)| &selected.file),
+                ),
+                pending_file_count: pending.len() as u64,
+            };
+            budget_check = Some(check);
+            if check.is_exceeded() {
+                let mut reports = held;
+                reports.extend(pending.into_iter().map(|(index, selected)| {
+                    (
+                        index,
+                        deferred_by_budget_report(&selected.job, &selected.file),
+                    )
+                }));
+                reports.sort_by_key(|(index, _)| *index);
+                let evidence = ingest_evidence(
+                    &config,
+                    reports.into_iter().map(|(_, report)| report).collect(),
+                    live_write,
+                    NEW_BYTES_BUDGET_EXCEEDED_STATUS,
+                    budget_check,
+                );
+                write_evidence(&config.evidence_path, &evidence)?;
+                bail!(
+                    "VWorld dataset file ingest refused before any download: {} files not held list {} bytes, above the new-bytes budget of {} (root ADR-0168) report={}",
+                    check.pending_file_count,
+                    check.pending_listed_bytes,
+                    check.budget,
+                    config.evidence_path.display()
+                );
+            }
+            held_reports = held;
+            to_fetch = pending;
+        }
         let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for VWorld dataset file ingest")?;
-        stream::iter(selected_files.into_iter().enumerate())
+        let spool = open_spool(&config)?;
+        let payload_key = PayloadKey::for_run(config.bronze_key, spool.as_ref())?;
+        let mut fetched = stream::iter(to_fetch)
             .map(|(index, selected)| {
                 let config = config.clone();
                 let repo = &repo;
@@ -86,19 +135,28 @@ pub async fn run() -> anyhow::Result<()> {
                 async move {
                     let SelectedVWorldDatasetFile { job, file } = selected;
                     let started_at = Utc::now();
-                    let report =
-                        match ingest_file_with_adapters(&job, &file, &config, repo, uow, storage)
-                            .await
-                        {
-                            Ok(report) => report,
-                            Err(error) => failed_file_report(&job, &file, started_at, error),
-                        };
+                    let report = match ingest_file_with_adapters(
+                        &job,
+                        &file,
+                        &config,
+                        payload_key,
+                        repo,
+                        uow,
+                        storage,
+                    )
+                    .await
+                    {
+                        Ok(report) => report,
+                        Err(error) => failed_file_report(&job, &file, started_at, error),
+                    };
                     (index, report)
                 }
             })
             .buffer_unordered(config.max_in_flight)
             .collect::<Vec<_>>()
-            .await
+            .await;
+        fetched.extend(held_reports);
+        fetched
     } else {
         stream::iter(selected_files.into_iter().enumerate())
             .map(|(index, selected)| {
@@ -136,32 +194,13 @@ pub async fn run() -> anyhow::Result<()> {
         provider_acquisition_blocked_file_count,
         config.defer_provider_acquisition_blocked,
     );
-    let evidence = VWorldDatasetFileIngestEvidence {
-        schema_version: EVIDENCE_SCHEMA_VERSION,
-        generated_at_utc: Utc::now().to_rfc3339(),
-        status: ingest_status.evidence_status,
-        file_inventory_path: config
-            .file_inventory_path
-            .to_string_lossy()
-            .replace('\\', "/"),
-        selected_file_count: reports.len() as u64,
-        max_in_flight: config.max_in_flight,
-        succeeded_file_count: reports
-            .iter()
-            .filter(|report| report.status == "succeeded")
-            .count() as u64,
-        skipped_file_count: reports
-            .iter()
-            .filter(|report| report.status == "skipped_existing")
-            .count() as u64,
-        provider_acquisition_blocked_file_count,
-        failed_file_count,
-        live_write_enabled: live_write,
-        completion_claim_allowed: false,
-        production_cutover_allowed: false,
-        national_rollout_allowed: false,
-        files: reports,
-    };
+    let evidence = ingest_evidence(
+        &config,
+        reports,
+        live_write,
+        ingest_status.evidence_status,
+        budget_check,
+    );
     write_evidence(&config.evidence_path, &evidence)?;
     if ingest_status.should_bail {
         bail!(
@@ -173,6 +212,125 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// Evidence status of a run refused by its new-bytes budget (root ADR-0168).
+const NEW_BYTES_BUDGET_EXCEEDED_STATUS: &str = "blocked_new_bytes_budget";
+/// File status of a listed file the budget kept from being downloaded.
+const DEFERRED_BY_BUDGET_STATUS: &str = "deferred_new_bytes_budget";
+
+/// What one run would download that Bronze does not hold, against what it may (root ADR-0168).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+struct NewBytesBudgetCheck {
+    budget: u64,
+    pending_listed_bytes: u64,
+    pending_file_count: u64,
+}
+
+impl NewBytesBudgetCheck {
+    const fn is_exceeded(self) -> bool {
+        self.pending_listed_bytes > self.budget
+    }
+}
+
+/// The provider's listed size of `files`, in bytes. The listing gives KiB (`size_kib`); the body is
+/// not opened to learn more.
+fn listed_bytes<'a>(files: impl Iterator<Item = &'a VWorldDatasetFileInventoryItem>) -> u64 {
+    files
+        .map(|file| file.size_kib.saturating_mul(1024))
+        .fold(0_u64, u64::saturating_add)
+}
+
+type IndexedFile = (usize, SelectedVWorldDatasetFile);
+type IndexedReport = (usize, VWorldDatasetFileIngestItemEvidence);
+
+/// Splits the selected files into those Bronze already holds (with their skip reports) and those a
+/// run would download. With `force_refetch` nothing counts as held, as on the download path.
+async fn partition_held_files<Repo, Uow>(
+    files: Vec<IndexedFile>,
+    force_refetch: bool,
+    repo: &Repo,
+    uow: &Uow,
+) -> anyhow::Result<(Vec<IndexedReport>, Vec<IndexedFile>)>
+where
+    Repo: BronzeIngestRepository + ?Sized,
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+{
+    if force_refetch {
+        return Ok((Vec::new(), files));
+    }
+    let mut held = Vec::new();
+    let mut pending = Vec::new();
+    for (index, selected) in files {
+        // An identity the download path refuses is left to it, so it fails as that one file.
+        if validate_inventory_file_identity(&selected.file).is_err() {
+            pending.push((index, selected));
+            continue;
+        }
+        match existing_file_report(&selected.job, &selected.file, Utc::now(), repo, uow)
+            .await
+            .context("failed to check existing VWorld dataset Bronze object")?
+        {
+            Some(report) => held.push((index, report)),
+            None => pending.push((index, selected)),
+        }
+    }
+    Ok((held, pending))
+}
+
+fn deferred_by_budget_report(
+    job: &VWorldDatasetFileJob,
+    file: &VWorldDatasetFileInventoryItem,
+) -> VWorldDatasetFileIngestItemEvidence {
+    VWorldDatasetFileIngestItemEvidence {
+        endpoint_slug: job.endpoint_slug.clone(),
+        source_slug: job.source_slug.clone(),
+        download_ds_id: file.download_ds_id.clone(),
+        file_no: file.file_no.clone(),
+        provider_file_name: file.provider_file_name.clone(),
+        status: DEFERRED_BY_BUDGET_STATUS.to_owned(),
+        object_key: None,
+        size_bytes: Some(file.size_kib.saturating_mul(1024)),
+        error_message: None,
+        duration_ms: 0,
+    }
+}
+
+fn ingest_evidence(
+    config: &VWorldDatasetFileIngestConfig,
+    reports: Vec<VWorldDatasetFileIngestItemEvidence>,
+    live_write: bool,
+    status: &'static str,
+    new_bytes_budget: Option<NewBytesBudgetCheck>,
+) -> VWorldDatasetFileIngestEvidence {
+    let count = |status: &str| {
+        reports
+            .iter()
+            .filter(|report| report.status == status)
+            .count() as u64
+    };
+    VWorldDatasetFileIngestEvidence {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        generated_at_utc: Utc::now().to_rfc3339(),
+        status,
+        file_inventory_path: config
+            .file_inventory_path
+            .to_string_lossy()
+            .replace('\\', "/"),
+        selected_file_count: reports.len() as u64,
+        max_in_flight: config.max_in_flight,
+        succeeded_file_count: count("succeeded"),
+        skipped_file_count: count("skipped_existing"),
+        provider_acquisition_blocked_file_count: count("provider_acquisition_blocked"),
+        failed_file_count: count("failed"),
+        deferred_by_budget_file_count: count(DEFERRED_BY_BUDGET_STATUS),
+        new_bytes_budget,
+        live_write_enabled: live_write,
+        completion_claim_allowed: false,
+        production_cutover_allowed: false,
+        national_rollout_allowed: false,
+        files: reports,
+    }
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -192,6 +350,12 @@ struct VWorldDatasetFileIngestConfig {
     exclude_selection_archives: bool,
     defer_provider_acquisition_blocked: bool,
     bronze_key: BronzeKeyForm,
+    /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET`: the most listed bytes a live run
+    /// may download that Bronze does not hold (root ADR-0168). Unset, there is no budget.
+    new_bytes_budget: Option<u64>,
+    /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR`: where a content-addressed run spools each
+    /// body while hashing it (root ADR-0168). Required for `content_addressed`.
+    spool_dir: Option<PathBuf>,
 }
 
 /// How a landed file's Bronze key is chosen (`FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY`).
@@ -207,6 +371,15 @@ enum BronzeKeyForm {
 }
 
 const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
+const NEW_BYTES_BUDGET_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET";
+const SPOOL_DIR_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR";
+
+/// A budget is a whole number of bytes; zero is allowed and means "download nothing new".
+fn parse_new_bytes_budget(raw: &str) -> anyhow::Result<u64> {
+    raw.trim()
+        .parse::<u64>()
+        .with_context(|| format!("{NEW_BYTES_BUDGET_ENV} must be a whole number of bytes"))
+}
 
 fn parse_bronze_key_form(raw: Option<&str>) -> anyhow::Result<BronzeKeyForm> {
     match raw.map(str::trim) {
@@ -278,6 +451,10 @@ impl VWorldDatasetFileIngestConfig {
                 .as_deref(),
             ),
             bronze_key: parse_bronze_key_form(optional_env_value(BRONZE_KEY_ENV)?.as_deref())?,
+            new_bytes_budget: optional_env_value(NEW_BYTES_BUDGET_ENV)?
+                .map(|value| parse_new_bytes_budget(&value))
+                .transpose()?,
+            spool_dir: optional_env_value(SPOOL_DIR_ENV)?.map(PathBuf::from),
         })
     }
 }
@@ -340,6 +517,9 @@ struct VWorldDatasetFileIngestEvidence {
     skipped_file_count: u64,
     provider_acquisition_blocked_file_count: u64,
     failed_file_count: u64,
+    deferred_by_budget_file_count: u64,
+    /// The new-bytes budget check, when the run had one (root ADR-0168).
+    new_bytes_budget: Option<NewBytesBudgetCheck>,
     live_write_enabled: bool,
     completion_claim_allowed: bool,
     production_cutover_allowed: bool,
@@ -416,8 +596,7 @@ async fn ingest_file(
     // evidence then names no key rather than one that does not exist.
     let (object_key, size_bytes) = if live_write_enabled(config.live_write.as_deref()) {
         let persisted =
-            persist_file_stream(run_id, started_at, job, file, downloaded, config.bronze_key)
-                .await?;
+            persist_file_stream(run_id, started_at, job, file, downloaded, config).await?;
         (Some(persisted.object_key), Some(persisted.size_bytes))
     } else if config.bronze_key == BronzeKeyForm::ContentAddressed {
         (None, expected_size_bytes)
@@ -446,6 +625,7 @@ async fn ingest_file_with_adapters<Repo, Uow, Storage>(
     job: &VWorldDatasetFileJob,
     file: &VWorldDatasetFileInventoryItem,
     config: &VWorldDatasetFileIngestConfig,
+    payload_key: PayloadKey<'_>,
     repo: &Repo,
     uow: &Uow,
     storage: &Storage,
@@ -468,10 +648,9 @@ where
     // never hits this skip.
     let force_refetch = crate::public_data_control_support::bronze_force_refetch_enabled()?;
     if !force_refetch {
-        if let Some(existing) =
-            existing_file_report(job, file, started_at, config.bronze_key, repo, uow)
-                .await
-                .context("failed to check existing VWorld dataset Bronze object")?
+        if let Some(existing) = existing_file_report(job, file, started_at, repo, uow)
+            .await
+            .context("failed to check existing VWorld dataset Bronze object")?
         {
             return Ok(existing);
         }
@@ -502,7 +681,7 @@ where
         run_id,
         started_at,
         downloaded,
-        config.bronze_key,
+        payload_key,
         uow,
         storage,
     )
@@ -526,7 +705,6 @@ async fn existing_file_report<Repo, Uow>(
     job: &VWorldDatasetFileJob,
     file: &VWorldDatasetFileInventoryItem,
     started_at: chrono::DateTime<Utc>,
-    bronze_key: BronzeKeyForm,
     repo: &Repo,
     uow: &Uow,
 ) -> anyhow::Result<Option<VWorldDatasetFileIngestItemEvidence>>
@@ -556,7 +734,7 @@ where
 
     Ok(existing
         .filter(|object| holds_listed_release(object, file))
-        .filter(|object| holds_key_form(object, bronze_key))
+        .filter(holds_known_checksum)
         .map(|object| VWorldDatasetFileIngestItemEvidence {
             endpoint_slug: job.endpoint_slug.clone(),
             source_slug: job.source_slug.clone(),
@@ -584,17 +762,20 @@ fn holds_listed_release(object: &BronzeObject, file: &VWorldDatasetFileInventory
     }
 }
 
-/// Whether the held object's key has the form this run writes. A content-addressed run does not
-/// skip to an object under a plain provider-file key: that key does not name its bytes, and a
-/// reader that relies on the key form would be handed one that breaks it.
-fn holds_key_form(object: &BronzeObject, bronze_key: BronzeKeyForm) -> bool {
-    match bronze_key {
-        BronzeKeyForm::ProviderFileId => true,
-        BronzeKeyForm::ContentAddressed => {
-            bronze_content_object_key_checksum(object.object_key.as_str())
-                == Some(object.checksum_sha256.as_str())
-        }
-    }
+/// Whether the ledger knows the held object's bytes: a SHA-256 the committer recorded.
+///
+/// The key form is not part of "held" (root ADR-0168, amending ADR-0152). A release committed under
+/// a plain provider-file key before content-addressed keys existed is the same release: same
+/// provider file id, same provider update date, its checksum in the ledger. Refusing to skip it made
+/// a content-addressed run download every such file again; a reader that needs a key naming its
+/// bytes checks the key itself (the 30527 handoff refuses any other, ADR-0152 §3) and fetches with
+/// `FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1`.
+fn holds_known_checksum(object: &BronzeObject) -> bool {
+    object.checksum_sha256.len() == 64
+        && object
+            .checksum_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn failed_file_report(
@@ -766,7 +947,7 @@ async fn persist_file_stream(
     job: &VWorldDatasetFileJob,
     inventory_file: &VWorldDatasetFileInventoryItem,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    config: &VWorldDatasetFileIngestConfig,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport> {
     // Single-file live-write path (the non-orchestrated `ingest_file` branch): validate + log the
     // resolved R2 target before the first put. Reached only when live write is enabled.
@@ -780,13 +961,14 @@ async fn persist_file_stream(
     let storage = live_write_bronze_streaming_object_storage_from_env()
         .await
         .context("failed to configure object storage for VWorld dataset file ingest")?;
+    let spool = open_spool(config)?;
     persist_file_stream_with_adapters(
         job,
         inventory_file,
         run_id,
         started_at,
         file,
-        bronze_key,
+        PayloadKey::for_run(config.bronze_key, spool.as_ref())?,
         &uow,
         storage.as_ref(),
     )
@@ -808,16 +990,18 @@ struct PlannedPayload<'a, Storage: ?Sized> {
 
 /// Chooses the key and the write port for one provider file.
 ///
-/// `ProviderFileId` streams the body to the provider-file key, as before. `ContentAddressed` reads
-/// the body whole to learn its SHA-256, names the key after it, and reads that key back: absent, the
-/// bytes are written; present with the same checksum and size, nothing is written and the
-/// committer reconciles the ledger row (a rerun of the same upload); present with other bytes, the
-/// file is refused, since a key that names one checksum cannot hold another.
+/// `ProviderFileId` streams the body to the provider-file key, as before. `ContentAddressed` writes
+/// the body to the spool while hashing it (root ADR-0168: no in-memory size cap), names the key after
+/// its SHA-256, and reads that key back: absent, the spooled bytes are uploaded (multipart above the
+/// single-put size); present with the same checksum and size, nothing is written and the committer
+/// reconciles the ledger row (a rerun of the same upload); present with other bytes, the file is
+/// refused, since a key that names one checksum cannot hold another. The spooled file belongs to the
+/// write port's body and is removed when that body is dropped, read or not.
 async fn plan_payload<'a, Storage>(
     location: &PublicDataBulkFileStorageLocationPlan,
     provider_file_id: &str,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    payload_key: PayloadKey<'_>,
     storage: &'a Storage,
 ) -> anyhow::Result<PlannedPayload<'a, Storage>>
 where
@@ -829,26 +1013,33 @@ where
             "provider file {provider_file_id} omitted Content-Length; streaming single-pass Bronze upload requires an exact length"
         )
     })?;
-    if bronze_key == BronzeKeyForm::ProviderFileId {
-        return Ok(PlannedPayload {
-            object_key: location.object_key.clone(),
+    let spool = match payload_key {
+        PayloadKey::ProviderFileId => {
+            return Ok(PlannedPayload {
+                object_key: location.object_key.clone(),
+                expected_size_bytes,
+                writer: BronzeStreamingObjectStorageWriter::new(
+                    storage,
+                    content_type,
+                    file.into_body_stream(),
+                ),
+            });
+        }
+        PayloadKey::ContentAddressed(spool) => spool,
+    };
+    let spooled = Arc::new(
+        spool_payload(
+            spool,
+            file.into_body_stream(),
+            &content_type,
             expected_size_bytes,
-            writer: BronzeStreamingObjectStorageWriter::new(
-                storage,
-                content_type,
-                file.into_body_stream(),
-            ),
-        });
-    }
-    let staged = stage_payload(
-        file.into_body_stream(),
-        &content_type,
-        expected_size_bytes,
-        provider_file_id,
-    )
-    .await?;
-    let object_key = build_bronze_content_object_key(&location.object_key, &staged.checksum_sha256)
-        .context("failed to name the content-addressed Bronze key")?;
+            provider_file_id,
+        )
+        .await?,
+    );
+    let object_key =
+        build_bronze_content_object_key(&location.object_key, &spooled.checksum_sha256)
+            .context("failed to name the content-addressed Bronze key")?;
     let held = storage
         .read_object_sha256_and_size_by_rehash(object_key.as_str())
         .await
@@ -857,11 +1048,11 @@ where
         None => BronzeStreamingObjectStorageWriter::new(
             storage,
             content_type,
-            stream::iter([Ok::<_, CollectionError>(staged.bytes)]).boxed(),
+            Arc::clone(&spooled).body_stream(),
         ),
         Some(held)
-            if held.checksum_sha256 == staged.checksum_sha256
-                && held.size_bytes == expected_size_bytes =>
+            if held.checksum_sha256 == spooled.checksum_sha256
+                && held.size_bytes == spooled.size_bytes =>
         {
             BronzeStreamingObjectStorageWriter::already_present(storage, content_type)
         }
@@ -879,6 +1070,37 @@ where
     })
 }
 
+/// How one run keys what it lands: by provider file id, or by content through a spool.
+#[derive(Clone, Copy)]
+enum PayloadKey<'s> {
+    ProviderFileId,
+    ContentAddressed(&'s SpoolDir),
+}
+
+impl<'s> PayloadKey<'s> {
+    fn for_run(bronze_key: BronzeKeyForm, spool: Option<&'s SpoolDir>) -> anyhow::Result<Self> {
+        match (bronze_key, spool) {
+            (BronzeKeyForm::ProviderFileId, _) => Ok(Self::ProviderFileId),
+            (BronzeKeyForm::ContentAddressed, Some(spool)) => Ok(Self::ContentAddressed(spool)),
+            (BronzeKeyForm::ContentAddressed, None) => {
+                bail!("{BRONZE_KEY_ENV}=content_addressed requires {SPOOL_DIR_ENV}")
+            }
+        }
+    }
+}
+
+/// The spool a content-addressed run writes through, opened once per run so its reservations are
+/// shared by every file in flight.
+fn open_spool(config: &VWorldDatasetFileIngestConfig) -> anyhow::Result<Option<SpoolDir>> {
+    match (config.bronze_key, config.spool_dir.as_deref()) {
+        (BronzeKeyForm::ContentAddressed, Some(path)) => SpoolDir::open(path).map(Some),
+        (BronzeKeyForm::ContentAddressed, None) => {
+            bail!("{BRONZE_KEY_ENV}=content_addressed requires {SPOOL_DIR_ENV}")
+        }
+        (BronzeKeyForm::ProviderFileId, _) => Ok(None),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn persist_file_stream_with_adapters<Uow, Storage>(
     job: &VWorldDatasetFileJob,
@@ -886,7 +1108,7 @@ async fn persist_file_stream_with_adapters<Uow, Storage>(
     run_id: IngestionRunId,
     started_at: chrono::DateTime<Utc>,
     file: VWorldDatasetFileStream,
-    bronze_key: BronzeKeyForm,
+    payload_key: PayloadKey<'_>,
     uow: &Uow,
     storage: &Storage,
 ) -> anyhow::Result<VWorldDatasetFilePersistReport>
@@ -917,7 +1139,7 @@ where
         &location,
         &identity.provider_file_id,
         file,
-        bronze_key,
+        payload_key,
         storage,
     )
     .await?;

@@ -1,6 +1,6 @@
-use std::{env, fs, path::PathBuf};
+use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
 use collection_application::{
     plan_vworld_dataset_collection, VWorldDatasetCollectionEndpoint, VWorldDatasetInventoryDataset,
@@ -24,15 +24,22 @@ pub async fn run() -> Result<()> {
             config.endpoint_catalog_path.display()
         )
     })?;
-    let inventory_csv = fs::read_to_string(&config.inventory_summary_path).with_context(|| {
-        format!(
-            "failed to read VWorld inventory summary: {}",
-            config.inventory_summary_path.display()
-        )
-    })?;
+    let inventory_csv = config
+        .inventory_summary_path
+        .as_ref()
+        .map(|path| {
+            fs::read_to_string(path).with_context(|| {
+                format!(
+                    "failed to read VWorld inventory summary: {}",
+                    path.display()
+                )
+            })
+        })
+        .transpose()?;
     let report = compile_vworld_dataset_collection_plan(
         &catalog_json,
-        &inventory_csv,
+        inventory_csv.as_deref(),
+        config.daily_collection.as_deref(),
         &config.base_uri,
         config.terms_url.as_deref(),
     )?;
@@ -61,17 +68,38 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+/// Compiles the plan from the endpoint catalog.
+///
+/// `daily_collection` narrows the plan to the endpoints whose `daily_collection` field names it
+/// (root ADR-0168): the catalog is the one list of what a daily collection sweeps. Every value an
+/// endpoint gives must be declared in the catalog's `daily_collections`, which also carries the
+/// collection's byte budget.
+///
+/// `inventory_csv` is the provider summary whose counts become each job's expected file counts.
+/// Without it the jobs carry no expectation (`expected_counts_known: false`): the listing the
+/// inventory step scrapes is then the only count, and nothing is compared against a stale file.
 fn compile_vworld_dataset_collection_plan(
     catalog_json: &str,
-    inventory_csv: &str,
+    inventory_csv: Option<&str>,
+    daily_collection: Option<&str>,
     base_uri: &str,
     terms_url: Option<&str>,
 ) -> Result<VWorldDatasetCollectionPlanReport> {
     let catalog =
         serde_json::from_str::<EndpointCatalog>(catalog_json.trim_start_matches('\u{feff}'))
             .context("failed to parse endpoint catalog")?;
-    let inventory = parse_inventory_summary_csv(inventory_csv)?;
+    let summary = inventory_csv.map(parse_inventory_summary_csv).transpose()?;
+    let inventory_dataset_count = summary.as_ref().map_or(0, Vec::len) as u64;
     let mut blockers = Vec::new();
+    let new_bytes_budget = match daily_collection {
+        None => None,
+        Some(name) => match catalog.daily_collections.get(name) {
+            Some(declared) => Some(declared.new_bytes_budget),
+            None => bail!(
+                "daily collection {name:?} is not declared in the endpoint catalog's daily_collections"
+            ),
+        },
+    };
     let mut endpoint_count = 0_u64;
     let mut jobs = Vec::new();
 
@@ -80,6 +108,18 @@ fn compile_vworld_dataset_collection_plan(
         .into_iter()
         .filter(|endpoint| endpoint.group == VWORLD_DATASET_GROUP)
     {
+        if let Some(named) = endpoint.daily_collection.as_deref() {
+            if !catalog.daily_collections.contains_key(named) {
+                blockers.push(format!(
+                    "endpoint {} names daily_collection {named:?}, which daily_collections does not declare",
+                    endpoint.endpoint_slug
+                ));
+                continue;
+            }
+        }
+        if daily_collection.is_some() && endpoint.daily_collection.as_deref() != daily_collection {
+            continue;
+        }
         endpoint_count += 1;
         let Some(selector) = endpoint.provider_dataset_selector.clone() else {
             blockers.push(format!(
@@ -88,10 +128,26 @@ fn compile_vworld_dataset_collection_plan(
             ));
             continue;
         };
+        let operation = endpoint.operation.clone();
         let plan_endpoint = endpoint.into_plan_endpoint(selector, base_uri, terms_url);
+        let inventory = match &summary {
+            Some(summary) => summary.clone(),
+            None => vec![unexpected_counts_dataset(&operation, &plan_endpoint)],
+        };
         match plan_vworld_dataset_collection(&[plan_endpoint], &inventory) {
-            Ok(plan) => jobs.extend(plan.jobs.into_iter().map(job_report)),
+            Ok(plan) => jobs.extend(
+                plan.jobs
+                    .into_iter()
+                    .map(|job| job_report(job, summary.is_some())),
+            ),
             Err(error) => blockers.push(error.to_string()),
+        }
+    }
+    if let Some(name) = daily_collection {
+        if endpoint_count == 0 {
+            blockers.push(format!(
+                "no {VWORLD_DATASET_GROUP} endpoint declares daily_collection {name:?}"
+            ));
         }
     }
 
@@ -112,7 +168,9 @@ fn compile_vworld_dataset_collection_plan(
         generated_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         status: status.to_owned(),
         endpoint_count,
-        inventory_dataset_count: inventory.len() as u64,
+        daily_collection: daily_collection.map(str::to_owned),
+        new_bytes_budget,
+        inventory_dataset_count,
         job_count: jobs.len() as u64,
         listed_gib_total: listed_gib_total(&jobs),
         completion_claim_allowed: false,
@@ -126,23 +184,34 @@ fn compile_vworld_dataset_collection_plan(
 #[derive(Debug)]
 struct VWorldDatasetCollectionPlanConfig {
     endpoint_catalog_path: PathBuf,
-    inventory_summary_path: PathBuf,
+    inventory_summary_path: Option<PathBuf>,
+    daily_collection: Option<String>,
     output_path: PathBuf,
     base_uri: String,
     terms_url: Option<String>,
 }
 
+const DAILY_COLLECTION_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_DAILY_COLLECTION";
+const INVENTORY_SUMMARY_PATH_ENV: &str =
+    "FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH";
+
 impl VWorldDatasetCollectionPlanConfig {
     fn from_env() -> Self {
+        let daily_collection = env::var(DAILY_COLLECTION_ENV)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let inventory_summary_path = inventory_summary_path(
+            env::var(INVENTORY_SUMMARY_PATH_ENV).ok(),
+            daily_collection.as_deref(),
+        );
         Self {
             endpoint_catalog_path: env_path(
                 "FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH",
                 DEFAULT_ENDPOINT_CATALOG_PATH,
             ),
-            inventory_summary_path: env_path(
-                "FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH",
-                DEFAULT_INVENTORY_SUMMARY_PATH,
-            ),
+            inventory_summary_path,
+            daily_collection,
             output_path: env_path(
                 "FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH",
                 DEFAULT_OUTPUT_PATH,
@@ -159,12 +228,46 @@ impl VWorldDatasetCollectionPlanConfig {
     }
 }
 
+/// The summary is read when its path is given. A daily collection plans without one unless it is
+/// given (its listing is scraped the same day); every other caller keeps the old default file.
+fn inventory_summary_path(
+    configured: Option<String>,
+    daily_collection: Option<&str>,
+) -> Option<PathBuf> {
+    match (configured, daily_collection) {
+        (Some(path), _) => Some(PathBuf::from(path)),
+        (None, Some(_)) => None,
+        (None, None) => Some(PathBuf::from(DEFAULT_INVENTORY_SUMMARY_PATH)),
+    }
+}
+
+/// A provider dataset entry that states no expectation: the planner needs one to match, and the
+/// job it produces is marked so the inventory step does not report drift against zero.
+fn unexpected_counts_dataset(
+    operation: &str,
+    endpoint: &VWorldDatasetCollectionEndpoint,
+) -> VWorldDatasetInventoryDataset {
+    VWorldDatasetInventoryDataset {
+        module: operation.to_owned(),
+        svc_cde: endpoint.selector.svc_cde.clone(),
+        ds_id: endpoint.selector.ds_id.clone(),
+        file_pages: 0,
+        file_count: 0,
+        large_file_count: 0,
+        listed_gib: "0.00".to_owned(),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct VWorldDatasetCollectionPlanReport {
     pub schema_version: String,
     pub generated_at_utc: String,
     pub status: String,
     pub endpoint_count: u64,
+    /// The daily collection this plan was narrowed to (root ADR-0168), if any.
+    pub daily_collection: Option<String>,
+    /// That collection's per-run budget of bytes not yet held, from the catalog.
+    pub new_bytes_budget: Option<u64>,
     pub inventory_dataset_count: u64,
     pub job_count: u64,
     pub listed_gib_total: String,
@@ -191,11 +294,23 @@ struct VWorldDatasetCollectionJobReport {
     pub file_count: u64,
     pub large_file_count: u64,
     pub listed_gib: String,
+    /// Whether `file_count`/`large_file_count` come from a provider summary; when false they are
+    /// zero and say nothing.
+    pub expected_counts_known: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct EndpointCatalog {
+    #[serde(default)]
+    daily_collections: BTreeMap<String, DailyCollection>,
     endpoints: Vec<EndpointCatalogEntry>,
+}
+
+/// One daily collection the catalog declares (root ADR-0168).
+#[derive(Debug, Deserialize)]
+struct DailyCollection {
+    /// The most listed bytes one run may download that Bronze does not hold yet.
+    new_bytes_budget: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +322,8 @@ struct EndpointCatalogEntry {
     source_acquisition_lane: String,
     national_collection_allowed: bool,
     provider_dataset_selector: Option<EndpointCatalogDatasetSelector>,
+    #[serde(default)]
+    daily_collection: Option<String>,
     bronze: EndpointCatalogBronze,
 }
 
@@ -248,6 +365,7 @@ struct EndpointCatalogBronze {
 
 fn job_report(
     job: collection_application::VWorldDatasetCollectionJob,
+    expected_counts_known: bool,
 ) -> VWorldDatasetCollectionJobReport {
     VWorldDatasetCollectionJobReport {
         endpoint_slug: job.endpoint_slug,
@@ -264,6 +382,7 @@ fn job_report(
         file_count: job.file_count,
         large_file_count: job.large_file_count,
         listed_gib: job.listed_gib,
+        expected_counts_known,
     }
 }
 
