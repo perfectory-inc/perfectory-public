@@ -88,6 +88,9 @@ lineage_stewardship (06:50, spark 3자리)
 export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json
 ```
 
+허브 레인 새로 고침(`scripts/ops/silver-refresh.sh`, [Silver 레인 새로 고침 런북](./silver-refresh.md))은 이 경로를
+스스로 둔다. 아래 거부는 그 실행의 journal 에도 같은 문구로 나온다.
+
 내보내기는 Iceberg 카탈로그(`FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI`, `…_WAREHOUSE`, `…_CATALOG_TOKEN`,
 `lakehouse-control` 의 `.env.lakehouse`)에 `reference.legal_dong_code_change` 의 현재 스냅숏을 묻는다. 투영이
 적은 스냅숏(`change_table_snapshot_id`)과 같아야 한다. 투영 형식은 `sigungu_crosswalk_projection.v2` 이고, 표처럼
