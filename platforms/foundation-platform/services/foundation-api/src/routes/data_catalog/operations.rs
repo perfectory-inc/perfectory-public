@@ -120,21 +120,12 @@ fn unread_runs_reason(error: ApiError) -> String {
 }
 
 fn jobs_path() -> PathBuf {
-    std::env::var(JOBS_PATH_ENV)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .map_or_else(
-            // The build tree's job list; the runtime image carries its own copy and names it by
-            // the environment variable, as it does the pipeline graph.
-            || {
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("..")
-                    .join("..")
-                    .join(DEFAULT_JOBS_PATH)
-            },
-            PathBuf::from,
-        )
+    // Resolved exactly as the pipeline graph is: the runtime image names its copy by the
+    // environment variable, a build tree reads its own.
+    crate::routes::pipeline_graph::artifact_path_from(
+        std::env::var(JOBS_PATH_ENV).ok().as_deref(),
+        DEFAULT_JOBS_PATH,
+    )
 }
 
 fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
