@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DawneerClient, loadSession, signOut } from "./api/client";
 import { ComplexesPage } from "./pages/ComplexesPage";
 import { DataCatalogPage } from "./pages/DataCatalogPage";
+import { OperationsPage } from "./pages/OperationsPage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
 import { ReviewListPage } from "./pages/ReviewListPage";
 import { TilesPage } from "./pages/TilesPage";
@@ -24,6 +25,7 @@ const MENU = [
   { href: "#/catalog", label: "데이터 카탈로그", active: (route: string) => route === "/catalog" },
   { href: "#/tiles", label: "지도 타일 발행", active: (route: string) => route === "/tiles" },
   { href: "#/complexes", label: "산업단지", active: (route: string) => route === "/complexes" },
+  { href: "#/operations", label: "운영 현황", active: (route: string) => route === "/operations" },
 ] as const;
 
 export function App() {
@@ -89,6 +91,8 @@ export function App() {
           <TilesPage client={client} />
         ) : route === "/complexes" ? (
           <ComplexesPage client={client} />
+        ) : route === "/operations" ? (
+          <OperationsPage client={client} />
         ) : (
           <ReviewListPage client={client} />
         )}

@@ -24,6 +24,38 @@ type DataCatalogSchemas = DataCatalogComponents["schemas"];
 export type CatalogEntity = DataCatalogSchemas["DataCatalogEntity"];
 export type CatalogSearchPage = DataCatalogSchemas["DataCatalogSearchPage"];
 export type CatalogNeighbourhood = DataCatalogSchemas["DataCatalogNeighbourhood"];
+export type ScheduledJobsStatus = DataCatalogSchemas["ScheduledJobsStatus"];
+export type ScheduledJobStatus = DataCatalogSchemas["ScheduledJobStatus"];
+export type ScheduledJobRunOutcome = DataCatalogSchemas["ScheduledJobRunOutcome"];
+export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
+export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
+export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
+
+/**
+ * The parts of `GET /catalog/v1/pipeline-graph` this console reads. The document has no OpenAPI
+ * schema: it is the registry `docs/catalog/pipeline-graph.v1.json` with Foundation's live
+ * `runtime` overlay (`pipeline_graph.rs`), so only the fields read here are named, optional where
+ * the registry or the overlay may leave them out.
+ */
+export interface PipelineGraph {
+  nodes: {
+    id: string;
+    title?: string;
+    table_name?: string;
+    runtime_bindings?: { kind: string; value: string }[];
+  }[];
+  runtime?: {
+    database_ready?: boolean;
+    nodes?: Record<
+      string,
+      {
+        status?: string;
+        reason?: string;
+        observed?: { finished_at_unix_seconds?: number; recorded_at_unix_seconds?: number };
+      }
+    >;
+  };
+}
 
 /** The complex list's filters, as Foundation names them. */
 export interface ComplexFilter {
@@ -173,6 +205,21 @@ export class DawneerClient {
   /** One dataset or job with its columns and one step of lineage either way. */
   catalogEntity(urn: string): Promise<CatalogNeighbourhood> {
     return this.call(`entity?${new URLSearchParams({ urn }).toString()}`, {}, "data-catalog");
+  }
+
+  /** Every scheduled job with its next start and latest run (root ADR-0165). */
+  scheduledJobs(): Promise<ScheduledJobsStatus> {
+    return this.call("scheduled-jobs", {}, "data-catalog");
+  }
+
+  /** Every data contract with its checks' latest results (root ADR-0165). */
+  qualityChecks(): Promise<DataQualityStatus> {
+    return this.call("quality-checks", {}, "data-catalog");
+  }
+
+  /** The pipeline graph with Foundation's live check of collection, loads and delivery. */
+  pipelineGraph(): Promise<PipelineGraph> {
+    return this.call("pipeline-graph");
   }
 
   getComplex(complexId: string): Promise<Complex> {

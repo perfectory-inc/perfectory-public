@@ -23,6 +23,9 @@ const ROUTES: &[(Method, &[Segment])] = &[
         Method::GET,
         &[Literal("vector-tiles"), Literal("runtime-manifest")],
     ),
+    // What the pipeline last collected, loaded and delivered, as Foundation checks it live (the
+    // graph's runtime overlay; root ADR-0165). Read-only.
+    (Method::GET, &[Literal("pipeline-graph")]),
     // The canonical industrial complexes, read-only; edits stay with their owners.
     (Method::GET, &[Literal("complexes")]),
     (Method::GET, &[Literal("complexes"), Uuid]),
@@ -65,6 +68,9 @@ fn is_uuid(value: &str) -> bool {
 const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("search")]),
     (Method::GET, &[Literal("entity")]),
+    // How the scheduled jobs ran and what the contracts' checks found (root ADR-0165).
+    (Method::GET, &[Literal("scheduled-jobs")]),
+    (Method::GET, &[Literal("quality-checks")]),
 ];
 
 /// Whether `method path` (path relative to `/catalog/v1/`) may be relayed.
@@ -123,8 +129,12 @@ mod tests {
             "another method"
         );
         assert!(
-            !allowed(&Method::GET, "pipeline-graph"),
-            "the data catalog replaced the declared-graph view (root ADR-0119)"
+            allowed(&Method::GET, "pipeline-graph"),
+            "the operations status reads its live runtime overlay (root ADR-0165)"
+        );
+        assert!(
+            !allowed(&Method::POST, "pipeline-graph"),
+            "status views are read-only"
         );
         assert!(allowed(&Method::GET, "vector-tiles/runtime-manifest"));
         assert!(
@@ -156,10 +166,16 @@ mod tests {
     }
 
     #[test]
-    fn the_data_catalog_is_read_only_and_has_two_routes() {
+    fn the_data_catalog_is_read_only_and_has_four_routes() {
         assert!(data_catalog_allowed(&Method::GET, "search"));
         assert!(data_catalog_allowed(&Method::GET, "entity"));
+        assert!(data_catalog_allowed(&Method::GET, "scheduled-jobs"));
+        assert!(data_catalog_allowed(&Method::GET, "quality-checks"));
         assert!(!data_catalog_allowed(&Method::POST, "search"), "read-only");
+        assert!(
+            !data_catalog_allowed(&Method::POST, "scheduled-jobs"),
+            "reading runs never starts one"
+        );
         assert!(
             !data_catalog_allowed(&Method::GET, "graphql"),
             "no pass-through"

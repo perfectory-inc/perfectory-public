@@ -20,7 +20,8 @@ class ParserReadiness(unittest.TestCase):
             shutil.copyfile(PLATFORM / "scripts/deploy/airflow-runtime.sh", script)
             jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text())
             (root / "orchestration/jobs.v1.json").write_text(json.dumps(jobs))
-            expected = ["foundation_" + job["id"] for job in jobs["jobs"]]
+            # The DAG ids job_specs.py builds; the wrapper must wait for exactly these.
+            expected = [jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"]]
             self.assertGreater(len(expected), 1)
             (root / "expected.json").write_text(json.dumps(expected))
             (root / "runtime.env").touch()

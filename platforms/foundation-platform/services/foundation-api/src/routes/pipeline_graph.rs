@@ -104,7 +104,9 @@ fn read_json_artifact(label: &str, path: &Path) -> Result<JsonValue, String> {
         .map_err(|err| format!("invalid {label} artifact {}: {err}", path.display()))
 }
 
-fn artifact_path_from(raw: Option<&str>, default_relative_path: &str) -> PathBuf {
+/// An artifact's path: the environment's when it names one, else the build tree's (the runtime
+/// image names its own copies by environment variable).
+pub fn artifact_path_from(raw: Option<&str>, default_relative_path: &str) -> PathBuf {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
         .map_or_else(

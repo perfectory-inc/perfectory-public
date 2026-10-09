@@ -151,6 +151,10 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_a_job_that_names_no_edge(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(pipeline_graph_edges=[]))
 
+    def test_a_dag_id_prefix_that_is_missing_or_not_a_name(self):
+        self.refused(lambda jobs: jobs.pop("dag_id_prefix"))
+        self.refused(lambda jobs: jobs.update(dag_id_prefix="Foundation-"))
+
     def test_a_pool_the_scheduler_does_not_have(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(pool="big"))
 
