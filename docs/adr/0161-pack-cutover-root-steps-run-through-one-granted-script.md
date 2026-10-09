@@ -49,3 +49,8 @@
   계정의 docker 그룹 탈퇴는 별도 결정으로 남긴다.
 - 첫 설치는 사람이 한 번 실행한다: `sudo .../foundation-release.sh operator-access <계정>`.
 - 묶음 굽기(1세대)는 아직 이 스크립트에 없다. 이후 세대는 예약 굽기(`by-pnu-serving-bake.sh`)가 굽는다.
+
+---
+
+2026-10-09 개정 주: 동작 `bake`(묶음 세대 굽기)와 `gold-rebuild`(무조건 패널 Gold 재생성)가
+[ADR-0166](./0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md) 으로 더해졌다.

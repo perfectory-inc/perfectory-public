@@ -6,6 +6,7 @@ running a thing, and runs only the admitted release's publisher with the environ
 runtime-secrets contract names. A fake systemd-run records each unit it would start.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -28,7 +29,24 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"tool": "systemd-run", "args": sys.argv[1:]}) + "\n")
 '''
 
-FAKE_SYSTEMCTL = "#!/usr/bin/env bash\necho inactive\nexit 3\n"
+# Units named in FAKE_ACTIVE (comma separated) are active; every other unit is inactive.
+FAKE_SYSTEMCTL = r'''#!/usr/bin/env python3
+import fnmatch, os, sys
+active = [unit for unit in os.environ.get("FAKE_ACTIVE", "").split(",") if unit]
+args = sys.argv[1:]
+named = [arg for arg in args[1:] if not arg.startswith("-")]
+if args[0] == "is-active":
+    states = ["active" if unit in active or unit + ".service" in active else "inactive" for unit in named]
+    if "--quiet" not in args:
+        print("\n".join(states))
+    sys.exit(0 if all(state == "active" for state in states) else 3)
+if args[0] == "list-units":
+    for unit in active:
+        if fnmatch.fnmatch(unit, named[0]):
+            print(f"{unit} loaded active running fixture")
+    sys.exit(0)
+sys.exit(f"fake systemctl: {args}")
+'''
 
 FAKE_HEALTH = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -51,12 +69,14 @@ class PackOperator(unittest.TestCase):
             shutil.copytree(PLATFORM / part, release / part)
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
-        for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh"):
+        for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",
+                     "by-pnu-bake-shards.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops")
         health = release / "scripts/ops/by-pnu-gateway-health.sh"
         health.write_text(FAKE_HEALTH)
         health.chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
+        self.release = release
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         self.publisher = artifacts / "foundation-outbox-publisher"
@@ -96,8 +116,8 @@ class PackOperator(unittest.TestCase):
         (work / "summaries/shard-11.json").write_text(json.dumps({"gold_iceberg_snapshot_id": "777"}))
         return work
 
-    def run_operator(self, *args):
-        result = subprocess.run(["bash", str(SCRIPT), *args], env=self.env,
+    def run_operator(self, *args, active=()):
+        result = subprocess.run(["bash", str(SCRIPT), *args], env={**self.env, "FAKE_ACTIVE": ",".join(active)},
                                 capture_output=True, text=True, timeout=60)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
         return result, calls
@@ -108,6 +128,100 @@ class PackOperator(unittest.TestCase):
         env = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "-E")
         props = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
         return args, env, props
+
+    def test_bake_runs_the_release_bake_script_with_the_contracts_files_and_memory_per_worker(self):
+        # Nothing is baked yet: the bake is the one action that needs no summaries.
+        result, calls = self.run_operator("parcel", "bake", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, props = self.unit(calls)
+        work = self.bake / "parcel-pack-g2"
+        self.assertIn("--unit=foundation-parcel-pack-bake-g2", args)
+        # The release's own copy of the bake script, by its physical path, with the lane and generation.
+        self.assertEqual(args[-3:], [str((self.release / "scripts/ops/by-pnu-pack-bake.sh").resolve()), "parcel", "2"])
+        self.assertEqual(env, {})
+        self.assertIn("User=foundation-platform", props)
+        self.assertIn(f"StandardOutput=append:{work}/logs/bake.log", props)
+        self.assertTrue((work / "logs").is_dir())
+        # The environment files are the contract's for this run, not a list kept in the script.
+        expected = subprocess.run(["python3", "scripts/deploy/runtime_secrets.py", "properties", "section-pack-bake"],
+                                  cwd=PLATFORM, capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual([prop for prop in props if prop.startswith("EnvironmentFile=")], expected[1::2])
+        # One shard export's measured bound (the scheduled bake's MemoryMax) per worker.
+        unit = (PLATFORM / "infra/systemd/foundation-by-pnu-serving-bake.service").read_text(encoding="utf-8")
+        shard = int(next(line for line in unit.splitlines() if line.startswith("MemoryMax="))[len("MemoryMax="):-1])
+        shards = (PLATFORM / "scripts/ops/by-pnu-bake-shards.sh").read_text(encoding="utf-8")
+        workers = int(next(line for line in shards.splitlines() if line.startswith("BY_PNU_PACK_BAKE_WORKERS="))
+                      .split("=")[1])
+        self.assertIn(f"MemoryMax={shard * workers}G", props)
+        self.assertIn("OOMPolicy=continue", props)
+
+    def test_bake_and_gold_rebuild_refuse_while_the_other_or_a_scheduled_one_runs(self):
+        for active in (["foundation-gold-panel-rebuild.service"], ["foundation-gold-panel-rebuild-unconditional"]):
+            with self.subTest(active=active):
+                result, calls = self.run_operator("parcel", "bake", "1", active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(calls, [])
+        for active in (["foundation-gold-panel-rebuild.service"], ["foundation-gold-panel-rebuild-unconditional"],
+                       ["foundation-by-pnu-serving-bake.service"], ["foundation-building-pack-bake-g3.service"]):
+            with self.subTest(active=active):
+                result, calls = self.run_operator("parcel", "gold-rebuild", active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(calls, [])
+        # A lane lock held by anything (a hand-run publish, a bake starting up) refuses too, and
+        # the lock is never created by the check.
+        self.assertFalse((self.bake / "parcel/lane.lock").exists())
+        result, calls = self.run_operator("parcel", "gold-rebuild")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.bake / "parcel/lane.lock").exists())
+        self.log.unlink()
+        (self.bake / "building").mkdir(parents=True)
+        with open(self.bake / "building/lane.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result, calls = self.run_operator("parcel", "gold-rebuild")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("building/lane.lock", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_gold_rebuild_is_the_scheduled_unit_with_a_fixed_unconditional_reason(self):
+        result, calls = self.run_operator("building", "gold-rebuild")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, props = self.unit(calls)
+        self.assertIn("--unit=foundation-gold-panel-rebuild-unconditional", args)
+        self.assertIn("--no-block", args)
+        self.assertEqual(env, {})
+        # The scheduled unit's command, both tables, with the one reason naming its decision.
+        self.assertEqual(args[-4:-1], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", "all",
+                                       "--unconditional"])
+        self.assertIn("ADR-0166", args[-1])
+        # Everything else the scheduled unit states, so the run honours its account, files, time
+        # bound, Spark cleanup and state directory (where the rebuild's lock lives).
+        unit = (PLATFORM / "infra/systemd/foundation-gold-panel-rebuild.service").read_text(encoding="utf-8")
+        for line in unit.splitlines():
+            key = line.split("=", 1)[0]
+            if "=" in line and not line.startswith("#") and key not in ("Description", "ExecStart", "OnFailure"):
+                self.assertIn(line, props)
+        self.assertIn("OnFailure=foundation-unit-failed@foundation-gold-panel-rebuild-unconditional.service.service",
+                      props)
+        secrets = subprocess.run(["python3", "scripts/deploy/runtime_secrets.py", "properties",
+                                  "foundation-gold-panel-rebuild.service"],
+                                 cwd=PLATFORM, capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual([prop for prop in props if prop.startswith("EnvironmentFile=")], secrets[1::2])
+        self.assertIn(f"StandardOutput=append:{self.bake}/gold-rebuild/logs/gold-rebuild.log", props)
+        # A unit the transient copy cannot reproduce is refused, not half-copied.
+        unit_file = self.release / "infra/systemd/foundation-gold-panel-rebuild.service"
+        unit_file.write_text(unit.replace("gold-panel-rebuild.sh all", "gold-panel-rebuild.sh parcel"))
+        self.log.unlink()
+        result, calls = self.run_operator("building", "gold-rebuild")
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_status_shows_the_bake_and_the_gold_units(self):
+        result, _ = self.run_operator("parcel", "status", "1", active=["foundation-gold-panel-rebuild-unconditional"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("foundation-parcel-pack-bake-g1: inactive", result.stdout)
+        self.assertIn("foundation-gold-panel-rebuild-unconditional: active", result.stdout)
+        self.assertIn("foundation-gold-panel-rebuild.service: inactive", result.stdout)
+        self.assertIn("foundation-by-pnu-serving-bake.service: inactive", result.stdout)
 
     def test_the_latency_gate_runs_the_release_publisher_against_the_lane_preview(self):
         work = self.work()
@@ -160,7 +274,15 @@ class PackOperator(unittest.TestCase):
             ("parcel", "latency", "1;id"),
             ("parcel", "latency", "../1"),
             ("parcel", "latency", "0"),
+            ("parcel", "latency", "1", "2"),
             ("parcel", "shell", "1"),
+            ("parcel", "bake"),
+            ("parcel", "bake", "0"),
+            ("parcel", "bake", "../1"),
+            ("parcel", "bake", "1", "--force"),
+            ("parcel", "gold-rebuild", "1"),
+            ("parcel", "gold-rebuild", "because I said so"),
+            ("parcel", "gold-rebuild", "--unconditional", "x"),
             ("parcel", "health", "not-a-version"),
             ("parcel", "health", VERSION, "$(id)"),
             ("parcel",),

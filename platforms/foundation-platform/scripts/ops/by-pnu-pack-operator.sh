@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# The operator's root steps of a by-PNU section pack cut-over (root ADR-0147, ADR-0160, ADR-0161),
-# one fixed action at a time:
+# The operator's root steps of a by-PNU section pack cut-over (root ADR-0147, ADR-0160, ADR-0161,
+# ADR-0166), one fixed action at a time:
 #
+#   by-pnu-pack-operator.sh <building|parcel> bake <generation>
 #   by-pnu-pack-operator.sh <building|parcel> equality <generation>
 #   by-pnu-pack-operator.sh <building|parcel> latency <generation>
 #   by-pnu-pack-operator.sh <building|parcel> publish <generation>
 #   by-pnu-pack-operator.sh <building|parcel> monitor-sample <generation>
 #   by-pnu-pack-operator.sh <building|parcel> health <new-version-id> [<old-version-id>] | --preflight
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
+#   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #
 # sudo grants this script, by its control-checkout path and nothing else, to the operator account
 # (`foundation-release.sh operator-access`, root ADR-0161): it is how a cut-over's gates, publish
@@ -18,14 +20,20 @@
 #
 # Paths are fixed by lane and generation: the bake's work directory
 # /data/foundation-platform/by-pnu-bake/<lane>-pack-g<generation> holds summaries/, equality.json,
-# latency.json and logs/. `equality`, `latency` and `publish` start a detached unit
+# latency.json and logs/. `bake`, `equality`, `latency` and `publish` start a detached unit
 # (foundation-<lane>-pack-<action>-g<generation>) whose output goes to logs/<action>.log; `status`
 # shows them. Evidence is never overwritten: a latency run first keeps the earlier latency.json
 # under its time.
+#
+# `bake` runs the release's by-pnu-pack-bake.sh: the whole generation under the lane lock, never
+# published. `gold-rebuild` rebuilds both panel Gold tables unconditionally, once, the way the
+# scheduled foundation-gold-panel-rebuild.service runs (its unit file is the definition), with a
+# fixed reason; it takes no argument beyond the lane. Neither starts while the other, the scheduled
+# Gold rebuild or a by-PNU bake runs: a Gold that moves under a bake stops the bake.
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> equality|latency|publish|monitor-sample|status <generation> | health <new-version> [<old-version>] | health --preflight"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight"
 
 LANE="${1:-}" ACTION="${2:-}"
 [[ "${LANE}" == building || "${LANE}" == parcel ]] || refuse "${USAGE}"
@@ -52,6 +60,14 @@ if [[ "${here}" != "${release_ops}" ]]; then
   exec "${release_ops}/by-pnu-pack-operator.sh" "${LANE}" "${ACTION}" "$@"
 fi
 UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+# Units that move the panel Gold, and the bakes that read it (root ADR-0166).
+GOLD_SCHEDULED=foundation-gold-panel-rebuild.service
+GOLD_UNIT=foundation-gold-panel-rebuild-unconditional
+BAKE_SCHEDULED=foundation-by-pnu-serving-bake.service
+PACK_BAKES='foundation-*-pack-bake-g*.service'
+# The rebuild's one reason, so the plan and the Gold history name where it came from.
+GOLD_REASON="root ADR-0166: by-pnu-pack-operator gold-rebuild, the Gold a section pack generation is baked from"
+GOLD_LOG="${BAKE_ROOT}/gold-rebuild/logs/gold-rebuild.log"
 
 contract() {
   python3 -I - "${RELEASE}/config/r2-connections.contract.json" "$1" <<'PY'
@@ -63,6 +79,79 @@ print(value)
 PY
 }
 
+# Refuses (75) while a unit in "$@" runs.
+refuse_while_active() {
+  local unit
+  for unit in "$@"; do
+    if systemctl is-active --quiet "${unit}"; then refuse "${unit} is running" 75; fi
+  done
+}
+# Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
+# holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
+refuse_while_baking() {
+  local lane lock
+  refuse_while_active "${BAKE_SCHEDULED}"
+  if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating "${PACK_BAKES}" 2>/dev/null)" ]]; then
+    refuse "a section pack bake is running ($(systemctl list-units --plain --no-legend --state=active,activating "${PACK_BAKES}" | cut -d' ' -f1 | tr '\n' ' '))" 75
+  fi
+  for lane in building parcel; do
+    lock="${BAKE_ROOT}/${lane}/lane.lock"
+    if [[ -e "${lock}" ]] && ! flock -n "${lock}" true; then refuse "a run of the ${lane} lane holds ${lock}" 75; fi
+  done
+}
+
+if [[ "${ACTION}" == gold-rebuild ]]; then
+  (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds both panel Gold tables, and its reason is fixed"
+  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+  refuse_while_baking
+  # The scheduled unit is the one definition of how a rebuild runs: account, environment files,
+  # time bound, the Spark cleanup after every exit, sandbox and state directory. This starts a
+  # transient copy of it under its own name with the unconditional reason added to its command.
+  mapfile -t unit < <(python3 -I - "${RELEASE}/infra/systemd/${GOLD_SCHEDULED}" "${GOLD_UNIT}.service" <<'PY'
+import shlex, sys
+path, name = sys.argv[1], sys.argv[2]
+section, command, properties = None, None, []
+for raw in open(path, encoding="utf-8"):
+    line = raw.strip()
+    if not line or line.startswith(("#", ";")):
+        continue
+    if line.startswith("["):
+        section = line
+        if section not in ("[Unit]", "[Service]"):
+            sys.exit(f"{path}: section {section} has no transient equivalent")
+        continue
+    key, _, value = line.partition("=")
+    if key == "Description":
+        continue
+    if key == "ExecStart":
+        argv = shlex.split(value)
+        if len(argv) != 2 or not argv[0].endswith("/scripts/ops/gold-panel-rebuild.sh") or argv[1] != "all":
+            sys.exit(f"{path}: ExecStart is not gold-panel-rebuild.sh all: {value}")
+        command = argv[0]
+        continue
+    value = value.replace("%n", name)
+    if "%" in value:
+        sys.exit(f"{path}: {key}={value} holds a specifier a transient unit does not expand")
+    properties.append(f"{key}={value}")
+if command is None:
+    sys.exit(f"{path}: no ExecStart")
+print(command)
+print("\n".join(properties))
+PY
+  )
+  ((${#unit[@]} > 1)) || refuse "cannot read ${RELEASE}/infra/systemd/${GOLD_SCHEDULED}" 65
+  props=()
+  for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
+  install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
+  log "starting ${GOLD_UNIT}: gold-panel-rebuild.sh all --unconditional; output ${GOLD_LOG}"
+  # A oneshot unit: --no-block returns once it is queued, not when the rebuild ends.
+  "${SYSTEMD_RUN}" --no-block --collect --unit="${GOLD_UNIT}" \
+    --description="Foundation Platform panel Gold rebuild, unconditional, for a section pack generation (root ADR-0166)" \
+    "${props[@]}" -p StandardOutput=append:"${GOLD_LOG}" -p StandardError=append:"${GOLD_LOG}" \
+    "${unit[0]}" all --unconditional "${GOLD_REASON}"
+  exit 0
+fi
+
 if [[ "${ACTION}" == health ]]; then
   if [[ "${1:-}" == --preflight ]]; then
     exec "${RELEASE}/scripts/ops/by-pnu-gateway-health.sh" "${LANE}" --preflight
@@ -73,17 +162,21 @@ if [[ "${ACTION}" == health ]]; then
 fi
 
 GENERATION="${1:-}"
-[[ "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "${ACTION} takes a generation number"
+[[ "$#" == 1 && "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "${ACTION} takes a generation number"
 WORK="${BAKE_ROOT}/${LANE}-pack-g${GENERATION}"
 UNIT="foundation-${LANE}-pack-${ACTION}-g${GENERATION}"
 
 case "${ACTION}" in
   status)
-    for action in equality latency publish; do
+    for action in bake equality latency publish; do
       unit="foundation-${LANE}-pack-${action}-g${GENERATION}"
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
       [[ ! -f "${WORK}/logs/${action}.log" ]] || tail -3 "${WORK}/logs/${action}.log" | cut -c1-300
     done
+    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${BAKE_SCHEDULED}"; do
+      printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
+    done
+    [[ ! -f "${GOLD_LOG}" ]] || tail -3 "${GOLD_LOG}" | cut -c1-300
     exit 0
     ;;
   monitor-sample)
@@ -98,18 +191,33 @@ case "${ACTION}" in
     log "${file} names ${WORK}/equality.json"
     exit 0
     ;;
-  equality | latency | publish) ;;
+  bake | equality | latency | publish) ;;
   *) refuse "${USAGE}" ;;
 esac
 
-[[ -d "${WORK}/summaries" ]] || refuse "${WORK}/summaries does not exist; bake generation ${GENERATION} first" 65
+[[ "${ACTION}" == bake || -d "${WORK}/summaries" ]] || refuse "${WORK}/summaries does not exist; bake generation ${GENERATION} first" 65
 if systemctl is-active --quiet "${UNIT}"; then refuse "${UNIT} is already running" 75; fi
-install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}/logs"
+install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}" "${WORK}/logs"
 # The admitted binary of the current release, as every job binds it (root ADR-0134 §3).
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 release_id="${RELEASE_ID}"
-props=() env=()
+props=() env=() memory=8G
 case "${ACTION}" in
+  bake)
+    # A Gold that moves under the bake stops it; the lane lock (the bake takes it) keeps it apart
+    # from the scheduled bake.
+    refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+    read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-bake)"
+    # Each worker exports one shard; the scheduled bake's MemoryMax is the measured bound of one
+    # shard's export (its unit file says how it was measured), so the bake gets one per worker.
+    source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
+    shard_memory="$(sed -n 's/^MemoryMax=\([0-9]\+\)G$/\1/p' "${RELEASE}/infra/systemd/${BAKE_SCHEDULED}")"
+    [[ "${shard_memory}" =~ ^[0-9]+$ ]] || refuse "${BAKE_SCHEDULED} states no MemoryMax=<n>G" 65
+    memory="$((shard_memory * BY_PNU_PACK_BAKE_WORKERS))G"
+    props+=(-p MemorySwapMax=0 -p OOMPolicy=continue)
+    run=("${here}/by-pnu-pack-bake.sh" "${LANE}" "${GENERATION}")
+    command="by-pnu-pack-bake.sh ${LANE} ${GENERATION}"
+    ;;
   equality)
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
     # The gate writes the generation's parts index too (root ADR-0163), to the lane's R2 output.
@@ -143,10 +251,11 @@ case "${ACTION}" in
     command="publish-${LANE}-by-pnu-section-packs"
     ;;
 esac
+[[ "${ACTION}" == bake ]] || run=("${PUBLISHER_BIN}" "${command}")
 setenv=()
-for value in "${env[@]}"; do setenv+=(-E "${value}"); done
+for value in ${env[@]+"${env[@]}"}; do setenv+=(-E "${value}"); done
 log "starting ${UNIT}: ${command} (release ${release_id}); output ${WORK}/logs/${ACTION}.log"
-"${SYSTEMD_RUN}" --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax=8G \
-  -p WorkingDirectory="${RELEASE}" "${props[@]}" "${setenv[@]}" \
+"${SYSTEMD_RUN}" --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax="${memory}" \
+  -p WorkingDirectory="${RELEASE}" "${props[@]}" ${setenv[@]+"${setenv[@]}"} \
   -p StandardOutput=append:"${WORK}/logs/${ACTION}.log" -p StandardError=append:"${WORK}/logs/${ACTION}.log" \
-  "${PUBLISHER_BIN}" "${command}"
+  "${run[@]}"

@@ -37,6 +37,7 @@ TIME_BIN="${FOUNDATION_PACK_MEASURE_TIME_BIN:-/usr/bin/time}"
 [[ -x "${TIME_BIN}" ]] || refuse "${TIME_BIN} is not there; install GNU time" 69
 
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 # The Gold read's key pair, before any shard starts (root ADR-0153): the first released script ran
 # without it and learned so at shard 1. The contract's run measure-building-section-packs supplies it.
 required_env=(
@@ -56,10 +57,7 @@ export "${ENV_PREFIX}_CONFIRM_PACK_EXPORT=true" "${ENV_PREFIX}_PACK_GENERATION=1
 
 # The building export reads the approved building links, from the same connection the bake uses.
 if [[ -z "${DATABASE_URL:-}" ]]; then
-  if ! DATABASE_URL="$(docker compose --project-directory "${RELEASE_ROOT}" \
-    --env-file /dev/null -f "${RELEASE_ROOT}/docker-compose.yml" \
-    config --format json --no-env-resolution 2>/dev/null \
-    | python3 "${RELEASE_ROOT}/scripts/ops/runtime-database-url.py")"; then
+  if ! DATABASE_URL="$(by_pnu_runtime_database_url)"; then
     refuse "cannot resolve the runtime database connection the building export reads" 78
   fi
   export DATABASE_URL
@@ -69,10 +67,10 @@ plan=()
 if [[ -s "${STATE_ROOT}/shard-plan.txt" ]]; then
   mapfile -t plan < <(grep -E '[^[:space:]]' "${STATE_ROOT}/shard-plan.txt")
 else
-  plan=(1 2 3 4 5 6 7 8 9)
+  plan=("${BY_PNU_FIRST_SHARDS[@]}")
 fi
 for prefix in "${plan[@]}"; do
-  [[ "${prefix}" =~ ^[0-9]{1,10}$ ]] || refuse "shard plan holds '${prefix}'" 65
+  by_pnu_shard_valid "${prefix}" || refuse "shard plan holds '${prefix}'" 65
 done
 
 mkdir -p "${OUT}/packs" "${OUT}/summaries" "${OUT}/times"
