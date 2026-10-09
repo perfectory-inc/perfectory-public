@@ -2,12 +2,14 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-09
 ---
 
 # 제공기관 수집 헤드리스 재생 런북
 
-상태: 런타임 중립 참고 문서(이 문서에서 Fargate를 선택하지 않음)
+상태: 수집 계약 참고 문서. 런타임은 ADR이 고른다 — VWorld RAON 대용량 파일은 데이터 호스트의 매일 훑기가
+받는다([ADR-0170](../../../../docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md),
+아래 "데이터 호스트의 RAON 대용량 레인").
 소유자: foundation-platform
 
 이 파일은 과거 경로 이름을 유지하지만 수집 계약은 runtime 중립이다. 브라우저를 이용한 제공기관
@@ -53,7 +55,9 @@ Python/browser 코드는 수집 adapter일 뿐이다. 검증·checksum·저장·
 
 운영 수집 경로가 Windows desktop agent에 의존하면 안 된다. 정확한 bulk 파일에 필요한 provider agent는
 먼저 저장소에 고정한 Linux container 계약으로 증명해야 한다. provider package binary와 credential은
-build 또는 task runtime에 주입하며 저장소에 커밋하지 않는다.
+build 또는 task runtime에 주입하며 저장소에 커밋하지 않는다. VWorld는 Windows RAON 에이전트만 게시한다.
+Linux 패키지는 RAON K 제조사 주소에서 받고, 그 주소와 바이트의 sha256 은
+`config/provider-agent-packages.contract.json` 한 곳에만 적는다(ADR-0170).
 
 ## 필수 환경
 
@@ -156,20 +160,15 @@ checked-in container definition은 서로 다른 책임을 가진다.
 
 - `services/foundation-provider-acquisition-worker/Dockerfile.raon-agent-proof`는 제한된 replay
   request 하나만 기록하고 Rust importer와 R2/Postgres write path는 의도적으로 제외한다.
-- `services/foundation-provider-acquisition-worker/Dockerfile.raon-batch`는 Linux agent,
-  provider-acquisition worker와 컴파일된 `foundation-outbox-publisher`를 포함한다. secret은 task
-  runtime에 주입하고 image에 복사하지 않는다.
+- `services/foundation-provider-acquisition-worker/Dockerfile.raon-batch`는 Linux agent와
+  provider-acquisition worker를 포함한다. Rust는 빌드하지 않는다 — 실행이 승인된 릴리스의
+  `foundation-outbox-publisher`를 `/usr/local/bin/foundation-outbox-publisher`에 읽기 전용으로 넣는다.
+  secret은 task runtime에 이름으로만 주입하고 image에 복사하지 않는다.
 
-어느 image든 명시적으로 제공한 provider package와 checksum이 있을 때만 build한다. 예:
-
-```bash
-docker build \
-  -f services/foundation-provider-acquisition-worker/Dockerfile.raon-batch \
-  --build-arg RAON_DEB_URL="$RAON_DEB_URL" \
-  --build-arg RAON_DEB_SHA256="$RAON_DEB_SHA256" \
-  -t foundation-platform/raon-batch:local \
-  .
-```
+어느 image든 `RAON_DEB_URL`·`RAON_DEB_SHA256` build arg(기본값 없음)로 build하고, 받은 바이트를 설치 전에
+`sha256sum -c`로 확인한다. 값을 손으로 옮기지 않는다: `scripts/ops/raon-large-files.sh build`가
+`config/provider-agent-packages.contract.json`에서 읽어 넘기고, 작업자 소스와 그 고정값의 해시를 이름에 단
+image(`foundation-platform/raon-batch-<내용 해시>:local`)를 없을 때만 build한다.
 
 ## 3단계 - 정리
 
@@ -228,16 +227,74 @@ adapter 또는 실행 runtime을 바꿀 때마다 다음 gate를 순서대로 �
 
 ## 런타임 선택
 
-이 런북은 Lambda·Fargate·ECS·ai-server 등 runtime을 선택하지 않는다. 선택한 runtime은 위 소유권
-chain을 그대로 보존해야 한다. runtime 선택은 제한된 container 증명·비용 검토·운영자 승인을 거친
-배포 결정이며 과거 로컬 실행에서 추론하지 않는다.
+runtime 선택은 이 런북이 아니라 ADR이 한다. 선택한 runtime은 위 소유권 chain을 그대로 보존해야 한다.
+VWorld RAON 대용량 파일은 ADR-0170이 데이터 호스트를 골랐다: 매일 훑기가 그 호스트에서 돌고, 원장이 그
+곁에 있으며, 큰 본문을 받을 데이터 디스크가 있다.
+Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않는다. 데이터 모델은 runtime 선택에 종속되지 않으므로
+다른 실행 plane으로 바꿔도 커밋된 R2 Bronze 객체와 Postgres catalog row를 버릴 필요가 없다.
 
-Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않는다. ai-server는 실험실용이지 운영
-collector가 아니다.
+## 데이터 호스트의 RAON 대용량 레인 (루트 ADR-0170)
 
-Fargate는 선택한 adapter와 Linux provider agent가 고정 container 안에서 실행될 때에만 반복 가능한
-cloud batch에 적합하다. 데이터 모델은 runtime 선택에 종속되지 않으므로 다른 실행 plane으로 바꿔도
-커밋된 R2 Bronze 객체와 Postgres catalog row를 버릴 필요가 없다.
+제공자가 RAON 에이전트로만 주는 파일(`SelectionArchive`, 목록 크기 약 500MB 초과)은 매일 훑기의 VWorld 레인이
+받지 않는다. 그 레인의 증거(`/var/lib/foundation-platform/source-sweep/vworld-evidence.json`)는 원장이 갖지 않은
+선택 묶음을 `selection_archives`에 `deferred_selection_archive`로 적는다. 그런 파일이 있을 때 매일 훑기는 한 실행
+상한(아래 1)을 본다.
+
+- 상한 0 = 레인 꺼짐: `raon-large-files.sh`를 부르지 않는다. journal에
+  `| raon deferred=N listed_bytes=… budget=0 status=lane-off files=…`(기다리는 파일 id)를 적고, 슬랙에 안내 한 줄
+  (ℹ️, 🔴 아님)을 보낸다. 이 레인 때문에 매일 훑기가 실패하지 않는다.
+- 상한 양수: `scripts/ops/raon-large-files.sh run <증거>`를 부른다. 상한 초과·전제 부족·실패는 그 레인의 실패다.
+- 상한이 정수 바이트가 아니면 레인의 실패다(`status=invalid-budget`).
+
+1. 계획: `plan-provider-acquisition-jobs`가 증거와 증거가 읽은 목록(`file_inventory_path`)으로 작업을 만든다. 한
+   실행의 상한은 엔드포인트 카탈로그의 `daily_collections.source_sweep.selection_archive_new_bytes_budget`이고, 작업
+   목록 크기 합이 넘으면 하나도 받지 않고 실패한다(슬랙 🔴, journal `| raon ... status=blocked_new_bytes_budget`).
+2. image: 위 "일괄 모드"의 내용 해시 image. 없을 때만 build한다.
+3. 수집: 그 image가 브라우저로 RAON 페이지를 열어 replay request를 잡고, 이 릴리스의 publisher가 내용 주소
+   키(`FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY=content_addressed`)로 Bronze에 바로 쓴다. 본문은
+   `/data/foundation-platform/source-sweep/raon/runs/<run>/batch/` 아래에 잠시 머물고 파일마다 지워진다.
+4. 기록: 실행마다 `/data/foundation-platform/source-sweep/raon/runs/<run>/`(plan, run log, batch 요약)와
+   `/data/foundation-platform/source-sweep/raon/journal.log` 한 줄. 매일 훑기는 그 줄을 자기 journal에 `| raon ...`
+   으로 싣는다.
+
+전제(VWorld 로그인, Bronze 쓰기 설정, 패키지 고정값, 도커와 그 데몬, 증거)가 하나라도 없으면 스크립트는
+무엇도 쓰기 전에 78로 끝나고, 매일 훑기의 raon 레인은 실패한다. 조용히 건너뛰지 않는다. image build가 실패하면
+(주소가 답하지 않거나 바이트가 고정값과 다르면) 아무것도 받기 전에 레인이 실패한다.
+
+### 첫 감독 실행 (운영자)
+
+카탈로그의 상한은 0(레인 꺼짐)에서 시작한다: 매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 받지 않고 몇 개·
+얼마·어느 파일인지 journal에 적고 슬랙에 안내 한 줄로 알린다(실패 아님). 운영자가 아래 순서로 한 번 지켜본 뒤 측정한
+양수 상한을 PR로 카탈로그에 적어야 매일 실행이 받는다.
+환경 파일은 계약이 정한다(`config/runtime-secrets.contract.json`의 run `raon-large-files`, 루트 ADR-0153).
+매일 단위(`foundation-source-sweep.service`)가 도는 동안에는 돌리지 않는다.
+
+```bash
+raon() {
+  sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
+    $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties raon-large-files) \
+    "$@"
+}
+evidence=/var/lib/foundation-platform/source-sweep/vworld-evidence.json
+
+# 1. image: 고정 주소에서 패키지를 받아 sha256을 확인하고 내용 해시 image를 만든다(있으면 그대로 쓴다).
+raon /opt/foundation-platform/current/scripts/ops/raon-large-files.sh build
+
+# 2. 계획만: 아무것도 받지 않는다. 상한이 0이면 계획은 거부되지만 plan.json에 받을 파일과 크기가 남는다.
+raon /opt/foundation-platform/current/scripts/ops/raon-large-files.sh plan "$evidence"
+ls -t /data/foundation-platform/source-sweep/raon/runs/ | head -1   # 그 실행의 plan.json 을 읽는다
+
+# 3. 한 파일만, 상한을 그 파일 크기 이상으로 올려 지켜본다.
+raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
+  -E FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET=<plan.json 첫 작업의 listed_bytes 이상> \
+  /opt/foundation-platform/current/scripts/ops/raon-large-files.sh run "$evidence"
+```
+
+3의 실행 디렉터리에서 `batch/<batch>/summary.json`이 `committed`이고, 원장(`catalog.bronze_object`)에 그 파일의
+내용 주소 키(`...--sha256-<checksum>.zip`) 행이 생겼는지 확인한다. 그 다음 밀린 것을 같은 명령으로
+`FOUNDATION_RAON_LARGE_FILES_MAX_FILES` 없이 받고(상한은 plan의 `listed_bytes_total` 이상), 측정한 하루 상한을
+카탈로그에 적는 PR을 연다. journal 줄에는 `budget_override=1`이 붙는다. 실행 ID·파일 식별자·크기·checksum은 이
+문서가 아니라 ADR 0007의 private operations evidence에 남긴다.
 
 ## Linux RAON 에이전트 컨테이너 증명
 
@@ -246,13 +303,14 @@ Linux provider agent를 시작하고 browser adapter로 provider 페이지를 �
 private task-local replay request만 쓴다. R2에 쓰거나 `DATABASE_URL`에 접속하거나
 `foundation-outbox-publisher`를 호출하면 안 된다.
 
-Build with a runtime-supplied package URL and checksum. Do not commit the package:
+패키지 주소와 sha256은 `config/provider-agent-packages.contract.json`의 값을 그대로 준다(ADR-0170). 패키지는
+커밋하지 않는다.
 
 ```bash
 docker build \
   -f services/foundation-provider-acquisition-worker/Dockerfile.raon-agent-proof \
-  --build-arg RAON_DEB_URL="<provider-linux-package-url>" \
-  --build-arg RAON_DEB_SHA256="<sha256>" \
+  --build-arg RAON_DEB_URL="<config/provider-agent-packages.contract.json 의 url>" \
+  --build-arg RAON_DEB_SHA256="<config/provider-agent-packages.contract.json 의 sha256>" \
   -t foundation-platform/raon-agent-proof:local \
   .
 ```

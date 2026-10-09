@@ -100,6 +100,41 @@ def test_run_batch_imports_replay_directly_to_bronze_and_deletes_private_request
     assert not Path(seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_REPLAY_REQUEST_PATH"]).exists()
 
 
+PLAN_HANDOFF = Path(__file__).parent / "fixtures/provider-acquisition-plan.v2.json"
+
+
+def test_the_rust_plan_is_the_batch_selection_and_lands_content_addressed(tmp_path: Path) -> None:
+    # Root ADR-0170: plan-provider-acquisition-jobs writes this file (its Rust test compares its
+    # output to it); the batch reads it unchanged and hands the importer every identity it needs.
+    jobs = load_selection(PLAN_HANDOFF)
+    assert [job.provider_file_id for job in jobs] == ["20991231DS99991-9001"]
+    seen_env: dict[str, str] = {}
+
+    def import_replay(job: RaonBatchJob, env: dict[str, str], paths) -> dict[str, object]:
+        seen_env.update(env)
+        return {"bronze_object_key": "k", "size_bytes": 1, "checksum_sha256": "a" * 64}
+
+    summary = run_batch(
+        jobs=jobs,
+        batch_id="batch-002",
+        output_root=tmp_path,
+        acquire=lambda job, paths: RaonBatchAcquireResult(observed_filename="9001.zip"),
+        import_replay=import_replay,
+        base_env={},
+    )
+    assert summary["committed_count"] == 1
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY"] == "content_addressed"
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_OPERATION"] == "parcel"
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DATASET_NAME"] == "parcel"
+    assert (
+        seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_NAME"]
+        == "V-World synthetic parcel dataset file"
+    )
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER_FILE_ID"] == "20991231DS99991-9001"
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER_FILE_PERIOD"] == "2099-12"
+    assert seen_env["FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER_UPDATED_AT"] == "2099-12-31"
+
+
 def test_run_batch_records_failures_and_continues(tmp_path: Path) -> None:
     jobs = [
         RaonBatchJob(

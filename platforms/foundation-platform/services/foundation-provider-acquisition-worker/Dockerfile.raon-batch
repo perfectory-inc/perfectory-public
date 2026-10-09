@@ -1,18 +1,12 @@
-FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc AS rust-builder
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-WORKDIR /src
-
-# Toolchain pin is the base image tag (rust:1.96.0, guard-enforced); root
-# rust-toolchain.toml is outside this context, cargo uses image default 1.96.0.
-COPY Cargo.toml Cargo.lock /src/
-COPY crates /src/crates
-COPY config /src/config
-COPY services /src/services
-
-RUN cargo build --locked --release -p foundation-outbox-publisher
-
+# The RAON batch image: the Linux RAON agent, the provider-acquisition worker and a browser
+# (root ADR-0170). It carries no Rust: the run mounts the admitted release's
+# foundation-outbox-publisher read-only at /usr/local/bin/foundation-outbox-publisher (the release
+# build is bookworm, as this image is), so the importer is the release's own binary and building
+# this image never compiles the workspace (the release build alone takes 22g, ADR-0137).
+#
+# Built by scripts/ops/raon-large-files.sh, which passes the RAON Linux agent package's URL (the
+# vendor's; VWorld publishes only the Windows agent) and sha256 from the one place they are pinned,
+# config/provider-agent-packages.contract.json. The arguments have no defaults on purpose.
 FROM python:3.11-bookworm@sha256:b7ae8a4dcc0ab327e333c5e46a3eaa6c1b0ff585bed77e01cd6de4be1325837e
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -77,7 +71,6 @@ RUN curl -fsSL "${RAON_DEB_URL}" -o /tmp/raonk-2018_amd64.deb \
 WORKDIR /app
 
 COPY config/environment-variable-naming.contract.json /app/config/environment-variable-naming.contract.json
-COPY --from=rust-builder /src/target/release/foundation-outbox-publisher /usr/local/bin/foundation-outbox-publisher
 COPY services/foundation-provider-acquisition-worker/pyproject.toml /app/services/foundation-provider-acquisition-worker/pyproject.toml
 COPY services/foundation-provider-acquisition-worker/requirements.lock /app/services/foundation-provider-acquisition-worker/requirements.lock
 COPY services/foundation-provider-acquisition-worker/src /app/services/foundation-provider-acquisition-worker/src
@@ -93,7 +86,7 @@ RUN python -m pip install --no-cache-dir --require-hashes \
 
 RUN useradd --create-home --shell /bin/bash app \
     && mkdir -p /work/staging \
-    && chown -R app:app /work /app /ms-playwright /usr/local/bin/foundation-outbox-publisher
+    && chown -R app:app /work /app /ms-playwright
 
 USER app
 

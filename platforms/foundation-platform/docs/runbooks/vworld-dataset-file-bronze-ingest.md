@@ -155,6 +155,11 @@ Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반�
   deferred= pending_bytes= budget= status=` 가 남고, 증거는 같은 디렉터리의 `vworld-evidence.json` 이다. 신규·실패는 hub 와
   같은 슬랙 메시지에 실린다.
 - Silver 반영은 하지 않는다. 슬랙 알림을 받은 사람이 각 데이터셋의 적재 런북으로 반영한다(ADR-0077 §5).
+- RAON 선택 묶음(루트 ADR-0170): 수집은 그 파일들을 받지 않되, 원장이 가진 것인지는 같은 확인으로 묻는다. 가진 것은
+  `skipped_existing`, 갖지 않은 것은 `deferred_selection_archive` 로 증거의 `selection_archives` 에 따로 적고(`files`
+  와 예산에는 들어가지 않는다) 그 수를 `deferred_selection_archive_file_count` 로 센다. 0 이 아니면 매일 훑기가 raon
+  레인(`scripts/ops/raon-large-files.sh`)을 부른다 — [제공기관 수집 런북](./provider-acquisition-fargate.md)의
+  "데이터 호스트의 RAON 대용량 레인". journal 줄은 `| raon ...` 으로 끝난다.
 
 ### VWorld 밀린 파일 받기 (운영자)
 

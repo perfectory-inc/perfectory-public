@@ -400,6 +400,178 @@ async fn commits_staged_replay_to_bronze_from_explicit_metadata() {
         .expect("remove temp dir");
 }
 
+#[test]
+fn bronze_key_form_is_read_from_the_environment_and_unknown_forms_are_refused() {
+    let required = [
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_SLUG",
+            "vworldkr__parcel",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_SOURCE_NAME",
+            "parcel",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER",
+            "vworld.kr",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_DATASET_NAME",
+            "parcel",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_OPERATION",
+            "parcel",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER_FILE_ID",
+            "20991231DS99991-9002",
+        ),
+        (
+            "FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_PROVIDER_FILE_NAME",
+            "9002.zip",
+        ),
+    ];
+    let with_key = |value: &'static str| {
+        let mut entries = required.to_vec();
+        entries.push(("FOUNDATION_PLATFORM_PROVIDER_ACQUISITION_BRONZE_KEY", value));
+        let values: BTreeMap<&'static str, &'static str> = entries.into_iter().collect();
+        move |name: &str| -> anyhow::Result<Option<String>> {
+            Ok(values.get(name).map(|value| (*value).to_owned()))
+        }
+    };
+
+    let plain = ProviderAcquisitionBronzeCommitConfig::from_lookup(true, &lookup_from(required))
+        .expect("plain config")
+        .expect("enabled");
+    assert!(
+        !plain.content_addressed,
+        "the default key is the provider-file key"
+    );
+    let content =
+        ProviderAcquisitionBronzeCommitConfig::from_lookup(true, &with_key("content_addressed"))
+            .expect("content-addressed config")
+            .expect("enabled");
+    assert!(content.content_addressed);
+    let error = ProviderAcquisitionBronzeCommitConfig::from_lookup(true, &with_key("checksum"))
+        .expect_err("an unknown key form is refused, not read as the default");
+    assert!(error.to_string().contains("content_addressed"), "{error}");
+}
+
+async fn staged_fixture(body: &[u8]) -> (std::path::PathBuf, StagedReplayObject) {
+    let temp_dir = std::env::temp_dir().join(format!("provider-acquisition-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .expect("create temp dir");
+    let staged_path = temp_dir.join("replay.zip");
+    tokio::fs::write(&staged_path, body)
+        .await
+        .expect("write staged body");
+    let staged = StagedReplayObject {
+        path: staged_path,
+        size_bytes: body.len() as u64,
+        checksum_sha256: sha256_hex(body),
+    };
+    (temp_dir, staged)
+}
+
+#[tokio::test]
+async fn a_content_addressed_commit_names_the_staged_bytes_in_its_key() {
+    let body = b"PK\x03\x04provider zip bytes".to_vec();
+    let (temp_dir, staged) = staged_fixture(&body).await;
+    let config = ProviderAcquisitionBronzeCommitConfig {
+        content_addressed: true,
+        ..sample_bronze_commit_config()
+    };
+    let storage = RecordingObjectStorage::default();
+    let uow = RecordingBronzeUow::default();
+
+    let outcome = commit_staged_replay_to_bronze(
+        &storage,
+        &uow,
+        &config,
+        &staged,
+        "application/zip",
+        Utc::now(),
+    )
+    .await
+    .expect("staged replay should commit under its content key");
+
+    let expected = format!(
+        "bronze/source=vworldkr__parcel/20991231DS99991-9002--sha256-{}.zip",
+        sha256_hex(&body)
+    );
+    assert_eq!(outcome.object_key, expected);
+    let writes = storage.streaming_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].key, expected);
+    assert_eq!(writes[0].body, body);
+    assert_eq!(writes[0].write_mode, ObjectWriteMode::CreateOnly);
+    let recorded = uow.recorded();
+    assert_eq!(recorded[0].object_key.as_str(), expected);
+    assert_eq!(
+        recorded[0].source_partition_key.as_deref(),
+        Some("operation=parcel/provider_file_id=20991231DS99991-9002"),
+        "the partition the daily sweep's held check reads is the same as for a plain key"
+    );
+    tokio::fs::remove_dir_all(temp_dir)
+        .await
+        .expect("remove temp dir");
+}
+
+#[tokio::test]
+async fn a_rerun_of_the_same_bytes_writes_nothing_and_other_bytes_are_refused() {
+    let body = b"PK\x03\x04provider zip bytes".to_vec();
+    let (temp_dir, staged) = staged_fixture(&body).await;
+    let config = ProviderAcquisitionBronzeCommitConfig {
+        content_addressed: true,
+        ..sample_bronze_commit_config()
+    };
+
+    let same = RecordingObjectStorage {
+        held: Some(StreamingObjectRehash {
+            checksum_sha256: sha256_hex(&body),
+            size_bytes: body.len() as u64,
+            observed_e_tag: None,
+            observed_last_modified: None,
+        }),
+        ..RecordingObjectStorage::default()
+    };
+    let uow = RecordingBronzeUow::default();
+    commit_staged_replay_to_bronze(&same, &uow, &config, &staged, "application/zip", Utc::now())
+        .await
+        .expect("the same bytes under their own key are a rerun");
+    assert!(
+        same.streaming_writes().is_empty(),
+        "nothing is written twice"
+    );
+
+    let other = RecordingObjectStorage {
+        held: Some(StreamingObjectRehash {
+            checksum_sha256: "0".repeat(64),
+            size_bytes: 7,
+            observed_e_tag: None,
+            observed_last_modified: None,
+        }),
+        ..RecordingObjectStorage::default()
+    };
+    let error = commit_staged_replay_to_bronze(
+        &other,
+        &RecordingBronzeUow::default(),
+        &config,
+        &staged,
+        "application/zip",
+        Utc::now(),
+    )
+    .await
+    .expect_err("a key naming one checksum cannot hold another");
+    assert!(error.to_string().contains("not the"), "{error}");
+    assert!(other.streaming_writes().is_empty());
+    tokio::fs::remove_dir_all(temp_dir)
+        .await
+        .expect("remove temp dir");
+}
+
 #[tokio::test]
 async fn direct_bronze_replay_skips_landing_write_and_records_bronze() {
     let server = MockServer::start().await;
@@ -472,6 +644,8 @@ async fn direct_bronze_replay_skips_landing_write_and_records_bronze() {
 #[derive(Default)]
 struct RecordingObjectStorage {
     streaming_writes: Mutex<Vec<StreamingWriteRecord>>,
+    /// What a read-back of any key finds (None: nothing there).
+    held: Option<StreamingObjectRehash>,
 }
 
 impl RecordingObjectStorage {
@@ -535,7 +709,7 @@ impl ObjectStorageStreamingService for RecordingObjectStorage {
         &self,
         _key: &str,
     ) -> Result<Option<StreamingObjectRehash>, PublishError> {
-        Ok(None)
+        Ok(self.held.clone())
     }
 }
 
@@ -590,6 +764,7 @@ fn sample_bronze_commit_config() -> ProviderAcquisitionBronzeCommitConfig {
         provider_file_period: None,
         provider_snapshot_date: None,
         provider_updated_at: None,
+        content_addressed: false,
     }
 }
 
