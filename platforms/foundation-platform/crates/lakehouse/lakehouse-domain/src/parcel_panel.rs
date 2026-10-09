@@ -7,7 +7,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const GOLD_PARCEL_PANEL_COLUMNS: &[LakehouseColumn] = &[
@@ -103,6 +103,7 @@ pub const GOLD_PARCEL_PANEL: LakehouseTableContract = LakehouseTableContract {
     // Follows the canonical parcel table it projects: the snapshot the rows were built from.
     partition_spec: &["source_snapshot_id"],
     sort_order: &["pnu"],
+    write_distribution: LakehouseWriteDistribution::Range,
     quality_gates: &[
         "one row per pnu",
         "pnu matches the cadastral grammar",

@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 /// Append-only province batches retaining every assessment reference date.
@@ -61,6 +61,7 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     ],
     partition_spec: &["sido"],
     sort_order: &["pnu", "dong_name", "ho_name", "base_date"],
+    write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
         "pnu_not_null",

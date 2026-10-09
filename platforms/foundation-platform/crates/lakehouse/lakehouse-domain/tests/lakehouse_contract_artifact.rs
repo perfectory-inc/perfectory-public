@@ -113,6 +113,7 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         }).collect::<Vec<_>>(),
         "partition_spec": contract.partition_spec,
         "sort_order": contract.sort_order,
+        "write_distribution": contract.write_distribution.mode(),
         "quality_gates": contract.quality_gates,
         "load": load_json(&contract.load)
     })

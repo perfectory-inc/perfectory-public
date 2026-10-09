@@ -14,6 +14,9 @@ the release's schema. For each contract table the lakehouse holds:
    from the current main snapshot, pinned by id; the filled column checked for the same row
    count and no empty value; the overwrite rejects concurrent changes and is read back. A required
    registered column left empty after a failed migration is filled on retry.
+4. A table the contract declares range distributed is given the contract's sort order as its
+   Iceberg write order (`WRITE ORDERED BY`, root ADR-0164). A metadata commit: rows already
+   written stay where they are, and the next write lays them out in order.
 
 A table the lakehouse does not hold yet is left to the load that creates it. Prints one line per
 table and exits 1 on anything that stops the deploy.
@@ -34,11 +37,14 @@ if TYPE_CHECKING:
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
 from platform_contracts import (
     IDENTIFIER_PATTERN,
+    apply_write_order,
     column_names,
     evolve_iceberg_table_to_contract,
     iceberg_table_columns,
     load_lakehouse_artifact,
     spark_sql_type,
+    table_properties,
+    write_order_drift,
 )
 
 
@@ -124,6 +130,7 @@ def plan_table(
     contract: dict, actual: tuple[str, ...], has_rows: bool, table_name: str, *,
     actual_types: dict[str, str] | None = None, needs_backfill: tuple[str, ...] = (),
     actual_nullability: dict[str, bool] | None = None,
+    actual_properties: dict[str, str] | None = None,
 ) -> dict:
     """What bringing one table to its contract means, or why it cannot be done automatically."""
     effective = migration_contract(contract, actual, table_name)
@@ -152,7 +159,8 @@ def plan_table(
             f"{table_name} would gain required columns {unregistered} with no registered backfill; "
             "register the build's function in lakehouse_schema_migrate.BACKFILLS"
         )
-    plan = {"add": missing, "backfill": backfills, "reorder": reorder}
+    write_order = actual_properties is not None and write_order_drift(contract, actual_properties)
+    plan = {"add": missing, "backfill": backfills, "reorder": reorder, "write_order": write_order}
     retained = [name for name in expected if name not in column_names(contract)]
     if retained:
         plan["temporary_extra_columns"] = retained
@@ -222,6 +230,7 @@ def inspect_table(spark: SparkSession, quoted: str, contract: dict, table_name: 
     actual = tuple(field.name for field in frame.schema.fields)
     types = {field.name: field.dataType.simpleString() for field in frame.schema.fields}
     nullable = {field.name: field.nullable for field in frame.schema.fields}
+    properties = table_properties(spark, quoted)
     # Validate names/types before any data scan or ALTER, including retained temporary columns.
     plan_table(contract, actual, False, table_name, actual_types=types, actual_nullability=nullable)
     has_rows = frame.limit(1).count() > 0
@@ -232,7 +241,8 @@ def inspect_table(spark: SparkSession, quoted: str, contract: dict, table_name: 
                        and (table_name, column["name"]) in BACKFILLS and has_rows
                        and frame.where(empty_value(contract, column["name"])).limit(1).count())
     return plan_table(contract, actual, has_rows, table_name, actual_types=types,
-                      actual_nullability=nullable, needs_backfill=incomplete)
+                      actual_nullability=nullable, needs_backfill=incomplete,
+                      actual_properties=properties)
 
 
 def apply_table(spark: SparkSession, catalog: str, table_name: str, contract: dict, plan: dict) -> dict:
@@ -245,8 +255,11 @@ def apply_table(spark: SparkSession, catalog: str, table_name: str, contract: di
     result = {"added": list(added)}
     if plan["backfill"]:
         result["backfilled"] = backfill(spark, catalog, table_name, effective, plan["backfill"])
+    if plan["write_order"]:
+        result["write_ordered_by"] = list(contract["sort_order"]) if apply_write_order(
+            spark, quoted, contract) else []
     remaining = inspect_table(spark, quoted, contract, table_name)
-    if remaining["add"] or remaining["backfill"] or remaining["reorder"]:
+    if remaining["add"] or remaining["backfill"] or remaining["reorder"] or remaining["write_order"]:
         raise MigrationBlocked(f"{table_name} still needs migration: {remaining}")
     return result
 
@@ -296,7 +309,7 @@ def main() -> int:
                 report[table_name] = {"state": "blocked", "reason": str(error)}
                 print(f"lakehouse-migrate {table_name}: BLOCKED {error}")
                 continue
-            if not plan["add"] and not plan["reorder"] and not plan["backfill"]:
+            if not plan["add"] and not plan["reorder"] and not plan["backfill"] and not plan["write_order"]:
                 entry = ({"state": "known_drift", **plan} if plan.get("temporary_extra_columns")
                          else {"state": "matches"})
                 if table_name in known_drift:

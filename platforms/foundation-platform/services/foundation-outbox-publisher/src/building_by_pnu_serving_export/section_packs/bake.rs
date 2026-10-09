@@ -51,7 +51,7 @@ use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, LakehouseObjectReader};
+use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, KeptPrefix, LakehouseObjectReader};
 use crate::r2_layout::by_pnu_packs;
 
 /// The schema of a lane's export summary; the publish reads only its own lane's.
@@ -335,6 +335,8 @@ async fn scan(
             None => true,
         },
         Some(MAX_ROWS_PER_RUN),
+        // Only the data files whose PNU bounds can hold the shard are opened (root ADR-0164).
+        config.pnu_prefix.as_deref().map(KeptPrefix::pnu),
     )
     .await?;
     // The scheduled bake splits a shard on these words, as it does for the object export.
@@ -344,12 +346,7 @@ async fn scan(
          heap",
         config.lane.env("PNU_PREFIX")
     );
-    ensure!(
-        rows.decoded_row_count == rows.manifest_record_count,
-        "scanned {} rows but the manifests declared {}",
-        rows.decoded_row_count,
-        rows.manifest_record_count
-    );
+    rows.ensure_complete()?;
     patch_export::refuse_live_deletes(
         config.patch.as_ref(),
         rows.rows

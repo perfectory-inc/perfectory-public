@@ -23,9 +23,8 @@ from pyspark.storagelevel import StorageLevel
 
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
-from platform_contracts import (column_names, create_table_columns_sql, current_row_predicate,
-    evolve_iceberg_table_to_contract, load_lakehouse_contract, partition_clause_sql,
-    partition_column_names, required_column_names, sort_order)
+from platform_contracts import (column_names, current_row_predicate, ensure_contract_table,
+    load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import verified_building_links
@@ -399,8 +398,8 @@ def main():
                 persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
             else:
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
-                spark.sql(f"CREATE TABLE IF NOT EXISTS {target_table} ({create_table_columns_sql(GOLD_CONTRACT)}) USING iceberg {partition_clause_sql(GOLD_CONTRACT)} TBLPROPERTIES ('format-version'='2','write.parquet.compression-codec'='zstd','write.distribution-mode'='hash')")
-                added = evolve_iceberg_table_to_contract(spark, target_table, GOLD_CONTRACT)
+                # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
+                added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 # The snapshot records the Silver pins it was built from (root ADR-0139).
                 write_gold_snapshot(gold.select(*GOLD_COLUMNS), target_table, args.iceberg_write_mode, pins, F.lit(True))
                 persisted = spark.table(target_table).select(*GOLD_COLUMNS)

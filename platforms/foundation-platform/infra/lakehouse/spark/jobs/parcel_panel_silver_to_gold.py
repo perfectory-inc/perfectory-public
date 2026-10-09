@@ -78,11 +78,9 @@ from lakehouse_engine import (
 )
 from platform_contracts import (
     column_names,
-    create_table_columns_sql,
     current_row_predicate,
-    evolve_iceberg_table_to_contract,
+    ensure_contract_table,
     load_lakehouse_contract,
-    partition_clause_sql,
     partition_column_names,
     required_column_names,
     sort_order,
@@ -1234,21 +1232,8 @@ def write_gold_iceberg(
     namespace = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`"
 
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {table} (
-{create_table_columns_sql(GOLD_CONTRACT)}
-        )
-        USING iceberg
-        {partition_clause_sql(GOLD_CONTRACT)}
-        TBLPROPERTIES (
-            'format-version' = '2',
-            'write.parquet.compression-codec' = 'zstd',
-            'write.distribution-mode' = 'hash'
-        )
-        """
-    )
-    added_columns = evolve_iceberg_table_to_contract(spark, table, GOLD_CONTRACT)
+    # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
+    added_columns = ensure_contract_table(spark, table, GOLD_CONTRACT)
     # The snapshot records the Silver pins it was built from (root ADR-0139).
     write_gold_snapshot(gold.select(*GOLD_COLUMNS), table, args.iceberg_write_mode, pins, F.lit(True))
     return added_columns

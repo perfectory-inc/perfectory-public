@@ -320,6 +320,112 @@ def sort_order(contract: dict[str, Any]) -> tuple[str, ...]:
     return tuple(value)
 
 
+WRITE_DISTRIBUTION_MODES = ("hash", "range")
+DISTRIBUTION_MODE_PROPERTY = "write.distribution-mode"
+# Iceberg's Spark table reports its sort order under this reserved property, one
+# "<term> <ASC|DESC> <NULLS FIRST|NULLS LAST>" per field, comma separated.
+SORT_ORDER_PROPERTY = "sort-order"
+
+
+def write_distribution_mode(contract: dict[str, Any]) -> str:
+    """Return how a write spreads the table's rows over data files: ``hash`` or ``range``.
+
+    ``range`` means the table's Iceberg sort order is the contract's ``sort_order`` and writes
+    range-partition by it, so each data file holds one contiguous slice and a reader can skip
+    files by the leading sort column's bounds (root ADR-0164).
+    """
+
+    value = contract.get("write_distribution")
+    if value not in WRITE_DISTRIBUTION_MODES:
+        raise ValueError(
+            f"lakehouse contract {contract.get('table_name')} declares write_distribution "
+            f"{value!r}; expected one of {list(WRITE_DISTRIBUTION_MODES)}"
+        )
+    if value == "range":
+        for name in sort_order(contract):
+            if IDENTIFIER_PATTERN.fullmatch(name) is None or name not in column_names(contract):
+                raise ValueError(
+                    f"lakehouse contract {contract.get('table_name')} is range distributed but its "
+                    f"sort_order entry {name!r} is not one of its columns"
+                )
+        if not sort_order(contract):
+            raise ValueError(
+                f"lakehouse contract {contract.get('table_name')} is range distributed with no "
+                "sort_order to range over"
+            )
+    return value
+
+
+def write_order_drift(contract: dict[str, Any], properties: dict[str, str]) -> bool:
+    """Whether a live table's write layout differs from what its contract declares.
+
+    ``properties`` are the table's (``SHOW TBLPROPERTIES``). Only a range-distributed contract
+    is checked: a hash table's layout is whatever its writer asks for, as before ADR-0164.
+    """
+
+    if write_distribution_mode(contract) != "range":
+        return False
+    if properties.get(DISTRIBUTION_MODE_PROPERTY) != "range":
+        return True
+    fields = [
+        field.split() for field in properties.get(SORT_ORDER_PROPERTY, "").split(",") if field.strip()
+    ]
+    live = tuple((field[0].strip("`"), field[1] if len(field) > 1 else "") for field in fields)
+    return live != tuple((name, "ASC") for name in sort_order(contract))
+
+
+def table_properties(spark: Any, table: str) -> dict[str, str]:
+    """Return a live table's properties, including Iceberg's reserved ``sort-order``."""
+
+    return {row[0]: row[1] for row in spark.sql(f"SHOW TBLPROPERTIES {table}").collect()}
+
+
+def apply_write_order(spark: Any, table: str, contract: dict[str, Any]) -> bool:
+    """Bring a live table's sort order and distribution mode to its contract.
+
+    Called after ``CREATE TABLE IF NOT EXISTS`` by the writers of a range-distributed table and
+    by the deploy's lakehouse migration, so the order is the contract's whichever reaches the
+    table first. ``WRITE ORDERED BY`` sets the table sort order and ``write.distribution-mode``
+    to ``range`` in one metadata commit; no data file is rewritten, and only writes after it are
+    ordered. Returns whether it changed the table.
+    """
+
+    if not write_order_drift(contract, table_properties(spark, table)):
+        return False
+    spark.sql(f"ALTER TABLE {table} WRITE ORDERED BY {', '.join(sort_order(contract))}")
+    if write_order_drift(contract, table_properties(spark, table)):
+        raise ValueError(
+            f"{table} did not take the contract's write order {list(sort_order(contract))}"
+        )
+    return True
+
+
+def ensure_contract_table(spark: Any, table: str, contract: dict[str, Any]) -> tuple[str, ...]:
+    """Create ``table`` from its contract if absent, then bring its columns and write order to it.
+
+    Returns the columns schema evolution added. The panel Gold writers share this so neither
+    keeps its own copy of the table properties or of the write order (root ADR-0164).
+    """
+
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+{create_table_columns_sql(contract)}
+        )
+        USING iceberg
+        {partition_clause_sql(contract)}
+        TBLPROPERTIES (
+            'format-version' = '2',
+            'write.parquet.compression-codec' = 'zstd',
+            '{DISTRIBUTION_MODE_PROPERTY}' = '{write_distribution_mode(contract)}'
+        )
+        """
+    )
+    added = evolve_iceberg_table_to_contract(spark, table, contract)
+    apply_write_order(spark, table, contract)
+    return added
+
+
 def columns(contract: dict[str, Any]) -> list[dict[str, Any]]:
     value = contract.get("columns")
     if not isinstance(value, list) or not value:

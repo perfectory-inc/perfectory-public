@@ -173,7 +173,7 @@ class MigrationSpark(unittest.TestCase):
 
         name = "silver.building_register_units"
         extras = tuple(c["name"] for c in migrate.load_known_drift()[name]["extra_columns"])
-        contract = {"columns": [
+        contract = {"write_distribution": "hash", "columns": [
             {"name": "a", "logical_type": "string", "required": True},
             {"name": "filled", "logical_type": "string", "required": True},
         ]}
@@ -196,7 +196,7 @@ class MigrationSpark(unittest.TestCase):
         from pyspark.sql import functions as F
 
         name = "gold.retry"
-        contract = {"columns": [
+        contract = {"write_distribution": "hash", "columns": [
             {"name": "a", "logical_type": "string", "required": True},
             {"name": "filled", "logical_type": "string", "required": True},
         ]}
@@ -218,7 +218,7 @@ class MigrationSpark(unittest.TestCase):
         from pyspark.sql import functions as F
 
         name = "gold.rollback"
-        contract = {"columns": [{"name": c, "logical_type": "string", "required": True} for c in ("a", "filled")]}
+        contract = {"write_distribution": "hash", "columns": [{"name": c, "logical_type": "string", "required": True} for c in ("a", "filled")]}
         table = self.table(name, "a STRING, filled STRING")
         self.spark.sql(f"INSERT INTO {table} VALUES ('current', NULL)")
         snapshot = self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name='main'").first()[0]
@@ -233,7 +233,7 @@ class MigrationSpark(unittest.TestCase):
         from pyspark.sql import functions as F
 
         name = "gold.concurrent"
-        contract = {"columns": [{"name": c, "logical_type": "string", "required": True} for c in ("a", "filled")]}
+        contract = {"write_distribution": "hash", "columns": [{"name": c, "logical_type": "string", "required": True} for c in ("a", "filled")]}
         table = self.table(name, "a STRING, filled STRING")
         self.spark.sql(f"INSERT INTO {table} VALUES ('original', NULL)")
 
@@ -253,7 +253,7 @@ class MigrationSpark(unittest.TestCase):
         extras = migration_fixtures.TemporaryExtraColumns.EXTRA
         table = self.table(name, ", ".join(f"{c} STRING" for c in ("a", *extras)))
         self.spark.sql(f"INSERT INTO {table} VALUES ('value', 'source', 'digest', 'reason')")
-        contract = {"columns": [{"name": c, "logical_type": "string", "required": True}
+        contract = {"write_distribution": "hash", "columns": [{"name": c, "logical_type": "string", "required": True}
                                 for c in ("a", "unregistered_required")]}
         report = str(Path(self.workspace.name) / "main-summary.json")
         with patch.object(sys, "argv", ["migrate", "--mode", "apply", "--iceberg-catalog-name", "proof",

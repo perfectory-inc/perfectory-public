@@ -6,6 +6,8 @@
 //! Keeping the column set on `LakehouseTableContract` means the projection cannot silently disagree
 //! with the canonical table it reads.
 
+use std::collections::{BTreeMap, HashMap};
+
 use anyhow::{bail, ensure, Context};
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
 use arrow_array::{
@@ -25,6 +27,9 @@ const CONTENT_DATA: i64 = 0;
 const STATUS_DELETED: i64 = 2;
 const PARQUET_FILE_FORMAT: &str = "PARQUET";
 
+/// Avro header key under which Iceberg writes the table schema a manifest was written with.
+const MANIFEST_SCHEMA_KEY: &str = "schema";
+
 /// One Parquet data file reachable from the scanned snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ScannedDataFile {
@@ -34,6 +39,69 @@ pub(crate) struct ScannedDataFile {
     pub(crate) record_count: u64,
     /// Compressed byte size the manifest recorded for the data file.
     pub(crate) file_size_in_bytes: u64,
+    /// What the manifest recorded per top-level column, by column name. A column the manifest
+    /// recorded nothing for, or whose field id the manifest's schema does not name, is absent.
+    pub(crate) column_statistics: BTreeMap<String, ColumnStatistics>,
+}
+
+/// What a manifest recorded about one column of one data file.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ColumnStatistics {
+    /// Iceberg single-value bytes no non-null value of the column is below (UTF-8 for a string).
+    /// Iceberg may truncate it, which only lowers it.
+    pub(crate) lower_bound: Option<Vec<u8>>,
+    /// Bytes no non-null value of the column is above. A truncated upper bound is rounded up.
+    pub(crate) upper_bound: Option<Vec<u8>>,
+    /// Rows whose value is null; a null has no place between the bounds.
+    pub(crate) null_value_count: Option<u64>,
+}
+
+impl ScannedDataFile {
+    /// Whether the manifest proves that no row of this file has a `column` value starting with
+    /// `prefix`, so a scan that keeps only such rows may skip the file without opening it.
+    ///
+    /// The proof needs every part: a recorded null count of zero (a null row lies outside the
+    /// bounds, and a scan must still meet it to refuse it), a lower and an upper bound, and the
+    /// prefix's whole range — `prefix` up to, not including, its successor — outside them. Any
+    /// part missing means the file is read (root ADR-0164).
+    ///
+    /// The prefix must be ASCII. Iceberg orders strings by UTF-16 code unit and the bounds are
+    /// UTF-8 bytes; the two orders agree whenever one side of a comparison is ASCII, which is what
+    /// lets the byte comparison below stand in for Iceberg's.
+    pub(crate) fn excludes_prefix(&self, column: &str, prefix: &str) -> bool {
+        if prefix.is_empty() || !prefix.is_ascii() {
+            return false;
+        }
+        let Some(statistics) = self.column_statistics.get(column) else {
+            return false;
+        };
+        if statistics.null_value_count != Some(0) {
+            return false;
+        }
+        let (Some(lower), Some(upper)) = (&statistics.lower_bound, &statistics.upper_bound) else {
+            return false;
+        };
+        let prefix = prefix.as_bytes();
+        // Every value is at most `upper`, and every value starting with `prefix` is at least
+        // `prefix`.
+        if upper.as_slice() < prefix {
+            return true;
+        }
+        // Every value is at least `lower`, and every value starting with `prefix` is below its
+        // successor.
+        prefix_successor(prefix).is_some_and(|successor| lower.as_slice() >= successor.as_slice())
+    }
+}
+
+/// The least byte string above every string that starts with the ASCII `prefix`: the prefix with
+/// its last byte raised by one. None when that byte is the last ASCII one.
+fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
+    let (last, head) = prefix.split_last()?;
+    (*last < 0x7f).then(|| {
+        let mut successor = head.to_vec();
+        successor.push(last + 1);
+        successor
+    })
 }
 
 /// Returns the manifest locations a snapshot's manifest list points at.
@@ -54,8 +122,11 @@ pub(crate) fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<Ve
 
 /// Returns the live Parquet data files one manifest points at.
 pub(crate) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDataFile>> {
+    let (header, entries) =
+        avro_container(manifest_avro).context("failed to read Iceberg manifest")?;
+    let column_names = manifest_column_names(&header);
     let mut data_files = Vec::new();
-    for entry in avro_records(manifest_avro).context("failed to read Iceberg manifest")? {
+    for entry in entries {
         let status = optional_integer_field(&entry, "status")?.unwrap_or(CONTENT_DATA);
         if status == STATUS_DELETED {
             continue;
@@ -84,9 +155,85 @@ pub(crate) fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedData
                 .context("Iceberg data file record_count must not be negative")?,
             file_size_in_bytes: u64::try_from(file_size_in_bytes)
                 .context("Iceberg data file file_size_in_bytes must not be negative")?,
+            column_statistics: column_statistics(data_file, &column_names),
         });
     }
     Ok(data_files)
+}
+
+/// Top-level column names by Iceberg field id, from the table schema the manifest's Avro header
+/// carries. A header without a readable schema names nothing, and no file is then skipped.
+fn manifest_column_names(header: &HashMap<String, Vec<u8>>) -> BTreeMap<i64, String> {
+    let Some(schema) = header
+        .get(MANIFEST_SCHEMA_KEY)
+        .and_then(|bytes| serde_json::from_slice::<JsonValue>(bytes).ok())
+    else {
+        return BTreeMap::new();
+    };
+    schema
+        .get("fields")
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|field| {
+            Some((
+                field.get("id")?.as_i64()?,
+                field.get("name")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// The bounds and null counts a manifest recorded for one data file, by column name.
+///
+/// Iceberg writes each of them as an Avro array of `{key: field id, value}` records. A shape this
+/// does not recognise records nothing for that column: the file is then read, never skipped.
+fn column_statistics(
+    data_file: &AvroValue,
+    column_names: &BTreeMap<i64, String>,
+) -> BTreeMap<String, ColumnStatistics> {
+    let mut statistics = BTreeMap::<String, ColumnStatistics>::new();
+    for (field_name, set) in [
+        (
+            "lower_bounds",
+            set_lower_bound as fn(&mut ColumnStatistics, &AvroValue),
+        ),
+        ("upper_bounds", set_upper_bound),
+        ("null_value_counts", set_null_value_count),
+    ] {
+        let Some(AvroValue::Array(entries)) = field(data_file, field_name).map(resolve) else {
+            continue;
+        };
+        for entry in entries {
+            let Ok(Some(id)) = optional_integer_field(entry, "key") else {
+                continue;
+            };
+            if let (Some(name), Some(value)) = (column_names.get(&id), field(entry, "value")) {
+                set(statistics.entry(name.clone()).or_default(), resolve(value));
+            }
+        }
+    }
+    statistics
+}
+
+fn set_lower_bound(column: &mut ColumnStatistics, value: &AvroValue) {
+    if let AvroValue::Bytes(bytes) = value {
+        column.lower_bound = Some(bytes.clone());
+    }
+}
+
+fn set_upper_bound(column: &mut ColumnStatistics, value: &AvroValue) {
+    if let AvroValue::Bytes(bytes) = value {
+        column.upper_bound = Some(bytes.clone());
+    }
+}
+
+fn set_null_value_count(column: &mut ColumnStatistics, value: &AvroValue) {
+    column.null_value_count = match value {
+        AvroValue::Long(count) => u64::try_from(*count).ok(),
+        AvroValue::Int(count) => u64::try_from(*count).ok(),
+        _ => None,
+    };
 }
 
 /// Decodes one Parquet data file into contract-shaped rows.
@@ -283,10 +430,17 @@ fn format_decimal(value: i128, scale: u32) -> String {
 }
 
 fn avro_records(bytes: &[u8]) -> anyhow::Result<Vec<AvroValue>> {
+    Ok(avro_container(bytes)?.1)
+}
+
+/// The Avro container's user metadata, and its records.
+fn avro_container(bytes: &[u8]) -> anyhow::Result<(HashMap<String, Vec<u8>>, Vec<AvroValue>)> {
     let reader = AvroReader::new(bytes).context("failed to open the Avro container")?;
-    reader
+    let header = reader.user_metadata().clone();
+    let records = reader
         .collect::<Result<Vec<_>, _>>()
-        .context("failed to decode an Avro record")
+        .context("failed to decode an Avro record")?;
+    Ok((header, records))
 }
 
 fn field<'a>(record: &'a AvroValue, name: &str) -> Option<&'a AvroValue> {

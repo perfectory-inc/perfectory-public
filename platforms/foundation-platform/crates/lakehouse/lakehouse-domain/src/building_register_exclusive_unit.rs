@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -109,6 +109,7 @@ pub const SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT: LakehouseTableContract =
         columns: COLUMNS,
         partition_spec: &["vintage"],
         sort_order: &["pnu", "mgmt_key", "dong_name", "ho_name"],
+        write_distribution: LakehouseWriteDistribution::Hash,
         quality_gates: &[
             "append_only",
             "raw_columns_not_null",

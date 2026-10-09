@@ -1,7 +1,7 @@
 //! One row per PNU for independently published buildings, floors and units (ADR-0100).
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -46,6 +46,7 @@ pub const GOLD_BUILDING_PANEL: LakehouseTableContract = LakehouseTableContract {
     columns: COLUMNS,
     partition_spec: &["source_snapshot_id"],
     sort_order: &["pnu"],
+    write_distribution: LakehouseWriteDistribution::Range,
     quality_gates: &[
         "one row per pnu",
         "pnu matches the cadastral grammar",
