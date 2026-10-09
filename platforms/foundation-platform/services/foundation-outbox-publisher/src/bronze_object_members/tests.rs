@@ -532,7 +532,7 @@ mod postgres {
     #[ignore = "requires an explicitly supplied disposable local PostgreSQL server"]
     async fn measuring_twice_records_once_and_a_failure_is_retried() -> TestResult {
         run_in_disposable_database("bronze_object_members", |pool| async move {
-            sqlx::migrate!("../../migrations").run(&pool).await?;
+            crate::test_support::MIGRATOR.run(&pool).await?;
             let selected = source(&pool, "testsrc__archive").await?;
             let other = source(&pool, "othersrc__archive").await?;
             let archive = crate_zip(

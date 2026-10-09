@@ -111,6 +111,10 @@ pub(crate) mod test_support {
 
     static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+    /// The platform's migrations, embedded once for every test that stands up a disposable
+    /// database: each embedding site is a compile-time file read the build-coupling guard counts.
+    pub(crate) static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+
     /// Serializes synchronous tests that mutate process-global environment variables.
     pub(crate) fn env_lock() -> MutexGuard<'static, ()> {
         ENV_LOCK.get_or_init(|| Mutex::new(())).blocking_lock()
