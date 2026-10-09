@@ -806,7 +806,23 @@ async fn the_first_pack_publish_restates_a_v1_manifest() -> anyhow::Result<()> {
         let lane = Lane::serving_objects(label, &rows).await?;
         lane.write_v1_manifest(v1_snapshot, rows.len())?;
         assert_eq!(lane.live().await?.wire_schema_version, 1);
-        let outcome = lane.cut_over(&rows).await;
+        let base = lane.bake(&rows, SNAPSHOT, None).await?;
+        let summaries = lane.summaries("v1", &[&base])?;
+        let equality = lane.equality(&summaries, 2)?;
+        // Two rows draw no sample at the contract's candidate rate; the restatement reads the
+        // sample, so this one names both PNUs (as a real gate sample of 10,000 would).
+        let mut evidence: JsonValue = serde_json::from_slice(&std::fs::read(&equality)?)?;
+        let sample = rows
+            .iter()
+            .map(|row| row["pnu"].as_str().map(str::to_owned).context("pnu"))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        evidence["sample_sha256"] = json!(gate::sample_digest(&sample));
+        evidence["sample"] = json!(sample);
+        std::fs::write(&equality, serde_json::to_vec(&evidence)?)?;
+        let latency = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+        let outcome = lane
+            .publish(summaries, SNAPSHOT, Some((equality, latency)), None)
+            .await;
         if v1_snapshot == SNAPSHOT {
             outcome?;
             let live = lane.live().await?;
