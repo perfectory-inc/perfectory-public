@@ -232,7 +232,9 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # for (titles, units, unit areas) a source contract each, embedded once like the apartment-price and
 # exclusive-unit contracts: the Silver refresh reads its release rules from the same bytes the
 # export reads, and those two existing contracts are shared, not embedded a second time.
-COMPILE_TIME_READ_BASELINE="${3:-118}"
+# 118 -> 119: root ADR-0170's planner test embeds the provider-acquisition plan fixture the
+# Python RAON worker reads, so the Rust writer and the Python reader are held to one file.
+COMPILE_TIME_READ_BASELINE="${3:-119}"
 
 cd "$repo_root"
 
