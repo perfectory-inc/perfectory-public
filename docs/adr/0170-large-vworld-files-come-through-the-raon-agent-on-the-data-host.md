@@ -81,8 +81,12 @@ VWorld 는 목록 크기가 약 500MB 를 넘는 파일(`LARGE_FILE_THRESHOLD_KI
    (매일 훑기가 publisher 를 직접 돌릴 때와 같은 설정), 이름 계약이 적은 VWorld 로그인 이름들. 본문은
    `/data/foundation-platform/source-sweep/raon/runs/<run>/` 아래에서 파일마다 지워지고(단위의 `ReadWritePaths`
    안), 실행 시작에 죽은 실행이 남긴 본문을 지운다.
-7. **매일 훑기의 raon 레인.** vworld 레인 다음, 증거의 `deferred_selection_archive_file_count` 가 0 보다 클 때만
-   `raon-large-files.sh run <증거>` 를 부른다(0 이면 부르지 않고 journal 에 `raon deferred=0`). vworld 레인이 예산으로
+7. **매일 훑기의 raon 레인.** vworld 레인 다음, 한 실행 상한(9)이 양수이고 증거의
+   `deferred_selection_archive_file_count` 가 0 보다 클 때만 `raon-large-files.sh run <증거>` 를 부른다(넘길 것이
+   없으면 부르지 않고 journal 에 `raon deferred=0`). 상한이 0 이면 레인은 꺼져 있다: 스크립트를 부르지 않고, journal
+   줄에 기다리는 파일의 수·목록 크기 합·파일 id 를 `raon deferred=N listed_bytes=… budget=0 status=lane-off files=…`
+   로 적고, 슬랙에 안내 한 줄(ℹ️, 🔴 아님)을 보내며, 이 레인 때문에 실패하지 않는다. 상한이 정수 바이트가 아니면
+   레인의 실패다. vworld 레인이 예산으로
    거부돼도 증거는 선택 묶음을 적으므로 레인은 서로 독립이다. journal 줄은 `| raon ... status=` 로 끝나고, 실패
    (전제 부족의 78 포함)는 그 레인의 실패로 슬랙 🔴 에 실린다. 실행 시작에 어제의 요약을 지운다.
 8. **부작용 전에 확인한다.** 스크립트는 환경(DB 비밀번호, Bronze 쓰기 설정), VWorld 로그인(이름 계약으로 —
@@ -91,12 +95,15 @@ VWorld 는 목록 크기가 약 500MB 를 넘는 파일(`LARGE_FILE_THRESHOLD_KI
    (주소가 답하지 않거나 바이트가 고정값과 다르면) 아무것도 받기 전에 레인이 실패한다. 런타임 비밀 계약에 run
    `raon-large-files` 를 더한다. 매일 훑기는 이 스크립트를 실행할 뿐 source 하지 않으므로 계약 검사가 따라가지
    않는다 — 시험이 이 스크립트의 요구가 매일 훑기 단위가 받는 것의 부분집합인지 본다.
-9. **상한은 0 에서 시작한다.** 엔드포인트 카탈로그의 `daily_collections.source_sweep.selection_archive_new_bytes_budget`
-   이 한 실행의 상한이다. 첫 값은 0 이다: 매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 하나도 받지 않고 몇 개·
-   얼마인지 알린다(그 수치가 첫 측정이다). 7월에 받은 행이 목록의 갱신일과 체크섬을 갖고 있으면 가진 것으로 읽혀
-   레인은 조용하다. 운영자가 아래 첫 감독 실행을 한 뒤, 측정한 하루 상한을 적는 PR 이 이 레인을 켠다. 운영자는 그
-   실행 하나의 값을 `FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET`, `FOUNDATION_RAON_LARGE_FILES_MAX_FILES` 로 바꾼다
-   (journal 에 `budget_override=1`).
+9. **상한은 0, 곧 레인 꺼짐에서 시작한다.** 엔드포인트 카탈로그의
+   `daily_collections.source_sweep.selection_archive_new_bytes_budget` 이 한 실행의 상한이다. 0 은 "레인 꺼짐"이다:
+   매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 받지 않고 몇 개·얼마·어느 파일인지 적고 알린다(그 수치가 첫
+   측정이다). 꺼진 레인을 실패로 읽으면 켜기 전까지 매일 훑기가 날마다 빨개져 다른 레인의 진짜 실패를 가린다.
+   7월에 받은 행이 목록의 갱신일과 체크섬을 갖고 있으면 가진 것으로 읽혀 레인은 조용하다. 양수 상한에서만 레인이
+   돌고, 그때 상한 초과는 하나도 받지 않는 실패다(5). 운영자가 아래 첫 감독 실행을 한 뒤, 측정한 하루 상한을 적는
+   PR 이 이 레인을 켠다. 운영자는 그 실행 하나의 값을 `FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET`,
+   `FOUNDATION_RAON_LARGE_FILES_MAX_FILES` 로 바꾼다(journal 에 `budget_override=1`). 매일 훑기도 같은 규칙으로
+   상한을 읽으므로, 카탈로그가 0 이어도 그 값을 준 실행은 레인을 돈다.
 
 ### 첫 감독 실행 (운영자, 배포 뒤)
 
@@ -126,8 +133,8 @@ raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
 ## Consequences
 
 - 받는 것: 목록에 선택 묶음으로 오르고, 같은 파일 번호의 최신 원장 행이 목록의 갱신일과 체크섬을 갖지 않은 파일.
-  7월의 RAON 수입이 갱신일을 적지 않았거나 다른 `operation`·출처로 적었다면 116개 전부가 여기에 들고, 상한 0 의
-  매일 실행이 그 수와 크기를 알린다. 저장소에서는 어느 쪽인지 알 수 없다(운영 원장을 조회하지 않았다).
+  7월의 RAON 수입이 갱신일을 적지 않았거나 다른 `operation`·출처로 적었다면 116개 전부가 여기에 들고, 레인이 꺼진
+  (상한 0) 매일 실행이 그 수와 크기를 안내 한 줄로 알린다. 저장소에서는 어느 쪽인지 알 수 없다(운영 원장을 조회하지 않았다).
 - 같은 판을 다시 받아도 내용 주소 키가 같아 쓰지 않는다. 판이 바뀌면 새 키로 곁에 쌓인다(덧붙이기만).
 - 이미지 build 는 제조사 주소에 의존한다. 그 주소가 사라지거나 바이트가 바뀌면 build 가 실패해 레인이 빨갛다 —
   조용히 다른 바이트를 설치하지 않는다. 새 판을 쓰려면 계약의 주소·sha256 을 PR 로 바꾼다(이미지 이름도 바뀐다).
@@ -145,4 +152,5 @@ raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
   이름, 고정값이 build 인자로 감, publisher 읽기 전용, 이름만 넘김, 계획만, 상한 초과, 운영자 덮어쓰기, 실패 파일,
   죽은 실행의 본문 정리, 주소·체크섬이 저장소에 한 번만 있음. 매일 훑기(`test_daily_source_sweep_command.py`): 넘길
   것이 없으면 부르지 않음, 오늘 증거로 부름, 78·상한 초과·실패가 빨강, vworld 레인 예산 초과와 독립, 어제 요약을 읽지
-  않음, 요구가 단위의 부분집합.
+  않음, 요구가 단위의 부분집합; 상한 0 이면 부르지 않고 수·크기·id 를 적고 안내 한 줄로 성공, 꺼진 레인이 다른 레인의
+  실패를 가리지 않음, 운영자 상한이 꺼진 레인을 돌림, 정수가 아닌 상한은 빨강.

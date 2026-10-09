@@ -237,8 +237,14 @@ Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않
 
 제공자가 RAON 에이전트로만 주는 파일(`SelectionArchive`, 목록 크기 약 500MB 초과)은 매일 훑기의 VWorld 레인이
 받지 않는다. 그 레인의 증거(`/var/lib/foundation-platform/source-sweep/vworld-evidence.json`)는 원장이 갖지 않은
-선택 묶음을 `selection_archives`에 `deferred_selection_archive`로 적고, 그런 파일이 있으면 매일 훑기가
-`scripts/ops/raon-large-files.sh run <증거>`를 부른다.
+선택 묶음을 `selection_archives`에 `deferred_selection_archive`로 적는다. 그런 파일이 있을 때 매일 훑기는 한 실행
+상한(아래 1)을 본다.
+
+- 상한 0 = 레인 꺼짐: `raon-large-files.sh`를 부르지 않는다. journal에
+  `| raon deferred=N listed_bytes=… budget=0 status=lane-off files=…`(기다리는 파일 id)를 적고, 슬랙에 안내 한 줄
+  (ℹ️, 🔴 아님)을 보낸다. 이 레인 때문에 매일 훑기가 실패하지 않는다.
+- 상한 양수: `scripts/ops/raon-large-files.sh run <증거>`를 부른다. 상한 초과·전제 부족·실패는 그 레인의 실패다.
+- 상한이 정수 바이트가 아니면 레인의 실패다(`status=invalid-budget`).
 
 1. 계획: `plan-provider-acquisition-jobs`가 증거와 증거가 읽은 목록(`file_inventory_path`)으로 작업을 만든다. 한
    실행의 상한은 엔드포인트 카탈로그의 `daily_collections.source_sweep.selection_archive_new_bytes_budget`이고, 작업
@@ -257,8 +263,9 @@ Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않
 
 ### 첫 감독 실행 (운영자)
 
-카탈로그의 상한은 0에서 시작한다: 매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 받지 않고 몇 개·얼마인지
-슬랙으로 알린다. 운영자가 아래 순서로 한 번 지켜본 뒤 측정한 상한을 PR로 카탈로그에 적어야 매일 실행이 받는다.
+카탈로그의 상한은 0(레인 꺼짐)에서 시작한다: 매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 받지 않고 몇 개·
+얼마·어느 파일인지 journal에 적고 슬랙에 안내 한 줄로 알린다(실패 아님). 운영자가 아래 순서로 한 번 지켜본 뒤 측정한
+양수 상한을 PR로 카탈로그에 적어야 매일 실행이 받는다.
 환경 파일은 계약이 정한다(`config/runtime-secrets.contract.json`의 run `raon-large-files`, 루트 ADR-0153).
 매일 단위(`foundation-source-sweep.service`)가 도는 동안에는 돌리지 않는다.
 

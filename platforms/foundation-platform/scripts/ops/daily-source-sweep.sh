@@ -10,9 +10,11 @@
 #           갖지 않는다. 같은 파일 번호·같은 제공자 갱신일·원장에 체크섬이 있으면 가진 것이다. 새 파일은
 #           내용 해시 키로 쓴다(ADR-0152). 가지지 않은 파일의 목록 크기 합이 카탈로그의 new_bytes_budget
 #           을 넘으면 하나도 받지 않고 실패한다 — 밀린 것은 운영자가 예산을 올려 일부러 받는다(런북).
-#   raon    제공자가 RAON 에이전트로만 주는 대용량 파일(ADR-0170). vworld 레인의 증거가 원장에 없는 선택
-#           묶음을 적었을 때만 scripts/ops/raon-large-files.sh 를 부른다. 그 스크립트의 전제(패키지·도커)가
-#           없으면 78 로 끝나고 이 레인은 실패다 — 조용히 건너뛰지 않는다.
+#   raon    제공자가 RAON 에이전트로만 주는 대용량 파일(ADR-0170). 한 실행 상한(카탈로그의
+#           selection_archive_new_bytes_budget)이 0 이면 레인은 꺼져 있다: 원장에 없는 선택 묶음의 수·목록
+#           크기·파일 id 를 journal 에 적고 슬랙에 안내 한 줄만 보낸다(실패 아님). 상한이 양수이고 증거가
+#           원장에 없는 선택 묶음을 적었을 때만 scripts/ops/raon-large-files.sh 를 부른다. 그 스크립트의
+#           전제(패키지·도커)가 없으면 78 로 끝나고 이 레인은 실패다 — 조용히 건너뛰지 않는다.
 #
 # 한 레인이 실패해도 다른 레인은 돈다. 신규 0 인 날도 journal 에 한 줄을 남긴다 — "아무 일도
 # 없었음"과 "확인 안 함"은 구별되어야 한다. 신규가 있거나 실패하면 슬랙 #alerts 가 안다.
@@ -151,13 +153,18 @@ PY
   FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_NEW_BYTES_BUDGET="${budget}" \
     "${PUBLISHER_BIN}" ingest-vworld-dataset-files; } >> "${run_log}" 2>&1 || vworld_rc=$?
 
-# 3. raon 레인(ADR-0170). vworld 레인이 원장에 없는 RAON 선택 묶음을 증거에 적었을 때만 돈다. vworld 레인이
-#    예산으로 거부됐어도 증거는 선택 묶음을 적으므로 레인은 서로 독립이다. 상한은 카탈로그의
-#    selection_archive_new_bytes_budget, 운영자가 그 실행 하나만 FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET 로 바꾼다.
+# 3. raon 레인(ADR-0170). 상한은 카탈로그의 selection_archive_new_bytes_budget, 운영자가 그 실행 하나만
+#    FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET 로 바꾼다 — raon-large-files.sh 와 같은 규칙이다. 상한 0 은
+#    "레인 꺼짐": 스크립트를 부르지 않고 4 에서 밀린 파일을 적고 안내만 한다. 상한이 양수이고 vworld 레인이
+#    원장에 없는 RAON 선택 묶음을 증거에 적었을 때만 돈다. vworld 레인이 예산으로 거부됐어도 증거는 선택
+#    묶음을 적으므로 레인은 서로 독립이다.
 raon_deferred="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1], encoding="utf-8")).get("deferred_selection_archive_file_count") or 0))' \
   "${vworld_evidence_path}" 2>/dev/null || echo 0)"
+raon_budget="${FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET:-$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["daily_collections"]["source_sweep"]["selection_archive_new_bytes_budget"])' \
+  "${CATALOG}" 2>/dev/null || true)}"
+[[ "${raon_budget}" =~ ^[0-9]+$ ]] || raon_budget=invalid
 raon_rc=0
-if [ "${raon_deferred}" -gt 0 ]; then
+if [ "${raon_deferred}" -gt 0 ] && [ "${raon_budget}" != invalid ] && [ "${raon_budget}" -gt 0 ]; then
   FOUNDATION_RAON_LARGE_FILES_SUMMARY_PATH="${raon_summary_path}" \
     "${RELEASE_ROOT}/scripts/ops/raon-large-files.sh" run "${vworld_evidence_path}" >> "${run_log}" 2>&1 || raon_rc=$?
 fi
@@ -165,9 +172,10 @@ fi
 # 4. 증거를 요약해 journal 한 줄 + 슬랙 알림으로 바꾼다. 증거가 없으면 그 레인은 실패다.
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
   "${FOUNDATION_SOURCE_SWEEP_VWORLD_NEW_BYTES_BUDGET:-}" "${vworld_inventory_path}" \
-  "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" <<'PY'
+  "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" <<'PY'
 import json, os, sys
-hub_path, hub_rc, vworld_path, vworld_rc, override, inventory_path, raon_deferred, raon_rc, raon_path = sys.argv[1:10]
+(hub_path, hub_rc, vworld_path, vworld_rc, override, inventory_path, raon_deferred, raon_rc, raon_path,
+ raon_budget) = sys.argv[1:11]
 
 def load(path):
     try:
@@ -178,7 +186,7 @@ def load(path):
 def gib(n):
     return f"{n / 2**30:.1f}GiB"
 
-failed, new_names, notes = [], [], []
+failed, new_names, notes, info = [], [], [], []
 hub = load(hub_path)
 if hub is None:
     hub_line = f"hub status=no-evidence rc={hub_rc}"
@@ -219,9 +227,25 @@ else:
     new_names += [f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}"
                   for f in vworld.get("files", []) if f.get("status") == "succeeded"]
 
-# The RAON lane (ADR-0170) runs only when the vworld evidence lists selection archives Bronze lacks.
-if raon_deferred == "0":
+# The RAON lane (ADR-0170): a cap of 0 is the lane switched off, which records what waits and says
+# so once (not a failure); a positive cap runs it when the vworld evidence lists selection archives
+# Bronze lacks.
+if raon_budget == "invalid":
+    raon_line = f"raon deferred={raon_deferred} status=invalid-budget"
+    notes.append("RAON 대용량 레인의 상한(selection_archive_new_bytes_budget 또는 "
+                 "FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET)이 0 이상의 정수 바이트가 아니다 (ADR-0170)")
+    failed.append("raon")
+elif raon_deferred == "0":
     raon_line = "raon deferred=0"
+elif raon_budget == "0":
+    waiting = [a for a in ((load(vworld_path) or {}).get("selection_archives") or [])
+               if a.get("status") == "deferred_selection_archive"]
+    listed = sum(a.get("size_bytes") or 0 for a in waiting)
+    ids = ",".join(f"{a.get('source_slug')}:{a.get('download_ds_id')}-{a.get('file_no')}" for a in waiting)
+    raon_line = f"raon deferred={raon_deferred} listed_bytes={listed} budget=0 status=lane-off files={ids}"
+    info.append(f"ℹ️ daily-source-sweep: RAON 대용량 파일 {raon_deferred}건 {gib(listed)}이 Bronze 에 없다 — "
+                f"레인이 꺼져 있어(상한 0) 받지 않았다. 받는 법은 런북 provider-acquisition-fargate.md "
+                f"'첫 감독 실행' (ADR-0170)")
 else:
     raon = load(raon_path)
     if raon is None:
@@ -246,7 +270,7 @@ else:
 
 names = ", ".join(new_names[:10]) + (f" 외 {len(new_names) - 10}건" if len(new_names) > 10 else "")
 print(json.dumps({"line": f"{hub_line} | {vworld_line} | {raon_line}", "failed": failed, "new": len(new_names),
-                  "names": names, "notes": notes}, ensure_ascii=False))
+                  "names": names, "notes": notes, "info": info}, ensure_ascii=False))
 PY
 )"
 field() { python3 -c 'import json, sys; v = json.loads(sys.argv[1])[sys.argv[2]]; print(" / ".join(v) if isinstance(v, list) else v)' "${summary}" "$1"; }
@@ -259,6 +283,10 @@ if [ -n "${failed_lanes}" ]; then
   notes="$(field notes)"
   notify_slack "🔴 daily-source-sweep: ${failed_lanes} 레인 실패 (${line})${notes:+ — ${notes}}"
   exit 1
+fi
+info="$(field info)"
+if [ -n "${info}" ]; then
+  notify_slack "${info}"
 fi
 if [ "${new_count}" != "0" ]; then
   notify_slack "📦 새 원천 파일 ${new_count}건 도착 — 오늘 반영할 것 (ADR-0077 §5): $(field names)"

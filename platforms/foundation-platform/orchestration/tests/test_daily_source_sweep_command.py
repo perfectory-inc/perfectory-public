@@ -147,6 +147,10 @@ class SweepCommand(unittest.TestCase):
         (release / "scripts/ops/raon-large-files.sh").chmod(0o755)
         (release / "docs/catalog").mkdir(parents=True)
         shutil.copy(CATALOG, release / "docs/catalog")
+        self.release_catalog = release / "docs/catalog" / CATALOG.name
+        # The large-file lane runs only under a positive cap (root ADR-0170); the tests that need it
+        # switched off say so with raon_cap(0), whatever the committed catalog holds today.
+        self.raon_cap(2**34)
         (release / "config").mkdir()
         shutil.copy(NAMING, release / "config")
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
@@ -177,6 +181,11 @@ class SweepCommand(unittest.TestCase):
             **{name: "planted-" + name.lower() for name in NEEDS},
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
+
+    def raon_cap(self, value):
+        catalog = json.loads(self.release_catalog.read_text(encoding="utf-8"))
+        catalog["daily_collections"]["source_sweep"]["selection_archive_new_bytes_budget"] = value
+        self.release_catalog.write_text(json.dumps(catalog), encoding="utf-8")
 
     def scenario(self, hub=HUB_QUIET, vworld=None, raon=None):
         (self.fake / "scenario.json").write_text(json.dumps({"hub": hub, "vworld": vworld or {}, "raon": raon}),
@@ -293,8 +302,56 @@ class SweepCommand(unittest.TestCase):
 
     # --- the large-file lane (root ADR-0170) ---
 
-    def archive(self, file_no, status="deferred_selection_archive"):
-        return vfile(file_no, status)
+    def archive(self, file_no, status="deferred_selection_archive", size_bytes=2**30):
+        return {**vfile(file_no, status), "size_bytes": size_bytes}
+
+    def test_a_zero_cap_switches_the_large_file_lane_off_and_says_what_waits(self):
+        self.raon_cap(0)
+        self.scenario(vworld={"evidence": vworld_evidence(
+            [vfile("8", "skipped_existing")],
+            archives=[self.archive("70", size_bytes=3 * 2**30), self.archive("71", size_bytes=2**30),
+                      self.archive("72", "skipped_existing", size_bytes=5 * 2**30)])},
+            raon={"rc": 1, "summary": None})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, "a switched-off lane is not a failure: " + result.stderr)
+        self.assertEqual(self.read("raon.log"), "", "the lane's script is not called at all")
+        line = self.journal().splitlines()[-1]
+        self.assertIn(f"raon deferred=2 listed_bytes={4 * 2**30} budget=0 status=lane-off", line)
+        self.assertIn("files=vworldkr__synthetic:9991-70,vworldkr__synthetic:9991-71", line)
+        self.assertNotIn("9991-72", line, "a held archive is not waiting")
+        message = self.read("slack.log")
+        self.assertEqual(len(message.splitlines()), 1, "one informational line")
+        self.assertIn("RAON 대용량 파일 2건", message)
+        self.assertNotIn("🔴", message)
+
+    def test_a_switched_off_lane_does_not_hide_another_lanes_failure(self):
+        self.raon_cap(0)
+        self.scenario(vworld={"rc": 1, "evidence": vworld_evidence([vfile("7", "failed")],
+                                                                   archives=[self.archive("70")])})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read("raon.log"), "")
+        failure = self.read("slack.log").split("레인 실패")[0]
+        self.assertIn("vworld", failure)
+        self.assertNotIn("raon", failure.split("daily-source-sweep:")[1])
+
+    def test_an_operator_cap_runs_the_lane_the_catalog_switched_off(self):
+        self.raon_cap(0)
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"summary": raon_summary()})
+        result = self.run_job({**self.env, "FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET": str(2**34)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("run ", self.read("raon.log"))
+
+    def test_a_cap_that_is_not_a_byte_count_is_a_failed_lane(self):
+        self.raon_cap("lots")
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"summary": raon_summary()})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.read("raon.log"), "")
+        self.assertIn("raon deferred=1 status=invalid-budget", self.journal())
+        self.assertIn("🔴", self.read("slack.log"))
 
     def test_without_deferred_archives_the_large_file_lane_does_not_run(self):
         self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")],
