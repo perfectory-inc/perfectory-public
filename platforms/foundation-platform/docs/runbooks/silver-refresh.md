@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Silver 레인 새로 고침 — 건축HUB 레인 런북
@@ -40,16 +40,28 @@ last_reviewed: 2026-10-09
 
    ```text
    silver-refresh-outcome lane=<레인> outcome=changed|unchanged reason=<…> release=<YYYYMM> identity=<…> rows=<…>
+   foundation-job-outcome changed|unchanged
    ```
+
+   둘째 줄은 모든 예약 작업이 끝에 찍는 줄이다(ADR-0171). `--plan` 은 찍지 않는다.
 
 레인은 한 번에 하나만 돈다. 각 레인이 compose `spark` 의 상한(20g) 전부를 쓰기 때문이다. 두 번째 레인은
 `refused: another lane holds …/refresh.lock` 로 75 를 내고 끝난다.
 
-## 2. 아직 예약 작업이 아니다
+## 2. 예약 작업으로서 (꺼진 채 등록)
 
-레인은 `orchestration/jobs.v1.json` 에 없다. `spark` 풀의 굶주림 상한이 이미 꽉 찼기 때문이다(ADR-0169 §5 ②).
-그래서 Airflow 는 이 유닛을 시작하지 않는다. 운영자가 다른 Spark 작업이 돌지 않을 때 시작한다. 예약 작업 DAG 를
-멈추는 법은 [예약 작업 운영](./production-orchestrator-cutover.md)에 있다.
+레인 다섯은 `orchestration/jobs.v1.json` 의 작업 `silver_refresh_building_register_*` 다
+([루트 ADR-0171](../../../../docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)).
+`started_by: inputs` 라서 source_sweep 이 새 파일을 받은 실행(`foundation-job-outcome changed`) 뒤에 곧 시작하고,
+07:00 UTC 에도 시작한다(대체 시각). `spark` 3 슬롯이라 한 번에 하나씩 돈다. 실행은 마지막 줄에
+`foundation-job-outcome changed|unchanged` 를 찍고, `changed` 면 Airflow 가 Gold 재생성을 시작한다.
+
+모두 `enabled: false` 다. 레인마다 3 절의 첫 감독 실행을 마친 뒤 켠다. 그때까지 Airflow 는 이 유닛을 시작하지
+않는다. 운영자가 다른 Spark 작업이 돌지 않을 때 시작한다. 예약 작업 DAG 를 멈추는 법은
+[예약 작업 운영](./production-orchestrator-cutover.md)에 있다.
+
+시간 한계는 150 분(유닛 `TimeoutStartSec`, 작업 `timeout_minutes` 160)이다. 이보다 길면 매시 접기가 굶주림 상한을
+넘는다(ADR-0171 §5). 첫 감독 실행이 150 분 가까이 걸리면 켜지 말고 그 수치로 결정을 다시 연다.
 
 ## 3. 레인의 첫 감독 실행
 
@@ -57,8 +69,9 @@ last_reviewed: 2026-10-09
 
 **먼저 알 것: 첫 `changed` 는 Gold 재생성과 굽기를 부른다.** 지금 Silver 의 판은 손 적재가 다른
 `source_snapshot_id` 로 넣었다. 그래서 첫 실행은 같은 월이어도 `changed` 다. 세 overwrite 레인은 표를 다시
-쓰고, 다음 `gold_panel_rebuild`(08:45)가 그것을 보고 Gold 를 다시 만든다. 그다음 by-PNU 굽기가 돈다(R2 쓰기 비용).
-원치 않으면 확인이 끝날 때까지 `gold_panel_rebuild` DAG 를 멈춘다.
+쓰고, 다음 `gold_panel_rebuild` 가 그것을 보고 Gold 를 다시 만든다. 그다음 by-PNU 굽기가 돈다(R2 쓰기 비용).
+`systemctl` 로 손수 시작한 실행은 Airflow 이벤트를 남기지 않으므로 Gold 는 대체 시각(08:45)에 돈다. 원치 않으면
+확인이 끝날 때까지 `gold_panel_rebuild` DAG 를 멈춘다.
 
 1. 릴리스가 상태 폴더와 승인을 만들었는지, 호스트에 환경 파일이 다 있는지 본다.
 
@@ -106,7 +119,9 @@ last_reviewed: 2026-10-09
    - 첫 실행의 시간과 Spark 최대 메모리를 적는다. `MemoryMax=4G`(내보내기)와 계약의 `driver_memory`(16g)는 아직
      실측이 아니다. 특히 면적은 1억 행을 한 묶음으로 넣는다.
 
-5. 그 레인을 예약에 올리는 일은 2 절의 결정 뒤에 별도 PR 로 한다(ADR-0122 §4).
+5. 측정한 시간이 150 분 안이면 그 레인의 `enabled` 를 `true` 로, `disabled_reason` 을 지우는 PR 을 낸다
+   (ADR-0122 §4). 마지막 줄 `foundation-job-outcome changed|unchanged` 가 `silver-refresh-outcome` 바로 뒤에
+   찍혔는지도 본다.
 
 공동주택가격 조합(`unit_official_price.py`, 시도마다 한 번)은 ④까지 손으로 돈다. 두 부분 레인이 같은 월을 가진
 뒤에 돌린다. `--vintage` 를 빼면 두 표가 함께 가진 가장 새 월을 쓰고, 한쪽만 새 월이면 거부한다.

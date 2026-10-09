@@ -215,6 +215,9 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("vworld planned=2 new=1 skipped=1 failed=0", line)
         self.assertIn("vworldkr__synthetic:9991-7", self.read("slack.log"))
         self.assertNotIn("planted-user", result.stdout + result.stderr + self.read("slack.log") + self.journal())
+        # New files landed: the lanes that read these sources start (root ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "changed")
 
     def test_a_killed_runs_spool_files_are_cleared_and_nothing_else(self):
         # A run killed mid-file (OOM, timeout) leaves its spool file; the next run starts empty.
@@ -246,6 +249,8 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("vworld planned=1 new=0 skipped=1", self.journal())
         self.assertIn("selection_archives_not_swept=3", self.journal(), "what the lane does not take is visible")
         self.assertEqual(self.read("slack.log"), "")
+        # Nothing new: no lane is started by this run.
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
 
     def test_a_run_over_the_budget_downloads_nothing_and_fails_loudly(self):
         budget = {"budget": 2**34, "pending_listed_bytes": 3 * 2**34, "pending_file_count": 40}
@@ -276,6 +281,8 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("ingest-vworld-dataset-files", self.read("calls.log"))
         self.assertIn("hub status=no-evidence", self.journal())
         self.assertIn("hub", self.read("slack.log"))
+        # A failed run states no outcome; Airflow records no events for it either way.
+        self.assertNotIn("foundation-job-outcome", result.stdout)
 
     def test_yesterdays_evidence_is_not_read_as_todays(self):
         self.scenario(vworld={"evidence": vworld_evidence([vfile("7", "succeeded")])})

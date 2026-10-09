@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 필지·건물 패널 Gold 재생성 — 예약 작업 런북
@@ -25,13 +25,18 @@ last_reviewed: 2026-10-09
 ## 1. 끝에서 끝까지
 
 ```text
-Silver 적재(FLOOR·수동 적재·백필)        행을 바꾼 새 Silver 스냅숏
-  → gold_panel_rebuild (08:45, spark 3슬롯)  계획: 새 Silver 있음 → 생산자 실행 → 새 Gold 스냅숏(판 기록 포함)
-  → by_pnu_serving_bake (10:15, spark 1슬롯) 서빙하지 않은 Gold 스냅숏 → 새 세대로 굽기
+Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바꾼 새 Silver 스냅숏
+  → gold_panel_rebuild (입력 이벤트 또는 08:45, spark 3슬롯)  계획: 새 Silver 있음 → 생산자 실행 → 새 Gold 스냅숏(판 기록 포함)
+  → by_pnu_serving_bake (Gold 이벤트 또는 10:15, spark 1슬롯) 서빙하지 않은 Gold 스냅숏 → 새 세대로 굽기
   → manifest 이동                           샤드 행 수 합 = Gold 행 수일 때만
 ```
 
-- Gold 작업은 굽기보다 먼저 예약되고 무게가 더 크다(3 > 1): 둘이 함께 기다리면 Gold 가 먼저 돈다.
+- 둘 다 `started_by: inputs` 다([루트 ADR-0171](../../../../docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)).
+  Silver 를 쓰는 작업의 실행이 `foundation-job-outcome changed` 로 끝나면 Gold 작업이 곧 시작하고, 표 하나라도
+  커밋하면 `changed` 로 끝나 굽기를 시작한다. 시각(08:45·10:15)은 대체 경로다. 손 적재는 이벤트를 남기지 않으므로
+  그날 08:45 에 반영된다. 급하면 Airflow 화면에서 그 Silver 자산(`iceberg://silver.<표>`)에 이벤트를 만들거나
+  `airflow-runtime.sh trigger gold_panel_rebuild` 로 시작한다.
+- Gold 작업은 무게가 굽기보다 크다(3 > 1): 둘이 함께 기다리면 Gold 가 먼저 돈다.
 - 굽기는 `takes_turns` 다. 이 작업이 켜진 뒤에는 Gold 작업이 한 번 시작한 뒤에야 굽기가 다시 시작한다.
 - 할 일이 없으면 둘 다 `nothing to do` 로 성공한다.
 

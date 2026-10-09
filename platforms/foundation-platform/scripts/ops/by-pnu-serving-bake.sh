@@ -58,6 +58,9 @@
 # orchestration/jobs.v1.json declares this (`capabilities`), and the first pack publish refuses a
 # release whose job does not.
 #
+# `all` ends with `foundation-job-outcome changed` when a lane published (a patch, a base or a
+# reflect-only manifest), `unchanged` otherwise (root ADR-0171).
+#
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
 # under the state root on /data.
@@ -69,10 +72,20 @@ case "${UNIT}" in
   building) LANE=BUILDING ;;
   all)
     status=0
+    # Each lane that publishes names itself here; the job's last line says whether any did (root
+    # ADR-0171).
+    BY_PNU_BAKE_PUBLISHED="$(mktemp)"
+    export BY_PNU_BAKE_PUBLISHED
     "${BASH_SOURCE[0]}" parcel || status=$?
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
     env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
       "${BASH_SOURCE[0]}" building || { lane_status=$?; ((status)) || status=${lane_status}; }
+    if [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
+      echo "foundation-job-outcome changed"
+    else
+      echo "foundation-job-outcome unchanged"
+    fi
+    rm -f "${BY_PNU_BAKE_PUBLISHED}"
     exit "${status}"
     ;;
   *) echo "by-pnu-serving-bake: expected parcel, building or all, got '${UNIT}'" >&2; exit 64 ;;
@@ -428,6 +441,7 @@ if [[ "${mode}" == reflect ]]; then
   fi
   summary[published]=reflect
   write_summary
+  [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]] || echo "${UNIT}" >>"${BY_PNU_BAKE_PUBLISHED}"
   log "published: the served ${LANE_SERVES} now reflect Gold snapshot ${gold}; nothing was baked"
   exit 0
 fi
@@ -612,6 +626,7 @@ fi
 rm -f "${progress}"
 summary[published]="${mode}" summary[documents]="${expected}" summary[tombstones]="${tombstones}"
 write_summary
+[[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]] || echo "${UNIT}" >>"${BY_PNU_BAKE_PUBLISHED}"
 # The shard summaries list every object or pack (hundreds of MB for a national object run). Keep
 # their counts.
 python3 -I - "${summary_dir}" <<'PY'

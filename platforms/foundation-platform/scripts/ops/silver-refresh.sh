@@ -12,7 +12,8 @@
 # to the admitted release, the runtime database connection and this invocation's Compose project,
 # and lets one lane run at a time: each takes the compose `spark` service's whole cap.
 #
-# The run's last line is `silver-refresh-outcome lane=… outcome=changed|unchanged reason=… …`.
+# The publisher's last line is `silver-refresh-outcome lane=… outcome=changed|unchanged reason=… …`;
+# a run then ends with `foundation-job-outcome changed|unchanged`, the same word (root ADR-0171).
 # `unchanged` means the Silver table's own snapshot summaries already record the release (or a
 # newer one): nothing was staged, exported or written.
 #
@@ -85,4 +86,17 @@ export FOUNDATION_PLATFORM_SILVER_REFRESH_JARS_DIR="${RELEASE_JARS_DIR}"
 # Spark (uid 185) writes the lane's work directory through the service account's group.
 FOUNDATION_PLATFORM_LAKEHOUSE_GID="$(id -g)"
 export FOUNDATION_PLATFORM_LAKEHOUSE_GID
-exec "${PUBLISHER_BIN}" run-silver-refresh
+if [[ "${PLAN}" == 1 ]]; then
+  exec "${PUBLISHER_BIN}" run-silver-refresh
+fi
+# Every line passes through as it comes. The publisher's outcome becomes the job's last line, the
+# one every scheduled job ends with (root ADR-0171): `changed` starts the Gold rebuild. A run that
+# fails prints none, and pipefail keeps its exit status.
+"${PUBLISHER_BIN}" run-silver-refresh | awk '
+  { print; fflush() }
+  /^silver-refresh-outcome / {
+    outcome = ""
+    if ($0 ~ / outcome=changed( |$)/) outcome = "changed"
+    if ($0 ~ / outcome=unchanged( |$)/) outcome = "unchanged"
+  }
+  END { if (outcome != "") print "foundation-job-outcome " outcome }'

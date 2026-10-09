@@ -6,11 +6,12 @@
   "pools": {
     "spark": {
       "slots": 3,
-      "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild takes all three (20g Spark) and runs alone. The host memory guard checks every combination these slots allow."
+      "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild and each hub Silver refresh lane take all three (20g Spark) and run alone. The host memory guard checks every combination these slots allow."
     }
   },
-  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
+  "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
+  "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
   "jobs": [
     {
       "id": "building_register_floor",
@@ -18,6 +19,7 @@
       "systemd_service": "foundation-building-register-floor.service",
       "systemd_timer": "foundation-building-register-floor.timer",
       "schedule": "20 8 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 250,
       "pool": "spark",
       "pool_slots": 3,
@@ -33,6 +35,7 @@
       "systemd_service": "foundation-source-sweep.service",
       "systemd_timer": "foundation-source-sweep.timer",
       "schedule": "40 3 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 250,
       "pool": "default_pool",
       "pipeline_graph_edges": [
@@ -48,6 +51,7 @@
       "systemd_service": "foundation-outbox-publish.service",
       "systemd_timer": "foundation-outbox-publish.timer",
       "schedule": "0,30 * * * *",
+      "started_by": "schedule",
       "timeout_minutes": 20,
       "pool": "default_pool",
       "pipeline_graph_edges": [
@@ -64,6 +68,7 @@
       "systemd_service": "foundation-map-edit-fold@admin.service",
       "systemd_timer": "foundation-map-edit-fold-admin.timer",
       "schedule": "35 * * * *",
+      "started_by": "schedule",
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 2,
@@ -82,6 +87,7 @@
       "systemd_service": "foundation-map-edit-fold@complex.service",
       "systemd_timer": "foundation-map-edit-fold-complex.timer",
       "schedule": "5 * * * *",
+      "started_by": "schedule",
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 2,
@@ -100,6 +106,7 @@
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 130,
       "pool": "spark",
       "pool_slots": 3,
@@ -122,6 +129,7 @@
       "systemd_service": "foundation-legal-dong-code.service",
       "systemd_timer": null,
       "schedule": "15 5 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 35,
       "pool": "default_pool",
       "pipeline_graph_edges": [
@@ -136,6 +144,7 @@
       "systemd_service": "foundation-vworld-parcel-edition.service",
       "systemd_timer": null,
       "schedule": "40 4 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 190,
       "pool": "default_pool",
       "retries": 0,
@@ -151,6 +160,7 @@
       "systemd_service": "foundation-parcel-number-change.service",
       "systemd_timer": null,
       "schedule": "25 5 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 50,
       "pool": "default_pool",
       "pipeline_graph_edges": [
@@ -164,6 +174,7 @@
       "systemd_service": "foundation-data-quality.service",
       "systemd_timer": null,
       "schedule": "20 7 * * *",
+      "started_by": "schedule",
       "timeout_minutes": 40,
       "pool": "default_pool",
       "pipeline_graph_edges": [],
@@ -172,11 +183,102 @@
       "started_once_after_deploy": true
     },
     {
+      "id": "silver_refresh_building_register_titles",
+      "description": "Silver refresh of the 표제부 lane `building-register-titles` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_titles already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-titles.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-titles"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_building_register_units",
+      "description": "Silver refresh of the 전유부 lane `building-register-units` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_units already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-units.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-units"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_building_register_unit_areas",
+      "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-unit-areas.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-unit-areas"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_building_register_apartment_price",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-apartment-price"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_building_register_exclusive_unit",
+      "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-exclusive-unit.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_panel_rebuild",
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their existing Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. It runs before the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their existing Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "schedule": "45 8 * * *",
+      "started_by": "inputs",
       "timeout_minutes": 165,
       "pool": "spark",
       "pool_slots": 3,
@@ -202,7 +304,7 @@
     },
     {
       "id": "by_pnu_serving_bake",
-      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section.",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
       "capabilities": [
         "building_section_pack_patches",
         "parcel_section_pack_patches"
@@ -210,6 +312,7 @@
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
       "schedule": "15 10 * * *",
+      "started_by": "inputs",
       "timeout_minutes": 1260,
       "pool": "spark",
       "pool_slots": 1,

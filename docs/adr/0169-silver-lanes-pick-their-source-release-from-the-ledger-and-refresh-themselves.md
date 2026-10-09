@@ -123,3 +123,7 @@
 - 손으로 잰 `objects[]` 는 과거 적재의 증거였다. 그 증거는 Silver 스냅숏 요약(`source_snapshot_id`)과 새 표가 대신한다.
 - 필지 판의 측정 도구(`vworld_parcel_edition_members.py`)는 필지 판 제안이 새 표를 읽게 될 때(5항 ④, 필지 경계)까지
   남는다. 그때 지운다; 그 전까지 ZIP 안 이름을 재는 곳이 둘이다.
+
+## 개정 기록
+
+- 2026-10-10: §4 의 데이터 기반 예약과 §5 ②의 "예약은 아직 아니다"는 [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md) 이 정했다. 레인 다섯은 `orchestration/jobs.v1.json` 의 작업(`silver_refresh_building_register_*`)이 되었고, source_sweep 이 새 파일을 받으면(`foundation-job-outcome changed`) 시작하며 07:00 이 대체 시각이다. 등록 방법은 선택지 (가)~(다)가 아니라 굶주림 셈법의 정정이다: 접기보다 가볍고 슬롯이 같거나 많은 작업은 접기를 앞지르지 못한다. 그래서 레인은 무게 4, 재시도 0, 유닛 `TimeoutStartSec=150m` 이고, 첫 감독 실행 전까지 꺼져 있다. 릴리스의 템플릿 승인 설치는 작업 목록 반복문이 맡는다. 위 결정 본문은 고치지 않았다.

@@ -86,6 +86,11 @@
       ],
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_titles": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_units": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_unit_areas": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_apartment_price": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_exclusive_unit": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "map_edit_fold_admin": [
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}

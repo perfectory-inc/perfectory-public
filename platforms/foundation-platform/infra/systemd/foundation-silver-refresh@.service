@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform Silver refresh of the %i lane: load the newest complete hub.go.kr release in the Bronze ledger, or report it unchanged (root ADR-0169)
+Description=Foundation Platform Silver refresh of the %i lane: load the newest complete hub.go.kr release in the Bronze ledger, or report it unchanged (root ADR-0169, ADR-0171)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -26,9 +26,13 @@ ExecStopPost=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh clea
 # FLOOR export's container is bounded (lakehouse-engine.contract.json execution_profile). Spark is
 # bounded by the compose `spark` cap, which the Docker daemon, not this unit, holds.
 MemoryMax=4G
-# FLOOR's bound. The largest national export measured by hand took 18 minutes (unit areas, root
-# ADR-0142); the first supervised run of each lane measures the whole run.
-TimeoutStartSec=4h
+# The largest national export measured by hand took 18 minutes (unit areas, root ADR-0142); the
+# first supervised run of each lane measures the whole run. The bound is what the spark pool's
+# starvation check lets five scheduled lanes hold (orchestration/jobs.v1.json timeout_minutes 160,
+# root ADR-0171 §5): an hourly fold may already wait 1,200 of its 1,200 minutes, and a lane that
+# held its slots longer than the Gold rebuild's 165 would push it over. A lane that needs longer
+# reopens that decision; it does not raise this line alone.
+TimeoutStartSec=150m
 TimeoutStopSec=120
 NoNewPrivileges=true
 PrivateTmp=true

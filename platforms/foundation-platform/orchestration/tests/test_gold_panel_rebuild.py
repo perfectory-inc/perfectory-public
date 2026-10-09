@@ -162,6 +162,9 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual(result.stdout.count("nothing to do"), 2, result.stdout)
         self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "gold_rebuild.py"])
         self.assertFalse(any("commits" in table for table in catalog.values()))
+        # Nothing committed: the bake is not started (root ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "unchanged")
 
     def test_newer_silver_rebuilds_with_the_pins_and_the_row_floor(self):
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(True, new_rows=1005), "all")
@@ -181,6 +184,14 @@ class GoldPanelRebuild(unittest.TestCase):
                          [{"rows": 1005, "pins": {"silver.a": "12", "silver.b": "21"}}])
         self.assertNotIn("commits", catalog["gold.parcel_panel"])
         self.assertIn("committed gold.building_panel: 1005 rows (floor 990)", result.stdout)
+        # One table committed: the run changed its outputs and starts the bake (root ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+
+    def test_a_dry_run_of_both_tables_changes_nothing(self):
+        result, _, catalog = self.rebuild(table_fixture(True), table_fixture(True), "all", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse(any("commits" in table for table in catalog.values()))
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
 
     def test_row_loss_beyond_the_tolerance_is_refused_and_nothing_is_committed(self):
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(True, new_rows=989), "building")
@@ -206,6 +217,8 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual([call["job"] for call in self.producer_calls(calls)],
                          ["parcel_panel_silver_to_gold.py", "building_panel_silver_to_gold.py"])
         self.assertEqual(len(catalog["gold.building_panel"]["commits"]), 1)
+        # The building table did change; the failed run records no events (its next start will).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
 
     def set_enabled(self, enabled):
         listing = json.loads(self.jobs.read_text(encoding="utf-8"))
@@ -319,6 +332,9 @@ class Registration(unittest.TestCase):
         bake = jobs["by_pnu_serving_bake"]
         # Waiting together, Airflow starts the heavier: the Gold first, then the bake.
         self.assertGreater(job["priority_weight"], bake["priority_weight"])
+        # Started by its Silver inputs, and the bake by it (root ADR-0171); on the fallback
+        # schedules too, the Gold comes first.
+        self.assertEqual((job["started_by"], bake["started_by"]), ("inputs", "inputs"))
         self.assertLess(int(job["schedule"].split()[1]), int(bake["schedule"].split()[1]))
         unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
         self.assertIn("gold-panel-rebuild.sh all", unit)
