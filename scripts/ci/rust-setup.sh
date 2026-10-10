@@ -50,8 +50,21 @@ for setting in "${settings[@]}"; do
   printf '%s\n' "$setting" >>"$GITHUB_ENV"
 done
 
-rustup toolchain install "$channel" --profile minimal \
-  --component rustfmt --component clippy --no-self-update
+# RUSTUP_MAX_RETRIES retries at once, so an outage longer than a few seconds
+# still fails the job: on 2026-10-10 a merge-queue run lost both identity jobs
+# when every retry of the channel manifest download ran out within 30 s. Wait
+# longer between whole attempts; a partial install is resumed by the next one.
+waits=(15 30 60 120)
+for attempt in 1 2 3 4 5; do
+  if rustup toolchain install "$channel" --profile minimal \
+    --component rustfmt --component clippy --no-self-update; then
+    break
+  fi
+  [ "$attempt" -lt 5 ] || fail "rustup could not install ${channel} after ${attempt} attempts"
+  wait_seconds="${waits[$((attempt - 1))]}"
+  echo "rust-setup: toolchain install attempt ${attempt} failed; retrying in ${wait_seconds}s" >&2
+  sleep "$wait_seconds"
+done
 rustup default "$channel"
 rustc --version
 cargo --version
