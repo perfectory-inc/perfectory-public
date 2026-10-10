@@ -45,7 +45,18 @@ if args[0] == "list-units":
         if fnmatch.fnmatch(unit, named[0]):
             print(f"{unit} loaded active running fixture")
     sys.exit(0)
+if args[0] in ("start", "status"):
+    import json
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write(json.dumps({"tool": "systemctl", "args": args}) + "\n")
+    sys.exit(0)
 sys.exit(f"fake systemctl: {args}")
+'''
+
+FAKE_JOURNALCTL = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps({"tool": "journalctl", "args": sys.argv[1:]}) + "\n")
 '''
 
 FAKE_HEALTH = r'''#!/usr/bin/env python3
@@ -65,7 +76,7 @@ class PackOperator(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         # What the operator reads from the release: its contracts, its secrets tool, its admission.
-        for part in ("config", "scripts/deploy", "infra/systemd"):
+        for part in ("config", "scripts/deploy", "infra/systemd", "orchestration"):
             shutil.copytree(PLATFORM / part, release / part)
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
@@ -89,7 +100,8 @@ class PackOperator(unittest.TestCase):
                       "jars/fixture.jar": "0" * 64}}))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        for name, body in (("systemd-run", FAKE_SYSTEMD_RUN), ("systemctl", FAKE_SYSTEMCTL)):
+        for name, body in (("systemd-run", FAKE_SYSTEMD_RUN), ("systemctl", FAKE_SYSTEMCTL),
+                           ("journalctl", FAKE_JOURNALCTL)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.bake = self.root / "data/by-pnu-bake"
@@ -128,6 +140,44 @@ class PackOperator(unittest.TestCase):
         env = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "-E")
         props = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
         return args, env, props
+
+    def test_silver_plan_runs_the_lanes_plan_as_the_service_with_its_contract_environment(self):
+        # 2026-10-10: the owner had to run and paste a sudo loop for every lane plan (root ADR-0178).
+        result, calls = self.run_operator("silver", "plan", "land-individual-price")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, props = self.unit(calls)
+        self.assertIn("--wait", args)
+        self.assertIn("--pipe", args)
+        self.assertEqual(args[-2:], ["land-individual-price", "--plan"])
+        self.assertTrue(args[-3].endswith("/scripts/ops/silver-refresh.sh"))
+        self.assertTrue(any(prop.startswith("EnvironmentFile=") for prop in props), props)
+
+    def test_silver_start_and_status_name_the_lanes_scheduled_unit(self):
+        result, calls = self.run_operator("silver", "start", "building-register-titles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
+                         [["start", "--no-block", "foundation-silver-refresh@building-register-titles.service"]])
+        result, calls = self.run_operator("silver", "status", "building-register-titles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c["tool"] == "journalctl" and
+                            "foundation-silver-refresh@building-register-titles.service" in c["args"] for c in calls))
+
+    def test_silver_start_waits_for_another_lane_and_the_gold_rebuild(self):
+        for active in (["foundation-silver-refresh@land-use-plan.service"],
+                       ["foundation-gold-panel-rebuild.service"]):
+            with self.subTest(active=active):
+                result, calls = self.run_operator("silver", "start", "land-characteristic", active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
+    def test_silver_takes_only_a_listed_lane_and_a_known_action(self):
+        for args in (("silver", "plan", "not-a-lane"), ("silver", "plan", "../../etc/passwd"),
+                     ("silver", "plan"), ("silver", "drop", "land-use-plan"),
+                     ("silver", "plan", "land-use-plan", "extra")):
+            with self.subTest(args=args):
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] in ("systemd-run", "systemctl")])
 
     def test_bake_runs_the_release_bake_script_with_the_contracts_files_and_memory_per_worker(self):
         # Nothing is baked yet: the bake is the one action that needs no summaries.
