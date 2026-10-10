@@ -27,7 +27,7 @@ identity-platform/
 ```
 
 문서 지도: [Identity docs](./docs/README.md) ·
-[전체 문서 색인](../../docs/document-catalog.md)
+[전체 문서 색인 생성 안내](../../docs/README.md)
 
 ## Quick start
 

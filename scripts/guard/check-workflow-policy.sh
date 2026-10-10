@@ -252,9 +252,10 @@ for workflow in "${workflows[@]}"; do
   # The shared Rust setup and its cache are skipped in a Foundation job whose
   # scope selector left it unselected: those steps verify nothing, and a cache
   # saved from an unselected run would store an empty target under the real key.
-  # The docs generated-artifact checks carry `!cancelled()` so one CI round
-  # reports every stale document instead of stopping at the first; that
-  # condition only widens execution and the job still fails on any of them.
+  # The docs checks carry `!cancelled()` so one CI round reports every failing
+  # document check instead of stopping at the first; that condition only widens
+  # execution and the job still fails on any of them. The job-summary step
+  # renders the uncommitted document reports (root ADR-0176) even after a check failed.
   # "Prepare npm advisory fix" runs only after the job has already failed and
   # turns the OSV report into a patch artifact (root ADR-0158); it gates nothing.
   foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
@@ -269,9 +270,9 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()") \
         || (step_name == "Check generated public-data catalog" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Check generated pipeline map and API example" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check generated document catalog" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check document audit report" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check generated foundation baseline" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check documents" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Check ADR names, headings and numbers" && step_if == "${{ !cancelled() }}") \
+        || (step_name == "Publish document reports to the job summary" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Set up Rust" && step_if == foundation_gate) \
         || (step_name == "Rust cache" && step_if == foundation_gate)
       if (!allowed) {

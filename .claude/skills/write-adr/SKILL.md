@@ -10,7 +10,11 @@ description: Use when recording a new architecture decision (ADR) anywhere in th
 - ALL new ADRs go to root `docs/adr/` with the next number in the root
   sequence. Next number = highest existing `NNNN-*.md` in `docs/adr/` + 1
   (check with `ls docs/adr/`). Filename: `NNNN-<kebab-case-title>.md`.
-- Add an index line to `docs/adr/README.md` in the same change.
+- Do NOT edit `docs/adr/README.md`: the index is the directory (root ADR-0176).
+  The first heading must be `# ADR NNNN: <title>` with the filename's number.
+  `python3 scripts/catalog/render-adr-index.py` prints the titled list;
+  `--check` (pre-push and CI) refuses a bad name, a mismatched heading, or a
+  number two files share — if a parallel PR took your number first, renumber.
 - Area `docs/adr/` sequences are FROZEN at their last numbers
   (gongzzang 0050, foundation 0027, identity 0001, intelligence 0001). Never
   add a new number there — even for an area-local decision, use the root

@@ -342,7 +342,7 @@ ADR-0006이 "승인된 편집이 있는 단위"를 PostGIS로 제공한다고 �
 혼합 표기 문서 수이며, 이를 번역해 식별자를 훼손하지 않는다. 계약·fixture JSON,
 `AGENTS.md`/`CLAUDE.md` 라우터,
 법률 고지는 원문 표기를 유지한다. 기술 식별자와 외부 제품명은 원래 표기를 보존하되,
-사람이 읽는 설명은 한글로 작성한다. 상세 결과는 [`document-audit.md`](../document-audit.md)에서 확인한다.
+사람이 읽는 설명은 한글로 작성한다. 상세 결과는 `python3 scripts/catalog/audit-documentation.py` 출력에서 확인한다(ADR-0176).
 
 ## 완료 판정
 
@@ -370,7 +370,7 @@ ADR-0006이 "승인된 편집이 있는 단위"를 PostGIS로 제공한다고 �
 - 로컬 감사: `audit-documentation.py --check` 통과(예외를 제외한 영문 전용 유지 문서 0개,
   혼합 표기 유지 문서 85개(기술 표기 포함), 명백한 영문 서술 문장 0개, 메타데이터 누락 0개, 링크 위반 0개,
   비의도적 파일명 중복 0개).
-- 자동 색인: `render-document-catalog.py --check` 통과.
+- 자동 색인: `render-document-catalog.py` 생성 성공(ADR-0176 이후 색인은 커밋하지 않는다).
 - 감사 단위 테스트: 17개 통과.
 - `git diff --check` 통과.
 - Git Bash 경로에서 Docker 기반 `scripts/ci/lychee-docs.sh`가 통과했다

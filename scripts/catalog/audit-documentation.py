@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Audit repository documentation without changing its source files."""
+"""Audit repository documentation without changing its source files.
+
+`--check --strict` is the gate: metadata, the `doc_type` vocabulary, broken local links, Korean
+prose, and unreferenced drafts. The report itself is not committed (root ADR-0176): it carried a
+row and a total per document, so every PR that added one rewrote the same lines and conflicted with
+every other. It is printed on demand (`--output PATH` writes it) and CI puts it in the job summary.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,6 @@ from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REPORT = ROOT / "docs/document-audit.md"
 REQUIRED_METADATA = ("status", "owner", "doc_type", "last_reviewed")
 # The `doc_type` vocabulary, owned here because prose could not keep it.
 #
@@ -237,11 +242,7 @@ def broken_local_links(source: Path, text: str) -> list[str]:
 def policy_violations() -> list[tuple[Path, str]]:
     """Find pseudo-path references and broken local Markdown links."""
     catalog = load_catalog_module()
-    output_paths = {
-        REPORT.relative_to(ROOT),
-        catalog.OUTPUT.relative_to(ROOT),
-    }
-    paths = [path for path in catalog.tracked_paths() if path not in output_paths]
+    paths = catalog.tracked_paths()
     violations: list[tuple[Path, str]] = []
     for path in paths:
         text = (ROOT / path).read_text(encoding="utf-8-sig")
@@ -255,11 +256,7 @@ def policy_violations() -> list[tuple[Path, str]]:
 
 def audit_rows() -> list[dict[str, object]]:
     catalog = load_catalog_module()
-    output_paths = {
-        REPORT.relative_to(ROOT),
-        catalog.OUTPUT.relative_to(ROOT),
-    }
-    paths = [path for path in catalog.tracked_paths() if path not in output_paths]
+    paths = catalog.tracked_paths()
     known = set(paths)
     inbound = Counter()
     texts: dict[Path, str] = {}
@@ -374,7 +371,7 @@ def review_reference_violations(rows: list[dict[str, object]]) -> list[dict[str,
     ]
 
 
-def render(rows: list[dict[str, object]]) -> str:
+def render(rows: list[dict[str, object]], violations: list[tuple[Path, str]]) -> str:
     language_counts = Counter(str(row["language"]) for row in rows)
     metadata_counts = Counter(
         "ok" if row["metadata"] == "ok" else
@@ -398,8 +395,7 @@ def render(rows: list[dict[str, object]]) -> str:
     duplicates = duplicate_basenames(paths)  # type: ignore[arg-type]
     intentional_duplicates = intentional_duplicate_basenames(paths)  # type: ignore[arg-type]
     lines = [
-        "<!-- GENERATED FILE. Do not edit by hand. -->",
-        "<!-- Render with: python3 scripts/catalog/audit-documentation.py --write -->",
+        "<!-- Rendered on demand: python3 scripts/catalog/audit-documentation.py (not committed, root ADR-0176) -->",
         "",
         "# perfectory 문서 감사 보고서",
         "",
@@ -413,7 +409,7 @@ def render(rows: list[dict[str, object]]) -> str:
         f"- 유지 문서의 명백한 영문 문장: **{len(english_sentences)}개**",
         f"- 메타데이터: **{metadata_counts['ok']}개 정상 / {metadata_counts['missing']}개 누락 / {metadata_counts['not_applicable']}개 해당 없음**",
         f"- 중복 파일명 후보: **{len(duplicates)}개**",
-        f"- 링크·참조 위반: **{len(policy_violations())}개**",
+        f"- 링크·참조 위반: **{len(violations)}개**",
         f"- 승인 전 문서 유입 링크 0건: **{len(review_orphans)}개**",
         "",
         "## 언어·메타데이터별 목록",
@@ -461,7 +457,6 @@ def render(rows: list[dict[str, object]]) -> str:
     else:
         lines.append("- 없음")
     lines.append("")
-    violations = policy_violations()
     lines += ["## 링크·참조 위반", ""]
     if violations:
         lines.extend(f"- `{path.as_posix()}` — {message}" for path, message in violations)
@@ -491,13 +486,23 @@ def render(rows: list[dict[str, object]]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--check", action="store_true", help="fail on link, language and draft violations")
+    parser.add_argument("--strict", action="store_true", help="fail on missing or unknown metadata")
+    parser.add_argument("--output", type=Path, help="write the report here instead of printing it")
     args = parser.parse_args()
-    rendered = render(audit_rows())
+    # Computed once: every check below reads the same rows, and recomputing them per check made the
+    # pre-push hook spend most of its time re-reading the same five hundred files.
+    rows = audit_rows()
+    if not (args.check or args.strict):
+        rendered = render(rows, policy_violations())
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(rendered, encoding="utf-8", newline="\n")
+        else:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stdout.write(rendered)
+        return 0
     if args.strict:
-        rows = audit_rows()
         failures = [row for row in rows if metadata_is_failure(str(row["metadata"]))]
         if failures:
             print(
@@ -508,15 +513,12 @@ def main() -> int:
                 print(f"  {row['path']}: {row['metadata']}", file=sys.stderr)
             return 1
     if args.check:
-        if not REPORT.exists() or REPORT.read_text(encoding="utf-8") != rendered:
-            print(f"stale document audit: {REPORT}", file=sys.stderr)
-            return 1
         violations = policy_violations()
         if violations:
             for path, message in violations:
                 print(f"documentation policy violation: {path}: {message}", file=sys.stderr)
             return 1
-        language_failures = human_language_violations(audit_rows())
+        language_failures = human_language_violations(rows)
         if language_failures:
             for row in language_failures:
                 print(
@@ -524,7 +526,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
             return 1
-        sentence_failures = english_sentence_violations(audit_rows())
+        sentence_failures = english_sentence_violations(rows)
         if sentence_failures:
             for path, line, _sentence in sentence_failures:
                 print(
@@ -532,7 +534,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
             return 1
-        review_orphans = review_reference_violations(audit_rows())
+        review_orphans = review_reference_violations(rows)
         if review_orphans:
             for row in review_orphans:
                 print(
@@ -540,10 +542,6 @@ def main() -> int:
                     file=sys.stderr,
                 )
             return 1
-        return 0
-    if args.write or not args.check:
-        REPORT.write_text(rendered, encoding="utf-8", newline="\n")
-        print(REPORT.relative_to(ROOT))
     return 0
 
 

@@ -5,6 +5,11 @@ Only statically derivable numbers belong here. A guard-chain pass count and a la
 test count are facts about a *run*, and the open/closed split of recorded debt is a judgment; both
 are owned elsewhere and are deliberately absent. A generator that reported them would be inventing
 a number rather than measuring one.
+
+The page is printed, not committed (root ADR-0176). Its ADR count and debt-item total changed with
+every ADR, and its table counts with every migration, so unrelated PRs rewrote the same lines and
+conflicted; a measurement anyone can reproduce with one command does not need a stored copy. CI
+prints it into the docs workflow's job summary.
 """
 
 from __future__ import annotations
@@ -17,9 +22,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "docs/roadmap/foundation-baseline.md"
-# Bumped by a person when this page's shape changes, never by the generator.
-LAST_REVIEWED = "2026-08-06"
 
 MIGRATIONS = ROOT / "platforms/foundation-platform/migrations"
 ADR_DIR = ROOT / "docs/adr"
@@ -203,23 +205,12 @@ def render() -> str:
     adr_count, debt_items = recorded_debt()
 
     lines = [
-        # A constant, not today's date: the numbers below are regenerated from the tree, but
-        # `last_reviewed` means "a human last looked at the shape of this page", and a clock here
-        # would make `--check` fail every night for no change anyone made.
-        "---",
-        "status: current",
-        "owner: repository-maintainers",
-        "doc_type: catalog",
-        f"last_reviewed: {LAST_REVIEWED}",
-        "---",
-        "",
-        "<!-- GENERATED FILE. Do not edit by hand. -->",
-        "<!-- Render with: python3 scripts/catalog/render-foundation-baseline.py -->",
+        "<!-- Rendered on demand: python3 scripts/catalog/render-foundation-baseline.py (not committed, root ADR-0176) -->",
         "",
         "# 기반 지표",
         "",
-        "> [기반 목표](./foundation-goals.md)가 판정에 쓰는 수치입니다. 목표와 근거는 그 문서가",
-        "> 소유하고, 이 파일은 수만 소유합니다.",
+        "> `docs/roadmap/foundation-goals.md`(기반 목표)가 판정에 쓰는 수치입니다. 목표와 근거는",
+        "> 그 문서가 소유하고, 이 출력은 수만 소유합니다.",
         "",
         "정적으로 재생산되는 수만 있습니다. 가드 통과 수와 레인 실행 테스트 수는 **실행해야 나오는**",
         "수이므로 실행 로그가 소유하고, 기록된 부채의 열림/닫힘 구분은 판정이므로 사람이 소유합니다.",
@@ -264,7 +255,7 @@ def render() -> str:
         f"- `남은 부채` 항목: **{debt_items}개**",
         "",
         "항목 수는 남은 일의 수가 아닙니다. 열림/닫힘은",
-        "[운영 준비 작업 목록](./production-readiness.md)의 표가 소유합니다.",
+        "`docs/roadmap/production-readiness.md`(운영 준비 작업 목록)의 표가 소유합니다.",
         "",
     ]
     return "\n".join(lines)
@@ -272,17 +263,15 @@ def render() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--output", type=Path, help="write the page here instead of printing it")
     args = parser.parse_args()
     rendered = render()
-    if args.check:
-        if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != rendered:
-            print(f"stale foundation baseline: {OUTPUT}", file=sys.stderr)
-            return 1
-        return 0
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(rendered, encoding="utf-8", newline="\n")
-    print(OUTPUT.relative_to(ROOT))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8", newline="\n")
+    else:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.write(rendered)
     return 0
 
 

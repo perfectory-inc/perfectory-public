@@ -27,7 +27,7 @@ foundation-platform/
 ```
 
 상세 문서는 [Foundation 문서 지도](./docs/README.md)와
-[전체 문서 색인](../../docs/document-catalog.md)에서 찾는다.
+[전체 문서 색인 생성 안내](../../docs/README.md)에서 찾는다.
 
 ## Workspace
 

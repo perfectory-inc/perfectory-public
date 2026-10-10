@@ -25,4 +25,4 @@ last_reviewed: 2026-07-29
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 
-전체 목록은 [문서 색인](../../../../docs/document-catalog.md)에서 확인한다.
+전체 목록은 [문서 색인 생성 안내](../../../../docs/README.md)에서 확인한다.

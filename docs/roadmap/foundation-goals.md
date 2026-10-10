@@ -38,7 +38,9 @@ last_reviewed: 2026-08-11
 **지표.** 정적으로 재생산되는 지표 = **6 / 6** — 2026-08-06 달성
 (canonical 표 총수, 생산자 없는 표, 상태 CHECK 수, 쓰는 경로 없는 값, ADR 수, 부채 항목 수)
 
-**재측정.** `python3 scripts/catalog/render-foundation-baseline.py --check`
+**재측정.** `python3 scripts/catalog/render-foundation-baseline.py` — 출력이 지표이며 저장소에
+사본을 두지 않는다([ADR-0176](../adr/0176-generated-docs-do-not-make-unrelated-prs-conflict.md);
+ADR 수 줄이 모든 ADR PR을 서로 충돌시켰다). `main`의 `docs` 워크플로 요약에도 실린다.
 
 **다섯 개뿐인 이유를 명시해 둔다.** 나머지 수치는 성격이 달라 생성기가 소유할 수 없다.
 가드 통과 82와 postgres 레인 119는 **돌려야 나오는 수**이므로 실행 로그가 소유한다.
@@ -46,8 +48,8 @@ last_reviewed: 2026-08-11
 검사하지 않는다 — 기계로 판정할 수 없기 때문이고, 이미 그렇게 문서화되어 있다. 생성할 수 없는
 수를 생성한다고 적으면 이 문서가 금지하려는 것을 스스로 하게 된다.
 
-선례는 이미 있다. `render-document-catalog.py`가 문서 색인을 생성하고 `docs.yml`이 `--check`로
-검사한다. 같은 형태를 기반 지표에 적용한다. **이 목표가 먼저인 이유**는 나머지 일곱 목표가 전부
+선례는 이미 있다. `render-document-catalog.py`가 문서 색인을 생성한다. 같은 형태를 기반 지표에
+적용한다(둘 다 처음엔 커밋한 사본을 `--check`로 대조했으나 ADR-0176 이후 출력만 둔다). **이 목표가 먼저인 이유**는 나머지 일곱 목표가 전부
 "수가 줄었는가"로 판정되기 때문이고, 손으로 관리되는 수는 이 저장소에서 이미 세 번 낡았다 —
 부채표, ADR 색인(0016·0017이 빠진 채 방치), 로드맵의 열림 개수(21로 남아 있었으나 실제 19).
 
@@ -150,7 +152,7 @@ ADR-0069). 남아 있던 것은 스키마였다. `catalog.parcel.kind` 와 `area
 
 **지표.** 쓰는 경로가 없는 상태값 = **7** → 0
 (`vector_tile_build_job` 6, `administrative_boundary_revision.superseded` 1 —
-[기반 지표](./foundation-baseline.md)가 생성)
+`render-foundation-baseline.py`가 생성)
 
 **재측정.** `python3 scripts/catalog/render-foundation-baseline.py`
 

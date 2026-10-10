@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Render a deterministic repository-wide document inventory."""
+"""Render a deterministic repository-wide document inventory.
+
+The inventory is printed, not committed (root ADR-0176). It held a total, a count per owner and per
+type, and one row per document in sorted order, so two PRs that each added an unrelated document
+rewrote the same lines and conflicted. It is derived from `git ls-files` alone, so it cannot be
+incomplete; run this script for a local copy, or read the docs workflow's job summary on `main`.
+"""
 
 from __future__ import annotations
 
@@ -12,8 +18,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "docs/document-catalog.md"
-AUDIT_OUTPUT = ROOT / "docs/document-audit.md"
 
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".adoc", ".json", ".yaml", ".yml"}
 ROOT_DOC_NAMES = {
@@ -44,10 +48,7 @@ def tracked_paths() -> list[Path]:
         if not raw:
             continue
         path = Path(raw.decode("utf-8"))
-        if path in {
-            OUTPUT.relative_to(ROOT),
-            AUDIT_OUTPUT.relative_to(ROOT),
-        } or "docs/superpowers" in path.as_posix():
+        if "docs/superpowers" in path.as_posix():
             continue
         if not (ROOT / path).is_file():
             continue
@@ -153,13 +154,12 @@ def render() -> str:
         by_owner[owner_for(path)].append(path)
 
     lines = [
-        "<!-- GENERATED FILE. Do not edit by hand. -->",
-        "<!-- Render with: python3 scripts/catalog/render-document-catalog.py -->",
+        "<!-- Rendered on demand: python3 scripts/catalog/render-document-catalog.py (not committed, root ADR-0176) -->",
         "",
         "# perfectory 전체 문서 색인",
         "",
         "> 이 문서는 현재 작업 트리의 문서 파일을 자동으로 세어 만든 탐색용 색인입니다. 문서 내용의 정본이 아닙니다.",
-        "> 새 문서는 설명하는 코드 또는 책임 영역 가까이에 두고, README에는 이 색인과 정본 문서 링크만 추가합니다.",
+        "> 새 문서는 설명하는 코드 또는 책임 영역 가까이에 두고, README에는 정본 문서 링크만 추가합니다.",
         "",
         "## 문서 규모",
         "",
@@ -205,7 +205,7 @@ def render() -> str:
         "",
         "## 유지 규칙",
         "",
-        "1. 이 파일을 직접 편집하지 않습니다. `render-document-catalog.py`가 생성합니다.",
+        "1. 이 색인은 저장소에 두지 않습니다. `render-document-catalog.py`가 필요할 때 출력합니다.",
         "2. 계약·fixture·코드가 읽는 경로는 참조를 확인하지 않고 이동하거나 삭제하지 않습니다.",
         "3. 같은 사실을 여러 문서에 복사하지 말고 소유 영역의 SSOT를 링크합니다.",
         "4. `review required`·`evidence` 문서는 현재 운영 지침으로 사용하지 않고 정리 상태를 확인합니다.",
@@ -216,17 +216,15 @@ def render() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--output", type=Path, help="write the inventory here instead of printing it")
     args = parser.parse_args()
     rendered = render()
-    if args.check:
-        if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != rendered:
-            print(f"stale document catalog: {OUTPUT}", file=sys.stderr)
-            return 1
-        return 0
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(rendered, encoding="utf-8", newline="\n")
-    print(OUTPUT.relative_to(ROOT))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8", newline="\n")
+    else:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.write(rendered)
     return 0
 
 

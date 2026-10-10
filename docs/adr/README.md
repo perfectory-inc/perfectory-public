@@ -2,220 +2,35 @@
 status: current
 owner: repository-maintainers
 doc_type: catalog
-last_reviewed: 2026-07-28
+last_reviewed: 2026-10-10
 ---
 
-# 전역 ADR 목록
+# 전역 ADR
 
 모노레포 전체에서 사용하는 단일 ADR 번호 체계입니다. 영역에만 적용되는 결정도 다음
 전역 번호를 사용합니다. 각 영역의 기존 `docs/adr/` 번호 체계는 마지막 번호에서
 동결하며, 영역 결정은 `GZ-ADR-NNNN`, `FP-ADR-NNNN`, `IDP-ADR-NNNN`,
 `ITP-ADR-NNNN`처럼 영역 접두사를 붙여 인용합니다.
 
-- [0001 — 모노레포 거버넌스와 규칙](./0001-monorepo-governance-and-conventions.md)
-- [0002 — 문서 분류와 보관](./0002-docs-taxonomy-and-archive.md)
-- [0003 — 문서 물리 배치](./0003-docs-physical-taxonomy.md)
-- [0004 — 검증 단일 진실 원천(`cargo xtask verify`)](./0004-verification-ssot.md)
-- [0005 — 훅은 조언, CI는 권위](./0005-hooks-advisory-ci-authoritative.md)
-- [0006 — 객체 저장소 우선 제공](./0006-object-storage-first-serving.md)
-- [0007 — 공개 코드 단일 원천과 비공개 운영 경계](./0007-public-code-private-operations-boundary.md)
-- [0008 — 수동 의존성 업데이트와 조직 브랜치](./0008-manual-dependency-updates-and-organization-branches.md)
-- [0009 — 한글 정본 문서와 다국어 확장 준비](./0009-korean-first-documentation-and-multilingual-readiness.md)
-- [0010 — 라이브 자원 테스트 레인 (`LiveLane`)](./0010-live-resource-test-lanes.md)
-- [0011 — 테스트 실행 집합 완전성](./0011-test-execution-set-completeness.md)
-- [0012 — 검증 결과는 그 문면대로여야 한다](./0012-verification-results-must-mean-what-they-say.md)
-- [0013 — 릴리스 유일성은 두 소스 종류를 함께 허용한다](./0013-release-uniqueness-admits-both-source-kinds.md)
-- [0014 — serving generation은 한 단위의 소스 선택만 추적한다](./0014-serving-generation-tracks-one-unit-source-selection.md)
-- [0015 — 키를 가진 Catalog mutation은 원장 하나를 쓴다](./0015-one-idempotency-ledger-for-keyed-catalog-mutations.md)
-- [0016 — PostGIS 적재는 신원을 가진 하나의 사실이다](./0016-a-postgis-projection-load-is-a-fact-with-an-identity.md)
-- [0017 — 데이터 리비전은 그것이 개정하는 단위에 속한다](./0017-a-data-revision-belongs-to-the-unit-it-revises.md)
-- [0018 — 두 언어가 같은 어휘를 적으면 대조한다](./0018-a-vocabulary-written-in-two-languages-is-compared.md)
-- [0019 — 소속은 한쪽의 컬럼이 아니라 기간을 가진 사실이다](./0019-membership-is-a-dated-fact-not-a-column.md)
-- [0020 — 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md)
-- [0021 — 아무도 읽지 않는 표면은 옮기지 않고 지운다](./0021-an-unread-surface-is-deleted-not-migrated.md)
-- [0022 — "현재"는 오늘이고, 그것을 말하는 뷰는 하나다](./0022-current-means-today-and-one-view-says-so.md)
-- [0023 — 편집은 원장의 행이지, 고쳐진 행에만 남는 것이 아니다](./0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md)
-- [0024 — 서빙 투영은 타일 계약이 지명한 것만 싣는다](./0024-the-serving-projection-carries-only-what-the-tile-contract-names.md)
-- [0025 — 필지 발행은 봉인된 Iceberg 증거 하나를 지명한다](./0025-parcel-publication-names-one-sealed-iceberg-evidence.md)
-- [0026 — 필지 증거 봉인자가 유일한 append 경계다](./0026-parcel-evidence-sealer-is-the-only-append-boundary.md)
-- [0027 — 모든 가드는 자기 위협 모델을 선언한다](./0027-every-guard-declares-its-threat-model.md)
-- [0028 — 공급망 취약점 게이트는 OSV 래칫을 함께 쓴다](./0028-supply-chain-vulnerability-gate-uses-an-osv-ratchet.md)
-- [0029 — 필지 발행 실행 증거는 terminal run에서 쓴다](./0029-parcel-publication-evidence-is-written-from-the-terminal-run.md)
-- [0030 — 필지 발행 증거는 서로 다른 두 승인을 구별한다](./0030-parcel-publication-evidence-requires-two-distinct-approvals.md)
-- [0031 — 필지 mirror run이 발행 scope와 limit을 봉인한다](./0031-parcel-mirror-run-seals-publication-scope.md)
-- [0032 — 제공기관 ID는 도메인 라벨에서 파생한다](./0032-provider-identity-is-derived-from-domain-label.md)
-- [0033 — 주소 출처가 없는 산업단지는 표현할 수 없다](./0033-an-industrial-complex-without-a-sourced-address-is-not-representable.md)
-- [0034 — 행정구역 코드는 자기 정밀도를 싣고 다닌다](./0034-an-administrative-code-carries-its-own-granularity.md)
-- [0035 — 쓰지 않는 지역은 필수가 아니다](./0035-a-region-the-pipeline-does-not-use-is-not-required.md)
-- [0036 — 가리켜지는 객체는 그것을 쓴 커맨드를 가진다](./0036-a-pointed-at-object-has-the-command-that-wrote-it.md)
-- [0037 — 포인터는 객체 키와 함께 주소 틀을 싣는다](./0037-a-pointer-carries-the-address-template-with-its-object-key.md)
-- [0038 — 가져가라고 만든 산출물은 정본 바이트와 버킷을 같이 쓰지 않는다](./0038-a-fetchable-artifact-does-not-share-a-bucket-with-the-canonical-bytes.md) (ADR-0039 로 대체됨)
-- [0039 — Gold 서빙 아티팩트는 lakehouse 버킷에 살고, 타일만 나간다](./0039-gold-serving-artifacts-live-in-the-lakehouse-bucket-and-tiles-do-not.md)
-- [0040 — 아무도 채우지 않는 컬럼은 필수일 수 없다](./0040-a-column-no-producer-fills-cannot-be-required.md)
-- [0042 — Silver 경계는 원천 CRS 를 그대로 싣는다](./0042-a-silver-boundary-carries-its-source-crs.md)
-- [0043 — 정본 id 는 다시 계산하지 않고 읽는다](./0043-a-canonical-id-is-read-not-recomputed.md)
-- [0044 — 사실의 이름을 단 컬럼은 그 사실을 담아야 한다](./0044-a-column-named-for-a-fact-must-hold-that-fact.md)
-- [0045 — 서빙 투영의 행은 리비전이 아니라 적재를 이름한다](./0045-a-serving-projection-row-names-its-load-not-its-revision.md)
-- [0046 — 수집된 파일에서 온 발행은 그 수집 기록을 이름한다](./0046-a-publication-names-the-object-it-was-collected-from.md)
-- [0047 — 고칠 수 있는 경계는 버리지 않고 고쳐서 싣는다](./0047-a-repairable-boundary-is-repaired-not-dropped.md)
-- [0048 — 발행된 feature id 에는 그 id 로 여는 조회구가 필요하다](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md)
-- [0049 — 사람이 훑는 컬렉션은 쪽나눔·필터·전체건수를 함께 발행한다](./0049-a-browsable-collection-is-paged-filtered-and-counted.md)
-- [0050 — 제공자가 이스케이프한 텍스트는 한 곳에서 한 번만 되돌린다](./0050-provider-escaped-text-is-unescaped-once-in-one-place.md)
-- [0051 — 포인터는 읽어 본 바이트에 대해서만 발행된다](./0051-a-pointer-is-published-only-against-bytes-that-were-read-back.md)
-- [0052 — 정적 아카이브는 자기가 대체하는 소스에서 굽는 조건을 읽는다](./0052-a-static-archive-reads-its-build-conditions-from-the-source-it-replaces.md)
-- [0053 — 정적 타일 포인터는 build ledger의 객체 사실에서 파생한다](./0053-a-static-tile-pointer-is-derived-from-build-ledger-facts.md)
-- [0054 — 정적 릴리스 도구는 실행 파일 신원 계약 하나를 가진다](./0054-static-release-tools-have-one-executable-identity-contract.md)
-- [0055 — 비공개 R2 Gold 프로필은 gateway를 통해 제공한다](./0055-private-r2-profile-gateway.md)
-- [0056 — Foundation의 무거운 게이트는 소유 입력이 바뀔 때만 일을 한다](./0056-heavy-foundation-gates-run-only-for-owned-inputs.md)
-- [0057 — 레이크하우스 재고는 현재 Iceberg 메타데이터를 읽는다](./0057-lakehouse-inventory-reads-current-iceberg-metadata.md)
-- [0058 — Foundation이 소유한 환경 이름은 소유자 계약 하나에서 나온다](./0058-repository-owned-environment-names-have-one-contract.md)
-- [0059 — Shapefile 파일은 API 봉투가 아닌 스트리밍 입구를 가진다](./0059-shapefile-files-have-a-first-class-streaming-ingress.md)
-- [0060 — Gold 아티팩트 정체성은 Catalog 쓰기 경계에서 푼다](./0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md)
-- [0061 — 거부된 필지 번호는 합계가 아니라 이름으로 남긴다](./0061-refused-parcel-numbers-are-named-not-totalled.md)
-- [0062 — 적재 묶음은 자기가 쓴 표 안에 스스로를 기록한다](./0062-an-ingest-batch-records-itself-in-the-table-it-writes.md)
-- [0063 — 검색을 못 좁히는 나누기는 파일만 쪼갠다](./0063-a-partition-that-cannot-narrow-a-search-only-splits-files.md)
-- [0064 — 필지 표는 벡터화 읽기 없이 읽는다](./0064-the-parcel-table-is-read-without-vectorization.md) *(원인 지목이 틀렸다. 2026-08-29 정정: Iceberg 판 문제이며 ADR-0065 가 잇는다)*
-- [0065 — 엔진 판 번호는 한 곳에만 적는다](./0065-an-engine-version-is-written-once.md)
-- [0066 — 한 파일에 들어가는 표는 나누지 않는다](./0066-a-table-that-fits-in-one-file-is-not-split.md)
-- [0067 — 필지 원천은 전국을 두 번 덮는다](./0067-the-parcel-source-covers-the-country-twice.md)
-- [0068 — 명령이 자기가 읽은 객체의 이름을 적는다](./0068-the-command-names-the-object-it-read.md)
-- [0069 — 한 칸에 다섯 가지가 들어 있다](./0069-one-column-holds-five-kinds-of-thing.md)
-- [0070 — 경계 원천은 필지의 용도도 면적도 나르지 않는다](./0070-the-boundary-source-carries-neither-use-nor-area.md)
-- [0071 — 스키마를 두고 온 배포는 끝난 배포가 아니다](./0071-a-deploy-that-leaves-the-schema-behind-has-not-finished.md)
-- [0072 — 호(戶)는 PNU 로 필지에 붙고, 못 붙는 행은 지어내지 않고 센다](./0072-units-attach-to-parcels-by-pnu-and-orphans-are-counted.md)
-- [0073 — 표제부가 필지와 호 사이의 건물을 채운다](./0073-the-title-register-fills-the-building-between-parcel-and-unit.md)
-- [0074 — 호는 자기 건물에 매달리고, NULL 도 답이다](./0074-a-unit-hangs-off-its-building-and-null-is-an-answer.md)
-- [0075 — 호 적재는 연결을 스스로 채운다](./0075-the-unit-load-fills-its-own-link.md)
-- [0076 — 건물은 자기 호를 답한다](./0076-a-building-answers-for-its-units.md)
-- [0077 — 관은 매일 원천을 살핀다](./0077-the-pipe-looks-at-its-sources-every-day.md)
-- [0078 — 공짱은 계보를 서빙하고, 빈 칸을 거짓으로 채우지 않는다](./0078-gongzzang-serves-the-lineage-and-tells-the-truth-about-blanks.md)
-- [0079 — outbox 는 시간표 위의 우체부를 갖는다](./0079-the-outbox-gets-a-postman-on-a-schedule.md)
-- [0080 — 발급자는 모든 루프백에서 응답한다](./0080-the-issuer-answers-on-every-loopback.md)
-- [0081 — 신원 엔드포인트는 계약 하나에서 파생된다](./0081-identity-endpoints-derive-from-one-contract.md)
-- [0082 — 필지 미러의 전국 주장은 계약에서 온다](./0082-the-parcel-mirror-takes-its-national-claim-from-the-contract.md)
-- [0083 — 필지는 토지이용계획 원장에서 용도지역을 배운다](./0083-a-parcel-learns-its-zoning-from-the-land-use-ledger.md)
-- [0084 — 등록부는 수집된 모든 객체를 안다](./0084-the-registry-knows-every-collected-object.md)
-- [0085 — 필지는 공시지가 원장에서 값을 배운다](./0085-a-parcel-learns-its-price-from-the-assessment-ledger.md)
-- [0086 — 파이프라인 그래프는 모든 데이터셋을 한 번씩 명명한다](./0086-the-pipeline-graph-names-every-dataset-once.md)
-- [0087 — 필지는 토지특성 원장에서 면적과 특성을 배운다](./0087-a-parcel-learns-its-characteristics.md)
-- [0088 — 필지는 임야대장에서 임야의 지목·면적을 배운다](./0088-a-parcel-learns-its-forest-ledger.md)
-- [0089 — 필지는 토지이동이력에서 제 연혁을 배운다](./0089-a-parcel-learns-its-transfer-history.md)
-- [0090 — 토지이동 사건의 정체성은 세 순번이다](./0090-a-transfer-event-is-named-by-three-sequences.md)
-- [0091 — 필지는 대지권 등록을 배운다](./0091-a-parcel-learns-its-land-rights.md)
-- [0092 — 건축HUB 대장 계열은 레이아웃 계약과 스트리밍으로 착지한다](./0092-hub-registers-land-through-layout-contracts-and-streams.md)
-- [0093 — 대지권의 정체성은 호 단위다](./0093-a-land-right-belongs-to-a-unit.md)
-- [0094 — 전유부는 가격과 세대를 잇는다](./0094-the-exclusive-register-bridges-prices-and-units.md)
-- [0095 — 세대 공시가격은 전유부를 통해 세대 정체성으로 재색인된다](./0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md)
-- [0096 — 필지 속성은 R2 미리구운 객체로 서빙한다](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md) (ADR-0147 로 대체됨)
-- [0097 — 의존성은 최신을 추종하고 버전 핀은 계약 한 곳에 산다](./0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md)
-- [0098 — pre-push 훅은 빠른 검사만 남기고 판정은 CI가 한다](./0098-the-pre-push-hook-keeps-only-fast-checks.md)
-- [0099 — 매일의 서빙 갱신은 바뀐 필지만 굽는다](./0099-daily-serving-updates-bake-only-changed-parcels.md)
+## 목록은 이 디렉터리다
 
-- [0100 — 건물·층·호는 독립된 by-PNU R2 객체로 서빙한다](./0100-buildings-floors-and-units-are-served-from-pre-baked-r2-objects.md) (ADR-0147 로 대체됨)
-- [0101 — 세대 공시가격은 모든 기준일을 보존한다](./0101-unit-prices-preserve-every-reference-date.md)
-- [0102 — 레이크하우스 잡은 R2 연결 리셋을 견딘다](./0102-lakehouse-jobs-survive-r2-connection-resets.md)
-- [0103 — 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md)
-- [0104 — 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md) (ADR-0143 로 대체됨)
-- [0105 — 정본 전이표는 도출된 크로스워크에서 나온다](./0105-the-canonical-transition-table-is-produced-from-the-derived-crosswalk.md)
-- [0106 — 등기 대지권 이름이 호 정규화를 교차확증한다](./0106-land-right-names-corroborate-unit-normalization.md)
-- [0107 — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다](./0107-the-normalized-unit-designation-is-derived-not-approved.md)
-- [0108 — R2 굽기로 대체된 PostgreSQL 서빙 투영을 순차 폐기한다](./0108-retire-the-postgres-serving-projections-superseded-by-r2-bakes.md)
-- [0109 — 공짱 백엔드는 필지·건물 상세를 R2 엣지에서 직접 읽는다](./0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md)
-- [0110 — 지도 타일 전량을 R2 정적 PMTiles 로 서빙하고 PostGIS 는 warm delta 로 축소한다](./0110-serve-all-map-tiles-from-r2-static-pmtiles.md)
-- [0111 — 지도 타일은 전국 기본판 위에 바뀐 타일만 갈아 끼우고, 엣지 Worker 가 서빙한다](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md)
-- [0112 — 지도 폴리곤 편집은 작은 저장소의 오버레이로 즉시 보이고, 주기 굽기가 타일에 접어 넣는다](./0112-map-polygon-edits-overlay-from-a-small-store-and-fold-into-bakes.md)
-- [0113 — 필지 계보와 고정 필지 ID 가 지역 개편·합병·분할을 코드로 흡수하고, 모든 지도 굽기 앞에서 폴리곤 매칭을 검문한다](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
-- [0114 — 더니어는 모노레포 안에 새로 짓는 직원 통합 콘솔이고, 고객 제품과 다른 자리(`consoles/`)에 둔다](./0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)
-- [0115 — 스튜어드는 API 하나로 필지 계보를 결정하고, 결정은 레이크하우스 계보 행으로 접힌다](./0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md)
-- [0116 — 더니어는 직원의 토큰을 자기 Rust 서버에만 두고, 브라우저에는 세션 쿠키만 준다](./0116-dawneer-keeps-staff-tokens-on-its-rust-server.md)
-- [0117 — 메타데이터는 데이터셋마다 계약 하나, 사람이 보는 곳은 데이터 카탈로그 하나다](./0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md)
-- [0118 — 예약된 데이터 작업은 Airflow 가 돌리고, 실행마다 계보를 남기며, 서버 프로그램도 버전·메모리를 한 곳에서 정한다](./0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md)
-- [0119 — 직원은 데이터 카탈로그를 더니어에서 읽고, 더니어는 Foundation 을 거쳐 DataHub 에 닿는다](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md)
-- [0120 — 파생 규칙이 바뀌면 같은 원천 객체를 그 규칙의 이름으로 한 번 더 쌓는다](./0120-a-changed-derivation-appends-the-same-source-object-once-more-under-its-label.md)
-- [0121 — 코드는 실제로 본 원천 글자만, 원천이 나눈 만큼 나눠, 원천의 뜻대로 이름 붙인다](./0121-codes-map-only-observed-source-words-one-to-one-and-say-what-the-source-says.md)
-- [0122 — Airflow 는 예약 작업의 systemd 유닛을 시작시키고 기다릴 뿐, 실행은 지금처럼 systemd 가 한다](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)
-- [0123 — 데이터 계약(ODCS)은 사실을 이미 가진 두 정본에서 생성한다](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md)
-- [0124 — 배포는 모든 레이크하우스 표를 계약에 맞춘다](./0124-a-deploy-brings-every-lakehouse-table-to-its-contract.md)
+ADR 목록은 이 디렉터리의 파일 목록이 정본입니다. 파일 이름이 번호 순서대로 정렬되고,
+각 파일의 첫 제목(`# ADR NNNN: <제목>`)이 그 결정의 제목입니다. 이 README에 결정마다 한 줄씩
+손으로 덧붙이던 목록은 두지 않습니다 — 결정을 기록하는 PR마다 같은 자리에 줄을 붙여 서로
+충돌했기 때문입니다([ADR-0176](./0176-generated-docs-do-not-make-unrelated-prs-conflict.md)).
 
-- [0125 — 호실의 건물 연결은 원천 부모 키와 근거를 함께 갖는다](./0125-unit-building-links-require-source-parent-key-evidence.md)
+제목이 붙은 목록이 필요하면 생성기로 출력합니다. `main`의 `docs` 워크플로 실행 요약에도
+같은 목록이 실립니다.
 
-- [ADR 0127: 층 자료의 DuckDB 임시 처리는 정규화와 공통 자원 계약을 보존한다](./0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md)
+```bash
+python3 scripts/catalog/render-adr-index.py           # 제목 목록 출력
+python3 scripts/catalog/render-adr-index.py --check   # 이름·제목·번호 중복 검사
+```
 
-- [ADR 0128: 층 입력은 Bronze 원장에, 재시도 시각은 실제 적재 커밋에 묶는다](./0128-floor-inputs-bind-to-bronze-and-scalar-retries-bind-to-their-append.md)
+## 새 ADR
 
-- [ADR 0129: 작업용 Spark는 종료되고 메모리 예산은 실제 실행 형태를 센다](./0129-compute-memory-counts-one-shot-spark-and-native-contracts.md)
-
-- [ADR-0130 — 필지·건물 조회자료는 입력 판 전체를 고정한다](./0130-panel-input-snapshots-are-complete-and-bound-before-spark.md)
-
-- [ADR-0131 — 지번 연결은 실제로 읽은 모든 입력에 묶는다](./0131-parcel-lineage-binds-every-input-and-derivation-identity.md)
-
-- [ADR-0132 — 새 버전은 켜져 있던 자동작업을 조용히 제거하지 않는다](./0132-release-activation-preserves-enabled-job-identities.md)
-
-- [ADR-0133 — 필지 타일은 레이크하우스에서 전국을 다시 굽는다](./0133-parcel-tiles-are-rebaked-nationally-from-the-lakehouse.md)
-
-- [ADR-0134 — 운영은 GitHub main 커밋만 설치하고, 산출물·설정은 불변 릴리스 밖에 둔다](./0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)
-
-- [ADR-0135 — 첫 판 동등성 검사는 옛 오븐이 지운 것을 가려 세고, 설명 못 하는 차이만 막는다](./0135-first-release-equivalence-classifies-what-the-old-oven-dropped.md)
-
-- [ADR-0136 — 릴리스 인증은 GitHub 로그인 없이 공개 저장소 identity를 읽는다](./0136-release-admission-reads-the-public-repository-identity-without-a-github-login.md)
-
-- [ADR-0137 — 릴리스 빌드의 상한은 측정에서 정하고, 빌드는 혼자 돈다](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)
-
-- [ADR-0138 — 예약 작업은 한 풀을 슬롯으로 나눠 쓰고, 메모리 예산은 슬롯이 허락하는 모든 조합을 센다](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)
-
-- [ADR-0139 — 필지·건물 패널 Gold 는 Silver 입력이 바뀌면 등록 작업이 다시 만든다](./0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md)
-
-- [ADR-0141 — by-PNU 서빙은 바뀐 문서만 패치 세대로 쌓는다](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md)
-
-- [ADR-0142 — 허브 대장의 PNU 손실은 조립에서 이름으로 거부하고, 적재에서 비율로 거부한다](./0142-hub-register-pnu-loss-is-refused-at-derivation-and-at-load.md)
-
-- [ADR-0143 — 법정동 코드 변경은 code.go.kr 에서 받는다 — 공식 짝은 변경안내 첨부, 날짜는 전체 표](./0143-legal-dong-code-changes-come-from-code-go-kr.md) (§3 은 ADR-0144 로 대체됨)
-
-- [ADR-0144 — 지역 코드 변경은 내려받은 데이터만으로 판단한다 — 게시판은 쓰지 않는다](./0144-region-code-changes-are-derived-from-downloaded-data-only.md)
-
-- [ADR-0145 — 지역 코드 변경의 정본은 하나다 — 코드 변경표와 필지 계보, 나머지는 거기서 파생한다](./0145-one-source-of-truth-for-region-code-changes.md)
-
-- [ADR-0146 — by-PNU 레인은 서빙 중인 것을 검증해 재기준하고, 반영 스냅숏은 태그로 고정한다](./0146-a-by-pnu-lane-is-re-based-by-verifying-what-it-serves-and-its-reflected-snapshot-is-pinned.md)
-
-- [ADR-0147 — 필지·건물 문서는 항목별 묶음 파일로 서빙한다](./0147-by-pnu-documents-are-served-from-section-packs.md)
-
-- [ADR-0148 — 연속지적도 판은 나란히 쌓고, 지번 근거는 변경마다 제 판 쌍으로 읽는다](./0148-cadastral-parcel-editions-are-held-side-by-side.md)
-
-- [ADR-0149 — 로컬 훅은 빠른 사전 필터이고, 훅의 모든 단계는 CI에서도 돈다](./0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md)
-
-- [ADR-0150 — 필지 번호 공식 이력은 동 단위 행부터 읽고, 먼저 기록된 파생 짝도 그것과 맞아야 한다](./0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md)
-
-- [ADR-0151 — 건물 묶음은 PNU 문서를 통째로 담고, Worker 는 그 바이트를 그대로 낸다](./0151-building-packs-serve-each-document-whole.md)
-
-- [ADR-0152 — 제공자가 파일 번호를 다시 쓰는 원천의 Bronze 키는 내용 해시를 담고, 수집은 부작용 전에 요건을 다 확인한다](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md)
-
-- [ADR-0153 — 운영 환경 파일과 그것을 읽는 단위·실행은 계약 하나가 정하고, 나머지는 거기서 만들거나 그것으로 검사한다](./0153-runtime-secrets-have-one-contract.md)
-
-- [ADR-0154 — 건물 게이트웨이는 버킷 옆에서 돌고, 묶음은 isolate 메모리에만, 답은 PNU 마다 엣지에 둔다](./0154-building-pack-read-path-is-placed-beside-the-bucket.md)
-
-- [ADR-0155 — CI 와 릴리스 빌드는 의존성 빌드를 내용 주소로 재사용하고, 병합은 머지 큐가 판정한다](./0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md)
-
-- [ADR-0156 — 파생 짝을 반박하는 것은 같은 변경의 결정적인 공식 근거뿐이다](./0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md)
-
-- [ADR-0157 — 카나리아 단계는 도달을 자기 답으로 세고, CPU 한도는 측정에서 정한다](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)
-
-- [ADR-0158 — npm 오버라이드는 정본 하나에서 생성하고, 새 권고는 준비된 변경으로 도착한다](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md)
-
-- [ADR-0159 — 서버는 검사를 통과한 main 을 스스로 받아 배포한다](./0159-the-host-deploys-main-by-itself-once-its-checks-pass.md)
-
-- [ADR-0160 — 필지·건물 by-PNU Worker 는 소스 하나를 레인만 바꿔 묶는다](./0160-one-by-pnu-gateway-source-serves-both-lanes.md)
-- [ADR-0161 — 묶음 전환의 루트 단계는 허용된 스크립트 하나로 실행한다](./0161-pack-cutover-root-steps-run-through-one-granted-script.md)
-- [ADR-0162 — 거부된 속도 관문은 측정 파일에 묶인 결정으로만 연다](./0162-a-refused-latency-gate-opens-only-by-a-pinned-owner-waiver.md)
-- [ADR-0163 — 큰 법정동 묶음은 한 번에 읽히는 크기의 조각으로 나눈다](./0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md)
-- [ADR-0164 — 패널 Gold 는 PNU 순서로 쓰고, by-PNU 굽기 조각은 자기 앞자리를 담을 수 있는 파일만 읽는다](./0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md)
-- [ADR-0165 — 더니어 운영 현황은 데이터 카탈로그의 실행·품질 기록과 작업 목록을 읽어 보인다](./0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md)
-- [ADR-0166 — 묶음 세대 굽기와 무조건 Gold 재생성도 허용된 운영 스크립트로 실행한다](./0166-pack-generation-bake-and-gold-rebuild-run-through-the-operator-script.md)
-- [ADR-0167 — 서버는 머지 큐가 통과시킨 트리를 바로 배포하고, 운영자가 띄운 유닛이 끝나길 기다린다](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md)
-- [ADR-0168 — 매일 훑기는 VWorld 토지 데이터셋도 받고, 하루 새 바이트 예산 안에서만 받는다](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md)
-- [ADR-0169 — Silver 레인은 원천 판을 장부에서 고르고, 예약 작업이 스스로 채운다](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)
-- [ADR-0170 — VWorld 대용량 파일은 데이터 호스트의 RAON 에이전트로 받는다](./0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md)
-- [ADR-0171 — 예약 작업은 시계가 아니라 실행이 바꾼 데이터로 잇는다](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)
-- [ADR-0172 — 매일 훑기의 VWorld 레인은 가지지 않은 것을 전부 받는다 — 바이트 예산 대신 안내 한 줄](./0172-the-daily-vworld-sweep-fetches-everything-it-lacks.md)
-- [ADR-0173 — 배포가 멈춘 DAG 는 배포가 어떻게 끝나든 조용히 멈춘 채로 남지 않는다](./0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md)
-- [ADR-0174 — 작업의 기록 줄과 실패한 실행 로그의 끝은 유닛 저널에 간다](./0174-a-jobs-journal-lines-reach-the-units-journal.md)
-- [ADR-0175 — Cloudflare Worker 도 서버가 main 을 배포한 뒤 스스로 따라 배포된다](./0175-workers-deploy-themselves-after-the-host-deploys-main.md)
+- 번호는 이 디렉터리의 가장 큰 번호 + 1, 파일 이름은 `NNNN-<kebab-case-제목>.md`입니다.
+- 첫 제목은 `# ADR NNNN: <제목>`이며 번호가 파일 이름과 같아야 합니다.
+- 이 README는 고치지 않습니다.
+- 두 PR이 같은 번호를 잡으면 파일 이름이 달라 텍스트 충돌은 나지 않지만, `--check`가
+  머지 큐에서 번호 중복으로 거부합니다. 나중 PR이 번호를 바꿉니다.

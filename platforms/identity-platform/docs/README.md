@@ -25,7 +25,7 @@ docs/
 - [Workload identity 발급·회전 런북](./runbooks/workload-identity-provisioning.md)
 - [영역 ADR](./adr/README.md)
 - [플랫폼 시작 안내](../README.md)
-- [전체 모노레포 문서 색인](../../../docs/document-catalog.md)
+- [전체 모노레포 문서 색인 생성 안내](../../../docs/README.md)
 
 ## 문서 배치
 
