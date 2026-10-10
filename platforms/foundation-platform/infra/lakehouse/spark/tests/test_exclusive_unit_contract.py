@@ -31,7 +31,8 @@ class ExclusiveUnitContractTest(unittest.TestCase):
         assert source["silver_refresh"]["table"] == "silver.building_register_exclusive_unit"
         assert source["silver_refresh"]["roles"] == {"source": "hubgokr__building_register_exclusive_unit"}
         assert source["handoff_layout"] == "manifest_parts"
-        assert source["rows_per_part"] == 10_000_000
+        # One Spark batch holds at most what the measured hand load held (4 parts of 10M rows).
+        assert source["rows_per_part"] * source["silver_refresh"]["spark"]["input_file_batch_size"] <= 40_000_000
         contract = load_lakehouse_contract("silver.building_register_exclusive_unit")
         columns = {c["name"]: c for c in contract["columns"]}
         assert set(columns) == set(source["columns"]) | {

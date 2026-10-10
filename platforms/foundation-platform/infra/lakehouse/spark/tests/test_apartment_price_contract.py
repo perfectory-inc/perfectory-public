@@ -27,7 +27,10 @@ class ApartmentPriceContractTest(unittest.TestCase):
         })
         self.assertTrue(all(v["meaning"] for v in c["columns"].values()))
         self.assertEqual(c["handoff_suffix"], ".jsonl.gz")
-        self.assertEqual(c["rows_per_part"], 10_000_000)
+        # A Spark batch holds what the measured hand load held (4 parts of 10M rows); the parts are
+        # smaller so the export writes them on several workers (hub_register_silver_export.rs).
+        spark = c["silver_refresh"]["spark"]
+        self.assertLessEqual(c["rows_per_part"] * spark["input_file_batch_size"], 40_000_000)
 
     def test_the_release_is_the_ledgers_not_the_contracts(self):
         # Root ADR-0169 §2: the contract keeps rules; which month loads is the Bronze ledger's.
