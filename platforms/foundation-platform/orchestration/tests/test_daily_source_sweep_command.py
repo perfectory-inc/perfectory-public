@@ -86,6 +86,20 @@ elif command == "ingest-vworld-dataset-files":
     vworld = scenario["vworld"]
     json.dump(vworld["evidence"], open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH"], "w"))
     sys.exit(vworld.get("rc", 0))
+elif command == "measure-bronze-object-members":
+    # What the measuring step was handed (names and whether set, never values).
+    seen = {name: name in env for name in (
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", "DATABASE_URL")}
+    seen["sources"] = env.get("FOUNDATION_PLATFORM_BRONZE_MEMBER_SOURCES")
+    json.dump(seen, open(os.path.join(state, "members-env.json"), "w"))
+    members = scenario["members"]
+    sys.stderr.write(members.get("stderr", ""))
+    if members.get("summary") is not None:
+        print("bronze-object-members-json " + json.dumps(members["summary"]))
+    sys.exit(members.get("rc", 0))
 else:
     sys.exit("unexpected command " + command)
 """
@@ -97,6 +111,8 @@ import json, os, sys
 state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "raon.log"), "a", encoding="utf-8") as log:
     log.write(" ".join(sys.argv[1:]) + "\n")
+with open(os.path.join(state, "calls.log"), "a", encoding="utf-8") as log:
+    log.write("raon-large-files.sh\n")
 raon = json.load(open(os.path.join(state, "scenario.json"), encoding="utf-8")).get("raon") or {}
 if raon.get("summary") is not None:
     json.dump(raon["summary"], open(os.environ["FOUNDATION_RAON_LARGE_FILES_SUMMARY_PATH"], "w"))
@@ -113,6 +129,15 @@ with open(os.path.join(os.environ["FAKE_STATE"], "slack.log"), "a", encoding="ut
 
 HUB_QUIET = {"evidence": {"selected_job_count": 3, "succeeded_job_count": 0, "skipped_job_count": 3,
                           "failed_job_count": 0, "status": "ready", "jobs": []}}
+
+
+def members_summary(measured=0, failed=0, members=0):
+    # The fields of bronze_object_members::Summary the sweep reads.
+    return {"schema_version": "x", "dry_run": False, "selected": measured + failed, "measured": measured,
+            "members": members, "failed": failed, "skipped": 0}
+
+
+MEMBERS_QUIET = {"summary": members_summary()}
 
 
 def vworld_evidence(files, status="ready", archives=()):
@@ -143,7 +168,8 @@ class SweepCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh"):
+        for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh",
+                     "bronze-object-members.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)
@@ -190,9 +216,9 @@ class SweepCommand(unittest.TestCase):
         catalog["daily_collections"]["source_sweep"]["selection_archive_new_bytes_budget"] = value
         self.release_catalog.write_text(json.dumps(catalog), encoding="utf-8")
 
-    def scenario(self, hub=HUB_QUIET, vworld=None, raon=None):
-        (self.fake / "scenario.json").write_text(json.dumps({"hub": hub, "vworld": vworld or {}, "raon": raon}),
-                                                 encoding="utf-8")
+    def scenario(self, hub=HUB_QUIET, vworld=None, raon=None, members=MEMBERS_QUIET):
+        (self.fake / "scenario.json").write_text(json.dumps({"hub": hub, "vworld": vworld or {}, "raon": raon,
+                                                             "members": members}), encoding="utf-8")
 
     def run_job(self, env=None):
         return subprocess.run(["bash", str(self.script)], env=env or self.env, capture_output=True, text=True,
@@ -325,6 +351,122 @@ class SweepCommand(unittest.TestCase):
                 self.assertIn(name, result.stderr)
                 self.assertEqual(self.read("calls.log"), "", "nothing reached a provider or Bronze")
                 self.assertFalse(self.state.exists(), "no state was written")
+
+    # --- ZIP members (root ADR-0169 §1) ---
+
+    def test_zip_members_are_measured_after_every_lane_with_the_read_only_pair(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")],
+                                                          archives=[self.archive("70")])},
+                      raon={"summary": raon_summary()}, members={"summary": members_summary(5, 0, 120)})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.read("calls.log").split()
+        self.assertEqual(calls[-1], "measure-bronze-object-members", calls)
+        self.assertEqual(calls.count("measure-bronze-object-members"), 1)
+        self.assertLess(calls.index("raon-large-files.sh"), calls.index("measure-bronze-object-members"))
+        seen = json.loads(self.read("members-env.json"))
+        self.assertTrue(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"])
+        self.assertTrue(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"])
+        self.assertFalse(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID"], "the writer pair is dropped")
+        self.assertFalse(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"])
+        self.assertTrue(seen["DATABASE_URL"])
+        # The default source list lives once, in bronze-object-members.sh; the sweep passes none.
+        members_script = (PLATFORM / "scripts/ops/bronze-object-members.sh").read_text(encoding="utf-8")
+        self.assertIn(f"DEFAULT_SOURCES='{seen['sources']}'", members_script)
+        self.assertNotIn(seen["sources"], SCRIPT.read_text(encoding="utf-8"))
+        self.assertIn("| members measured=5 failed=0", self.journal().splitlines()[-1])
+        # Measured, then the outcome: the Silver lanes the outcome starts find today's objects measured.
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+
+    def test_the_sweep_unit_loads_the_read_only_pair_for_the_members_step(self):
+        members = PLATFORM / "scripts/ops/bronze-object-members.sh"
+        self.assertLessEqual(runtime_secrets.script_requirements(members), set(NEEDS))
+        reader = {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                  "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"}
+        # Required by the sweep itself, so a missing reader file stops it before any lane runs.
+        self.assertLessEqual(reader, set(REQUIRED))
+        unit = (PLATFORM / "infra/systemd" / UNIT).read_text(encoding="utf-8")
+        self.assertIn("EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env", unit)
+
+    def test_a_measuring_failure_turns_the_sweep_red_and_keeps_what_landed(self):
+        landed = vfile("7", "succeeded")
+        landed["size_bytes"] = 2**20
+        self.scenario(vworld={"evidence": vworld_evidence([landed])},
+                      members={"rc": 1, "summary": members_summary(3, 2),
+                               "stderr": "cannot measure object_key=bronze/x.zip reason=reset\n"})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0, "a measuring failure is not a quiet day")
+        line = self.journal().splitlines()[-1]
+        self.assertIn("vworld planned=1 new=1", line, "what landed is still said")
+        self.assertIn("| members measured=3 failed=2", line)
+        message = self.read("slack.log")
+        self.assertIn("🔴", message)
+        self.assertIn("members", message.split("레인 실패")[0])
+        self.assertIn("  | cannot measure object_key=bronze/x.zip", result.stderr, "which objects, from the run log")
+        # A failed run states no outcome: the Silver lanes would refuse the unmeasured objects anyway.
+        self.assertNotIn("foundation-job-outcome", result.stdout)
+
+    def test_a_failed_count_with_a_zero_exit_is_still_red(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])},
+                      members={"rc": 0, "summary": members_summary(0, 1)})
+        self.assertNotEqual(self.run_job().returncode, 0)
+
+    def test_a_measuring_command_that_says_nothing_is_red(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])},
+                      members={"rc": 1, "summary": None})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("| members status=no-summary rc=1", self.journal().splitlines()[-1])
+
+    def test_measuring_runs_when_the_lanes_failed(self):
+        self.scenario(hub={"die": True}, vworld={"plan_dies": True}, members={"summary": members_summary(4)})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("measure-bronze-object-members", self.read("calls.log"))
+        self.assertIn("| members measured=4 failed=0", self.journal().splitlines()[-1])
+
+    # --- which files failed, and why (root ADR-0174) ---
+
+    def test_failed_files_and_their_reasons_reach_the_units_journal_masked(self):
+        # 2026-10-10: the journal said `failed=3` for VWorld and nobody could see which or why.
+        files = [{**vfile(str(n), "failed"), "error_message": f"provider answered 502 for file {n}"}
+                 for n in range(25)]
+        files[0]["error_message"] = ("connect postgres://foundation_admin:planted-password@127.0.0.1/foundation "
+                                     "refused\nsecond line\twith a tab " + "x" * 400)
+        files[1]["error_message"] = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret"
+        files[2]["error_message"] = None
+        self.scenario(vworld={"rc": 1, "evidence": vworld_evidence([*files, vfile("99", "succeeded")])})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        failed = [line for line in result.stderr.splitlines() if line.startswith("failed ")]
+        self.assertEqual(len(failed), 21, "twenty files and how many more")
+        self.assertEqual(failed[3], "failed vworldkr__synthetic:9991-3 provider answered 502 for file 3")
+        self.assertTrue(failed[0].startswith("failed vworldkr__synthetic:9991-0 connect postgres://foundation_admin:"
+                                             "***@127.0.0.1/foundation refused second line with a tab xxx"), failed[0])
+        reason = failed[0].split(" ", 2)[2]
+        self.assertEqual(len(reason), 200 + 3, "the reason is cut to 200 characters")
+        self.assertIn("SECRET_ACCESS_KEY=***", failed[1])
+        self.assertEqual(failed[2], "failed vworldkr__synthetic:9991-2 no reason recorded")
+        self.assertEqual(failed[-1], "failed vworld:+5 more failed files, not listed here")
+        self.assertNotIn("9991-99", "\n".join(failed), "a landed file is not a failure")
+        self.assertNotIn("planted-", result.stdout + result.stderr)
+
+    def test_a_failed_hub_file_names_itself(self):
+        hub = {"evidence": {**HUB_QUIET["evidence"], "failed_job_count": 1, "status": "blocked", "jobs": [
+            {"source_slug": "hubgokr__synthetic", "provider_file_id": "F-1", "status": "failed",
+             "error_message": "bearer planted-token rejected"},
+            {"source_slug": "hubgokr__synthetic", "provider_file_id": "F-2", "status": "skipped_existing"}]}}
+        self.scenario(hub=hub, vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        failed = [line for line in result.stderr.splitlines() if line.startswith("failed ")]
+        self.assertEqual(failed, ["failed hubgokr__synthetic:F-1 bearer *** rejected"])
+
+    def test_a_quiet_day_names_no_failed_file(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")])})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotRegex(result.stderr, r"(?m)^failed ")
 
     # --- the large-file lane (root ADR-0170) ---
 

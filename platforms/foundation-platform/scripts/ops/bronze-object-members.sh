@@ -17,8 +17,9 @@
 # FOUNDATION_PLATFORM_BRONZE_MEMBER_CONCURRENCY (기본 8). 다 잴 때까지 다시 돌리면 된다 — 이미 잰 객체는
 # 고르지 않는다.
 #
-# 매일: 매일 수집(daily-source-sweep.sh) 이 수집 뒤에 이 스크립트를 부른다(ADR-0169 §1). 그 연결은 sweep
-# 쪽 변경이고, 그때 sweep 단위가 lakehouse-reader 묶음을 함께 싣는다.
+# 매일: 매일 수집(daily-source-sweep.sh) 이 레인들 뒤에 이 스크립트를 인자 없이 부른다(ADR-0169 §1). sweep
+# 단위는 lakehouse-reader 묶음을 함께 싣는다. 한 실행은 위 개수 상한만큼만 재므로, 과거 객체는 매일 실행이
+# 상한씩 채우거나 운영자가 위 명령을 여러 번 돌려 채운다. 그 둘이 겹쳐도 같은 객체를 두 번 쓰지 않는다.
 #
 # 보장:
 # - 읽기 전용 키 한 쌍으로만 R2 를 읽는다. source-sweep 묶음이 함께 실어 오는 쓰기 키 쌍은 발행기를 띄우기

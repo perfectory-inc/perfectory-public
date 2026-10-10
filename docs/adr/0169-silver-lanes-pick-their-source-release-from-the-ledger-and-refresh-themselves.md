@@ -156,3 +156,21 @@
 ## 개정 기록
 
 - 2026-10-10: §4 의 데이터 기반 예약과 §5 ②의 "예약은 아직 아니다"는 [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md) 이 정했다. 레인 다섯은 `orchestration/jobs.v1.json` 의 작업(`silver_refresh_building_register_*`)이 되었고, source_sweep 이 새 파일을 받으면(`foundation-job-outcome changed`) 시작하며 07:00 이 대체 시각이다. 등록 방법은 선택지 (가)~(다)가 아니라 굶주림 셈법의 정정이다: 접기보다 가볍고 슬롯이 같거나 많은 작업은 접기를 앞지르지 못한다. 그래서 레인은 무게 4, 재시도 0, 유닛 `TimeoutStartSec=150m` 이고, 첫 감독 실행 전까지 꺼져 있다. 릴리스의 템플릿 승인 설치는 작업 목록 반복문이 맡는다. 위 결정 본문은 고치지 않았다.
+- 2026-10-10: §1 의 sweep 연결을 했다. `daily-source-sweep.sh` 가 세 레인(hub·vworld·raon) 뒤에
+  `scripts/ops/bronze-object-members.sh` 를 인자 없이 부른다 — 잴 원천의 기본 목록은 그 스크립트에, 한 실행 개수
+  (`FOUNDATION_PLATFORM_BRONZE_MEMBER_LIMIT`, 기본 2000)와 동시 객체 수(8)는 명령에 있고 sweep 은 다시 적지 않는다.
+  레인이 실패해도 돈다. sweep 단위는 `lakehouse-reader` 묶음을 함께 싣고(`config/runtime-secrets.contract.json`,
+  렌더한 `EnvironmentFile`), sweep 은 읽기 키 쌍을 부작용 전 필수 목록에 넣는다: 그 파일이 없으면 레인이 돌기 전에
+  78 로 멈춘다. journal 줄 끝에 `| members measured= failed= selected= members=` 가 붙고, 요약이 없으면
+  `| members status=no-summary rc=`.
+  - **측정 실패는 실패한 레인처럼 빨갛다.** 읽지 못한 객체가 있거나(`failed>0`, 명령이 0 이 아닌 값으로 끝남) 요약이
+    없으면 sweep 은 슬랙 🔴 와 함께 1 로 끝나고 결과 줄(`foundation-job-outcome`)을 내지 않는다. 받은 파일은 같은 줄의
+    `new=` 에 그대로 남는다(숨지 않는다). 결과 줄을 내지 않는 까닭: 실패한 실행은 결과를 말하지 않는다는 ADR-0171 의
+    규칙과 같고, 그날 결과 줄로 Silver 레인을 시작해도 못 잰 객체 앞에서 레인이 거부할 뿐이다. 실패로 남은 측정은
+    다음 실행이 다시 고르고(시도 횟수가 적은 것부터), Silver 레인에는 07:00 대체 시각이 있다.
+  - **과거 채우기.** 첫 실행들은 새 VWorld 파일(운영 약 880 개)과 지난 객체 전부를 잰다. 한 실행이 2000 개까지이므로
+    매일 sweep 만으로는 (못 잰 객체 수 ÷ 2000)을 올림한 만큼의 실행이 걸린다 — 1만 2천 개면 7 번. 객체마다 범위 GET
+    1–3 번(≤128 KiB)을 8 개씩이라 한 실행의 측정은 분 단위이고 단위 상한(8 시간)에 영향이 없다. 더 빨리 채우려면 운영자가
+    `bronze-object-members` 실행을 거듭 돌린다(겹쳐도 같은 객체를 두 번 쓰지 않는다). 줄의 `selected=2000`(상한)은 아직
+    남았을 수 있다는 뜻이고, 그보다 적으면 그 실행이 남은 것을 다 골랐다.
+  - 실패한 레인의 파일별 이유가 유닛 저널로 간다(ADR-0174 개정 기록).

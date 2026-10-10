@@ -160,7 +160,15 @@ Cookie header가 없으면 ingestor는 실행마다 한 번 로그인하고 반�
   `skipped_existing`, 갖지 않은 것은 `deferred_selection_archive` 로 증거의 `selection_archives` 에 따로 적고(`files`
   에는 들어가지 않는다) 그 수를 `deferred_selection_archive_file_count` 로 센다. 0 이 아니면 매일 훑기가 raon
   레인(`scripts/ops/raon-large-files.sh`)을 부른다 — [제공기관 수집 런북](./provider-acquisition-fargate.md)의
-  "데이터 호스트의 RAON 대용량 레인". journal 줄은 `| raon ...` 으로 끝난다.
+  "데이터 호스트의 RAON 대용량 레인". journal 줄의 `| raon ...` 다음에 `| members ...` 가 온다.
+- ZIP 안 이름(루트 ADR-0169 §1): 레인들 뒤에 매일 훑기가 `scripts/ops/bronze-object-members.sh` 를 인자 없이 불러
+  아직 잰 적 없는 Bronze ZIP 만 범위 읽기로 잰다(읽기 전용 키, 단위가 `lakehouse-reader.env` 를 싣는다). 한 실행
+  2000 개까지다. journal 줄 끝은 `| members measured= failed= selected= members=` 이고, 읽지 못한 객체가 있거나
+  명령이 요약 없이 끝나면 레인 실패처럼 🔴 이며 결과 줄을 내지 않는다(받은 파일은 같은 줄의 `new=` 에 남는다). 못 잰
+  객체는 다음 실행이 다시 잰다. 자세한 것은 [Silver 갱신 런북](./silver-refresh.md) 5 절.
+- 실패 파일: 실패한 레인이 증거에 실패 파일을 적었으면 `journalctl -u foundation-source-sweep.service` 에 레인마다
+  20 줄까지 `failed <원천>:<파일> <이유>` 가 나온다(이유는 가린 뒤 200 자, 루트 ADR-0174 개정 기록). 증거 파일을
+  `sudo` 로 열 필요가 없다.
 
 ### 밀린 파일과 실행 시간 (루트 ADR-0172)
 

@@ -49,3 +49,12 @@ foundation-source-sweep.service` 에는 "exit 1" 밖에 없었고, 이유(밀린
   publisher 와 Spark 가 비밀값을 찍지 않는다는 기존 규칙이 여전히 1차 방어다.
 - `set -E` 인 스크립트는 함수 안 실패에서 ERR trap 이 여러 번 돌 수 있고, 그만큼 같은 줄이 여러 번 나온다(이전에도
   파일에는 그랬다).
+
+## 개정 기록
+
+- 2026-10-10: 도우미에 셋째 함수 `job_failed_files` 가 생겼다. 2026-10-10 매일 훑기가 VWorld `failed=3` 을 냈지만
+  어느 파일이 왜 실패했는지는 root 만 읽는 증거 JSON 에만 있었다. 이제 실패한 레인이 증거에 실패 파일을 적었으면 훑기가
+  레인마다 20 줄까지 `failed <원천>:<파일> <이유>` 를 stderr 로 낸다(넘으면 `failed <레인>:+<n> …` 한 줄). 이유는
+  2 항과 같은 가림 표(도우미 안 한 곳)로 가린 **뒤** 200 자로 자른다 — 먼저 자르면 반쪽 비밀이 가림을 빠져나간다.
+  `failed ` 로 시작하므로 `foundation-job-outcome` 줄로 읽히지 않는다. 시험은 `test_job_journal.py` 와
+  `test_daily_source_sweep_command.py` 이고, 가림·출력·20 줄 상한을 빼면 깨진다(확인함). 위 결정 본문은 고치지 않았다.

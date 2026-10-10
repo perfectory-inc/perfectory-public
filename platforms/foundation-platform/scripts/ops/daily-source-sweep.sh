@@ -16,6 +16,15 @@
 #           크기·파일 id 를 journal 에 적고 슬랙에 안내 한 줄만 보낸다(실패 아님). 상한이 양수이고 증거가
 #           원장에 없는 선택 묶음을 적었을 때만 scripts/ops/raon-large-files.sh 를 부른다. 그 스크립트의
 #           전제(패키지·도커)가 없으면 78 로 끝나고 이 레인은 실패다 — 조용히 건너뛰지 않는다.
+#   members 세 레인 뒤, Bronze ZIP 안 파일 이름을 아직 잰 적 없는 객체만 잰다(root ADR-0169 §1):
+#           scripts/ops/bronze-object-members.sh 를 인자 없이 부른다 — 잴 원천의 기본 목록과 한 실행 개수
+#           (FOUNDATION_PLATFORM_BRONZE_MEMBER_LIMIT, 기본 2000)는 그 스크립트와 명령에만 있다. 읽기 전용
+#           키 쌍(lakehouse-reader 묶음)으로만 읽는다. 재지 못한 객체가 있거나 명령이 실패하면 이 단계는
+#           실패한 레인처럼 빨갛다: 받은 파일은 journal 줄의 new= 에 그대로 남고, 이 실행은 결과 줄을 내지 않는다.
+#           그 객체는 다음 실행이 다시 잰다(재지 못한 객체로는 Silver 레인이 어차피 거부한다).
+#
+# 실패한 레인이 증거에 실패 파일을 적었으면 레인마다 20 줄까지 `failed <원천>:<파일> <이유>` 를 stderr 로
+# 낸다(유닛 저널에 간다, 루트 ADR-0174). 이유는 job-journal.sh 가 가린 뒤 200 자로 자른다.
 #
 # 한 레인이 실패해도 다른 레인은 돈다. 신규 0 인 날도 journal 에 한 줄을 남긴다 — "아무 일도
 # 없었음"과 "확인 안 함"은 구별되어야 한다. 신규가 있거나 실패하면 슬랙 #alerts 가 안다.
@@ -29,6 +38,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152 §5). 이 목록이 단위의 환경 파일에 다 있는지는 저장소 검사가
 #    계약으로 본다(config/runtime-secrets.contract.json, scripts/deploy/runtime_secrets.py check; ADR-0153).
+#    읽기 전용 키 쌍(READER)은 members 단계의 것이다(ADR-0152, ADR-0169 §1). bronze-object-members.sh 도 없으면
+#    거부하지만 그때는 레인들이 이미 돈 뒤다.
 required_env=(
   FOUNDATION_ADMIN_PASSWORD
   FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER
@@ -38,6 +49,8 @@ required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 )
 missing=()
 for name in "${required_env[@]}"; do
@@ -71,9 +84,10 @@ vworld_plan_path="${STATE_ROOT}/vworld-plan.json"
 vworld_inventory_path="${STATE_ROOT}/vworld-inventory.json"
 vworld_evidence_path="${STATE_ROOT}/vworld-evidence.json"
 raon_summary_path="${STATE_ROOT}/raon-summary.json"
+members_output_path="${STATE_ROOT}/bronze-object-members.out"
 # Yesterday's evidence must not read as today's: a lane that dies before writing leaves none.
 rm -f "${evidence_path}" "${vworld_plan_path}" "${vworld_inventory_path}" "${vworld_evidence_path}" \
-  "${raon_summary_path}"
+  "${raon_summary_path}" "${members_output_path}"
 # A run killed mid-file (OOM, timeout) leaves its spool files; the next run starts empty.
 mkdir -p "${SPOOL_DIR}"
 find "${SPOOL_DIR}" -mindepth 1 -maxdepth 1 -name '.provider-*.part' -delete
@@ -161,13 +175,34 @@ if [ "${raon_deferred}" -gt 0 ] && [ "${raon_budget}" != invalid ] && [ "${raon_
     "${RELEASE_ROOT}/scripts/ops/raon-large-files.sh" run "${vworld_evidence_path}" >> "${run_log}" 2>&1 || raon_rc=$?
 fi
 
-# 4. 증거를 요약해 journal 한 줄 + 슬랙 알림으로 바꾼다. 증거가 없으면 그 레인은 실패다.
+# 4. ZIP 안 이름(root ADR-0169 §1). 레인이 실패해도 돈다 — 그때까지 받은 것과 지난날 못 잰 것을 잰다. 잴 원천과
+#    한 실행 개수는 그 스크립트·명령의 기본값이다. 요약 줄(`bronze-object-members-json`)은 stdout 에, 객체마다의
+#    경고는 실행 로그에 간다.
+members_rc=0
+"${RELEASE_ROOT}/scripts/ops/bronze-object-members.sh" > "${members_output_path}" 2>> "${run_log}" || members_rc=$?
+cat "${members_output_path}" >> "${run_log}" 2>/dev/null || true
+
+# 5. 증거를 요약해 journal 한 줄 + 슬랙 알림으로 바꾼다. 증거가 없으면 그 레인은 실패다.
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
   "${vworld_plan_path}" "${vworld_inventory_path}" \
-  "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" <<'PY'
+  "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" \
+  "${members_output_path}" "${members_rc}" <<'PY'
 import json, os, sys
 (hub_path, hub_rc, vworld_path, vworld_rc, plan_path, inventory_path, raon_deferred, raon_rc, raon_path,
- raon_budget) = sys.argv[1:11]
+ raon_budget, members_path, members_rc) = sys.argv[1:13]
+
+# Failed files and their reasons, per failed lane, for the unit's journal: the evidence naming them
+# is in the state directory, which an operator cannot read. job_failed_files masks and cuts them.
+FAILED_FILES_PER_LANE = 20
+failed_files = []
+
+def collect_failures(lane, entries):
+    entries = list(entries)
+    for ident, reason in entries[:FAILED_FILES_PER_LANE]:
+        # One line per file: a reason's own newlines and tabs would split it.
+        failed_files.append(f"{ident}\t{' '.join(str(reason or 'no reason recorded').split())}")
+    if len(entries) > FAILED_FILES_PER_LANE:
+        failed_files.append(f"{lane}:+{len(entries) - FAILED_FILES_PER_LANE}\tmore failed files, not listed here")
 
 def load(path):
     try:
@@ -190,6 +225,8 @@ else:
                 f"status={hub.get('status')}")
     if hub_rc != "0" or hub.get("failed_job_count"):
         failed.append("hub")
+        collect_failures("hub", ((f"{j.get('source_slug')}:{j.get('provider_file_id')}", j.get("error_message"))
+                                 for j in jobs if j.get("status") == "failed"))
     new_names += [f"{j.get('source_slug')}:{j.get('provider_file_id')}" for j in jobs if j.get("status") == "succeeded"]
 
 vworld = load(vworld_path)
@@ -221,6 +258,11 @@ else:
                     f"평소보다 많다(안내 기준 {gib(notice)}). 막지 않았다; 제공자가 과거 판을 다시 올렸는지 볼 것 (ADR-0172)")
     if vworld_rc != "0" or vworld.get("failed_file_count"):
         failed.append("vworld")
+        # A file the provider blocked fails the lane too unless the ingest deferred it (status says so).
+        collect_failures("vworld", (
+            (f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}",
+             f.get("error_message") or (f.get("status") if f.get("status") != "failed" else None))
+            for f in files if f.get("status") in ("failed", "provider_acquisition_blocked")))
     new_names += [f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}"
                   for f in vworld.get("files", []) if f.get("status") == "succeeded"]
 
@@ -262,12 +304,40 @@ else:
                          f"{gib(raon.get('budget') or 0)}을 넘어 하나도 받지 않았다 — 운영자가 상한을 올려 받는다 (ADR-0170)")
         if raon_rc != "0" or raon.get("status") not in ("ready", "nothing-to-fetch"):
             failed.append("raon")
+            collect_failures("raon", ((f"{f.get('source_slug')}:{f.get('provider_file_id')}", f.get("error_kind"))
+                                      for f in raon.get("files", [])
+                                      if f.get("status") == "failed" or f.get("error_kind")))
         new_names += [f"{f.get('source_slug')}:{f.get('provider_file_id')}"
                       for f in raon.get("files", []) if f.get("status") == "committed"]
 
+# ZIP members (root ADR-0169 §1): the command's last stdout line is its summary. A run that could not
+# read some objects, or failed outright, is a failed step: what landed stays in new= above, and the
+# objects are measured again next run.
+members = None
+try:
+    for raw in open(members_path, encoding="utf-8"):
+        if raw.startswith("bronze-object-members-json "):
+            members = json.loads(raw.split(" ", 1)[1])
+except (OSError, ValueError):
+    members = None
+if members is None:
+    members_line = f"members status=no-summary rc={members_rc}"
+    if members_rc == "78":
+        notes.append("ZIP 안 이름 측정의 설정(lakehouse-reader 읽기 키 등)이 없어 재지 않았다 — "
+                     "런북 silver-refresh.md 5 절 (ADR-0169 §1)")
+    failed.append("members")
+else:
+    members_line = (f"members measured={members.get('measured')} failed={members.get('failed')} "
+                    f"selected={members.get('selected')} members={members.get('members')}")
+    if members_rc != "0" or members.get("failed"):
+        notes.append(f"Bronze 객체 {members.get('failed')}건의 ZIP 안 이름을 읽지 못했다 — 다음 실행이 다시 잰다; "
+                     "객체 이름은 유닛 저널의 실행 로그 끝 (ADR-0169 §1)")
+        failed.append("members")
+
 names = ", ".join(new_names[:10]) + (f" 외 {len(new_names) - 10}건" if len(new_names) > 10 else "")
-print(json.dumps({"line": f"{hub_line} | {vworld_line} | {raon_line}", "failed": failed, "new": len(new_names),
-                  "names": names, "notes": notes, "info": info}, ensure_ascii=False))
+print(json.dumps({"line": f"{hub_line} | {vworld_line} | {raon_line} | {members_line}", "failed": failed,
+                  "new": len(new_names), "names": names, "notes": notes, "info": info,
+                  "failed_files": failed_files}, ensure_ascii=False))
 PY
 )"
 field() { python3 -c 'import json, sys; v = json.loads(sys.argv[1])[sys.argv[2]]; print(" / ".join(v) if isinstance(v, list) else v)' "${summary}" "$1"; }
@@ -279,6 +349,9 @@ job_journal "${journal}" "sweep ${line}"
 if [ -n "${failed_lanes}" ]; then
   notes="$(field notes)"
   echo "daily-source-sweep: failed lanes: ${failed_lanes}${notes:+ — ${notes}}" >&2
+  # Which files failed and why, from the evidence (masked, cut; ADR-0174's helper).
+  python3 -I -c 'import json, sys; print("\n".join(json.loads(sys.argv[1])["failed_files"]))' "${summary}" \
+    | job_failed_files || true
   job_run_log_tail "${run_log}"
   notify_slack "🔴 daily-source-sweep: ${failed_lanes} 레인 실패 (${line})${notes:+ — ${notes}}"
   exit 1

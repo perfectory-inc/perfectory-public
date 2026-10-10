@@ -12,8 +12,28 @@
 #                                   credentials in URLs, bearer tokens and *SECRET*/*PASSWORD*/*TOKEN*
 #                                   assignments masked. A run log holds a line per file downloaded, so
 #                                   only its end is relayed, and only when the run failed.
+#   job_failed_files                reads "<file id><TAB><reason>" lines on stdin and prints
+#                                   "failed <file id> <reason>" on stderr, the reason masked as above
+#                                   and then cut to 200 characters (masking first, so a cut cannot
+#                                   leave half a secret unmasked). The evidence that names a failed
+#                                   file and its reason is in the state directory, which an operator
+#                                   cannot read (2026-10-10: `failed=3` and nothing else).
 #
 # Neither function fails: both run inside ERR traps, where a second failure would hide the first.
+
+# The one masking table both relays use, as Python.
+_JOB_JOURNAL_MASK='
+import re, sys
+MASKS = (
+    (re.compile(r"(://[^/\s:@]+:)[^@\s]+@"), r"\1***@"),
+    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1***"),
+    (re.compile(r"(?i)\b([A-Z0-9_]*(?:SECRET|PASSWORD|TOKEN|ACCESS_KEY|API_KEY)[A-Z0-9_]*\s*[=:]\s*)\S+"), r"\1***"),
+)
+def mask(line, limit):
+    for pattern, replacement in MASKS:
+        line = pattern.sub(replacement, line)
+    return line[:limit] + "..." if len(line) > limit else line
+'
 
 job_journal() {
   local file="$1"
@@ -29,20 +49,20 @@ job_run_log_tail() {
     return 0
   fi
   printf 'last %s lines of %s:\n' "${lines}" "${file}" >&2 || true
-  tail -n "${lines}" -- "${file}" 2>/dev/null | python3 -I -c '
-import re, sys
-masks = (
-    (re.compile(r"(://[^/\s:@]+:)[^@\s]+@"), r"\1***@"),
-    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1***"),
-    (re.compile(r"(?i)\b([A-Z0-9_]*(?:SECRET|PASSWORD|TOKEN|ACCESS_KEY|API_KEY)[A-Z0-9_]*\s*[=:]\s*)\S+"), r"\1***"),
-)
+  tail -n "${lines}" -- "${file}" 2>/dev/null | python3 -I -c "${_JOB_JOURNAL_MASK}"'
 for raw in sys.stdin.buffer:
     line = raw.decode("utf-8", "replace").rstrip("\r\n").split("\r")[-1]
-    for pattern, replacement in masks:
-        line = pattern.sub(replacement, line)
-    if len(line) > 400:
-        line = line[:400] + "..."
-    print("  | " + line)
+    print("  | " + mask(line, 400))
+' >&2 || true
+  return 0
+}
+
+job_failed_files() {
+  python3 -I -c "${_JOB_JOURNAL_MASK}"'
+for raw in sys.stdin.buffer:
+    ident, _, reason = raw.decode("utf-8", "replace").rstrip("\r\n").partition("\t")
+    if ident:
+        print("failed " + " ".join(ident.split()) + " " + mask(" ".join(reason.split()), 200))
 ' >&2 || true
   return 0
 }

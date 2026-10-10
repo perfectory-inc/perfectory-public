@@ -287,7 +287,7 @@
         "source-vworld-dataset-to-silver-land-characteristic"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_forest_ledger",
@@ -305,7 +305,7 @@
         "source-vworld-dataset-to-silver-land-forest-ledger"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_individual_price",
@@ -323,7 +323,7 @@
         "source-vworld-dataset-to-silver-land-individual-price"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_right_registration",
@@ -341,7 +341,7 @@
         "source-vworld-dataset-to-silver-land-right-registration"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_transfer_history",
@@ -359,7 +359,7 @@
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_use_plan",
@@ -377,7 +377,7 @@
         "source-vworld-dataset-to-silver-land-use-plan"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "silver_refresh_land_use_zone_code",
@@ -395,7 +395,7 @@
         "source-vworld-dataset-to-silver-land-use-zone-code"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "gold_panel_rebuild",
