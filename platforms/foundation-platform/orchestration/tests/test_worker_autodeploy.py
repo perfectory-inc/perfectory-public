@@ -144,6 +144,9 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         (platform / "config").mkdir(parents=True)
         for name in ("worker-deploys.contract.json", "r2-connections.contract.json"):
             shutil.copy(PLATFORM / "config" / name, platform / "config" / name)
+        (platform / "scripts/deploy").mkdir(parents=True)
+        for name in autodeploy.TOOL_FILES:
+            shutil.copy(PLATFORM / name, platform / name)
         # The token's and the monitors' files live where the fixture's runtime-secrets contract says.
         secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         self.credential = root / "cloudflare-deploy.env"
@@ -370,6 +373,20 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.change("profile-gateway")
         self.assertEqual(self.tick(), 0)
         self.assertTrue((self.host.state / "workers/profile-gateway.json").exists())
+        self.assertFalse((self.host.state / "failed/profile-gateway.json").exists())
+
+    def test_a_fix_to_the_deployer_gets_fresh_attempts(self):
+        # 2026-10-10: map-edit failed on a deployer defect; its inputs did not change with the fix.
+        fail = {"FIXTURE_FAIL": "versions upload:foundation-profile-gateway"}
+        allowed = CONTRACT["attempts_per_change"]
+        for _ in range(allowed):
+            self.assertEqual(self.tick(**fail), 1)
+        self.assertEqual(self.tick(), 0)
+        self.assertFalse((self.host.state / "workers/profile-gateway.json").exists(), "tool A retried after giving up")
+        tool = self.tree / "platforms/foundation-platform/scripts/deploy/worker_autodeploy.py"
+        tool.write_text(tool.read_text() + "# the fix\n")
+        self.assertEqual(self.tick(), 0)
+        self.assertTrue((self.host.state / "workers/profile-gateway.json").exists(), "tool B did not retry")
         self.assertFalse((self.host.state / "failed/profile-gateway.json").exists())
 
     # -- when it does nothing --

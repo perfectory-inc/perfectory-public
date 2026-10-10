@@ -21,7 +21,7 @@ deployed a commit and on every tick that finds the host already on main's head. 
   and hold it to the smoke; a smoke that fails moves 100% back to the version that served before.
 
 A Worker that fails is tried again on later ticks while it is behind, at most the contract's
-attempts_per_change times for the same inputs; each failure exits 1 once so the unit's OnFailure
+attempts_per_change times for the same inputs and the same deployer files (TOOL_FILES); each failure exits 1 once so the unit's OnFailure
 reports it. A refusal is reported once until its reason changes. Every version id is logged.
 """
 
@@ -48,6 +48,9 @@ VERSION_ID = re.compile(r"Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 VARIABLE_TYPES = ("plain_text", "json")
 SECRET_TYPES = ("secret_text", "secret_key")
 WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
+# What decides how a Worker is deployed, under the platform directory of the control checkout.
+TOOL_FILES = ("scripts/deploy/worker_autodeploy.py", "scripts/deploy/worker-wrangler.sh",
+              "config/worker-deploys.contract.json")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -496,6 +499,9 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
         return 0
     try:
         workers, attempts_allowed = load_workers(tree)
+        # The deployer's own files: a failure is counted against the Worker's inputs and the tool
+        # that tried them, so a fix to the deployer gets fresh attempts without a hand on the host.
+        tool = fingerprint(tree, list(TOOL_FILES))
         behind = []
         for worker in workers:
             digest = fingerprint(tree, worker.inputs)
@@ -503,11 +509,13 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
             if done and done.get("fingerprint") == digest:
                 continue
             failed = read_json(host.state / "failed" / f"{worker.id}.json")
-            if failed and failed.get("fingerprint") == digest and failed.get("attempts", 0) >= attempts_allowed:
-                log(f"{worker.id}: gave up on these inputs after {failed['attempts']} attempts; waiting for a change "
-                    f"(or remove {host.state / 'failed' / (worker.id + '.json')} to try again)")
+            if not failed or failed.get("fingerprint") != digest or failed.get("tool") != tool:
+                failed = None
+            if failed and failed.get("attempts", 0) >= attempts_allowed:
+                log(f"{worker.id}: gave up on these inputs after {failed['attempts']} attempts with this deployer; "
+                    f"waiting for a change to either (or remove {host.state / 'failed' / (worker.id + '.json')})")
                 continue
-            behind.append((worker, digest, failed if failed and failed.get("fingerprint") == digest else None))
+            behind.append((worker, digest, failed))
         if not behind:
             return 0
         check_credential(host, credential)
@@ -528,7 +536,8 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
             failures += 1
             attempts = (failed or {}).get("attempts", 0) + 1
             write_json(host.state / "failed" / f"{worker.id}.json",
-                       {"fingerprint": digest, "commit": commit, "attempts": attempts, "error": str(failure)[:2000]})
+                       {"fingerprint": digest, "tool": tool, "commit": commit, "attempts": attempts,
+                        "error": str(failure)[:2000]})
             log(f"{worker.id}: the deploy of {commit} failed (attempt {attempts}): {failure}")
             continue
         write_json(host.state / "workers" / f"{worker.id}.json",
