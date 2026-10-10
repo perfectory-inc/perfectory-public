@@ -157,6 +157,10 @@ impl SpoolFile {
                 }
             }
         })
+        // An upload reads until the body ends and may ask once more: `unfold` panics when polled
+        // after it ended (2026-10-10 the daily sweep aborted on its first spooled file), a fused
+        // stream keeps answering `None`.
+        .fuse()
         .boxed()
     }
 }
