@@ -129,7 +129,7 @@ mod tests {
         validate_object_month("OPN20990901SYNTHETIC-UNIT.zip", month)?;
         for name in [
             "OPN20990831SYNTHETIC-UNIT.zip",
-            "OPN20981001SYNTHETIC-UNIT.zip",
+            "OPN20991001SYNTHETIC-UNIT.zip",
         ] {
             assert!(
                 validate_object_month(name, month).is_err(),
