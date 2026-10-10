@@ -35,6 +35,7 @@ refuse() { log "refused: $1"; exit "${2:-64}"; }
 DEFAULT_SOURCES='vworldkr__land*,hubgokr__*'
 
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 
 required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
@@ -54,15 +55,7 @@ export FOUNDATION_PLATFORM_RELEASE_ID="${RELEASE_ID}"
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — daily-source-sweep.sh 와 같은 재료로 조립한다. sweep 이
 # 부를 때는 이미 내보낸 값을 그대로 쓴다.
 if [ -z "${DATABASE_URL:-}" ]; then
-  : "${FOUNDATION_ADMIN_PASSWORD:?recovery.env must provide FOUNDATION_ADMIN_PASSWORD}"
-  DATABASE_URL="$(python3 - <<PY
-import os, urllib.parse
-q = lambda s: urllib.parse.quote(s, safe=str())
-port = os.environ.get("FOUNDATION_DB_PORT", "15434")
-print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
-      + "@127.0.0.1:" + port + "/foundation")
-PY
-)"
+  DATABASE_URL="$(foundation_database_url)"
   export DATABASE_URL
 fi
 

@@ -1,6 +1,7 @@
 \set ON_ERROR_STOP on
 
-REVOKE CREATE ON DATABASE foundation FROM foundation_migrator;
+-- The connected database (bootstrap-foundation.sql says why; root ADR-0177).
+REVOKE CREATE ON DATABASE :"DBNAME" FROM foundation_migrator;
 REVOKE CREATE ON SCHEMA public FROM foundation_migrator;
 
 DO $foundation_compose_role_contract$

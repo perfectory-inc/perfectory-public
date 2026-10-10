@@ -2,9 +2,13 @@
 
 mod conditional;
 mod copy;
+mod namespace;
 mod streaming;
 
 pub use conditional::ConditionalWrite;
+pub use namespace::{
+    R2KeyNamespace, RUNTIME_ENVIRONMENT_ENV, STAGING_KEY_PREFIX, STAGING_MULTIPART_THRESHOLD_ENV,
+};
 pub use streaming::{
     R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
 };
@@ -163,6 +167,8 @@ pub struct R2ObjectStorageConfig {
     pub access_key_id: String,
     /// R2 secret access key.
     pub secret_access_key: String,
+    /// The part of the bucket this client may name (root ADR-0177).
+    pub namespace: R2KeyNamespace,
 }
 
 impl R2ObjectStorageConfig {
@@ -212,6 +218,7 @@ impl R2ObjectStorageConfig {
                 .unwrap_or_else(|| "auto".to_owned()),
             access_key_id: required_env(access_key_env)?,
             secret_access_key: required_env(secret_key_env)?,
+            namespace: R2KeyNamespace::from_env()?,
         })
     }
 }
@@ -222,6 +229,7 @@ impl R2ObjectStorageConfig {
 pub struct R2ObjectStorage {
     client: Client,
     bucket_name: String,
+    namespace: R2KeyNamespace,
 }
 
 impl R2ObjectStorage {
@@ -248,11 +256,17 @@ impl R2ObjectStorage {
             // adaptive token bucket slows the whole client down until R2 stops pushing
             // back, which is the only client-side answer to an undocumented ceiling.
             .retry_config(RetryConfig::adaptive().with_max_attempts(8))
+            // Every request of this client is put in, and held to, its namespace (root ADR-0177).
+            .interceptor(namespace::R2NamespaceInterceptor::new(
+                config.namespace,
+                config.bucket_name.clone(),
+            ))
             .build();
 
         Self {
             client: Client::from_conf(storage_config),
             bucket_name: config.bucket_name,
+            namespace: config.namespace,
         }
     }
 
@@ -263,6 +277,12 @@ impl R2ObjectStorage {
     /// Returns `PublishError` when the required R2 configuration is missing.
     pub fn from_env() -> Result<Self, PublishError> {
         Ok(Self::from_config(R2ObjectStorageConfig::from_env()?))
+    }
+
+    /// The part of the bucket this client names (root ADR-0177).
+    #[must_use]
+    pub const fn namespace(&self) -> R2KeyNamespace {
+        self.namespace
     }
 
     /// Performs a write/read/delete round trip against R2 using a dedicated smoke object key.
@@ -501,16 +521,25 @@ impl R2ObjectStorage {
             PublishError::Broadcaster(format!("failed to list R2 inventory: {error}"))
         })?;
 
+        // A listing answers physical keys; the caller sees the logical ones (root ADR-0177).
         let common_prefixes = output
             .common_prefixes()
             .iter()
-            .filter_map(|prefix| prefix.prefix().map(ToOwned::to_owned))
+            .filter_map(|prefix| {
+                prefix
+                    .prefix()
+                    .and_then(|key| self.namespace.logical_key(key))
+            })
+            .map(ToOwned::to_owned)
             .collect();
         let objects = output
             .contents()
             .iter()
             .filter_map(|object| {
-                object.key().map(|key| R2InventoryObject {
+                let key = object
+                    .key()
+                    .and_then(|key| self.namespace.logical_key(key))?;
+                Some(R2InventoryObject {
                     key: key.to_owned(),
                     size_bytes: object.size().unwrap_or_default(),
                     e_tag: object.e_tag().map(str::to_owned),
@@ -562,7 +591,10 @@ impl R2ObjectStorage {
             })?;
 
             objects.extend(output.contents().iter().filter_map(|object| {
-                object.key().map(|key| R2InventoryObject {
+                let key = object
+                    .key()
+                    .and_then(|key| self.namespace.logical_key(key))?;
+                Some(R2InventoryObject {
                     key: key.to_owned(),
                     size_bytes: object.size().unwrap_or_default(),
                     e_tag: object.e_tag().map(str::to_owned),
@@ -884,7 +916,7 @@ impl ObjectStorageStreamingService for R2ObjectStorage {
         &self,
         request: StreamingPutObjectRequest,
     ) -> Result<(), PublishError> {
-        if streaming_put_requires_multipart(request.size_bytes) {
+        if self.namespace.requires_multipart(request.size_bytes) {
             return self.put_streaming_object_multipart(request).await;
         }
         let key = request.key;

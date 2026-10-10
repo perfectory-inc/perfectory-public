@@ -36,7 +36,7 @@ class StewardCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("legal-dong-code-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("legal-dong-code-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh", "database-url.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         shutil.copytree(PLATFORM / JOBS, release / JOBS, ignore=shutil.ignore_patterns("__pycache__"))

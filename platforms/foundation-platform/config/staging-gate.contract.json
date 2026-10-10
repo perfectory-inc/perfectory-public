@@ -1,0 +1,24 @@
+{
+  "$comment": "Root ADR-0177. What the staging smoke runs on a new release before production switches to it, and how long each step may take. scripts/ops/staging-smoke.sh is the only reader; scripts/deploy/foundation-release.sh `staging-smoke` starts it (between the admission build and the release switch of scripts/deploy/foundation-deploy.sh) and bounds the whole run by unit_limit_seconds. The staging key prefix lives in the R2 client (R2KeyNamespace, crates/foundation-outbox) and the staging database name in scripts/ops/database-url.sh; neither is restated here.",
+  "schema_version": 1,
+  "unit_limit_seconds": 4500,
+  "unit_limit_reason": "The migrator image build (up to an hour on a cold cache, the same build the release's `migrate` step runs a few minutes later and then finds cached) plus the smoke itself (target under ten minutes) plus margin. orchestration/tests/test_foundation_autodeploy.py holds foundation-autodeploy.service's TimeoutStartSec above the deploy's waits plus this.",
+  "unit_memory_max": "4G",
+  "unit_memory_reason": "The publisher's plan, inventory, streaming ingest and ranged member reads, measured in production at well under 1 GiB; no Spark, DuckDB or tile work runs here. The host's budget (tools/host-memory-budget.contract.json) counts this as host_reserved, and the deploy runs it while every registered job is drained.",
+  "steps": {
+    "clear": { "timeout_seconds": 180, "what": "empty the staging/ namespace: every run lands its sample afresh, and staging never holds more than one run" },
+    "image": { "timeout_seconds": 3600, "what": "build the release's runtime image (the migrator) under a staging tag" },
+    "database": { "timeout_seconds": 300, "what": "drop and create foundation_staging, then the release's bootstrap, migrations, grants and finalize: the schema chain from empty" },
+    "plan": { "timeout_seconds": 300, "what": "hub and VWorld collection plans and the VWorld file inventory against the real providers, read-only" },
+    "ingest": { "timeout_seconds": 600, "what": "the sample through the daily sweep's VWorld lane settings into staging Bronze and foundation_staging" },
+    "measure": { "timeout_seconds": 180, "what": "bronze-object-members on the landed sample with the read-only key pair" }
+  },
+  "sample": {
+    "smallest_files": 2,
+    "multipart_files": 1,
+    "multipart_threshold_bytes": 33554432,
+    "multipart_max_bytes": 536870912,
+    "reason": "The two smallest listed files take the single-PUT spooled path, and the smallest file of at least multipart_threshold_bytes takes the multipart path the 2026-10-10 sweep panicked on: the staging R2 client goes multipart from this threshold instead of production's 4 GiB, so a file of tens of megabytes exercises it. multipart_max_bytes keeps the download bounded; the RAON selection archives (over about 500 MB) are never sampled."
+  },
+  "retention": "one run: each smoke empties staging/ and recreates foundation_staging before it starts, so the last run's objects and rows stay for inspection until the next deploy and never accumulate."
+}

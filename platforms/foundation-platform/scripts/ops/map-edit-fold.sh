@@ -11,6 +11,7 @@
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
@@ -47,15 +48,7 @@ esac
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — daily-source-sweep.sh 와 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then
-  : "${FOUNDATION_ADMIN_PASSWORD:?recovery.env must provide FOUNDATION_ADMIN_PASSWORD}"
-  DATABASE_URL="$(python3 - <<PY
-import os, urllib.parse
-q = lambda s: urllib.parse.quote(s, safe=str())
-port = os.environ.get("FOUNDATION_DB_PORT", "15434")
-print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
-      + "@127.0.0.1:" + port + "/foundation")
-PY
-)"
+  DATABASE_URL="$(foundation_database_url)"
   export DATABASE_URL
 fi
 

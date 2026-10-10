@@ -213,6 +213,7 @@ mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
+mod staging_namespace;
 mod static_release_readdress;
 mod static_release_toolchain;
 mod static_release_url;
@@ -326,6 +327,7 @@ enum Command {
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
+    ClearStagingNamespace,
     ExportLineageStewardFold,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -659,6 +661,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
+        Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
         Command::SealParcelPublicationEvidence => {
@@ -1251,6 +1254,7 @@ where
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
+        Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

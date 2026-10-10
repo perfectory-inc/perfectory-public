@@ -169,7 +169,7 @@ class SweepCommand(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh",
-                     "bronze-object-members.sh"):
+                     "bronze-object-members.sh", "database-url.sh", "vworld-sweep-lane.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)

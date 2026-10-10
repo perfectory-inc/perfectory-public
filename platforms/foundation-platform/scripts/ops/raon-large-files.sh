@@ -25,6 +25,7 @@
 # 답하지 않거나 바이트가 고정값과 다르면) 받기 전에 실패한다.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
 # journal 의 줄은 표준 출력에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
@@ -97,14 +98,7 @@ max_files="${FOUNDATION_RAON_LARGE_FILES_MAX_FILES:-}"
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 매일 훑기와 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then
-  DATABASE_URL="$(python3 - <<PY
-import os, urllib.parse
-q = lambda s: urllib.parse.quote(s, safe=str())
-port = os.environ.get("FOUNDATION_DB_PORT", "15434")
-print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
-      + "@127.0.0.1:" + port + "/foundation")
-PY
-)"
+  DATABASE_URL="$(foundation_database_url)"
   export DATABASE_URL
 fi
 

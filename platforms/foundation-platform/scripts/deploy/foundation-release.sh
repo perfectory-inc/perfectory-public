@@ -29,6 +29,7 @@ usage() {
 usage:
   foundation-release.sh prepare <40-char-git-sha> <source.tar.gz>
   foundation-release.sh floor-config <40-char-git-sha> <non-secret-env-file>
+  foundation-release.sh staging-smoke <40-char-git-sha>
   foundation-release.sh install <40-char-git-sha> <source.tar.gz>
   foundation-release.sh activate <40-char-git-sha>
   foundation-release.sh migrate
@@ -1120,6 +1121,38 @@ migrate_lakehouse() {
   fi
 }
 
+# The staging smoke (root ADR-0177): the installed, not yet current, release runs a few real inputs
+# under the staging namespace before the switch. scripts/ops/staging-smoke.sh does the work, as the
+# service account, in a transient unit that loads exactly the environment files the runtime-secrets
+# contract gives the run `staging-smoke` and is bounded by config/staging-gate.contract.json; its
+# exit status is this step's. The off switch skips it and says so; nothing else does.
+staging_smoke_off_switch=/etc/foundation-platform/staging-gate.off
+staging_smoke() {
+  local release_id="$1" target limit memory properties
+  require_release_id "${release_id}"
+  if [[ -e "${staging_smoke_off_switch}" ]]; then
+    printf 'staging smoke: off (%s exists); %s goes on without it\n' "${staging_smoke_off_switch}" "${release_id}"
+    return 0
+  fi
+  assert_installed_release "${release_id}"
+  target="$(release_path "${release_id}")"
+  [[ -x "${target}/scripts/ops/staging-smoke.sh" ]] || {
+    printf 'staging smoke is missing from the release: %s\n' "${target}/scripts/ops/staging-smoke.sh" >&2
+    exit 66
+  }
+  limit="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1]))["unit_limit_seconds"]))' \
+    "${target}/config/staging-gate.contract.json")"
+  memory="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["unit_memory_max"])' \
+    "${target}/config/staging-gate.contract.json")"
+  properties="$(python3 -I "${target}/scripts/deploy/runtime_secrets.py" --area "${target}" properties staging-smoke)"
+  install -d -o foundation-platform -g foundation-platform /data/foundation-platform/staging-smoke
+  # shellcheck disable=SC2086 # the properties are `-p EnvironmentFile=<path>` words
+  systemd-run --wait --collect --pipe --quiet --unit=foundation-staging-smoke \
+    -p User=foundation-platform -p Group=foundation-platform -p WorkingDirectory="${target}" \
+    -p RuntimeMaxSec="${limit}" -p MemoryMax="${memory}" ${properties} \
+    "${target}/scripts/ops/staging-smoke.sh"
+}
+
 status() {
   printf 'release_root=%s\n' "${release_root}"
   printf 'state_root=%s\n' "${state_root}"
@@ -1156,6 +1189,10 @@ case "${command}" in
   migrate)
     [[ "$#" == 1 ]] || usage
     migrate_runtime
+    ;;
+  staging-smoke)
+    [[ "$#" == 2 ]] || usage
+    staging_smoke "$2"
     ;;
   verify)
     [[ "$#" == 1 ]] || usage

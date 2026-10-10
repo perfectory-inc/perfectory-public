@@ -134,6 +134,7 @@ async fn run_mock_with_readback(
     let storage = R2ObjectStorage {
         client: aws_sdk_s3::Client::from_conf(config),
         bucket_name: "bucket".to_owned(),
+        namespace: crate::object_storage::R2KeyNamespace::Production,
     };
     let result = tokio::time::timeout(Duration::from_secs(15), async {
         if verify {

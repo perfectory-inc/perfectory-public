@@ -145,6 +145,15 @@ fn bronze_object_member_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "clear-staging-namespace"])?,
+        Command::ClearStagingNamespace
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,

@@ -116,7 +116,8 @@ class CollectCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-number-change-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("parcel-number-change-collect.sh", "admitted-writer-runtime.sh", "job-journal.sh",
+                     "database-url.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         for relative in ("infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
