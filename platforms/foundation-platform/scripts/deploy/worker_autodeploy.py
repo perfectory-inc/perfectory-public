@@ -21,7 +21,7 @@ deployed a commit and on every tick that finds the host already on main's head. 
   and hold it to the smoke; a smoke that fails moves 100% back to the version that served before.
 
 A Worker that fails is tried again on later ticks while it is behind, at most the contract's
-attempts_per_change times for the same inputs; each failure exits 1 once so the unit's OnFailure
+attempts_per_change times for the same inputs and the same deployer files (TOOL_FILES); each failure exits 1 once so the unit's OnFailure
 reports it. A refusal is reported once until its reason changes. Every version id is logged.
 """
 
@@ -48,6 +48,9 @@ VERSION_ID = re.compile(r"Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 VARIABLE_TYPES = ("plain_text", "json")
 SECRET_TYPES = ("secret_text", "secret_key")
 WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
+# What decides how a Worker is deployed, under the platform directory of the control checkout.
+TOOL_FILES = ("scripts/deploy/worker_autodeploy.py", "scripts/deploy/worker-wrangler.sh",
+              "config/worker-deploys.contract.json")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,11 +255,43 @@ class Deploy:
     def __init__(self, host: Host, worker: Worker, commit: str, workspace: pathlib.Path):
         self.host, self.worker, self.commit, self.workspace = host, worker, commit, workspace
         self.service = f"{PLATFORM}/{worker.service_dir}"
+        # The config Wrangler is given; resolve_d1_ids() swaps in a derived copy in the workspace.
+        self.config = worker.wrangler_config
 
     def wrangler(self, *args: str, target: Target | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
         env = ["--env", target.env] if target is not None and target.env else []
         return command(["bash", str(WRANGLER), str(self.workspace), self.service, "wrangler", *args,
-                        "--config", self.worker.wrangler_config, *env], check=check)
+                        "--config", self.config, *env], check=check)
+
+    def resolve_d1_ids(self) -> None:
+        """The repository's config names its D1 databases without a database_id (Wrangler created
+        them; the rendered config and its test keep the id out of the repository), and remote D1
+        operations need it (2026-10-10, the first run: "missing a database_id"). Each id is looked up
+        by database_name in the account and written into a derived config in this workspace only,
+        after `config:check` has held the rendered copy to the contract."""
+
+        rendered = self.workspace / self.service / self.worker.wrangler_config
+        config = json.loads(rendered.read_text(encoding="utf-8"))
+        sections = [config, *[s for s in (config.get("env") or {}).values() if isinstance(s, dict)]]
+        missing = [d for s in sections for d in s.get("d1_databases") or [] if not d.get("database_id")]
+        if not missing:
+            return
+        out = self.wrangler("d1", "list", "--json").stdout
+        try:
+            listed = json.loads(out[out.index("["):])
+        except ValueError as error:
+            raise Failed(f"cannot read the account's D1 databases: {error}") from error
+        for database in missing:
+            name = database.get("database_name")
+            ids = [d.get("uuid") for d in listed if isinstance(d, dict) and d.get("name") == name]
+            if len(ids) != 1 or not ids[0]:
+                raise Failed(f"D1 database {name!r}: the account has {len(ids)} databases of that name, "
+                             f"not one; nothing was migrated or uploaded")
+            database["database_id"] = ids[0]
+            log(f"{self.worker.id}: D1 database {name} resolved by name for this deploy")
+        derived = rendered.with_name(f"autodeploy.{self.worker.wrangler_config}")
+        derived.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        self.config = derived.name
 
     def serving(self, target: Target) -> str:
         """The one version at 100% now. A split (an operator's canary) is not ours to move."""
@@ -371,6 +406,7 @@ class Deploy:
 
     def run(self) -> dict[str, Any]:
         command(["bash", str(WRANGLER), str(self.workspace), self.service, "install"])
+        self.resolve_d1_ids()
         before = {target.label: self.serving(target) for target in self.worker.targets}
         if self.worker.d1_database:
             self.wrangler("d1", "migrations", "apply", self.worker.d1_database, "--remote")
@@ -463,6 +499,9 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
         return 0
     try:
         workers, attempts_allowed = load_workers(tree)
+        # The deployer's own files: a failure is counted against the Worker's inputs and the tool
+        # that tried them, so a fix to the deployer gets fresh attempts without a hand on the host.
+        tool = fingerprint(tree, list(TOOL_FILES))
         behind = []
         for worker in workers:
             digest = fingerprint(tree, worker.inputs)
@@ -470,11 +509,13 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
             if done and done.get("fingerprint") == digest:
                 continue
             failed = read_json(host.state / "failed" / f"{worker.id}.json")
-            if failed and failed.get("fingerprint") == digest and failed.get("attempts", 0) >= attempts_allowed:
-                log(f"{worker.id}: gave up on these inputs after {failed['attempts']} attempts; waiting for a change "
-                    f"(or remove {host.state / 'failed' / (worker.id + '.json')} to try again)")
+            if not failed or failed.get("fingerprint") != digest or failed.get("tool") != tool:
+                failed = None
+            if failed and failed.get("attempts", 0) >= attempts_allowed:
+                log(f"{worker.id}: gave up on these inputs after {failed['attempts']} attempts with this deployer; "
+                    f"waiting for a change to either (or remove {host.state / 'failed' / (worker.id + '.json')})")
                 continue
-            behind.append((worker, digest, failed if failed and failed.get("fingerprint") == digest else None))
+            behind.append((worker, digest, failed))
         if not behind:
             return 0
         check_credential(host, credential)
@@ -495,7 +536,8 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
             failures += 1
             attempts = (failed or {}).get("attempts", 0) + 1
             write_json(host.state / "failed" / f"{worker.id}.json",
-                       {"fingerprint": digest, "commit": commit, "attempts": attempts, "error": str(failure)[:2000]})
+                       {"fingerprint": digest, "tool": tool, "commit": commit, "attempts": attempts,
+                        "error": str(failure)[:2000]})
             log(f"{worker.id}: the deploy of {commit} failed (attempt {attempts}): {failure}")
             continue
         write_json(host.state / "workers" / f"{worker.id}.json",

@@ -84,3 +84,17 @@ ADR-0159 이후 서버는 main 을 스스로 배포한다. Worker 는 아니다.
 - 출처: [Wrangler configuration — keep_vars, source of truth](https://developers.cloudflare.com/workers/wrangler/configuration/),
   [Wrangler commands — versions, deployments, triggers, rollback](https://developers.cloudflare.com/workers/wrangler/commands/),
   [Gradual deployments](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/gradual-deployments/).
+
+---
+
+2026-10-10 (첫 운영 실행): 필지·건물(미리보기 포함)·타일·프로필은 배포되고 스모크를 통과했다. 지도 편집은 D1 단계에서
+실패했다(시도 1): Wrangler 4.86.0 이 "missing a database_id, which is needed for operations on remote resources" 로
+거부했다. 저장소의 설정은 의도적으로 `database_id` 를 갖지 않는다(Wrangler 가 만든 D1, `render-wrangler-config.mjs`
+와 그 시험이 막는다; `map-edit-fold.md` 의 함정과 같은 일). 결정 §5 에 한 단계를 더한다: `config:check` 가 렌더된
+사본을 계약에 맞춰 본 **뒤**, 설정의 `d1_databases` 중 id 가 없는 것마다 같은 컨테이너·토큰으로 `wrangler d1 list
+--json` 에서 `database_name` 으로 id 를 찾아 작업 사본 안의 파생 설정(`autodeploy.<설정 파일>`)에만 쓰고, 그 뒤의
+마이그레이션·업로드·배포는 그 파생 설정으로 한다. 이름이 계정에 없거나 둘 이상이면 아무것도 마이그레이션·업로드하지
+않고 그 이름을 대며 실패한다. 저장소와 렌더된 사본은 바뀌지 않는다. 결정의 나머지는 그대로라 새 ADR 로 나누지 않았다.
+이 고침은 지도 편집의 입력을 바꾸지 않는다. 그래서 §6 의 재시도 한도도 고친다: 실패 기록은 Worker 입력의 해시와
+**배포기 파일**(`worker_autodeploy.py`, `worker-wrangler.sh`, `worker-deploys.contract.json`)의 해시 둘에 묶이고, 다른
+배포기가 낸 실패는 세지 않는다. 배포기를 고친 커밋이 배포되면 포기했던 Worker 도 서버에서 손대지 않고 다시 시도된다.

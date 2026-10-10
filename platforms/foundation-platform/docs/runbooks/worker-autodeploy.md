@@ -65,8 +65,9 @@ journalctl -fu foundation-worker-autodeploy.service
 | 포기한 Worker 다시 시도 | 원인을 고친 뒤 `rm /data/foundation-platform/worker-autodeploy/failed/<id>.json` |
 | 한 Worker 를 같은 입력으로 다시 배포 | `rm /data/foundation-platform/worker-autodeploy/workers/<id>.json` |
 
-실패한 Worker 는 같은 입력에 대해 계약의 `attempts_per_change` 번까지 다음 틱에 다시 하고(시도마다 Slack 한 번),
-그 뒤로는 입력이 바뀔 때까지 기다린다. 변수 비교가 실패했다면, 마지막으로 업로드된 버전(카나리아가 남긴 것일 수
+실패한 Worker 는 같은 입력·같은 배포기 파일에 대해 계약의 `attempts_per_change` 번까지 다음 틱에 다시 하고(시도마다
+Slack 한 번), 그 뒤로는 Worker 의 입력이나 배포기 파일(`worker_autodeploy.py`, `worker-wrangler.sh`, 이 계약)이 바뀔
+때까지 기다린다. 배포기를 고친 커밋이 배포되면 따로 지우지 않아도 다시 시도된다. 변수 비교가 실패했다면, 마지막으로 업로드된 버전(카나리아가 남긴 것일 수
 있다)과 지금 서빙 중인 버전의 변수가 다르다는 뜻이다. `wrangler versions view <id> --name <Worker>` 로 둘을 비교해
 서빙 버전이 맞는 값을 갖고 있음을 확인한 뒤, 손으로 서빙 버전의 값으로 한 번 업로드·배포하고(`versions upload
 --var <이름>:<값>` → `versions deploy <새>@100%`) 위의 `failed/<id>.json` 을 지운다.
