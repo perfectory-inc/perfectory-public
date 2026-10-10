@@ -252,11 +252,43 @@ class Deploy:
     def __init__(self, host: Host, worker: Worker, commit: str, workspace: pathlib.Path):
         self.host, self.worker, self.commit, self.workspace = host, worker, commit, workspace
         self.service = f"{PLATFORM}/{worker.service_dir}"
+        # The config Wrangler is given; resolve_d1_ids() swaps in a derived copy in the workspace.
+        self.config = worker.wrangler_config
 
     def wrangler(self, *args: str, target: Target | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
         env = ["--env", target.env] if target is not None and target.env else []
         return command(["bash", str(WRANGLER), str(self.workspace), self.service, "wrangler", *args,
-                        "--config", self.worker.wrangler_config, *env], check=check)
+                        "--config", self.config, *env], check=check)
+
+    def resolve_d1_ids(self) -> None:
+        """The repository's config names its D1 databases without a database_id (Wrangler created
+        them; the rendered config and its test keep the id out of the repository), and remote D1
+        operations need it (2026-10-10, the first run: "missing a database_id"). Each id is looked up
+        by database_name in the account and written into a derived config in this workspace only,
+        after `config:check` has held the rendered copy to the contract."""
+
+        rendered = self.workspace / self.service / self.worker.wrangler_config
+        config = json.loads(rendered.read_text(encoding="utf-8"))
+        sections = [config, *[s for s in (config.get("env") or {}).values() if isinstance(s, dict)]]
+        missing = [d for s in sections for d in s.get("d1_databases") or [] if not d.get("database_id")]
+        if not missing:
+            return
+        out = self.wrangler("d1", "list", "--json").stdout
+        try:
+            listed = json.loads(out[out.index("["):])
+        except ValueError as error:
+            raise Failed(f"cannot read the account's D1 databases: {error}") from error
+        for database in missing:
+            name = database.get("database_name")
+            ids = [d.get("uuid") for d in listed if isinstance(d, dict) and d.get("name") == name]
+            if len(ids) != 1 or not ids[0]:
+                raise Failed(f"D1 database {name!r}: the account has {len(ids)} databases of that name, "
+                             f"not one; nothing was migrated or uploaded")
+            database["database_id"] = ids[0]
+            log(f"{self.worker.id}: D1 database {name} resolved by name for this deploy")
+        derived = rendered.with_name(f"autodeploy.{self.worker.wrangler_config}")
+        derived.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        self.config = derived.name
 
     def serving(self, target: Target) -> str:
         """The one version at 100% now. A split (an operator's canary) is not ours to move."""
@@ -371,6 +403,7 @@ class Deploy:
 
     def run(self) -> dict[str, Any]:
         command(["bash", str(WRANGLER), str(self.workspace), self.service, "install"])
+        self.resolve_d1_ids()
         before = {target.label: self.serving(target) for target in self.worker.targets}
         if self.worker.d1_database:
             self.wrangler("d1", "migrations", "apply", self.worker.d1_database, "--remote")

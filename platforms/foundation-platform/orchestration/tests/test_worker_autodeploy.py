@@ -30,6 +30,9 @@ GATEWAYS = json.loads((PLATFORM / "config/r2-connections.contract.json").read_te
 COMMIT = "a" * 40
 UNLISTED = "someone-elses-script"
 OLD = "00000000-0000-4000-8000-{:012d}"
+MAP_EDITS = GATEWAYS["map_edit_gateway"]["d1_database_name"]
+D1_ID = "11111111-2222-4333-8444-555555555555"
+D1_ACCOUNT = [{"uuid": D1_ID, "name": MAP_EDITS}, {"uuid": "66666666-7777-4888-9999-000000000000", "name": "other"}]
 
 spec = importlib.util.spec_from_file_location("worker_autodeploy", SCRIPT)
 autodeploy = importlib.util.module_from_spec(spec)
@@ -66,7 +69,16 @@ worker = cloud[name]
 fail = os.environ.get("FIXTURE_FAIL", "")
 if f"{action}:{name}" in fail.split(","):
     sys.exit(1)
-if action == "deployments status":
+# Wrangler 4.86.0 on a D1 binding without an id (2026-10-10).
+databases = json.loads(os.environ.get("FIXTURE_D1", "[]"))
+if action != "d1 list" and any(not d.get("database_id") for d in config.get("d1_databases") or []):
+    print("Found a database with name or binding but it is missing a database_id", file=sys.stderr)
+    sys.exit(1)
+for d in (config.get("d1_databases") or []) if action != "d1 list" else []:
+    assert d["database_id"] in [x["uuid"] for x in databases], "a database_id the account does not have"
+if action == "d1 list":
+    print(json.dumps(databases))
+elif action == "deployments status":
     if name in os.environ.get("FIXTURE_SPLIT", "").split():
         print(json.dumps({"versions": [{"version_id": worker["serving"], "percentage": 90},
                                        {"version_id": worker["latest"], "percentage": 10}]}))
@@ -192,7 +204,8 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def tick(self, **env):
         saved = dict(os.environ)
         os.environ.update({"PATH": f"{self.bin}:{saved['PATH']}", "FIXTURE_ROOT": str(self.root),
-                           "CLOUDFLARE_API_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": "y", **env})
+                           "CLOUDFLARE_API_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": "y",
+                           "FIXTURE_D1": json.dumps(D1_ACCOUNT), **env})
         self.output = io.StringIO()
         try:
             with contextlib.redirect_stdout(self.output):
@@ -278,6 +291,39 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(self.tick(), 0)
         actions = [c["action"] for c in self.calls() if c.get("name") == "foundation-map-edit-gateway"]
         self.assertLess(actions.index("d1 migrations"), actions.index("versions upload"))
+
+    def map_edit_configs(self):
+        entry = next(e for e in CONTRACT["workers"] if e["id"] == "map-edit-gateway")
+        relative = pathlib.Path("platforms/foundation-platform") / entry["service_dir"]
+        workspace = self.host.state / "work/map-edit-gateway" / relative
+        return (self.tree / relative / entry["wrangler_config"], workspace / entry["wrangler_config"],
+                workspace / f"autodeploy.{entry['wrangler_config']}")
+
+    def test_the_d1_id_is_looked_up_by_name_into_the_work_copy_only(self):
+        # 2026-10-10, the first production run: the repository's config has no database_id.
+        repo, rendered, derived = self.map_edit_configs()
+        repo_before = repo.read_bytes()
+        self.assertEqual(self.tick(), 0)
+        self.assertEqual(repo.read_bytes(), repo_before)
+        self.assertNotIn("database_id", rendered.read_text(), "the copy config:check read was changed")
+        self.assertEqual([d["database_id"] for d in json.loads(derived.read_text())["d1_databases"]], [D1_ID])
+        configs = {c["args"][c["args"].index("--config") + 1] for c in self.calls()
+                   if c.get("name") == "foundation-map-edit-gateway" and c["action"] != "d1 list"}
+        self.assertEqual(configs, {derived.name})
+        self.assertNotIn(D1_ID, self.output.getvalue())
+
+    def test_a_d1_database_the_account_lacks_or_holds_twice_is_refused_by_name(self):
+        for account in ([D1_ACCOUNT[1]], [D1_ACCOUNT[0], {**D1_ACCOUNT[0], "uuid": D1_ACCOUNT[1]["uuid"]}]):
+            with self.subTest(len(account)):
+                shutil.rmtree(self.host.state, ignore_errors=True)
+                (self.root / "calls.log").unlink(missing_ok=True)
+                self.assertEqual(self.tick(FIXTURE_D1=json.dumps(account)), 1)
+                actions = [c["action"] for c in self.calls() if c.get("name") == "foundation-map-edit-gateway"]
+                self.assertNotIn("d1 migrations", actions)
+                self.assertNotIn("versions upload", actions)
+                failed = json.loads((self.host.state / "failed/map-edit-gateway.json").read_text())
+                self.assertIn(f"D1 database {MAP_EDITS!r}", failed["error"])
+                self.assertTrue((self.host.state / "workers/tile-gateway.json").exists())
 
     # -- what a failure does --
 
