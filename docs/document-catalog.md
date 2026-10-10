@@ -8,25 +8,25 @@
 
 ## 문서 규모
 
-- 문서 파일: **524개**
+- 문서 파일: **526개**
 - 소유 영역: **6개**
 
 ### 소유 영역별
 
 | 소유 영역 | 문서 수 |
 |---|---:|
-| Foundation Platform | 125 |
+| Foundation Platform | 126 |
 | Gongzzang 제품 | 163 |
 | Identity Platform | 18 |
 | Intelligence Platform | 19 |
-| Monorepo | 198 |
+| Monorepo | 199 |
 | Repository tooling | 1 |
 
 ### 유형별
 
 | 유형 | 문서 수 |
 |---|---:|
-| ADR | 256 |
+| ADR | 257 |
 | README | 114 |
 | agent rules | 5 |
 | architecture | 26 |
@@ -38,7 +38,7 @@
 | guide | 2 |
 | reference | 18 |
 | roadmap | 3 |
-| runbook | 41 |
+| runbook | 42 |
 
 ## 책임별 문서 트리
 
@@ -160,6 +160,7 @@ platforms/foundation-platform/docs/runbooks/slo-alert-policy.md
 platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md
 platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md
 platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md
+platforms/foundation-platform/docs/runbooks/worker-autodeploy.md
 platforms/foundation-platform/infra/lakehouse/dbt/README.md
 platforms/foundation-platform/README.md
 platforms/foundation-platform/scripts/tiles/admin-boundary/README.md
@@ -564,6 +565,7 @@ docs/adr/0170-large-vworld-files-come-through-the-raon-agent-on-the-data-host.md
 docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md
 docs/adr/0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md
 docs/adr/0174-a-jobs-journal-lines-reach-the-units-journal.md
+docs/adr/0175-workers-deploy-themselves-after-the-host-deploys-main.md
 docs/adr/README.md
 docs/architecture/administrative-boundary-versioning.md
 docs/architecture/README.md
@@ -774,6 +776,7 @@ tools/github/README.md
 | `docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md` | Monorepo | ADR | Accepted |
 | `docs/adr/0174-a-jobs-journal-lines-reach-the-units-journal.md` | Monorepo | ADR | Accepted |
+| `docs/adr/0175-workers-deploy-themselves-after-the-host-deploys-main.md` | Monorepo | ADR | Accepted |
 | `docs/adr/README.md` | Monorepo | README | current |
 | `docs/architecture/administrative-boundary-versioning.md` | Monorepo | architecture | current |
 | `docs/architecture/README.md` | Monorepo | README | current |
@@ -910,6 +913,7 @@ tools/github/README.md
 | `platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md` | Foundation Platform | runbook | current |
+| `platforms/foundation-platform/docs/runbooks/worker-autodeploy.md` | Foundation Platform | runbook | current |
 | `platforms/foundation-platform/infra/lakehouse/dbt/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/README.md` | Foundation Platform | README | current |
 | `platforms/foundation-platform/scripts/tiles/admin-boundary/README.md` | Foundation Platform | README | current |

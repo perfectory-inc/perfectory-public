@@ -59,6 +59,9 @@ pnpm run build:check
 
 ## 배포
 
+평소에는 데이터 호스트가 main 을 배포한 뒤 D1 마이그레이션과 이 Worker 를 스스로 배포한다(루트 ADR-0175,
+[런북](../../docs/runbooks/worker-autodeploy.md)). 쓰기 토큰 secret 과 CORS 값은 처음 한 번 손으로 둔다.
+
 배포와 Cloudflare 계정 변경은 로컬 구현·검증에 포함하지 않는다. 순서: `pnpm run config:render`
 → 검증 → `pnpm exec wrangler d1 migrations apply foundation-map-edits --remote` →
 `pnpm exec wrangler secret put FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN` →

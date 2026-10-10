@@ -128,7 +128,10 @@ Bronze 모양 객체를 넣고 `wrangler dev --local`을 실행한다. manifest 
    서빙 세대가 실제로 구워져 있고 manifest 가 그 세대를 가리키는지 확인한다 — manifest 가
    없으면 Worker는 설계대로 503만 낸다.
 
-배포와 Dashboard 변경은 이 코드 작업의 범위 밖이다.
+배포와 Dashboard 변경은 이 코드 작업의 범위 밖이다. 연결이 끝난 뒤의 코드 배포는 데이터 호스트가 main 을 배포한
+뒤 레인마다 미리보기 → 운영 순서로 스스로 한다(루트 ADR-0175, [런북](../../docs/runbooks/worker-autodeploy.md)). 묶음
+경로를 버전 비율로 켜고 끄는 카나리아는 여전히 운영자의 `by-pnu-gateway-canary.sh` 이고, 트래픽이 나뉘어 있는 동안
+자동 배포는 그 Worker 를 건드리지 않는다.
 
 ## Gold와 웹 계약 검증
 

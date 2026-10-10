@@ -1,0 +1,18 @@
+[Unit]
+Description=Foundation Platform: deploy the Cloudflare Workers whose sources changed, from the commit the host runs (root ADR-0175)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+# Root: it reads the account token's file and the control checkout, and starts the by-PNU serving
+# monitor as foundation-platform. foundation-autodeploy.sh starts it (no timer of its own). It runs
+# the control checkout's copy, the commit the host runs (root ADR-0159 §3). Until the token's file
+# exists it does nothing.
+EnvironmentFile=-/etc/foundation-platform/cloudflare-deploy.env
+ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/worker_autodeploy.py
+# Five Workers, each: an npm install, two uploads and deploys, and smokes that poll for two minutes
+# at most; well under this.
+TimeoutStartSec=2h

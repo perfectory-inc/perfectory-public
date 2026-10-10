@@ -73,6 +73,11 @@
       "contract": "tools/release-build.contract.json",
       "containers": ["builders"],
       "why": "The release admission starts the publisher builder, then the tippecanoe builder, then the dependency resolver, one at a time, under the caps this contract states (root ADR-0137). It refuses to start while any registered job's unit is active, so it is the host's one-shot job while it runs."
+    },
+    {
+      "contract": "platforms/foundation-platform/config/worker-deploys.contract.json",
+      "containers": ["containers"],
+      "why": "The Worker deploy runs one Wrangler container at a time, for one gateway at a time (root ADR-0175). The host's deploy waits while it runs, so it never overlaps the release build."
     }
   ],
   "scheduled_jobs": {
