@@ -19,6 +19,10 @@
 # host's deployer; it is named in /etc/foundation-platform/release-deploy.conf as
 # FOUNDATION_DEPLOYER=<account>, because it is a fact about the host, not about a release.
 set -euo pipefail
+# Every Python this deploy runs reads the release it installed, and some import from it (root
+# ADR-0179's unpause order imports orchestration/dags). Run as root, Python would write __pycache__
+# into that release, and release admission then refuses every job on it as "writable" (2026-10-10).
+export PYTHONDONTWRITEBYTECODE=1
 [[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }
 # Read now, before step 1 moves the control checkout this script runs from to the new commit.
 source "$(dirname "${BASH_SOURCE[0]}")/deploy-start-once.sh"
