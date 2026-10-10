@@ -137,6 +137,9 @@ fn resolve(path: &Path) -> anyhow::Result<PathBuf> {
     }
 }
 
+// Only Unix can compare file identities; elsewhere the body is a constant `Ok(false)` while the
+// signature stays the Unix one, which clippy would otherwise ask to unwrap and make const.
+#[cfg_attr(not(unix), allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn))]
 fn same_existing_file(left: &Path, right: &Path) -> anyhow::Result<bool> {
     #[cfg(unix)]
     {

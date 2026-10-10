@@ -1,6 +1,6 @@
 use std::{fs, fs::File, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use lakehouse_application::BuildingRegisterFloorSilverRow;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -138,6 +138,7 @@ fn zero_chunk_size_does_not_remove_existing_output() -> Result<()> {
 #[tokio::test]
 async fn parquet_close_failure_prevents_export_ready_summary() -> Result<()> {
     use super::super::{export_handoff, ExportConfig, OutputFormat, SourceSelector};
+    use anyhow::Context;
 
     let root = tempfile::tempdir()?;
     let source_slug = "datagokr__building_register_floor_overview";
