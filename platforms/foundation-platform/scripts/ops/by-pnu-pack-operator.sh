@@ -10,6 +10,13 @@
 #   by-pnu-pack-operator.sh <building|parcel> health <new-version-id> [<old-version-id>] | --preflight
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
+#   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
+#
+# `silver` drives one Silver refresh lane (root ADR-0169, ADR-0178): `plan` runs its
+# `silver-refresh.sh <lane> --plan` (reads the ledger and the catalog, writes nothing) and prints
+# the outcome; `start` starts its scheduled unit foundation-silver-refresh@<lane>.service once, the
+# supervised first run before the job is enabled; `status` shows the unit and the end of its journal.
+# The lanes are the jobs.v1.json jobs whose service is that template; nothing else is accepted.
 #
 # sudo grants this script, by its control-checkout path and nothing else, to the operator account
 # (`foundation-release.sh operator-access`, root ADR-0161): it is how a cut-over's gates, publish
@@ -33,10 +40,10 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane>"
 
 LANE="${1:-}" ACTION="${2:-}"
-[[ "${LANE}" == building || "${LANE}" == parcel ]] || refuse "${USAGE}"
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver ]] || refuse "${USAGE}"
 shift 2 || refuse "${USAGE}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The release the host serves, not this checkout: the publisher and its scripts are the admitted
@@ -99,6 +106,46 @@ refuse_while_baking() {
     if [[ -e "${lock}" ]] && ! flock -n "${lock}" true; then refuse "a run of the ${lane} lane holds ${lock}" 75; fi
   done
 }
+
+if [[ "${LANE}" == silver ]]; then
+  SILVER_LANE="${1:-}"
+  (($# == 1)) || refuse "silver ${ACTION} takes one Silver refresh lane"
+  # The lanes are the jobs that run the template unit (orchestration/jobs.v1.json, root ADR-0169).
+  mapfile -t silver_lanes < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" <<'PY'
+import json, re, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    match = re.fullmatch(r"foundation-silver-refresh@([a-z0-9-]+)\.service", job["systemd_service"])
+    if match:
+        print(match.group(1))
+PY
+  )
+  printf '%s\n' "${silver_lanes[@]}" | grep -qxF -- "${SILVER_LANE}" \
+    || refuse "${SILVER_LANE:-<none>} is not a Silver refresh lane (${silver_lanes[*]})"
+  SILVER_UNIT="foundation-silver-refresh@${SILVER_LANE}.service"
+  case "${ACTION}" in
+    plan)
+      mapfile -t plan_props < <(python3 -I "${RELEASE}/scripts/deploy/runtime_secrets.py" properties silver-refresh-plan | tr ' ' '\n' | grep -v '^$')
+      ((${#plan_props[@]} > 0)) || refuse "the runtime-secrets contract names no environment for silver-refresh-plan" 65
+      log "planning ${SILVER_LANE} (writes nothing)"
+      exec "${SYSTEMD_RUN}" --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
+        "${plan_props[@]}" "${RELEASE}/scripts/ops/silver-refresh.sh" "${SILVER_LANE}" --plan
+      ;;
+    start)
+      # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
+      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+      if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating 'foundation-silver-refresh@*.service' 2>/dev/null)" ]]; then
+        refuse "another Silver refresh lane is running" 75
+      fi
+      log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
+      exec systemctl start --no-block "${SILVER_UNIT}"
+      ;;
+    status)
+      systemctl status --no-pager --lines=0 "${SILVER_UNIT}" || true
+      exec journalctl -u "${SILVER_UNIT}" --no-pager -o short-iso -n 40
+      ;;
+    *) refuse "${USAGE}" ;;
+  esac
+fi
 
 if [[ "${ACTION}" == gold-rebuild ]]; then
   (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds both panel Gold tables, and its reason is fixed"
