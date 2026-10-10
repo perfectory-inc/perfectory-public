@@ -27,8 +27,9 @@ from platform_contracts import (column_names, current_row_predicate, ensure_cont
     load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
-from building_link_evidence import verified_building_links
-from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
+from building_link_evidence import evidence_policy, verified_building_links
+from gold_rebuild import assert_minimum_row_count
+import gold_incremental as incremental
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -44,6 +45,24 @@ UNIT_SOURCE = "silver.building_register_units"
 AREA_SOURCE = "silver.building_register_unit_areas"
 PRICE_SOURCE = "silver.unit_official_price"
 ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE, PRICE_SOURCE)
+# The columns build_gold_panel_frame reads from each input, and the only ones it is handed: the
+# incremental rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a
+# column the build reads must be here or the build fails on it. The unit evidence columns are the
+# handoff contract's (verified_building_links would otherwise fill a missing one with NULL).
+BUILD_COLUMNS = {
+    TITLE_SOURCE: ("pnu", "mgm_bldrgst_pk", "purpose_code_raw", "structure_code_raw", "floor_area_m2",
+                   "ground_floor_count", "basement_floor_count", "approval_year"),
+    FLOOR_SOURCE: ("mgm_bldrgst_pk", "floor_row_id", "floor_kind", "floor_number", "floor_index",
+                   "floor_display_ko"),
+    UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
+                  "unit_label_ko", "unit_name_raw", "floor_number", "floor_kind",
+                  *evidence_policy()["columns"]),
+    AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
+                  "structure_name_raw", "floor_kind"),
+    PRICE_SOURCE: ("mgm_bldrgst_pk", "base_date", "price_won"),
+}
+# Inputs whose change the incremental rebuild cannot map to PNUs; a change to one rebuilds whole.
+WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
 PNU_PATTERN = "^(?:" + json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8"))["building_by_pnu_gateway"]["object_key"]["pnu_pattern"] + ")$"
 JSON_OPTIONS = {"ignoreNullFields": "false"}
@@ -75,6 +94,7 @@ def parse_args(argv=None):
                         help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
+    incremental.add_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -102,6 +122,9 @@ def validate_args(args):
         raise ValueError("Refusing non-smoke overwrite without --allow-non-smoke-overwrite")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env(args.iceberg_catalog_name)
+    if incremental.validate_arguments(args, ALL_SOURCES) is not None and args.price_source_snapshot_id:
+        # The batch filter names a batch of the new snapshot; the old snapshot has another.
+        raise ValueError("--incremental-from-snapshots cannot compare a --price-source-snapshot-id batch")
     return load_snapshot_pins(args)
 
 
@@ -362,10 +385,81 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
 
 
 
-def main():
-    args = parse_args()
-    pins = validate_args(args)
-    args.published_at_utc = normalize_utc_timestamp(args.published_at_utc)
+def read_inputs(spark, args, pins, snapshots=None):
+    """Every input at `pins`, scoped like the build; `snapshots` collects each input's batch id."""
+    frames = {}
+    for name in ALL_SOURCES:
+        frame = read_source(spark, args, name, pins)
+        if snapshots is not None:
+            snapshots[name] = assert_single_snapshot(frame, name)
+        prefix = args.pnu_prefix or args.region_prefix
+        if prefix and "pnu" in frame.columns:
+            frame = frame.where(F.col("pnu").startswith(prefix))
+        frames[name] = frame
+    if args.pnu_prefix or args.region_prefix:
+        frames[FLOOR_SOURCE] = frames[FLOOR_SOURCE].join(frames[TITLE_SOURCE].select("mgm_bldrgst_pk").distinct(), "mgm_bldrgst_pk", "left_semi")
+    return incremental.project_build_inputs(frames, BUILD_COLUMNS)
+
+
+def _registers(frame, column):
+    return frame.where(F.col(column).isNotNull()).select(F.col(column).alias("_register")).distinct()
+
+
+def affected_pnus(old, new, changed):
+    """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
+
+    A row reaches a PNU's Gold row through its register key: a title by its own PNU; a floor, an
+    area or a price through the title or unit register it names; a unit through its own PNU and
+    its parent title's; a title also places its units (linked under it, unlinked under their own
+    PNU when it is gone). Old and new rows both count, so a PNU a row left is recomputed too.
+    """
+    changes = {name: incremental.changed_rows(old[name], new[name]) for name in changed}
+    every = {name: old[name].unionByName(new[name]) if name in changes else new[name] for name in ALL_SOURCES}
+    registers = [_registers(changes[name], "mgm_bldrgst_pk") for name in changes]
+    if UNIT_SOURCE in changes:
+        registers.append(_registers(changes[UNIT_SOURCE], "building_mgm_bldrgst_pk"))
+    if not registers:
+        return incremental.trimmed_keys(new[TITLE_SOURCE]).limit(0)
+    named = incremental.union_keys(registers, "_register")
+    units = every[UNIT_SOURCE]
+    parents = _registers(units.join(named, units.mgm_bldrgst_pk == named._register, "left_semi"), "building_mgm_bldrgst_pk")
+    reach = incremental.union_keys([named, parents], "_register")
+    titles = every[TITLE_SOURCE]
+    reached = [
+        titles.join(reach, titles.mgm_bldrgst_pk == reach._register, "left_semi"),
+        units.join(reach, units.mgm_bldrgst_pk == reach._register, "left_semi"),
+        units.join(reach, units.building_mgm_bldrgst_pk == reach._register, "left_semi"),
+        *(changes[name] for name in (TITLE_SOURCE, UNIT_SOURCE) if name in changes),
+    ]
+    return incremental.union_keys([incremental.trimmed_keys(frame) for frame in reached])
+
+
+def restrict_inputs(frames, keys):
+    """The input rows the Gold rows of `keys` (a frame of `pnu`) are built from (ADR-0180 §2)."""
+    titles, units = frames[TITLE_SOURCE], frames[UNIT_SOURCE]
+    own_titles = incremental.rows_matching_any(titles, [("pnu", keys, "pnu", True)])
+    title_registers = _registers(own_titles, "mgm_bldrgst_pk")
+    kept_units = incremental.rows_matching_any(
+        units, [("pnu", keys, "pnu", True), ("building_mgm_bldrgst_pk", title_registers, "_register", False)])
+    unit_registers = _registers(kept_units, "mgm_bldrgst_pk")
+    parent_registers = _registers(kept_units, "building_mgm_bldrgst_pk")
+    kept_titles = incremental.rows_matching_any(
+        titles, [("pnu", keys, "pnu", True), ("mgm_bldrgst_pk", parent_registers, "_register", False)])
+    kept_title_registers = _registers(kept_titles, "mgm_bldrgst_pk")
+    any_register = incremental.union_keys([unit_registers, kept_title_registers], "_register")
+    return {
+        TITLE_SOURCE: kept_titles,
+        UNIT_SOURCE: kept_units,
+        FLOOR_SOURCE: incremental.rows_matching_any(
+            frames[FLOOR_SOURCE], [("mgm_bldrgst_pk", kept_title_registers, "_register", False)]),
+        AREA_SOURCE: incremental.rows_matching_any(
+            frames[AREA_SOURCE], [("mgm_bldrgst_pk", any_register, "_register", False)]),
+        PRICE_SOURCE: incremental.rows_matching_any(
+            frames[PRICE_SOURCE], [("mgm_bldrgst_pk", unit_registers, "_register", False)]),
+    }
+
+
+def build_session(args):
     builder = SparkSession.builder.appName(JOB_NAME).config("spark.sql.session.timeZone", "UTC")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
@@ -373,60 +467,75 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
-    gold = None
+    return spark
+
+
+def main():
+    args = parse_args()
+    pins = validate_args(args)
+    args.published_at_utc = normalize_utc_timestamp(args.published_at_utc)
+    spark = build_session(args)
     try:
-        frames, snapshots, counters = {}, {}, {}
-        for name in ALL_SOURCES:
-            frame = read_source(spark, args, name, pins)
-            snapshots[name] = assert_single_snapshot(frame, name)
-            prefix = args.pnu_prefix or args.region_prefix
-            if prefix and "pnu" in frame.columns:
-                frame = frame.where(F.col("pnu").startswith(prefix))
-            frames[name] = frame
-        if args.pnu_prefix or args.region_prefix:
-            frames[FLOOR_SOURCE] = frames[FLOOR_SOURCE].join(frames[TITLE_SOURCE].select("mgm_bldrgst_pk").distinct(), "mgm_bldrgst_pk", "left_semi")
-        source_id = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()
-        gold = build_gold_panel_frame(frames, source_id, args.published_at_utc, counters).persist(StorageLevel.MEMORY_AND_DISK)
-        count, metrics = validate_gold_frame(gold, args.expected_count)
-        assert_minimum_row_count(count, args.minimum_count)
-        persisted_count, added = None, ()
-        target_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{args.target_iceberg_table}`"
-        if not args.validate_only:
-            if args.write_mode == "parquet":
-                (gold.repartition(*partition_column_names(GOLD_CONTRACT)).sortWithinPartitions(*sort_order(GOLD_CONTRACT))
-                 .write.mode("overwrite").partitionBy(*partition_column_names(GOLD_CONTRACT)).parquet(args.output))
-                persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
-            else:
-                spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
-                # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
-                added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
-                # The snapshot records the Silver pins it was built from (root ADR-0139).
-                write_gold_snapshot(gold.select(*GOLD_COLUMNS), target_table, args.iceberg_write_mode, pins, F.lit(True))
-                persisted = spark.table(target_table).select(*GOLD_COLUMNS)
-            persisted_count, metrics = validate_gold_frame(persisted, count)
-        summary = {
-            "schema_version": RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": GOLD_CONTRACT_NAME,
-            "created_at_utc": normalize_utc_timestamp(None),
-            "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES), "region_prefix": args.region_prefix, "pnu_prefix": args.pnu_prefix},
-            "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
-                      {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace, "table": args.target_iceberg_table},
-            "write_mode": args.write_mode, "write_disposition": "validate_only" if args.validate_only else ("parquet_overwrite" if args.write_mode == "parquet" else "iceberg_" + args.iceberg_write_mode),
-            "row_count": count, "persisted_row_count": persisted_count, "quality_metrics": {**metrics, **counters},
-            "columns": list(GOLD_COLUMNS), "column_count": len(GOLD_COLUMNS), "required_columns": list(REQUIRED_GOLD_COLUMNS),
-            "schema_evolution_added_columns": list(added), "source_snapshot_count": len(snapshots),
-            "source_snapshot_ids": [snapshots[n] for n in sorted(snapshots)], "source_snapshots_by_dataset": snapshots,
-            "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())),
-            "source_snapshot_truncated": False,
-        }
-        emit_json(summary, args.summary_output, "gold-building-panel-summary-json")
-        if args.lineage_output and not args.validate_only:
-            emit_json(build_lineage_event(args, summary), args.lineage_output,
-                      "gold-building-panel-lineage-json")
-        return 0
+        return run(spark, args, pins)
     finally:
-        if gold is not None:
-            gold.unpersist()
         spark.stop()
+
+
+def run(spark, args, pins):
+    """Build, check and write the Gold: whole, or only the changed PNUs merged (root ADR-0180)."""
+    previous = incremental.validate_arguments(args, ALL_SOURCES)
+    target_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{args.target_iceberg_table}`"
+    snapshots, counters = {}, {}
+    frames = read_inputs(spark, args, pins, snapshots)
+    source_id = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()
+
+    lane = incremental.Lane(
+        build=lambda inputs: build_gold_panel_frame(inputs, source_id, args.published_at_utc, counters),
+        restrict=restrict_inputs, whole_table_inputs=WHOLE_TABLE_INPUTS,
+        affected=lambda changed: affected_pnus(read_inputs(spark, args, previous), frames, changed),
+        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
+        validate=lambda gold: validate_gold_frame(gold, None))
+    outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
+                                         validate_gold_frame, assert_minimum_row_count)
+    persisted_count, metrics, added = None, outcome.metrics, ()
+    if not args.validate_only:
+        if args.write_mode == "parquet":
+            gold = outcome.gold
+            (gold.repartition(*partition_column_names(GOLD_CONTRACT)).sortWithinPartitions(*sort_order(GOLD_CONTRACT))
+             .write.mode("overwrite").partitionBy(*partition_column_names(GOLD_CONTRACT)).parquet(args.output))
+            persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
+        else:
+            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
+            # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
+            added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
+            # The snapshot records the Silver pins it was built from (root ADR-0139).
+            outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+            incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
+                                               GOLD_CONTRACT_NAME, pins)
+            persisted = spark.table(target_table).select(*GOLD_COLUMNS)
+        persisted_count, metrics = validate_gold_frame(persisted, outcome.row_count)
+    summary = {
+        "schema_version": RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": GOLD_CONTRACT_NAME,
+        "created_at_utc": normalize_utc_timestamp(None),
+        "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES), "region_prefix": args.region_prefix, "pnu_prefix": args.pnu_prefix},
+        "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
+                  {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace, "table": args.target_iceberg_table},
+        "write_mode": args.write_mode,
+        "write_disposition": "validate_only" if args.validate_only else ("parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),
+        "row_count": outcome.row_count, "persisted_row_count": persisted_count, "quality_metrics": {**metrics, **counters},
+        "columns": list(GOLD_COLUMNS), "column_count": len(GOLD_COLUMNS), "required_columns": list(REQUIRED_GOLD_COLUMNS),
+        "schema_evolution_added_columns": list(added), "source_snapshot_count": len(snapshots),
+        "source_snapshot_ids": [snapshots[n] for n in sorted(snapshots)], "source_snapshots_by_dataset": snapshots,
+        "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())),
+        "source_snapshot_truncated": False,
+        "rebuild": outcome.report(),
+    }
+    outcome.release()
+    emit_json(summary, args.summary_output, "gold-building-panel-summary-json")
+    if args.lineage_output and not args.validate_only:
+        emit_json(build_lineage_event(args, summary), args.lineage_output,
+                  "gold-building-panel-lineage-json")
+    return 0
 
 
 if __name__ == "__main__":

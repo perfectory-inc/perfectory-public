@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "decision": "docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md",
-  "purpose": "The by-PNU panel Gold tables the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes.",
+  "purpose": "The by-PNU panel Gold tables the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes. `incremental` (root ADR-0180) lets a rebuild recompute only the PNUs whose inputs changed and merge them, up to max_changed_key_fraction of the Gold, after a parity sample of parity_sample_keys unchanged PNUs agrees; past it, or without it, the rebuild is full.",
   "tables": {
     "gold.parcel_panel": {
       "unit": "parcel",
@@ -12,6 +12,11 @@
       "unmeasured_inputs": {
         "silver.parcel_lineage": "Absent from the catalog when the parcel rebuild was measured (2026-10-03) and still absent on 2026-10-04, so the 20g cap was shown only with --no-carry-lineage, where the run already peaked at 18.0GiB anon. Carrying the lineage adds a join; measure it before a run may read it (root ADR-0139)."
       },
+      "incremental": {
+        "max_changed_key_fraction": 0.3,
+        "parity_sample_keys": 20000,
+        "reason": "Root ADR-0180. Past 30% of the 39.9M PNUs recomputing them costs most of a full rebuild and the copy-on-write merge still copies the untouched rows of every file it touches, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.05%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+      },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },
     "gold.building_panel": {
@@ -20,6 +25,11 @@
       "producer_arguments": [],
       "max_row_loss_fraction": 0.01,
       "max_row_loss_reason": "One row per PNU that has a building title or unit. Building registers grow; a monthly refresh moves the count by far less than 1% of about 6 million. Losing more means an input lost a region or a join broke, which must not reach the bake.",
+      "incremental": {
+        "max_changed_key_fraction": 0.3,
+        "parity_sample_keys": 20000,
+        "reason": "Root ADR-0180. Past 30% of the 5.95M PNUs recomputing them costs most of a full rebuild and the copy-on-write merge still copies the untouched rows of every file it touches, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.3%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+      },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
   }

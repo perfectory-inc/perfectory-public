@@ -14,6 +14,7 @@ import test_industrial_complex_gold_schema_evolution  # noqa: F401  Import-only 
 import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402
 import parcel_panel_silver_to_gold as parcel  # noqa: E402
+import gold_incremental as incremental  # noqa: E402
 
 ENTRY = {"producer": "fixture", "producer_arguments": [], "max_row_loss_fraction": 0.01}
 INPUTS = (("silver.a", "silver.b"), {}, "silver.a")
@@ -178,12 +179,22 @@ class RowLoss(unittest.TestCase):
             rebuild.assert_minimum_row_count(989, minimum)
 
     def test_both_producers_refuse_before_writing(self):
-        """The refusal sits between validation and the write in each producer's main."""
-        for module, write in ((building, "write_gold_snapshot("), (parcel, "write_gold_iceberg(spark")):
+        """The refusal sits in the checked build both producers run before they write.
+
+        `build_or_merge` returns a full or an incremental outcome only after the row floor; each
+        producer's `run` calls it before it commits anything (root ADR-0139, ADR-0180).
+        """
+        for module, write in ((building, "outcome.commit("), (parcel, "write_gold_iceberg(spark")):
             source = Path(module.__file__).read_text(encoding="utf-8")
-            main = source[source.index("def main("):]
-            self.assertLess(main.index("assert_minimum_row_count("), main.index(write), module.JOB_NAME
-                            if hasattr(module, "JOB_NAME") else module.__name__)
+            run = source[source.index("def run("):]
+            self.assertLess(run.index("incremental.build_or_merge("), run.index(write), module.JOB_NAME)
+            self.assertIn("assert_minimum_row_count)", run[:run.index(write)], module.JOB_NAME)
+        source = Path(incremental.__file__).read_text(encoding="utf-8")
+        body = source[source.index("def build_or_merge("):source.index("def pins_seed(")]
+        returns = [i for i in range(len(body)) if body.startswith("return Outcome(", i)]
+        self.assertEqual(len(returns), 2, "one full and one incremental outcome")
+        for at in returns:
+            self.assertIn("assert_minimum(", body[:at].rsplit("return Outcome(", 1)[-1])
 
 
 class Write(unittest.TestCase):
