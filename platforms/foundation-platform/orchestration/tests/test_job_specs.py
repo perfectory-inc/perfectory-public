@@ -340,17 +340,20 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                      "lineage_stewardship", "building_register_floor", "data_quality"]:
             self.assertEqual(specs[root].started_by, "schedule", root)
 
-    def test_the_new_lanes_wait_for_their_supervised_first_run(self):
+    def test_a_lane_is_off_only_until_its_supervised_first_run(self):
+        # A lane is switched on once its first supervised run on the data host has loaded or
+        # confirmed the newest release (runbook silver-refresh.md); until then it says so.
         jobs, _ = real_inputs()
         for lane in ALL_LANES:
             entry = job(jobs, lane)
-            self.assertFalse(entry["enabled"], lane)
-            self.assertIn("supervised", entry["disabled_reason"])
             instance = lane.removeprefix("silver_refresh_").replace("_", "-")
             self.assertEqual(entry["systemd_service"], f"foundation-silver-refresh@{instance}.service")
-        for lane in LAND_LANES:
-            # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
-            self.assertIn("bronze-object-members.sh", job(jobs, lane)["disabled_reason"])
+            if entry["enabled"]:
+                continue
+            self.assertIn("supervised", entry["disabled_reason"], lane)
+            if lane in LAND_LANES:
+                # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
+                self.assertIn("bronze-object-members.sh", entry["disabled_reason"], lane)
 
     def test_started_by_is_stated_and_known(self):
         self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
