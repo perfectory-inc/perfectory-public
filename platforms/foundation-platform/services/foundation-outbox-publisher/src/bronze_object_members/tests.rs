@@ -546,6 +546,8 @@ mod postgres {
             let zip_id = object(&pool, selected, "bronze/a.zip", archive.len()).await?;
             object(&pool, selected, "bronze/text.zip", text.len()).await?;
             let gone = object(&pool, selected, "bronze/gone.zip", 100).await?;
+            // A source's other files are measured too and settle as not a ZIP (2026-10-10: an
+            // unmeasured `.xlsx` beside the ZIPs kept a Silver lane refusing).
             object(&pool, selected, "bronze/plain.csv", 5).await?;
             object(&pool, other, "bronze/other.zip", archive.len()).await?;
             let objects = Arc::new(MemoryObjects(HashMap::from([
@@ -565,7 +567,7 @@ mod postgres {
             let dry = run_with(&pool, objects.clone(), &config).await?;
             assert_eq!(
                 (dry.selected, dry.measured, dry.members, dry.failed),
-                (3, 2, 2, 1)
+                (4, 3, 2, 1)
             );
             assert_eq!(count(&pool, "bronze_object_measurement").await?, 0);
 
@@ -573,7 +575,7 @@ mod postgres {
             let first = run_with(&pool, objects.clone(), &config).await?;
             assert_eq!(
                 (first.zip, first.not_zip, first.members, first.failed),
-                (1, 1, 2, 1)
+                (1, 2, 2, 1)
             );
             assert_eq!(count(&pool, "bronze_object_member").await?, 2);
 

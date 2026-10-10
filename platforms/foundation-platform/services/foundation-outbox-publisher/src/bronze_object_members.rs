@@ -276,8 +276,12 @@ pub(crate) struct Candidate {
     pub size_bytes: i64,
 }
 
-/// Objects of the selected sources whose key ends in `.zip` and that have no settled measurement,
-/// those never attempted first.
+/// Objects of the selected sources that have no settled measurement, those never attempted first.
+///
+/// Every object, not only `.zip` keys: a Silver lane refuses while any object of its source has no
+/// settled reading (root ADR-0169), and a source may hold other files beside its ZIPs (2026-10-10:
+/// the land-use zone code source holds an `.xlsx` table definition, which was never measured, so the
+/// lane refused forever). A non-ZIP settles as `not_zip` after one ranged read.
 pub(crate) async fn candidates(
     pool: &PgPool,
     sources: &SourceSelector,
@@ -287,8 +291,7 @@ pub(crate) async fn candidates(
         "SELECT object.id, object.object_key, object.size_bytes
            FROM catalog.bronze_object AS object
            JOIN catalog.source_catalog AS source ON source.id = object.source_catalog_id
-          WHERE lower(object.object_key) LIKE '%.zip'
-            AND (source.slug = ANY($1::text[])
+          WHERE (source.slug = ANY($1::text[])
                  OR EXISTS (SELECT 1 FROM unnest($2::text[]) AS prefix(value)
                              WHERE starts_with(source.slug, prefix.value)))
             AND NOT EXISTS (SELECT 1 FROM catalog.bronze_object_measurement AS settled
