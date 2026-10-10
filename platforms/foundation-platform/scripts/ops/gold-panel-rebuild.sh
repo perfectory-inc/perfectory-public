@@ -144,6 +144,19 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
+# 0. The building panel's unit prices (root ADR-0182): silver.unit_official_price joins the two hub
+# tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
+# The join belongs to this job because only this job reads it, and because the spark pool has no
+# room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.
+if [[ "${UNIT}" == building ]] && ((${#VALIDATE[@]} == 0)); then
+  if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
+    grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
+    log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
+    exit 1
+  fi
+  log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
+fi
+
 # 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a
 # missing or unreadable job list counts as enabled.
 plan_options=()

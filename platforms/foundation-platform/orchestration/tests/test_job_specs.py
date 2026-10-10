@@ -335,6 +335,16 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                               "silver_refresh_building_register_unit_areas"},
                              set(specs["gold_panel_rebuild"].producers))
         self.assertEqual(specs["by_pnu_serving_bake"].producers, ("gold_panel_rebuild",))
+        # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
+        # and the table it writes then reads does not start it again.
+        gold = specs["gold_panel_rebuild"]
+        self.assertLessEqual({"silver_refresh_building_register_apartment_price",
+                              "silver_refresh_building_register_exclusive_unit"}, set(gold.producers))
+        unit_price = ("iceberg", "silver.unit_official_price")
+        self.assertIn(unit_price, gold.inputs)
+        self.assertIn(unit_price, gold.outputs)
+        self.assertNotIn(unit_price, gold.starting_inputs)
+        self.assertNotIn("gold_panel_rebuild", gold.producers)
         # What the outside world or staff drive stays on the clock.
         for root in ["source_sweep", "outbox_publish", "map_edit_fold_admin", "map_edit_fold_complex",
                      "lineage_stewardship", "building_register_floor", "data_quality"]:
@@ -370,10 +380,15 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
                                         "that writes them (gold_panel_rebuild) is switched off")
 
-    def test_a_job_that_writes_its_own_input_is_refused(self):
-        # The fold reads the edit ledger it writes: started by its inputs, it would start itself.
-        self.refused(lambda jobs: job(jobs, "map_edit_fold_admin").update(started_by="inputs"),
-                     "map_edit_fold_admin: started by its inputs, it writes one of them")
+    def test_a_job_is_never_started_by_what_it_writes(self):
+        # The Gold rebuild writes the unit prices it then reads (root ADR-0182); the fold reads the
+        # edit ledger it writes. Neither run may start the next one of the same job.
+        jobs, graph = real_inputs()
+        job(jobs, "map_edit_fold_admin").update(started_by="inputs")
+        for spec in job_specs.load_specs(jobs, graph):
+            with self.subTest(job=spec.job_id):
+                self.assertFalse(set(spec.starting_inputs) & set(spec.outputs))
+                self.assertNotIn(spec.job_id, spec.producers)
 
     def test_jobs_that_start_each_other_in_a_circle_are_refused(self):
         def circle(jobs):

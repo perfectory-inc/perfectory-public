@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 from unit_official_price import (DICTIONARY_SQL, CONFLICTING_SQL, PRICES_SQL, JOIN_SQL, refuse_conflicting, parse_args,
-                                 newest_shared_vintage)
+                                 newest_shared_vintage, batch_source_snapshot_id, batch_vintage, newest_batch)
 
 
 class UnitOfficialPriceTest(unittest.TestCase):
@@ -76,19 +76,33 @@ class UnitOfficialPriceTest(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM price_source").fetchone()[0], 4)
 
     def test_without_a_vintage_the_newest_month_both_tables_hold_is_joined(self):
-        self.assertIsNone(parse_args(["--sido", "99"]).vintage)
+        self.assertIsNone(parse_args([]).vintage)
         self.assertEqual(newest_shared_vintage(["209906", "209907"], ["209907", "209905"]), "209907")
-        # One lane has refreshed to a month the other has not: never mix them silently.
-        for exclusive, prices in ((["209907"], ["209908", "209907"]), ([], ["209907"])):
+        # One lane has refreshed to a month the other has not: the month both hold, never a mix
+        # (root ADR-0182); the next run joins the newer month once both hold it.
+        self.assertEqual(newest_shared_vintage(["209907"], ["209908", "209907"]), "209907")
+        for exclusive, prices in ((["209906"], ["209907"]), ([], ["209907"])):
             with self.subTest(exclusive=exclusive, prices=prices), self.assertRaises(ValueError):
                 newest_shared_vintage(exclusive, prices)
 
-    def test_submission_requires_one_province_and_positive_snapshot_ids(self):
-        self.assertEqual(parse_args(["--sido", "99", "--vintage", "202606"]).sido, "99")
-        for args in ([], ["--sido", "99999"], ["--sido", "99", "--price-snapshot-id", "0"],
-                     ["--sido", "99", "--vintage", "2099"]):
+    def test_submission_takes_the_nation_and_positive_snapshot_ids(self):
+        self.assertEqual(parse_args(["--vintage", "202606"]).vintage, "202606")
+        for args in (["--sido", "99"], ["--price-snapshot-id", "0"], ["--vintage", "2099"]):
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parse_args(args)
+
+    def test_the_panel_reads_the_newest_vintages_batch(self):
+        older, newer = batch_source_snapshot_id(1, 2, "209907"), batch_source_snapshot_id(3, 4, "209908")
+        self.assertEqual(batch_vintage(newer), "209908")
+        self.assertEqual(newest_batch([older, newer, older]), newer)
+        self.assertEqual(newest_batch([older]), older)
+        # An id this job did not write: which batch is newest is unknown, so nothing is chosen.
+        self.assertIsNone(newest_batch([older, "older-source"]))
+        self.assertIsNone(newest_batch([]))
+        self.assertIsNone(batch_vintage("price:1|exclusive:2|vintage:2099"))
+        # Two batches of one vintage are never written; reading one would be a guess.
+        with self.assertRaisesRegex(ValueError, "2 batches of vintage 209908"):
+            newest_batch([newer, batch_source_snapshot_id(5, 6, "209908")])
 
 
 if __name__ == "__main__":

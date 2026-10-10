@@ -173,7 +173,7 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                 self.assertEqual(arguments["timetable"],
                                  ("CronTriggerTimetable", (spec.schedule,), (("timezone", "UTC"),)))
                 self.assertEqual(arguments["assets"],
-                                 ("AssetAny", tuple(asset(dataset) for dataset in spec.inputs), ()))
+                                 ("AssetAny", tuple(asset(dataset) for dataset in spec.starting_inputs), ()))
 
     def test_what_a_job_publishes_is_what_the_jobs_it_feeds_wait_for(self):
         published = {spec.job_id: set(self.tasks(spec)["publish_outputs"].outlets)

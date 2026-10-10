@@ -101,6 +101,26 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
                 {"base_date": "20100601", "price_won": 100},
             ])
 
+    def test_the_panel_reads_the_newest_vintages_batch_of_the_append_only_table(self):
+        # Root ADR-0182: every vintage stays in the table; the panel serves the newest one.
+        import unit_official_price as silver
+        older = silver.batch_source_snapshot_id(1, 2, "209907")
+        newer = silver.batch_source_snapshot_id(3, 4, "209908")
+        with tempfile.TemporaryDirectory() as temp:
+            (self.prices.withColumn("source_snapshot_id", self.F.lit(older))
+             .unionByName(self.prices.withColumn("source_snapshot_id", self.F.lit(newer))
+                          .withColumn("price_won", self.F.col("price_won") + 1))
+             .write.parquet(temp + "/unit_official_price"))
+            args = SimpleNamespace(input_mode="parquet", input_root=temp, price_source_snapshot_id=None)
+            prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
+            self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), newer)
+            self.assertEqual(sorted(r.price_won for r in prices.collect()),
+                             sorted(r.price_won + 1 for r in self.prices.collect()))
+            # A named batch still wins: an operator can serve an older vintage on purpose.
+            args.price_source_snapshot_id = older
+            prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
+            self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), older)
+
     def test_duplicate_dates_invalid_dates_and_negative_values_fail_closed(self):
         titles = self.titles.withColumn("id", self.gold.canonical_id("building", self.F.col("mgm_bldrgst_pk")))
         invalid_frames = [

@@ -73,6 +73,16 @@ class JobSpec:
     started_by: str = "schedule"  # STARTED_BY
     producers: tuple = ()  # the other jobs whose outputs are among its inputs
 
+    @property
+    def starting_inputs(self):
+        """The inputs whose change starts a `started_by: inputs` job: all but those it writes itself.
+
+        A job may write a dataset it then reads (the Gold rebuild joins silver.unit_official_price
+        before the building panel reads it, root ADR-0182); its own output event must not start it
+        again.
+        """
+        return [dataset for dataset in self.inputs if dataset not in self.outputs]
+
 
 class JobListError(ValueError):
     pass
@@ -445,8 +455,8 @@ def load_specs(jobs=None, graph=None):
         start = started_by(job)
         if start == "inputs":
             # Started by its inputs, it must have a job that can change one (otherwise only its
-            # fallback schedule would ever start it), and must not change its own inputs (every run
-            # that changed something would start it again).
+            # fallback schedule would ever start it). An input it writes itself does not start it
+            # (JobSpec.starting_inputs, root ADR-0182), so a run never starts the next one.
             if not feeders[job_id]:
                 raise JobListError(f"{job_id}: started by its inputs, but no job in the list writes any of them")
             if job["enabled"] and not any(by_id[feeder]["enabled"] for feeder in feeders[job_id]):
@@ -454,8 +464,6 @@ def load_specs(jobs=None, graph=None):
                     f"{job_id}: enabled and started by its inputs, but every job that writes them "
                     f"({', '.join(feeders[job_id])}) is switched off"
                 )
-            if set(inputs) & set(outputs):
-                raise JobListError(f"{job_id}: started by its inputs, it writes one of them and would start itself")
         specs.append(
             JobSpec(
                 job_id=job_id,

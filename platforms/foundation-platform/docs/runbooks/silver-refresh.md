@@ -131,8 +131,9 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
    (ADR-0122 §4). 마지막 줄 `foundation-job-outcome changed|unchanged` 가 `silver-refresh-outcome` 바로 뒤에
    찍혔는지도 본다.
 
-공동주택가격 조합(`unit_official_price.py`, 시도마다 한 번)은 ④까지 손으로 돈다. 두 부분 레인이 같은 월을 가진
-뒤에 돌린다. `--vintage` 를 빼면 두 표가 함께 가진 가장 새 월을 쓰고, 한쪽만 새 월이면 거부한다.
+공동주택가격 조합(`unit_official_price.py`)은 손으로 돌리지 않는다: Gold 재생성의 건물 단계가 계획 전에 두 표가 함께
+가진 가장 새 월을 전국 한 묶음으로 조합하고, 그 월을 이미 가지면 아무것도 쓰지 않는다. 건물 패널은 가장 새 월의 묶음을
+읽는다(루트 ADR-0182). 그 줄은 Gold 재생성 journal 의 `unit prices: vintage … appended|already held` 다.
 
 ## 4. 거부와 고치는 법
 

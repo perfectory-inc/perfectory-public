@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Reindex one province's apartment assessments by unit identity (root ADR-0095).
+"""Reindex the nation's apartment assessments by unit identity (root ADR-0095, ADR-0182).
 
-One invocation handles one two-digit province. Every reference date survives;
-only correction notices for that same date resolve to their confirmed value.
-Source snapshots stay immutable and untouched.
+One invocation joins one vintage, the newest both hub tables hold, for every province, and appends
+it as one batch: the table never holds part of a vintage (root ADR-0182). A vintage the table
+already holds is not derived again. Every reference date survives; only correction notices for that
+same date resolve to their confirmed value. Source snapshots stay immutable and untouched.
+
+The building panel reads the newest vintage's batch (`newest_batch`); each vintage carries the
+whole history of reference dates, so the older batches stay as the record of what was served.
 """
 
 from __future__ import annotations
@@ -55,6 +59,37 @@ WHERE d.pnu REGEXP '^[0-9]{19}$'
 """
 
 
+BATCH = re.compile(r"price:[0-9]+\|exclusive:[0-9]+\|vintage:([0-9]{6})")
+
+
+def batch_source_snapshot_id(price_snapshot: int, exclusive_snapshot: int, vintage: str) -> str:
+    """The `source_snapshot_id` of the batch joined from these two Silver snapshots."""
+    return f"price:{price_snapshot}|exclusive:{exclusive_snapshot}|vintage:{vintage}"
+
+
+def batch_vintage(source_snapshot_id: str | None) -> str | None:
+    """The vintage a batch's `source_snapshot_id` names, or None for anything else."""
+    match = BATCH.fullmatch(source_snapshot_id or "")
+    return match.group(1) if match else None
+
+
+def newest_batch(source_snapshot_ids) -> str | None:
+    """The batch of the newest vintage among `source_snapshot_ids` (root ADR-0182).
+
+    None when any id is not one this job writes: the reader then cannot tell which is newest and
+    keeps refusing the mix. Two batches of the newest vintage are refused by name: the derivation
+    never writes a second one, so that is an incident, not a choice.
+    """
+    vintages = {source: batch_vintage(source) for source in set(source_snapshot_ids)}
+    if not vintages or None in vintages.values():
+        return None
+    newest = max(vintages.values())
+    batches = sorted(source for source, vintage in vintages.items() if vintage == newest)
+    if len(batches) > 1:
+        raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest}: {batches}")
+    return batches[0]
+
+
 def refuse_conflicting(conflicting: int) -> None:
     if conflicting:
         raise ValueError(f"management keys name multiple units: conflicting={conflicting}")
@@ -62,7 +97,6 @@ def refuse_conflicting(conflicting: int) -> None:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sido", required=True, help="Exactly one two-digit province.")
     parser.add_argument("--vintage")
     parser.add_argument("--iceberg-catalog-name", default="r2")
     parser.add_argument("--price-snapshot-id", type=int)
@@ -70,7 +104,6 @@ def parse_args(argv=None):
     parser.add_argument("--summary-output")
     args = parser.parse_args(argv)
     for value, pattern, name in [
-        (args.sido, r"[0-9]{2}", "sido"),
         (args.vintage, r"[0-9]{6}", "vintage"),
         (args.iceberg_catalog_name, r"[A-Za-z_][A-Za-z0-9_]*", "catalog"),
     ]:
@@ -87,19 +120,14 @@ def newest_shared_vintage(exclusive_vintages, price_vintages):
     """The vintage to join when none is named: the newest month both Silver tables hold.
 
     The two hub lanes load their newest complete release from the Bronze ledger on their own
-    (root ADR-0169), so for a while one table can hold a month the other does not yet. Joining
-    a price month to an older unit dictionary would be a silent mix, so that is refused until
-    both have it, as the two contracts' differing `selected_vintage` was refused before.
+    (root ADR-0169), so for a while one table holds a month the other does not yet. A price month
+    is never joined to another month's unit dictionary: the newest month both hold is joined, and
+    once the slower lane lands the newer month, the next run joins that (root ADR-0182).
     """
-    exclusive, prices = set(exclusive_vintages), set(price_vintages)
-    if not exclusive or not prices:
-        raise ValueError("a hub register table holds no vintage")
-    if max(exclusive) != max(prices):
-        raise ValueError(
-            f"the newest vintages differ (exclusive {max(exclusive)}, price {max(prices)}); "
-            "wait for both lanes or specify --vintage"
-        )
-    return max(exclusive)
+    shared = set(exclusive_vintages) & set(price_vintages)
+    if not shared:
+        raise ValueError("the hub register tables share no vintage")
+    return max(shared)
 
 
 def read_snapshot(spark, qualified_table, requested):
@@ -122,7 +150,7 @@ def main(argv=None):
                .config("spark.sql.session.timeZone", "UTC")
                .config("spark.sql.autoBroadcastJoinThreshold", "-1")
                .config("spark.sql.adaptive.autoBroadcastJoinThreshold", "-1")
-               .config("spark.sql.shuffle.partitions", "64"))
+               .config("spark.sql.shuffle.partitions", "400"))
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:
         assert_iceberg_runtime_loaded(spark, iceberg_packages())
@@ -134,16 +162,31 @@ def main(argv=None):
                 [row.vintage for row in exclusive.select("vintage").distinct().collect()],
                 [row.vintage for row in prices.select("vintage").distinct().collect()],
             )
-            print(json.dumps({"sido": args.sido, "vintage": args.vintage, "chosen_by": "newest_shared_vintage"}), flush=True)
+            print(json.dumps({"vintage": args.vintage, "chosen_by": "newest_shared_vintage"}), flush=True)
+        contract = load_lakehouse_contract(CONTRACT)
+        target = f"{prefix}.`unit_official_price`"
+        spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
+        # Refuse a year-only target; preserve it and replay the dated sources (ADR-0101).
+        evolve_iceberg_table_to_contract(spark, target, contract)
+        held = sorted(row.source_snapshot_id for row in spark.table(target).select("source_snapshot_id").distinct().collect()
+                      if batch_vintage(row.source_snapshot_id) == args.vintage)
+        if held:
+            # One batch per vintage: a compaction or a reload of the same month gives the hub
+            # tables new snapshot ids, and a second batch of the month would duplicate it.
+            summary = {"vintage": args.vintage, "appended": False, "held_by": held,
+                       "elapsed_seconds": time.monotonic() - started}
+            print(f"unit-official-price-unchanged {json.dumps(summary, sort_keys=True)}", flush=True)
+            if args.summary_output:
+                Path(args.summary_output).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+            return
         exclusive.where(F.col("vintage") == args.vintage).createOrReplaceTempView("exclusive_source")
-        # Check the entire dictionary first: a key split across provinces must also be refused.
+        # The whole dictionary: a key split across provinces is refused.
         dictionary = spark.sql(DICTIONARY_SQL)
         dictionary.createOrReplaceTempView("unit_dictionary")
         conflicting = int(spark.sql(CONFLICTING_SQL).first()[0])
-        print(json.dumps({"sido": args.sido, "conflicting": conflicting}), flush=True)
+        print(json.dumps({"conflicting": conflicting}), flush=True)
         refuse_conflicting(conflicting)
-        dictionary.where(F.substring("pnu", 1, 2) == args.sido).createOrReplaceTempView("unit_dictionary")
-        price_source = prices.where((F.col("vintage") == args.vintage) & (F.substring("sigungu_cd", 1, 2) == args.sido))
+        price_source = prices.where(F.col("vintage") == args.vintage)
         price_source.createOrReplaceTempView("price_source")
         reference_prices = spark.sql(PRICES_SQL)
         reference_prices.createOrReplaceTempView("reference_prices")
@@ -151,23 +194,21 @@ def main(argv=None):
         unmatched = int(spark.sql("""SELECT COUNT(*) FROM reference_prices p
             LEFT JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
             WHERE d.mgmt_key IS NULL OR d.pnu IS NULL OR NOT (d.pnu REGEXP '^[0-9]{19}$')""").first()[0])
-        source_snapshot = f"price:{price_snapshot}|exclusive:{exclusive_snapshot}|vintage:{args.vintage}"
-        source_record = f"unit-official-price/base-date-v2/{args.sido}/{source_snapshot}"
+        source_snapshot = batch_source_snapshot_id(price_snapshot, exclusive_snapshot, args.vintage)
+        sido = F.substring("pnu", 1, 2)
+        # One load identity per province, as the per-province runs wrote them: the registry keeps
+        # one record per province and vintage.
         frame = (spark.sql(JOIN_SQL)
-                 .withColumn("sido", F.lit(args.sido))
+                 .withColumn("sido", sido)
                  .withColumn("source_snapshot_id", F.lit(source_snapshot))
-                 .withColumn("source_record_id", F.lit(source_record)))
+                 .withColumn("source_record_id",
+                             F.concat(F.lit("unit-official-price/base-date-v2/"), sido, F.lit("/" + source_snapshot))))
         row_count = frame.count()
         if row_count == 0:
-            raise ValueError("province produced no price rows; refusing an empty append")
-        contract = load_lakehouse_contract(CONTRACT)
-        target = f"{prefix}.`unit_official_price`"
-        spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
-        # Refuse a year-only target; preserve it and replay the dated sources (ADR-0101).
-        evolve_iceberg_table_to_contract(spark, target, contract)
+            raise ValueError("the vintage produced no price rows; refusing an empty append")
         appended = append_batch_once(spark, frame, column_names(contract), target, CONTRACT)
         summary = {
-            "sido": args.sido, "source_snapshot_id": source_snapshot,
+            "vintage": args.vintage, "source_snapshot_id": source_snapshot,
             "price_snapshot_id": price_snapshot, "exclusive_snapshot_id": exclusive_snapshot,
             "rows": row_count, "conflicting": conflicting, "invalid_prices": invalid,
             "unmatched_prices": unmatched, "elapsed_seconds": time.monotonic() - started,
