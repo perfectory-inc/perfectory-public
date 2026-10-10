@@ -57,7 +57,7 @@ def schedule_of(spec):
         return spec.schedule
     return AssetOrTimeSchedule(
         timetable=CronTriggerTimetable(spec.schedule, timezone="UTC"),
-        assets=AssetAny(*(asset(dataset) for dataset in spec.inputs)),
+        assets=AssetAny(*(asset(dataset) for dataset in spec.starting_inputs)),
     )
 
 

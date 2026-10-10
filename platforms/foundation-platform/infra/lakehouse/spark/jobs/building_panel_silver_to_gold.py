@@ -30,6 +30,7 @@ from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identi
 from building_link_evidence import evidence_policy, verified_building_links
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
+from unit_official_price import newest_batch
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -145,8 +146,14 @@ def read_source(spark, args, name, pins):
     if missing:
         raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
     frame = frame.select(*column_names(contract))
-    if name == PRICE_SOURCE and args.price_source_snapshot_id is not None:
-        frame = frame.where(F.col("source_snapshot_id") == args.price_source_snapshot_id)
+    if name == PRICE_SOURCE:
+        # The price table keeps every vintage's batch, each the whole history of reference dates;
+        # the panel serves the newest (root ADR-0182). Ids the derivation did not write leave the
+        # mix to be refused (assert_single_snapshot), unless a batch is named.
+        batch = args.price_source_snapshot_id or newest_batch(
+            row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect())
+        if batch is not None:
+            frame = frame.where(F.col("source_snapshot_id") == batch)
     predicate = current_row_predicate(contract)
     return frame.where(F.expr(predicate)) if predicate else frame
 
