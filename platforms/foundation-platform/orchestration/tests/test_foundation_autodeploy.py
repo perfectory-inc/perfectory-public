@@ -385,6 +385,24 @@ class TheWholeDeploy(unittest.TestCase):
         path = self.root / "release.log"
         return path.read_text().split() if path.exists() else []
 
+    def test_a_deploy_writes_no_bytecode_into_the_release_it_imports_from(self):
+        # 2026-10-10: the unpause order imported job_specs from the running release as root, Python
+        # wrote __pycache__ into it, and release admission refused every job as "writable".
+        dags = self.root / "opt/foundation-platform/current/orchestration/dags"
+        dags.mkdir()
+        (dags / "job_specs.py").write_text(
+            "def unpause_order():\n    return %r\n" % list(reversed(self.ENABLED)))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        result = subprocess.run(
+            ["bash", str(self.script), HEAD],
+            env={**env, "PATH": f"{self.bin}:{env['PATH']}", "FIXTURE_ROOT": str(self.root)},
+            capture_output=True, text=True, check=False, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(list((self.root / "opt").rglob("__pycache__")), [])
+        unpaused = [line.split()[-1].removeprefix("foundation_")
+                    for line in (self.root / "airflow.log").read_text().splitlines() if line.startswith("dags unpause")]
+        self.assertEqual(unpaused[-len(self.ENABLED):], list(reversed(self.ENABLED)))
+
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
