@@ -17,6 +17,11 @@
 #    writes, a Gold that fails its quality gates or has fewer rows than the floor; a refused run
 #    commits nothing. A passing run commits one new Gold snapshot (the old ones stay in the
 #    table's history) that records the pins in its summary, so the next plan starts from it.
+#    When the plan says `incremental` (root ADR-0180) the producer recomputes only the PNUs whose
+#    inputs changed since the current Gold's pins and merges them; past the contract's
+#    max_changed_key_fraction, or when its parity sample disagrees, it rebuilds whole instead. An
+#    incremental run whose recomputed rows all came out unchanged records the new pins only and
+#    does not count as a change for the bake.
 #
 # `all` ends with `foundation-job-outcome changed` when a table committed a snapshot, `unchanged`
 # otherwise (root ADR-0171): Airflow starts the by-PNU bake only on `changed`.
@@ -167,7 +172,7 @@ if ! spark gold_rebuild.py --gold-table "${gold_table}" "${plan_options[@]}" \
   log "FAILED: could not plan ${gold_table} (log ${work}/gold_rebuild.py.log)"
   exit 1
 fi
-mapfile -t plan < <(python3 -I - "${work}/plan.json" <<'PY'
+mapfile -t plan < <(python3 -I - "${work}/plan.json" "${work}/previous-pins.json" <<'PY'
 import json, sys
 plan = json.load(open(sys.argv[1]))
 print(plan["action"])
@@ -175,16 +180,38 @@ print(plan["source_snapshots"][plan["anchor_input"]])
 print("" if plan["minimum_row_count"] is None else plan["minimum_row_count"])
 print("; ".join(plan["reasons"]))
 print(" ".join(plan["producer_arguments"]))
+# Root ADR-0180: an incremental rebuild compares against the pins the current Gold was built from.
+mode = plan.get("mode", "full")
+print(mode)
+print("; ".join(plan.get("mode_reasons") or []))
+if mode == "incremental":
+    with open(sys.argv[2], "w", encoding="utf-8") as previous:
+        json.dump(plan["previous_source_snapshots"], previous, sort_keys=True)
+    print(f'{plan["max_changed_key_fraction"]} {plan["parity_sample_keys"]}')
+else:
+    print("")
 PY
 )
 action="${plan[0]}"; anchor="${plan[1]}"; minimum="${plan[2]}"; reasons="${plan[3]}"
 read -r -a producer_arguments <<<"${plan[4]}"
+mode="${plan[5]:-full}"; mode_reasons="${plan[6]:-}"
+incremental=()
+if [[ "${mode}" == incremental ]]; then
+  read -r max_fraction sample_keys <<<"${plan[7]}"
+  incremental=(--incremental-from-snapshots "${container_work}/previous-pins.json"
+               --max-changed-key-fraction "${max_fraction}" --parity-sample-keys "${sample_keys}")
+fi
 if [[ "${action}" == nothing_to_do ]]; then
   log "nothing to do: no Silver input of ${gold_table} changed rows since the snapshots its current Gold was built from"
   exit 0
 fi
 [[ "${action}" == rebuild ]] || { log "refused: the plan says '${action}'"; exit 65; }
 log "rebuilding ${gold_table}${VALIDATE[0]:+ (dry run)}: ${reasons}"
+if [[ "${mode}" == incremental ]]; then
+  log "incremental: only the PNUs whose inputs changed are recomputed and merged; the producer falls back to the full rebuild past ${max_fraction} of the Gold or on a parity disagreement"
+else
+  log "full rebuild: ${mode_reasons:-the plan names no reason}"
+fi
 
 # 2. Build, check, commit.
 started=${SECONDS}
@@ -192,15 +219,24 @@ if ! spark "${producer}.py" --input-mode iceberg --write-mode iceberg \
     --iceberg-snapshot-id "${anchor}" --source-snapshots-path "${container_work}/pins.json" \
     ${minimum:+--minimum-count "${minimum}"} --allow-non-smoke-overwrite \
     --summary-output "${container_work}/summary.json" --lineage-output "${container_work}/lineage.json" \
-    "${producer_arguments[@]}" "${VALIDATE[@]}"; then
+    "${producer_arguments[@]}" ${incremental[@]+"${incremental[@]}"} "${VALIDATE[@]}"; then
   grep -a -E 'Error|Exception' "${work}/${producer}.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
   log "FAILED: ${producer} refused or crashed; nothing was committed (log ${work}/${producer}.py.log)"
   exit 1
 fi
-rows="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["row_count"])' "${work}/summary.json")"
+read -r rows built changed_rows < <(python3 -I - "${work}/summary.json" <<'PY'
+import json, sys
+summary = json.load(open(sys.argv[1]))
+rebuild = summary.get("rebuild") or {}
+# An incremental run whose recomputed PNUs all came out unchanged commits only the new pins.
+print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes")
+PY
+)
 if ((${#VALIDATE[@]})); then
-  log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s; nothing was committed"
+  log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; nothing was committed"
+elif [[ "${changed_rows}" == no ]]; then
+  log "recorded the new pins on ${gold_table}: no PNU's row changed; ${rows} rows in $((SECONDS - started))s by a ${built} rebuild"
 else
   [[ -z "${GOLD_PANEL_REBUILD_COMMITTED:-}" ]] || echo "${gold_table}" >>"${GOLD_PANEL_REBUILD_COMMITTED}"
-  log "committed ${gold_table}: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s; the by-PNU bake serves it on its next turn"
+  log "committed ${gold_table}: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; the by-PNU bake serves it on its next turn"
 fi

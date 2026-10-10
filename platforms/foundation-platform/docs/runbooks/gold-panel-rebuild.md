@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 필지·건물 패널 Gold 재생성 — 예약 작업 런북
@@ -63,7 +63,16 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
    Gold 행 수 × (1 − `max_row_loss_fraction`) 의 올림이다. 생산자는 품질 검사(열·필수값·PNU·중복)와 하한을
    **쓰기 전에** 확인하고, 하나라도 어기면 아무것도 커밋하지 않고 실패한다.
 3. **커밋** — 통과하면 새 스냅숏 하나(`overwrite`)를 커밋하고 요약에 판을 적는다. 이전 스냅숏은 역사에 남는다.
-   실행 요약·계보 이벤트는 같은 run 폴더의 `summary.json`·`lineage.json`.
+   실행 요약·계보 이벤트는 같은 run 폴더의 `summary.json`·`lineage.json`. 커밋 뒤 입력마다 고정한 Silver 스냅숏에
+   태그 `foundation-gold-input-gold-<표>` 를 옮겨 단다(다음 증분 실행의 비교 기준, 만료되지 않게).
+
+**증분 실행([루트 ADR-0180](../../../../docs/adr/0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md)).**
+계획의 `mode` 가 `incremental` 이면 로그에 `incremental: ...` 이 찍히고, 생산자는 `previous-pins.json`(현재 Gold 의 판)과
+새 판의 차이로 입력이 바뀐 PNU 만 다시 만들어 `MERGE INTO` 로 합친다. `full` 이면 `full rebuild: <이유>` 가 찍힌다.
+생산자가 전량으로 넘어가면 `summary.json` 의 `rebuild.full_reason` 이 이유다(바뀐 PNU 가 계약의 `max_changed_key_fraction`
+초과, 또는 `parity sample` 불일치 — 후자는 현재 Gold 가 판 기록대로의 빌드 결과가 아니라는 뜻이므로 생산자 코드 변경
+여부를 확인한다). `rebuild.counts` 에 바뀐·삽입·갱신·삭제·표본 PNU 수가 있다. 다시 만든 행이 모두 그대로였으면
+`recorded the new pins ... no PNU's row changed` 로 판만 기록하고 작업 출력은 `unchanged` 다.
 
 한 표가 실패해도 다른 표는 돈다. 단위는 실패하고 `foundation-unit-failed@` 가 슬랙으로 알린다.
 

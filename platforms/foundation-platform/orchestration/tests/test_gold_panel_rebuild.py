@@ -71,10 +71,13 @@ if fixture.get("crash"):
 rows = fixture["new_rows"]
 minimum = flag("--minimum-count")
 gold_rebuild.assert_minimum_row_count(rows, None if minimum is None else int(minimum))
-host(flag("--summary-output")).write_text(json.dumps({"row_count": rows}))
+host(flag("--summary-output")).write_text(json.dumps({"row_count": rows, **fixture.get("summary", {})}))
 if "--validate-only" not in job_args:
     pins = json.loads(host(flag("--source-snapshots-path")).read_text())
-    fixture.setdefault("commits", []).append({"rows": rows, "pins": pins})
+    commit = {"rows": rows, "pins": pins}
+    if flag("--incremental-from-snapshots"):
+        commit["previous_pins"] = json.loads(host(flag("--incremental-from-snapshots")).read_text())
+    fixture.setdefault("commits", []).append(commit)
     catalog_path.write_text(json.dumps(catalog))
 '''
 
@@ -180,12 +183,37 @@ class GoldPanelRebuild(unittest.TestCase):
         # Sized by the contract, in the compose `spark` service the memory guard counts.
         submit = producer["submit"]
         self.assertEqual(submit[submit.index("--driver-memory") + 1], "16g")
+        # The recorded pin 11 is still kept, so the producer merges only the changed PNUs (root ADR-0180),
+        # comparing against the pins the current Gold was built from, under the contract's bounds.
         self.assertEqual(catalog["gold.building_panel"]["commits"],
-                         [{"rows": 1005, "pins": {"silver.a": "12", "silver.b": "21"}}])
+                         [{"rows": 1005, "pins": {"silver.a": "12", "silver.b": "21"},
+                           "previous_pins": {"silver.a": "11", "silver.b": "21"}}])
+        self.assertEqual(args[args.index("--max-changed-key-fraction") + 1], "0.3")
+        self.assertEqual(args[args.index("--parity-sample-keys") + 1], "20000")
+        self.assertIn("incremental: only the PNUs whose inputs changed", result.stdout)
         self.assertNotIn("commits", catalog["gold.parcel_panel"])
         self.assertIn("committed gold.building_panel: 1005 rows (floor 990)", result.stdout)
         # One table committed: the run changed its outputs and starts the bake (root ADR-0171).
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+
+    def test_a_pin_the_silver_no_longer_keeps_is_a_full_rebuild_with_its_reason(self):
+        building = table_fixture(True, new_rows=1005)
+        building["silver"]["silver.a"]["snapshots"] = building["silver"]["silver.a"]["snapshots"][1:]
+        result, calls, catalog = self.rebuild(table_fixture(False), building, "building")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [producer] = self.producer_calls(calls)
+        self.assertNotIn("--incremental-from-snapshots", producer["args"])
+        self.assertIn("full rebuild: silver.a: snapshot 11 the Gold was built from is no longer kept", result.stdout)
+        self.assertNotIn("previous_pins", catalog["gold.building_panel"]["commits"][0])
+
+    def test_an_incremental_run_that_changed_no_row_does_not_start_the_bake(self):
+        building = table_fixture(True)
+        building["summary"] = {"rebuild": {"mode": "incremental", "merged": False}}
+        result, _, catalog = self.rebuild(table_fixture(False), building, "all")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(catalog["gold.building_panel"]["commits"]), 1, "the new pins are recorded")
+        self.assertIn("recorded the new pins on gold.building_panel: no PNU's row changed", result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
 
     def test_a_dry_run_of_both_tables_changes_nothing(self):
         result, _, catalog = self.rebuild(table_fixture(True), table_fixture(True), "all", "--dry-run")

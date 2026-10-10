@@ -66,7 +66,8 @@ from pyspark.storagelevel import StorageLevel
 
 from lineage_review_queue import steward_resolved
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
-from gold_rebuild import assert_minimum_row_count, write_gold_snapshot
+from gold_rebuild import assert_minimum_row_count
+import gold_incremental as incremental
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
@@ -135,6 +136,25 @@ ATTRIBUTE_SOURCES = (
     LAND_RIGHT_SOURCE,
 )
 ALL_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE)
+# The columns build_panel reads from each input, and the only ones it is handed: the incremental
+# rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a column the
+# build reads must be here or the build fails on it.
+BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
+    PARCEL_SOURCE: ("pnu",),
+    ZONING_SOURCE: ("pnu", "inclusion_code", "zone_code", "zone_name"),
+    PRICE_SOURCE: ("pnu", "base_year", "base_month", "price_per_m2", "announced_date"),
+    CHARACTERISTIC_SOURCE: ("pnu", "area_m2", "land_category", "land_use_situation",
+                            "terrain_height", "terrain_shape", "road_contact"),
+    FOREST_SOURCE: ("pnu", "area_m2", "co_owner_count", "land_category", "ownership_kind_code"),
+    TRANSFER_SOURCE: ("pnu", "transfer_history_seq", "parcel_history_seq", "reason_code", "reason",
+                      "moved_at", "erased_at", "land_category", "area_m2", "closure_seq"),
+    LAND_RIGHT_SOURCE: ("pnu", "right_serial_no", "building_name", "dong_name", "floor_name",
+                        "ho_name", "room_name", "right_ratio", "closure_kind_name", "closure_kind_code"),
+    ZONE_CODE_SOURCE: ("ucode", "parent_ucode"),
+}
+# Inputs whose change the incremental rebuild cannot map to PNUs: a zone code's anchor reaches
+# every parcel zoned under it. A change to one rebuilds whole (root ADR-0180).
+WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE,)
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -146,7 +166,7 @@ ZONING_ANCHOR_MAX_DEPTH = 16
 LAND_RIGHT_PAGE_BOUND = 200
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build gold.parcel_panel from the seven Silver parcel sources."
     )
@@ -273,7 +293,8 @@ def parse_args() -> argparse.Namespace:
         "--lineage-output",
         help="Optional path for a machine-readable lakehouse lineage event JSON file.",
     )
-    return parser.parse_args()
+    incremental.add_arguments(parser)
+    return parser.parse_args(argv)
 
 
 def validate_identifier(label: str, value: str) -> None:
@@ -319,6 +340,7 @@ def validate_args(args: argparse.Namespace) -> dict[str, str]:
 
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env()
+    incremental.validate_arguments(args, input_sources(args))
     return load_source_snapshot_pins(args.input_mode, args.source_snapshots_path,
         input_sources(args), PARCEL_SOURCE, args.iceberg_snapshot_id)
 
@@ -712,7 +734,6 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
         "right_ratio",
         F.col("closure_kind_name").alias("closure_kind"),
         "closure_kind_code",
-        "source_snapshot_id",
     )
     dedup = Window.partitionBy(
         "pnu", "right_serial_no", "dong_name", "floor_name", "ho_name", "room_name"
@@ -721,12 +742,11 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
         F.col("right_ratio").asc_nulls_first(),
         F.col("closure_kind_code").asc_nulls_first(),
         F.col("closure_kind").asc_nulls_first(),
-        F.col("source_snapshot_id").asc(),
     )
     unique = (
         normalized.withColumn("_row_number", F.row_number().over(dedup))
         .where(F.col("_row_number") == 1)
-        .drop("_row_number", "source_snapshot_id")
+        .drop("_row_number")
     )
     entries = unique.select(
         "pnu",
@@ -1225,20 +1245,6 @@ def qualified_target_table(args: argparse.Namespace) -> str:
     )
 
 
-def write_gold_iceberg(
-    spark: SparkSession, gold: DataFrame, args: argparse.Namespace, pins: dict[str, str]
-) -> tuple[str, ...]:
-    table = qualified_target_table(args)
-    namespace = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`"
-
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
-    # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
-    added_columns = ensure_contract_table(spark, table, GOLD_CONTRACT)
-    # The snapshot records the Silver pins it was built from (root ADR-0139).
-    write_gold_snapshot(gold.select(*GOLD_COLUMNS), table, args.iceberg_write_mode, pins, F.lit(True))
-    return added_columns
-
-
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
     builder = (
         SparkSession.builder.appName("foundation-platform-parcel-panel-silver-to-gold")
@@ -1253,117 +1259,181 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
     return spark
 
 
+def read_inputs(
+    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int],
+    source_snapshots: dict[str, str] | None = None,
+) -> tuple[dict[str, DataFrame], DataFrame | None]:
+    """Every input at `pins` reduced to BUILD_COLUMNS, and the lineage's carry candidates.
+
+    `source_snapshots`, when given, collects each input's single batch id (the build's refusal of
+    multi-vintage input). The incremental rebuild reads its comparison snapshot without it.
+    """
+
+    frames = {PARCEL_SOURCE: read_served_parcels(spark, args, pins)}
+    candidates = read_carry_candidates(spark, args, counters, pins)
+    for name in ATTRIBUTE_SOURCES:
+        frames[name] = with_lineage_sources(
+            read_source(spark, args, name, pins), args.region_prefix, candidates
+        )
+    frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
+    if source_snapshots is not None:
+        for name, frame in frames.items():
+            source_snapshots[name] = assert_single_snapshot(frame, name)
+    return incremental.project_build_inputs(frames, BUILD_COLUMNS), candidates
+
+
+def build_panel(
+    spark: SparkSession, args: argparse.Namespace, frames: dict[str, DataFrame],
+    candidates: DataFrame | None, counters: dict[str, int], source_snapshot_id: str,
+) -> DataFrame:
+    """The Gold rows of `frames` — every input row (full) or the changed PNUs' rows (ADR-0180)."""
+
+    anchors = resolve_zoning_anchors(frames[ZONE_CODE_SOURCE])
+    duplicates = args.allow_intra_snapshot_duplicates
+    built = {
+        "zonings": build_zonings(frames[ZONING_SOURCE], anchors, spark, counters),
+        "price": build_price(frames[PRICE_SOURCE], counters),
+        "characteristics": build_characteristics(frames[CHARACTERISTIC_SOURCE], duplicates, counters),
+        "forest_ledger": build_forest_ledger(frames[FOREST_SOURCE], duplicates, counters),
+        "transfer_history": build_transfer_history(frames[TRANSFER_SOURCE]),
+        "land_rights": build_land_rights(frames[LAND_RIGHT_SOURCE]),
+    }
+    sections = {
+        name: carry_section(frame, SECTION_VIA_COLUMNS[name], candidates)
+        for name, frame in built.items()
+    }
+    return build_gold_panel_frame(
+        frames[PARCEL_SOURCE], sections, source_snapshot_id, args.published_at_utc
+    )
+
+
+def affected_pnus(
+    old: dict[str, DataFrame], old_candidates: DataFrame | None,
+    new: dict[str, DataFrame], new_candidates: DataFrame | None, changed: list[str],
+) -> DataFrame:
+    """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
+
+    Every section is keyed by its own PNU. Through the lineage, a successor also reads its
+    predecessors' sections, so a changed predecessor reaches it; a changed lineage reaches the
+    successors whose candidates differ.
+    """
+
+    keyed = [
+        incremental.trimmed_keys(incremental.changed_rows(old[name], new[name]), trim=False)
+        for name in changed if name in new
+    ]
+    candidates = [c for c in (old_candidates, new_candidates) if c is not None]
+    if keyed and candidates:
+        direct = incremental.union_keys(keyed)
+        every = candidates[0] if len(candidates) == 1 else candidates[0].unionByName(candidates[1])
+        sources = direct.select(F.col("pnu").alias("source_pnu"))
+        keyed.append(every.join(sources, "source_pnu", "left_semi").select(F.col("successor_pnu").alias("pnu")))
+    if LINEAGE_SOURCE in changed and len(candidates) == 2:
+        moved = incremental.changed_rows(*candidates)
+        keyed.append(moved.select(F.col("successor_pnu").alias("pnu")))
+    if not keyed:
+        return new[PARCEL_SOURCE].select("pnu").limit(0)
+    return incremental.union_keys(keyed)
+
+
+def restrict_inputs(
+    frames: dict[str, DataFrame], keys: DataFrame, candidates: DataFrame | None
+) -> dict[str, DataFrame]:
+    """The input rows the Gold rows of `keys` are built from: their own and their lineage sources'."""
+
+    sources = keys
+    if candidates is not None:
+        successors = keys.select(F.col("pnu").alias("successor_pnu"))
+        sources = incremental.union_keys([keys, candidates.join(successors, "successor_pnu", "left_semi")
+                                          .select(F.col("source_pnu").alias("pnu"))])
+    restricted = {
+        PARCEL_SOURCE: incremental.rows_matching_any(frames[PARCEL_SOURCE], [("pnu", keys, "pnu", False)]),
+        ZONE_CODE_SOURCE: frames[ZONE_CODE_SOURCE],
+    }
+    for name in ATTRIBUTE_SOURCES:
+        restricted[name] = incremental.rows_matching_any(frames[name], [("pnu", sources, "pnu", False)])
+    return restricted
+
+
 def main() -> int:
     args = parse_args()
     args.published_at_utc = normalize_utc_timestamp(args.published_at_utc)
     pins = validate_args(args)
     column_lineage(args.carry_lineage)
     spark = build_spark_session(args)
-
     try:
-        counters: dict[str, int] = {}
-        source_snapshots: dict[str, str] = {}
+        return run(spark, args, pins)
+    finally:
+        spark.stop()
 
-        parcels = read_served_parcels(spark, args, pins)
-        source_snapshots[PARCEL_SOURCE] = assert_single_snapshot(parcels, PARCEL_SOURCE)
 
-        candidates = read_carry_candidates(spark, args, counters, pins)
-        frames: dict[str, DataFrame] = {}
-        for name in ATTRIBUTE_SOURCES:
-            frame = with_lineage_sources(
-                read_source(spark, args, name, pins), args.region_prefix, candidates
-            )
-            source_snapshots[name] = assert_single_snapshot(frame, name)
-            frames[name] = frame
+def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> int:
+    """Build, check and write the Gold: whole, or only the changed PNUs merged (root ADR-0180)."""
 
-        zone_codes = read_source(spark, args, ZONE_CODE_SOURCE, pins)
-        source_snapshots[ZONE_CODE_SOURCE] = assert_single_snapshot(
-            zone_codes, ZONE_CODE_SOURCE
-        )
-        anchors = resolve_zoning_anchors(zone_codes)
-
-        built = {
-            "zonings": build_zonings(frames[ZONING_SOURCE], anchors, spark, counters),
-            "price": build_price(frames[PRICE_SOURCE], counters),
-            "characteristics": build_characteristics(
-                frames[CHARACTERISTIC_SOURCE], args.allow_intra_snapshot_duplicates, counters
-            ),
-            "forest_ledger": build_forest_ledger(
-                frames[FOREST_SOURCE], args.allow_intra_snapshot_duplicates, counters
-            ),
-            "transfer_history": build_transfer_history(frames[TRANSFER_SOURCE]),
-            "land_rights": build_land_rights(frames[LAND_RIGHT_SOURCE]),
-        }
-        sections = {
-            name: carry_section(frame, SECTION_VIA_COLUMNS[name], candidates)
-            for name, frame in built.items()
-        }
-
-        gold = build_gold_panel_frame(
-            parcels,
-            sections,
-            source_snapshot_id=source_snapshots[PARCEL_SOURCE],
-            published_at_utc=args.published_at_utc,
-        ).persist(StorageLevel.MEMORY_AND_DISK)
-        row_count, quality_metrics = validate_gold_frame(gold, args.expected_count)
-        assert_minimum_row_count(row_count, args.minimum_count)
-
-        if args.validate_only:
-            emit_run_summary(
-                build_run_summary(
-                    args,
-                    row_count=row_count,
-                    persisted_row_count=None,
-                    quality_metrics=quality_metrics,
-                    section_counters=counters,
-                    source_snapshots=source_snapshots,
-                    source_iceberg_snapshots=pins,
-                ),
-                args.summary_output,
-            )
-            print(f"gold-parcel-panel-validate-ok rows={row_count}")
-            return 0
-
-        added_columns: tuple[str, ...] = ()
-        if args.write_mode == "parquet":
-            write_gold_parquet(gold, args.output)
-            persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
-            success_target = f"output={args.output}"
-        else:
-            added_columns = write_gold_iceberg(spark, gold, args, pins)
-            persisted = (
-                spark.table(qualified_target_table(args))
-                .where(F.col("source_snapshot_id") == source_snapshots[PARCEL_SOURCE])
-                .select(*GOLD_COLUMNS)
-            )
-            success_target = f"table={args.target_iceberg_namespace}.{args.target_iceberg_table}"
-
-        persisted_count, persisted_quality_metrics = validate_gold_frame(
-            persisted, args.expected_count
-        )
-        if persisted_count != row_count:
-            raise ValueError(
-                f"Persisted row count changed. before={row_count} after={persisted_count}"
-            )
-
+    previous = incremental.validate_arguments(args, input_sources(args))
+    counters: dict[str, int] = {}
+    source_snapshots: dict[str, str] = {}
+    frames, candidates = read_inputs(spark, args, pins, counters, source_snapshots)
+    parcel_snapshot = source_snapshots[PARCEL_SOURCE]
+    lane = incremental.Lane(
+        build=lambda inputs: build_panel(spark, args, inputs, candidates, counters, parcel_snapshot),
+        restrict=lambda inputs, keys: restrict_inputs(inputs, keys, candidates),
+        affected=lambda changed: affected_pnus(
+            *read_inputs(spark, args, previous, {}), frames, candidates, changed),
+        validate=lambda gold: validate_gold_frame(gold, None),
+        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
+        whole_table_inputs=WHOLE_TABLE_INPUTS,
+    )
+    outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous,
+                                         qualified_target_table(args), validate_gold_frame,
+                                         assert_minimum_row_count)
+    try:
+        persisted_count, metrics, added_columns = None, outcome.metrics, ()
+        success = "validate-ok"
+        if not args.validate_only:
+            if args.write_mode == "parquet":
+                write_gold_parquet(outcome.gold, args.output)
+                persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
+            else:
+                added_columns = write_gold_iceberg(spark, outcome, args, pins)
+                persisted = spark.table(qualified_target_table(args)).select(*GOLD_COLUMNS)
+            persisted_count, metrics = validate_gold_frame(persisted, outcome.row_count)
+            success = "write-ok"
         summary = build_run_summary(
             args,
-            row_count=row_count,
+            row_count=outcome.row_count,
             persisted_row_count=persisted_count,
-            quality_metrics=persisted_quality_metrics,
+            quality_metrics=metrics,
             section_counters=counters,
             source_snapshots=source_snapshots,
             schema_evolution_added_columns=added_columns,
             source_iceberg_snapshots=pins,
         )
+        summary["rebuild"] = outcome.report()
+        if not args.validate_only and args.write_mode == "iceberg":
+            summary["write_disposition"] = outcome.disposition(args)
         emit_run_summary(summary, args.summary_output)
-        emit_lineage_event(build_lineage_event(args, summary), args.lineage_output)
-        print(f"gold-parcel-panel-write-ok rows={persisted_count} {success_target}")
+        if not args.validate_only:
+            emit_lineage_event(build_lineage_event(args, summary), args.lineage_output)
+        print(f"gold-parcel-panel-{success} rows={persisted_count or outcome.row_count} mode={outcome.mode}")
         return 0
     finally:
-        if "gold" in locals():
-            gold.unpersist()
-        spark.stop()
+        outcome.release()
+
+
+def write_gold_iceberg(
+    spark: SparkSession, outcome: incremental.Outcome, args: argparse.Namespace, pins: dict[str, str]
+) -> tuple[str, ...]:
+    table = qualified_target_table(args)
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
+    # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
+    added_columns = ensure_contract_table(spark, table, GOLD_CONTRACT)
+    # The snapshot records the Silver pins it was built from (root ADR-0139), and the pinned
+    # Silver snapshots stay readable for the next incremental comparison (ADR-0180).
+    outcome.commit(spark, table, pins, args.iceberg_write_mode)
+    incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
+                                       GOLD_CONTRACT_NAME, pins)
+    return added_columns
 
 
 if __name__ == "__main__":

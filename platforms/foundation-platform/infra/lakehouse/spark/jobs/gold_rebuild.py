@@ -25,6 +25,11 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
   states the fewest rows the new Gold may have: the current Gold's row count less the table's
   `max_row_loss_fraction` (contracts/gold-panel-rebuild.contract.json). The producer refuses
   fewer before it writes, so a refused rebuild commits nothing.
+- A rebuild has a `mode` (root ADR-0180): `incremental` when the contract allows it, the current
+  Gold head is a producer commit with pins (compactions may follow), every changed input's pinned
+  snapshot is still kept, and no changed input is one the producer reads whole; the producer then
+  recomputes only the PNUs whose inputs changed (gold_incremental.py). Otherwise `full`, with
+  `mode_reasons`.
 
 `main` is the Spark entry the scheduled job runs (scripts/ops/gold-panel-rebuild.sh). Everything
 else is pure Python, so the CI runner, which has no PySpark, tests the decisions themselves.
@@ -74,6 +79,16 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         if not (isinstance(unmeasured, dict)
                 and all(isinstance(why, str) and why.strip() for why in unmeasured.values())):
             raise PlanError(f"{name}: unmeasured_inputs must map each input to why it is unmeasured")
+        incremental = table.get("incremental")
+        if incremental is not None:
+            fraction = incremental.get("max_changed_key_fraction")
+            sample = incremental.get("parity_sample_keys")
+            if type(fraction) not in (int, float) or not 0 < fraction <= 1:
+                raise PlanError(f"{name}: incremental.max_changed_key_fraction must be in (0, 1]")
+            if type(sample) is not int or sample < 0:
+                raise PlanError(f"{name}: incremental.parity_sample_keys must be a non-negative integer")
+            if not str(incremental.get("reason", "")).strip():
+                raise PlanError(f"{name}: incremental needs its reason")
     return contract
 
 
@@ -150,9 +165,62 @@ def recorded_pins(gold_snapshots: list[dict[str, Any]], gold_head: str) -> dict[
     return None
 
 
+def producer_whole_table_inputs(module: Any) -> tuple[str, ...]:
+    """Inputs whose change the producer's incremental rebuild does not map to PNUs (ADR-0180)."""
+    return tuple(getattr(module, "WHOLE_TABLE_INPUTS", ()))
+
+
+def head_build_pins(gold_snapshots: list[dict[str, Any]], gold_head: str) -> dict[str, str] | None:
+    """The pins of the producer commit the current Gold rows are, or None.
+
+    Only a compaction (`replace`) may sit between that commit and the head: it moves rows between
+    files without changing them. Any other commit without pins (a backfill, a hand write) changed
+    the rows outside the producer, so the Gold is not what the build makes of those pins.
+    """
+    for snapshot in ancestry(gold_snapshots, gold_head):
+        value = (snapshot.get("summary") or {}).get(SOURCE_SNAPSHOTS_PROPERTY)
+        if value is not None:
+            return recorded_pins([snapshot], snapshot["snapshot_id"])
+        if snapshot.get("operation") != "replace":
+            return None
+    return None
+
+
+def incremental_mode(entry: dict[str, Any], gold: dict[str, Any] | None,
+                     silver: dict[str, dict[str, Any] | None], pins: dict[str, str],
+                     whole_table_inputs: tuple[str, ...], unconditional: str | None
+                     ) -> tuple[str, list[str], dict[str, str] | None]:
+    """("incremental", [], previous pins) when a rebuild may merge only changed PNUs, else
+    ("full", reasons, None) (root ADR-0180 §3)."""
+    if entry.get("incremental") is None:
+        return "full", ["the contract declares no incremental rebuild for this table"], None
+    if unconditional:
+        return "full", ["an unconditional rebuild is a full rebuild"], None
+    if gold is None or gold.get("head") is None:
+        return "full", ["there is no Gold to merge into"], None
+    previous = head_build_pins(gold["snapshots"], gold["head"])
+    if previous is None:
+        return "full", ["the current Gold head is not a producer commit with recorded pins "
+                        "(only compactions may follow one)"], None
+    reasons = []
+    if set(previous) != set(pins):
+        reasons.append(f"the inputs changed from {sorted(previous)} to {sorted(pins)}")
+    changed = [name for name in sorted(pins) if previous.get(name) not in (None, pins[name])]
+    whole = [name for name in changed if name in whole_table_inputs]
+    if whole:
+        reasons.append(f"{whole} changed, and the producer does not map a change there to PNUs")
+    for name in changed:
+        kept = {s["snapshot_id"] for s in (silver.get(name) or {}).get("snapshots", [])}
+        if previous[name] not in kept:
+            reasons.append(f"{name}: snapshot {previous[name]} the Gold was built from is no longer kept, "
+                           "so the change cannot be read")
+    return ("full", reasons, None) if reasons else ("incremental", [], previous)
+
+
 def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] | None,
          silver: dict[str, dict[str, Any] | None], *, unconditional: str | None = None,
-         time_fallback: bool = True, measuring: bool = False) -> dict[str, Any]:
+         time_fallback: bool = True, measuring: bool = False,
+         whole_table_inputs: tuple[str, ...] = ()) -> dict[str, Any]:
     """Decide one Gold table's rebuild.
 
     `gold`: {"head", "snapshots", "row_count", "published_at_utc"} or None when the table does
@@ -212,6 +280,11 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                     if why:
                         reasons.append(f"{name}: {why}")
     minimum = None if previous is None else math.ceil(previous * (1 - entry["max_row_loss_fraction"]))
+    mode, mode_reasons, previous_pins = ("none", [], None)
+    if reasons:
+        mode, mode_reasons, previous_pins = incremental_mode(entry, gold, silver, pins, whole_table_inputs,
+                                                             unconditional)
+    settings = entry.get("incremental") or {}
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "gold_table": table,
@@ -225,6 +298,12 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         "previous_row_count": previous,
         "minimum_row_count": minimum,
         "max_row_loss_fraction": entry["max_row_loss_fraction"],
+        # How a rebuild runs (root ADR-0180): merge only the changed PNUs, or rebuild whole and why.
+        "mode": mode,
+        "mode_reasons": mode_reasons,
+        "previous_source_snapshots": previous_pins,
+        "max_changed_key_fraction": settings.get("max_changed_key_fraction"),
+        "parity_sample_keys": settings.get("parity_sample_keys"),
     }
 
 
@@ -237,6 +316,11 @@ def assert_minimum_row_count(row_count: int, minimum: int | None) -> None:
         )
 
 
+def pins_property_value(pins: dict[str, str]) -> str:
+    """The SOURCE_SNAPSHOTS_PROPERTY value of a Gold snapshot built from `pins`."""
+    return json.dumps(pins, sort_keys=True, separators=(",", ":"))
+
+
 def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any) -> None:
     """Commit `frame` to `table` with the Silver pins it was built from in the snapshot summary.
 
@@ -245,8 +329,7 @@ def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str],
     """
     writer = frame.writeTo(table)
     if pins:
-        writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{SOURCE_SNAPSHOTS_PROPERTY}",
-                               json.dumps(pins, sort_keys=True, separators=(",", ":")))
+        writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{SOURCE_SNAPSHOTS_PROPERTY}", pins_property_value(pins))
     if mode == "overwrite":
         writer.overwrite(everything)
     elif mode == "append":
@@ -305,7 +388,8 @@ def main(argv=None) -> int:
     entry = contract["tables"].get(args.gold_table)
     if entry is None:
         raise PlanError(f"{args.gold_table} is not in the gold rebuild contract")
-    inputs = producer_inputs(importlib.import_module(entry["producer"]))
+    producer = importlib.import_module(entry["producer"])
+    inputs = producer_inputs(producer)
 
     from pyspark.sql import SparkSession, functions as F
     from lakehouse_engine import apply_catalog_settings
@@ -327,7 +411,8 @@ def main(argv=None) -> int:
                 gold["published_at_utc"] = built
         decision = plan(args.gold_table, entry, inputs, gold, silver,
                         unconditional=args.unconditional_reason, time_fallback=args.time_fallback,
-                        measuring=args.measuring)
+                        measuring=args.measuring,
+                        whole_table_inputs=producer_whole_table_inputs(producer))
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):
@@ -335,7 +420,8 @@ def main(argv=None) -> int:
         Path(path).write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=1) + "\n",
                               encoding="utf-8")
     print("gold-rebuild-plan " + json.dumps(
-        {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count")},
+        {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count",
+                                  "mode", "mode_reasons")},
         ensure_ascii=False, sort_keys=True))
     return 0
 
