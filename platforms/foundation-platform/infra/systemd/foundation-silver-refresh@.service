@@ -25,7 +25,11 @@ ExecStopPost=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh clea
 # The export runs here, as a child of the publisher, not in a container: this bounds it, as the
 # FLOOR export's container is bounded (lakehouse-engine.contract.json execution_profile). Spark is
 # bounded by the compose `spark` cap, which the Docker daemon, not this unit, holds.
-MemoryMax=4G
+# 4G killed the units export on its first lane run (2026-10-10, oom-kill at 4.0G during the export:
+# it indexes the nation's titles and basis outlines before it streams the units). The export child
+# exits before Spark starts, so a lane holds this or the Spark cap, never both
+# (tools/host-memory-budget.contract.json counts the larger): 16G stays under Spark's 20g.
+MemoryMax=16G
 # The largest national export measured by hand took 18 minutes (unit areas, root ADR-0142); the
 # first supervised run of each lane measures the whole run. The bound is what the spark pool's
 # starvation check lets five scheduled lanes hold (orchestration/jobs.v1.json timeout_minutes 160,
