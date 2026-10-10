@@ -68,6 +68,11 @@ CONTRACT="${RELEASE_ROOT}/config/staging-gate.contract.json"
 CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
 STATE_ROOT="${FOUNDATION_STAGING_SMOKE_STATE_ROOT:-/data/foundation-platform/staging-smoke}"
 SPOOL_DIR="${STATE_ROOT}/spool"
+# The Docker CLI keeps its state under DOCKER_CONFIG, and the service account's home is
+# /nonexistent: the first real smoke (2026-10-10) failed its image step with "mkdir /nonexistent:
+# permission denied". Same answer as raon-large-files.sh; set after admitted-writer-runtime.sh,
+# which unsets any DOCKER_CONFIG a caller passed.
+export DOCKER_CONFIG="${STATE_ROOT}/docker-config"
 POSTGRES_PROJECT="${FOUNDATION_PLATFORM_COMPOSE_PROJECT:-foundation-platform-runtime}"
 hub_plan="${STATE_ROOT}/hub-plan.json"
 vworld_plan="${STATE_ROOT}/vworld-plan.json"
@@ -219,7 +224,7 @@ if [[ "${1:-}" == --step ]]; then
   exit 0
 fi
 
-mkdir -p "${STATE_ROOT}" "${SPOOL_DIR}"
+mkdir -p "${STATE_ROOT}" "${SPOOL_DIR}" "${DOCKER_CONFIG}"
 : >"${run_log}"
 durations=()
 run_step() {
