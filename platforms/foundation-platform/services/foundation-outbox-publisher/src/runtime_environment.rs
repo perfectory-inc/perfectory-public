@@ -8,8 +8,10 @@
 use anyhow::{bail, Context};
 use lakehouse_domain::LakehouseOwnerService;
 
-/// Environment variable carrying the canonical runtime environment name.
-pub const RUNTIME_ENVIRONMENT_ENV: &str = "FOUNDATION_PLATFORM_RUNTIME_ENV";
+/// Environment variable carrying the canonical runtime environment name. The R2 client reads the
+/// same variable to choose its key namespace (root ADR-0177), so the name is defined there once.
+pub const RUNTIME_ENVIRONMENT_ENV: &str =
+    foundation_outbox::object_storage::RUNTIME_ENVIRONMENT_ENV;
 /// Environment variable identifying where the process is executing, independently of its backend target.
 pub const EXECUTION_CONTEXT_ENV: &str = "FOUNDATION_PLATFORM_EXECUTION_CONTEXT";
 /// Explicit acknowledgement required when a developer process targets production before launch.
@@ -22,7 +24,8 @@ pub enum RuntimeEnvironment {
     Local,
     /// CI environment using isolated test resources.
     Ci,
-    /// Pre-production staging environment.
+    /// Pre-production staging: the production bucket and database server, isolated by name — the
+    /// `staging/` key namespace and the `foundation_staging` database (root ADR-0177).
     Staging,
     /// Production environment.
     Production,
@@ -133,14 +136,15 @@ impl RuntimeEnvironment {
     /// Returns the environment-specific Foundation R2 bucket.
     ///
     /// Production deliberately delegates to the lakehouse domain SSOT instead of duplicating its
-    /// governed bucket name here.
+    /// governed bucket name here. Staging uses the same bucket: the R2 client puts every staging
+    /// key under `staging/` and refuses any other (root ADR-0177), so no second bucket, key pair or
+    /// account exists for it.
     #[must_use]
     pub const fn foundation_r2_bucket(self) -> &'static str {
         match self {
             Self::Local => "foundation-platform-lakehouse-dev",
             Self::Ci => "foundation-platform-lakehouse-ci",
-            Self::Staging => "foundation-platform-lakehouse-staging",
-            Self::Production => {
+            Self::Staging | Self::Production => {
                 LakehouseOwnerService::FoundationPlatform.production_r2_bucket_name()
             }
         }
@@ -379,9 +383,10 @@ mod tests {
             RuntimeEnvironment::Ci.foundation_r2_bucket(),
             "foundation-platform-lakehouse-ci"
         );
+        // Root ADR-0177: staging shares the bucket and is isolated by the key namespace.
         assert_eq!(
             RuntimeEnvironment::Staging.foundation_r2_bucket(),
-            "foundation-platform-lakehouse-staging"
+            RuntimeEnvironment::Production.foundation_r2_bucket()
         );
         assert_eq!(
             RuntimeEnvironment::Production.foundation_r2_bucket(),

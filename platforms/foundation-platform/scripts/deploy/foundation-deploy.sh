@@ -7,7 +7,9 @@
 #
 # Root only. Every job list comes from orchestration/jobs.v1.json of the release being replaced:
 # the DAGs paused and the services waited for are its jobs, and the jobs started once under the new
-# release are those it marks `started_once_after_deploy`. Stops at the first failure; every step is
+# release are those it marks `started_once_after_deploy`. Before the switch the new release runs the
+# staging smoke (root ADR-0177); a smoke that fails refuses the release like any step before the
+# switch. Stops at the first failure; every step is
 # safe to re-run. A job that does not succeed after the switch does not fail the deploy or keep the
 # DAGs paused (root ADR-0173): its unit's OnFailure alerts, the next scheduled run tries again, and
 # the deploy's log names it. A deploy that stops before the release switch unpauses the DAGs again;
@@ -116,6 +118,11 @@ sed -i -e "s|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_R
 chown root:root "${floor}"; chmod 0644 "${floor}"
 "${release}" floor-config "${sha}" "${floor}"
 rm -f "${floor}"
+
+log "3b. staging smoke of ${sha}: a few real inputs under staging/ and foundation_staging (root ADR-0177)"
+# Still before the switch: a smoke that fails stops the deploy here, nothing of the new release is
+# active, and the EXIT trap gives the running release its schedule back.
+"${release}" staging-smoke "${sha}"
 
 log "4. activate, migrate, timers"
 phase=switching

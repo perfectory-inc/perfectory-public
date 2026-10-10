@@ -203,6 +203,8 @@ allowed_control_prefixes=(
   FOUNDATION_PLATFORM_R2_DELETE_CANDIDATES
   FOUNDATION_PLATFORM_R2_BRONZE_KEY_
   FOUNDATION_PLATFORM_R2_TILE_PROOF_
+  # The staging namespace's knobs (root ADR-0177): honoured only when the runtime is staging.
+  FOUNDATION_PLATFORM_R2_STAGING_
 )
 
 in_list() {

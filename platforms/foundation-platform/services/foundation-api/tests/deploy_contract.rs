@@ -495,8 +495,10 @@ fn migration_database_create_is_open_only_for_the_migration_window() -> TestResu
     let bootstrap = read_area_file("infra/compose/bootstrap-foundation.sql")?;
     let finalize = read_area_file("infra/compose/finalize-foundation.sql")?;
 
-    assert!(bootstrap.contains("GRANT CREATE ON DATABASE foundation TO foundation_migrator"));
-    assert!(finalize.contains("REVOKE CREATE ON DATABASE foundation FROM foundation_migrator"));
+    // The database psql is connected to, so the same files bootstrap `foundation` under compose and
+    // `foundation_staging` for the staging smoke (root ADR-0177).
+    assert!(bootstrap.contains("GRANT CREATE ON DATABASE :\"DBNAME\" TO foundation_migrator"));
+    assert!(finalize.contains("REVOKE CREATE ON DATABASE :\"DBNAME\" FROM foundation_migrator"));
     Ok(())
 }
 

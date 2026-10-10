@@ -32,7 +32,9 @@
 # 가 새 파일이 왔는지 말하고, changed 면 Airflow 가 이 원천을 읽는 Silver 레인을 시작한다(루트 ADR-0171).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/vworld-sweep-lane.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다 — 운영자는 상태 디렉터리를 못 읽는다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
@@ -121,14 +123,7 @@ trap 'on_error ${LINENO}' ERR
 # 재료로 조립한다: 사용자는 docker-compose.yml 이 고정한 foundation_admin, 비밀번호는
 # recovery.env 의 FOUNDATION_ADMIN_PASSWORD (2026-09-04 첫 발사가 이 이름 어긋남으로 죽었다).
 if [ -z "${DATABASE_URL:-}" ]; then
-  DATABASE_URL="$(python3 - <<PY
-import os, urllib.parse
-q = lambda s: urllib.parse.quote(s, safe=str())
-port = os.environ.get("FOUNDATION_DB_PORT", "15434")
-print("postgres://foundation_admin:" + q(os.environ["FOUNDATION_ADMIN_PASSWORD"])
-      + "@127.0.0.1:" + port + "/foundation")
-PY
-)"
+  DATABASE_URL="$(foundation_database_url)"
   export DATABASE_URL
 fi
 
@@ -143,17 +138,9 @@ hub_rc=0
 
 # 2. vworld 레인. 계획은 카탈로그가 source_sweep 으로 표시한 엔드포인트만, 요약 파일 없이 만든다.
 #    바이트 예산은 없다(ADR-0172) — 가지지 않은 파일은 전부 받는다.
-export FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH="${CATALOG}"
-export FOUNDATION_PLATFORM_VWORLD_DATASET_DAILY_COLLECTION=source_sweep
-unset FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH
-export FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH="${vworld_plan_path}"
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${vworld_inventory_path}"
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH="${vworld_evidence_path}"
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES=1
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
-export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${SPOOL_DIR}"
+#    설정은 스테이징 스모크와 한 벌이다(vworld-sweep-lane.sh, 루트 ADR-0177).
+vworld_sweep_lane_env "${CATALOG}" "${vworld_plan_path}" "${vworld_inventory_path}" "${vworld_evidence_path}" \
+  "${SPOOL_DIR}"
 vworld_rc=0
 { "${PUBLISHER_BIN}" plan-vworld-dataset-collection &&
   "${PUBLISHER_BIN}" inventory-vworld-dataset-files &&

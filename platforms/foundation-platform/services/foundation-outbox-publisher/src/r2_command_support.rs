@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use chrono::{SecondsFormat, Utc};
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
+use foundation_outbox::object_storage::{R2KeyNamespace, R2ObjectStorageConfig};
 use lakehouse_infrastructure::{LakehouseCatalogConfig, LakehouseCatalogProvider};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -134,6 +134,7 @@ fn r2_config_from_env_file_with_credentials(
             .unwrap_or_else(|| "auto".to_owned()),
         access_key_id: required_value_from_dotenv_or_env(&values, access_key_env)?,
         secret_access_key: required_value_from_dotenv_or_env(&values, secret_key_env)?,
+        namespace: R2KeyNamespace::from_env()?,
     })
 }
 

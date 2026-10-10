@@ -10,8 +10,9 @@ Type=oneshot
 # Root: the deploy installs releases, units and the control checkout (root ADR-0134). It runs the
 # control checkout's copy, never the commit it is about to deploy.
 ExecStart=/bin/bash /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-autodeploy.sh
-# A deploy first waits up to 5h for running jobs to end, builds and migrates (under an hour), then
-# starts each started_once_after_deploy job one after another, each for up to its own
+# A deploy first waits up to 5h for running jobs to end, runs the staging smoke (its bound is
+# unit_limit_seconds in config/staging-gate.contract.json, root ADR-0177), builds and migrates
+# (under an hour), then starts each started_once_after_deploy job one after another, each for up to its own
 # timeout_minutes plus one (orchestration/jobs.v1.json). test_foundation_autodeploy.py holds this
 # limit above that sum, so systemd never stops a deploy halfway through.
 TimeoutStartSec=17h

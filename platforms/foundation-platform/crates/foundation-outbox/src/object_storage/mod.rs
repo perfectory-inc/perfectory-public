@@ -25,8 +25,10 @@ pub use inventory::{
 pub use logging::LoggingObjectStorage;
 pub use r2::{
     validate_r2_bronze_key_migration_pair, validate_r2_smoke_object_key, ConditionalWrite,
-    R2MultipartUploadReport, R2MultipartUploadWriter, R2ObjectStorage, R2ObjectStorageConfig,
-    R2ReadRequestMetrics, R2SeekableObjectReader, DEFAULT_R2_SMOKE_OBJECT_KEY,
+    R2KeyNamespace, R2MultipartUploadReport, R2MultipartUploadWriter, R2ObjectStorage,
+    R2ObjectStorageConfig, R2ReadRequestMetrics, R2SeekableObjectReader,
+    DEFAULT_R2_SMOKE_OBJECT_KEY, RUNTIME_ENVIRONMENT_ENV, STAGING_KEY_PREFIX,
+    STAGING_MULTIPART_THRESHOLD_ENV,
 };
 pub use requests::{
     ByteStream, CreateOnlyCopyObjectRequest, ObjectStorageSmokeReport, ObjectWriteMode,

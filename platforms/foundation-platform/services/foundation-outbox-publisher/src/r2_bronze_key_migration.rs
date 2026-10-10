@@ -9,7 +9,9 @@ use std::{
 use anyhow::{bail, Context};
 use chrono::Utc;
 use foundation_outbox::{
-    object_storage::{validate_r2_bronze_key_migration_pair, R2ObjectStorageConfig},
+    object_storage::{
+        validate_r2_bronze_key_migration_pair, R2KeyNamespace, R2ObjectStorageConfig,
+    },
     R2ObjectStorage,
 };
 use futures_util::{stream, StreamExt};
@@ -407,6 +409,7 @@ fn r2_config_from_dotenv_str(raw: &str) -> anyhow::Result<R2ObjectStorageConfig>
             &values,
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )?,
+        namespace: R2KeyNamespace::from_env()?,
     })
 }
 

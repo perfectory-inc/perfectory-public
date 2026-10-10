@@ -64,9 +64,13 @@ FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-prod
 ```text
 local       foundation-platform-lakehouse-dev (remote R2 development bucket)
 ci          foundation-platform-lakehouse-ci
-staging     foundation-platform-lakehouse-staging
+staging     foundation-platform-lakehouse-prod, staging/ 접두사 아래만 (루트 ADR-0177)
 production  foundation-platform-lakehouse-prod
 ```
+
+스테이징은 별도 버킷이 아니다. `FOUNDATION_PLATFORM_RUNTIME_ENV=staging` 이면 R2 클라이언트가 모든 키를
+`staging/` 아래로 옮기고 그 밖의 요청을 거부하며, 데이터베이스는 `foundation_staging` 이다
+([루트 ADR-0177](../../../../docs/adr/0177-a-new-release-runs-a-staging-smoke-before-production-switches.md)).
 
 ## Redpanda/Karapace
 

@@ -74,6 +74,7 @@ fn storage(endpoint: String) -> R2ObjectStorage {
     R2ObjectStorage {
         client: aws_sdk_s3::Client::from_conf(config),
         bucket_name: "bucket".to_owned(),
+        namespace: crate::object_storage::R2KeyNamespace::Production,
     }
 }
 

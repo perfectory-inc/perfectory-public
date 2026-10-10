@@ -388,9 +388,24 @@ class TheWholeDeploy(unittest.TestCase):
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.released(), ["prepare", "floor-config", "activate", "migrate", "timers", "status"])
+        # The staging smoke runs on the installed release before anything of it is activated (root
+        # ADR-0177); a smoke that passed lets the deploy go on to the switch.
+        self.assertEqual(self.released(),
+                         ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
+
+    def test_a_failed_staging_smoke_refuses_the_release_and_leaves_the_schedule_as_it_was(self):
+        # Root ADR-0177: the three incidents of 2026-10-09/10 each passed CI and failed on the first
+        # real input. A smoke that fails stops the deploy before the switch: nothing of the new
+        # release is activated or migrated, and the running release gets its DAGs back.
+        result = self.deploy(FIXTURE_FAIL_AT="staging-smoke")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released(), ["prepare", "floor-config", "staging-smoke"])
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertIn("stopped (exit 1) before the release switch", result.stderr)
+        self.assertNotIn("DONE: production runs", result.stdout)
 
     def test_a_failed_post_deploy_run_leaves_every_enabled_dag_unpaused(self):
         # 2026-10-09, three deploys in a row: the sweep's post-deploy run failed, the deploy exited at
@@ -446,8 +461,13 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
         unit = (PLATFORM / "infra/systemd/foundation-autodeploy.service").read_text()
         limit = next(line for line in unit.splitlines() if line.startswith("TimeoutStartSec="))
         hours = int(limit.removeprefix("TimeoutStartSec=").removesuffix("h"))
-        # 5h waiting for running jobs and an hour to build and migrate, then the started jobs.
-        self.assertGreaterEqual(hours * 60, 5 * 60 + 60 + once, "a deploy can outlive its unit's limit")
+        # The staging smoke's own bound (root ADR-0177), read where foundation-release.sh reads it.
+        smoke = json.loads((PLATFORM / "config/staging-gate.contract.json").read_text(encoding="utf-8"))
+        smoke_minutes = -(-smoke["unit_limit_seconds"] // 60)
+        # 5h waiting for running jobs, the staging smoke, an hour to build and migrate, then the
+        # started jobs.
+        self.assertGreaterEqual(hours * 60, 5 * 60 + smoke_minutes + 60 + once,
+                                "a deploy can outlive its unit's limit")
 
 
 if __name__ == "__main__":
