@@ -11,6 +11,14 @@
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
+#   by-pnu-pack-operator.sh raon build|plan|status
+#   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
+#
+# `raon` drives the RAON large-file lane's supervised runs (root ADR-0170, runbook
+# provider-acquisition-fargate.md, first supervised run): `build` and `plan` run
+# raon-large-files.sh as the service user and wait; `run` starts it detached as
+# foundation-raon-large-files-operator.service against the daily sweep's evidence, with that run's
+# file count and byte budget; `status` shows that unit. None starts while the daily sweep runs.
 #
 # `silver` drives one Silver refresh lane (root ADR-0169, ADR-0178): `plan` runs its
 # `silver-refresh.sh <lane> --plan` (reads the ledger and the catalog, writes nothing) and prints
@@ -40,10 +48,10 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 LANE="${1:-}" ACTION="${2:-}"
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver ]] || refuse "${USAGE}"
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || refuse "${USAGE}"
 shift 2 || refuse "${USAGE}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The release the host serves, not this checkout: the publisher and its scripts are the admitted
@@ -86,11 +94,15 @@ print(value)
 PY
 }
 
-# Refuses (75) while a unit in "$@" runs.
+# Refuses (75) while a unit in "$@" runs. A oneshot job is `activating` for its whole run and never
+# `active`, so `systemctl is-active` would call a running Gold rebuild or lane stopped (2026-10-10).
 refuse_while_active() {
   local unit
   for unit in "$@"; do
-    if systemctl is-active --quiet "${unit}"; then refuse "${unit} is running" 75; fi
+    [[ "${unit}" == *.service ]] || unit="${unit}.service"
+    if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating "${unit}" 2>/dev/null)" ]]; then
+      refuse "${unit} is running" 75
+    fi
   done
 }
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
@@ -106,6 +118,48 @@ refuse_while_baking() {
     if [[ -e "${lock}" ]] && ! flock -n "${lock}" true; then refuse "a run of the ${lane} lane holds ${lock}" 75; fi
   done
 }
+
+if [[ "${LANE}" == raon ]]; then
+  RAON_UNIT=foundation-raon-large-files-operator.service
+  # The daily sweep writes this evidence and runs the lane itself once it has a budget; a
+  # supervised run never overlaps it (runbook provider-acquisition-fargate.md).
+  RAON_EVIDENCE=/var/lib/foundation-platform/source-sweep/vworld-evidence.json
+  raon_props() {
+    mapfile -t props < <(python3 -I "${RELEASE}/scripts/deploy/runtime_secrets.py" properties raon-large-files | tr ' ' '\n' | grep -v '^$')
+    ((${#props[@]} > 0)) || refuse "the runtime-secrets contract names no environment for raon-large-files" 65
+  }
+  case "${ACTION}" in
+    build|plan)
+      (($# == 0)) || refuse "raon ${ACTION} takes nothing after it"
+      refuse_while_active foundation-source-sweep.service "${RAON_UNIT}"
+      raon_props
+      args=("${ACTION}")
+      [[ "${ACTION}" == plan ]] && args+=("${RAON_EVIDENCE}")
+      log "raon ${ACTION} (waits; nothing is collected)"
+      exec "${SYSTEMD_RUN}" --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
+        "${props[@]}" "${RELEASE}/scripts/ops/raon-large-files.sh" "${args[@]}"
+      ;;
+    run)
+      (($# == 2)) || refuse "raon run takes <max-files|all> <new-bytes-budget>"
+      [[ "$1" == all || "$1" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "max-files must be all or 1-9999"
+      [[ "$2" =~ ^[1-9][0-9]{0,13}$ ]] || refuse "new-bytes-budget must be a positive byte count"
+      refuse_while_active foundation-source-sweep.service "${RAON_UNIT}"
+      raon_props
+      limits=(-E "FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET=$2")
+      [[ "$1" == all ]] || limits+=(-E "FOUNDATION_RAON_LARGE_FILES_MAX_FILES=$1")
+      log "starting ${RAON_UNIT} (max files $1, budget $2 bytes); follow it with: raon status"
+      exec "${SYSTEMD_RUN}" --unit="${RAON_UNIT%.service}" --collect --quiet -p User="${SERVICE_OWNER}" \
+        -p Group="${SERVICE_GROUP}" "${props[@]}" "${limits[@]}" \
+        "${RELEASE}/scripts/ops/raon-large-files.sh" run "${RAON_EVIDENCE}"
+      ;;
+    status)
+      (($# == 0)) || refuse "raon status takes nothing after it"
+      systemctl status --no-pager --lines=0 "${RAON_UNIT}" || true
+      exec journalctl -u "${RAON_UNIT}" --no-pager -o short-iso -n 40
+      ;;
+    *) refuse "${USAGE}" ;;
+  esac
+fi
 
 if [[ "${LANE}" == silver ]]; then
   SILVER_LANE="${1:-}"

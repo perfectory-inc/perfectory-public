@@ -29,21 +29,25 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"tool": "systemd-run", "args": sys.argv[1:]}) + "\n")
 '''
 
-# Units named in FAKE_ACTIVE (comma separated) are active; every other unit is inactive.
+# Units named in FAKE_ACTIVE (comma separated) are active, those in FAKE_ACTIVATING are a oneshot
+# job's run (`activating`, which `is-active` calls not active); every other unit is inactive.
 FAKE_SYSTEMCTL = r'''#!/usr/bin/env python3
 import fnmatch, os, sys
 active = [unit for unit in os.environ.get("FAKE_ACTIVE", "").split(",") if unit]
+activating = [unit for unit in os.environ.get("FAKE_ACTIVATING", "").split(",") if unit]
 args = sys.argv[1:]
 named = [arg for arg in args[1:] if not arg.startswith("-")]
 if args[0] == "is-active":
-    states = ["active" if unit in active or unit + ".service" in active else "inactive" for unit in named]
+    states = ["active" if unit in active or unit + ".service" in active else
+              "activating" if unit in activating or unit + ".service" in activating else "inactive" for unit in named]
     if "--quiet" not in args:
         print("\n".join(states))
     sys.exit(0 if all(state == "active" for state in states) else 3)
 if args[0] == "list-units":
-    for unit in active:
-        if fnmatch.fnmatch(unit, named[0]):
-            print(f"{unit} loaded active running fixture")
+    for state, units in (("active", active), ("activating", activating)):
+        for unit in units:
+            if any(fnmatch.fnmatch(name, named[0]) for name in (unit, unit + ".service")):
+                print(f"{unit} loaded {state} running fixture")
     sys.exit(0)
 if args[0] in ("start", "status"):
     import json
@@ -128,8 +132,9 @@ class PackOperator(unittest.TestCase):
         (work / "summaries/shard-11.json").write_text(json.dumps({"gold_iceberg_snapshot_id": "777"}))
         return work
 
-    def run_operator(self, *args, active=()):
-        result = subprocess.run(["bash", str(SCRIPT), *args], env={**self.env, "FAKE_ACTIVE": ",".join(active)},
+    def run_operator(self, *args, active=(), activating=()):
+        result = subprocess.run(["bash", str(SCRIPT), *args],
+                                env={**self.env, "FAKE_ACTIVE": ",".join(active), "FAKE_ACTIVATING": ",".join(activating)},
                                 capture_output=True, text=True, timeout=60)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
         return result, calls
@@ -169,6 +174,54 @@ class PackOperator(unittest.TestCase):
                 result, calls = self.run_operator("silver", "start", "land-characteristic", active=active)
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
+    def test_a_running_oneshot_job_is_running(self):
+        # A oneshot job is `activating` for its whole run; `is-active` called a running Gold rebuild
+        # stopped, so a bake could start under it (2026-10-10).
+        result, calls = self.run_operator("parcel", "bake", "1", activating=["foundation-gold-panel-rebuild.service"])
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
+
+    def test_raon_build_and_plan_wait_as_the_service_with_the_contract_environment(self):
+        for action, tail in (("build", ["build"]),
+                             ("plan", ["plan", "/var/lib/foundation-platform/source-sweep/vworld-evidence.json"])):
+            with self.subTest(action=action):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("raon", action)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args, _, props = self.unit(calls)
+                self.assertIn("--wait", args)
+                self.assertTrue(args[-len(tail) - 1].endswith("/scripts/ops/raon-large-files.sh"), args)
+                self.assertEqual(args[-len(tail):], tail)
+                self.assertTrue(any(prop.startswith("EnvironmentFile=") for prop in props), props)
+
+    def test_raon_run_starts_one_detached_unit_with_the_runs_limits(self):
+        result, calls = self.run_operator("raon", "run", "1", "1600000000")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, _ = self.unit(calls)
+        self.assertIn("--unit=foundation-raon-large-files-operator", args)
+        self.assertNotIn("--wait", args)
+        self.assertEqual(env, {"FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET": "1600000000",
+                               "FOUNDATION_RAON_LARGE_FILES_MAX_FILES": "1"})
+        self.log.unlink()
+        result, calls = self.run_operator("raon", "run", "all", "13000000000")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, env, _ = self.unit(calls)
+        self.assertNotIn("FOUNDATION_RAON_LARGE_FILES_MAX_FILES", env)
+
+    def test_raon_never_overlaps_the_daily_sweep_or_itself_and_takes_only_its_words(self):
+        for running in (["foundation-source-sweep.service"], ["foundation-raon-large-files-operator.service"]):
+            with self.subTest(running=running):
+                result, calls = self.run_operator("raon", "run", "1", "1000", activating=running)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
+        for args in (("raon", "run"), ("raon", "run", "0", "1000"), ("raon", "run", "1", "-5"),
+                     ("raon", "run", "1", "1000", "extra"), ("raon", "plan", "/etc/passwd"),
+                     ("raon", "drop"), ("raon", "run", "1", "1e9")):
+            with self.subTest(args=args):
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
 
     def test_silver_takes_only_a_listed_lane_and_a_known_action(self):
         for args in (("silver", "plan", "not-a-lane"), ("silver", "plan", "../../etc/passwd"),
