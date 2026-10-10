@@ -56,6 +56,17 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         print(job["systemd_service"])
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
         print(job["systemd_service"], job["timeout_minutes"])
+if which == "enabled-consumers-first":
+    # Airflow drops an output event for a DAG that is still paused (root ADR-0179): the order is the
+    # job registry's own dependency graph, consumers first (orchestration/dags/job_specs.py).
+    import os
+    dags = os.path.join(os.path.dirname(path), "dags")
+    if os.path.isdir(dags):
+        sys.path.insert(0, dags)
+        from job_specs import unpause_order
+        print("\n".join(unpause_order()))
+    else:
+        print("\n".join(job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]))
 PY
 }
 mapfile -t jobs < <(jobs_of enabled)

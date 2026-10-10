@@ -18,7 +18,12 @@ set -uo pipefail
 
 jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/orchestration/jobs.v1.json}"
 starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-scheduler/starts}"
-job="${SSH_ORIGINAL_COMMAND:-}"
+request="${SSH_ORIGINAL_COMMAND:-}"
+# `<job>` from a clock start, `<job> triggered` from a run its inputs or an operator started
+# (root ADR-0179): only a clock start can be deferred by takes_turns.
+job="${request% triggered}"
+triggered=false
+[[ "${request}" == "${job} triggered" ]] && triggered=true
 
 refuse() {
   printf 'start-scheduled-job: refused: %s\n' "$*" >&2
@@ -36,13 +41,13 @@ PY
 [[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}"
 
 mkdir -p "${starts}" || refuse "cannot keep the start record ${starts}"
-turn="$(python3 - "${jobs_file}" "${job}" "${starts}" <<'PY'
+turn="$(python3 - "${jobs_file}" "${job}" "${starts}" "${triggered}" <<'PY'
 import json, pathlib, sys
 listing, job_id, starts = json.load(open(sys.argv[1])), sys.argv[2], pathlib.Path(sys.argv[3])
 jobs = {job["id"]: job for job in listing["jobs"]}
 job = jobs[job_id]
-if not job.get("takes_turns"):
-    sys.exit(0)
+if not job.get("takes_turns") or sys.argv[4] == "true":
+    sys.exit(0)  # not a turn-taker, or started by its inputs or an operator: never deferred
 def started(job_id):
     path = starts / job_id
     return int(path.read_text()) if path.is_file() else None

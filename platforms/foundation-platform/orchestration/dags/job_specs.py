@@ -367,6 +367,34 @@ def producers(jobs, graph):
     }
 
 
+def unpause_order(jobs=None, graph=None):
+    """The enabled job ids in the order a deploy unpauses their DAGs: every job before the jobs it
+    starts by its outputs (root ADR-0179).
+
+    Airflow drops an output event for a DAG that is still paused. On 2026-10-10 a deploy unpaused
+    the Gold rebuild before the bake; the rebuild's waiting `publish_outputs` ran within a second,
+    while the bake was still paused, and the bake never started. Unpausing the consumer first means
+    no event can reach a paused reader. Only `inputs` jobs consume events; others keep list order.
+    """
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    enabled = [job for job in jobs["jobs"] if job["enabled"]]
+    feeds = producers(jobs, graph)
+    position = {job["id"]: index for index, job in enumerate(enabled)}
+    readers = {job["id"]: [other["id"] for other in enabled
+                           if started_by(other) == "inputs" and job["id"] in feeds[other["id"]]]
+               for job in enabled}
+    depth = {}
+
+    def chain(job_id, path=()):
+        if job_id not in depth:
+            depth[job_id] = 1 + max((chain(reader, path + (job_id,)) for reader in readers[job_id]
+                                     if reader not in path), default=0)
+        return depth[job_id]
+
+    return sorted((job["id"] for job in enabled), key=lambda job_id: (chain(job_id), position[job_id]))
+
+
 def load_specs(jobs=None, graph=None):
     jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
     graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
