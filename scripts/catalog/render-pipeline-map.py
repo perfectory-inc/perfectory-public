@@ -56,9 +56,8 @@ def render(graph: dict, catalog: dict) -> str:
         'Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용 저장소이며 화면은 이를 읽습니다.',
         '아래의 수집규모는 **카탈로그에 등록된 endpoint 수**입니다. 실제 수집 객체 수·행 수·용량은',
         '이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.', '',
-        f'현재 범위: 원천 **{len(sources)}그룹 / {len(endpoints)} endpoint**, ',
-        f'Silver·Gold **{sum(n["type"] in {"silver_table", "gold_table"} for n in nodes)}표**, ',
-        f'서빙·운영 원장 **{sum(len(n["tables"]) for n in nodes if n["type"] == "serving_group")}표**.', '',
+        # No whole-graph totals here (root ADR-0176): a line that every new dataset rewrites made
+        # two PRs adding unrelated datasets conflict. The rows below are one per entry.
         f'정본: [파이프라인 그래프](../{GRAPH.as_posix()}) · [원천 카탈로그](../{ENDPOINTS.as_posix()}) · ',
         '[결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).', '',
         '## 원천 가족별 전체 범위', '',

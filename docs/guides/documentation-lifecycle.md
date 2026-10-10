@@ -53,15 +53,22 @@ last_reviewed: 2026-07-28
 4. 미완료 작업은 README·ADR에 임시로 적지 않고 [운영 준비 작업 목록](../roadmap/production-readiness.md)에
    기록한다. 결정이 완료되면 ADR, 실행 절차가 완료되면 runbook으로 승격한다.
 5. 변경은 조직 저장소의 작업 브랜치에서 사람의 PR로 검토한다. `main`에는 직접 커밋하지
-  않는다. PR은 문서 diff, 링크, 자동 색인, 감사 보고서 검사를 통과해야 한다.
-6. 병합 후 생성 문서를 갱신한다. 각 생성기의 쓰기 방식은 서로 다르다 — 감사는 `--write`가
-   있어야 쓰고, 색인과 기반 지표는 인자 없이 쓰며 `--check`로만 검사한다.
+  않는다. PR은 문서 diff, 링크, 메타데이터·언어 감사, ADR 이름·번호 검사를 통과해야 한다.
+6. 문서 색인·감사 보고서·기반 지표·ADR 제목 목록은 저장소에 두지 않는다. PR마다 같은 합계 줄을
+   고쳐 무관한 PR끼리 충돌했기 때문이다([ADR-0176](../adr/0176-generated-docs-do-not-make-unrelated-prs-conflict.md)).
+   필요할 때 출력해서 보고(`--output PATH`로 파일에 쓸 수 있다), `main`의 `docs` 워크플로 실행
+   요약에도 실린다. 갱신해서 커밋할 생성 문서가 없으므로 병합 후 할 일도 없다.
 
    ```bash
-   python3 scripts/catalog/audit-documentation.py --write
+   python3 scripts/catalog/audit-documentation.py
    python3 scripts/catalog/render-document-catalog.py
    python3 scripts/catalog/render-foundation-baseline.py
+   python3 scripts/catalog/render-adr-index.py
    ```
+
+   저장소에 커밋하는 생성 문서(데이터 전수 지도, 공공데이터 수집 카탈로그, 데이터 계약)는
+   정본이 바뀐 PR에서 다시 생성한다. 이런 문서에 저장소 전체 합계 줄을 새로 넣지 않는다 — 무관한
+   두 PR이 같은 줄을 고치게 된다.
 
 ## 기록과 번역
 
@@ -80,20 +87,22 @@ last_reviewed: 2026-07-28
 ```bash
 python3 scripts/catalog/audit-documentation.py --check --strict
 python3 -m unittest scripts/catalog/test_audit_documentation.py -v
-python3 scripts/catalog/render-document-catalog.py --check
-python3 scripts/catalog/render-foundation-baseline.py --check
+python3 scripts/catalog/render-adr-index.py --check
+python3 -m unittest scripts/catalog/test_adr_index.py -v
 python3 -m unittest scripts/catalog/test_foundation_baseline.py -v
+python3 scripts/catalog/test_generated_docs_merge.py -v
 git diff --check
 ```
 
-`--strict`가 붙는다. 그것이 없으면 감사는 보고서를 쓸 뿐 실패하지 않으며, `doc_type` 어휘
-검사도 지나간다. `docs.yml`이 도는 것과 같은 형태로 적어 로컬과 CI가 갈라지지 않게 한다.
+`--strict`가 붙는다. 그것이 없으면 메타데이터 누락과 `doc_type` 어휘 검사가 지나간다.
+마지막 시험은 무관한 두 브랜치(인접 번호 ADR과 서로 다른 안내 문서)를 병합해 충돌이 없고
+병합본이 그대로 검사를 통과하는지 본다. 1~2분 걸리므로 pre-push 훅에는 없고 CI만 돈다. `docs.yml`이 도는 것과 같은 형태로 적어 로컬과 CI가 갈라지지 않게 한다.
 
 `audit-documentation.py --check`는 유지 문서에 한글 설명이 전혀 없거나 명백한 영문 서술 문장이
 남은 경우 실패시킨다. 계약·fixture
 JSON, `AGENTS.md`/`CLAUDE.md` 라우터, 법률 원문은 자동 감사에서 예외로 분류한다. 기술명·코드·명령·
 식별자가 섞인 문서는 `mixed`로 보고되지만 사람이 읽는 문장은 한글로 작성해야 한다.
 
-감사 보고서는 [문서 감사 보고서](../document-audit.md), 전체 목록은
-[문서 색인](../document-catalog.md)에서 확인한다. 감사 보고서는 정본이 아니라 현재 상태를
+감사 보고서는 `audit-documentation.py`, 전체 목록은 `render-document-catalog.py`를 인자 없이
+실행해 확인한다. 감사 보고서는 정본이 아니라 현재 상태를
 점검하기 위한 생성 산출물이다.

@@ -14,8 +14,6 @@ last_reviewed: 2026-07-28
 ```text
 docs/
 ├── README.md                  이 문서 지도
-├── document-catalog.md        전체 문서 자동 색인
-├── document-audit.md          문서 메타데이터·언어·링크 감사 보고서
 ├── adr/                       전역 설계 결정
 ├── architecture/             모노레포 전체 구조·경계
 ├── guides/                    전역 개발 안내
@@ -38,9 +36,19 @@ docs/
 | [전역 레퍼런스](./reference/README.md) | 조회용 사실 — 외부 사례 조사 등 |
 | [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 **할 일**과 완료 순서 |
 | [기반 목표](./roadmap/foundation-goals.md) | **무엇이 참이어야 하는가** — 불변식과 지표 |
-| [기반 지표](./roadmap/foundation-baseline.md) | 위 목표가 판정에 쓰는 수치 (자동 생성) |
-| [전체 문서 색인](./document-catalog.md) | 영역·유형·상태별 자동 생성 문서 목록 |
-| [문서 감사 보고서](./document-audit.md) | 메타데이터·언어·중복·링크 자동 감사 결과 |
+
+## 생성해서 보는 문서
+
+아래 셋은 PR마다 같은 합계 줄을 고쳐 서로 충돌했기 때문에 저장소에 두지 않습니다
+([ADR-0176](./adr/0176-generated-docs-do-not-make-unrelated-prs-conflict.md)). 명령으로 출력하거나
+`main`의 `docs` 워크플로 실행 요약에서 봅니다.
+
+| 문서 | 명령 | 책임 |
+|---|---|---|
+| 기반 지표 | `python3 scripts/catalog/render-foundation-baseline.py` | 기반 목표가 판정에 쓰는 수치 |
+| 전체 문서 색인 | `python3 scripts/catalog/render-document-catalog.py` | 영역·유형·상태별 문서 목록 |
+| 문서 감사 보고서 | `python3 scripts/catalog/audit-documentation.py` | 메타데이터·언어·중복·링크 감사 결과 |
+| 전역 ADR 제목 목록 | `python3 scripts/catalog/render-adr-index.py` | 각 ADR 첫 제목으로 만든 목록 |
 
 ## 플랫폼별 문서
 

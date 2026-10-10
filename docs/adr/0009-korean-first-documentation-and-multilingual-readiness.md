@@ -91,8 +91,11 @@ last_reviewed: YYYY-MM-DD
 
 구조·색인·메타데이터·링크 감사는 완료했다. 남은 한글화와 초안/역사 문서 검토는
 [운영 준비 작업 목록](../roadmap/production-readiness.md)의 문서 정리 항목을 따른다.
-자동 현황은 [문서 감사 보고서](../document-audit.md)와 [전체 문서 색인](../document-catalog.md)에서
+자동 현황은 [문서 감사 도구](../../scripts/catalog/audit-documentation.py)와 [전체 문서 색인 생성기](../../scripts/catalog/render-document-catalog.py)에서
 생성한다.
+
+> 2026-10-10 링크 수정: 두 보고서 파일은 [ADR-0176](./0176-generated-docs-do-not-make-unrelated-prs-conflict.md)으로
+> 저장소에서 빠지고 생성기 출력이 되었다. 결정 본문은 바뀌지 않았다.
 
 ## 완료 기준
 

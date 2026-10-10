@@ -45,20 +45,39 @@ jobs:
       - name: Check generated pipeline map and API example
         if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-pipeline-map.py --check
-      - name: Check generated document catalog
+      - name: Check documents
         if: ${{ !cancelled() }}
-        run: python3 scripts/catalog/render-document-catalog.py --check
-      - name: Check document audit report
-        if: ${{ !cancelled() }}
-        # `--strict` fails when a maintained page has no metadata; `--check` fails when the
-        # report is stale. Both in one invocation: `--strict` alone would also rewrite the report
-        # as a side effect, which would mask staleness instead of reporting it.
+        # `--strict` fails when a maintained page has no or an unknown metadata type; `--check`
+        # fails on broken local links, English-only prose and unreferenced drafts. The report is
+        # not committed (root ADR-0176); it is in the job summary below.
         run: python3 scripts/catalog/audit-documentation.py --check --strict
       - name: Test document audit tool
         run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v
-      - name: Check generated foundation baseline
+      - name: Check ADR names, headings and numbers
         if: ${{ !cancelled() }}
-        run: python3 scripts/catalog/render-foundation-baseline.py --check
+        # The ADR index is the directory (root ADR-0176); this refuses a bad name or heading and two
+        # files with one number — the collision two parallel PRs make without a textual conflict.
+        run: python3 scripts/catalog/render-adr-index.py --check
+      - name: Test ADR index tool
+        run: python3 -m unittest scripts/catalog/test_adr_index.py -v
+      - name: Test that unrelated document branches merge cleanly
+        # Replays two branches adding adjacent ADRs and unrelated guides by the tree's own hook
+        # commands, merges them, and requires no conflict and a green merged tree (root ADR-0176).
+        run: python3 scripts/catalog/test_generated_docs_merge.py -v
+      - name: Publish document reports to the job summary
+        if: ${{ !cancelled() }}
+        # Rendered, not committed (root ADR-0176): a failure to render fails the job, so the
+        # generators stay runnable, but no PR carries their totals into a shared file.
+        run: |
+          {
+            python3 scripts/catalog/render-adr-index.py
+            echo
+            python3 scripts/catalog/render-foundation-baseline.py
+            echo
+            python3 scripts/catalog/render-document-catalog.py
+            echo
+            python3 scripts/catalog/audit-documentation.py
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Test foundation baseline tool
         # The generator reported a flattering zero four separate ways before these cases pinned it.
         # A stale-file check alone would keep confirming whatever wrong number it last wrote.

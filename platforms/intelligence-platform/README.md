@@ -22,7 +22,7 @@ intelligence-platform/
 ```
 
 문서 지도: [Intelligence docs](./docs/README.md) ·
-[전체 문서 색인](../../docs/document-catalog.md)
+[전체 문서 색인 생성 안내](../../docs/README.md)
 
 이 Rust workspace가 API·검증·출처·멱등성·outbox 상태·adapter·Foundation Platform 제출을
 포함한 플랫폼 경계의 **정본 구현**입니다. 이전 Python prototype은 2026-07-08에 폐기되었고

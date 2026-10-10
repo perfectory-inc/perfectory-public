@@ -15,10 +15,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 아래의 수집규모는 **카탈로그에 등록된 endpoint 수**입니다. 실제 수집 객체 수·행 수·용량은
 이 카탈로그에 없으므로 추정하지 않습니다. 실행 경로가 있다는 표시는 운영 배포·전국 적재 완료를 뜻하지 않습니다.
 
-현재 범위: 원천 **10그룹 / 136 endpoint**,
-Silver·Gold **34표**,
-서빙·운영 원장 **77표**.
-
 정본: [파이프라인 그래프](../platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json) · [원천 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) ·
 [결정 ADR-0086](./adr/0086-the-pipeline-graph-names-every-dataset-once.md).
 

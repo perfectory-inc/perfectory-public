@@ -70,8 +70,10 @@ pre-push:
     fast-ratchets:
       run: bash scripts/guard/technology-version-consistency.sh && bash scripts/guard/build-coupling-baseline.sh && bash scripts/guard/pipeline-graph-covers-every-dataset.sh && bash scripts/guard/foundation-parcel-current-selector.sh
       skip: [merge, rebase]
-    generated-docs-freshness:
-      run: python3 scripts/catalog/render-document-catalog.py --check && python3 scripts/catalog/audit-documentation.py --check --strict && python3 scripts/catalog/render-foundation-baseline.py --check && python3 scripts/catalog/render-pipeline-map.py --check
+    # The document catalog, audit report and foundation baseline are not committed, and the ADR
+    # index is the directory, so no PR regenerates a shared file here (root ADR-0176).
+    docs-integrity:
+      run: python3 scripts/catalog/audit-documentation.py --check --strict && python3 scripts/catalog/render-adr-index.py --check && python3 scripts/catalog/render-pipeline-map.py --check
       skip:
         - merge
         - rebase

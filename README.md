@@ -28,9 +28,11 @@ perfectory/
 
 1. [영역 규칙](./AGENTS.md)
 2. [전역 문서 지도](./docs/README.md)
-3. [전체 문서 자동 색인](./docs/document-catalog.md)
-4. [문서 감사 보고서](./docs/document-audit.md)
-5. 작업 영역의 `README.md`와 `AGENTS.md`
+3. 작업 영역의 `README.md`와 `AGENTS.md`
+
+전체 문서 색인과 문서 감사 보고서는 저장소에 두지 않고 필요할 때 생성합니다
+(`python3 scripts/catalog/render-document-catalog.py`, `python3 scripts/catalog/audit-documentation.py`;
+`main`의 `docs` 워크플로 요약에도 실립니다, [ADR-0176](./docs/adr/0176-generated-docs-do-not-make-unrelated-prs-conflict.md)).
 
 ## 영역 진입점
 
