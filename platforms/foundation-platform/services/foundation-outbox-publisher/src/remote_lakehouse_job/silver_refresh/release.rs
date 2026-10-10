@@ -165,7 +165,11 @@ pub(in crate::remote_lakehouse_job) fn select(
     )
 }
 
-fn newest<'a>(candidates: &[&'a LedgerObject]) -> anyhow::Result<Option<&'a LedgerObject>> {
+/// Of several objects that would fill one place in a release, the one the provider updated
+/// later; the same or no update date is refused (the land lanes use the same rule, `land.rs`).
+pub(in crate::remote_lakehouse_job) fn newest<'a>(
+    candidates: &[&'a LedgerObject],
+) -> anyhow::Result<Option<&'a LedgerObject>> {
     let Some(latest) = candidates
         .iter()
         .map(|object| object.provider_updated_at)

@@ -332,7 +332,7 @@ fn a_release_the_table_already_records_is_unchanged() -> anyhow::Result<()> {
         Decision::Unchanged("already_loaded")
     );
     assert_eq!(
-        outcome_line(Lane::Titles, &release, &Decision::Unchanged("already_loaded"), &identity, None),
+        outcome_line(Lane::Titles, &release.vintage(), &Decision::Unchanged("already_loaded"), &identity, None),
         format!("silver-refresh-outcome lane=building-register-titles outcome=unchanged reason=already_loaded release=209907 identity={identity} rows=0")
     );
     Ok(())
@@ -363,12 +363,18 @@ fn a_release_the_table_lacks_is_exported_and_loaded() -> anyhow::Result<()> {
     let ingested: BTreeSet<String> = [older.run_identity(Lane::Titles.id())].into();
     let decision = decide_run(Lane::Titles, &release, &ingested);
     assert_eq!(decision, Decision::ExportAndLoad);
-    let line = outcome_line(Lane::Titles, &release, &decision, "x", Some(7));
+    let line = outcome_line(Lane::Titles, &release.vintage(), &decision, "x", Some(7));
     assert!(line.starts_with("silver-refresh-outcome "));
     assert!(line
         .contains(" outcome=changed reason=exported_and_loaded release=209907 identity=x rows=7"));
     // A plan's line is never read as a run's: another prefix, and no `changed`.
-    let plan = as_plan(&outcome_line(Lane::Titles, &release, &decision, "x", None));
+    let plan = as_plan(&outcome_line(
+        Lane::Titles,
+        &release.vintage(),
+        &decision,
+        "x",
+        None,
+    ));
     assert!(plan.starts_with("silver-refresh-plan ") && plan.contains(" outcome=would_change "));
     assert!(!plan.contains("silver-refresh-outcome") && !plan.contains("=changed "));
     Ok(())
@@ -588,6 +594,7 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
         input_format: "jsonl",
         expected_count: Some(13),
         reads_r2: true,
+        write_mode: WriteMode::Append,
     };
     let args = execute::spark_arguments(&runtime, &price, &load);
     assert!(args.windows(2).any(|w| w

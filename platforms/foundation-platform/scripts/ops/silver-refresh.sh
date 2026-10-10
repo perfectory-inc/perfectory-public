@@ -8,9 +8,10 @@
 #
 # The lanes and what each runs are not here: the publisher's `run-silver-refresh` knows the lanes,
 # and each lane's runner values are the `silver_refresh` block of its source contract
-# (infra/lakehouse/contracts/hub-building-register-*-source-objects.json). This script binds the run
-# to the admitted release, the runtime database connection and this invocation's Compose project,
-# and lets one lane run at a time: each takes the compose `spark` service's whole cap.
+# (infra/lakehouse/contracts/hub-building-register-*-source-objects.json and
+# vworld-land-*-source-objects.json). This script binds the run to the admitted release, the runtime
+# database connection and this invocation's Compose project, and lets one lane run at a time: each
+# takes the compose `spark` service's whole cap.
 #
 # The publisher's last line is `silver-refresh-outcome lane=… outcome=changed|unchanged reason=… …`;
 # a run then ends with `foundation-job-outcome changed|unchanged`, the same word (root ADR-0171).

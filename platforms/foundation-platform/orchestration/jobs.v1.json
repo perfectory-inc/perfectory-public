@@ -273,6 +273,132 @@
       "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "silver_refresh_land_characteristic",
+      "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-characteristic.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-characteristic"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_forest_ledger",
+      "description": "Silver refresh of the 임야대장 lane `land-forest-ledger` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_forest_ledger already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-forest-ledger.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-forest-ledger"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_individual_price",
+      "description": "Silver refresh of the 개별공시지가 lane `land-individual-price` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_individual_price already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-individual-price.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-individual-price"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_right_registration",
+      "description": "Silver refresh of the 대지권등록 lane `land-right-registration` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_right_registration already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-right-registration.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-right-registration"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_transfer_history",
+      "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-transfer-history.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-transfer-history"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_use_plan",
+      "description": "Silver refresh of the 토지이용계획 lane `land-use-plan` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_plan already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-use-plan.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-use-plan"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_refresh_land_use_zone_code",
+      "description": "Silver refresh of the 용도지역 코드표 lane `land-use-zone-code` (root ADR-0169 ③): pick the newest national object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_code already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-use-zone-code.service",
+      "systemd_timer": null,
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-use-zone-code"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). Off until the daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after the sweep, ADR-0169 §1; until then a new object refuses the run by design) and its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_panel_rebuild",
       "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their existing Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",

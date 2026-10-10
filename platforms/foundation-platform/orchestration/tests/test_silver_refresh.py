@@ -67,7 +67,7 @@ class TheUnit(unittest.TestCase):
         self.assertIn('install_release_admission "${service}"', release)
         services = [job["systemd_service"] for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]]
         lanes = [service for service in services if service.startswith("foundation-silver-refresh@")]
-        self.assertEqual(len(lanes), 5)
+        self.assertEqual(len(lanes), len(list(lane_contracts())))
         self.assertEqual({job_specs.service_unit_file(service) for service in lanes}, {UNIT})
 
 
@@ -92,18 +92,23 @@ class TheLanes(unittest.TestCase):
         graph = json.loads(GRAPH.read_text(encoding="utf-8"))
         tables = {node["id"]: node.get("table_name") for node in graph["nodes"]}
         found = list(lane_contracts())
-        self.assertEqual(len(found), 5, "the hub lanes of root ADR-0169 step 2")
+        # The five hub lanes of root ADR-0169 step 2 and the seven VWorld land lanes of step 3.
+        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 5 + ["vworld"] * 7)
         for name, document in found:
             with self.subTest(contract=name):
                 lane = document["silver_refresh"]
+                # A hub lane reads roles of one ledger month; a land lane one source by its members.
+                origin, slugs = (("source-building-hub-bulk", set(lane["roles"].values())) if "roles" in lane
+                                 else ("source-vworld-dataset", {lane["source"]}))
                 edges = [edge for edge in graph["edges"] if tables.get(edge["to"]) == lane["table"]
-                         and edge["from"] == "source-building-hub-bulk"]
-                self.assertEqual(len(edges), 1, f"{lane['table']} has one hub edge")
+                         and edge["from"] == origin]
+                self.assertEqual(len(edges), 1, f"{lane['table']} has one source edge")
                 via = edges[0]["via"]
                 self.assertIn(lane["export"], via)
                 self.assertIn(SCRIPT_VIA, via)
                 self.assertNotIn("platforms/foundation-platform/scripts/load/land-use-batch-load.sh", via)
-                self.assertLessEqual(set(edges[0].get("source_slugs", [])), set(lane["roles"].values()))
+                self.assertLessEqual(set(edges[0].get("source_slugs", [])), slugs)
+                self.assertTrue(edges[0].get("source_slugs"), "the edge names the slugs it reads")
 
     def test_no_lane_contract_names_its_release(self):
         for name, document in lane_contracts():

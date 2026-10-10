@@ -281,6 +281,17 @@ LANES = [
     "silver_refresh_building_register_apartment_price",
     "silver_refresh_building_register_exclusive_unit",
 ]
+# The VWorld land lanes of root ADR-0169 step 3: the same shape, one source each.
+LAND_LANES = [
+    "silver_refresh_land_characteristic",
+    "silver_refresh_land_forest_ledger",
+    "silver_refresh_land_individual_price",
+    "silver_refresh_land_right_registration",
+    "silver_refresh_land_transfer_history",
+    "silver_refresh_land_use_plan",
+    "silver_refresh_land_use_zone_code",
+]
+ALL_LANES = LANES + LAND_LANES
 
 
 class JobsStartedByTheirInputs(unittest.TestCase):
@@ -295,7 +306,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
     def test_the_chain_from_source_to_serving(self):
         specs = {spec.job_id: spec for spec in job_specs.load_specs()}
-        for lane in LANES:
+        for lane in ALL_LANES:
             self.assertEqual(specs[lane].started_by, "inputs")
             self.assertEqual(specs[lane].producers, ("source_sweep",))
         self.assertIn("building_register_floor", specs["gold_panel_rebuild"].producers)
@@ -310,11 +321,15 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
     def test_the_new_lanes_wait_for_their_supervised_first_run(self):
         jobs, _ = real_inputs()
-        for lane in LANES:
+        for lane in ALL_LANES:
             entry = job(jobs, lane)
             self.assertFalse(entry["enabled"], lane)
             self.assertIn("supervised", entry["disabled_reason"])
-            self.assertTrue(entry["systemd_service"].startswith("foundation-silver-refresh@building-register-"))
+            instance = lane.removeprefix("silver_refresh_").replace("_", "-")
+            self.assertEqual(entry["systemd_service"], f"foundation-silver-refresh@{instance}.service")
+        for lane in LAND_LANES:
+            # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
+            self.assertIn("bronze-object-members.sh", job(jobs, lane)["disabled_reason"])
 
     def test_started_by_is_stated_and_known(self):
         self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
@@ -353,12 +368,15 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         # A sweep every hour would start the lanes every hour, and through them Gold and the bake.
         job(jobs, "source_sweep")["schedule"] = "40 * * * *"
         cycles = job_specs.cycle_minutes(jobs, graph)
-        for job_id in [*LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
+        for job_id in [*ALL_LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
             self.assertEqual(cycles[job_id], 60, job_id)
-        # ... and their waits, counted in those cycles, starve (the bound did not move).
+        # ... and their waits, counted in those cycles, starve (the bound did not move): every lane
+        # and the Gold rebuild may wait past 20 hourly runs.
         problems = job_specs.pool_starvation(jobs, graph)
-        self.assertTrue(any(problem.startswith(f"{LANES[0]} may wait 3365 minutes") for problem in problems), problems)
-        self.assertTrue(any(problem.startswith("gold_panel_rebuild may wait 3360 minutes") for problem in problems))
+        for job_id in [LANES[0], LAND_LANES[0], "gold_panel_rebuild"]:
+            waits = [int(problem.split()[3]) for problem in problems if problem.startswith(f"{job_id} may wait ")]
+            self.assertEqual(len(waits), 1, problems)
+            self.assertGreater(waits[0], job_specs.STARVATION_CYCLES * 60)
         # Its own fallback schedule counts as well.
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
         job(jobs, "by_pnu_serving_bake")["schedule"] = "15 * * * *"
@@ -383,7 +401,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         # the pool when its turn comes: the Gold rebuild's 165 minutes, longer than a lane's 160.
         self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5) + 165)
         self.assertEqual(wait, job_specs.STARVATION_CYCLES * 60)
-        self.assertFalse(set(LANES) & set(blockers))
+        self.assertFalse(set(ALL_LANES) & set(blockers))
         # Counted the way the bound counted before root ADR-0171, the five lanes would add up.
         self.assertEqual(wait + 5 * 160, 2000)
 

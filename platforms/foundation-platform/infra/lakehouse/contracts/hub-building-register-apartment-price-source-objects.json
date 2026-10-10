@@ -30,7 +30,7 @@
   "rows_per_part": 10000000,
   "max_row_bytes": 1048576,
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-apartment-price.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다. 묶음 4 부분·16g 는 land-use-batch-load.sh 의 측정값을 따른다.",
+    "$comment": "foundation-silver-refresh@building-register-apartment-price.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다. 묶음 4 부분·16g 는 옛 손 적재(land-use-batch-load.sh, ADR-0169 ③에서 은퇴)의 측정값을 따른다.",
     "table": "silver.building_register_apartment_price",
     "roles": {"source": "hubgokr__building_register_apartment_price"},
     "export": "export-building-register-apartment-price-silver-handoff",

@@ -91,6 +91,13 @@
       "silver_refresh_building_register_unit_areas": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_apartment_price": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_exclusive_unit": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_characteristic": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_forest_ledger": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_individual_price": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_right_registration": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_transfer_history": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_use_plan": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_use_zone_code": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "map_edit_fold_admin": [
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}

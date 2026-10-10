@@ -465,6 +465,43 @@ pub async fn run_price() -> anyhow::Result<()> {
     run_lane(&PRICE_LANE).await
 }
 
+/// What a caller that starts one of these commands as a child needs from it (the Silver refresh,
+/// root ADR-0169 step 3): the environment prefix the command reads, the Silver table it writes,
+/// and whether a ZIP member is the one it converts. Read from the lanes above, so the caller keeps
+/// no second copy of them.
+#[derive(Clone, Copy)]
+pub(crate) struct ExportCommand {
+    pub env_prefix: &'static str,
+    pub table: &'static str,
+    member_matches: fn(&str) -> bool,
+}
+
+impl ExportCommand {
+    /// Whether the export would convert a ZIP member of this name.
+    pub(crate) fn converts_member(&self, name: &str) -> bool {
+        (self.member_matches)(name)
+    }
+}
+
+/// The export behind a publisher command name, when it is one of this module's lanes.
+pub(crate) fn export_command(command: &str) -> Option<ExportCommand> {
+    let lane: &'static Lane = match command {
+        "export-land-use-plan-silver-handoff" => &PLAN_LANE,
+        "export-land-use-zone-code-silver-handoff" => &ZONE_CODE_LANE,
+        "export-land-individual-price-silver-handoff" => &PRICE_LANE,
+        "export-land-characteristic-silver-handoff" => &LAND_CHARACTERISTIC_LANE,
+        "export-land-forest-silver-handoff" => &LAND_FOREST_LANE,
+        "export-land-transfer-history-silver-handoff" => &LAND_TRANSFER_LANE,
+        "export-land-right-registration-silver-handoff" => &LAND_RIGHT_LANE,
+        _ => return None,
+    };
+    Some(ExportCommand {
+        env_prefix: lane.env_prefix,
+        table: lane.contract.table_name,
+        member_matches: lane.member_matches,
+    })
+}
+
 async fn run_lane(lane: &'static Lane) -> anyhow::Result<()> {
     let config = ExportConfig::from_env(lane)?;
 

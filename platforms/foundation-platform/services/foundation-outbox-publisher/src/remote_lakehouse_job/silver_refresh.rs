@@ -14,6 +14,11 @@
 //!
 //! The last line of every successful run is `silver-refresh-outcome lane=… outcome=changed|unchanged
 //! …` (ADR-0169 §4). The lane's runner values are its contract's (`lane.rs`); this file holds none.
+//!
+//! The VWorld land lanes (step 3) differ only in step 1 and in what one release is: the newest
+//! vintage whose objects, read by their ZIP member names, cover the contract's regions
+//! (`land.rs`). Steps 2 and 3 are the same: the table's own record, the lane's existing export,
+//! the same Spark load.
 use std::collections::BTreeSet;
 
 use anyhow::{ensure, Context};
@@ -22,6 +27,9 @@ use serde::Deserialize;
 use sqlx::PgPool;
 
 mod execute;
+mod land;
+#[cfg(test)]
+mod land_tests;
 mod lane;
 mod release;
 #[cfg(test)]
@@ -62,6 +70,14 @@ pub(super) async fn run() -> anyhow::Result<()> {
     let pool = PgPool::connect(&super::required_lookup(&mut lookup, "DATABASE_URL")?)
         .await
         .context("cannot connect to the Bronze ledger")?;
+    let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
+    if let Some(rule) = &contract.land {
+        let measured = land::read_measured(&pool, &rule.source).await;
+        pool.close().await;
+        let line = refresh_land(&contract, rule, &measured?, &runtime, plan).await?;
+        println!("{}", if plan { as_plan(&line) } else { line });
+        return Ok(());
+    }
     let ledger = release::read_ledger(&pool, &contract.roles).await;
     pool.close().await;
     let release = release::select(&contract.roles, &ledger?)?;
@@ -72,24 +88,73 @@ pub(super) async fn run() -> anyhow::Result<()> {
             month.format("%Y%m")
         );
     }
-    let catalog = IcebergRestCatalog::new(
-        LakehouseCatalogConfig::from_env()
-            .context("the Silver refresh reads the lakehouse catalog")?,
-    )
-    .context("cannot build the Iceberg catalog client")?;
+    let catalog = lakehouse_catalog()?;
     let ingested = catalog
         .load_ingested_batch_objects(&contract.table)
         .await?
         .unwrap_or_default();
-    let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
     let (decision, identity, rows) = if contract.kind.loads_as_one_run() {
         refresh_run(&contract, &release, &runtime, &catalog, &ingested, plan).await?
     } else {
         refresh_parts(&contract, &release, &runtime, &catalog, &ingested, plan).await?
     };
-    let line = outcome_line(lane, &release, &decision, &identity, rows);
+    let line = outcome_line(lane, &release.vintage(), &decision, &identity, rows);
     println!("{}", if plan { as_plan(&line) } else { line });
     Ok(())
+}
+
+fn lakehouse_catalog() -> anyhow::Result<IcebergRestCatalog> {
+    IcebergRestCatalog::new(
+        LakehouseCatalogConfig::from_env()
+            .context("the Silver refresh reads the lakehouse catalog")?,
+    )
+    .context("cannot build the Iceberg catalog client")
+}
+
+/// A land lane's run after its ledger read: the release, the table's record, and the load.
+async fn refresh_land(
+    contract: &LaneContract,
+    rule: &land::LandRule,
+    measured: &[land::MeasuredObject],
+    runtime: &Runtime,
+    plan: bool,
+) -> anyhow::Result<String> {
+    let lane = contract.lane.id();
+    let export = crate::land_use_silver_export::export_command(&contract.export)
+        .context("a land lane runs a land export")?;
+    let candidates = land::candidates(rule, measured, |name| export.converts_member(name))?;
+    for refused in &candidates.refused {
+        println!("silver-refresh lane={lane} refused_object={refused}");
+    }
+    let release = land::select(rule, &candidates.found)?;
+    for skipped in &release.skipped_incomplete {
+        println!("silver-refresh lane={lane} skipped_incomplete_release={skipped}");
+    }
+    for (region, object) in &release.objects {
+        println!(
+            "silver-refresh lane={lane} release={} region={region} object={}",
+            release.vintage, object.object_key
+        );
+    }
+    let identity = release.source_snapshot_id(rule)?;
+    let catalog = lakehouse_catalog()?;
+    let ingested = catalog
+        .load_ingested_batch_objects(&contract.table)
+        .await?
+        .unwrap_or_default();
+    let decision = land::decide(&release, &candidates.found, &ingested);
+    let rows = if decision == Decision::ExportAndLoad && !plan {
+        Some(land::load(contract, rule, &release, runtime, &catalog).await?)
+    } else {
+        None
+    };
+    Ok(outcome_line(
+        contract.lane,
+        &release.vintage,
+        &decision,
+        &identity,
+        rows,
+    ))
 }
 
 /// A plan stages, exports and writes nothing, so its line must not read as a run's outcome.
@@ -142,7 +207,7 @@ fn runtime(lane: Lane, lookup: &mut impl FnMut(&str) -> Option<String>) -> anyho
 /// The one line a run ends with, for the job log and whatever reads it next (ADR-0169 §4).
 pub(super) fn outcome_line(
     lane: Lane,
-    release: &Release,
+    release: &str,
     decision: &Decision,
     identity: &str,
     rows: Option<u64>,
@@ -153,9 +218,8 @@ pub(super) fn outcome_line(
         Decision::LoadOnly => ("changed", "loaded_existing_handoff"),
     };
     format!(
-        "silver-refresh-outcome lane={} outcome={outcome} reason={reason} release={} identity={identity} rows={}",
+        "silver-refresh-outcome lane={} outcome={outcome} reason={reason} release={release} identity={identity} rows={}",
         lane.id(),
-        release.vintage(),
         rows.map_or_else(|| "0".to_owned(), |rows| rows.to_string())
     )
 }
@@ -240,7 +304,7 @@ pub(super) fn manifest_key(prefix: &str, release: &Release) -> anyhow::Result<St
 
 /// What a manifest must be before its parts are loaded: this release, this prefix, complete, and
 /// parts that add up, every part full but the last (root ADR-0092; moved here from
-/// `source_handoff_inputs.py`, which no longer plans hub parts).
+/// `source_handoff_inputs.py`, the hand planner root ADR-0169 step 3 retired).
 pub(super) fn validate_manifest(
     manifest: &HubManifest,
     prefix: &str,
@@ -408,6 +472,7 @@ async fn refresh_parts(
             input_format: "jsonl",
             expected_count: Some(batch.iter().map(|part| part.rows).sum()),
             reads_r2: true,
+            write_mode: contract.spark.iceberg_write_mode,
         };
         // A batch the table already holds is reported and skipped by append_batch_once.
         let summary = execute::spark(runtime, contract, &load)?;

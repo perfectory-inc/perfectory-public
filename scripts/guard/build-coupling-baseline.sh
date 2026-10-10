@@ -234,7 +234,11 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # export reads, and those two existing contracts are shared, not embedded a second time.
 # 118 -> 119: root ADR-0170's planner test embeds the provider-acquisition plan fixture the
 # Python RAON worker reads, so the Rust writer and the Python reader are held to one file.
-COMPILE_TIME_READ_BASELINE="${3:-119}"
+# 119 -> 126: root ADR-0169 step 3 embeds the seven VWorld land source contracts, once each, in the
+# Silver refresh's lane list: their release rules (member names, completeness) and runner values are
+# read from the bytes of the release that runs them, as the hub lanes' are. No other Rust code read
+# these contracts; the hand loaders that read them at run time (shell and Python) are retired.
+COMPILE_TIME_READ_BASELINE="${3:-126}"
 
 cd "$repo_root"
 

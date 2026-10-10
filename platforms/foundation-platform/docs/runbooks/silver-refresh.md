@@ -5,16 +5,17 @@ doc_type: runbook
 last_reviewed: 2026-10-10
 ---
 
-# Silver 레인 새로 고침 — 건축HUB 레인 런북
+# Silver 레인 새로 고침 — 건축HUB·VWorld 토지 레인 런북
 
 [루트 ADR-0169](../../../../docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)
-②의 운영 절차다. 레인 하나가 Bronze 장부(`catalog.bronze_object`)에서 가장 새 완전한 원천 판을 고른다. Silver 표가
+②·③의 운영 절차다. 레인 하나가 Bronze 장부(`catalog.bronze_object`)에서 가장 새 완전한 원천 판을 고른다. Silver 표가
 그 판을 이미 가졌으면 수 초 만에 `unchanged` 로 끝나고, 아니면 내보내고 적재한다. 판을 계약에 적어 올리는 PR 은 없다.
+VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_member`, ①)에서 읽는다(5 절).
 
 | 무엇 | 정본 |
 | --- | --- |
 | 레인 목록과 레인이 하는 일 | 발행기 `run-silver-refresh` (`remote_lakehouse_job/silver_refresh/`) |
-| 레인의 원천 역할·내보내기·Spark 크기·쓰기 방식 | 레인 계약의 `silver_refresh` 블록 (`infra/lakehouse/contracts/hub-building-register-*-source-objects.json`) |
+| 레인의 원천 역할·내보내기·Spark 크기·쓰기 방식 | 레인 계약의 `silver_refresh` 블록 (`infra/lakehouse/contracts/hub-building-register-*-source-objects.json`, `vworld-land-*-source-objects.json`) |
 | 판 규칙 | 같은 계약의 `release_rule` (ADR-0169 §2) |
 | 실행 계정·환경 파일·시간·메모리 한계 | `infra/systemd/foundation-silver-refresh@.service` → `scripts/ops/silver-refresh.sh` |
 | 환경 파일 | `config/runtime-secrets.contract.json` 의 유닛 `foundation-silver-refresh@.service`, 실행 `silver-refresh-plan` |
@@ -27,6 +28,13 @@ last_reviewed: 2026-10-10
 | `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | 한 묶음 overwrite |
 | `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
+| `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 17 | 첫 4 객체 overwrite, 나머지 4개씩 append |
+| `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 17 | 같음 |
+| `land-individual-price` | `silver.land_individual_price` | 개별공시지가 `AL_D151` 시도 17 | 같음 |
+| `land-right-registration` | `silver.land_right_registration` | 대지권등록 `AL_D006` 시도 17 | 같음 |
+| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 17 | 같음 |
+| `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 17 | 같음 |
+| `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | 한 객체 overwrite |
 
 ## 1. 한 번의 실행
 
@@ -50,7 +58,7 @@ last_reviewed: 2026-10-10
 
 ## 2. 예약 작업으로서 (꺼진 채 등록)
 
-레인 다섯은 `orchestration/jobs.v1.json` 의 작업 `silver_refresh_building_register_*` 다
+레인 열둘은 `orchestration/jobs.v1.json` 의 작업 `silver_refresh_building_register_*`·`silver_refresh_land_*` 다
 ([루트 ADR-0171](../../../../docs/adr/0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)).
 `started_by: inputs` 라서 source_sweep 이 새 파일을 받은 실행(`foundation-job-outcome changed`) 뒤에 곧 시작하고,
 07:00 UTC 에도 시작한다(대체 시각). `spark` 3 슬롯이라 한 번에 하나씩 돈다. 실행은 마지막 줄에
@@ -139,6 +147,10 @@ last_reviewed: 2026-10-10
 | `pnu_null_share` 거부 | 대지 PNU NULL 비율이 상한·상승폭을 넘었다 | ADR-0142. 크로스워크나 원천을 먼저 본다 |
 | `a lane contract names no release` | 계약에 `selected_vintage`·`objects` 가 다시 들어갔다 | 지운다. 판은 장부가 정한다 |
 | `another lane holds …/refresh.lock` (75) | 다른 레인이 돈다 | 그 레인이 끝난 뒤 다시 시작한다 |
+| `… have no ZIP member reading yet …` | 토지 레인 원천에 안 이름을 잰 적 없는 객체가 있다. 그 객체가 가장 새 판일 수 있다 | 문구가 이름 짓는 명령(`bronze-object-members.sh <원천>`)을 돌리고 다시 시작한다 (5 절) |
+| `the ledger holds no vintage of … covering 17 regions` | 어느 판도 시도 17 을 다 덮지 않는다 | `skipped_incomplete_release=<판> regions=<n>` 줄을 본다. 시도 체계가 바뀌었으면(통합) 계약의 `completeness.count` 를 PR 로 고친다 |
+| `refused_object=… members the lane's rule reads …` | 한 ZIP 에 레인이 읽을 CSV 가 둘이거나 날짜가 아니다 | 그 객체는 후보에서 빠진다. 그 때문에 판이 불완전하면 원천을 조사한다 |
+| `load batch … holds the source_snapshot_ids …` | 버킷에 이미 있던 토지 핸드오프가 다른 `source_snapshot_id` 로 쓰였다 | 그 판의 핸드오프를 누가 썼는지 본다. gold.parcel_panel 은 표마다 id 하나만 읽는다 |
 
 중간에 끊긴 실행: systemd 로 시작했으면 `ExecStopPost` 가 Spark 컨테이너를 치운다. 손으로 스크립트를 돌렸으면
 처음에 찍힌 `INVOCATION_ID` 로 치운다.
@@ -146,3 +158,47 @@ last_reviewed: 2026-10-10
 ```bash
 INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-refresh.sh cleanup
 ```
+
+## 5. VWorld 토지 레인 (③)
+
+손 적재(`land-use-plan-handoff-export.sh`·`land-use-batch-load.sh`, 계약의 `objects[]`·`selected_vintage`)는
+은퇴했다. 토지 일곱 표는 이 레인들로만 들어간다.
+
+**판.** 레인 원천의 장부 행을 ZIP 안 이름과 함께 읽는다(정해진 `zip` 읽기만). 계약 `silver_refresh.member_name` 에
+맞는 안 이름이 하나인 객체가 후보이고, 이름의 `region` 이 시도, `vintage` 가 판(`YYYYMMDD`)이다. 시도
+`completeness.count`(17)를 모두 덮는 판 중 가장 새것이 판이다. 같은 시도·판이 둘이면 `provider_updated_at` 이 늦은
+것이고, 같으면 거부한다. 용도지역 코드표는 전국 객체 하나다(장부 `snapshot_date` 가 가장 새것). 같은 접두사의 다른
+데이터셋(도형 SHP, DBF, 변경분 `CH_*`, `.xlsx`)은 이름이 맞지 않아 후보가 아니다.
+
+**이미 반영.** 토지 표의 적재 기록은 Bronze 객체 키(`source_record_id`)다. 판의 객체가 모두 기록에 있으면
+`already_loaded`, 더 새 판의 객체가 하나라도 있으면 `newer_release_loaded` 다. 그래서 손 적재로 들어간 판도 같은 판이면
+`unchanged` 다. 첫 감독 실행은 장부에 더 새 완전한 판이 있을 때만 `changed` 다.
+
+**적재.** 객체마다 레인의 기존 내보내기가 R2 에서 R2 로 핸드오프 하나(`<handoff_prefix>/<객체 이름>.jsonl.gz`)를
+쓴다. 이미 있으면 내보내기가 건너뛴다. 그다음 시도 순서로 4 개씩 Spark 적재를 돌린다. 첫 묶음이 `overwrite`(앞 판을
+바꿔 쓴다), 나머지는 `append` 다. gold.parcel_panel 이 표마다 `source_snapshot_id` 하나(`vworldkr-<원천>:<판>`)만
+읽기 때문이다. 중간에 끊기면 다음 실행이 기록에 없는 첫 묶음부터 잇는다. 그 사이 표는 판의 일부만 갖는다. Gold
+재생성은 같은 `spark` 풀이라 레인과 겹치지 않고, 잃는 행이 많은 Gold 는 거부한다.
+
+### 첫 감독 실행 (레인마다)
+
+권하는 순서는 코드표 → 공시지가 → 토지이용계획 → 토지특성 → 임야대장 → 대지권등록 → 토지이동이력이다(작은 것부터).
+
+1. 그 원천의 ZIP 안 이름을 잰다(①). 이미 잰 객체는 건너뛰므로 다시 돌려도 된다.
+
+   ```bash
+   source=vworldkr__land_individual_price
+   sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
+     $(python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py properties bronze-object-members) \
+     /opt/foundation-platform/current/scripts/ops/bronze-object-members.sh "${source}"
+   ```
+
+2. 3 절의 2–4 를 `lane=land-individual-price` 로 한다. 계획에서 볼 것:
+   - `release=<YYYYMMDD>` 가 기대한 판이고, `region=… object=…` 줄이 시도 17 개다.
+   - `skipped_incomplete_release` 와 `refused_object` 줄이 있으면 까닭이 맞는지 본다.
+   - 손 적재된 판과 같으면 `outcome=unchanged reason=already_loaded` 다.
+3. `changed` 였으면: `evidence/land-<…>-<판>/` 에 `export-summary-<시도>.json` 17 개와 `spark-summary-*.json` 이
+   있고, 다시 돌리면 `already_loaded` 다. 토지이용계획·토지이동이력은 1~2억 행이라 150 분 안에 끝나는지 본다.
+   넘으면 다음 실행이 이어 적재하지만, 켜기 전에 그 수치로 결정을 다시 연다(2 절).
+4. 켜기 전 조건이 하나 더 있다: 매일 수집(`source_sweep`) 뒤에 1 의 측정이 돌아야 한다(ADR-0169 §1, sweep 쪽 변경).
+   그 전에는 새 객체가 올 때마다 레인이 "잰 적 없는 객체"로 거부한다. 의도한 거부다(판을 추측하지 않는다).
