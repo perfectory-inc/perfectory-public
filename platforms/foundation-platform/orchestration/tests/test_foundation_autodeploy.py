@@ -331,6 +331,13 @@ class TheWholeDeploy(unittest.TestCase):
             '#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$FIXTURE_ROOT/release.log"\n'
             '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]]\n')
         (new / "foundation-release.sh").chmod(0o755)
+        # The host's release admission: here it refuses what the real one refuses first after a root
+        # import, bytecode in the release (its own tests cover the rest).
+        admission = control_root / "releases" / HEAD / "scripts/deploy/foundation-release-admission.py"
+        admission.parent.mkdir(parents=True)
+        admission.write_text('#!/usr/bin/env bash\n[[ "$1" == verify-current ]] || exit 64\n'
+                             f'[[ -z "$(find {release_root}/current/ -name __pycache__)" ]]\n')
+        admission.chmod(0o755)
         (root / "var").mkdir()
         conf = root / "release-deploy.conf"
         conf.write_text(f"FOUNDATION_DEPLOYER={getpass.getuser()}\n")
