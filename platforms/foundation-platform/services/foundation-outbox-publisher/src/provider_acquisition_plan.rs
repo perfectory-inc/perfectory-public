@@ -44,7 +44,8 @@ pub(crate) struct ProviderBlockedFileRow {
 }
 
 /// How much one run may take: the first `max_files` candidates, and refused whole when their
-/// listed bytes exceed `new_bytes_budget` (the same rule as the sweep's VWorld lane, ADR-0168 §4).
+/// listed bytes exceed `new_bytes_budget` (root ADR-0170; the regular VWorld lane has had no such
+/// budget since ADR-0172).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ProviderAcquisitionPlanLimits {
     pub(crate) max_files: Option<usize>,

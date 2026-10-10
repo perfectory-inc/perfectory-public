@@ -73,7 +73,7 @@ pub async fn run() -> Result<()> {
 /// `daily_collection` narrows the plan to the endpoints whose `daily_collection` field names it
 /// (root ADR-0168): the catalog is the one list of what a daily collection sweeps. Every value an
 /// endpoint gives must be declared in the catalog's `daily_collections`, which also carries the
-/// collection's byte budget.
+/// collection's landed-bytes notice threshold (root ADR-0172: informational, never a refusal).
 ///
 /// `inventory_csv` is the provider summary whose counts become each job's expected file counts.
 /// Without it the jobs carry no expectation (`expected_counts_known: false`): the listing the
@@ -91,10 +91,10 @@ fn compile_vworld_dataset_collection_plan(
     let summary = inventory_csv.map(parse_inventory_summary_csv).transpose()?;
     let inventory_dataset_count = summary.as_ref().map_or(0, Vec::len) as u64;
     let mut blockers = Vec::new();
-    let new_bytes_budget = match daily_collection {
+    let landed_bytes_notice = match daily_collection {
         None => None,
         Some(name) => match catalog.daily_collections.get(name) {
-            Some(declared) => Some(declared.new_bytes_budget),
+            Some(declared) => Some(declared.landed_bytes_notice),
             None => bail!(
                 "daily collection {name:?} is not declared in the endpoint catalog's daily_collections"
             ),
@@ -169,7 +169,7 @@ fn compile_vworld_dataset_collection_plan(
         status: status.to_owned(),
         endpoint_count,
         daily_collection: daily_collection.map(str::to_owned),
-        new_bytes_budget,
+        landed_bytes_notice,
         inventory_dataset_count,
         job_count: jobs.len() as u64,
         listed_gib_total: listed_gib_total(&jobs),
@@ -266,8 +266,8 @@ struct VWorldDatasetCollectionPlanReport {
     pub endpoint_count: u64,
     /// The daily collection this plan was narrowed to (root ADR-0168), if any.
     pub daily_collection: Option<String>,
-    /// That collection's per-run budget of bytes not yet held, from the catalog.
-    pub new_bytes_budget: Option<u64>,
+    /// Landed bytes above which a run says so once (root ADR-0172); never a limit.
+    pub landed_bytes_notice: Option<u64>,
     pub inventory_dataset_count: u64,
     pub job_count: u64,
     pub listed_gib_total: String,
@@ -306,11 +306,12 @@ struct EndpointCatalog {
     endpoints: Vec<EndpointCatalogEntry>,
 }
 
-/// One daily collection the catalog declares (root ADR-0168).
+/// One daily collection the catalog declares (root ADR-0168, ADR-0172).
 #[derive(Debug, Deserialize)]
 struct DailyCollection {
-    /// The most listed bytes one run may download that Bronze does not hold yet.
-    new_bytes_budget: u64,
+    /// Bytes landed in one run above which the run posts one informational line. It never stops a
+    /// download: everything Bronze does not hold is fetched (root ADR-0172).
+    landed_bytes_notice: u64,
 }
 
 #[derive(Debug, Deserialize)]

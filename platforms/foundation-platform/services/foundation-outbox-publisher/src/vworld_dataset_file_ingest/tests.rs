@@ -28,11 +28,11 @@ use uuid::Uuid;
 
 use super::{
     download_request_from_inventory_file, eligible_inventory_file_count, existing_file_report,
-    failed_file_report, listed_bytes, parse_bronze_key_form, parse_dataset_file_max_in_flight,
-    parse_new_bytes_budget, partition_held_files, persist_file_stream_with_adapters,
-    plan_streamed_file_location, select_inventory_files, validate_inventory_file_identity,
-    vworld_dataset_file_ingest_status, vworld_dataset_login_config, BronzeKeyForm,
-    NewBytesBudgetCheck, PayloadKey, VWorldDatasetFileIngestConfig, VWorldDatasetFileJob,
+    failed_file_report, parse_bronze_key_form, parse_dataset_file_max_in_flight,
+    partition_held_files, persist_file_stream_with_adapters, plan_streamed_file_location,
+    select_inventory_files, validate_inventory_file_identity, vworld_dataset_file_ingest_status,
+    vworld_dataset_login_config, BronzeKeyForm, PayloadKey, VWorldDatasetFileIngestConfig,
+    VWorldDatasetFileJob,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -776,10 +776,10 @@ pub(super) fn selected(
     }
 }
 
-/// Root ADR-0168: the budget counts only what Bronze does not hold. The held file (9007, its
-/// listed release) costs nothing; the newer release under the same number and the unseen file do.
+/// Held or not is decided the same way everywhere: the held file (9007, its listed release) is
+/// held; the newer release under the same number and the unseen file are not.
 #[tokio::test]
-async fn the_budget_counts_only_files_bronze_does_not_hold() -> TestResult {
+async fn held_files_are_told_apart_from_files_bronze_lacks() -> TestResult {
     let repo = RecordingRepo::with_existing(existing_bronze_object(
         "operation=boundary_census_emd/provider_file_id=20991231DS99994-9007",
         &format!("{CONTENT_BASE_KEY}.zip"),
@@ -798,7 +798,6 @@ async fn the_budget_counts_only_files_bronze_does_not_hold() -> TestResult {
         pending.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
         [1]
     );
-    assert_eq!(listed_bytes(pending.iter().map(|(_, s)| &s.file)), 2 * 1024);
 
     let newer = vec![(0, selected("9007", 4, "2026-09-15"))];
     let (held, pending) =
@@ -811,29 +810,6 @@ async fn the_budget_counts_only_files_bronze_does_not_hold() -> TestResult {
     assert!(held.is_empty(), "a forced refetch holds nothing");
     assert_eq!(pending.len(), 2);
     Ok(())
-}
-
-#[test]
-fn the_budget_is_exceeded_only_above_it() {
-    let at = NewBytesBudgetCheck {
-        budget: 2048,
-        pending_listed_bytes: 2048,
-        pending_file_count: 1,
-    };
-    assert!(!at.is_exceeded());
-    assert!(NewBytesBudgetCheck {
-        pending_listed_bytes: 2049,
-        ..at
-    }
-    .is_exceeded());
-    assert!(NewBytesBudgetCheck {
-        budget: 0,
-        pending_listed_bytes: 1,
-        ..at
-    }
-    .is_exceeded());
-    assert!(parse_new_bytes_budget("0").is_ok());
-    assert!(parse_new_bytes_budget("16GiB").is_err());
 }
 
 #[test]
@@ -884,7 +860,6 @@ pub(super) fn test_config() -> VWorldDatasetFileIngestConfig {
         exclude_selection_archives: false,
         defer_provider_acquisition_blocked: false,
         bronze_key: BronzeKeyForm::ProviderFileId,
-        new_bytes_budget: None,
         spool_dir: None,
     }
 }

@@ -288,7 +288,7 @@ Silver·Gold **34표**,
 | 카탈로그 조회 API (`catalog-read-api-smoke`) | 실행 경로 있음 | 필지·건물·호·산업단지를 조회한다. 빈 속성은 빈 상태로 반환한다. |
 | 산업단지 프로필 게이트웨이 (`profile-gateway`) | 실행 경로 있음 | 비공개 Gold 프로필 객체를 HTTP로 제공한다. 현재 공짱 패널의 직접 읽기 경로는 확인되지 않았다. |
 | 공짱 지도·상세 패널 (`gongzzang-panel`) | 실행 경로 있음 | 공개 HTTP 계약을 소비해 지도와 필지·건물·산업단지 정보를 표시한다. |
-| 매일 원천 확인 (`daily-source-sweep`) | 실행 경로 있음 | 건축HUB 목록과, 엔드포인트 카탈로그가 source_sweep 으로 표시한 VWorld 토지 데이터셋 목록을 매일 살펴 Bronze 가 아직 갖지 않은 파일을 수집한다. VWorld 레인은 하루 새 바이트 예산을 넘으면 아무것도 받지 않는다. |
+| 매일 원천 확인 (`daily-source-sweep`) | 실행 경로 있음 | 건축HUB 목록과, 엔드포인트 카탈로그가 source_sweep 으로 표시한 VWorld 토지 데이터셋 목록을 매일 살펴 Bronze 가 아직 갖지 않은 파일을 수집한다. 바이트 예산 없이 가지지 않은 것을 전부 받고, 멈춘 실행은 다음 실행이 이어 받는다. |
 | 수집 객체 등록부 (`lakehouse-object-registry`) | 실행 경로 있음 | 수집 원장 전체에서 객체 재고를 등록·대조한다. |
 | 건물 by-PNU 서빙 문서 (`building-by-pnu-serving`) | 실행 경로 있음 | gold.building_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0100). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
 | 건물 by-PNU 묶음 파일 (`building-by-pnu-section-packs`) | 실행 경로 있음 | gold.building_panel 의 PNU 문서를 법정동 묶음 파일(머리+색인+본문, 문서 통째의 gzip 덩어리)로 굽는다(루트 ADR-0147, ADR-0151). 2026-10-07 부터 운영 주소가 이 묶음으로 서빙하고, 매일 바뀐 문서는 패치 묶음으로 반영한다. |
