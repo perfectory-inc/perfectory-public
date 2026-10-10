@@ -155,5 +155,13 @@ phase=after-switch
 start_once_then_unpause "${sha}"
 phase=done
 
+# Release admission refuses every job on a release with a writable file. Bytecode is what a root
+# import leaves behind (2026-10-10): find it here, not when every job fails at its next start.
+bytecode="$(find "${release_root}/current/" -name __pycache__ -print -quit)"
+if [[ -n "${bytecode}" ]]; then
+  echo "foundation-deploy: THE RELEASE IS NO LONGER IMMUTABLE (${bytecode}); every job on it will be refused" >&2
+  exit 1
+fi
+
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"
