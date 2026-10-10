@@ -12,6 +12,7 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/daily-source-sweep.sh
 # A bound, not a budget (root ADR-0172): a backlog of ~40 GB may outlast one run; files commit one by
 # one, so a run stopped here resumes next time. Airflow timeout_minutes (jobs.v1.json) stays above it.

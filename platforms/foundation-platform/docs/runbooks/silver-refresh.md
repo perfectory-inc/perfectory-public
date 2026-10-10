@@ -200,5 +200,10 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 3. `changed` 였으면: `evidence/land-<…>-<판>/` 에 `export-summary-<시도>.json` 17 개와 `spark-summary-*.json` 이
    있고, 다시 돌리면 `already_loaded` 다. 토지이용계획·토지이동이력은 1~2억 행이라 150 분 안에 끝나는지 본다.
    넘으면 다음 실행이 이어 적재하지만, 켜기 전에 그 수치로 결정을 다시 연다(2 절).
-4. 켜기 전 조건이 하나 더 있다: 매일 수집(`source_sweep`) 뒤에 1 의 측정이 돌아야 한다(ADR-0169 §1, sweep 쪽 변경).
-   그 전에는 새 객체가 올 때마다 레인이 "잰 적 없는 객체"로 거부한다. 의도한 거부다(판을 추측하지 않는다).
+4. 매일 수집(`source_sweep`)은 레인들 뒤에 1 의 측정을 인자 없이 돈다(ADR-0169 §1 개정 기록, 2026-10-10). 한 실행이
+   2000 개까지라 과거 객체는 여러 날에 걸쳐 채워진다: `journalctl -u foundation-source-sweep.service` 의 줄 끝
+   `| members measured= failed= selected=` 에서 `selected` 가 2000 이면 아직 남았을 수 있다. 첫 감독 실행 전에는
+   1 의 명령을 그 원천에 돌려 두면 기다리지 않는다. 측정이 실패하면(`failed>0` 또는 `members status=no-summary`)
+   sweep 이 빨갛고 결과 줄을 내지 않는다 — 못 잰 객체 이름은 같은 저널의 실행 로그 끝(`  | … cannot measure`)에 있고
+   다음 실행이 다시 잰다. 그 사이 새 객체마다 레인이 "잰 적 없는 객체"로 거부하는 것은 의도한 거부다(판을 추측하지
+   않는다).

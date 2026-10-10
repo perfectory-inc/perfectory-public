@@ -72,6 +72,22 @@ class TheHelper(unittest.TestCase):
         self.assertIn("  | progress 100%", relayed)
         self.assertIn("  | VWorld 새 파일 40건이 하루 예산을 넘었다", relayed)
 
+    def test_failed_files_reach_stderr_masked_then_cut(self):
+        lines = ("src:1\tupstream https://user:planted-password@example.invalid/x refused\n"
+                 "src:2\t" + "API_KEY=planted-key " + "y" * 500 + "\n"
+                 "\tno file id is no line\n"
+                 "src:3\t\n")
+        result = run('printf "%s" "$LINES" | job_failed_files; echo after', LINES=lines)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "after\n")
+        relayed = result.stderr.splitlines()
+        self.assertEqual(relayed[0], "failed src:1 upstream https://user:***@example.invalid/x refused")
+        self.assertTrue(relayed[1].startswith("failed src:2 API_KEY=*** yyy"), relayed[1])
+        self.assertEqual(len(relayed[1].split(" ", 2)[2]), 200 + 3)
+        self.assertEqual(relayed[2], "failed src:3 ")
+        self.assertEqual(len(relayed), 3)
+        self.assertNotIn("planted-", result.stderr)
+
     def test_a_missing_run_log_is_said_and_does_not_fail(self):
         result = run('job_run_log_tail "$L"; echo after', L=str(self.root / "none.log"))
         self.assertEqual(result.returncode, 0, result.stderr)
