@@ -1319,7 +1319,7 @@ def affected_pnus(
     """
 
     keyed = [
-        incremental.trimmed_keys(incremental.changed_rows(old[name], new[name]), trim=False)
+        incremental.trimmed_keys(incremental.changed_rows(old[name], new[name], ("pnu",)), trim=False)
         for name in changed if name in new
     ]
     candidates = [c for c in (old_candidates, new_candidates) if c is not None]
@@ -1329,7 +1329,7 @@ def affected_pnus(
         sources = direct.select(F.col("pnu").alias("source_pnu"))
         keyed.append(every.join(sources, "source_pnu", "left_semi").select(F.col("successor_pnu").alias("pnu")))
     if LINEAGE_SOURCE in changed and len(candidates) == 2:
-        moved = incremental.changed_rows(*candidates)
+        moved = incremental.changed_rows(*candidates, ("successor_pnu",))
         keyed.append(moved.select(F.col("successor_pnu").alias("pnu")))
     if not keyed:
         return new[PARCEL_SOURCE].select("pnu").limit(0)

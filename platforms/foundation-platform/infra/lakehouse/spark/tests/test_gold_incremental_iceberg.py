@@ -54,6 +54,23 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         cls.spark.stop()
         cls.directory.cleanup()
 
+    def test_the_difference_compares_fingerprints_and_still_sees_every_changed_row(self):
+        import gold_incremental as incremental
+
+        schema = "k string, a string, b string"
+        old = self.spark.createDataFrame(
+            [("1", "x", None), ("2", None, "x"), ("3", "same", "same"), ("3", "same", "same"), ("4", "gone", None)],
+            schema)
+        new = self.spark.createDataFrame(
+            [("1", None, "x"), ("2", None, "x"), ("3", "same", "same"), ("5", "new", "x")], schema)
+        changed = sorted(row.k for row in incremental.changed_rows(old, new, ("k",)).collect())
+        # 1: its NULL moved to the other column (old and new side); 3: one duplicate fewer;
+        # 4: deleted; 5: inserted. 2 is unchanged.
+        self.assertEqual(changed, ["1", "1", "3", "4", "5"])
+        self.assertEqual(incremental.changed_rows(old, new, ("k",)).columns, ["k"])
+        with self.assertRaises(ValueError):
+            incremental.changed_rows(old, new, ("pnu",))
+
     # ---- fixtures --------------------------------------------------------------------------
 
     def create(self, name):
