@@ -1,0 +1,74 @@
+{
+  "$comment": "Root ADR-0175. The Cloudflare Workers the data host deploys by itself, and nothing else: scripts/deploy/worker-autodeploy.py deploys exactly the entries here and refuses an entry whose Wrangler config names another Worker. The Cloudflare account holds other scripts; they are not listed, so they are never touched. Names, hostnames, paths and the preview Worker are read from the entry's gateway block in config/r2-connections.contract.json (gateway, preview), never restated here; inputs are the paths whose bytes make up the Worker, so a change to any of them deploys it again. A smoke is what a deploy must see from the Worker's hostname before it counts: by-pnu reads the gateway's capabilities path until the answer names the new version, then runs the lane's serving monitor against that hostname; http asks for one path and expects one status. containers holds the cap of the one container a deploy runs (tools/host-memory-budget.contract.json one_shot_contracts).",
+  "schema_version": 1,
+  "decision": "docs/adr/0175-workers-deploy-themselves-after-the-host-deploys-main.md",
+  "workers": [
+    {
+      "id": "parcel-gateway",
+      "gateway": "parcel_by_pnu_gateway",
+      "preview": "section_packs.preview_worker",
+      "service_dir": "services/foundation-by-pnu-gateway",
+      "wrangler_config": "wrangler.parcel.jsonc",
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "smoke": {"kind": "by-pnu", "lane": "parcel"}
+    },
+    {
+      "id": "building-gateway",
+      "gateway": "building_by_pnu_gateway",
+      "preview": "section_packs.preview_worker",
+      "service_dir": "services/foundation-by-pnu-gateway",
+      "wrangler_config": "wrangler.building.jsonc",
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "smoke": {"kind": "by-pnu", "lane": "building"}
+    },
+    {
+      "id": "tile-gateway",
+      "gateway": "vector_tile_gateway",
+      "service_dir": "services/foundation-tile-gateway",
+      "wrangler_config": "wrangler.jsonc",
+      "inputs": ["services/foundation-tile-gateway", "config/r2-connections.contract.json"],
+      "smoke": {
+        "kind": "http",
+        "path": "/autodeploy-00000000-0000-0000-0000-000000000000/0/0/0",
+        "status": 404,
+        "reason": "a source id of the contract's shape whose archive does not exist: the Worker parses the path and asks the bucket, so a 404 needs the new code and its R2 binding to answer; a release id changes with every bake, so no 200 path stays true"
+      }
+    },
+    {
+      "id": "profile-gateway",
+      "gateway": "profile_gateway",
+      "service_dir": "services/foundation-profile-gateway",
+      "wrangler_config": "wrangler.jsonc",
+      "inputs": ["services/foundation-profile-gateway", "config/r2-connections.contract.json"],
+      "smoke": {
+        "kind": "http",
+        "hostname": "profiles.gongzzang.app",
+        "path": "/gold/industrial-complex/profiles/00000000-0000-0000-0000-000000000000.json",
+        "status": 404,
+        "reason": "the gateway block names no hostname (the custom domain is attached in the dashboard and the Wrangler config has no routes, so a deploy leaves it alone); an artifact id of the contract's shape that no profile has, which the Worker looks up in the bucket"
+      }
+    },
+    {
+      "id": "map-edit-gateway",
+      "gateway": "map_edit_gateway",
+      "service_dir": "services/foundation-map-edit-gateway",
+      "wrangler_config": "wrangler.jsonc",
+      "inputs": ["services/foundation-map-edit-gateway", "config/r2-connections.contract.json"],
+      "d1_migrations": true,
+      "smoke": {
+        "kind": "http",
+        "path": "/overlay/complex",
+        "status": 200,
+        "reason": "the public overlay read answers 200 from D1 whether or not edits are pending"
+      }
+    }
+  ],
+  "attempts_per_change": 3,
+  "attempts_reason": "a Worker whose deploy failed is tried again on the next ticks while it is still behind (an npm or Cloudflare API blip should not wait for the next merge), at most this many times for the same inputs; then it waits for a change to its inputs, quietly. Each failed attempt alerts once through the unit's OnFailure",
+  "containers": {
+    "wrangler": {
+      "memory_limit": "2g",
+      "memory_reason": "pnpm install of one gateway and an esbuild bundle by Wrangler; not measured on the host yet. A Worker deploy is one container at a time"
+    }
+  }
+}

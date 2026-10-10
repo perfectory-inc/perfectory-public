@@ -61,6 +61,9 @@ test, build 검사를 실행한다. CI의 Node 검증 경로를 별도로 추가
 
 ## 배포
 
+평소에는 데이터 호스트가 main 을 배포한 뒤 이 Worker 를 스스로 배포한다(루트 ADR-0175,
+[런북](../../docs/runbooks/worker-autodeploy.md)). 아래는 처음 연결과 비상시의 손 배포다.
+
 운영자가 CORS binding을 설정하고 release 객체 존재를 확인한 뒤, 이 서비스 디렉터리에서
 `pnpm run config:render`와 검증을 거쳐 `pnpm exec wrangler deploy`로 배포한다.
 생성 구성은 계약의 hostname과 alias를 custom domain으로 붙이고 `workers_dev: false`로

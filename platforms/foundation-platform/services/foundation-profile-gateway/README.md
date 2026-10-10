@@ -59,4 +59,5 @@ corepack pnpm@9.12.0 run verify:local
    넣는다. `FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS`는 별도의 앱 origin 목록이다. 값은 저장소나
    작업 보고에 기록하지 않는다.
 
-배포와 Dashboard 변경은 이 코드 작업의 범위 밖이다.
+배포와 Dashboard 변경은 이 코드 작업의 범위 밖이다. 연결이 끝난 뒤의 코드 배포는 데이터 호스트가 main 을 배포한
+뒤 스스로 한다(루트 ADR-0175, [런북](../../docs/runbooks/worker-autodeploy.md)).

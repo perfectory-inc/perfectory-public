@@ -163,12 +163,17 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             text = text.replace(line, f"{name}={value}", 1)
         self.script = root / "foundation-autodeploy.sh"
         self.script.write_text(text)
-        # systemctl answers from FIXTURE_UNITS ("unit:transient" pairs, transient yes|no).
+        # systemctl answers from FIXTURE_UNITS ("unit:transient" pairs, transient yes|no), the Worker
+        # deploy's state from FIXTURE_WORKER_STATE, and records what it is asked to start.
         self.bin = root / "bin"
         self.bin.mkdir()
         systemctl = self.bin / "systemctl"
         systemctl.write_text(
             '#!/usr/bin/env bash\n'
+            'if [[ "$1" == start ]]; then printf "%s\\n" "$*" >> "$FIXTURE_ROOT/started.log"; exit 0; fi\n'
+            'if [[ "$*" == *ActiveState* && "${!#}" == foundation-worker-autodeploy.service ]]; then\n'
+            '  printf "%s\\n" "${FIXTURE_WORKER_STATE:-inactive}"; exit 0\n'
+            'fi\n'
             'for pair in ${FIXTURE_UNITS:-}; do\n'
             '  unit="${pair%%:*}"; transient="${pair#*:}"\n'
             '  if [[ "$1" == list-units ]]; then printf "%s loaded active running x\\n" "${unit}"\n'
@@ -189,10 +194,35 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         log = self.root / "deployed.log"
         return log.read_text().split() if log.exists() else []
 
+    def started(self):
+        log = self.root / "started.log"
+        return log.read_text().splitlines() if log.exists() else []
+
     def test_a_host_already_on_main_does_nothing(self):
         result = self.tick(head=CURRENT)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
         self.assertEqual(self.deployed(), [])
+
+    def test_a_host_on_main_lets_the_workers_catch_up(self):
+        # Root ADR-0175: the Worker deploy retries a Worker still behind on the ticks after a deploy.
+        self.assertEqual(self.tick(head=CURRENT).returncode, 0)
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+
+    def test_a_deploy_that_succeeded_starts_the_worker_deploy_without_waiting_for_it(self):
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+
+    def test_a_deploy_that_failed_does_not_start_the_worker_deploy(self):
+        self.assertEqual(self.tick(FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.started(), [])
+
+    def test_a_worker_deploy_under_way_holds_the_next_host_deploy(self):
+        result = self.tick(FIXTURE_WORKER_STATE="activating")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the Worker deploy", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD])
 
     def test_a_new_commit_whose_checks_passed_is_deployed_once(self):
         result = self.tick()

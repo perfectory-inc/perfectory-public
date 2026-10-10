@@ -588,6 +588,10 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 멈추면 DAG 는 다시 켜지고, 활성화·마이그레이션 중에 멈추면 DAG 는 멈춘 채로 남으며 배포 로그에 `THE DAGS STAY PAUSED`
 줄이 남는다 — 고쳐서 다시 배포하거나, 릴리스를 확인한 뒤 켜진 작업의 DAG 를 손으로 켠다.
 
+서버가 main 을 돌리게 되면 autodeploy 는 `foundation-worker-autodeploy.service` 를 시작해 소스가 바뀐 Cloudflare
+Worker 를 따라 배포한다(루트 ADR-0175). 그 실패는 서버 배포의 결과를 바꾸지 않고, 그것이 도는 동안 다음 서버 배포는
+기다린다. 토큰 두기와 켜고 끄기는 [Worker 자동 배포 런북](./worker-autodeploy.md).
+
 ## 릴리스 인증 전환 (1회)
 
 [ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md) 이전 운영 릴리스(비상 릴리스 — id 는 [`tools/release-retention.contract.json`](../../../../tools/release-retention.contract.json) 의 `emergency_release` 한 곳에만 있다)는 tar 로 풀린 쓰기 가능 트리이고, 안에

@@ -57,3 +57,5 @@ FLOOR 설정 → 활성화·마이그레이션·타이머 → Airflow → 작업
 2026-10-09: §2 의 배포 판정은 [ADR-0167](./0167-the-host-deploys-the-tree-the-merge-queue-passed.md) 이 고쳤다. 머지 큐 실행이 모두 통과한 커밋은 main 의 두 번째 검사를 기다리지 않고 배포한다.
 
 2026-10-10: §4 마지막 문장(배포 뒤 작업이 실패하면 DAG 는 멈춘 채로 둔다)은 [ADR-0173](./0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md) 이 바꿨다. 그 실패는 배포를 실패로 만들지 않고 DAG 를 다시 켜며, 유닛의 `OnFailure` 와 배포 로그 한 줄로 알린다.
+
+2026-10-10: Consequences 의 "Cloudflare Worker 배포 … 의 자동화는 이 다음이다"는 [ADR-0175](./0175-workers-deploy-themselves-after-the-host-deploys-main.md) 가 했다. 서버가 main 을 배포한 뒤 소스가 바뀐 Worker 를 미리보기 → 운영 순서로 배포하고, 스모크가 실패하면 옛 버전으로 되돌린다. 단계 배포 판정의 자동화는 여전히 다음이다.
