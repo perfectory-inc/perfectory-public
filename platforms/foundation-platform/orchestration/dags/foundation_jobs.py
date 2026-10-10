@@ -80,8 +80,10 @@ for spec in load_specs():
         run = RunJob(
             task_id="run",
             ssh_conn_id=CONNECTION,
-            # The host's forced command reads this as the job id and ignores anything else.
-            command=spec.job_id,
+            # The host's forced command reads this as the job id, and `triggered` when the run was
+            # not started by the clock: a run its inputs started, or one an operator triggered, is
+            # never deferred by takes_turns (root ADR-0179). Rendered by Airflow per run.
+            command=spec.job_id + "{{ '' if dag_run.run_type == 'scheduled' else ' triggered' }}",
             # Seconds without output before the run counts as hung; the journal prints as it goes.
             cmd_timeout=spec.timeout_minutes * 60,
             # The journal is not kept as an XCom; the outcome is (RunJob).

@@ -138,7 +138,10 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
             with self.subTest(spec.dag_id):
                 tasks = self.tasks(spec)
                 run = tasks["run"]
-                self.assertEqual(run.kwargs["command"], spec.job_id)
+                # The job id, and ` triggered` for a run the clock did not start (root ADR-0179),
+                # rendered by Airflow's Jinja from the run type.
+                self.assertEqual(run.kwargs["command"],
+                                 spec.job_id + "{{ '' if dag_run.run_type == 'scheduled' else ' triggered' }}")
                 self.assertIs(run.kwargs["do_xcom_push"], False, "the journal is not kept as an XCom")
                 if spec.outputs:
                     self.assertEqual(set(tasks), {"run", "publish_outputs"})

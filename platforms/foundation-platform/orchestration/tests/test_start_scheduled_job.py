@@ -97,6 +97,20 @@ class TakingTurns(unittest.TestCase):
         self.assertIn("deferred", result.stdout)
         self.assertEqual(asked, "")
 
+    def test_a_bake_its_inputs_or_an_operator_started_is_never_deferred(self):
+        # Root ADR-0179: on 2026-10-10 a Gold rebuild's new snapshot started the bake and takes_turns
+        # deferred it until the next morning. Only a clock start takes turns.
+        self.record("bake", 2000)
+        self.record("floor", 1000)
+        result, asked = self.start("bake triggered")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("deferred", result.stdout)
+        self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+        # Anything else after the id is still refused.
+        result, asked = self.start("bake now")
+        self.assertEqual(result.returncode, 64)
+        self.assertEqual(asked, "")
+
     def test_the_bake_runs_again_once_the_jobs_it_blocks_have_had_their_turn(self):
         self.record("bake", 2000)
         self.record("floor", 3000)

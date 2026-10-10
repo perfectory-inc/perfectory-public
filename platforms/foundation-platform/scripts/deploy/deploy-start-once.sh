@@ -29,7 +29,7 @@
 deploy_unpause_enabled() {
   local id
   local -a enabled
-  mapfile -t enabled < <(jobs_of enabled)
+  mapfile -t enabled < <(jobs_of enabled-consumers-first)
   for id in "${enabled[@]}"; do
     airflow dags unpause "foundation_${id}" >/dev/null || return 1
   done

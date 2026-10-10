@@ -28,6 +28,27 @@ def real_inputs():
     )
 
 
+class TheUnpauseOrder(unittest.TestCase):
+    """Root ADR-0179: a deploy unpauses every reader before the job whose outputs start it."""
+
+    def test_the_real_list_unpauses_each_reader_before_its_producers(self):
+        order = job_specs.unpause_order()
+        jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        feeds = job_specs.producers(jobs, graph)
+        enabled = {job["id"]: job for job in jobs["jobs"] if job["enabled"]}
+        self.assertEqual(sorted(order), sorted(enabled))
+        for reader, job in enabled.items():
+            if job_specs.started_by(job) != "inputs":
+                continue
+            for producer in feeds[reader]:
+                if producer in enabled:
+                    with self.subTest(reader=reader, producer=producer):
+                        self.assertLess(order.index(reader), order.index(producer))
+        # The pair that dropped the event on 2026-10-10.
+        self.assertLess(order.index("by_pnu_serving_bake"), order.index("gold_panel_rebuild"))
+
+
 class TheRealJobList(unittest.TestCase):
     def setUp(self):
         self.specs = job_specs.load_specs()
