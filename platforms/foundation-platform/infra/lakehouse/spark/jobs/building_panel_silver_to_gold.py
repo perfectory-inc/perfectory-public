@@ -405,6 +405,11 @@ def _registers(frame, column):
     return frame.where(F.col(column).isNotNull()).select(F.col(column).alias("_register")).distinct()
 
 
+def _register_keys(frame):
+    """The columns `affected_pnus` reads from a changed row: its PNU and the registers it names."""
+    return tuple(c for c in ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk") if c in frame.columns)
+
+
 def affected_pnus(old, new, changed):
     """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
 
@@ -413,7 +418,7 @@ def affected_pnus(old, new, changed):
     its parent title's; a title also places its units (linked under it, unlinked under their own
     PNU when it is gone). Old and new rows both count, so a PNU a row left is recomputed too.
     """
-    changes = {name: incremental.changed_rows(old[name], new[name]) for name in changed}
+    changes = {name: incremental.changed_rows(old[name], new[name], _register_keys(new[name])) for name in changed}
     every = {name: old[name].unionByName(new[name]) if name in changes else new[name] for name in ALL_SOURCES}
     registers = [_registers(changes[name], "mgm_bldrgst_pk") for name in changes]
     if UNIT_SOURCE in changes:

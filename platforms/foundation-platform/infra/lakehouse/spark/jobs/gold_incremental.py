@@ -137,11 +137,31 @@ def project_build_inputs(frames: dict[str, Any], build_columns: dict[str, tuple[
     return {name: frame.select(*build_columns[name]) for name, frame in frames.items()}
 
 
-def changed_rows(old: Any, new: Any) -> Any:
-    """The rows present in one side and not the other, counting duplicates (both directions)."""
+def changed_rows(old: Any, new: Any, keys: tuple[str, ...]) -> Any:
+    """The `keys` of the rows present in one side and not the other, counting duplicates (both
+    directions).
+
+    Rows are compared by their keys and a 96-bit fingerprint (xxhash64 and murmur3) of every column instead of the
+    columns themselves: the callers map changed rows to PNUs through `keys` alone, and the
+    difference's shuffle then carries a few keys per row instead of the whole projection. Measured
+    2026-10-10: a full-row difference of the 114M-row unit-area release took 20 of the incremental
+    rebuild's 26 minutes. Each column's null flag is fingerprinted beside its value: Spark's hashes
+    skip NULLs, which would make (NULL, x) and (x, NULL) one row.
+    """
     columns = list(new.columns)
-    old = old.select(*columns)
-    return old.exceptAll(new).unionByName(new.exceptAll(old))
+    missing = sorted(set(keys) - set(columns))
+    if missing:
+        raise ValueError(f"changed_rows keys {missing} are not columns of the compared rows")
+    old, new = _fingerprinted(old.select(*columns), keys), _fingerprinted(new, keys)
+    return old.exceptAll(new).unionByName(new.exceptAll(old)).select(*keys)
+
+
+def _fingerprinted(frame: Any, keys: tuple[str, ...]) -> Any:
+    """`keys` and two independent hashes of every column and its null flag."""
+    from pyspark.sql import functions as F
+
+    hashed = [*(F.col(c).isNull() for c in frame.columns), *(F.col(c) for c in frame.columns)]
+    return frame.select(*keys, F.xxhash64(*hashed).alias("_fingerprint_a"), F.hash(*hashed).alias("_fingerprint_b"))
 
 
 def trimmed_keys(frame: Any, column: str = KEY, alias: str = KEY, trim: bool = True) -> Any:
