@@ -90,3 +90,21 @@ async fn a_refused_body_leaves_no_file() -> TestResult {
     assert_eq!(std::fs::read_dir(spool.path())?.count(), 0);
     Ok(())
 }
+
+/// 2026-10-10: the daily sweep aborted on its first spooled file because the upload asked the body
+/// once more after it had ended and `unfold` panics then. The body keeps answering `None`.
+#[tokio::test]
+async fn an_ended_body_can_be_asked_again() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    let spool = SpoolDir::with_free_bytes(&temp.path().join("spool"), |_| Ok(u64::MAX / 2))?;
+    let file = spool_payload(&spool, body(b"PKdddd"), "application/zip", 8, "f-4").await?;
+    let mut body = std::sync::Arc::new(file).body_stream();
+    let mut read = Vec::new();
+    while let Some(chunk) = body.next().await {
+        read.extend_from_slice(&chunk?);
+    }
+    assert_eq!(read, b"PKdddd");
+    assert!(body.next().await.is_none(), "asked again after the end");
+    assert!(body.next().await.is_none(), "and again");
+    Ok(())
+}

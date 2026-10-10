@@ -754,6 +754,8 @@ async fn staged_file_body_stream(
         buffer.truncate(read);
         Ok(Some((Bytes::from(buffer), file)))
     })
+    // Polled again after the end by an upload, `try_unfold` would panic; fused, it stays ended.
+    .fuse()
     .boxed())
 }
 
