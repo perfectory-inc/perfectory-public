@@ -58,7 +58,7 @@
   "handoff_prefix": "silver-handoff/hubgokr__building_register_exclusive_unit",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
-  "rows_per_part": 10000000,
+  "rows_per_part": 1000000,
   "max_row_bytes": 1048576,
   "silver_refresh": {
     "$comment": "foundation-silver-refresh@building-register-exclusive-unit.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다.",
@@ -71,7 +71,7 @@
       "master": "local[8]",
       "driver_memory": "16g",
       "iceberg_write_mode": "append",
-      "input_file_batch_size": 4
+      "input_file_batch_size": 40
     }
   }
 }

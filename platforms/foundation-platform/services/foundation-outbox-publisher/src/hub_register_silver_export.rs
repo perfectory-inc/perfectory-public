@@ -241,25 +241,126 @@ fn finish_part(writer: GzEncoder<HandoffSink>, key: String, rows: u64) -> anyhow
     })
 }
 
+/// The rows of one handoff part, as the reader cut them from the ZIP member.
+struct Chunk {
+    part_number: usize,
+    /// The rows' bytes, without their line endings, one after another.
+    bytes: Vec<u8>,
+    /// Each row's source line number and where its bytes end in `bytes`.
+    rows: Vec<(u64, usize)>,
+}
+
+/// What a worker wrote for one chunk.
+struct Written {
+    part_number: usize,
+    part: Part,
+    pnu_ok: u64,
+}
+
+/// Workers that encode and upload parts beside the reader. Inflating the member and splitting its
+/// lines is one sequential stream; building the JSON rows and gzipping them is what took one core
+/// 2h20m for the 202M-row price register (2026-09-08) and still did on 2026-10-10 (one core at
+/// 85%, 1.8 MB/s out). Each part is one worker's, so the parts are the bytes a single thread
+/// writes. One chunk waits per worker, so a chunk's rows times twice the workers is the memory.
+fn export_workers() -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .clamp(1, 8)
+}
+
 fn convert<R: Read + Seek>(
     source: R,
     config: &Config,
     layout: &Layout,
     sigungu_crosswalk: &SigunguCrosswalk,
-    mut open: impl FnMut(&OutputSink) -> anyhow::Result<HandoffSink>,
+    open: impl Fn(&OutputSink) -> anyhow::Result<HandoffSink> + Sync,
 ) -> anyhow::Result<Report> {
     layout.validate()?;
     let member = zip_stream::open(source, &layout.inner_file)?;
-    let mut reader = BufReader::with_capacity(64 * 1024, member.decoder);
-    let mut crc = Crc::new();
     let mut report = Report::new(config, layout);
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
     let ingested_at = Utc::now().to_rfc3339();
+    let workers = export_workers();
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<Chunk>(workers);
+    let receiver = std::sync::Mutex::new(receiver);
+    let encode = |chunk: Chunk| {
+        write_part(
+            &chunk,
+            config,
+            layout,
+            sigungu_crosswalk,
+            &attempt,
+            &ingested_at,
+            &open,
+        )
+    };
+    let (read, written) = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| scope.spawn(|| work(&receiver, &encode)))
+            .collect();
+        let read = read_chunks(member.decoder, layout, &mut report, &sender);
+        // Closing the channel lets every worker finish what was sent and stop.
+        drop(sender);
+        let mut written = Vec::new();
+        let mut failure = None;
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(parts)) => written.extend(parts),
+                Ok(Err(error)) => failure = failure.or(Some(error)),
+                Err(_) => {
+                    failure = failure.or(Some(anyhow::anyhow!("a HUB export worker panicked")));
+                }
+            }
+        }
+        (read, failure.map_or(Ok(written), Err))
+    });
+    let (decoder, crc) = read?;
+    let mut written = written?;
+    ensure!(
+        decoder.total_in() == member.compressed_bytes
+            && decoder.total_out() == member.uncompressed_bytes
+            && crc == member.crc32,
+        "HUB ZIP CRC/size integrity check failed"
+    );
+    written.sort_by_key(|part| part.part_number);
+    ensure!(
+        written
+            .iter()
+            .enumerate()
+            .all(|(index, part)| part.part_number == index + 1),
+        "HUB export parts are not contiguous"
+    );
+    for part in written {
+        report.rows_emitted += part.part.rows;
+        report.pnu_ok += part.pnu_ok;
+        report.pnu_bad += part.part.rows - part.pnu_ok;
+        report.parts.push(part.part);
+    }
+    ensure!(
+        report.rows_read > 0 && report.rows_emitted > 0,
+        "HUB ZIP has no emitted rows"
+    );
+    report.publish(config, &mut |output| open(output))
+}
+
+/// Reads the member's lines into chunks of `rows_per_part` well-formed rows and sends them, in
+/// order; counts every line and the rejected ones. Returns the decoder and the member's CRC.
+fn read_chunks<D: Read>(
+    decoder: D,
+    layout: &Layout,
+    report: &mut Report,
+    sender: &std::sync::mpsc::SyncSender<Chunk>,
+) -> anyhow::Result<(D, u32)> {
+    let mut reader = BufReader::with_capacity(64 * 1024, decoder);
+    let mut crc = Crc::new();
     let mut line = Vec::new();
-    let mut current: Option<GzEncoder<HandoffSink>> = None;
-    let mut part_key = String::new();
-    let mut part_rows = 0;
+    let mut chunk = Chunk {
+        part_number: 1,
+        bytes: Vec::new(),
+        rows: Vec::new(),
+    };
+    let rows_per_part = usize::try_from(layout.rows_per_part)?;
     loop {
         line.clear();
         let read = (&mut reader)
@@ -280,62 +381,101 @@ fn convert<R: Read + Seek>(
         if line.last() == Some(&b'\r') {
             line.pop();
         }
-        let text = std::str::from_utf8(&line).context("HUB row is not UTF-8")?;
-        let fields: Vec<_> = text.split('|').collect();
-        if !valid_width(layout, fields.len(), &mut report, text)? {
+        let width = line.split(|&byte| byte == b'|').count();
+        if width != layout.column_count {
+            let text = std::str::from_utf8(&line).context("HUB row is not UTF-8")?;
+            valid_width(layout, width, report, text)?;
             continue;
         }
-        if current.is_none() {
-            let part_number = report.parts.len() + 1;
-            let output = config.output(&format!(
-                "{attempt}/part-{part_number:04}{}",
-                layout.handoff_suffix
-            ));
-            part_key = output_name(&output);
-            current = Some(GzEncoder::new(open(&output)?, Compression::new(GZIP_LEVEL)));
+        chunk.bytes.extend_from_slice(&line);
+        chunk.rows.push((report.rows_read, chunk.bytes.len()));
+        if chunk.rows.len() == rows_per_part {
+            let next = chunk.part_number + 1;
+            let full = std::mem::replace(
+                &mut chunk,
+                Chunk {
+                    part_number: next,
+                    bytes: Vec::new(),
+                    rows: Vec::new(),
+                },
+            );
+            sender
+                .send(full)
+                .map_err(|_| anyhow::anyhow!("every HUB export worker stopped"))?;
         }
-        let (row, pnu_ok) = make_row(
+    }
+    if !chunk.rows.is_empty() {
+        sender
+            .send(chunk)
+            .map_err(|_| anyhow::anyhow!("every HUB export worker stopped"))?;
+    }
+    Ok((reader.into_inner(), crc.sum()))
+}
+
+/// One worker: writes every chunk it receives until the channel closes. After a failure it keeps
+/// receiving and dropping chunks, so the reader never waits on a channel nobody drains.
+fn work(
+    receiver: &std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>,
+    encode: &(impl Fn(Chunk) -> anyhow::Result<Written> + Sync),
+) -> anyhow::Result<Vec<Written>> {
+    let mut written = Vec::new();
+    let mut failure = None;
+    loop {
+        let next = receiver
+            .lock()
+            .map_err(|_| anyhow::anyhow!("a HUB export worker panicked"))?
+            .recv();
+        let Ok(chunk) = next else { break };
+        if failure.is_none() {
+            match encode(chunk) {
+                Ok(part) => written.push(part),
+                Err(error) => failure = Some(error),
+            }
+        }
+    }
+    failure.map_or(Ok(written), Err)
+}
+
+fn write_part(
+    chunk: &Chunk,
+    config: &Config,
+    layout: &Layout,
+    sigungu_crosswalk: &SigunguCrosswalk,
+    attempt: &str,
+    ingested_at: &str,
+    open: &impl Fn(&OutputSink) -> anyhow::Result<HandoffSink>,
+) -> anyhow::Result<Written> {
+    let output = config.output(&format!(
+        "{attempt}/part-{:04}{}",
+        chunk.part_number, layout.handoff_suffix
+    ));
+    let part_key = output_name(&output);
+    let mut writer = GzEncoder::new(open(&output)?, Compression::new(GZIP_LEVEL));
+    let mut pnu_ok = 0;
+    let mut start = 0;
+    for &(line_number, end) in &chunk.rows {
+        let text = std::str::from_utf8(&chunk.bytes[start..end]).context("HUB row is not UTF-8")?;
+        start = end;
+        let fields: Vec<_> = text.split('|').collect();
+        let (row, ok) = make_row(
             layout,
             config,
             sigungu_crosswalk,
             &fields,
-            report.rows_read,
+            line_number,
             &part_key,
-            &ingested_at,
+            ingested_at,
         )?;
-        if pnu_ok {
-            report.pnu_ok += 1;
-        } else {
-            report.pnu_bad += 1;
-        }
-        let writer = current.as_mut().context("missing current handoff part")?;
-        serde_json::to_writer(&mut *writer, &row)?;
+        pnu_ok += u64::from(ok);
+        serde_json::to_writer(&mut writer, &row)?;
         writer.write_all(b"\n")?;
-        report.rows_emitted += 1;
-        part_rows += 1;
-        if part_rows == layout.rows_per_part {
-            let writer = current.take().context("missing completed handoff part")?;
-            report
-                .parts
-                .push(finish_part(writer, part_key.clone(), part_rows)?);
-            part_rows = 0;
-        }
     }
-    let decoder = reader.into_inner();
-    ensure!(
-        decoder.total_in() == member.compressed_bytes
-            && decoder.total_out() == member.uncompressed_bytes
-            && crc.sum() == member.crc32,
-        "HUB ZIP CRC/size integrity check failed"
-    );
-    ensure!(
-        report.rows_read > 0 && report.rows_emitted > 0,
-        "HUB ZIP has no emitted rows"
-    );
-    if let Some(writer) = current {
-        report.parts.push(finish_part(writer, part_key, part_rows)?);
-    }
-    report.publish(config, &mut open)
+    let rows = u64::try_from(chunk.rows.len())?;
+    Ok(Written {
+        part_number: chunk.part_number,
+        part: finish_part(writer, part_key, rows)?,
+        pnu_ok,
+    })
 }
 
 fn valid_width(

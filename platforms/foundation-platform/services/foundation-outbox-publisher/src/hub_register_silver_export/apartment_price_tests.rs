@@ -18,6 +18,47 @@ fn row(san: &str) -> String {
 }
 
 #[test]
+fn parts_written_by_parallel_workers_keep_the_source_order_and_count() -> anyhow::Result<()> {
+    // The workers finish parts out of order; the manifest lists them by number, each holds the
+    // next rows_per_part rows of the member, and a rejected row only moves a boundary.
+    let mut text = String::new();
+    for line in 1..=101 {
+        if line == 50 {
+            text.push_str("too|few|columns\n");
+        } else {
+            text.push_str(&row(if line % 2 == 0 { "1" } else { "0" }));
+            text.push('\n');
+        }
+    }
+    let result = convert_fixture(fixture(&text)?, 3)?;
+    assert_eq!(result["rows_read"], 101);
+    assert_eq!(result["rows_emitted"], 100);
+    assert_eq!(result["rejected_rows"], 1);
+    let parts = result["parts"].as_array().context("expected JSON array")?;
+    assert_eq!(parts.len(), 34);
+    for (index, part) in parts.iter().enumerate() {
+        let name = part["object_key"].as_str().context("expected key")?;
+        assert!(name.contains(&format!("/part-{:04}", index + 1)), "{name}");
+        assert_eq!(part["rows"], if index == 33 { 1 } else { 3 });
+    }
+    let rows = result["decoded_rows"]
+        .as_array()
+        .context("expected JSON array")?;
+    let lines = rows
+        .iter()
+        .map(|row| row["source_line_number"].as_u64().context("line number"))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let expected: Vec<u64> = (1..=101).filter(|line| *line != 50).collect();
+    assert_eq!(lines, expected);
+    for part in rows.chunks(3) {
+        assert!(part
+            .iter()
+            .all(|row| row["source_part_id"] == part[0]["source_part_id"]));
+    }
+    Ok(())
+}
+
+#[test]
 fn streams_zip64_preserves_raw_columns_counts_pnus_and_rotates() -> anyhow::Result<()> {
     let text = format!(
         "{}\r\n{}\n{}\n{}\n",
