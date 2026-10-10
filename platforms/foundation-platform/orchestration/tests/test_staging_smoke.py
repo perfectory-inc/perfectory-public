@@ -89,7 +89,9 @@ FAKE_DOCKER = r"""#!/usr/bin/env python3
 import json, os, sys
 state = os.environ["FAKE_STATE"]
 args = sys.argv[1:]
-record = {"verb": args[0]}
+record = {"verb": args[0], "docker_config": os.environ.get("DOCKER_CONFIG", "")}
+if not os.path.isdir(record["docker_config"]):
+    sys.exit("mkdir /nonexistent: permission denied")  # what the real CLI says without a config dir
 if args[0] == "ps":
     print("pgcontainer")
 elif args[0] == "exec":
@@ -167,6 +169,8 @@ class StagingSmoke(unittest.TestCase):
             **{name: "planted-" + name.lower() for name in NEEDS},
             # What source-sweep.env carries in production; the smoke must override it.
             "FOUNDATION_PLATFORM_RUNTIME_ENV": "production",
+            # The service account's home in production; Docker cannot keep its state there.
+            "HOME": "/nonexistent", "DOCKER_CONFIG": "/nonexistent/.docker",
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
         self.scenario()
@@ -203,6 +207,14 @@ class StagingSmoke(unittest.TestCase):
         # The two smallest files and the smallest one from the multipart threshold; never an archive.
         sampled = json.loads((self.fake / "sample.json").read_text())["sampled"]
         self.assertEqual(sampled, ["tiny", "small", "large"])
+
+    def test_docker_keeps_its_state_in_the_smoke_directory(self):
+        # 2026-10-10, the first real smoke: the image step failed with "mkdir /nonexistent: permission
+        # denied" because the service account has no home (root ADR-0177).
+        result = self.run_smoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        configs = {call["docker_config"] for call in self.lines("docker.jsonl")}
+        self.assertEqual(configs, {str(self.state / "docker-config")})
 
     def test_the_schema_is_built_from_empty_on_the_staging_database_only(self):
         self.assertEqual(self.run_smoke().returncode, 0)
