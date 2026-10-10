@@ -40,6 +40,22 @@ pub fn validate_object_name(name: &str, expected_date: NaiveDate) -> anyhow::Res
     Ok(())
 }
 
+/// 원문 파일명의 날짜가 행의 유효 시작일과 같은 공급 월인지 검사한다. 유효 시작일은 공급자 기준월의
+/// 첫날이고(ADR-0128, Silver 레인 ADR-0169), 파일명의 날짜는 그 달 안의 내보낸 날이다.
+/// # Errors
+/// 파일명이 잘못되었거나 다른 달의 파일이면 실패한다.
+pub fn validate_object_month(name: &str, valid_from: NaiveDate) -> anyhow::Result<()> {
+    use chrono::Datelike;
+    let day = object_date(name)?;
+    if (day.year(), day.month()) != (valid_from.year(), valid_from.month()) {
+        bail!(
+            "{name} must be a file of the provider month {}",
+            valid_from.format("%Y-%m")
+        );
+    }
+    Ok(())
+}
+
 /// Full typed exports keep row timestamps fixed across attempts; manual exports default to now.
 /// # Errors
 /// 지정한 환경변수가 유효한 UTF-8 또는 RFC 3339 시각이 아니면 실패한다.
@@ -103,6 +119,23 @@ mod tests {
         assert!(error
             .to_string()
             .contains("must embed snapshot date 20990102"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_exported_during_the_provider_month_belongs_to_it() -> anyhow::Result<()> {
+        let month = NaiveDate::from_ymd_opt(2099, 9, 1).context("valid date")?;
+        validate_object_month("OPN20990920SYNTHETIC-UNIT.zip", month)?;
+        validate_object_month("OPN20990901SYNTHETIC-UNIT.zip", month)?;
+        for name in [
+            "OPN20990831SYNTHETIC-UNIT.zip",
+            "OPN20981001SYNTHETIC-UNIT.zip",
+        ] {
+            assert!(
+                validate_object_month(name, month).is_err(),
+                "accepted another month: {name}"
+            );
+        }
         Ok(())
     }
 }

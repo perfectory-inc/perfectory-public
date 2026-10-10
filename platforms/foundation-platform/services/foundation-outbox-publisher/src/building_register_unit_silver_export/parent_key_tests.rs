@@ -297,6 +297,20 @@ fn approved_parent_or_null_clears_previous_automatic_parent_evidence_and_attribu
 }
 
 #[test]
+fn rows_valid_from_the_first_of_the_month_accept_files_exported_later_that_month(
+) -> anyhow::Result<()> {
+    // The Silver lane states a hub release's rows valid from the first of the provider month
+    // (ADR-0128, ADR-0169); the provider exports the files later in that month (2026-10-10, the
+    // first lane run was refused here).
+    let mut config = fixture("foundation-parent-key-provider-month", valid_basis())?;
+    config.valid_from_utc = DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc();
+    export_handoff(&config)?;
+    assert!(config.output_path.exists());
+    fs::remove_dir_all(config.bronze_local_object_root)?;
+    Ok(())
+}
+
+#[test]
 fn required_reference_inputs_fail_before_output_is_created() -> anyhow::Result<()> {
     for mode in [
         "basis-missing",
@@ -324,13 +338,13 @@ fn required_reference_inputs_fail_before_output_is_created() -> anyhow::Result<(
                 "bronze/source={DEFAULT_TITLE_SOURCE_SLUG}/OPN209912310000000003.zip"
             )))?,
             "basis-mixed-date" => {
-                config.basis_source_object = Some("OPN209912300000000003.zip".to_owned())
+                config.basis_source_object = Some("OPN209911300000000003.zip".to_owned())
             }
             "title-mixed-date" => {
-                config.title_source_object = Some("OPN209912300000000003.zip".to_owned())
+                config.title_source_object = Some("OPN209911300000000003.zip".to_owned())
             }
             "unit-mixed-date" => {
-                config.source_object = Some("OPN209912300000000003.zip".to_owned())
+                config.source_object = Some("OPN209911300000000003.zip".to_owned())
             }
             "title-disabled" => config.title_source_slug = None,
             "basis-ambiguous" => {

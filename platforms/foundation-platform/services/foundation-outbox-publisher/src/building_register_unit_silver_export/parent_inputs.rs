@@ -1,5 +1,5 @@
 use super::*;
-use crate::building_register_snapshot::validate_object_name;
+use crate::building_register_snapshot::validate_object_month;
 use foundation_outbox_publisher::sigungu_crosswalk::hub_sido_tally;
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
@@ -66,12 +66,14 @@ impl ParentInputs {
             {
                 bail!("{role} source slug must be a safe source identifier");
             }
+            // The rows are valid from the first of the provider month (ADR-0128); each file is one
+            // that month exported, on whatever day it did.
             if let Some(name) = pin {
-                validate_object_name(name, config.valid_from_utc.date_naive())?;
+                validate_object_month(name, config.valid_from_utc.date_naive())?;
             }
             let path = locate_zip_object(&config.bronze_local_object_root, slug, pin, role)?;
             validate_zip_entry(&path, expected_entry)?;
-            validate_object_name(
+            validate_object_month(
                 path.file_name()
                     .and_then(|name| name.to_str())
                     .context("invalid Bronze object file name")?,
