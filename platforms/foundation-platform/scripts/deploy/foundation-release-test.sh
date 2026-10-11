@@ -58,6 +58,21 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BUILD_LOCK = pathlib.Path(os.environ["REHEARSAL_BUILD_LOCK"])
 release_build_lock = module.release_build_lock
+# chattr +i needs CAP_LINUX_IMMUTABLE, which the rehearsal does not have: the sealed trees are listed
+# in a file instead, and every chattr admission (or prune, through this module) asks for is logged.
+SEALED = pathlib.Path(os.environ["REHEARSAL_SEALED"])
+def sealed_roots():
+    return [pathlib.Path(line) for line in SEALED.read_text().splitlines()] if SEALED.exists() else []
+def set_immutable(target, sealed):
+    target = pathlib.Path(os.path.realpath(target))
+    roots = [root for root in sealed_roots() if root != target and target not in root.parents]
+    SEALED.write_text("".join(f"{root}\n" for root in roots + ([target] if sealed else [])))
+    with open(str(SEALED) + ".log", "a") as log:
+        log.write(f"{'+' if sealed else '-'}i {target}\n")
+def immutable(path):
+    path = pathlib.Path(os.path.realpath(path))
+    return any(root == path or root in path.parents for root in sealed_roots())
+module.set_immutable, module.immutable = set_immutable, immutable
 def git(*args):
     return subprocess.check_output(["git", "-C", os.environ["REHEARSAL_CANONICAL"], *args])
 def main():
@@ -65,6 +80,9 @@ def main():
         sha, archive, target = sys.argv[2:]
         module.check_control_commit(git, sha, pathlib.Path(os.environ["REHEARSAL_CONTROL_ROOT"]))
         module.prepare_release(module.release_files(git, sha), sha, pathlib.Path(archive), pathlib.Path(target))
+    elif sys.argv[1] == "seal":
+        target = pathlib.Path(sys.argv[2])
+        module.seal_release(module.release_files(git, target.name), target.name, target, os.getuid())
     elif sys.argv[1] in ("verify", "build", "verify-current"):
         # verify-current resolves `current` under the rehearsal's release root; the checks are real.
         target = (pathlib.Path(os.path.realpath(pathlib.Path(os.environ["FOUNDATION_PLATFORM_RELEASE_ROOT"]) / "current"))
@@ -91,6 +109,7 @@ ADMISSION
 chmod +x "${test_root}/admission"
 export REHEARSAL_ADMISSION_SOURCE="${repo_root}/../../scripts/deploy/foundation-release-admission.py"
 export REHEARSAL_BUILD_LOCK="${test_root}/release-build.lock"
+export REHEARSAL_SEALED="${test_root}/sealed"
 export REHEARSAL_CANONICAL="${canonical}"
 # The control checkout records the canonical commit it was installed from; the first commit on
 # main is an ancestor of every rehearsal release.
@@ -279,6 +298,19 @@ run_release prepare "${release_a}" "${test_root}/release-a.tar.gz"
 run_release install "${release_a}" "${test_root}/release-a.tar.gz"
 assert_link "${release_root}/current" "releases/${release_a}"
 [[ "$(cat "${release_root}/current/version.txt")" == "release-a" ]]
+# Installed releases are immutable (root ADR-0184): sealed once in place, and a release whose seal
+# was lifted (chattr -i) is refused by the check every job runs, until activation seals it again.
+grep -qxF "$(realpath "${release_root}/releases/${release_a}")" "${REHEARSAL_SEALED}"
+grep -v -xF "$(realpath "${release_root}/releases/${release_a}")" "${REHEARSAL_SEALED}" >"${test_root}/sealed.lifted" || true
+mv "${test_root}/sealed.lifted" "${REHEARSAL_SEALED}"
+if FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" "${test_root}/admission" verify-current 2>"${test_root}/seal.log"; then
+  printf 'a release whose immutable seal was lifted passed verify-current\n' >&2
+  exit 1
+fi
+grep -q 'not sealed immutable' "${test_root}/seal.log"
+run_release activate "${release_a}"
+FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" "${test_root}/admission" verify-current
+printf 'release-sealed-immutable=pass\n'
 # Installed from canonical Git, read-only; the trusted build output sits outside it.
 [[ "$(stat -c '%a' "${release_root}/releases/${release_a}")" == "555" ]]
 [[ -x "${release_root}/artifacts/${release_a}/foundation-outbox-publisher" ]]
@@ -909,7 +941,7 @@ expect() { "$@" || { printf 'prune rehearsal: expected: %s\n' "$*" >&2; return 1
 prune_rehearsal() {
   local script="$1" status sleeper n
   [[ ! -e "${prune_root}" ]] || { chmod -R u+w "${prune_root}"; rm -rf "${prune_root}"; }
-  rm -rf "${control_releases%/releases}" "${REHEARSAL_IMAGES}"
+  rm -rf "${control_releases%/releases}" "${REHEARSAL_IMAGES}" "${REHEARSAL_SEALED}.log"
   mkdir -p "${REHEARSAL_IMAGES}"
   : >"${REHEARSAL_CONTAINERS}"
   # 1 newest .. 10 oldest. current=5, previous=8, emergency=10 (the oldest), newest three 1 2 3.
@@ -943,6 +975,8 @@ prune_rehearsal() {
   # Control checkout: current (4) and the newest three (1 2 3) stay; 5 goes.
   for n in 1 2 3 4; do expect test -d "${control_releases}/$(prune_id "${n}")" || return 1; done
   expect test ! -e "${control_releases}/$(prune_id 5)" || return 1
+  # A release is immutable; prune lifts that, with admission's code, on what it removes (ADR-0184).
+  expect grep -qxF -- "-i $(realpath "${prune_root}")/releases/$(prune_id 4)" "${REHEARSAL_SEALED}.log" || return 1
 
   # Once nothing holds them they go; and a host with no `previous` still prunes.
   : >"${REHEARSAL_CONTAINERS}"
@@ -1082,6 +1116,12 @@ for name in shared-image-holds shared-image-removed; do
   fi
   printf 'prune-%s-mutation=refused\n' "${name}"
 done
+mutate without-unseal 's/        admission.set_immutable(path, False)/        pass/'
+if prune_rehearsal "${test_root}/without-unseal.sh" 2>/dev/null; then
+  printf 'prune rehearsal passed without lifting the immutable seal\n' >&2
+  exit 1
+fi
+printf 'prune-without-unseal-mutation=refused\n'
 mutate without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
 if prune_rehearsal "${test_root}/without-build-lock.sh" 2>/dev/null; then
   printf 'prune rehearsal passed without taking the release build lock\n' >&2
@@ -1191,6 +1231,14 @@ fi
 grep -q 'lakehouse-reader.env: missing' "${test_root}/secrets.log"
 mv "${reader_file}.away" "${reader_file}"
 printf 'verify-refuses-a-missing-environment-file=pass\n'
+# An install that does not seal what it moved into place cannot build it: the build's check wants an
+# immutable release (root ADR-0184).
+mutate install-without-seal '/^  "${admission}" seal "${target}"$/d'
+if install_prune_rehearsal "${test_root}/install-without-seal.sh" 2>/dev/null; then
+  printf 'install rehearsal passed with install not sealing the release\n' >&2
+  exit 1
+fi
+printf 'install-without-seal-mutation=refused\n'
 mutate install-without-prune 's/then activate_and_prune "${release_id}"; fi/then activate_release "${release_id}"; fi/'
 if install_prune_rehearsal "${test_root}/install-without-prune.sh" 2>/dev/null; then
   printf 'install prune rehearsal passed with install not pruning\n' >&2

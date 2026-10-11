@@ -162,8 +162,9 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - Worker 가 503: manifest 부재·비파싱이다. 3절 발행 상태부터 본다(설계된 전면 거부).
 - 굽기 중단: 같은 세대로 재실행하면 된다(2절의 create-only 재사용).
 - 패치 되돌리기([루트 ADR-0141](../../../../docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) 4절):
-  1. **먼저 Airflow 에서 `foundation_by_pnu_serving_bake` 를 일시정지하고**, `systemctl is-active
-     foundation-by-pnu-serving-bake.service` 가 `inactive`(또는 `failed`)인지 확인한다. 되돌리면 manifest 의
+  1. **먼저 Airflow 에서 `foundation_by_pnu_serving_bake` 를 일시정지하고**, `python3 -I
+     /opt/foundation-platform/current/scripts/deploy/job_units.py running foundation-by-pnu-serving-bake.service`
+     가 아무것도 출력하지 않는지 확인한다("도는 중"의 한 정의, [루트 ADR-0184](../../../../docs/adr/0184-one-answer-for-running-jobs-and-a-release-the-kernel-keeps-immutable.md)). 되돌리면 manifest 의
      반영 스냅숏도 되돌아가므로, 멈추지 않으면 다음 실행이 같은 Gold 에서 같은 변경 집합을 다시 계산해 되돌린 변경을
      새 패치로 다시 발행한다. Gold 를 고치거나 되돌린 원인을 해소한 뒤에 다시 켠다.
   2. `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_MANIFEST_KEY=<manifest-history 키>` 로 발행 명령을 돌린다. 그 기록이
@@ -423,9 +424,9 @@ foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유
    - Airflow 에서 `foundation_building_register_floor`, `foundation_lineage_stewardship`,
      `foundation_map_edit_fold_admin`, `foundation_map_edit_fold_complex` 를 일시정지한다.
    - 시작 전에 하나도 돌고 있지 않은지 확인한다:
-     `systemctl is-active foundation-building-register-floor.service foundation-lineage-stewardship.service
-     foundation-map-edit-fold@admin.service foundation-map-edit-fold@complex.service` 가 모두 `inactive`
-     (또는 `failed`)여야 한다.
+     `python3 -I /opt/foundation-platform/current/scripts/deploy/job_units.py running
+     foundation-building-register-floor.service foundation-lineage-stewardship.service
+     'foundation-map-edit-fold@*.service'` 가 아무것도 출력하지 않아야 한다(루트 ADR-0184).
    - 데이터 호스트에서 root 가 `sudo systemctl start --no-block foundation-by-pnu-serving-bake.service` 로 시작하고
      `journalctl -u foundation-by-pnu-serving-bake.service -f` 로 지켜본다. 시간 상한(20시간)에 걸리면 같은 확인 뒤
      다시 시작한다(이어 굽는다). 직접 시작은 차례 기록(`starts/`)에 남지 않는다.

@@ -27,13 +27,22 @@ JOBS = {
 }
 
 # systemctl show answers a fresh invocation once `start` was asked for, and an ended successful run.
+# list-units (job_units.py's question, root ADR-0184) answers the next state of FIXTURE_RUN_STATES,
+# one per question, and then nothing: the run has ended.
 SYSTEMCTL = """#!/bin/sh
 root="$FIXTURE_ROOT"
 case "$*" in
+  list-units*)
+    asked=$(cat "$root/listed" 2>/dev/null || echo 0); asked=$((asked + 1)); echo "$asked" > "$root/listed"
+    state=$(echo "${FIXTURE_RUN_STATES:-}" | cut -d, -f"$asked")
+    for last; do :; done
+    [ -z "$state" ] || echo "$last loaded $state x fixture" ;;
   *InvocationID*) if [ -f "$root/started" ]; then echo new; else echo old; fi ;;
-  *ActiveState*) echo inactive ;;
   *Result*) echo success ;;
 esac
+"""
+SLEEP = """#!/bin/sh
+echo "$*" >> "$FIXTURE_ROOT/sleep.log"
 """
 SUDO = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sudo.log"
@@ -51,17 +60,17 @@ class TakingTurns(unittest.TestCase):
         (self.root / "jobs.json").write_text(json.dumps(JOBS))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL)):
+        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL), ("sleep", SLEEP)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "FIXTURE_ROOT": str(self.root), "FOUNDATION_SCHEDULED_JOBS_FILE": str(self.root / "jobs.json"),
                     "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts)}
 
-    def start(self, job):
-        for path in (self.root / "started", self.root / "sudo.log"):
+    def start(self, job, **env):
+        for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log"):
             path.unlink(missing_ok=True)
-        result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": job},
+        result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": job, **env},
                                 capture_output=True, text=True, timeout=60)
         log = self.root / "sudo.log"
         return result, log.read_text() if log.exists() else ""
@@ -77,6 +86,14 @@ class TakingTurns(unittest.TestCase):
         self.assertTrue((self.starts / "bake").is_file())
         # A run that starts says nothing of its own outcome: the unit's journal does.
         self.assertNotIn("foundation-job-outcome", result.stdout)
+
+    def test_the_run_is_followed_while_job_units_says_it_runs(self):
+        # A oneshot is `activating` for its whole run; stopping or reloading it still runs. The wait is
+        # job_units.py's definition (root ADR-0184), not a list of states of its own.
+        result, asked = self.start("fold", FIXTURE_RUN_STATES="activating,reloading,deactivating,maintenance")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("foundation-fold.service result=success", result.stdout)
+        self.assertEqual((self.root / "sleep.log").read_text().split().count("5"), 4)
 
     def test_a_second_bake_waits_until_the_jobs_it_blocks_have_started(self):
         self.record("bake", 2000)

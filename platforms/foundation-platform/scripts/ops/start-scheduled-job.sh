@@ -82,6 +82,14 @@ stop_job() {
 trap stop_job HUP INT TERM
 
 state() { systemctl show -p "$1" --value "${service}"; }
+# Whether the service runs is job_units.py's answer, from this script's release (root ADR-0184). A
+# systemd that does not answer is not a run that ended: the caller asks again.
+job_units="$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py"
+runs() {
+  local answer
+  answer="$(python3 -I -B "${job_units}" running "${service}")" || return 0
+  [[ -n "${answer}" ]]
+}
 
 # A run already in progress (started by hand, or a retry racing the last one) is joined, not doubled.
 before="$(state InvocationID)"
@@ -89,7 +97,9 @@ sudo -n /usr/bin/systemctl start --no-block "${service}" || refuse "systemd woul
 invocation=""
 for _ in $(seq 1 60); do
   invocation="$(state InvocationID)"
-  [[ -n "${invocation}" && ( "${invocation}" != "${before}" || "$(state ActiveState)" == activating ) ]] && break
+  [[ -n "${invocation}" && "${invocation}" != "${before}" ]] && break
+  # The same invocation still running is the run in progress, joined.
+  [[ -n "${invocation}" ]] && runs && break
   sleep 1
 done
 [[ -n "${invocation}" ]] || refuse "${service} reported no invocation"
@@ -98,7 +108,7 @@ printf 'start-scheduled-job: %s invocation=%s\n' "${service}" "${invocation}"
 
 journalctl --no-pager -o cat -f "_SYSTEMD_INVOCATION_ID=${invocation}" &
 follower=$!
-while [[ "$(state ActiveState)" =~ ^(activating|active|deactivating)$ && "$(state InvocationID)" == "${invocation}" ]]; do
+while runs && [[ "$(state InvocationID)" == "${invocation}" ]]; do
   sleep 5
 done
 sleep 2 # let the journal follower print the last lines

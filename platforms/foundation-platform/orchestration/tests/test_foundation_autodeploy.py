@@ -21,6 +21,7 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/deploy/foundation-autodeploy.sh"
 CHECKS = PLATFORM / "scripts/deploy/release_checks.py"
 DEPLOY = PLATFORM / "scripts/deploy/foundation-deploy.sh"
+JOB_UNITS = PLATFORM / "scripts/deploy/job_units.py"
 START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 JOBS = PLATFORM / "orchestration/jobs.v1.json"
 CURRENT = "a" * 40
@@ -150,6 +151,8 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             "import os, sys\nprint(os.environ['FIXTURE_CHECKS'])\n")
         (deploy / "foundation-deploy.sh").write_text(
             'printf "%s\\n" "$1" >> "$FIXTURE_ROOT/deployed.log"\nexit "${FIXTURE_DEPLOY_EXIT:-0}"\n')
+        # Whether a unit runs is the real definition (root ADR-0184), asking the systemctl below.
+        (deploy / JOB_UNITS.name).write_bytes(JOB_UNITS.read_bytes())
         releases = root / "opt/releases"
         releases.mkdir(parents=True)
         (releases / CURRENT).mkdir()
@@ -163,22 +166,31 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             text = text.replace(line, f"{name}={value}", 1)
         self.script = root / "foundation-autodeploy.sh"
         self.script.write_text(text)
-        # systemctl answers from FIXTURE_UNITS ("unit:transient" pairs, transient yes|no), the Worker
-        # deploy's state from FIXTURE_WORKER_STATE, and records what it is asked to start.
+        # systemctl answers from FIXTURE_UNITS ("unit:transient[:ActiveState]", transient yes|no, the
+        # state active by default), the Worker deploy's state from FIXTURE_WORKER_STATE, fails every
+        # listing under FIXTURE_SYSTEMD_DOWN, and records what it is asked to start.
         self.bin = root / "bin"
         self.bin.mkdir()
         systemctl = self.bin / "systemctl"
         systemctl.write_text(
             '#!/usr/bin/env bash\n'
             'if [[ "$1" == start ]]; then printf "%s\\n" "$*" >> "$FIXTURE_ROOT/started.log"; exit 0; fi\n'
-            'if [[ "$*" == *ActiveState* && "${!#}" == foundation-worker-autodeploy.service ]]; then\n'
-            '  printf "%s\\n" "${FIXTURE_WORKER_STATE:-inactive}"; exit 0\n'
-            'fi\n'
-            'for pair in ${FIXTURE_UNITS:-}; do\n'
-            '  unit="${pair%%:*}"; transient="${pair#*:}"\n'
-            '  if [[ "$1" == list-units ]]; then printf "%s loaded active running x\\n" "${unit}"\n'
-            '  elif [[ "$1" == show && "${!#}" == "${unit}" ]]; then printf "%s\\n" "${transient}"; fi\n'
-            'done\n')
+            'entries="foundation-worker-autodeploy.service:no:${FIXTURE_WORKER_STATE:-inactive} ${FIXTURE_UNITS:-}"\n'
+            'if [[ "$1" == list-units ]]; then\n'
+            '  [[ -z "${FIXTURE_SYSTEMD_DOWN:-}" ]] || exit 1\n'
+            '  for entry in ${entries}; do\n'
+            '    IFS=: read -r unit transient state <<<"${entry}"\n'
+            '    for pattern in "${@:2}"; do\n'
+            '      [[ "${pattern}" != -* && "${unit}" == ${pattern} ]] || continue\n'
+            '      printf "%s loaded %s x fixture\\n" "${unit}" "${state:-active}"; break\n'
+            '    done\n'
+            '  done\n'
+            'elif [[ "$1" == show ]]; then\n'
+            '  for entry in ${entries}; do\n'
+            '    IFS=: read -r unit transient _ <<<"${entry}"\n'
+            '    [[ "${!#}" != "${unit}" ]] || printf "%s\\n" "${transient}"\n'
+            '  done\n'
+            'fi\n')
         systemctl.chmod(0o755)
 
     def tick(self, head=HEAD, checks="deploy 49 check runs passed", **env):
@@ -237,6 +249,23 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [])
         self.assertEqual(self.tick().returncode, 0)
         self.assertEqual(self.deployed(), [HEAD])
+
+    def test_an_operators_oneshot_or_stopping_unit_holds_the_deploy_and_a_failed_one_does_not(self):
+        # A oneshot is `activating` for its whole run (root ADR-0184): job_units.py's definition.
+        for state in ("activating", "deactivating", "reloading"):
+            with self.subTest(state=state):
+                result = self.tick(FIXTURE_UNITS=f"foundation-raon-large-files-operator.service:yes:{state}")
+                self.assertIn("waiting for the operator's foundation-raon-large-files-operator", result.stdout)
+                self.assertEqual(self.deployed(), [])
+        result = self.tick(FIXTURE_UNITS="foundation-raon-large-files-operator.service:yes:failed")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_a_systemd_that_cannot_answer_holds_the_deploy_and_says_so(self):
+        result = self.tick(FIXTURE_SYSTEMD_DOWN="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("systemd cannot tell which units run", result.stderr)
+        self.assertEqual(self.deployed(), [])
 
     def test_a_registered_job_running_is_left_to_the_deploys_own_wait(self):
         result = self.tick(FIXTURE_UNITS="foundation-map-edit-fold.service:no")
@@ -324,6 +353,17 @@ class TheWholeDeploy(unittest.TestCase):
         (trusted / "scripts/github").mkdir(parents=True)
         (trusted / "scripts/github/safe-git-transport.sh").write_text("exit 0\n")
         (control_root / "current").symlink_to(pathlib.Path("releases") / old_control)
+        # The control checkout's release admission answers step 0's `running-jobs`: 75 (a job runs)
+        # FIXTURE_BUSY_ANSWERS times, then 0; FIXTURE_NO_ANSWER makes it fail as admission does (65).
+        running_jobs = trusted / "scripts/deploy/foundation-release-admission.py"
+        running_jobs.parent.mkdir(parents=True)
+        running_jobs.write_text(
+            '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FIXTURE_ROOT/admission.log"\n'
+            '[[ "$1" == running-jobs ]] || exit 64\n'
+            '[[ -z "${FIXTURE_NO_ANSWER:-}" ]] || exit 65\n'
+            'count="$(grep -c running-jobs "$FIXTURE_ROOT/admission.log")"\n'
+            'if ((count <= ${FIXTURE_BUSY_ANSWERS:-0})); then echo "foundation-source_sweep.service activating"; exit 75; fi\n')
+        running_jobs.chmod(0o755)
         # The commit's checkout exists already, so step 1 only moves `current` to it.
         new = control_root / "releases" / HEAD / "platforms/foundation-platform/scripts/deploy"
         new.mkdir(parents=True)
@@ -360,6 +400,7 @@ class TheWholeDeploy(unittest.TestCase):
             ("sudo", 'while [[ "$1" == -* ]]; do [[ "$1" == -u ]] && shift; shift; done\nexec "$@"\n'),
             ("git", 'if [[ "$*" == *" -o "* ]]; then : > "${@: -2:1}"; fi\nexit 0\n'),
             ("chown", "exit 0\n"),
+            ("sleep", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/sleep.log"\n'),
             ("systemctl", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/systemctl.log"\n'
                           'service="${!#}"; failing=" ${FIXTURE_FAILING:-} "\n'
                           'case "$*" in\n'
@@ -410,15 +451,26 @@ class TheWholeDeploy(unittest.TestCase):
                     for line in (self.root / "airflow.log").read_text().splitlines() if line.startswith("dags unpause")]
         self.assertEqual(unpaused[-len(self.ENABLED):], list(reversed(self.ENABLED)))
 
-    def test_the_deploy_waits_for_every_registered_job_a_disabled_one_too(self):
-        # 2026-10-11: an operator ran a disabled lane's supervised run; the deploy waited only for
-        # the enabled jobs, reached the release build beside it, and admission refused the build.
-        result = self.deploy()
+    def test_the_deploy_waits_on_release_admissions_own_list_of_running_jobs(self):
+        # 2026-10-11: the deploy kept its own list of the jobs to wait for (the enabled ones), reached
+        # the release build beside a running disabled lane, and admission refused the build. Step 0 now
+        # asks admission the question its build refuses on (root ADR-0184); systemd is not asked here.
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="2")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        asked = [line.split()[-1] for line in (self.root / "systemctl.log").read_text().splitlines()
-                 if "ActiveState" in line]
-        for job in self.ENABLED + self.DISABLED:
-            self.assertIn(f"foundation-{job}.service", asked)
+        self.assertEqual((self.root / "admission.log").read_text().splitlines()[:3], ["running-jobs"] * 3)
+        self.assertEqual((self.root / "sleep.log").read_text().split(), ["10", "10"])
+        self.assertNotIn("ActiveState", (self.root / "systemctl.log").read_text())
+        self.assertIn("no registered job is running", result.stdout)
+        self.assertEqual(self.released()[0], "prepare")
+
+    def test_a_deploy_that_cannot_tell_which_jobs_run_does_not_build(self):
+        # No answer is not "nothing runs": the deploy stops before the release build.
+        result = self.deploy(FIXTURE_NO_ANSWER="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot tell which registered jobs run (exit 65)", result.stderr)
+        self.assertEqual(self.released(), [])
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
 
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()

@@ -17,6 +17,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -24,6 +25,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -39,8 +41,15 @@ JOB_SPECS = CONTROL_ROOT / "platforms/foundation-platform/orchestration/jobs.v1.
 # Held exclusively for the whole build; every registered job's ExecStartPre (verify-current) refuses
 # while it is held (ADR-0137). /run is root-owned tmpfs, so a reboot cannot leave it stale.
 BUILD_LOCK = Path("/run/foundation-platform-release-build.lock")
-# A oneshot job is "activating" for its whole run and never "active"; any state but these is running.
-STOPPED_STATES = {"inactive", "failed"}
+# Which jobs are registered and whether a unit runs are answered by this one file, which the deploy,
+# the operator script and the scheduler's dispatcher run too (root ADR-0184).
+JOB_UNITS = CONTROL_ROOT / "platforms/foundation-platform/scripts/deploy/job_units.py"
+# An installed release carries the inode's immutable attribute (root ADR-0184): only a holder of
+# CAP_LINUX_IMMUTABLE can write, rename, hard-link or remove anything in it again. FS_IOC_GETFLAGS
+# is _IOR('f', 1, long) and FS_IMMUTABLE_FL 0x10 (linux/fs.h).
+CHATTR = "/usr/bin/chattr"
+FS_IOC_GETFLAGS = 0x80006601 | (struct.calcsize("l") << 16)
+FS_IMMUTABLE_FL = 0x10
 BUILDKIT_IMAGE = "moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
 # The publisher's dependency layer (`cargo chef cook`, keyed by Cargo.lock and the manifests) is kept
 # between releases in BuildKit's local cache: an OCI layout whose blobs are named by their sha256.
@@ -139,7 +148,41 @@ def prepare_release(expected, release_id: str, archive: Path, target: Path) -> N
         Path(directory).chmod(0o555)
 
 
-def verify_release(expected, release_id: str, target: Path, owner: int = 0) -> None:
+def immutable(path: Path) -> bool:
+    """Whether the kernel refuses every change to this inode, root's included (chattr +i)."""
+    directory = stat.S_ISDIR(path.lstat().st_mode)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0))
+    try:
+        flags = struct.unpack("i", fcntl.ioctl(fd, FS_IOC_GETFLAGS, bytes(8))[:4])[0]
+    except OSError as error:
+        raise ValueError(f"cannot read the immutable attribute of {path}; releases must live on a "
+                         f"filesystem that holds chattr +i (root ADR-0184): {error.strerror}") from error
+    finally:
+        os.close(fd)
+    return bool(flags & FS_IMMUTABLE_FL)
+
+
+def set_immutable(target: Path, sealed: bool) -> None:
+    """chattr -R +i (or -i) on a whole tree. Symbolic links are not followed; a release holds none."""
+    try:
+        subprocess.run([CHATTR, "-R", "+i" if sealed else "-i", str(target)], env=control_environment(),
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f"chattr {'+' if sealed else '-'}i failed on {target} (root ADR-0184)") from error
+
+
+def seal_release(expected, release_id: str, target: Path, owner: int = 0) -> None:
+    """Checks every byte, makes the tree immutable, and checks again, now that nothing can change it.
+
+    Idempotent: a release installed before root ADR-0184 is sealed the first time it is activated or
+    rolled back to; one already sealed is only checked.
+    """
+    verify_release(expected, release_id, target, owner, sealed=False)
+    set_immutable(target, True)
+    verify_release(expected, release_id, target, owner)
+
+
+def verify_release(expected, release_id: str, target: Path, owner: int = 0, sealed: bool = True) -> None:
     protected_path(target, owner)
     actual = set()
     for directory, dirs, files in os.walk(target, followlinks=False):
@@ -151,6 +194,11 @@ def verify_release(expected, release_id: str, target: Path, owner: int = 0) -> N
                 raise ValueError("release has an untrusted owner")
             if info.st_mode & 0o222:
                 raise ValueError("release is writable; install an immutable canonical release")
+            # A mode root writes through: on 2026-10-10 a root import wrote __pycache__ into a 0555
+            # release and every job was refused. The attribute is the kernel's refusal (ADR-0184).
+            if sealed and not immutable(entry):
+                raise ValueError(f"release is not sealed immutable: {entry.relative_to(target).as_posix()}; "
+                                 "foundation-release.sh seals a release when it installs or activates it")
             if stat.S_ISREG(info.st_mode):
                 if info.st_nlink != 1:
                     raise ValueError("release contains a hard-linked file")
@@ -374,19 +422,31 @@ def tree_bytes(path: Path) -> int:
     return sum(entry.lstat().st_size for entry in path.rglob("*") if entry.is_file() and not entry.is_symlink())
 
 
-def require_no_registered_job_running() -> None:
-    """The build is sized as the host's one-shot job; it does not start beside another (ADR-0137)."""
+def job_units():
+    """The control checkout's job_units.py (root ADR-0184); CanonicalSource checks it is root's first."""
+    sys.dont_write_bytecode = True  # an import as root writes no __pycache__ into the control checkout
+    spec = importlib.util.spec_from_file_location("job_units", JOB_UNITS)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def running_registered_jobs() -> dict[str, str]:
+    """{service: ActiveState} of every registered job that runs, by job_units.py's one definition."""
+    units = job_units()
     try:
-        units = sorted({job["systemd_service"] for job in json.loads(JOB_SPECS.read_text(encoding="utf-8"))["jobs"]})
+        services = units.registered_services(JOB_SPECS)
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise ValueError(f"job specs {JOB_SPECS} are unreadable: {error}") from error
     try:
-        states = {unit: subprocess.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--value", unit],
-                                       env=control_environment(), check=True, capture_output=True,
-                                       text=True).stdout.strip() for unit in units}
+        return units.running(services, systemctl="/usr/bin/systemctl", env=control_environment())
     except (OSError, subprocess.CalledProcessError) as error:
         raise ValueError("host precondition: systemctl cannot report the registered jobs (ADR-0137)") from error
-    running = [f"{unit} ({state or 'unknown'})" for unit, state in states.items() if state not in STOPPED_STATES]
+
+
+def require_no_registered_job_running() -> None:
+    """The build is sized as the host's one-shot job; it does not start beside another (ADR-0137)."""
+    running = [f"{unit} ({state})" for unit, state in sorted(running_registered_jobs().items())]
     if running:
         raise ValueError("a registered job is running (" + ", ".join(running) + "); the release build is the host's "
                          "one-shot job, so pause the DAGs, wait for it to finish and run prepare again (ADR-0137)")
@@ -608,7 +668,7 @@ class CanonicalSource:
         self.transport = CONTROL_ROOT / "scripts/github/safe-git-transport.sh"
         self.identity_reader = CONTROL_ROOT / "scripts/github/show-public-repository-identity.sh"
         self.identity = CONTROL_ROOT / "tools/github/repository-identity.json"
-        for path in (Path(__file__), self.transport, self.identity_reader, self.identity,
+        for path in (Path(__file__), self.transport, self.identity_reader, self.identity, JOB_UNITS,
                      CONTROL_ROOT / "scripts/github/github-policy-json.py"):
             protected_path(path.resolve())
 
@@ -680,17 +740,31 @@ def main() -> int:
     verify.add_argument("target", type=Path)
     build = sub.add_parser("build")
     build.add_argument("target", type=Path)
+    seal = sub.add_parser("seal")
+    seal.add_argument("target", type=Path)
     sub.add_parser("verify-current")
+    # The deploy's wait (foundation-deploy.sh step 0) asks this, the check `build` refuses on: one list.
+    sub.add_parser("running-jobs")
     args = parser.parse_args()
     try:
         if os.geteuid() != 0:
             raise ValueError("release admission must run as the host administrator")
         source = CanonicalSource()
+        if args.command == "running-jobs":
+            running = running_registered_jobs()
+            for unit, state in sorted(running.items()):
+                print(unit, state)
+            return 75 if running else 0
         if args.command == "prepare":
             protected_path(args.target)
             source.refresh()
             check_control_commit(source.git, args.release_id, CONTROL_ROOT)
             prepare_release(release_files(source.git, args.release_id), args.release_id, args.archive, args.target)
+        elif args.command == "seal":
+            # As soon as the release is in place and before its build: nothing a build or a root
+            # import does afterwards can write into it (root ADR-0184).
+            source.check_cache()
+            seal_release(release_files(source.git, args.target.name), args.target.name, args.target)
         else:
             source.check_cache()
             if args.command == "verify-current":

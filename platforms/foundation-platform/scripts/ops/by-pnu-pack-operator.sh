@@ -94,25 +94,33 @@ print(value)
 PY
 }
 
-# Refuses (75) while a unit in "$@" runs. A oneshot job is `activating` for its whole run and never
-# `active`, so `systemctl is-active` would call a running Gold rebuild or lane stopped (2026-10-10).
+# "<unit> <state>" for each service in "$@" (names or patterns) that runs, by job_units.py: the one
+# definition the deploy and release admission use too (root ADR-0184). A oneshot job is `activating`
+# for its whole run and never `active`, so `systemctl is-active` called a running Gold rebuild
+# stopped (2026-10-10). Refuses (70) when systemd cannot say; that is never "nothing runs".
+running_units() {
+  python3 -I -B "${RELEASE}/scripts/deploy/job_units.py" running "$@" \
+    || refuse "systemd cannot tell whether $* run" 70
+}
+# Refuses (75) while a unit in "$@" runs. Assigned before it is tested: a refusal inside
+# `[[ -n "$(...)" ]]` would not stop the script.
 refuse_while_active() {
-  local unit
+  local unit running
+  local -a units=()
   for unit in "$@"; do
     [[ "${unit}" == *.service ]] || unit="${unit}.service"
-    if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating "${unit}" 2>/dev/null)" ]]; then
-      refuse "${unit} is running" 75
-    fi
+    units+=("${unit}")
   done
+  running="$(running_units "${units[@]}")"
+  [[ -z "${running}" ]] || refuse "$(cut -d' ' -f1 <<<"${running}" | paste -sd' ') is running" 75
 }
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
-  local lane lock
+  local lane lock running
   refuse_while_active "${BAKE_SCHEDULED}"
-  if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating "${PACK_BAKES}" 2>/dev/null)" ]]; then
-    refuse "a section pack bake is running ($(systemctl list-units --plain --no-legend --state=active,activating "${PACK_BAKES}" | cut -d' ' -f1 | tr '\n' ' '))" 75
-  fi
+  running="$(running_units "${PACK_BAKES}")"
+  [[ -z "${running}" ]] || refuse "a section pack bake is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
   for lane in building parcel; do
     lock="${BAKE_ROOT}/${lane}/lane.lock"
     if [[ -e "${lock}" ]] && ! flock -n "${lock}" true; then refuse "a run of the ${lane} lane holds ${lock}" 75; fi
@@ -187,9 +195,8 @@ PY
     start)
       # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
       refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
-      if [[ -n "$(systemctl list-units --plain --no-legend --state=active,activating 'foundation-silver-refresh@*.service' 2>/dev/null)" ]]; then
-        refuse "another Silver refresh lane is running" 75
-      fi
+      running="$(running_units 'foundation-silver-refresh@*.service')"
+      [[ -z "${running}" ]] || refuse "another Silver refresh lane is running" 75
       log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
       exec systemctl start --no-block "${SILVER_UNIT}"
       ;;
@@ -297,7 +304,8 @@ case "${ACTION}" in
 esac
 
 [[ "${ACTION}" == bake || -d "${WORK}/summaries" ]] || refuse "${WORK}/summaries does not exist; bake generation ${GENERATION} first" 65
-if systemctl is-active --quiet "${UNIT}"; then refuse "${UNIT} is already running" 75; fi
+running="$(running_units "${UNIT}.service")"
+[[ -z "${running}" ]] || refuse "${UNIT} is already running" 75
 install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}" "${WORK}/logs"
 # The admitted binary of the current release, as every job binds it (root ADR-0134 §3).
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current

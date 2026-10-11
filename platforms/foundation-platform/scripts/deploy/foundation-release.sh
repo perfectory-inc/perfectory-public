@@ -156,7 +156,12 @@ assert_installed_release() {
     printf 'release identity evidence is missing or invalid: %s\n' "${path}" >&2
     exit 65
   }
-  # Canonical-main ancestry and every installed byte, read again; the marker above is a name.
+  # Canonical-main ancestry and every installed byte, read again; the marker above is a name. Then
+  # the tree is made immutable (chattr +i) and read once more, so a release is sealed before anything
+  # runs from it: activation, rollback and FLOOR all come through here, and a release installed
+  # before root ADR-0184 is sealed the first time it is used. Sealing a sealed release changes nothing.
+  # `verify` adds the trusted build output and its images.
+  "${admission}" seal "${path}"
   "${admission}" verify "${path}"
 }
 
@@ -393,6 +398,9 @@ install_release() {
   mkdir -p "${releases_dir}" "${state_root}/recovery"
   prepare_mutable_state
   if [[ -e "${target}" ]]; then
+    # The build reads a sealed release only; one moved in place by a run that stopped before its seal
+    # is sealed here (root ADR-0184).
+    "${admission}" seal "${target}"
     "${admission}" build "${target}"
     assert_installed_release "${release_id}"
     recorded_sha="$(cat "${target}/.foundation-release-archive-sha256")"
@@ -412,6 +420,10 @@ install_release() {
   mv "${staging}" "${target}"
   staging=""
   trap - RETURN
+  # Sealed in place, before the build reads it (root ADR-0184): an immutable directory cannot be
+  # renamed, so this comes after the move. A run that stops here leaves it unsealed, and the next
+  # install of the same id seals it through assert_installed_release.
+  "${admission}" seal "${target}"
   # The publisher and Spark jars are built from the admitted tree into artifacts/<sha>/, never
   # accepted from the caller and never written inside the release.
   "${admission}" build "${target}"
@@ -768,11 +780,19 @@ def disk_bytes(path):
 
 
 def remove_tree(path):
-    """Admitted releases and artifacts are read-only; lift that only on what is being removed."""
+    """Admitted releases and artifacts are read-only; lift that only on what is being removed.
+
+    A release is also immutable (chattr +i, root ADR-0184), lifted with admission's own code, the
+    code that set it; on a tree that was never sealed it changes nothing.
+    """
     if not path.exists() and not path.is_symlink():
         return 0
     if path.is_symlink() or not path.is_dir():
         raise OSError(f"{path} is not a plain directory")
+    try:
+        admission.set_immutable(path, False)
+    except ValueError as error:
+        raise OSError(str(error)) from error
     size = disk_bytes(path)
     for root, _, _ in os.walk(path):
         os.chmod(root, stat.S_IRWXU)
@@ -1248,11 +1268,7 @@ case "${command}" in
     while read -r service; do
       [[ -n "${service}" ]] || continue
       install_release_admission "${service}"
-    done < <(python3 -c '
-import json, sys
-for job in json.load(open(sys.argv[1]))["jobs"]:
-    print(job["systemd_service"])
-' "${jobs_file}")
+    done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" services "${jobs_file}")
     while read -r timer; do
       [[ -n "${timer}" ]] || continue
       if [[ -e "/etc/systemd/system/${timer}" ]]; then
