@@ -458,6 +458,7 @@ async fn refresh_parts(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = release.run_identity(contract.lane.id());
+    let branch = stage_load(catalog, &contract.table, &evidence_name).await?;
     let mut rows = 0;
     for (index, batch) in part_batches(&manifest, contract.spark.input_file_batch_size)
         .into_iter()
@@ -473,6 +474,7 @@ async fn refresh_parts(
             expected_count: Some(batch.iter().map(|part| part.rows).sum()),
             reads_r2: true,
             write_mode: contract.spark.iceberg_write_mode,
+            branch: Some(branch.clone()),
         };
         // A batch the table already holds is reported and skipped by append_batch_once.
         let summary = execute::spark(runtime, contract, &load)?;
@@ -484,7 +486,7 @@ async fn refresh_parts(
         .iter()
         .map(|part| part.object_key.clone())
         .collect();
-    confirm_recorded(catalog, &contract.table, &parts).await?;
+    publish_load(catalog, &contract.table, &branch, &parts).await?;
     runtime.reset_work()?;
     Ok((decision, key, Some(rows)))
 }
@@ -496,6 +498,41 @@ pub(super) fn part_batches(manifest: &HubManifest, size: u32) -> Vec<&[HubPart]>
         .parts
         .chunks(usize::try_from(size.max(1)).unwrap_or(1))
         .collect()
+}
+
+/// Prepares the branch the batches of load `identity` stage on (root ADR-0183): a branch left by
+/// an earlier attempt continues while `main` is still in its lineage, and is removed when `main`
+/// moved since, so the batches are staged again on the current `main`.
+async fn stage_load(
+    catalog: &IcebergRestCatalog,
+    table: &str,
+    identity: &str,
+) -> anyhow::Result<String> {
+    let branch = execute::load_branch(identity);
+    if catalog.remove_stale_branch(table, &branch).await? {
+        println!("silver-refresh {table}: branch {branch} no longer follows main; staging again");
+    }
+    Ok(branch)
+}
+
+/// Publishes the staged batches as `main` in one commit, then confirms `main` records every one
+/// (root ADR-0183). A table that had no snapshot when the load began was written on `main`
+/// directly (there was no branch to make and no reader); then there is nothing to publish.
+async fn publish_load(
+    catalog: &IcebergRestCatalog,
+    table: &str,
+    branch: &str,
+    identities: &[String],
+) -> anyhow::Result<()> {
+    let staged = catalog
+        .load_snapshot_refs(table)
+        .await?
+        .is_some_and(|refs| refs.refs.contains_key(branch));
+    if staged {
+        let head = catalog.publish_branch(table, branch).await?;
+        println!("silver-refresh {table}: published branch {branch} as main (snapshot {head})");
+    }
+    confirm_recorded(catalog, table, identities).await
 }
 
 async fn confirm_recorded(

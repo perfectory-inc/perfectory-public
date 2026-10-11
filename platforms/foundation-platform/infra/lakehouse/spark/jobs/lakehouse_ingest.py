@@ -21,6 +21,7 @@ itself — which reports the same green as passing.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -82,20 +83,55 @@ def snapshot_property_options(record_ids: Sequence[str], token: str) -> dict[str
     }
 
 
-def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str) -> dict[str, int]:
-    """Map every source object already appended to the snapshot that appended it.
+MAIN = "main"
+# A load branch is named by the Silver refresh lane that publishes it (`load_branch`,
+# remote_lakehouse_job/silver_refresh/execute.rs); here it only has to be an identifier, since a
+# write names it as `branch_<name>`.
+BRANCH_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
-    Reads the table's own snapshot summaries, so the answer comes from the same commit log
-    that holds the rows. Iceberg drops summaries when snapshots expire, so a retention window
-    shorter than a load leaves an appended object looking un-appended; keep the snapshots a
-    load produced until the load is finished. Iceberg's Flink documentation carries the same
-    warning about expiring the snapshots its committer reads back.
+
+def checked_ref(ref: str) -> str:
+    if ref != MAIN and not BRANCH_NAME.fullmatch(ref):
+        raise ValueError(f"not a load branch name: {ref!r}")
+    return ref
+
+
+def ref_lineage(spark: Any, qualified_table: str, ref: str = MAIN) -> set[int]:
+    """The snapshots of `ref`'s lineage: its head and each parent back as far as the metadata still
+    holds them. Empty when the reference does not exist (an empty table, a branch not yet made)."""
+    checked_ref(ref)
+    heads = spark.sql(f"SELECT snapshot_id FROM {qualified_table}.refs WHERE name = '{ref}'").collect()
+    if not heads:
+        return set()
+    parents = {int(row.snapshot_id): (None if row.parent_id is None else int(row.parent_id))
+               for row in spark.sql(f"SELECT snapshot_id, parent_id FROM {qualified_table}.snapshots").collect()}
+    lineage, current = set(), int(heads[0].snapshot_id)
+    while current is not None and current in parents and current not in lineage:
+        lineage.add(current)
+        current = parents[current]
+    return lineage
+
+
+def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> dict[str, int]:
+    """Map every source object `ref` records as appended to the snapshot that appended it.
+
+    Reads the snapshot summaries of `ref`'s lineage, so the answer comes from the same commit log
+    that holds the rows. `main` is what readers see; a load staged on its branch is recorded only
+    on that branch until it is published (root ADR-0183), so a retry asks the branch and "is this
+    release loaded" asks main. The Rust reader (`load_ingested_batch_objects`) asks main the same
+    way. Iceberg drops summaries when snapshots expire, so a retention window shorter than a load
+    leaves an appended object looking un-appended; keep the snapshots a load produced until the
+    load is finished. Iceberg's Flink documentation carries the same warning about expiring the
+    snapshots its committer reads back.
     """
     if not spark.catalog.tableExists(unquoted_table):
         return {}
 
+    lineage = ref_lineage(spark, qualified_table, ref)
     ingested: dict[str, int] = {}
     for row in spark.sql(f"SELECT snapshot_id, summary FROM {qualified_table}.snapshots").collect():
+        if int(row.snapshot_id) not in lineage:
+            continue
         recorded = (row.summary or {}).get(INGEST_BATCH_OBJECTS_KEY)
         if not recorded:
             continue
@@ -104,17 +140,18 @@ def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str)
     return ingested
 
 
-def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str) -> bool:
-    """Whether the table's current snapshot holds any rows.
+def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> bool:
+    """Whether the snapshot `ref` names holds any rows.
 
     Read from the snapshot summary rather than counted, because the question is only whether the
     table is empty and a count of 113,813,264 rows would open every file to answer it.
     """
     if not spark.catalog.tableExists(unquoted_table):
         return False
+    checked_ref(ref)
     rows = spark.sql(
         f"SELECT summary FROM {qualified_table}.snapshots "
-        f"WHERE snapshot_id = (SELECT snapshot_id FROM {qualified_table}.refs WHERE name = 'main')"
+        f"WHERE snapshot_id = (SELECT snapshot_id FROM {qualified_table}.refs WHERE name = '{ref}')"
     ).collect()
     for row in rows:
         total = (row.summary or {}).get("total-records")
@@ -300,6 +337,7 @@ def append_batch_once(
     contract_table: str,
     write_mode: str = "append",
     derivation: str | None = None,
+    branch: str | None = None,
 ) -> dict[str, Any]:
     """Append this batch, or report that the table already holds it.
 
@@ -320,13 +358,25 @@ def append_batch_once(
 
     `derivation` re-derives objects the table already holds under a new label; see
     `identities_under_derivation`.
+
+    `branch` stages the batch on that branch of the table, made from `main` when it does not exist
+    yet (root ADR-0183): a release loaded in several batches is written there and published to
+    `main` in one commit, so readers never see part of it. Whether the batch is already held is
+    asked of the branch, so a retried load continues where it stopped.
     """
     record_ids = identities_under_derivation(
         batch_load_identities(frame, contract_table), derivation
     )
     token = ingest_batch_token(record_ids)
     unquoted = unquoted_table_name(qualified_table)
-    ingested = read_ingested_objects(spark, qualified_table, unquoted)
+    ref = MAIN
+    target = qualified_table
+    # A table with no snapshot yet has nothing a branch could be made from, and no reader yet.
+    if branch is not None and ref_lineage(spark, qualified_table, MAIN):
+        ref = checked_ref(branch)
+        spark.sql(f"ALTER TABLE {qualified_table} CREATE BRANCH IF NOT EXISTS {ref}")
+        target = f"{qualified_table}.`branch_{ref}`"
+    ingested = read_ingested_objects(spark, qualified_table, unquoted, ref)
 
     # A table with rows and no registry is not an empty table. Read as one — which is what
     # happened until 2026-09-01 — every object looks unloaded and the whole table is appended a
@@ -334,7 +384,7 @@ def append_batch_once(
     # rows between them, because the guard arrived after they were loaded (root ADR-0069).
     #
     # Overwrite replaces what it writes, so the question does not arise there.
-    if write_mode != "overwrite" and not ingested and table_holds_rows(spark, qualified_table, unquoted):
+    if write_mode != "overwrite" and not ingested and table_holds_rows(spark, qualified_table, unquoted, ref):
         raise ValueError(
             f"{qualified_table} already holds rows but records no ingested objects, so this "
             "append cannot tell whether it would be the second one. Backfill the registry from "
@@ -347,11 +397,12 @@ def append_batch_once(
             "record_ids": record_ids,
             "token": token,
             "existing_snapshot": ingested[record_ids[0]],
+            "ref": ref,
         }
 
     # The DataFrame writer, not SQL: only this writer accepts the options that carry the
     # record of the append into the same commit as the rows.
-    writer = frame.select(*columns).writeTo(qualified_table)
+    writer = frame.select(*columns).writeTo(target)
     for key, value in snapshot_property_options(record_ids, token).items():
         writer = writer.option(key, value)
 
@@ -365,4 +416,5 @@ def append_batch_once(
         "record_ids": record_ids,
         "token": token,
         "existing_snapshot": None,
+        "ref": ref,
     }

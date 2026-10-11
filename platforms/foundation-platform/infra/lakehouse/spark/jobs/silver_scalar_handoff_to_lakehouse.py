@@ -32,7 +32,10 @@ from lakehouse_engine import (
 import lakehouse_object_store
 import pnu_null_share_guard
 from lakehouse_ingest import (
+    MAIN,
     MAX_BATCH_SOURCE_RECORDS,
+    checked_ref,
+    ref_lineage,
     append_batch_once,
     batch_load_identities,
     identities_under_derivation,
@@ -128,6 +131,12 @@ def parse_args() -> argparse.Namespace:
         "--allow-non-smoke-overwrite",
         action="store_true",
         help="Allow overwrite mode for tables whose names do not end with _smoke.",
+    )
+    parser.add_argument(
+        "--iceberg-branch",
+        help="Stage this batch on that branch of the table (root ADR-0183): a release loaded in "
+        "several batches is published to main in one commit by its loader, so readers never see "
+        "part of it. Read back from the same branch.",
     )
     parser.add_argument(
         "--validate-only",
@@ -765,6 +774,7 @@ def write_silver_iceberg(
         args.contract,
         write_mode=write_mode,
         derivation=derivation,
+        branch=getattr(args, "iceberg_branch", None),
     )
 
 
@@ -840,9 +850,13 @@ def read_iceberg_snapshot_for_pairs(
     args: argparse.Namespace,
     contract: dict[str, Any],
     F: Any,
+    ref: str = MAIN,
 ) -> Any:
+    table = qualified_iceberg_table(args)
+    if ref != MAIN:
+        table = f"{table}.`branch_{checked_ref(ref)}`"
     return (
-        spark.table(qualified_iceberg_table(args))
+        spark.table(table)
         .where(readback_pair_predicate(pairs, F))
         .select(*column_names(contract))
     )
@@ -881,7 +895,9 @@ def validate_batch_ingestion_time(
     if not spark.catalog.tableExists(unquoted):
         return
     ids = identities_under_derivation(batch_load_identities(frame, args.contract), derivation)
-    ingested = read_ingested_objects(spark, table, unquoted)
+    branch = getattr(args, "iceberg_branch", None)
+    ref = checked_ref(branch) if branch and ref_lineage(spark, table, branch) else MAIN
+    ingested = read_ingested_objects(spark, table, unquoted, ref)
     if all(identity in ingested for identity in ids):
         if not recorded_input_times_match(
             spark, table, {ingested[identity] for identity in ids}, frame, args.contract
@@ -1098,6 +1114,7 @@ def run_batched_input(
             args,
             contract,
             F,
+            outcome.get("ref", MAIN),
         )
         persisted_count, persisted_quality_metrics = validate_frame(
             persisted,
@@ -1198,7 +1215,9 @@ def main() -> int:
         else:
             if args.write_mode == "iceberg":
                 persisted = restrict_to_batch_loads(
-                    read_iceberg_snapshot_for_pairs(spark, readback_pairs, args, contract, F),
+                    read_iceberg_snapshot_for_pairs(
+                        spark, readback_pairs, args, contract, F, outcome.get("ref", MAIN)
+                    ),
                     frame,
                     args.contract,
                 )

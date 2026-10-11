@@ -262,6 +262,17 @@ pub(in crate::remote_lakehouse_job) struct SparkLoad {
     pub reads_r2: bool,
     /// How this load writes: a land release's first batch overwrites and the rest append.
     pub write_mode: WriteMode,
+    /// The branch a release loaded in several batches stages on until `publish_load` makes it
+    /// `main` (root ADR-0183); `None` writes `main`, for a load that is one commit already.
+    pub branch: Option<String>,
+}
+
+/// The branch the batches of load `identity` stage on: one per load, the same on every retry, so a
+/// resumed load continues on it (root ADR-0183). The only place a load branch is named.
+pub(in crate::remote_lakehouse_job) fn load_branch(identity: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
+    format!("load_{}", &digest[..16])
 }
 
 impl SparkLoad {
@@ -278,6 +289,7 @@ impl SparkLoad {
             expected_count: None,
             reads_r2: false,
             write_mode: contract.spark.iceberg_write_mode,
+            branch: None,
         }
     }
 }
@@ -363,6 +375,9 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
     }
     if let Some(count) = load.expected_count {
         args.extend(["--expected-count".to_owned(), count.to_string()]);
+    }
+    if let Some(branch) = &load.branch {
+        args.extend(["--iceberg-branch".to_owned(), branch.clone()]);
     }
     args
 }
