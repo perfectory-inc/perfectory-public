@@ -56,7 +56,11 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
-    elif which == "services" and job["enabled"]:
+    elif which == "services":
+        # Every registered job's service, a disabled one too: release admission refuses the build
+        # while any of them runs (require_no_registered_job_running, ADR-0137), and an operator
+        # starts a disabled lane for its supervised run (2026-10-11: the deploy waited only for
+        # the enabled ones, reached the build beside a running lane and failed).
         print(job["systemd_service"])
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
         print(job["systemd_service"], job["timeout_minutes"])
