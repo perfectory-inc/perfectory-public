@@ -75,17 +75,7 @@ impl ParentInputs {
             validate_zip_entry(&path, expected_entry)?;
             located.push((role, path));
         }
-        ProviderRelease::of_files_in(
-            month,
-            located
-                .iter()
-                .map(|(_, path)| {
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .context("invalid Bronze object file name")
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        )?;
+        ProviderRelease::of_paths_in(month, located.iter().map(|(_, path)| path.as_path()))?;
         let mut paths = Vec::new();
         let mut evidence = Vec::new();
         for (role, path) in located {

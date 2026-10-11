@@ -197,6 +197,25 @@ impl ProviderRelease {
         Ok(release)
     }
 
+    /// [`Self::of_files_in`] for located Bronze files: the names are the paths' last components.
+    ///
+    /// # Errors
+    /// Refuses a path without a UTF-8 file name, or what [`Self::of_files_in`] refuses.
+    pub fn of_paths_in<'a, I>(month: ProviderMonth, paths: I) -> anyhow::Result<Self>
+    where
+        I: IntoIterator<Item = &'a std::path::Path>,
+    {
+        let names = paths
+            .into_iter()
+            .map(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .with_context(|| format!("{} has no Bronze object file name", path.display()))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Self::of_files_in(month, names)
+    }
+
     /// The release's provider month.
     #[must_use]
     pub const fn month(self) -> ProviderMonth {

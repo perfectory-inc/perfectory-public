@@ -210,7 +210,8 @@ mod tests {
             ),
             (
                 "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-                "9223372036854771712".to_owned(),
+                // v1's "no limit": i64::MAX rounded down to a 4 KiB page.
+                ((u64::MAX >> 1) & !4095).to_string(),
             ),
         ]);
         assert_eq!(available_bytes_from(&read), Some(3 * GIB));
