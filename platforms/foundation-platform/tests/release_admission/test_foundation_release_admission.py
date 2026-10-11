@@ -133,6 +133,15 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.unsealed = set()
         self.verify()
 
+    def test_a_sealed_release_is_only_checked_never_sealed_again(self):
+        # 2026-10-11: install sealed the release, FLOOR config's check of it ran chattr -R +i over
+        # the immutable tree again, chattr failed on the host and the deploy stopped.
+        self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
+        self.addCleanup(lambda: self.make_writable(self.target))
+        self.module.seal_release(self.expected(), self.merged, self.target, os.getuid())
+        self.module.seal_release(self.expected(), self.merged, self.target, os.getuid())
+        self.assertEqual(self.chattr, [("+i", self.target)], "a sealed release was sealed again")
+
     def test_seal_refuses_a_changed_release_before_it_seals_it(self):
         self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
         self.addCleanup(lambda: self.make_writable(self.target))
