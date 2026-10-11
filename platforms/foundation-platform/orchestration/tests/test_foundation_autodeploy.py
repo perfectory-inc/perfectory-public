@@ -410,6 +410,16 @@ class TheWholeDeploy(unittest.TestCase):
                     for line in (self.root / "airflow.log").read_text().splitlines() if line.startswith("dags unpause")]
         self.assertEqual(unpaused[-len(self.ENABLED):], list(reversed(self.ENABLED)))
 
+    def test_the_deploy_waits_for_every_registered_job_a_disabled_one_too(self):
+        # 2026-10-11: an operator ran a disabled lane's supervised run; the deploy waited only for
+        # the enabled jobs, reached the release build beside it, and admission refused the build.
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        asked = [line.split()[-1] for line in (self.root / "systemctl.log").read_text().splitlines()
+                 if "ActiveState" in line]
+        for job in self.ENABLED + self.DISABLED:
+            self.assertIn(f"foundation-{job}.service", asked)
+
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
