@@ -125,9 +125,13 @@ ensure_image() {
   fi
   # The context is exactly the hashed inputs, so the name says what the image was built from.
   local context="${ROOT_DIR}/context"
+  # The release is read-only and `cp -R` copies directory modes: the first file landed in a copied
+  # directory the next could not enter, and the next run could not remove it (2026-10-11, the first
+  # build). The copy takes default modes; a leftover from an older copy is made removable first.
+  [[ ! -e "${context}" ]] || chmod -R u+w "${context}"
   rm -rf "${context}"
   mkdir -p "${context}"
-  (cd "${RELEASE_ROOT}" && cp -R --parents "${image_inputs[@]}" "${context}/")
+  (cd "${RELEASE_ROOT}" && cp -R --parents --no-preserve=mode "${image_inputs[@]}" "${context}/")
   find "${context}" -name __pycache__ -prune -exec rm -rf {} +
   # The Docker CLI keeps its state under DOCKER_CONFIG; the unit's home is not writable.
   mkdir -p "${ROOT_DIR}/docker-config"
