@@ -56,12 +56,6 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
-    elif which == "services":
-        # Every registered job's service, a disabled one too: release admission refuses the build
-        # while any of them runs (require_no_registered_job_running, ADR-0137), and an operator
-        # starts a disabled lane for its supervised run (2026-10-11: the deploy waited only for
-        # the enabled ones, reached the build beside a running lane and failed).
-        print(job["systemd_service"])
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
         print(job["systemd_service"], job["timeout_minutes"])
 if which == "enabled-consumers-first":
@@ -79,7 +73,10 @@ PY
 }
 mapfile -t jobs < <(jobs_of enabled)
 mapfile -t disabled < <(jobs_of disabled)
-mapfile -t units < <(jobs_of services)
+# Which registered jobs run is release admission's answer, the one its build refuses on (root
+# ADR-0184): asked here before step 1 moves the control checkout, so the deploy waits on the list the
+# checkout it came from admits by. 0 nothing runs, 75 something does (listed), anything else: no answer.
+admission="${control_root}/current/scripts/deploy/foundation-release-admission.py"
 old="$(readlink -f "${release_root}/current")"; old="${old##*/}"
 
 log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
@@ -93,18 +90,18 @@ for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; don
 echo "paused ${#jobs[@]} DAGs"
 # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
 for id in "${disabled[@]}"; do airflow dags pause "foundation_${id}" >/dev/null 2>&1 || true; done
-busy=()
+running=75
 for _ in $(seq 1 1800); do
-  busy=()
-  for unit in "${units[@]}"; do
-    state="$(systemctl show -p ActiveState --value "${unit}")"
-    [[ "${state}" == inactive || "${state}" == failed ]] || busy+=("${unit}=${state}")
-  done
-  ((${#busy[@]} == 0)) && break
+  running=0
+  busy="$("${admission}" running-jobs)" || running=$?
+  ((running == 75)) || break
   sleep 10
 done
-((${#busy[@]} == 0)) || { echo "jobs still running after 5h: ${busy[*]}"; exit 1; }
-echo "no registered job is running"
+case "${running}" in
+  0) echo "no registered job is running" ;;
+  75) echo "jobs still running after 5h: $(tr '\n' ' ' <<<"${busy}")"; exit 1 ;;
+  *) echo "foundation-deploy: release admission cannot tell which registered jobs run (exit ${running})" >&2; exit 1 ;;
+esac
 
 log "1. control checkout at ${sha}"
 /bin/bash "${control_root}/current/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \

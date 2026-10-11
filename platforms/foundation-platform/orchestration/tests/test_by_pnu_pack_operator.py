@@ -30,24 +30,31 @@ with open(os.environ["FAKE_LOG"], "a") as log:
 '''
 
 # Units named in FAKE_ACTIVE (comma separated) are active, those in FAKE_ACTIVATING are a oneshot
-# job's run (`activating`, which `is-active` calls not active); every other unit is inactive.
+# job's run (`activating`, which `is-active` calls not active), FAKE_STATES gives "unit=state" pairs
+# (a failed unit too, which `list-units --all` shows); every other unit is inactive. Under
+# FAKE_SYSTEMD_DOWN no listing answers.
 FAKE_SYSTEMCTL = r'''#!/usr/bin/env python3
 import fnmatch, os, sys
-active = [unit for unit in os.environ.get("FAKE_ACTIVE", "").split(",") if unit]
-activating = [unit for unit in os.environ.get("FAKE_ACTIVATING", "").split(",") if unit]
+def service(unit):
+    return unit if unit.endswith(".service") else unit + ".service"
+states = {service(unit): "active" for unit in os.environ.get("FAKE_ACTIVE", "").split(",") if unit}
+states.update({service(unit): "activating" for unit in os.environ.get("FAKE_ACTIVATING", "").split(",") if unit})
+states.update({service(pair.split("=")[0]): pair.split("=")[1]
+               for pair in os.environ.get("FAKE_STATES", "").split(",") if pair})
 args = sys.argv[1:]
 named = [arg for arg in args[1:] if not arg.startswith("-")]
 if args[0] == "is-active":
-    states = ["active" if unit in active or unit + ".service" in active else
-              "activating" if unit in activating or unit + ".service" in activating else "inactive" for unit in named]
+    answers = [states.get(service(unit), "inactive") for unit in named]
     if "--quiet" not in args:
-        print("\n".join(states))
-    sys.exit(0 if all(state == "active" for state in states) else 3)
+        print("\n".join(answers))
+    sys.exit(0 if all(answer == "active" for answer in answers) else 3)
 if args[0] == "list-units":
-    for state, units in (("active", active), ("activating", activating)):
-        for unit in units:
-            if any(fnmatch.fnmatch(name, named[0]) for name in (unit, unit + ".service")):
-                print(f"{unit} loaded {state} running fixture")
+    if os.environ.get("FAKE_SYSTEMD_DOWN"):
+        sys.exit("Failed to connect to bus")
+    assert "--all" in args and "--type=service" in args, args
+    for unit, state in states.items():
+        if any(fnmatch.fnmatch(unit, pattern) for pattern in named):
+            print(f"{unit} loaded {state} x fixture")
     sys.exit(0)
 if args[0] in ("start", "status"):
     import json
@@ -132,9 +139,11 @@ class PackOperator(unittest.TestCase):
         (work / "summaries/shard-11.json").write_text(json.dumps({"gold_iceberg_snapshot_id": "777"}))
         return work
 
-    def run_operator(self, *args, active=(), activating=()):
+    def run_operator(self, *args, active=(), activating=(), states=None, **env):
         result = subprocess.run(["bash", str(SCRIPT), *args],
-                                env={**self.env, "FAKE_ACTIVE": ",".join(active), "FAKE_ACTIVATING": ",".join(activating)},
+                                env={**self.env, "FAKE_ACTIVE": ",".join(active), "FAKE_ACTIVATING": ",".join(activating),
+                                     "FAKE_STATES": ",".join(f"{unit}={state}" for unit, state in (states or {}).items()),
+                                     **env},
                                 capture_output=True, text=True, timeout=60)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
         return result, calls
@@ -180,6 +189,32 @@ class PackOperator(unittest.TestCase):
         # stopped, so a bake could start under it (2026-10-10).
         result, calls = self.run_operator("parcel", "bake", "1", activating=["foundation-gold-panel-rebuild.service"])
         self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
+
+    def test_running_is_the_one_definition_every_state_but_inactive_and_failed(self):
+        # job_units.py decides (root ADR-0184): a unit stopping or reloading still runs; a failed one
+        # does not hold anything back. Each refusal site asks it, the pack bakes' pattern and the
+        # generation's own unit too.
+        self.work()
+        for state in ("deactivating", "reloading", "maintenance"):
+            for unit, args in (("foundation-gold-panel-rebuild.service", ("parcel", "bake", "1")),
+                               ("foundation-building-pack-bake-g7.service", ("parcel", "gold-rebuild")),
+                               ("foundation-parcel-pack-equality-g1.service", ("parcel", "equality", "1")),
+                               ("foundation-silver-refresh@land-use-plan.service",
+                                ("silver", "start", "land-characteristic"))):
+                with self.subTest(state=state, unit=unit):
+                    self.log.unlink(missing_ok=True)
+                    result, calls = self.run_operator(*args, states={unit: state})
+                    self.assertEqual(result.returncode, 75, result.stderr)
+                    self.assertFalse([c for c in calls if c["tool"] == "systemd-run" or c["args"][:1] == ["start"]])
+        result, calls = self.run_operator("parcel", "bake", "1", states={"foundation-gold-panel-rebuild.service": "failed"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue([c for c in calls if c["tool"] == "systemd-run"])
+
+    def test_a_systemd_that_cannot_answer_starts_nothing(self):
+        result, calls = self.run_operator("parcel", "bake", "1", FAKE_SYSTEMD_DOWN="1")
+        self.assertEqual(result.returncode, 70, result.stderr)
+        self.assertIn("systemd cannot tell whether", result.stderr)
         self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
 
     def test_raon_build_and_plan_wait_as_the_service_with_the_contract_environment(self):

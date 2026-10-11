@@ -40,6 +40,19 @@ class ReleaseAdmissionTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("release_admission", SCRIPT)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+        # The kernel's immutable attribute, faked: an unprivileged test cannot run chattr +i. A path is
+        # immutable when a sealed tree holds it and it is not in `self.unsealed` (root ADR-0184).
+        self.sealed, self.unsealed, self.chattr = set(), set(), []
+        def set_immutable(target, sealed):
+            self.chattr.append(("+i" if sealed else "-i", target))
+            (self.sealed.add if sealed else self.sealed.discard)(Path(target))
+        def immutable(path):
+            path = Path(path)
+            return path not in self.unsealed and any(root == path or root in path.parents for root in self.sealed)
+        for name, fake in (("set_immutable", set_immutable), ("immutable", immutable)):
+            patcher = mock.patch.object(self.module, name, side_effect=fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="foundation-release-admission-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -81,6 +94,8 @@ class ReleaseAdmissionTests(unittest.TestCase):
     def install(self):
         self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
         self.addCleanup(lambda: self.make_writable(self.target))
+        # foundation-release.sh seals the release once it is in place (root ADR-0184).
+        self.module.seal_release(self.expected(), self.merged, self.target, os.getuid())
 
     def verify(self):
         self.module.verify_release(self.expected(), self.merged, self.target, os.getuid())
@@ -98,6 +113,80 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.install()
         self.verify()
         self.assertEqual((self.target / "scripts/job.py").read_bytes(), b"print('official')\n")
+
+    def test_an_installed_release_must_be_sealed_immutable(self):
+        # 2026-10-10: a root import wrote __pycache__ through the 0555 modes into the release, and
+        # admission refused every job. The kernel's immutable attribute is what root cannot write
+        # through; a release without it is refused, whole or one entry at a time (root ADR-0184).
+        self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
+        self.addCleanup(lambda: self.make_writable(self.target))
+        with self.assertRaisesRegex(ValueError, "not sealed immutable"):
+            self.verify()
+        self.module.seal_release(self.expected(), self.merged, self.target, os.getuid())
+        self.assertEqual(self.chattr, [("+i", self.target)])
+        self.verify()
+        for entry in (self.target, self.target / "scripts", self.target / "scripts/job.py"):
+            with self.subTest(entry=entry):
+                self.unsealed = {entry}
+                with self.assertRaisesRegex(ValueError, "not sealed immutable"):
+                    self.verify()
+        self.unsealed = set()
+        self.verify()
+
+    def test_seal_refuses_a_changed_release_before_it_seals_it(self):
+        self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
+        self.addCleanup(lambda: self.make_writable(self.target))
+        path = self.target / "scripts/job.py"
+        path.chmod(0o644)
+        path.write_text("print('private')\n")
+        path.chmod(0o444)
+        with self.assertRaisesRegex(ValueError, "contents"):
+            self.module.seal_release(self.expected(), self.merged, self.target, os.getuid())
+        self.assertEqual(self.chattr, [], "a release that fails its check is not sealed as it is")
+
+    def test_seal_and_unseal_are_chattr_on_the_whole_tree(self):
+        real = self.unfaked()
+        calls = []
+        def run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0)
+        with mock.patch.object(real.subprocess, "run", side_effect=run):
+            real.set_immutable(self.target, True)
+            real.set_immutable(self.target, False)
+        self.assertEqual(calls, [["/usr/bin/chattr", "-R", "+i", str(self.target)],
+                                 ["/usr/bin/chattr", "-R", "-i", str(self.target)]])
+        with mock.patch.object(real.subprocess, "run", side_effect=subprocess.CalledProcessError(1, ["chattr"])):
+            with self.assertRaisesRegex(ValueError, "chattr \\+i failed"):
+                real.set_immutable(self.target, True)
+
+    @staticmethod
+    def unfaked():
+        """A second copy of admission whose kernel calls are its own, not setUp's fakes."""
+        spec = importlib.util.spec_from_file_location("release_admission_unfaked", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_immutable_attribute_is_read_from_the_inode(self):
+        real = self.unfaked()
+        file = self.root / "file"
+        file.write_text("x")
+        for flags, expected in ((0x10, True), (0x80000, False), (0x80010, True), (0, False)):
+            with self.subTest(flags=hex(flags)):
+                answer = flags.to_bytes(4, sys.byteorder) + bytes(4)
+                with mock.patch.object(real.fcntl, "ioctl", return_value=answer) as ioctl:
+                    self.assertIs(real.immutable(file), expected)
+                    self.assertEqual(ioctl.call_args[0][1], real.FS_IOC_GETFLAGS)
+                    self.assertIs(real.immutable(self.root), expected)
+        # A filesystem that cannot hold the attribute fails closed, by name.
+        with mock.patch.object(real.fcntl, "ioctl", side_effect=OSError(25, "Inappropriate ioctl for device")):
+            with self.assertRaisesRegex(ValueError, "chattr \\+i"):
+                real.immutable(file)
+        # The real ioctl: this unprivileged test cannot set the attribute, so a fresh file lacks it.
+        try:
+            self.assertFalse(real.immutable(file))
+        except ValueError as error:
+            self.assertIn("chattr +i", str(error))
 
     def test_known_unmerged_commit_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "canonical main"):
@@ -491,15 +580,48 @@ class ReleaseAdmissionTests(unittest.TestCase):
     def systemctl_fixture(self, states):
         """Answers like systemd: a oneshot is `activating` for its whole run, and `is-active` is 0 only for `active`."""
         def run(args, **kwargs):
-            unit = args[-1]
-            state = states.get(unit, "inactive")
-            if args[1] == "show":
-                self.assertEqual(args[2:4], ["--property=ActiveState", "--value"])
-                return subprocess.CompletedProcess(args, 0, stdout=state + "\n", stderr="")
+            if args[1] == "list-units":
+                named = [arg for arg in args[2:] if not arg.startswith("-")]
+                lines = [f"{unit} loaded {states.get(unit, 'inactive')} x fixture" for unit in named]
+                return subprocess.CompletedProcess(args, 0, stdout="\n".join(lines) + "\n", stderr="")
             if args[1:3] == ["is-active", "--quiet"]:
-                return subprocess.CompletedProcess(args, 0 if state == "active" else 3)
+                return subprocess.CompletedProcess(args, 0 if states.get(args[-1]) == "active" else 3)
             raise AssertionError(f"unexpected systemctl call {args}")
         return run
+
+    def test_running_registered_jobs_is_job_units_answer(self):
+        # One definition (root ADR-0184): the registry's services and the running rule both come from
+        # job_units.py, which the deploy's wait reaches through `running-jobs`.
+        specs = self.root / "jobs.v1.json"
+        specs.write_text(json.dumps({"jobs": [{"systemd_service": "fixture-spark.service"}]}))
+        units = self.module.job_units()
+        self.assertEqual(units.__file__, str(self.module.JOB_UNITS))
+        with mock.patch.object(self.module, "JOB_SPECS", specs), \
+                mock.patch.object(self.module, "job_units", return_value=mock.Mock(
+                    registered_services=mock.Mock(return_value=["fixture-spark.service"]),
+                    running=mock.Mock(return_value={"fixture-spark.service": "maintenance"}))) as job_units:
+            self.assertEqual(self.module.running_registered_jobs(), {"fixture-spark.service": "maintenance"})
+            job_units.return_value.registered_services.assert_called_once_with(specs)
+            self.assertEqual(job_units.return_value.running.call_args[0][0], ["fixture-spark.service"])
+
+    def test_running_jobs_answers_the_deploy_by_exit_status(self):
+        def main(answer):
+            with mock.patch.object(self.module.os, "geteuid", return_value=0), \
+                    mock.patch.object(self.module, "CanonicalSource"), \
+                    mock.patch.object(self.module, "running_registered_jobs", side_effect=answer), \
+                    mock.patch.object(sys, "argv", ["admission", "running-jobs"]), \
+                    mock.patch.object(sys, "stderr", io.StringIO()) as stderr, \
+                    mock.patch.object(sys, "stdout", io.StringIO()) as stdout:
+                return self.module.main(), stdout.getvalue(), stderr.getvalue()
+        self.assertEqual(main(lambda: {})[0], 0)
+        status, out, _ = main(lambda: {"fixture-spark.service": "activating"})
+        self.assertEqual((status, out), (75, "fixture-spark.service activating\n"))
+        # systemd that cannot answer is never "nothing runs".
+        def unanswered():
+            raise ValueError("host precondition: systemctl cannot report the registered jobs (ADR-0137)")
+        status, _, err = main(unanswered)
+        self.assertEqual(status, 65)
+        self.assertIn("cannot report", err)
 
     def test_the_build_does_not_start_beside_a_running_registered_job(self):
         specs = self.root / "jobs.v1.json"
@@ -507,7 +629,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
                                               {"systemd_service": "fixture-fold@a.service"}]}))
         # A running oneshot job is `activating`, never `active`: the 2026-10-03 review found the
         # first version of this check asked `is-active` and let a running FLOOR through.
-        for state in ("activating", "deactivating", "active", "reloading"):
+        for state in ("activating", "deactivating", "active", "reloading", "maintenance"):
             with self.subTest(state=state):
                 with mock.patch.object(self.module, "JOB_SPECS", specs), \
                         mock.patch.object(self.module.subprocess, "run",

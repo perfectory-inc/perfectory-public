@@ -85,24 +85,30 @@ case "${checks%% *}" in
     ;;
 esac
 
+# Whether a unit runs is job_units.py's answer (root ADR-0184). A systemd that cannot answer is not
+# "nothing runs": the tick fails, and its OnFailure says so. Assign its output before testing it;
+# a failure inside `[[ -n "$(...)" ]]` would not stop the script.
+running_units() {
+  python3 -I -B "${platform}/scripts/deploy/job_units.py" running "$@" \
+    || { log "systemd cannot tell which units run; asking again next time" >&2; exit 1; }
+}
+running="$(running_units 'foundation-*')"
 operator_units=()
 while read -r unit _; do
-  if [[ "$(systemctl show -p Transient --value "${unit}")" == yes ]]; then
+  if [[ -n "${unit}" && "$(systemctl show -p Transient --value "${unit}")" == yes ]]; then
     operator_units+=("${unit}")
   fi
-done < <(systemctl list-units --type=service --state=active,activating,deactivating,reloading \
-  --no-legend --plain 'foundation-*')
+done <<<"${running}"
 if ((${#operator_units[@]} > 0)); then
   log "${head}: waiting for the operator's ${operator_units[*]}"
   exit 0
 fi
 # A Worker deploy reads the control checkout and the release this deploy is about to replace.
-case "$(systemctl show -p ActiveState --value "${worker_unit}" 2>/dev/null)" in
-  active | activating | deactivating | reloading)
-    log "${head}: waiting for the Worker deploy (${worker_unit})"
-    exit 0
-    ;;
-esac
+running="$(running_units "${worker_unit}")"
+if [[ -n "${running}" ]]; then
+  log "${head}: waiting for the Worker deploy (${worker_unit})"
+  exit 0
+fi
 
 log "deploying ${head} over ${current} (${checks#* })"
 mkdir -p "${state}/failed" "${state}/deployed"
