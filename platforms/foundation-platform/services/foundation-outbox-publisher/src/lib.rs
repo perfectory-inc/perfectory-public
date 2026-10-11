@@ -38,6 +38,12 @@ pub mod building_register_zip_lines;
 /// Shared FLOOR producer and native resource contract support.
 pub mod building_register_snapshot;
 
+/// The one definition of a hub.go.kr Bronze file's provider day, month and release.
+pub mod hub_provider_release;
+
+/// How much memory the process may still allocate, from its cgroup and the host.
+mod process_memory;
+
 /// Shared FLOOR producer and native resource contract support.
 pub mod building_register_source_role;
 

@@ -1,13 +1,13 @@
 //! The newest complete release of a lane, read from the Bronze ledger (root ADR-0169 §2).
 //!
-//! A hub.go.kr release is one provider month: the ledger records each monthly ZIP with
-//! `snapshot_date` on the first of that month (granularity month, basis provider file period), and
-//! the file name `OPN<YYYYMMDD>...zip` carries the day the provider exported it. FLOOR picks its
-//! pair the same way (`latest_complete_bronze_month_candidates`, root ADR-0128).
+//! A hub.go.kr release is one provider month exported on one day; what that means for a file
+//! name, a ledger month and `valid_from` is defined once, in `hub_provider_release`. FLOOR picks
+//! its pair the same way (`latest_complete_bronze_month_candidates`, root ADR-0128).
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{bail, ensure, Context};
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
+use foundation_outbox_publisher::hub_provider_release::{ProviderMonth, ProviderRelease};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 
@@ -33,17 +33,13 @@ impl LedgerObject {
             .next()
             .unwrap_or(self.object_key.as_str())
     }
-
-    fn provider_day(&self) -> anyhow::Result<NaiveDate> {
-        foundation_outbox_publisher::building_register_snapshot::object_date(self.file_name())
-    }
 }
 
 /// The release a run loads: one object per role, all of one provider month.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::remote_lakehouse_job) struct Release {
-    /// The provider month (the first of it, as the ledger keeps it).
-    pub month: NaiveDate,
+    /// The provider month the ledger files the objects under.
+    pub month: ProviderMonth,
     /// Role name to the object that role loads.
     pub objects: BTreeMap<String, LedgerObject>,
     /// Newer months that lacked a role, for the log; they are not loaded.
@@ -53,12 +49,12 @@ pub(in crate::remote_lakehouse_job) struct Release {
 impl Release {
     /// `YYYYMM`, the hub tables' `vintage`.
     pub(in crate::remote_lakehouse_job) fn vintage(&self) -> String {
-        self.month.format("%Y%m").to_string()
+        self.month.vintage()
     }
 
     /// The rows' validity: the first of the provider month, as FLOOR states it.
     pub(in crate::remote_lakehouse_job) fn valid_from_utc(&self) -> String {
-        format!("{}T00:00:00Z", self.month)
+        self.month.valid_from_rfc3339()
     }
 
     /// The load identity of a one-run lane: the lane, the month, and a digest of exactly the
@@ -75,7 +71,7 @@ impl Release {
         format!(
             "{}{}-{}",
             run_identity_prefix(lane),
-            self.month.format("%Y%m"),
+            self.month.vintage(),
             &hex[..16]
         )
     }
@@ -147,7 +143,8 @@ pub(in crate::remote_lakehouse_job) fn select(
             continue;
         }
         let release = Release {
-            month,
+            month: ProviderMonth::from_first_day(month)
+                .context("the ledger's hub month is not a provider month")?,
             objects,
             skipped_incomplete,
         };
@@ -199,12 +196,7 @@ pub(in crate::remote_lakehouse_job) fn newest<'a>(
 }
 
 fn validate(roles: &BTreeMap<String, String>, release: &Release) -> anyhow::Result<()> {
-    ensure!(
-        release.month.day() == 1,
-        "the ledger's hub month {} is not the first of a month",
-        release.month
-    );
-    let mut days = BTreeSet::new();
+    let mut files = Vec::new();
     for (role, object) in &release.objects {
         let slug = roles
             .get(role)
@@ -214,12 +206,6 @@ fn validate(roles: &BTreeMap<String, String>, release: &Release) -> anyhow::Resu
             .strip_prefix(&format!("bronze/source={slug}/"))
             .filter(|name| !name.contains('/'))
             .with_context(|| format!("{} is not a {slug} Bronze object", object.object_key))?;
-        let day = object.provider_day()?;
-        ensure!(
-            day.year() == release.month.year() && day.month() == release.month.month(),
-            "{file} names {day}, outside the ledger's month {}",
-            release.month
-        );
         ensure!(
             object.size_bytes > 0
                 && object.checksum_sha256.len() == 64
@@ -229,12 +215,10 @@ fn validate(roles: &BTreeMap<String, String>, release: &Release) -> anyhow::Resu
                     .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
             "{file} has no byte evidence in the ledger"
         );
-        days.insert(day);
+        files.push(file);
     }
-    ensure!(
-        days.len() == 1,
-        "the release's files come from different provider export days: {days:?}"
-    );
+    // The files must be of the ledger's month and exported on one day.
+    ProviderRelease::of_files_in(release.month, files)?;
     Ok(())
 }
 

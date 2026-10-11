@@ -1,0 +1,227 @@
+//! How much more memory this process may allocate, read from the kernel at run time.
+//!
+//! A command that sizes its working set (the HUB export's worker count) must follow the limit of
+//! whatever runs it, not a number written beside the code: the Silver lane unit's
+//! `MemoryMax=16G` (`infra/systemd/foundation-silver-refresh@.service`, counted by
+//! `tools/host-memory-budget.contract.json`), a container's `--memory`, or a host with no cap.
+//! Linux publishes that limit as the process's cgroup: `memory.max` (cgroup v2) or
+//! `memory.limit_in_bytes` (v1) on the cgroup `/proc/self/cgroup` names, and on every ancestor,
+//! since a slice's cap bounds everything under it. A limit is a share of the whole cgroup, so what
+//! is left is the limit minus the cgroup's current usage. The host's `MemAvailable` bounds it too.
+use std::path::{Path, PathBuf};
+
+const CGROUP_V2_ROOT: &str = "/sys/fs/cgroup";
+const CGROUP_V1_MEMORY_ROOT: &str = "/sys/fs/cgroup/memory";
+/// cgroup v1 writes "no limit" as a page-rounded `i64::MAX`; anything this large is no limit.
+const CGROUP_V1_UNLIMITED: u64 = 1 << 62;
+
+/// The bytes this process may still allocate: the smallest headroom of its cgroup chain and the
+/// host's available memory. `None` when the platform publishes neither (not Linux).
+#[must_use]
+pub fn available_bytes() -> Option<u64> {
+    available_bytes_from(&|path| std::fs::read_to_string(path).ok())
+}
+
+/// [`available_bytes`] over an injected file reader, so the parsing is tested without a kernel.
+pub fn available_bytes_from(read: &dyn Fn(&Path) -> Option<String>) -> Option<u64> {
+    let cgroup = read(Path::new("/proc/self/cgroup")).and_then(|text| cgroup_headroom(&text, read));
+    let host = read(Path::new("/proc/meminfo")).and_then(|text| mem_available(&text));
+    match (cgroup, host) {
+        (Some(cgroup), Some(host)) => Some(cgroup.min(host)),
+        (one, other) => one.or(other),
+    }
+}
+
+/// The smallest `limit − usage` over the process's cgroup and its ancestors; `None` when no level
+/// sets a limit.
+fn cgroup_headroom(self_cgroup: &str, read: &dyn Fn(&Path) -> Option<String>) -> Option<u64> {
+    // cgroup v2 has one hierarchy, written as `0::<path>`.
+    if let Some(path) = self_cgroup
+        .lines()
+        .find_map(|line| line.strip_prefix("0::"))
+    {
+        return smallest_headroom(
+            Path::new(CGROUP_V2_ROOT),
+            path,
+            "memory.max",
+            "memory.current",
+            read,
+        );
+    }
+    // cgroup v1 has a memory hierarchy, written as `<id>:<controllers>:<path>`.
+    let path = self_cgroup.lines().find_map(|line| {
+        let mut fields = line.splitn(3, ':');
+        let _id = fields.next()?;
+        let controllers = fields.next()?;
+        controllers
+            .split(',')
+            .any(|controller| controller == "memory")
+            .then(|| fields.next())
+            .flatten()
+    })?;
+    smallest_headroom(
+        Path::new(CGROUP_V1_MEMORY_ROOT),
+        path,
+        "memory.limit_in_bytes",
+        "memory.usage_in_bytes",
+        read,
+    )
+}
+
+fn smallest_headroom(
+    root: &Path,
+    cgroup_path: &str,
+    limit_file: &str,
+    usage_file: &str,
+    read: &dyn Fn(&Path) -> Option<String>,
+) -> Option<u64> {
+    let mut directory: PathBuf = root.to_path_buf();
+    let mut levels = vec![directory.clone()];
+    for segment in cgroup_path.split('/').filter(|segment| !segment.is_empty()) {
+        // A path that climbs is not a cgroup this process is in; read nothing outside the root.
+        if segment == ".." {
+            return None;
+        }
+        directory.push(segment);
+        levels.push(directory.clone());
+    }
+    levels
+        .iter()
+        .filter_map(|level| {
+            let limit = read(&level.join(limit_file))?
+                .trim()
+                .parse::<u64>()
+                .ok()
+                .filter(|limit| *limit < CGROUP_V1_UNLIMITED)?;
+            let usage = read(&level.join(usage_file))
+                .and_then(|text| text.trim().parse::<u64>().ok())
+                .unwrap_or(0);
+            Some(limit.saturating_sub(usage))
+        })
+        .min()
+}
+
+/// `MemAvailable` of `/proc/meminfo`, in bytes.
+fn mem_available(meminfo: &str) -> Option<u64> {
+    let line = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemAvailable:"))?;
+    let mut fields = line.split_whitespace();
+    let value = fields.next()?.parse::<u64>().ok()?;
+    match fields.next() {
+        Some("kB") => value.checked_mul(1024),
+        None => Some(value),
+        Some(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    const GIB: u64 = 1024 * 1024 * 1024;
+
+    fn files(entries: &[(&str, String)]) -> impl Fn(&Path) -> Option<String> {
+        let map: BTreeMap<PathBuf, String> = entries
+            .iter()
+            .map(|(path, text)| (PathBuf::from(path), text.clone()))
+            .collect();
+        move |path| map.get(path).cloned()
+    }
+
+    fn unit(path: &str) -> String {
+        format!("{CGROUP_V2_ROOT}/system.slice/foundation-silver-refresh@x.service/{path}")
+    }
+
+    #[test]
+    fn a_systemd_unit_cap_leaves_its_limit_minus_its_usage() {
+        let read = files(&[
+            (
+                "/proc/self/cgroup",
+                "0::/system.slice/foundation-silver-refresh@x.service\n".to_owned(),
+            ),
+            (&unit("memory.max"), format!("{}\n", 16 * GIB)),
+            (&unit("memory.current"), format!("{GIB}\n")),
+            (
+                &format!("{CGROUP_V2_ROOT}/system.slice/memory.max"),
+                "max\n".to_owned(),
+            ),
+            ("/proc/meminfo", "MemAvailable:   104857600 kB\n".to_owned()),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(15 * GIB));
+    }
+
+    #[test]
+    fn a_tighter_ancestor_or_host_wins() {
+        let read = files(&[
+            ("/proc/self/cgroup", "0::/a.slice/b.service\n".to_owned()),
+            (
+                &format!("{CGROUP_V2_ROOT}/a.slice/b.service/memory.max"),
+                format!("{}", 16 * GIB),
+            ),
+            (
+                &format!("{CGROUP_V2_ROOT}/a.slice/memory.max"),
+                format!("{}", 8 * GIB),
+            ),
+            (
+                &format!("{CGROUP_V2_ROOT}/a.slice/memory.current"),
+                format!("{}", 2 * GIB),
+            ),
+            ("/proc/meminfo", "MemAvailable:   104857600 kB\n".to_owned()),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(6 * GIB));
+        let read = files(&[
+            ("/proc/self/cgroup", "0::/\n".to_owned()),
+            ("/sys/fs/cgroup/memory.max", format!("{}", 16 * GIB)),
+            ("/proc/meminfo", "MemAvailable:   4194304 kB\n".to_owned()),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(4 * GIB));
+    }
+
+    #[test]
+    fn no_limit_falls_back_to_the_host_and_then_to_unknown() {
+        let read = files(&[
+            ("/proc/self/cgroup", "0::/user.slice\n".to_owned()),
+            ("/sys/fs/cgroup/user.slice/memory.max", "max\n".to_owned()),
+            (
+                "/proc/meminfo",
+                "MemTotal: 1 kB\nMemAvailable: 2048 kB\n".to_owned(),
+            ),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(2 * 1024 * 1024));
+        assert_eq!(available_bytes_from(&files(&[])), None);
+    }
+
+    #[test]
+    fn cgroup_v1_reads_the_memory_hierarchy_and_its_unlimited_marker() {
+        let read = files(&[
+            (
+                "/proc/self/cgroup",
+                "5:cpu,cpuacct:/x\n4:memory:/docker/abc\n".to_owned(),
+            ),
+            (
+                "/sys/fs/cgroup/memory/docker/abc/memory.limit_in_bytes",
+                format!("{}", 4 * GIB),
+            ),
+            (
+                "/sys/fs/cgroup/memory/docker/abc/memory.usage_in_bytes",
+                format!("{GIB}"),
+            ),
+            (
+                "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+                "9223372036854771712".to_owned(),
+            ),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(3 * GIB));
+    }
+
+    #[test]
+    fn a_climbing_cgroup_path_reads_nothing() {
+        let read = files(&[
+            ("/proc/self/cgroup", "0::/../escape\n".to_owned()),
+            ("/sys/fs/cgroup/memory.max", format!("{GIB}")),
+        ]);
+        assert_eq!(available_bytes_from(&read), None);
+    }
+}

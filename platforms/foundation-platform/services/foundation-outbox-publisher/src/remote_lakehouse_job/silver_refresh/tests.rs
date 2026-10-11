@@ -55,7 +55,7 @@ fn the_newest_month_holding_every_role_is_the_release() -> anyhow::Result<()> {
         object(BASIS, "20990620", None)?,
     ];
     let release = release::select(&unit_roles(), &ledger)?;
-    assert_eq!(release.month, month(2099, 7)?);
+    assert_eq!(release.month.first_day(), month(2099, 7)?);
     assert_eq!(release.vintage(), "209907");
     assert_eq!(release.valid_from_utc(), "2099-07-01T00:00:00Z");
     assert!(release.skipped_incomplete.is_empty());
@@ -76,7 +76,7 @@ fn a_newer_month_missing_a_role_is_skipped_not_loaded() -> anyhow::Result<()> {
         object(BASIS, "20990720", None)?,
     ];
     let release = release::select(&unit_roles(), &ledger)?;
-    assert_eq!(release.month, month(2099, 7)?);
+    assert_eq!(release.month.first_day(), month(2099, 7)?);
     assert_eq!(release.skipped_incomplete, [month(2099, 8)?]);
     Ok(())
 }
@@ -141,7 +141,9 @@ fn a_release_whose_files_name_different_export_days_is_refused() -> anyhow::Resu
         .err()
         .context("mixed export days must be refused")?;
     assert!(
-        error.to_string().contains("different provider export days"),
+        error
+            .to_string()
+            .contains("one provider month exported on one day"),
         "{error:#}"
     );
     Ok(())

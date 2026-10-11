@@ -491,9 +491,9 @@ fn unit_pipeline_full_exports_all_units_to_canonical_table() -> anyhow::Result<(
     assert!(plan.remote_script.contains(
         "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_TITLE_SOURCE_OBJECT='OPN20991231SYNTHETIC-TITLE.zip'"
     ));
-    // valid_from = 스냅샷 날짜 (실행일 위조 금지) + snapshot id에 날짜 각인.
+    // valid_from = 공급 월의 첫날 (root ADR-0128; 실행일·내보낸 날 아님) + snapshot id 에 내보낸 날 각인.
     assert!(plan.remote_script.contains(
-        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-31T00:00:00Z'"
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-01T00:00:00Z'"
     ));
     assert!(!plan
         .remote_script
@@ -636,9 +636,9 @@ fn unit_area_pipeline_pins_snapshot_and_stages_only_that_object() -> anyhow::Res
         .contains("--include 'OPN20991231SYNTHETIC-UNIT-AREA.zip'"));
     assert!(plan.remote_script.contains("--exclude '*'"));
 
-    // valid_from = 스냅샷 날짜 (실행일 아님) — zip 이름의 날짜와 일치해야 한다.
+    // valid_from = 공급 월의 첫날 (root ADR-0128) — zip 이름의 날짜는 그 월 안의 내보낸 날이다.
     assert!(plan.remote_script.contains(
-        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-31T00:00:00Z'"
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-01T00:00:00Z'"
     ));
     assert!(!plan
         .remote_script
@@ -652,7 +652,7 @@ fn unit_area_pipeline_pins_snapshot_and_stages_only_that_object() -> anyhow::Res
     // 신규 호스트에서도 uid 185 export 가 출력 디렉터리를 만들 수 있다.
     assert!(plan.remote_script.contains("/lakehouse/silver_handoff"));
 
-    // 스펙 자체 정합: 핀 객체명에 박힌 날짜 == valid_from 날짜.
+    // 스펙 자체 정합: 핀 객체명에 박힌 날짜 == 내보낸 날, valid_from == 그 공급 월의 첫날.
     let source = match &config.source_snapshot {
         BuildingRegisterSourceSnapshotConfig::UnitArea(source) => source,
         BuildingRegisterSourceSnapshotConfig::NotRequired
@@ -661,7 +661,7 @@ fn unit_area_pipeline_pins_snapshot_and_stages_only_that_object() -> anyhow::Res
         }
     };
     assert_eq!(source.metadata.compact_date(), "20991231");
-    assert_eq!(source.metadata.valid_from_utc(), "2099-12-31T00:00:00Z");
+    assert_eq!(source.metadata.valid_from_utc(), "2099-12-01T00:00:00Z");
     Ok(())
 }
 
@@ -921,7 +921,7 @@ fn config_from_lookup_rejects_source_object_date_mismatch() {
 
     assert!(error
         .to_string()
-        .contains("must embed snapshot date 20991231"));
+        .contains("not on the snapshot date 2099-12-31"));
 }
 
 #[test]
@@ -960,7 +960,7 @@ fn valid_synthetic_unit_snapshot_metadata_is_rendered_into_plan() -> anyhow::Res
         "stage_bronze_object 'hubgokr__building_register_main' 'OPN20991231SYNTHETIC-TITLE.zip'"
     ));
     assert!(plan.remote_script.contains(
-        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-31T00:00:00Z'"
+        "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_SILVER_HANDOFF_VALID_FROM_UTC='2099-12-01T00:00:00Z'"
     ));
     assert!(plan
         .remote_script

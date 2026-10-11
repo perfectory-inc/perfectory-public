@@ -4,7 +4,7 @@ use super::{
     SourceSelector,
 };
 use anyhow::{ensure, Context};
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use collection_application::ports::{BronzeIngestRepository, BronzeIngestUnitOfWork};
 use collection_domain::{BronzeObject, SnapshotBasis, SnapshotGranularity};
 use collection_infrastructure::{PgBronzeIngestRepository, PgBronzeIngestUnitOfWork};
@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
 use crate::building_register_source_role::SourceRole;
+use crate::hub_provider_release::{ProviderMonth, ProviderRelease};
 
 const VERIFY_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_VERIFY_BRONZE_LEDGER";
 const RETAINED_TIME_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC";
@@ -122,7 +123,7 @@ async fn load(pool: &PgPool, role: SourceRole, name: &str) -> anyhow::Result<Bro
 
 impl CommittedInput {
     pub(super) fn from_object(row: &BronzeObject, key: &str, name: &str) -> anyhow::Result<Self> {
-        let provider_date = crate::building_register_snapshot::object_date(name)?;
+        let month = ProviderMonth::of_file(name)?;
         ensure!(
             row.object_key.as_str() == key
                 && row.provider_file_id.as_deref() == name.strip_suffix(".zip"),
@@ -144,11 +145,8 @@ impl CommittedInput {
         ensure!(
             row.snapshot_granularity == SnapshotGranularity::Month
                 && row.snapshot_basis == SnapshotBasis::ProviderFilePeriod
-                && row.snapshot_date.day() == 1
-                && row.snapshot_date.year() == provider_date.year()
-                && row.snapshot_date.month() == provider_date.month()
-                && row.snapshot_period.as_deref()
-                    == Some(row.snapshot_date.format("%Y-%m").to_string().as_str()),
+                && row.snapshot_date == month.first_day()
+                && row.snapshot_period.as_deref() == Some(month.ledger_period().as_str()),
             "committed HUB provider month is invalid"
         );
         Ok(Self {
@@ -203,15 +201,18 @@ impl CommittedInputs {
         };
         let floor = parse(floor, SourceRole::Floor)?;
         let title = parse(title, SourceRole::Title)?;
+        // Each input's ledger month is its file's month (`from_object`); one release is one month
+        // exported on one day, the rule the Silver lanes share (root ADR-0169 §5②).
         ensure!(
             floor.snapshot_date == title.snapshot_date,
             "FLOOR/title provider months differ"
         );
-        let floor_name = format!("{}.zip", floor.provider_file_id);
-        let title_name = format!("{}.zip", title.provider_file_id);
-        crate::building_register_snapshot::validate_object_name(
-            &title_name,
-            crate::building_register_snapshot::object_date(&floor_name)?,
+        ProviderRelease::of_files_in(
+            ProviderMonth::from_first_day(floor.snapshot_date)?,
+            [
+                format!("{}.zip", floor.provider_file_id),
+                format!("{}.zip", title.provider_file_id),
+            ],
         )?;
         Ok(Self {
             floor,
@@ -263,11 +264,7 @@ impl CommittedInputs {
         if let Some(binding) = self.historical_binding()? {
             return Ok(binding.valid_from_utc);
         }
-        Ok(self
-            .floor
-            .snapshot_date
-            .and_time(chrono::NaiveTime::MIN)
-            .and_utc())
+        Ok(ProviderMonth::from_first_day(self.floor.snapshot_date)?.valid_from_utc())
     }
 
     pub(super) fn verify(
@@ -348,7 +345,7 @@ impl HistoricalBinding {
                         && suffix
                             .bytes()
                             .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte)))
-                    && input.provider_month.day() == 1
+                    && ProviderMonth::from_first_day(input.provider_month).is_ok()
                     && input.size_bytes > 0
                     && valid_sha256(&input.checksum_sha256),
                 "invalid historical FLOOR input evidence"

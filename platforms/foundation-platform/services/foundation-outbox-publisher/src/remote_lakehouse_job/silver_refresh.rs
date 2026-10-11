@@ -85,7 +85,8 @@ pub(super) async fn run() -> anyhow::Result<()> {
         println!(
             "silver-refresh lane={} skipped_incomplete_release={}",
             lane.id(),
-            month.format("%Y%m")
+            foundation_outbox_publisher::hub_provider_release::ProviderMonth::containing(*month)
+                .vintage()
         );
     }
     let catalog = lakehouse_catalog()?;
@@ -364,11 +365,11 @@ pub(super) fn part_month(prefix: &str, key: &str) -> Option<String> {
         .strip_prefix('/')?
         .split('/')
         .next()?;
-    let day = foundation_outbox_publisher::building_register_snapshot::object_date(&format!(
+    foundation_outbox_publisher::hub_provider_release::ProviderMonth::of_file(&format!(
         "{stem}.zip"
     ))
-    .ok()?;
-    Some(day.format("%Y%m").to_string())
+    .ok()
+    .map(|month| month.vintage())
 }
 
 /// A part lane: its release is in the table when every part of its manifest is recorded.

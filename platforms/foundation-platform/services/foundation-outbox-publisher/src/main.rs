@@ -62,7 +62,7 @@ mod building_register_local_bronze_proof;
 mod building_register_page_count_batch;
 mod building_register_page_count_plan_writer;
 mod building_register_smoke;
-use foundation_outbox_publisher::building_register_snapshot;
+use foundation_outbox_publisher::hub_provider_release;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
