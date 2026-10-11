@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -270,6 +271,30 @@ class RaonLargeFiles(unittest.TestCase):
         self.assertEqual(self.run_script("run", str(self.evidence)).returncode, 0)
         self.assertEqual(len(self.docker("build")), 1)
         self.assertEqual(len(self.docker("run")), 2)
+
+    def test_the_build_copies_a_read_only_release_and_clears_a_read_only_leftover(self):
+        # 2026-10-11, the first build on the host: the release is read-only, `cp -R` copied its
+        # directory modes, and the second file could not enter the copied directory. A failed
+        # build's leftover context is read-only the same way and must not stop the next one.
+        def writable(path):
+            for directory, _, files in os.walk(path):
+                for name in [directory, *(os.path.join(directory, file) for file in files)]:
+                    os.chmod(name, os.stat(name).st_mode | stat.S_IWUSR)
+        self.scenario()
+        leftover = self.work / "context" / WORKER / "src"
+        leftover.mkdir(parents=True)
+        (leftover / "stale.py").write_text("")
+        for path in (self.release / WORKER, self.work / "context"):
+            for directory, _, files in os.walk(path, topdown=False):
+                for name in [*(os.path.join(directory, file) for file in files), directory]:
+                    os.chmod(name, os.stat(name).st_mode & ~0o222)
+            self.addCleanup(writable, path)
+        result = self.run_script("build")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [build] = self.docker("build")
+        self.assertIn(f"{WORKER}/pyproject.toml", build["context"])
+        self.assertNotIn(f"{WORKER}/src/stale.py", build["context"])
+        self.assertFalse((self.work / "context").exists(), "the build context is removed")
 
     def test_the_image_name_follows_the_worker_and_the_package_pin(self):
         self.scenario()
