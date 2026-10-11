@@ -16,11 +16,6 @@ use std::mem::size_of;
 
 use crate::silver_handoff_io::R2_UPLOAD_PART_BYTES;
 
-/// What the chunks may take of the memory left: the rest absorbs what is not counted below — the
-/// allocator's per-thread arenas keeping freed chunks, the ZIP inflater and the R2 ranged reader.
-const CHUNK_SHARE_NUMERATOR: u64 = 3;
-const CHUNK_SHARE_DENOMINATOR: u64 = 4;
-
 /// The memory one chunk holds: its row bytes and the row index, as the reader measured them.
 pub(super) fn chunk_bytes(bytes: usize, rows: usize) -> u64 {
     let index = rows.saturating_mul(size_of::<(u64, usize)>());
@@ -53,16 +48,12 @@ pub(super) fn export_workers(
     chunk: u64,
     overhead: u64,
 ) -> usize {
-    let Some(available) = available else {
-        return 1;
-    };
-    let share = available / CHUNK_SHARE_DENOMINATOR * CHUNK_SHARE_NUMERATOR;
-    let per_worker = chunk.saturating_mul(2).saturating_add(overhead).max(1);
-    let by_memory = share.saturating_sub(chunk.saturating_mul(3)) / per_worker;
-    usize::try_from(by_memory)
-        .unwrap_or(usize::MAX)
-        .min(cores)
-        .max(1)
+    crate::process_memory::workers_that_fit(
+        cores,
+        available,
+        chunk.saturating_mul(3),
+        chunk.saturating_mul(2).saturating_add(overhead),
+    )
 }
 
 #[cfg(test)]

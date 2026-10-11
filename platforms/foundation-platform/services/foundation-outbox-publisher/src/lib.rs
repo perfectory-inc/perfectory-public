@@ -42,7 +42,7 @@ pub mod building_register_snapshot;
 pub mod hub_provider_release;
 
 /// How much memory the process may still allocate, from its cgroup and the host.
-mod process_memory;
+pub mod process_memory;
 
 /// Shared FLOOR producer and native resource contract support.
 pub mod building_register_source_role;

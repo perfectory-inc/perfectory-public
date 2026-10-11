@@ -15,6 +15,58 @@ const CGROUP_V1_MEMORY_ROOT: &str = "/sys/fs/cgroup/memory";
 /// cgroup v1 writes "no limit" as a page-rounded `i64::MAX`; anything this large is no limit.
 const CGROUP_V1_UNLIMITED: u64 = 1 << 62;
 
+/// What workers may take of the memory left: the rest absorbs what a caller does not count — the
+/// allocator's per-thread arenas keeping freed buffers, decoders, readers and the process itself.
+const WORKER_SHARE_NUMERATOR: u64 = 3;
+const WORKER_SHARE_DENOMINATOR: u64 = 4;
+
+/// How many workers run at once on `cores` cores with `available` bytes left.
+///
+/// As many as the cores, while `held_once` (memory the caller holds however many workers run) and
+/// `per_worker` bytes for each fit in three quarters of what is left (`available_bytes`). At least
+/// one; one when the memory is unknown (`None`, a platform that publishes no limit), the one count
+/// that cannot hold more than a sequential run always did. Every command that runs work side by
+/// side sizes it here, so the rule is one (the HUB export's parts, the land lanes' regions).
+#[must_use]
+pub fn workers_that_fit(
+    cores: usize,
+    available: Option<u64>,
+    held_once: u64,
+    per_worker: u64,
+) -> usize {
+    let Some(available) = available else {
+        return 1;
+    };
+    let share = available / WORKER_SHARE_DENOMINATOR * WORKER_SHARE_NUMERATOR;
+    let by_memory = share.saturating_sub(held_once) / per_worker.max(1);
+    usize::try_from(by_memory)
+        .unwrap_or(usize::MAX)
+        .min(cores)
+        .max(1)
+}
+
+/// The most memory this process's cgroup has held since it was made (cgroup v2 `memory.peak`).
+///
+/// A command sizes parallel work from what one unit of it actually took. `None` without it
+/// (cgroup v1, a kernel before 5.19, not Linux).
+#[must_use]
+pub fn cgroup_peak_bytes() -> Option<u64> {
+    cgroup_peak_bytes_from(&|path| std::fs::read_to_string(path).ok())
+}
+
+/// [`cgroup_peak_bytes`] over an injected file reader.
+pub fn cgroup_peak_bytes_from(read: &dyn Fn(&Path) -> Option<String>) -> Option<u64> {
+    let text = read(Path::new("/proc/self/cgroup"))?;
+    let path = text.lines().find_map(|line| line.strip_prefix("0::"))?;
+    if path.split('/').any(|segment| segment == "..") {
+        return None;
+    }
+    let file = Path::new(CGROUP_V2_ROOT)
+        .join(path.trim_start_matches('/'))
+        .join("memory.peak");
+    read(&file)?.trim().parse::<u64>().ok()
+}
+
 /// The bytes this process may still allocate: the smallest headroom of its cgroup chain and the
 /// host's available memory. `None` when the platform publishes neither (not Linux).
 #[must_use]
@@ -119,6 +171,44 @@ fn mem_available(meminfo: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn workers_fit_the_cores_and_three_quarters_of_the_memory_left() {
+        assert_eq!(workers_that_fit(20, Some(256 * GIB), 0, 300 * MIB), 20);
+        // 16 GiB left: 12 GiB share, 300 MiB each → 40, bounded by 8 cores.
+        assert_eq!(workers_that_fit(8, Some(16 * GIB), 0, 300 * MIB), 8);
+        // 1 GiB left: 768 MiB share − 168 MiB held = 600 MiB → 2 of 300 MiB.
+        assert_eq!(workers_that_fit(20, Some(GIB), 168 * MIB, 300 * MIB), 2);
+        assert_eq!(workers_that_fit(20, Some(MIB), 0, 300 * MIB), 1);
+        assert_eq!(workers_that_fit(20, None, 0, MIB), 1);
+        assert_eq!(workers_that_fit(0, Some(GIB), 0, MIB), 1);
+    }
+
+    #[test]
+    fn the_peak_is_the_own_cgroups_memory_peak() {
+        let files = BTreeMap::from([
+            (
+                "/proc/self/cgroup".to_owned(),
+                "0::/system.slice/lane.service\n".to_owned(),
+            ),
+            (
+                "/sys/fs/cgroup/system.slice/lane.service/memory.peak".to_owned(),
+                "310378496\n".to_owned(),
+            ),
+        ]);
+        let read = |path: &Path| {
+            files
+                .get(&path.to_string_lossy().replace('\\', "/"))
+                .cloned()
+        };
+        assert_eq!(cgroup_peak_bytes_from(&read), Some(310_378_496));
+        let v1 = |path: &Path| {
+            (path == Path::new("/proc/self/cgroup")).then(|| "4:memory:/lane\n".to_owned())
+        };
+        assert_eq!(cgroup_peak_bytes_from(&v1), None);
+    }
 
     const GIB: u64 = 1024 * 1024 * 1024;
 

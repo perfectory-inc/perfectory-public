@@ -470,6 +470,68 @@ pub(in crate::remote_lakehouse_job) async fn read_measured(
     Ok(objects.into_values().collect())
 }
 
+/// Runs `export` over every region, in region order of the result. The regions are independent
+/// exports (one child each, one core each: the transfer history's 17 took 60 minutes one after
+/// another on 2026-10-11, 61 minutes of CPU at a 296 MB peak). The first runs alone; the memory it
+/// took (`cgroup_peak_bytes`) and what is left size how many of the rest run at once
+/// (`workers_that_fit`), up to the cores. Without a measured peak they run one at a time. The first
+/// failure stops new exports and is the result.
+pub(in crate::remote_lakehouse_job) fn export_side_by_side<T: Sync, R: Send>(
+    items: &[T],
+    lane: &str,
+    export: impl Fn(&T) -> anyhow::Result<R> + Sync,
+) -> anyhow::Result<Vec<R>> {
+    let Some((first, rest)) = items.split_first() else {
+        return Ok(Vec::new());
+    };
+    let mut done = vec![export(first)?];
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let peak = foundation_outbox_publisher::process_memory::cgroup_peak_bytes();
+    let workers = foundation_outbox_publisher::process_memory::workers_that_fit(
+        cores,
+        foundation_outbox_publisher::process_memory::available_bytes(),
+        0,
+        peak.unwrap_or(u64::MAX),
+    )
+    .min(rest.len().max(1));
+    println!("silver-refresh lane={lane}: exporting {} more regions on {workers} workers (cores {cores}, peak {peak:?} bytes)", rest.len());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let results: Vec<std::sync::Mutex<Option<anyhow::Result<R>>>> =
+        rest.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                use std::sync::atomic::Ordering;
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+                let index = next.fetch_add(1, Ordering::SeqCst);
+                let Some(item) = rest.get(index) else { break };
+                let outcome = export(item);
+                if outcome.is_err() {
+                    stop.store(true, Ordering::SeqCst);
+                }
+                if let Ok(mut slot) = results[index].lock() {
+                    *slot = Some(outcome);
+                }
+            });
+        }
+    });
+    for slot in results {
+        match slot
+            .into_inner()
+            .map_err(|_| anyhow::anyhow!("a region export worker panicked"))?
+        {
+            Some(outcome) => done.push(outcome?),
+            // Not started: an earlier failure stopped the exports; that failure was returned above
+            // when it came first, and a later one is returned here otherwise.
+            None => bail!("lane {lane}: a region export did not run after another failed"),
+        }
+    }
+    Ok(done)
+}
+
 /// Exports and loads a release `decide` found the table lacks; returns the rows the loads hold.
 pub(in crate::remote_lakehouse_job) async fn load(
     contract: &LaneContract,
@@ -485,23 +547,24 @@ pub(in crate::remote_lakehouse_job) async fn load(
     let lane = contract.lane.id();
     runtime.reset_work()?;
     let work = runtime.work();
-    let mut handoffs = Vec::new();
-    for (region, object) in &release.objects {
-        let handoff = rule.handoff_key(object)?;
-        let summary = work.join(format!("export-summary-{region}.json"));
-        println!(
-            "silver-refresh lane={lane} release={} region={region}: exporting {} to {handoff}",
-            release.vintage, object.object_key
-        );
-        execute::export(
-            runtime,
-            contract,
-            &export_environment(env_prefix, object, &handoff, &identity, &summary),
-        )?;
-        let raw = std::fs::read_to_string(&summary)
-            .with_context(|| format!("the export left no {}", summary.display()))?;
-        handoffs.push((handoff, export_rows(&raw, &identity)?));
-    }
+    let export_region =
+        |(region, object): &(String, LedgerObject)| -> anyhow::Result<(String, Option<u64>)> {
+            let handoff = rule.handoff_key(object)?;
+            let summary = work.join(format!("export-summary-{region}.json"));
+            println!(
+                "silver-refresh lane={lane} release={} region={region}: exporting {} to {handoff}",
+                release.vintage, object.object_key
+            );
+            execute::export(
+                runtime,
+                contract,
+                &export_environment(env_prefix, object, &handoff, &identity, &summary),
+            )?;
+            let raw = std::fs::read_to_string(&summary)
+                .with_context(|| format!("the export left no {}", summary.display()))?;
+            Ok((handoff, export_rows(&raw, &identity)?))
+        };
+    let handoffs = export_side_by_side(&release.objects, lane, export_region)?;
     let bucket = super::super::required_lookup(
         &mut |name: &str| std::env::var(name).ok(),
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",

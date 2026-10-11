@@ -621,3 +621,40 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
     }
     Ok(())
 }
+
+#[test]
+fn regions_exported_side_by_side_come_back_in_region_order() -> anyhow::Result<()> {
+    // 2026-10-11: the transfer history's 17 regions ran one after another for 60 minutes.
+    let regions: Vec<u64> = (0..12).collect();
+    let exported = land::export_side_by_side(&regions, "synthetic", |region| {
+        // Later regions finish first, as a slower large region would let them.
+        std::thread::sleep(std::time::Duration::from_millis(12 - region));
+        Ok(region * 10)
+    })?;
+    assert_eq!(
+        exported,
+        (0..12).map(|region| region * 10).collect::<Vec<_>>()
+    );
+    assert!(land::export_side_by_side(&Vec::<u64>::new(), "synthetic", |_| Ok(0))?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_failed_region_export_fails_the_release() {
+    let regions: Vec<u64> = (0..8).collect();
+    let failed = land::export_side_by_side(&regions, "synthetic", |region| {
+        anyhow::ensure!(*region != 5, "region {region} export failed");
+        Ok(*region)
+    });
+    assert!(
+        failed.is_err(),
+        "a failed region was dropped from the release"
+    );
+    let first = land::export_side_by_side(&regions, "synthetic", |region| {
+        anyhow::ensure!(*region != 0, "the first region failed");
+        Ok(*region)
+    });
+    assert!(first
+        .err()
+        .is_some_and(|error| error.to_string().contains("the first region failed")));
+}
