@@ -572,8 +572,27 @@ pub(in crate::remote_lakehouse_job) async fn load(
     let evidence_name = format!("{lane}-{}", release.vintage);
     let branch = super::stage_load(catalog, &contract.table, &identity).await?;
     let batch_size = usize::try_from(contract.spark.input_file_batch_size.max(1)).unwrap_or(1);
+    let staged = catalog
+        .load_staged_batch_objects(&contract.table, &branch)
+        .await?;
     let mut rows = 0;
-    for (index, batch) in handoffs.chunks(batch_size).enumerate() {
+    for (index, (batch, regions)) in handoffs
+        .chunks(batch_size)
+        .zip(release.objects.chunks(batch_size))
+        .enumerate()
+    {
+        // A batch the branch already records is not read again (see the hub part load).
+        if regions
+            .iter()
+            .all(|(_, object)| staged.contains(&object.object_key))
+        {
+            println!("silver-refresh lane={lane} batch={index}: already staged on {branch}; not read again");
+            rows += batch
+                .iter()
+                .filter_map(|(_, converted)| *converted)
+                .sum::<u64>();
+            continue;
+        }
         let load = SparkLoad {
             input: batch
                 .iter()

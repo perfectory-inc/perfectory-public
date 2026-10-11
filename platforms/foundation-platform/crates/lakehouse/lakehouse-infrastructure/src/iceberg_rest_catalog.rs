@@ -451,6 +451,28 @@ impl IcebergRestCatalog {
         }))
     }
 
+    /// The load identities branch `branch` records: what a resumed load has already staged on it
+    /// (root ADR-0183). A branch not made yet stages from `main`, so `main`'s are its answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached.
+    pub async fn load_staged_batch_objects(
+        &self,
+        table_name: &str,
+        branch: &str,
+    ) -> Result<std::collections::BTreeSet<String>, LakehouseError> {
+        Ok(self
+            .load_table_response(table_name)
+            .await?
+            .map(|payload| {
+                let metadata = &payload.metadata;
+                let head = branch_head(metadata, branch).or_else(|| main_head(metadata));
+                ingested_batch_objects(lineage(metadata, head).map(|snapshot| &snapshot.summary))
+            })
+            .unwrap_or_default())
+    }
+
     /// Publishes branch `branch` of `table_name` as `main` in one catalog commit and removes the
     /// branch (root ADR-0183): readers see every batch the branch staged at once, or none.
     ///

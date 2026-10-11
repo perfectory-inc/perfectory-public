@@ -28,6 +28,7 @@ from lakehouse_engine import (
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
     iceberg_packages,
+    SHUFFLE_SETTINGS,
 )
 import lakehouse_object_store
 import pnu_null_share_guard
@@ -782,7 +783,7 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
     builder = (
         SparkSession.builder.appName("foundation-platform-silver-scalar-handoff-to-lakehouse")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
     # An s3a input needs the R2 filesystem settings on the session, the same wiring the
     # spatial jobs carry (spatial_silver_handoff.build_spark_session). Without it the first

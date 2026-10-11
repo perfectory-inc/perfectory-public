@@ -232,6 +232,17 @@ def assert_catalog_env(catalog: str = "lakehouse") -> None:
         reader.require(name)
 
 
+# The shuffle a lakehouse load runs with unless it fixes the partition count on purpose (an output
+# file count, a measured size). Eight jobs had written two partitions, and the hub price lane pushed
+# a 40M-row validation aggregate through two tasks for over 40 minutes (2026-10-11). Adaptive
+# execution coalesces the partitions of a small shuffle, so a 1,442-row load still runs one task.
+SHUFFLE_SETTINGS = {
+    "spark.sql.adaptive.enabled": "true",
+    "spark.sql.adaptive.coalescePartitions.enabled": "true",
+    "spark.sql.shuffle.partitions": "400",
+}
+
+
 def apply_catalog_settings(builder: Any, catalog: str, lookup: Any = None) -> Any:
     """Add the catalog settings to a Spark builder."""
     for key, value in catalog_settings(catalog, lookup).items():

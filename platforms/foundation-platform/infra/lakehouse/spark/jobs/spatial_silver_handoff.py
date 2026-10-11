@@ -45,6 +45,7 @@ from lakehouse_engine import (
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
     iceberg_packages,
+    SHUFFLE_SETTINGS,
 )
 from lakehouse_ingest import append_batch_once, batch_source_record_ids
 from lakehouse_object_store import (
@@ -226,7 +227,7 @@ def build_spark_session(
     builder = (
         SparkSession.builder.appName(f"foundation-platform-{job_name}")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
 
     if needs_object_store:

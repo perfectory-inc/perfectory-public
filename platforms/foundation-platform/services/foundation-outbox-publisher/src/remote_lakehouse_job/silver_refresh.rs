@@ -460,11 +460,25 @@ async fn refresh_parts(
     )?;
     let evidence_name = release.run_identity(contract.lane.id());
     let branch = stage_load(catalog, &contract.table, &evidence_name).await?;
+    let staged = catalog
+        .load_staged_batch_objects(&contract.table, &branch)
+        .await?;
     let mut rows = 0;
     for (index, batch) in part_batches(&manifest, contract.spark.input_file_batch_size)
         .into_iter()
         .enumerate()
     {
+        // A batch the branch already records is not read again: a resumed 40M-row batch spent ten
+        // minutes in Spark only to be skipped (2026-10-11). append_batch_once still refuses a
+        // second copy of anything this check lets through.
+        if batch.iter().all(|part| staged.contains(&part.object_key)) {
+            println!(
+                "silver-refresh lane={} batch={index}: already staged on {branch}; not read again",
+                contract.lane.id()
+            );
+            rows += batch.iter().map(|part| part.rows).sum::<u64>();
+            continue;
+        }
         let load = SparkLoad {
             input: batch
                 .iter()

@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, current_snapshot, iceberg_packages
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, current_snapshot, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import (
     column_names,
     declared_geometry_srid,
@@ -311,7 +311,7 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
     builder = (
         SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
     if needs_iceberg_catalog(args):
         builder = apply_catalog_settings(builder, args.iceberg_catalog_name)

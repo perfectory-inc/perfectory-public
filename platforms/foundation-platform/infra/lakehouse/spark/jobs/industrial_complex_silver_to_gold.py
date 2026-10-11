@@ -23,6 +23,7 @@ from lakehouse_engine import (
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
     iceberg_packages,
+    SHUFFLE_SETTINGS,
 )
 from platform_contracts import (
     partition_clause_sql,
@@ -882,7 +883,7 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
     builder = (
         SparkSession.builder.appName("foundation-platform-industrial-complex-silver-to-gold")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
 
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
