@@ -166,9 +166,13 @@ def set_immutable(target: Path, sealed: bool) -> None:
     """chattr -R +i (or -i) on a whole tree. Symbolic links are not followed; a release holds none."""
     try:
         subprocess.run([CHATTR, "-R", "+i" if sealed else "-i", str(target)], env=control_environment(),
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise ValueError(f"chattr {'+' if sealed else '-'}i failed on {target} (root ADR-0184)") from error
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or "").strip().splitlines()[-3:]
+        raise ValueError(f"chattr {'+' if sealed else '-'}i failed on {target} (root ADR-0184): "
+                         f"{' | '.join(detail) or f'exit {error.returncode}'}") from error
+    except OSError as error:
+        raise ValueError(f"chattr {'+' if sealed else '-'}i failed on {target} (root ADR-0184): {error}") from error
 
 
 def seal_release(expected, release_id: str, target: Path, owner: int = 0) -> None:
@@ -177,6 +181,14 @@ def seal_release(expected, release_id: str, target: Path, owner: int = 0) -> Non
     Idempotent: a release installed before root ADR-0184 is sealed the first time it is activated or
     rolled back to; one already sealed is only checked.
     """
+    # A sealed release is only checked: chattr -R +i over a tree that is already immutable failed on
+    # the host (2026-10-11, the first deploy that sealed: install sealed it, FLOOR config's check of
+    # the same release ran chattr again and stopped the deploy), so it runs once per release.
+    try:
+        verify_release(expected, release_id, target, owner)
+        return
+    except ValueError:
+        pass
     verify_release(expected, release_id, target, owner, sealed=False)
     set_immutable(target, True)
     verify_release(expected, release_id, target, owner)
