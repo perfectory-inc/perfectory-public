@@ -30,11 +30,12 @@ class ReadbackCountsItsOwnBatch(unittest.TestCase):
         # batch of one release shares its (source_snapshot_id, ingested_at_utc) pair.
         import silver_scalar_handoff_to_lakehouse as loader
 
-        schema = "source_part_id string, source_snapshot_id string, price_won long"
+        # The load column is not first, as in the contracts: the readback keeps the table's order.
+        schema = "price_won long, source_part_id string, source_snapshot_id string"
         table = self.spark.createDataFrame(
-            [("part-0001", "release", 1), ("part-0001", "release", 2),
-             ("part-0002", "release", 3), ("part-0003", "release", 4)], schema)
-        batch = self.spark.createDataFrame([("part-0002", "release", 3), ("part-0003", "release", 4)], schema)
+            [(1, "part-0001", "release"), (2, "part-0001", "release"),
+             (3, "part-0002", "release"), (4, "part-0003", "release")], schema)
+        batch = self.spark.createDataFrame([(3, "part-0002", "release"), (4, "part-0003", "release")], schema)
         persisted = loader.restrict_to_batch_loads(table, batch, "silver.building_register_apartment_price")
         self.assertEqual(sorted(row.price_won for row in persisted.collect()), [3, 4])
         self.assertEqual(persisted.columns, table.columns)
