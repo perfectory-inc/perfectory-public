@@ -7,6 +7,7 @@ mod exclusive_unit_tests;
 mod layout;
 #[cfg(test)]
 mod test_support;
+mod workers;
 mod zip_stream;
 
 use std::{
@@ -257,15 +258,29 @@ struct Written {
     pnu_ok: u64,
 }
 
-/// Workers that encode and upload parts beside the reader. Inflating the member and splitting its
-/// lines is one sequential stream; building the JSON rows and gzipping them is what took one core
-/// 2h20m for the 202M-row price register (2026-09-08) and still did on 2026-10-10 (one core at
-/// 85%, 1.8 MB/s out). Each part is one worker's, so the parts are the bytes a single thread
-/// writes. One chunk waits per worker, so a chunk's rows times twice the workers is the memory.
-fn export_workers() -> usize {
-    std::thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get)
-        .clamp(1, 8)
+/// Workers that encode and upload parts beside the reader, sized from the cores and the memory
+/// this process may use and the first chunk the reader cut (`workers`).
+fn export_workers(layout: &Layout, first: Option<&Chunk>) -> usize {
+    let Some(first) = first else {
+        return 1;
+    };
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let available = crate::process_memory::available_bytes();
+    let chunk = workers::chunk_bytes(first.bytes.len(), first.rows.len());
+    let workers = workers::export_workers(
+        cores,
+        available,
+        chunk,
+        workers::worker_overhead_bytes(layout.max_row_bytes),
+    );
+    tracing::info!(
+        workers,
+        cores,
+        available_bytes = available,
+        chunk_bytes = chunk,
+        "HUB export workers sized"
+    );
+    workers
 }
 
 fn convert<R: Read + Seek>(
@@ -281,7 +296,10 @@ fn convert<R: Read + Seek>(
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
     let ingested_at = Utc::now().to_rfc3339();
-    let workers = export_workers();
+    let mut chunks = ChunkReader::new(member.decoder, layout)?;
+    // The first chunk is cut before the workers start: its size is what sizes them.
+    let first = chunks.next_chunk(layout, &mut report)?;
+    let workers = export_workers(layout, first.as_ref());
     let (sender, receiver) = std::sync::mpsc::sync_channel::<Chunk>(workers);
     let receiver = std::sync::Mutex::new(receiver);
     let encode = |chunk: Chunk| {
@@ -299,7 +317,7 @@ fn convert<R: Read + Seek>(
         let handles: Vec<_> = (0..workers)
             .map(|_| scope.spawn(|| work(&receiver, &encode)))
             .collect();
-        let read = read_chunks(member.decoder, layout, &mut report, &sender);
+        let read = send_chunks(first, &mut chunks, layout, &mut report, &sender);
         // Closing the channel lets every worker finish what was sent and stop.
         drop(sender);
         let mut written = Vec::new();
@@ -315,7 +333,8 @@ fn convert<R: Read + Seek>(
         }
         (read, failure.map_or(Ok(written), Err))
     });
-    let (decoder, crc) = read?;
+    read?;
+    let (decoder, crc) = chunks.finish();
     let mut written = written?;
     ensure!(
         decoder.total_in() == member.compressed_bytes
@@ -344,72 +363,100 @@ fn convert<R: Read + Seek>(
     report.publish(config, &mut |output| open(output))
 }
 
-/// Reads the member's lines into chunks of `rows_per_part` well-formed rows and sends them, in
-/// order; counts every line and the rejected ones. Returns the decoder and the member's CRC.
-fn read_chunks<D: Read>(
-    decoder: D,
+/// Cuts the member's lines into chunks of `rows_per_part` well-formed rows, in order; counts every
+/// line and the rejected ones, and the member's CRC.
+struct ChunkReader<D> {
+    reader: BufReader<D>,
+    crc: Crc,
+    line: Vec<u8>,
+    rows_per_part: usize,
+    next_part: usize,
+}
+
+impl<D: Read> ChunkReader<D> {
+    fn new(decoder: D, layout: &Layout) -> anyhow::Result<Self> {
+        Ok(Self {
+            reader: BufReader::with_capacity(64 * 1024, decoder),
+            crc: Crc::new(),
+            line: Vec::new(),
+            rows_per_part: usize::try_from(layout.rows_per_part)?,
+            next_part: 1,
+        })
+    }
+
+    /// The next chunk, or `None` after the member's last row. A full chunk is shrunk to its length
+    /// before it is handed on, so a queued chunk holds its rows and not the `Vec`'s spare growth.
+    fn next_chunk(
+        &mut self,
+        layout: &Layout,
+        report: &mut Report,
+    ) -> anyhow::Result<Option<Chunk>> {
+        let mut chunk = Chunk {
+            part_number: self.next_part,
+            bytes: Vec::new(),
+            rows: Vec::new(),
+        };
+        while chunk.rows.len() < self.rows_per_part {
+            let line = &mut self.line;
+            line.clear();
+            let read = (&mut self.reader)
+                .take(layout.max_row_bytes + 1)
+                .read_until(b'\n', line)?;
+            if read == 0 {
+                break;
+            }
+            ensure!(
+                u64::try_from(read)? <= layout.max_row_bytes,
+                "HUB row exceeds max_row_bytes"
+            );
+            self.crc.update(line);
+            report.rows_read += 1;
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            let width = line.split(|&byte| byte == b'|').count();
+            if width != layout.column_count {
+                let text = std::str::from_utf8(line).context("HUB row is not UTF-8")?;
+                valid_width(layout, width, report, text)?;
+                continue;
+            }
+            chunk.bytes.extend_from_slice(line);
+            chunk.rows.push((report.rows_read, chunk.bytes.len()));
+        }
+        if chunk.rows.is_empty() {
+            return Ok(None);
+        }
+        chunk.bytes.shrink_to_fit();
+        chunk.rows.shrink_to_fit();
+        self.next_part += 1;
+        Ok(Some(chunk))
+    }
+
+    /// The decoder, for the size checks, and the CRC of every line read.
+    fn finish(self) -> (D, u32) {
+        (self.reader.into_inner(), self.crc.sum())
+    }
+}
+
+/// Sends `first` and every later chunk to the workers, in order.
+fn send_chunks<D: Read>(
+    first: Option<Chunk>,
+    chunks: &mut ChunkReader<D>,
     layout: &Layout,
     report: &mut Report,
     sender: &std::sync::mpsc::SyncSender<Chunk>,
-) -> anyhow::Result<(D, u32)> {
-    let mut reader = BufReader::with_capacity(64 * 1024, decoder);
-    let mut crc = Crc::new();
-    let mut line = Vec::new();
-    let mut chunk = Chunk {
-        part_number: 1,
-        bytes: Vec::new(),
-        rows: Vec::new(),
-    };
-    let rows_per_part = usize::try_from(layout.rows_per_part)?;
-    loop {
-        line.clear();
-        let read = (&mut reader)
-            .take(layout.max_row_bytes + 1)
-            .read_until(b'\n', &mut line)?;
-        if read == 0 {
-            break;
-        }
-        ensure!(
-            u64::try_from(read)? <= layout.max_row_bytes,
-            "HUB row exceeds max_row_bytes"
-        );
-        crc.update(&line);
-        report.rows_read += 1;
-        if line.last() == Some(&b'\n') {
-            line.pop();
-        }
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-        let width = line.split(|&byte| byte == b'|').count();
-        if width != layout.column_count {
-            let text = std::str::from_utf8(&line).context("HUB row is not UTF-8")?;
-            valid_width(layout, width, report, text)?;
-            continue;
-        }
-        chunk.bytes.extend_from_slice(&line);
-        chunk.rows.push((report.rows_read, chunk.bytes.len()));
-        if chunk.rows.len() == rows_per_part {
-            let next = chunk.part_number + 1;
-            let full = std::mem::replace(
-                &mut chunk,
-                Chunk {
-                    part_number: next,
-                    bytes: Vec::new(),
-                    rows: Vec::new(),
-                },
-            );
-            sender
-                .send(full)
-                .map_err(|_| anyhow::anyhow!("every HUB export worker stopped"))?;
-        }
-    }
-    if !chunk.rows.is_empty() {
+) -> anyhow::Result<()> {
+    let mut next = first;
+    while let Some(chunk) = next {
         sender
             .send(chunk)
             .map_err(|_| anyhow::anyhow!("every HUB export worker stopped"))?;
+        next = chunks.next_chunk(layout, report)?;
     }
-    Ok((reader.into_inner(), crc.sum()))
+    Ok(())
 }
 
 /// One worker: writes every chunk it receives until the channel closes. After a failure it keeps

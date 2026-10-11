@@ -24,10 +24,9 @@ impl FloorSource {
             lookup,
             "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT",
         )?;
-        let date = foundation_outbox_publisher::building_register_snapshot::object_date(&floor)?;
-        foundation_outbox_publisher::building_register_snapshot::validate_object_name(
-            &title, date,
-        )?;
+        foundation_outbox_publisher::hub_provider_release::ProviderRelease::of_files([
+            &floor, &title,
+        ])?;
         let time = required_lookup(
             lookup,
             "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC",

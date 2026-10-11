@@ -61,7 +61,7 @@ fn fixture(label: &str, basis_rows: Vec<String>) -> anyhow::Result<UnitExportCon
         output_path: root.join("out.jsonl"),
         summary_path: Some(root.join("summary.json")),
         source_snapshot_id: "synthetic-parent-key-run".to_owned(),
-        valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
+        valid_from_utc: DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc(),
         max_rows: None,
         output_format: OutputFormat::Jsonl,
         chunk_rows: None,
@@ -306,6 +306,36 @@ fn rows_valid_from_the_first_of_the_month_accept_files_exported_later_that_month
     config.valid_from_utc = DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc();
     export_handoff(&config)?;
     assert!(config.output_path.exists());
+    fs::remove_dir_all(config.bronze_local_object_root)?;
+    Ok(())
+}
+
+#[test]
+fn the_three_inputs_must_be_one_release_valid_from_its_month_start() -> anyhow::Result<()> {
+    // Mid-month validity is the export day posing as the release (root ADR-0128).
+    let mut config = fixture("foundation-parent-key-mid-month", valid_basis())?;
+    config.valid_from_utc = DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc();
+    let error = export_handoff(&config).expect_err("mid-month validity must fail");
+    assert!(
+        error.to_string().contains("start of a provider month"),
+        "{error:#}"
+    );
+    assert!(!config.output_path.exists());
+    fs::remove_dir_all(&config.bronze_local_object_root)?;
+
+    // Titles of the same month but another export day are another state of the register.
+    let mut config = fixture("foundation-parent-key-other-export-day", valid_basis())?;
+    let title_dir = config
+        .bronze_local_object_root
+        .join(format!("bronze/source={DEFAULT_TITLE_SOURCE_SLUG}"));
+    fs::rename(
+        title_dir.join("OPN209912310000000003.zip"),
+        title_dir.join("OPN209912300000000003.zip"),
+    )?;
+    config.title_source_object = Some("OPN209912300000000003.zip".to_owned());
+    let error = export_handoff(&config).expect_err("two export days must fail");
+    assert!(error.to_string().contains("exported on"), "{error:#}");
+    assert!(!config.output_path.exists());
     fs::remove_dir_all(config.bronze_local_object_root)?;
     Ok(())
 }

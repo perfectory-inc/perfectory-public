@@ -116,35 +116,30 @@ impl BuildingRegisterSourceSnapshotConfig {
     ) -> anyhow::Result<Self> {
         match job {
             RemoteLakehouseJob::UnitPipelineSmoke | RemoteLakehouseJob::UnitPipelineFull => {
-                let metadata = BuildingRegisterSnapshotMetadata::from_lookup(lookup)?;
+                let (metadata, [source_object, title_source_object, basis_source_object]) =
+                    BuildingRegisterSnapshotMetadata::pin(
+                        lookup,
+                        [
+                            BUILDING_REGISTER_UNIT_SOURCE_OBJECT_ENV,
+                            BUILDING_REGISTER_TITLE_SOURCE_OBJECT_ENV,
+                            BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV,
+                        ],
+                    )?;
                 Ok(Self::Unit(BuildingRegisterUnitSourceSnapshot {
-                    source_object: required_snapshot_object(
-                        lookup,
-                        BUILDING_REGISTER_UNIT_SOURCE_OBJECT_ENV,
-                        &metadata,
-                    )?,
-                    title_source_object: required_snapshot_object(
-                        lookup,
-                        BUILDING_REGISTER_TITLE_SOURCE_OBJECT_ENV,
-                        &metadata,
-                    )?,
-                    basis_source_object: required_snapshot_object(
-                        lookup,
-                        BUILDING_REGISTER_BASIS_SOURCE_OBJECT_ENV,
-                        &metadata,
-                    )?,
+                    source_object,
+                    title_source_object,
+                    basis_source_object,
                     metadata,
                 }))
             }
             RemoteLakehouseJob::UnitAreaPipelineSmoke
             | RemoteLakehouseJob::UnitAreaPipelineFull => {
-                let metadata = BuildingRegisterSnapshotMetadata::from_lookup(lookup)?;
+                let (metadata, [source_object]) = BuildingRegisterSnapshotMetadata::pin(
+                    lookup,
+                    [BUILDING_REGISTER_UNIT_AREA_SOURCE_OBJECT_ENV],
+                )?;
                 Ok(Self::UnitArea(BuildingRegisterUnitAreaSourceSnapshot {
-                    source_object: required_snapshot_object(
-                        lookup,
-                        BUILDING_REGISTER_UNIT_AREA_SOURCE_OBJECT_ENV,
-                        &metadata,
-                    )?,
+                    source_object,
                     metadata,
                 }))
             }
@@ -185,13 +180,20 @@ struct BuildingRegisterUnitAreaSourceSnapshot {
     metadata: BuildingRegisterSnapshotMetadata,
 }
 
+/// The operator's pinned hub release: the files named by the object variables, exported on the
+/// declared snapshot date (`hub_provider_release`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BuildingRegisterSnapshotMetadata {
-    date: NaiveDate,
+    release: crate::hub_provider_release::ProviderRelease,
 }
 
 impl BuildingRegisterSnapshotMetadata {
-    fn from_lookup(lookup: &mut impl FnMut(&str) -> Option<String>) -> anyhow::Result<Self> {
+    /// Reads the declared export day and the pinned objects, and requires them to be one release
+    /// exported on that day.
+    fn pin<const N: usize>(
+        lookup: &mut impl FnMut(&str) -> Option<String>,
+        object_envs: [&str; N],
+    ) -> anyhow::Result<(Self, [String; N])> {
         let raw = required_lookup(lookup, BUILDING_REGISTER_SNAPSHOT_DATE_ENV)?;
         let date = NaiveDate::parse_from_str(&raw, "%Y-%m-%d").with_context(|| {
             format!("{BUILDING_REGISTER_SNAPSHOT_DATE_ENV} must be a valid YYYY-MM-DD date")
@@ -199,27 +201,36 @@ impl BuildingRegisterSnapshotMetadata {
         if date.format("%Y-%m-%d").to_string() != raw {
             bail!("{BUILDING_REGISTER_SNAPSHOT_DATE_ENV} must use canonical YYYY-MM-DD format");
         }
-        Ok(Self { date })
+        let names = object_envs
+            .iter()
+            .map(|env| required_lookup(lookup, env))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let envs = object_envs.join(", ");
+        let release = crate::hub_provider_release::ProviderRelease::of_files(&names)
+            .with_context(|| format!("{envs} must name one hub release"))?;
+        if release.export_day() != date {
+            bail!(
+                "{envs}: the files were exported on {}, not on the snapshot date {date} \
+                 ({BUILDING_REGISTER_SNAPSHOT_DATE_ENV})",
+                release.export_day()
+            );
+        }
+        let names: [String; N] = names
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("one object per variable"))?;
+        Ok((Self { release }, names))
     }
 
+    /// The export day, as run identities name it.
     fn compact_date(&self) -> String {
-        self.date.format("%Y%m%d").to_string()
+        self.release.export_day().format("%Y%m%d").to_string()
     }
 
+    /// The rows' validity: the first of the release's provider month (root ADR-0128), as the
+    /// Silver lane states it, not the export day.
     fn valid_from_utc(&self) -> String {
-        format!("{}T00:00:00Z", self.date)
+        self.release.month().valid_from_rfc3339()
     }
-}
-
-fn required_snapshot_object(
-    lookup: &mut impl FnMut(&str) -> Option<String>,
-    name: &str,
-    metadata: &BuildingRegisterSnapshotMetadata,
-) -> anyhow::Result<String> {
-    let source_object = required_lookup(lookup, name)?;
-    crate::building_register_snapshot::validate_object_name(&source_object, metadata.date)
-        .map_err(|error| anyhow::anyhow!("{name}: {error:#}"))?;
-    Ok(source_object)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

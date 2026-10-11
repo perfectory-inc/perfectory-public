@@ -37,6 +37,7 @@ use lakehouse_application::building_register_title_silver_plan::{
 use crate::building_register_unit_silver_export::{
     bronze_object_key, decode_zip_lines, locate_zip_object,
 };
+use crate::hub_provider_release::{ProviderMonth, ProviderRelease};
 
 const DEFAULT_SOURCE_SLUG: &str = "hubgokr__building_register_main";
 const ENV_PREFIX: &str = "FOUNDATION_PLATFORM_BUILDING_REGISTER_TITLE_SILVER_HANDOFF";
@@ -98,6 +99,12 @@ fn export_handoff_via(
         &config.source_slug,
         config.source_object.as_deref(),
         "title",
+    )?;
+    // The rows are valid from the first of the provider month (root ADR-0128); the file must be
+    // one that month exported (`hub_provider_release`).
+    ProviderRelease::of_paths_in(
+        ProviderMonth::from_valid_from(config.valid_from_utc)?,
+        [object_path.as_path()],
     )?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
 
@@ -332,8 +339,8 @@ mod tests {
             source_object: None,
             output_path: out.to_path_buf(),
             summary_path: Some(summary.to_path_buf()),
-            source_snapshot_id: "hubgokr__building_register_main:2026-07".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2026-07-20T00:00:00Z")
+            source_snapshot_id: "hubgokr__building_register_main:2099-07".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-07-01T00:00:00Z")
                 .unwrap_or_else(|error| panic!("fixture time: {error}"))
                 .to_utc(),
             max_rows: None,
@@ -346,7 +353,7 @@ mod tests {
         write_fixture_zip(
             &temp.0,
             DEFAULT_SOURCE_SLUG,
-            "OPN0001.zip",
+            "OPN20990720SYNTHETIC-TITLE.zip",
             &[title_line(), title_line()],
         );
         let out = &temp.0.join("titles.jsonl");
@@ -393,8 +400,18 @@ mod tests {
         // The sibling exports learned this the expensive way: sorted-first silently loads an
         // unverified month into canonical. The chooser is shared, and this proves the sharing.
         let temp = temp_root("title-export-two-months");
-        write_fixture_zip(&temp.0, DEFAULT_SOURCE_SLUG, "OPN0001.zip", &[title_line()]);
-        write_fixture_zip(&temp.0, DEFAULT_SOURCE_SLUG, "OPN0002.zip", &[title_line()]);
+        write_fixture_zip(
+            &temp.0,
+            DEFAULT_SOURCE_SLUG,
+            "OPN20990720SYNTHETIC-TITLE.zip",
+            &[title_line()],
+        );
+        write_fixture_zip(
+            &temp.0,
+            DEFAULT_SOURCE_SLUG,
+            "OPN20990721SYNTHETIC-TITLE.zip",
+            &[title_line()],
+        );
         let out = &temp.0.join("titles.jsonl");
         let summary_path = &temp.0.join("summary.json");
 
@@ -408,7 +425,12 @@ mod tests {
     #[test]
     fn an_empty_snapshot_is_an_error_not_a_success() {
         let temp = temp_root("title-export-empty");
-        write_fixture_zip(&temp.0, DEFAULT_SOURCE_SLUG, "OPN0001.zip", &[]);
+        write_fixture_zip(
+            &temp.0,
+            DEFAULT_SOURCE_SLUG,
+            "OPN20990720SYNTHETIC-TITLE.zip",
+            &[],
+        );
         let out = &temp.0.join("titles.jsonl");
         let summary_path = &temp.0.join("summary.json");
 
@@ -417,5 +439,41 @@ mod tests {
             .expect_err("an empty snapshot must not export an empty Silver");
 
         assert!(format!("{error:#}").contains("no rows"));
+    }
+
+    #[test]
+    fn a_file_of_another_month_or_a_mid_month_validity_is_refused_before_output() {
+        let temp = temp_root("title-export-other-month");
+        write_fixture_zip(
+            &temp.0,
+            DEFAULT_SOURCE_SLUG,
+            "OPN20990820SYNTHETIC-TITLE.zip",
+            &[title_line()],
+        );
+        let out = &temp.0.join("titles.jsonl");
+        let summary_path = &temp.0.join("summary.json");
+        let mut config = config(&temp.0, out.as_path(), summary_path.as_path());
+
+        let error = export_handoff(&config)
+            .map(|report| report.row_count)
+            .expect_err("an August file is not a July release");
+        assert!(
+            format!("{error:#}").contains("outside the provider month 2099-07"),
+            "{error:#}"
+        );
+        assert!(!out.exists());
+
+        // The export day posing as validity is refused even for that month's file (ADR-0128).
+        config.valid_from_utc = DateTime::parse_from_rfc3339("2099-08-20T00:00:00Z")
+            .unwrap_or_else(|error| panic!("fixture time: {error}"))
+            .to_utc();
+        let error = export_handoff(&config)
+            .map(|report| report.row_count)
+            .expect_err("mid-month validity must fail");
+        assert!(
+            format!("{error:#}").contains("start of a provider month"),
+            "{error:#}"
+        );
+        assert!(!out.exists());
     }
 }

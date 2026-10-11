@@ -40,8 +40,7 @@ impl ExactInputs {
         }
     }
     fn validate(&self) -> anyhow::Result<()> {
-        let date = crate::building_register_snapshot::object_date(&self.floor)?;
-        crate::building_register_snapshot::validate_object_name(&self.title, date)
+        crate::hub_provider_release::ProviderRelease::of_files([&self.floor, &self.title]).map(drop)
     }
     pub fn paths(&self, config: &ExportConfig) -> anyhow::Result<(PathBuf, PathBuf)> {
         let paths = self.destination_paths(config)?;

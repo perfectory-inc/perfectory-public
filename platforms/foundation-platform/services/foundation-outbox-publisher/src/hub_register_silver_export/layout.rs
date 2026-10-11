@@ -108,8 +108,7 @@ impl Layout {
             .strip_prefix(&format!("{}/", self.source))
             .filter(|name| !name.contains('/'))
             .with_context(|| format!("{object_key} is not an object of {}", self.source))?;
-        let day = crate::building_register_snapshot::object_date(name)?;
-        Ok(day.format("%Y%m").to_string())
+        Ok(crate::hub_provider_release::ProviderMonth::of_file(name)?.vintage())
     }
 
     pub(super) fn value<'a>(&self, fields: &[&'a str], name: &str) -> anyhow::Result<&'a str> {

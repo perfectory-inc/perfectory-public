@@ -77,6 +77,12 @@ fn export_handoff_via(
     sigungu_crosswalk: &SigunguCrosswalk,
 ) -> anyhow::Result<UnitAreaExportReport> {
     let object_path = locate_source_object(config)?;
+    // The rows are valid from the first of the provider month (root ADR-0128); the file must be
+    // one that month exported (`hub_provider_release`).
+    crate::hub_provider_release::ProviderRelease::of_paths_in(
+        crate::hub_provider_release::ProviderMonth::from_valid_from(config.valid_from_utc)?,
+        [object_path.as_path()],
+    )?;
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
     let mut sido_tally = hub_sido_tally(sigungu_crosswalk)?;
 
@@ -671,7 +677,7 @@ mod tests {
             output_path: root.join("out.jsonl"),
             summary_path: None,
             source_snapshot_id: "synthetic-building-register-unit-area-20991231".to_owned(),
-            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc(),
             max_rows: None,
             output_format: OutputFormat::Jsonl,
             chunk_rows: None,
@@ -687,6 +693,57 @@ mod tests {
             .bronze_object_key
             .ends_with("OPN209912310000000002.zip"));
 
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_of_another_month_or_a_mid_month_validity_is_refused_before_output(
+    ) -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-building-register-unit-area-other-month");
+        let name = "OPN209912310000000001.zip";
+        write_zip_file(
+            &root
+                .join(format!("bronze/source={DEFAULT_SOURCE_SLUG}"))
+                .join(name),
+            "mart_djy_06.txt",
+            area_line(
+                "SYNTHETIC-AREA-PK-0001",
+                "SYNTHETIC-UNIT-416",
+                "1",
+                "42.125",
+            )
+            .as_bytes(),
+        )?;
+        let mut config = UnitAreaExportConfig {
+            bronze_local_object_root: root.clone(),
+            source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
+            source_object: Some(name.to_owned()),
+            output_path: root.join("out.jsonl"),
+            summary_path: None,
+            source_snapshot_id: "synthetic-building-register-unit-area-209911".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-11-01T00:00:00Z")?.to_utc(),
+            max_rows: None,
+            output_format: OutputFormat::Jsonl,
+            chunk_rows: None,
+        };
+        let error = export_handoff(&config).expect_err("a December file is not a November release");
+        assert!(
+            error
+                .to_string()
+                .contains("outside the provider month 2099-11"),
+            "{error:#}"
+        );
+        assert!(!config.output_path.exists());
+
+        // The export day posing as validity is refused (root ADR-0128).
+        config.valid_from_utc = DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc();
+        let error = export_handoff(&config).expect_err("mid-month validity must fail");
+        assert!(
+            error.to_string().contains("start of a provider month"),
+            "{error:#}"
+        );
+        assert!(!config.output_path.exists());
         fs::remove_dir_all(root)?;
         Ok(())
     }
@@ -725,7 +782,7 @@ mod tests {
                 output_path: output_dir.clone(),
                 summary_path: Some(summary_path.clone()),
                 source_snapshot_id: "synthetic-building-register-unit-area-20991231".to_owned(),
-                valid_from_utc: DateTime::parse_from_rfc3339("2099-12-31T00:00:00Z")?.to_utc(),
+                valid_from_utc: DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc(),
                 max_rows: None,
                 output_format: OutputFormat::Parquet,
                 chunk_rows: Some(2),
