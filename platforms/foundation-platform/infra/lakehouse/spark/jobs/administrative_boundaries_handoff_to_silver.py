@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import legal_dong_code_change_views as views
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
@@ -303,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         builder = (
             SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}")
             .config("spark.sql.session.timeZone", "UTC")
-            .config("spark.sql.shuffle.partitions", "2")
+            .config(map=SHUFFLE_SETTINGS)
         )
         spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config(
             "spark.jars.packages", args.iceberg_packages

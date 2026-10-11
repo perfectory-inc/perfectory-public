@@ -741,3 +741,43 @@ async fn a_read_only_token_is_refused_naming_catalog_write() -> Result<(), Box<d
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn a_resumed_load_reads_what_its_branch_records_or_mains_before_it_exists(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00005.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "refs": {
+                    "main": {"snapshot-id": OTHER, "type": "branch"},
+                    "load_fixture": {"snapshot-id": STAGED, "type": "branch"}
+                },
+                "snapshots": [
+                    {"snapshot-id": OTHER, "summary": {
+                        "operation": "append", "foundation.ingest-batch-objects": "part-0001"}},
+                    {"snapshot-id": STAGED, "parent-snapshot-id": OTHER, "summary": {
+                        "operation": "append", "foundation.ingest-batch-objects": "part-0002"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let staged = catalog
+        .load_staged_batch_objects("gold.parcel_panel", "load_fixture")
+        .await?;
+    assert_eq!(
+        staged.into_iter().collect::<Vec<_>>(),
+        ["part-0001", "part-0002"]
+    );
+    let not_made = catalog
+        .load_staged_batch_objects("gold.parcel_panel", "load_other")
+        .await?;
+    assert_eq!(not_made.into_iter().collect::<Vec<_>>(), ["part-0001"]);
+    Ok(())
+}

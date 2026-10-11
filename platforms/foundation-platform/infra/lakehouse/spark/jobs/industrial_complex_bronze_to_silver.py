@@ -24,6 +24,7 @@ from lakehouse_engine import (
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
     iceberg_packages,
+    SHUFFLE_SETTINGS,
 )
 from lakehouse_ingest import append_batch_once
 from platform_contracts import (
@@ -1054,7 +1055,7 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
     builder = (
         SparkSession.builder.appName("foundation-platform-industrial-complex-bronze-to-silver")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
 
     if args.write_mode == "iceberg":

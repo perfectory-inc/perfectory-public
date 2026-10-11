@@ -36,7 +36,7 @@ from industrial_complex_boundaries_silver_to_postgis_handoff import (
     read_sources,
     validate_identifier,
 )
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "industrial_complex_boundary_served_gold"
@@ -167,7 +167,7 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
     builder = (
         SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "2")
+        .config(map=SHUFFLE_SETTINGS)
     )
     builder = apply_catalog_settings(builder, args.iceberg_catalog_name)
     return builder.config("spark.jars.packages", args.iceberg_packages).getOrCreate()
