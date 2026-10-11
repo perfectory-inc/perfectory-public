@@ -816,6 +816,18 @@ def collect_readback_pairs(frame: Any) -> list[tuple[str, datetime]]:
     return pairs
 
 
+def restrict_to_batch_loads(persisted: Any, frame: Any, contract_name: str) -> Any:
+    """The persisted rows of this batch's own loads.
+
+    The rows of one release share one (source_snapshot_id, ingested_at_utc) pair, so a release
+    loaded in several batches reads every earlier batch back under it: the second 40M-row batch
+    of the hub price lane read 80M rows and was refused (2026-10-11). The load column
+    (`load_unit`) tells this batch's rows from the others'.
+    """
+    column = load_unit(contract_name)["column"]
+    return persisted.join(frame.select(column).distinct(), column, "left_semi")
+
+
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:
     return read_iceberg_snapshot_for_pairs(
         spark, collect_readback_pairs(frame), args, contract, F
@@ -1185,8 +1197,10 @@ def main() -> int:
             persisted_quality_metrics = quality_metrics
         else:
             if args.write_mode == "iceberg":
-                persisted = read_iceberg_snapshot_for_pairs(
-                    spark, readback_pairs, args, contract, F
+                persisted = restrict_to_batch_loads(
+                    read_iceberg_snapshot_for_pairs(spark, readback_pairs, args, contract, F),
+                    frame,
+                    args.contract,
                 )
             persisted_count, persisted_quality_metrics = validate_frame(
                 persisted,
