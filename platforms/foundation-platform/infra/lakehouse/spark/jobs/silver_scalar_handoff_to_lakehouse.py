@@ -825,7 +825,9 @@ def restrict_to_batch_loads(persisted: Any, frame: Any, contract_name: str) -> A
     (`load_unit`) tells this batch's rows from the others'.
     """
     column = load_unit(contract_name)["column"]
-    return persisted.join(frame.select(column).distinct(), column, "left_semi")
+    # A join on a column name moves that column first; the readback is checked against the
+    # contract's column order (validate_frame), so the order is restored (2026-10-11).
+    return persisted.join(frame.select(column).distinct(), column, "left_semi").select(*persisted.columns)
 
 
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:
