@@ -83,7 +83,12 @@ class FakeSpark:
         return self._frame
 
     def sql(self, query: str):  # noqa: ANN201
-        if "refs" in query:
+        if query.startswith("SELECT snapshot_id FROM") and ".refs" in query:
+            # The table's one lineage: snapshot 1, the head of main.
+            self._pending = [FakeRow({"snapshot_id": 1})]
+        elif "parent_id" in query:
+            self._pending = [FakeRow({"snapshot_id": 1, "parent_id": None})]
+        elif "refs" in query:
             self._pending = [FakeRow({"summary": {"total-records": str(self._total)}})]
         else:
             registry = self._registry if not self._frame.appended else self._after_write()

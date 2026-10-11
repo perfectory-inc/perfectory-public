@@ -38,9 +38,22 @@ from lakehouse_ingest import (  # noqa: E402
 
 
 class FakeRow:
-    def __init__(self, snapshot_id: int, summary: dict[str, str] | None) -> None:
+    def __init__(self, snapshot_id: int, summary: dict[str, str] | None, parent_id: int | None = None) -> None:
         self.snapshot_id = snapshot_id
         self.summary = summary
+        self.parent_id = parent_id
+
+
+def asks_for_a_head(query: str) -> bool:
+    """`ref_lineage`'s first question: which snapshot a reference names."""
+    return query.startswith("SELECT snapshot_id FROM") and ".refs" in query
+
+
+def linked(rows: list) -> list:
+    """The rows as one lineage in list order, the last one the head (each the next one's parent)."""
+    for parent, row in zip([None, *rows], rows):
+        row.parent_id = None if parent is None else parent.snapshot_id
+    return rows
 
 
 class FakeSpark:
@@ -52,7 +65,8 @@ class FakeSpark:
     """
 
     def __init__(self, rows: list[FakeRow], table_exists: bool = True) -> None:
-        self._rows = rows
+        self._rows = linked(rows)
+        self._answer = self._rows
         self._table_exists = table_exists
         self.catalog = self
         self.queries: list[str] = []
@@ -62,10 +76,11 @@ class FakeSpark:
 
     def sql(self, query: str) -> FakeSpark:
         self.queries.append(query)
+        self._answer = self._rows[-1:] if asks_for_a_head(query) else self._rows
         return self
 
     def collect(self) -> list[FakeRow]:
-        return self._rows
+        return self._answer
 
 
 class FakeRegistryRow:
@@ -116,7 +131,8 @@ class FakeBatchFrame:
             values = values[: self.truncated_at]
         return [FakeRegistryRow(value, self._column) for value in values]
 
-    def writeTo(self, _table: str) -> "FakeBatchFrame":  # noqa: N802 - Spark's spelling
+    def writeTo(self, table: str) -> "FakeBatchFrame":  # noqa: N802 - Spark's spelling
+        self.written_to = table
         return self
 
     def option(self, _key: str, _value: str) -> "FakeBatchFrame":
@@ -137,7 +153,7 @@ class FakeAnsweringSpark:
     """
 
     def __init__(self, registry: list[FakeRow], total_records: int | None) -> None:
-        self._registry = registry
+        self._registry = linked(registry)
         self._total = total_records
         self.catalog = self
         self._pending: list[FakeRow] = []
@@ -146,7 +162,9 @@ class FakeAnsweringSpark:
         return True
 
     def sql(self, query: str) -> "FakeAnsweringSpark":
-        if "refs" in query:
+        if asks_for_a_head(query):
+            self._pending = self._registry[-1:]
+        elif "refs" in query:
             self._pending = (
                 [] if self._total is None else [FakeRow(1, {"total-records": str(self._total)})]
             )
@@ -380,6 +398,74 @@ class WriteOptionTest(unittest.TestCase):
             snapshot_property_options(["a,b.zip"], "deadbeef")
 
         self.assertIn("a,b.zip", str(caught.exception), "어느 이름이 문제인지 말해야 한다")
+
+
+class RefSpark:
+    """Snapshots with parents and named references, answering the queries `ref_lineage`,
+    `read_ingested_objects` and `append_batch_once` ask."""
+
+    def __init__(self, rows: list[FakeRow], refs: dict[str, int]) -> None:
+        self._rows = rows
+        self._refs = refs
+        self._answer: list = []
+        self.catalog = self
+        self.queries: list[str] = []
+
+    def tableExists(self, _name: str) -> bool:  # noqa: N802 - Spark's spelling
+        return True
+
+    def sql(self, query: str) -> "RefSpark":
+        self.queries.append(query)
+        if asks_for_a_head(query):
+            name = query.rsplit("'", 2)[1]
+            self._answer = [FakeRow(self._refs[name], None)] if name in self._refs else []
+        elif query.startswith("ALTER TABLE"):
+            branch = query.rsplit(" ", 1)[1]
+            self._refs.setdefault(branch, self._refs["main"])
+            self._answer = []
+        else:
+            self._answer = self._rows
+        return self
+
+    def collect(self) -> list:
+        return self._answer
+
+
+class LoadBranchTest(unittest.TestCase):
+    """Root ADR-0183: a release loaded in several batches is staged on its branch."""
+
+    def staged(self) -> RefSpark:
+        # main: 1 <- 2. The branch: 1 <- 2 <- 3, one batch of the release staged on it.
+        return RefSpark(
+            [FakeRow(1, {INGEST_BATCH_OBJECTS_KEY: "old.zip"}),
+             FakeRow(2, {INGEST_BATCH_OBJECTS_KEY: "older-release.zip"}, parent_id=1),
+             FakeRow(3, {INGEST_BATCH_OBJECTS_KEY: "part-0001"}, parent_id=2)],
+            {"main": 2, "load_fixture": 3})
+
+    def test_only_mains_lineage_is_what_readers_see(self) -> None:
+        spark = self.staged()
+        self.assertEqual(set(read_ingested_objects(spark, "`c`.`n`.`t`", "c.n.t")),
+                         {"old.zip", "older-release.zip"})
+        self.assertEqual(set(read_ingested_objects(spark, "`c`.`n`.`t`", "c.n.t", "load_fixture")),
+                         {"old.zip", "older-release.zip", "part-0001"})
+
+    def test_a_staged_batch_is_written_to_its_branch_and_a_retry_skips_it(self) -> None:
+        spark = self.staged()
+        retried = FakeBatchFrame(["part-0001"], "source_part_id")
+        outcome = append_batch_once(spark, retried, ["source_part_id"], "`c`.`n`.`t`", "silver.building_register_apartment_price",
+                                    branch="load_fixture")
+        self.assertFalse(outcome["appended"], "the branch already holds this batch")
+        self.assertEqual(outcome["ref"], "load_fixture")
+        following = FakeBatchFrame(["part-0002"], "source_part_id")
+        outcome = append_batch_once(spark, following, ["source_part_id"], "`c`.`n`.`t`", "silver.building_register_apartment_price",
+                                    branch="load_fixture")
+        self.assertTrue(outcome["appended"])
+        self.assertEqual(following.written_to, "`c`.`n`.`t`.`branch_load_fixture`")
+        self.assertIn("ALTER TABLE `c`.`n`.`t` CREATE BRANCH IF NOT EXISTS load_fixture", spark.queries)
+
+    def test_a_reference_that_is_not_a_branch_name_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            read_ingested_objects(self.staged(), "`c`.`n`.`t`", "c.n.t", "main'; DROP")
 
 
 class ReadIngestedObjectsTest(unittest.TestCase):

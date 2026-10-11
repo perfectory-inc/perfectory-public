@@ -507,6 +507,7 @@ pub(in crate::remote_lakehouse_job) async fn load(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = format!("{lane}-{}", release.vintage);
+    let branch = super::stage_load(catalog, &contract.table, &identity).await?;
     let batch_size = usize::try_from(contract.spark.input_file_batch_size.max(1)).unwrap_or(1);
     let mut rows = 0;
     for (index, batch) in handoffs.chunks(batch_size).enumerate() {
@@ -521,6 +522,7 @@ pub(in crate::remote_lakehouse_job) async fn load(
             expected_count: batch.iter().map(|(_, converted)| *converted).sum(),
             reads_r2: true,
             write_mode: batch_write_mode(index),
+            branch: Some(branch.clone()),
         };
         // A batch the table already holds (a resumed run) is reported and skipped by
         // append_batch_once, the overwrite of the first included.
@@ -541,7 +543,7 @@ pub(in crate::remote_lakehouse_job) async fn load(
         .map(|(region, _)| format!("export-summary-{region}.json"))
         .collect();
     execute::keep_files(runtime, &evidence_name, &summaries)?;
-    super::confirm_recorded(catalog, &contract.table, &release.object_keys()).await?;
+    super::publish_load(catalog, &contract.table, &branch, &release.object_keys()).await?;
     runtime.reset_work()?;
     Ok(rows)
 }

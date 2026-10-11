@@ -426,14 +426,15 @@ impl IcebergRestCatalog {
             }))
     }
 
-    /// Every load identity the table's snapshots still record as appended: the
+    /// Every load identity the `main` branch records as appended: the
     /// `foundation.ingest-batch-objects` summary property `append_batch_once`
     /// (`infra/lakehouse/spark/jobs/lakehouse_ingest.py`) commits with the rows, read from the
-    /// table metadata exactly as that function reads it, so a caller can ask "is this load
-    /// already in the table?" without starting Spark (root ADR-0169 §3).
+    /// snapshots in `main`'s lineage exactly as that function reads them, so a caller can ask
+    /// "is this load in the table readers see?" without starting Spark (root ADR-0169 §3).
     ///
-    /// Returns `Ok(None)` when the table does not exist. An expired snapshot's identities are
-    /// gone with its summary, which the Spark reader shares.
+    /// A load staged on another branch is not in it until that branch is published (root
+    /// ADR-0183). Returns `Ok(None)` when the table does not exist. An expired snapshot's
+    /// identities are gone with its summary, which the Spark reader shares.
     ///
     /// # Errors
     ///
@@ -443,14 +444,119 @@ impl IcebergRestCatalog {
         table_name: &str,
     ) -> Result<Option<std::collections::BTreeSet<String>>, LakehouseError> {
         Ok(self.load_table_response(table_name).await?.map(|payload| {
+            let metadata = &payload.metadata;
             ingested_batch_objects(
-                payload
-                    .metadata
-                    .snapshots
-                    .iter()
-                    .map(|snapshot| &snapshot.summary),
+                lineage(metadata, main_head(metadata)).map(|snapshot| &snapshot.summary),
             )
         }))
+    }
+
+    /// Publishes branch `branch` of `table_name` as `main` in one catalog commit and removes the
+    /// branch (root ADR-0183): readers see every batch the branch staged at once, or none.
+    ///
+    /// Only a fast-forward is published: `main` must still be a snapshot in the branch's lineage,
+    /// so nothing committed to `main` since the branch was made is lost. The commit asserts both
+    /// references, so a commit racing it is refused rather than overwritten. A commit whose answer
+    /// was lost is judged by the table afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the table or the branch is missing, `main` moved off the
+    /// branch's lineage, or the catalog refuses the commit.
+    pub async fn publish_branch(
+        &self,
+        table_name: &str,
+        branch: &str,
+    ) -> Result<i64, LakehouseError> {
+        let payload = self.load_table_response(table_name).await?.ok_or_else(|| {
+            LakehouseError::Upstream(format!(
+                "{table_name} does not exist; branch {branch} cannot be published"
+            ))
+        })?;
+        let metadata = &payload.metadata;
+        let head = branch_head(metadata, branch).ok_or_else(|| {
+            LakehouseError::Upstream(format!("{table_name} has no branch {branch} to publish"))
+        })?;
+        let main = main_head(metadata);
+        if let Some(main) = main {
+            if !lineage(metadata, Some(head)).any(|snapshot| snapshot.snapshot_id == main) {
+                return Err(LakehouseError::Upstream(format!(
+                    "{table_name}'s main ({main}) is not in branch {branch}'s lineage: main moved \
+                     after the load began, and publishing would drop that commit"
+                )));
+            }
+        }
+        let outcome = self
+            .commit_table(
+                table_name,
+                serde_json::json!({
+                    "requirements": [
+                        {"type": "assert-ref-snapshot-id", "ref": "main", "snapshot-id": main},
+                        {"type": "assert-ref-snapshot-id", "ref": branch, "snapshot-id": head}
+                    ],
+                    "updates": [
+                        {"action": "set-snapshot-ref", "ref-name": "main", "type": "branch", "snapshot-id": head},
+                        {"action": "remove-snapshot-ref", "ref-name": branch}
+                    ]
+                }),
+            )
+            .await;
+        if outcome.is_err() {
+            let after = self.require_refs(table_name).await?;
+            if after
+                .refs
+                .get("main")
+                .is_some_and(|main| main.snapshot_id == head)
+                && !after.refs.contains_key(branch)
+            {
+                return Ok(head);
+            }
+        }
+        outcome.map(|()| head)
+    }
+
+    /// Removes branch `branch` of `table_name` when it cannot be published any more because
+    /// `main` moved off its lineage (root ADR-0183), so the next load stages from the current
+    /// `main`. Returns whether it removed one. A branch `main` is still in the lineage of is kept:
+    /// a resumed load continues on it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the name is a tag or the catalog refuses the commit.
+    pub async fn remove_stale_branch(
+        &self,
+        table_name: &str,
+        branch: &str,
+    ) -> Result<bool, LakehouseError> {
+        let Some(payload) = self.load_table_response(table_name).await? else {
+            return Ok(false);
+        };
+        let metadata = &payload.metadata;
+        let Some(reference) = metadata.refs.get(branch) else {
+            return Ok(false);
+        };
+        if reference.kind != "branch" {
+            return Err(LakehouseError::Upstream(format!(
+                "{table_name}'s {branch} is a {}, not a load branch",
+                reference.kind
+            )));
+        }
+        let head = reference.snapshot_id;
+        let current = main_head(metadata).is_none_or(|main| {
+            lineage(metadata, Some(head)).any(|snapshot| snapshot.snapshot_id == main)
+        });
+        if current {
+            return Ok(false);
+        }
+        self.commit_table(
+            table_name,
+            serde_json::json!({
+                "requirements": [{"type": "assert-ref-snapshot-id", "ref": branch, "snapshot-id": head}],
+                "updates": [{"action": "remove-snapshot-ref", "ref-name": branch}]
+            }),
+        )
+        .await
+        .map(|()| true)
     }
 
     /// Commits one tag `tag_name` on `snapshot_id` of `table_name`, only where no reference of
@@ -758,6 +864,9 @@ struct IcebergRefMetadata {
 struct IcebergSnapshotMetadata {
     #[serde(rename = "snapshot-id")]
     snapshot_id: i64,
+    /// The snapshot this one was committed on; absent for a table's first snapshot.
+    #[serde(rename = "parent-snapshot-id", default)]
+    parent_snapshot_id: Option<i64>,
     #[serde(rename = "timestamp-ms", default)]
     timestamp_ms: Option<i64>,
     #[serde(rename = "manifest-list", default)]
@@ -782,6 +891,50 @@ fn ingested_batch_objects<'a>(
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+/// The snapshot `main` names: its reference, or the current snapshot of metadata that carries no
+/// references (a table written before references existed). `None` for a table with no snapshot.
+fn main_head(metadata: &IcebergTableMetadata) -> Option<i64> {
+    metadata
+        .refs
+        .get("main")
+        .map(|main| main.snapshot_id)
+        .or_else(|| match &metadata.current_snapshot_id {
+            serde_json::Value::Number(value) => value.as_i64(),
+            serde_json::Value::String(value) => value.parse().ok(),
+            _ => None,
+        })
+}
+
+/// The snapshot branch `branch` names, if `branch` is a branch.
+fn branch_head(metadata: &IcebergTableMetadata, branch: &str) -> Option<i64> {
+    metadata
+        .refs
+        .get(branch)
+        .filter(|reference| reference.kind == "branch")
+        .map(|reference| reference.snapshot_id)
+}
+
+/// The snapshots from `head` back through each snapshot's parent, as far as the metadata still
+/// holds them (expiry removes the oldest). Bounded by the snapshot count, so a cycle in damaged
+/// metadata cannot loop.
+fn lineage(
+    metadata: &IcebergTableMetadata,
+    head: Option<i64>,
+) -> impl Iterator<Item = &IcebergSnapshotMetadata> {
+    let by_id: BTreeMap<i64, &IcebergSnapshotMetadata> = metadata
+        .snapshots
+        .iter()
+        .map(|snapshot| (snapshot.snapshot_id, snapshot))
+        .collect();
+    let mut next = head;
+    std::iter::from_fn(move || {
+        let snapshot = by_id.get(&next?).copied()?;
+        next = snapshot.parent_snapshot_id;
+        Some(snapshot)
+    })
+    .take(metadata.snapshots.len())
 }
 
 fn parse_table_name(table_name: &str) -> Result<(Vec<&str>, &str), LakehouseError> {

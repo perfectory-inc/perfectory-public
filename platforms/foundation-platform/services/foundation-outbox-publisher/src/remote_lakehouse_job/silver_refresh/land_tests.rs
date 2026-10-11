@@ -603,6 +603,7 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
             expected_count: Some(3),
             reads_r2: true,
             write_mode: land::batch_write_mode(index),
+            branch: Some(execute::load_branch("synthetic-load")),
         };
         let args = execute::spark_arguments(&runtime, &contract, &load);
         assert!(args.windows(2).any(|w| w == ["--iceberg-write-mode", mode]));
@@ -613,6 +614,10 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
         assert!(args
             .windows(2)
             .any(|w| w == ["--contract", "silver.land_use_plan"]));
+        // Every batch of the release stages on the load's one branch (root ADR-0183).
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--iceberg-branch" && w[1] == execute::load_branch("synthetic-load")));
         assert!(args.windows(2).any(|w| w
             == [
                 "-e",

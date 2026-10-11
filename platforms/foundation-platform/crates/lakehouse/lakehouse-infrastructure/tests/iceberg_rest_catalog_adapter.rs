@@ -367,9 +367,11 @@ async fn mount_gold(server: &MockServer, refs: serde_json::Value) {
         .await;
 }
 
+const STAGED: i64 = 999_990_000_000_000_004;
+
 #[tokio::test]
-async fn ingested_batch_objects_are_every_identity_the_held_snapshots_record(
-) -> Result<(), Box<dyn Error>> {
+async fn ingested_batch_objects_are_the_identities_main_records() -> Result<(), Box<dyn Error>> {
+    // Root ADR-0183: a load staged on its branch is not in the table readers see until published.
     let server = MockServer::start().await;
     mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
     Mock::given(method("GET"))
@@ -378,13 +380,17 @@ async fn ingested_batch_objects_are_every_identity_the_held_snapshots_record(
             "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00003.json",
             "metadata": {
                 "current-snapshot-id": OTHER,
+                "refs": {
+                    "main": {"snapshot-id": OTHER, "type": "branch"},
+                    "refresh_fixture": {"snapshot-id": STAGED, "type": "branch"}
+                },
                 "snapshots": [
                     {"snapshot-id": TAGGED, "summary": {
                         "operation": "append",
                         "foundation.ingest-batch-objects": "fixture-load-a,fixture-load-b"}},
-                    {"snapshot-id": OTHER, "summary": {"operation": "replace"}},
-                    {"snapshot-id": 999_990_000_000_000_003_i64, "summary": {
-                        "operation": "overwrite",
+                    {"snapshot-id": OTHER, "parent-snapshot-id": TAGGED, "summary": {"operation": "replace"}},
+                    {"snapshot-id": STAGED, "parent-snapshot-id": OTHER, "summary": {
+                        "operation": "append",
                         "foundation.ingest-batch-objects": "fixture-load-c"}}
                 ]
             }
@@ -398,7 +404,109 @@ async fn ingested_batch_objects_are_every_identity_the_held_snapshots_record(
         .ok_or_else(|| std::io::Error::other("table should exist"))?;
     assert_eq!(
         ingested.into_iter().collect::<Vec<_>>(),
-        ["fixture-load-a", "fixture-load-b", "fixture-load-c"]
+        ["fixture-load-a", "fixture-load-b"]
+    );
+    Ok(())
+}
+
+async fn mount_staged(server: &MockServer, main: i64) {
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00004.json",
+            "metadata": {
+                "current-snapshot-id": main,
+                "refs": {
+                    "main": {"snapshot-id": main, "type": "branch"},
+                    "refresh_fixture": {"snapshot-id": STAGED, "type": "branch"}
+                },
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "summary": {"operation": "append"}},
+                    {"snapshot-id": OTHER, "parent-snapshot-id": TAGGED, "summary": {"operation": "replace"}},
+                    {"snapshot-id": STAGED, "parent-snapshot-id": TAGGED, "summary": {"operation": "append"}}
+                ]
+            }
+        })))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn a_branch_is_published_as_main_in_one_commit_only_as_a_fast_forward(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    // main is still TAGGED, the snapshot the branch was staged on.
+    mount_staged(&server, TAGGED).await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .and(wiremock::matchers::body_json(serde_json::json!({
+            "requirements": [
+                {"type": "assert-ref-snapshot-id", "ref": "main", "snapshot-id": TAGGED},
+                {"type": "assert-ref-snapshot-id", "ref": "refresh_fixture", "snapshot-id": STAGED}
+            ],
+            "updates": [
+                {"action": "set-snapshot-ref", "ref-name": "main", "type": "branch", "snapshot-id": STAGED},
+                {"action": "remove-snapshot-ref", "ref-name": "refresh_fixture"}
+            ]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    assert_eq!(
+        catalog
+            .publish_branch("gold.parcel_panel", "refresh_fixture")
+            .await?,
+        STAGED
+    );
+    assert!(
+        catalog
+            .publish_branch("gold.parcel_panel", "no_such_branch")
+            .await
+            .is_err(),
+        "a missing branch was published"
+    );
+    // The branch is current: a resumed load keeps it.
+    assert!(
+        !catalog
+            .remove_stale_branch("gold.parcel_panel", "refresh_fixture")
+            .await?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_branch_main_moved_away_from_is_never_published_and_is_removed_as_stale(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    // main moved to OTHER after the branch was staged on TAGGED.
+    mount_staged(&server, OTHER).await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .and(wiremock::matchers::body_json(serde_json::json!({
+            "requirements": [
+                {"type": "assert-ref-snapshot-id", "ref": "refresh_fixture", "snapshot-id": STAGED}
+            ],
+            "updates": [{"action": "remove-snapshot-ref", "ref-name": "refresh_fixture"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let refused = catalog
+        .publish_branch("gold.parcel_panel", "refresh_fixture")
+        .await
+        .err()
+        .ok_or_else(|| std::io::Error::other("a branch off main's lineage was published"))?;
+    assert!(refused.to_string().contains("main moved"), "{refused}");
+    assert!(
+        catalog
+            .remove_stale_branch("gold.parcel_panel", "refresh_fixture")
+            .await?
     );
     Ok(())
 }

@@ -597,6 +597,7 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
         expected_count: Some(13),
         reads_r2: true,
         write_mode: WriteMode::Append,
+        branch: None,
     };
     let args = execute::spark_arguments(&runtime, &price, &load);
     assert!(args.windows(2).any(|w| w
@@ -610,5 +611,21 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
     );
     assert!(args.windows(2).any(|w| w == ["--expected-count", "13"]));
     assert!(!args.iter().any(|a| a == "--allow-non-smoke-overwrite"));
+    assert!(
+        !args.iter().any(|a| a == "--iceberg-branch"),
+        "a one-commit load writes main"
+    );
+    let branch = execute::load_branch("synthetic-load");
+    assert_eq!(
+        branch,
+        execute::load_branch("synthetic-load"),
+        "a retry stages on the same branch"
+    );
+    assert_ne!(branch, execute::load_branch("another-load"));
+    assert!(
+        branch.starts_with("load_")
+            && branch.len() == 21
+            && branch[5..].bytes().all(|b| b.is_ascii_hexdigit())
+    );
     Ok(())
 }
