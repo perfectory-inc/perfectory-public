@@ -1,14 +1,53 @@
-// Generated from platforms/foundation-platform/config/r2-connections.contract.json (by_pnu_lanes)
-// and the lanes' Gold tables in infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json.
+// Generated from platforms/foundation-platform/config/r2-connections.contract.json (by_pnu_lanes).
 // Run `node scripts/generate-by-pnu-lanes.ts` from products/gongzzang after editing the contract.
 
 /** Every by-PNU lane the web reads: the host serving it, its path there and its document. */
 export const BY_PNU_LANES = {
+  "parcel-characteristics": {
+    host: "parcel",
+    kind: "characteristics",
+    path: "/parcels/characteristics/by-pnu/",
+    section: "characteristics",
+    documentSchemaVersion: "foundation-platform.parcel_characteristics_by_pnu.v1",
+    goldTable: "gold.parcel_characteristics",
+  },
+  "parcel-forest-ledger": {
+    host: "parcel",
+    kind: "forest-ledger",
+    path: "/parcels/forest-ledger/by-pnu/",
+    section: "forest_ledger",
+    documentSchemaVersion: "foundation-platform.parcel_forest_ledger_by_pnu.v1",
+    goldTable: "gold.parcel_forest_ledger",
+  },
+  "parcel-land-rights": {
+    host: "parcel",
+    kind: "land-rights",
+    path: "/parcels/land-rights/by-pnu/",
+    section: "land_rights",
+    documentSchemaVersion: "foundation-platform.parcel_land_rights_by_pnu.v1",
+    goldTable: "gold.parcel_land_rights",
+  },
+  "parcel-price": {
+    host: "parcel",
+    kind: "price",
+    path: "/parcels/price/by-pnu/",
+    section: "price",
+    documentSchemaVersion: "foundation-platform.parcel_price_by_pnu.v1",
+    goldTable: "gold.parcel_price",
+  },
+  "parcel-transfer-history": {
+    host: "parcel",
+    kind: "transfer-history",
+    path: "/parcels/transfer-history/by-pnu/",
+    section: "transfer_history",
+    documentSchemaVersion: "foundation-platform.parcel_transfer_history_by_pnu.v1",
+    goldTable: "gold.parcel_transfer_history",
+  },
   "parcel-zoning": {
     host: "parcel",
     kind: "zoning",
     path: "/parcels/zoning/by-pnu/",
-    sections: ["zonings"],
+    section: "zonings",
     documentSchemaVersion: "foundation-platform.parcel_zoning_by_pnu.v1",
     goldTable: "gold.parcel_zoning",
   },
@@ -16,7 +55,7 @@ export const BY_PNU_LANES = {
     host: "unit-price",
     kind: "unit-price",
     path: "/unit-prices/by-pnu/",
-    sections: ["units"],
+    section: null,
     documentSchemaVersion: "foundation-platform.unit_price_by_pnu.v1",
     goldTable: "gold.unit_price_panel",
   },
