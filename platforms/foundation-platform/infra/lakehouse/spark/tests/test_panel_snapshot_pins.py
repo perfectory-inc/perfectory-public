@@ -167,6 +167,8 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job, "apply_catalog_settings", return_value=builder))
                     builder.getOrCreate.side_effect = start
                     stack.enter_context(mock.patch.object(job, "assert_iceberg_runtime_loaded"))
+                    # The committed snapshot is read from the Gold, not the pins.
+                    stack.enter_context(mock.patch.object(job, "current_snapshot", return_value="1"))
                 read = stack.enter_context(mock.patch.object(job, "read_source", return_value=frame))
                 stack.enter_context(mock.patch.object(job, "assert_single_snapshot", return_value="logical-batch"))
                 stack.enter_context(mock.patch.object(job, "build_gold_panel_frame", return_value=frame))

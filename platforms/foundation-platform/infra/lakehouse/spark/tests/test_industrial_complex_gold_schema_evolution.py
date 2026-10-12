@@ -204,6 +204,34 @@ class GoldSchemaEvolutionTest(unittest.TestCase):
             job.evolve_gold_iceberg_table_to_contract(spark, TABLE)
 
 
+class GoldLineageSnapshotTest(unittest.TestCase):
+    def test_the_lineage_names_the_gold_snapshot_the_write_committed(self) -> None:
+        """Not `--iceberg-snapshot-id`, the Silver snapshot the rows were stamped with: a Gold run of
+        2026-10-12 recorded an input snapshot as the one it committed."""
+        from unittest import mock
+
+        argv = ["job", "--input-mode", "iceberg", "--write-mode", "iceberg", "--iceberg-snapshot-id", "111",
+                "--allow-non-smoke-overwrite"]
+        events = []
+        gold = mock.Mock()
+        gold.persist.return_value = gold
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(job, "validate_args"), \
+                mock.patch.object(job, "StorageLevel"), mock.patch.object(job, "build_spark_session"), \
+                mock.patch.object(job, "read_silver_input"), \
+                mock.patch.object(job, "build_gold_catalog_frame", return_value=gold), \
+                mock.patch.object(job, "validate_gold_frame", return_value=(1, {})), \
+                mock.patch.object(job, "collect_source_snapshot_summary",
+                                  return_value={"source_snapshot_ids": ["s"], "source_snapshot_truncated": False}), \
+                mock.patch.object(job, "write_gold_iceberg", return_value=()), \
+                mock.patch.object(job, "read_iceberg_snapshot_for_batch"), \
+                mock.patch.object(job, "current_snapshot", return_value="222"), \
+                mock.patch.object(job, "emit_run_summary"), \
+                mock.patch.object(job, "emit_lineage_event", side_effect=lambda event, _path: events.append(event)), \
+                mock.patch("builtins.print"):
+            self.assertEqual(job.main(), 0)
+        self.assertEqual(events[0]["iceberg_snapshot"]["snapshot_id"], "222")
+
+
 class GoldProjectionColumnTest(unittest.TestCase):
     def test_every_gold_column_has_a_lineage_entry(self) -> None:
         lineage = {entry["output_column"] for entry in job.column_lineage()}

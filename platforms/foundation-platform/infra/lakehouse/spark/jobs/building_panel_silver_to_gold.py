@@ -21,7 +21,8 @@ from typing import Any
 from pyspark.sql import DataFrame, SparkSession, Window, functions as F, types as T
 from pyspark.storagelevel import StorageLevel
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
+from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, current_snapshot,
+                              iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from platform_contracts import (column_names, current_row_predicate, ensure_contract_table,
     load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
@@ -401,7 +402,8 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
             "catalog": args.iceberg_catalog_name,
             "namespace": args.target_iceberg_namespace,
             "table": args.target_iceberg_table,
-            "snapshot_id": args.iceberg_snapshot_id,
+            # The Gold snapshot this run committed, not the title pin it read (`--iceberg-snapshot-id`).
+            "snapshot_id": summary["target"].get("snapshot_id"),
         },
         "quality_metrics": {
             **summary["quality_metrics"],
@@ -585,7 +587,7 @@ def run(spark, args, pins):
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
                                          validate_gold_frame, assert_minimum_row_count)
     try:
-        persisted_count, metrics, added = None, outcome.metrics, ()
+        persisted_count, metrics, added, committed = None, outcome.metrics, (), None
         if not args.validate_only:
             if args.write_mode == "parquet":
                 gold = outcome.gold
@@ -599,6 +601,7 @@ def run(spark, args, pins):
                 apply_gold_read_properties(spark, target_table)  # a table this run created
                 # The snapshot records the Silver pins it was built from (root ADR-0139).
                 outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)
                 persisted = spark.table(target_table).select(*GOLD_COLUMNS)
@@ -608,7 +611,8 @@ def run(spark, args, pins):
             "created_at_utc": normalize_utc_timestamp(None),
             "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES), "region_prefix": args.region_prefix, "pnu_prefix": args.pnu_prefix},
             "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
-                      {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace, "table": args.target_iceberg_table},
+                      {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace,
+                       "table": args.target_iceberg_table, "snapshot_id": committed},
             "write_mode": args.write_mode,
             "write_disposition": "validate_only" if args.validate_only else ("parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),
             "row_count": outcome.row_count, "persisted_row_count": persisted_count, "quality_metrics": {**metrics, **counters},

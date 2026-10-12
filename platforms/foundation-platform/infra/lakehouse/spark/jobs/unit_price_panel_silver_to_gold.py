@@ -20,7 +20,8 @@ from typing import Any
 
 from pyspark.sql import SparkSession, functions as F
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
+from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, current_snapshot,
+                              iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins
 from platform_contracts import (column_names, ensure_contract_table, load_lakehouse_contract,
     partition_column_names, required_column_names, sort_order)
@@ -277,7 +278,7 @@ def run(spark, args, pins):
             if max_shrink is None:
                 max_shrink = load_rebuild_contract()["tables"][GOLD_CONTRACT_NAME]["max_price_history_shrink_fraction"]
             counters.update(assert_price_histories_kept(spark, target_table, outcome, max_shrink))
-        persisted_count, metrics, added = None, outcome.metrics, ()
+        persisted_count, metrics, added, committed = None, outcome.metrics, (), None
         if not args.validate_only:
             if args.write_mode == "parquet":
                 (outcome.gold.repartition(*partition_column_names(GOLD_CONTRACT))
@@ -289,6 +290,7 @@ def run(spark, args, pins):
                 added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 panel.apply_gold_read_properties(spark, target_table)
                 outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)
                 persisted = spark.table(target_table).select(*GOLD_COLUMNS)
@@ -299,7 +301,7 @@ def run(spark, args, pins):
             "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES)},
             "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
                       {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace,
-                       "table": args.target_iceberg_table},
+                       "table": args.target_iceberg_table, "snapshot_id": committed},
             "write_mode": args.write_mode,
             "write_disposition": "validate_only" if args.validate_only else (
                 "parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),

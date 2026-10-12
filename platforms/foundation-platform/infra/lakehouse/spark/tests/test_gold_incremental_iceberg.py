@@ -98,7 +98,8 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         work.mkdir(parents=True, exist_ok=True)
         argv = ["--input-mode", "iceberg", "--write-mode", "iceberg", "--iceberg-catalog-name", "proof",
                 "--target-iceberg-table", table, "--allow-non-smoke-overwrite", "--iceberg-snapshot-id", "1",
-                "--published-at-utc", published, "--summary-output", str(work / "summary.json"), *extra]
+                "--published-at-utc", published, "--summary-output", str(work / "summary.json"),
+                "--lineage-output", str(work / "lineage.json"), *extra]
         if previous is not None:
             (work / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
             argv += ["--incremental-from-snapshots", str(work / "previous.json"),
@@ -107,10 +108,17 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
 
     def run_job(self, job, pins, table, published, **options):
         args, summary = self.args(job, table, published, **options)
+        lineage = summary.with_name("lineage.json")
+        lineage.unlink(missing_ok=True)
         log = StringIO()
         with redirect_stdout(log):
             self.assertEqual(job.run(self.spark, args, pins), 0)
         self.log = log.getvalue()
+        # The lineage names the Gold snapshot the run left, never an input pin (the building run of
+        # 2026-10-12 recorded the titles snapshot).
+        recorded = json.loads(lineage.read_text(encoding="utf-8"))["iceberg_snapshot"]["snapshot_id"]
+        self.assertEqual(recorded, self.head(f"proof.gold.{table}"))
+        self.assertNotIn(recorded, pins.values())
         return json.loads(summary.read_text(encoding="utf-8"))
 
     def append(self, name, rows):
