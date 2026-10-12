@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PipelineGraph, ScheduledJobDataset, ScheduledJobRun, ScheduledJobStatus } from "../api/client";
 import {
+  catalogLineageUrl,
   catalogUrnOf,
   contractOf,
   datasetState,
@@ -12,6 +13,9 @@ import {
   flowView,
   jobStates,
   jobTitle,
+  problemRows,
+  problemSentence,
+  schedulerUrl,
   statusNote,
   strongest,
   summarySentence,
@@ -199,8 +203,8 @@ describe("job states", () => {
     expect(statusNote(null, titleOf, NOW)).toBeNull();
   });
 
-  it("lets the state that needs eyes first speak for a dataset several jobs write", () => {
-    expect(strongest([states.get("sweep"), states.get("load_b"), states.get("load_a")])?.job.job_id).toBe("load_a");
+  it("lets a failure speak for a dataset several jobs write, over a run going on", () => {
+    expect(strongest([states.get("sweep"), states.get("load_b"), states.get("load_a")])?.job.job_id).toBe("load_b");
     expect(flowStatus(strongest([]))).toBe("manual");
   });
 
@@ -253,5 +257,68 @@ describe("what a dataset and an edge show", () => {
   it("shows the state of the job that carries an edge", () => {
     const edge = view.edges.find((candidate) => candidate.id === "e-source-a");
     expect(edge && edgeState(edge, states)?.status).toBe("running");
+  });
+});
+
+describe("problems (root ADR-0195)", () => {
+  const titleOf = (id: string) => ({ load_b: "실버 나", sweep: "원천" })[id] ?? id;
+  const failedB = ran(loadB, run("failed", "2026-01-02T10:00:00Z", "2026-01-02T10:05:00Z"), {
+    problems: [{ kind: "failed", cause: "out_of_memory", cause_line: "result=oom-kill", scheduler_run_id: "scheduled__x" }],
+  });
+  const blockedRebuild = { ...rebuild, problems: [{ kind: "blocked" as const, upstream_job_ids: ["load_b"] }] };
+  const lateSweep = ran(sweep, run("succeeded", "2026-01-01T08:00:00Z", "2026-01-01T09:00:00Z"), {
+    problems: [{ kind: "late", due_at: "2026-01-02T08:00:00Z", last_success_at: "2026-01-01T09:00:00Z" }],
+  });
+  const slowA = ran(loadA, run("running", "2026-01-02T10:00:00Z"), {
+    problems: [{ kind: "slow", seconds: 7200, typical_seconds: 1800, running: true }],
+  });
+  const smallBake = ran(bake, run("succeeded", "2026-01-02T09:00:00Z", "2026-01-02T10:00:00Z"), {
+    problems: [{ kind: "volume", node_id: "files", rows: 500, typical_rows: 1000 }],
+  });
+  const all = [lateSweep, slowA, failedB, blockedRebuild, smallBake];
+  const states = jobStates(all, NOW);
+
+  it("gives each problem its own status, a problem over the plain state it is about", () => {
+    expect(["sweep", "load_a", "load_b", "rebuild", "bake"].map((id) => states.get(id)?.status)).toEqual([
+      "late",
+      "slow",
+      "failed",
+      "blocked",
+      "volume",
+    ]);
+  });
+
+  it("says each problem in one line: the cause, what blocks it, how far off usual it is", () => {
+    const note = (id: string) => statusNote(states.get(id) ?? null, titleOf, NOW);
+    expect(note("load_b")).toBe("메모리 부족 · result=oom-kill");
+    expect(note("rebuild")).toBe("앞 단계가 실패해서 멈춰 있어요 (실버 나)");
+    expect(note("sweep")).toBe("4시간 전 돌았어야 하는데 아직 성공 못 했어요 · 마지막 성공 27시간 전");
+    expect(note("load_a")).toBe("보통 30분인데 2시간째 도는 중");
+    expect(note("bake")).toBe("보통 1,000행인데 이번엔 500행");
+    expect(problemSentence({ kind: "failed", cause: null }, titleOf, NOW)).toBe("실패 · 로그를 못 읽어 원인을 몰라요");
+  });
+
+  it("lists every problem worst first, each with the dataset to open", () => {
+    const rows = problemRows([...all, { ...failedB, job_id: "off", enabled: false }]);
+    expect(rows.map((row) => [row.job.job_id, row.problem.kind, row.nodeId])).toEqual([
+      ["load_b", "failed", "silver-b"],
+      ["rebuild", "blocked", "gold"],
+      ["sweep", "late", "source"],
+      ["load_a", "slow", "silver-a"],
+      ["bake", "volume", "files"],
+    ]);
+    expect(problemRows([sweep])).toEqual([]);
+  });
+
+  it("links to the scheduler's run log and the catalog's lineage only when their addresses are known", () => {
+    const links = { scheduler_url: "https://scheduler.example/", catalog_url: "https://catalog.example" };
+    expect(schedulerUrl(links, "synthetic_load_b", "scheduled__2026-01-02T10:00:00+00:00")).toBe(
+      "https://scheduler.example/dags/synthetic_load_b/runs/scheduled__2026-01-02T10%3A00%3A00%2B00%3A00/tasks/run",
+    );
+    expect(schedulerUrl(links, "synthetic_load_b")).toBe("https://scheduler.example/dags/synthetic_load_b");
+    expect(schedulerUrl({}, "synthetic_load_b")).toBeNull();
+    expect(catalogLineageUrl(links, "urn:li:dataset:x")).toBe("https://catalog.example/dataset/urn%3Ali%3Adataset%3Ax/Lineage");
+    expect(catalogLineageUrl(links, "urn:li:dataJob:y")).toBe("https://catalog.example/tasks/urn%3Ali%3AdataJob%3Ay/Lineage");
+    expect(catalogLineageUrl(links, null)).toBeNull();
   });
 });

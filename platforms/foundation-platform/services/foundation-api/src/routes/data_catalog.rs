@@ -16,7 +16,8 @@ use axum::{
 use foundation_contracts::data_catalog::{
     DataCatalogEntity, DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood,
     DataCatalogSearchPage, DataContractQuality, DataQualityCheck, DataQualityDetail,
-    DataQualityResult, DataQualityStatus, ScheduledJobDataset, ScheduledJobRun,
+    DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink, DatasetSnapshots,
+    FailureCause, OperationsLinks, ScheduledJobDataset, ScheduledJobProblem, ScheduledJobRun,
     ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
@@ -28,7 +29,10 @@ use utoipa::{IntoParams, Modify, OpenApi};
 use super::api_error::ApiError;
 use crate::state::AppState;
 
+mod facts;
+mod health;
 mod operations;
+mod snapshots;
 
 const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
 const MAX_PAGE: u32 = 50;
@@ -41,7 +45,13 @@ const MAX_NEIGHBOURS: u32 = 200;
         version = "1.0.0",
         description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165)."
     ),
-    paths(search, entity, operations::scheduled_jobs, operations::quality_checks),
+    paths(
+        search,
+        entity,
+        operations::scheduled_jobs,
+        operations::quality_checks,
+        snapshots::dataset_snapshots
+    ),
     components(schemas(
         DataCatalogEntity,
         DataCatalogEntityKind,
@@ -54,6 +64,12 @@ const MAX_NEIGHBOURS: u32 = 200;
         ScheduledJobRunOutcome,
         ScheduledJobStart,
         ScheduledJobDataset,
+        ScheduledJobProblem,
+        FailureCause,
+        OperationsLinks,
+        DatasetSnapshots,
+        DatasetSnapshot,
+        DatasetSnapshotLink,
         DataQualityStatus,
         DataContractQuality,
         DataQualityCheck,
@@ -110,6 +126,10 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/quality-checks",
             super::protected_route(get(operations::quality_checks), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/dataset-snapshots",
+            super::protected_route(get(snapshots::dataset_snapshots), state, read, None),
         )
 }
 

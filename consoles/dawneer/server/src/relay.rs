@@ -71,6 +71,8 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     // How the scheduled jobs ran and what the contracts' checks found (root ADR-0165).
     (Method::GET, &[Literal("scheduled-jobs")]),
     (Method::GET, &[Literal("quality-checks")]),
+    // A dataset's Iceberg snapshots and what read them (root ADR-0195).
+    (Method::GET, &[Literal("dataset-snapshots")]),
 ];
 
 /// Whether `method path` (path relative to `/catalog/v1/`) may be relayed.
@@ -166,11 +168,16 @@ mod tests {
     }
 
     #[test]
-    fn the_data_catalog_is_read_only_and_has_four_routes() {
+    fn the_data_catalog_is_read_only_and_has_five_routes() {
         assert!(data_catalog_allowed(&Method::GET, "search"));
         assert!(data_catalog_allowed(&Method::GET, "entity"));
         assert!(data_catalog_allowed(&Method::GET, "scheduled-jobs"));
         assert!(data_catalog_allowed(&Method::GET, "quality-checks"));
+        assert!(data_catalog_allowed(&Method::GET, "dataset-snapshots"));
+        assert!(
+            !data_catalog_allowed(&Method::GET, "dataset-snapshots/x"),
+            "one segment only"
+        );
         assert!(!data_catalog_allowed(&Method::POST, "search"), "read-only");
         assert!(
             !data_catalog_allowed(&Method::POST, "scheduled-jobs"),

@@ -1737,6 +1737,7 @@ dependencies = [
  "foundation-normalization-domain",
  "foundation-normalization-infrastructure",
  "foundation-shared-kernel",
+ "futures-util",
  "jsonwebtoken",
  "lakehouse-application",
  "lakehouse-domain",

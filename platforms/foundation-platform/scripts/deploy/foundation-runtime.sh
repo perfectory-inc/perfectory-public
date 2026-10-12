@@ -7,6 +7,9 @@ FOUNDATION_PLATFORM_ENV_FILE="${FOUNDATION_PLATFORM_ENV_FILE:-/etc/foundation-pl
 # The admin map edit store's address and writer token (root ADR-0112), kept apart from
 # recovery.env so the fold timer can read exactly these; compose carries them to foundation-api.
 export FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE="${FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE:-/etc/foundation-platform/map-edit.env}"
+# The operations map's scheduler sign-in, lakehouse catalog token and tool addresses (root
+# ADR-0195); compose carries them to foundation-api only.
+export FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE="${FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE:-/etc/foundation-platform/operations-map.env}"
 export FOUNDATION_PLATFORM_STATE_ROOT="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
 export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-${FOUNDATION_PLATFORM_STATE_ROOT}/lakehouse}"
 export FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT:-${FOUNDATION_PLATFORM_STATE_ROOT}/remote-lakehouse}"
@@ -59,6 +62,7 @@ compose=(
   -f "${root_dir}/compose.recovery.yml"
   -f "${root_dir}/compose.identity-bridge.yml"
   -f "${root_dir}/compose.metadata-bridge.yml"
+  -f "${root_dir}/compose.orchestration-bridge.yml"
   --project-name "${FOUNDATION_PLATFORM_COMPOSE_PROJECT}"
   --env-file "${FOUNDATION_PLATFORM_ENV_FILE}"
 )

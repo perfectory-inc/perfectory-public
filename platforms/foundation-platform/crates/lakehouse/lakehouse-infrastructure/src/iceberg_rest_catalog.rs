@@ -58,6 +58,60 @@ pub struct IcebergSnapshotRefs {
     pub refs: BTreeMap<String, IcebergSnapshotRef>,
 }
 
+/// One snapshot of a table's `main` lineage and what its writer recorded in its summary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergSnapshotSummary {
+    /// The snapshot's id.
+    pub snapshot_id: i64,
+    /// When it was committed, from the snapshot's `timestamp-ms`.
+    pub timestamp_ms: Option<i64>,
+    /// The writer's summary, every value as text (Iceberg writes them as strings).
+    pub summary: BTreeMap<String, String>,
+}
+
+/// The summary property a Gold build commits with the Silver snapshots it read, as a JSON object
+/// of `namespace.table` to snapshot id (`gold_rebuild.py`: `SOURCE_SNAPSHOTS_PROPERTY`,
+/// `pins_property_value`; root ADR-0130).
+const SOURCE_SNAPSHOTS_KEY: &str = "foundation.source-iceberg-snapshots";
+
+impl IcebergSnapshotSummary {
+    /// Rows the commit added (Iceberg's `added-records`).
+    #[must_use]
+    pub fn added_records(&self) -> Option<u64> {
+        self.summary.get("added-records")?.parse().ok()
+    }
+
+    /// The source objects the commit recorded as loaded (`foundation.ingest-batch-objects`).
+    #[must_use]
+    pub fn ingested_objects(&self) -> Vec<String> {
+        self.summary
+            .get(INGEST_BATCH_OBJECTS_KEY)
+            .map(|recorded| {
+                recorded
+                    .split(INGEST_OBJECT_SEPARATOR)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The input snapshots the commit was built from, `namespace.table` to snapshot id; empty
+    /// when it records none (or records them malformed).
+    #[must_use]
+    pub fn source_snapshots(&self) -> BTreeMap<String, i64> {
+        self.summary
+            .get(SOURCE_SNAPSHOTS_KEY)
+            .and_then(|value| serde_json::from_str::<BTreeMap<String, String>>(value).ok())
+            .map(|pins| {
+                pins.into_iter()
+                    .filter_map(|(table, id)| Some((table, id.parse().ok()?)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
 /// One named reference of an Iceberg table.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IcebergSnapshotRef {
@@ -384,6 +438,43 @@ impl IcebergRestCatalog {
                 "{table_name} snapshot {snapshot_id} records no total-records in its summary"
             ))
         })
+    }
+
+    /// The snapshots readers of `main` have seen, newest first: `main`'s head and its ancestors
+    /// the metadata still holds, each with its commit time and its writer's summary (Iceberg's
+    /// `added-records`, `total-records`, `operation` and the properties our jobs commit, such as
+    /// `foundation.source-iceberg-snapshots`). A snapshot staged on another branch is not among
+    /// them until it is published (root ADR-0183).
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached.
+    pub async fn load_main_snapshot_history(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<Vec<IcebergSnapshotSummary>>, LakehouseError> {
+        Ok(self.load_table_response(table_name).await?.map(|payload| {
+            let metadata = &payload.metadata;
+            lineage(metadata, main_head(metadata))
+                .map(|snapshot| IcebergSnapshotSummary {
+                    snapshot_id: snapshot.snapshot_id,
+                    timestamp_ms: snapshot.timestamp_ms,
+                    summary: snapshot
+                        .summary
+                        .iter()
+                        .map(|(key, value)| {
+                            let text = match value {
+                                serde_json::Value::String(text) => text.clone(),
+                                other => other.to_string(),
+                            };
+                            (key.clone(), text)
+                        })
+                        .collect(),
+                })
+                .collect()
+        }))
     }
 
     /// The table's named references (`main` and every branch and tag) and the snapshots its
@@ -866,7 +957,8 @@ impl LoadTableResponse {
 struct IcebergTableMetadata {
     #[serde(rename = "table-uuid")]
     table_uuid: Option<uuid::Uuid>,
-    #[serde(rename = "current-snapshot-id")]
+    /// Absent on a table created and never written, as the R2 catalog serves it.
+    #[serde(rename = "current-snapshot-id", default)]
     current_snapshot_id: serde_json::Value,
     #[serde(default)]
     snapshots: Vec<IcebergSnapshotMetadata>,

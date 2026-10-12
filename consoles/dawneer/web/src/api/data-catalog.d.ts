@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/data-catalog/v1/dataset-snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A dataset's Iceberg snapshots, newest first, with the run that made each and what read it. */
+        get: operations["listDatasetSnapshots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-catalog/v1/entity": {
         parameters: {
             query?: never;
@@ -188,6 +205,68 @@ export interface components {
              */
             read_at: string;
         };
+        /** @description One `main` snapshot of an Iceberg table. */
+        DatasetSnapshot: {
+            /**
+             * Format: int64
+             * @description Rows it added.
+             */
+            added_records?: number | null;
+            /**
+             * Format: date-time
+             * @description When it was committed.
+             */
+            committed_at?: string | null;
+            /** @description The source objects the commit recorded as loaded (`foundation.ingest-batch-objects`). */
+            ingested_objects: string[];
+            /** @description The scheduled job whose run was going when it was committed. */
+            job_id?: string | null;
+            /** @description Iceberg's word for the commit (`append`, `overwrite`, ...). */
+            operation?: string | null;
+            /** @description The snapshots of other tables built from it. */
+            read_by: components["schemas"]["DatasetSnapshotLink"][];
+            /** @description The input snapshots it was built from (`foundation.source-iceberg-snapshots`). */
+            read_from: components["schemas"]["DatasetSnapshotLink"][];
+            /** @description That run, in the data catalog. */
+            run_urn?: string | null;
+            /** @description The snapshot's id, as text (it does not fit a JSON number). */
+            snapshot_id: string;
+            /**
+             * Format: int64
+             * @description Rows the table held after it.
+             */
+            total_records?: number | null;
+        };
+        /** @description One table snapshot another snapshot read or was read by. */
+        DatasetSnapshotLink: {
+            /**
+             * Format: date-time
+             * @description When it was committed, when the table's metadata still holds it.
+             */
+            committed_at?: string | null;
+            /** @description The table's pipeline-graph node, when a scheduled job reads or writes it. */
+            node_id?: string | null;
+            /** @description The snapshot's id, as text (it does not fit a JSON number). */
+            snapshot_id: string;
+            /** @description The table, `namespace.table`. */
+            table: string;
+        };
+        /** @description A dataset's Iceberg snapshots, newest first. */
+        DatasetSnapshots: {
+            /** @description Why the snapshots could not be read, when they could not. */
+            error?: string | null;
+            /** @description The pipeline-graph node asked about. */
+            node_id: string;
+            /** @description Its `main` snapshots the metadata still holds, newest first. */
+            snapshots: components["schemas"]["DatasetSnapshot"][];
+            /** @description Its Iceberg table, when it is one. */
+            table?: string | null;
+        };
+        /**
+         * @description What a failed run's log says broke it.
+         * @enum {string}
+         */
+        FailureCause: "out_of_memory" | "timed_out" | "source_missing" | "other";
         /** @description Opaque internal-error body returned by Foundation API handlers. */
         InternalApiErrorResponse: {
             /**
@@ -197,6 +276,13 @@ export interface components {
             correlation_id: string;
             /** @description Stable opaque diagnostic. */
             error: string;
+        };
+        /** @description Where staff open the scheduler's and the data catalog's own screens, when configured. */
+        OperationsLinks: {
+            /** @description The data catalog's (`DataHub`'s) web address. */
+            catalog_url?: string | null;
+            /** @description The scheduler's (Airflow's) web address. */
+            scheduler_url?: string | null;
         };
         /**
          * @description One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
@@ -219,6 +305,64 @@ export interface components {
             /** @description The node's title there, in Korean. */
             title: string;
         };
+        /** @description Something about a scheduled job a person should look at (root ADR-0195). */
+        ScheduledJobProblem: {
+            cause?: null | components["schemas"]["FailureCause"];
+            /** @description The line of the log that says it, with credentials masked. */
+            cause_line?: string | null;
+            /** @enum {string} */
+            kind: "failed";
+            /** @description The scheduler's id of the failed run, for its log. */
+            scheduler_run_id?: string | null;
+        } | {
+            /** @enum {string} */
+            kind: "blocked";
+            /** @description The jobs it waits on that failed or are blocked, in job-list order. */
+            upstream_job_ids: string[];
+        } | {
+            /**
+             * Format: date-time
+             * @description The scheduled start a success is missing for.
+             */
+            due_at: string;
+            /** @enum {string} */
+            kind: "late";
+            /**
+             * Format: date-time
+             * @description When it last succeeded, among the runs the catalog holds.
+             */
+            last_success_at?: string | null;
+        } | {
+            /** @enum {string} */
+            kind: "slow";
+            /** @description Whether it is still running. */
+            running: boolean;
+            /**
+             * Format: int64
+             * @description How long it took, or has run so far.
+             */
+            seconds: number;
+            /**
+             * Format: int64
+             * @description How long it usually takes (`typical_duration_seconds`).
+             */
+            typical_seconds: number;
+        } | {
+            /** @enum {string} */
+            kind: "volume";
+            /** @description The table's pipeline-graph node. */
+            node_id: string;
+            /**
+             * Format: int64
+             * @description Rows the latest run added to it.
+             */
+            rows: number;
+            /**
+             * Format: int64
+             * @description The median of what the recent runs before it added.
+             */
+            typical_rows: number;
+        };
         /** @description One run of a scheduled job that the data catalog holds. */
         ScheduledJobRun: {
             /**
@@ -230,6 +374,13 @@ export interface components {
             native_result?: string | null;
             /** @description How it stands. */
             outcome: components["schemas"]["ScheduledJobRunOutcome"];
+            /**
+             * Format: int64
+             * @description Rows the run added to the Iceberg tables it writes: the `added-records` of the `main`
+             *     snapshots committed to them while it ran. Absent while it runs, for a job that writes no
+             *     Iceberg table, and when the lakehouse catalog could not be read.
+             */
+            rows_written?: number | null;
             /** @description The run's identifier in the data catalog. */
             run_urn: string;
             /**
@@ -274,6 +425,8 @@ export interface components {
              *     only checks the data-contract tables.
              */
             pipeline_graph_edges: string[];
+            /** @description What about it a person should look at, worst first; empty when it is fine (root ADR-0195). */
+            problems?: components["schemas"]["ScheduledJobProblem"][];
             /** @description The datasets it reads. */
             reads: components["schemas"]["ScheduledJobDataset"][];
             /**
@@ -310,6 +463,13 @@ export interface components {
             /** @description Every job in the job list, in its order. */
             jobs: components["schemas"]["ScheduledJobStatus"][];
             /**
+             * @description Why the tables' snapshots could not be read, when the lakehouse catalog did not answer or
+             *     is not configured: no run then has `rows_written` and no job a volume problem.
+             */
+            lakehouse_error?: string | null;
+            /** @description Where the scheduler's and the catalog's own screens are. */
+            links?: components["schemas"]["OperationsLinks"];
+            /**
              * Format: date-time
              * @description When Foundation read this.
              */
@@ -319,6 +479,11 @@ export interface components {
              *     listed, and then no job's missing run means it never ran.
              */
             run_history_error?: string | null;
+            /**
+             * @description Why failed runs' logs could not be read, when the scheduler did not answer or is not
+             *     configured: a failed problem then has no cause.
+             */
+            scheduler_error?: string | null;
         };
     };
     responses: never;
@@ -329,6 +494,51 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listDatasetSnapshots: {
+        parameters: {
+            query: {
+                /** @description The dataset's pipeline-graph node, as a scheduled job's `reads` or `writes` names it. */
+                node_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetSnapshots"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The job list could not be read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalApiErrorResponse"];
+                };
+            };
+        };
+    };
     getDataCatalogEntity: {
         parameters: {
             query: {

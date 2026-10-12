@@ -102,6 +102,131 @@ pub struct ScheduledJobRun {
     pub outcome: ScheduledJobRunOutcome,
     /// The scheduler's own word for the result, as it sent it, when it sent one.
     pub native_result: Option<String>,
+    /// Rows the run added to the Iceberg tables it writes: the `added-records` of the `main`
+    /// snapshots committed to them while it ran. Absent while it runs, for a job that writes no
+    /// Iceberg table, and when the lakehouse catalog could not be read.
+    #[serde(default)]
+    pub rows_written: Option<u64>,
+}
+
+/// What a failed run's log says broke it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureCause {
+    /// The kernel or the JVM ran out of memory.
+    OutOfMemory,
+    /// It ran past its time limit.
+    TimedOut,
+    /// A file, object or table it reads was not there.
+    SourceMissing,
+    /// Anything else; the cause line says what.
+    Other,
+}
+
+/// Something about a scheduled job a person should look at (root ADR-0195).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScheduledJobProblem {
+    /// Its latest run failed.
+    Failed {
+        /// The cause, classified from the run's log; absent when the log could not be read.
+        cause: Option<FailureCause>,
+        /// The line of the log that says it, with credentials masked.
+        cause_line: Option<String>,
+        /// The scheduler's id of the failed run, for its log.
+        scheduler_run_id: Option<String>,
+    },
+    /// A job it waits on failed or is itself blocked, so its inputs will not come.
+    Blocked {
+        /// The jobs it waits on that failed or are blocked, in job-list order.
+        upstream_job_ids: Vec<String>,
+    },
+    /// Its schedule started it at `due_at` and gave it its time limit, and no run has succeeded
+    /// since.
+    Late {
+        /// The scheduled start a success is missing for.
+        due_at: DateTime<Utc>,
+        /// When it last succeeded, among the runs the catalog holds.
+        last_success_at: Option<DateTime<Utc>>,
+    },
+    /// Its latest run took, or is taking, much longer than it usually does.
+    Slow {
+        /// How long it took, or has run so far.
+        seconds: u64,
+        /// How long it usually takes (`typical_duration_seconds`).
+        typical_seconds: u64,
+        /// Whether it is still running.
+        running: bool,
+    },
+    /// Its latest run wrote far fewer or far more rows to a table than its recent runs did.
+    Volume {
+        /// The table's pipeline-graph node.
+        node_id: String,
+        /// Rows the latest run added to it.
+        rows: u64,
+        /// The median of what the recent runs before it added.
+        typical_rows: u64,
+    },
+}
+
+/// Where staff open the scheduler's and the data catalog's own screens, when configured.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct OperationsLinks {
+    /// The scheduler's (Airflow's) web address.
+    pub scheduler_url: Option<String>,
+    /// The data catalog's (`DataHub`'s) web address.
+    pub catalog_url: Option<String>,
+}
+
+/// One table snapshot another snapshot read or was read by.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct DatasetSnapshotLink {
+    /// The table, `namespace.table`.
+    pub table: String,
+    /// The table's pipeline-graph node, when a scheduled job reads or writes it.
+    pub node_id: Option<String>,
+    /// The snapshot's id, as text (it does not fit a JSON number).
+    pub snapshot_id: String,
+    /// When it was committed, when the table's metadata still holds it.
+    pub committed_at: Option<DateTime<Utc>>,
+}
+
+/// One `main` snapshot of an Iceberg table.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct DatasetSnapshot {
+    /// The snapshot's id, as text (it does not fit a JSON number).
+    pub snapshot_id: String,
+    /// When it was committed.
+    pub committed_at: Option<DateTime<Utc>>,
+    /// Iceberg's word for the commit (`append`, `overwrite`, ...).
+    pub operation: Option<String>,
+    /// Rows it added.
+    pub added_records: Option<u64>,
+    /// Rows the table held after it.
+    pub total_records: Option<u64>,
+    /// The scheduled job whose run was going when it was committed.
+    pub job_id: Option<String>,
+    /// That run, in the data catalog.
+    pub run_urn: Option<String>,
+    /// The source objects the commit recorded as loaded (`foundation.ingest-batch-objects`).
+    pub ingested_objects: Vec<String>,
+    /// The input snapshots it was built from (`foundation.source-iceberg-snapshots`).
+    pub read_from: Vec<DatasetSnapshotLink>,
+    /// The snapshots of other tables built from it.
+    pub read_by: Vec<DatasetSnapshotLink>,
+}
+
+/// A dataset's Iceberg snapshots, newest first.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct DatasetSnapshots {
+    /// The pipeline-graph node asked about.
+    pub node_id: String,
+    /// Its Iceberg table, when it is one.
+    pub table: Option<String>,
+    /// Its `main` snapshots the metadata still holds, newest first.
+    pub snapshots: Vec<DatasetSnapshot>,
+    /// Why the snapshots could not be read, when they could not.
+    pub error: Option<String>,
 }
 
 /// What starts a scheduled job (the job list's `started_by`, root ADR-0171).
@@ -176,6 +301,9 @@ pub struct ScheduledJobStatus {
     pub reads: Vec<ScheduledJobDataset>,
     /// The datasets it writes.
     pub writes: Vec<ScheduledJobDataset>,
+    /// What about it a person should look at, worst first; empty when it is fine (root ADR-0195).
+    #[serde(default)]
+    pub problems: Vec<ScheduledJobProblem>,
 }
 
 /// Every scheduled job and its latest run.
@@ -188,6 +316,17 @@ pub struct ScheduledJobsStatus {
     /// Why the runs could not be read, when the data catalog did not answer. The jobs are still
     /// listed, and then no job's missing run means it never ran.
     pub run_history_error: Option<String>,
+    /// Why the tables' snapshots could not be read, when the lakehouse catalog did not answer or
+    /// is not configured: no run then has `rows_written` and no job a volume problem.
+    #[serde(default)]
+    pub lakehouse_error: Option<String>,
+    /// Why failed runs' logs could not be read, when the scheduler did not answer or is not
+    /// configured: a failed problem then has no cause.
+    #[serde(default)]
+    pub scheduler_error: Option<String>,
+    /// Where the scheduler's and the catalog's own screens are.
+    #[serde(default)]
+    pub links: OperationsLinks,
 }
 
 /// The latest result of a data-quality check.

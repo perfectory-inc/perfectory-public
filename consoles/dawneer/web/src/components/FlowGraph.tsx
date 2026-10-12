@@ -28,6 +28,10 @@ export const STATUS_CLASS: Record<FlowStatus, { card: string; pill: string; stro
   running: { card: "border-sky-500 ring-2 ring-sky-200", pill: "bg-sky-100 text-sky-800", stroke: "#0284c7" },
   retry: { card: "border-red-400", pill: "bg-red-100 text-red-800", stroke: "#f87171" },
   failed: { card: "border-red-600 ring-2 ring-red-100", pill: "bg-red-600 text-white", stroke: "#dc2626" },
+  blocked: { card: "border-slate-400 border-dashed bg-slate-50", pill: "bg-slate-500 text-white", stroke: "#64748b" },
+  late: { card: "border-orange-500 ring-2 ring-orange-100", pill: "bg-orange-100 text-orange-900", stroke: "#ea580c" },
+  slow: { card: "border-yellow-500 ring-2 ring-yellow-100", pill: "bg-yellow-100 text-yellow-900", stroke: "#ca8a04" },
+  volume: { card: "border-violet-500 ring-2 ring-violet-100", pill: "bg-violet-100 text-violet-900", stroke: "#7c3aed" },
   waiting: { card: "border-amber-400 border-dashed", pill: "bg-amber-100 text-amber-800", stroke: "#d97706" },
   done: { card: "border-emerald-400", pill: "bg-emerald-100 text-emerald-800", stroke: "#10b981" },
   skipped: { card: "border-slate-300", pill: "bg-slate-100 text-slate-600", stroke: "#94a3b8" },
@@ -176,7 +180,7 @@ export function FlowGraph({
       const status = flowStatus(edgeState(edge, states));
       const stroke = STATUS_CLASS[status].stroke;
       // A waiting step is shown dashed on its card's side, not shouted along every arrow into it.
-      const loud = status === "running" || status === "failed" || status === "retry";
+      const loud = status === "running" || status === "failed" || status === "retry" || status === "blocked";
       return {
         id: edge.id,
         source: edge.from,
@@ -184,7 +188,7 @@ export function FlowGraph({
         type: "smoothstep",
         animated: status === "running",
         markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
-        style: { stroke, strokeWidth: loud ? 3 : 1.5, ...(status === "off" || status === "manual" || status === "waiting" ? { strokeDasharray: "4 4" } : {}) },
+        style: { stroke, strokeWidth: loud ? 3 : 1.5, ...(status === "off" || status === "manual" || status === "waiting" || status === "blocked" ? { strokeDasharray: "4 4" } : {}) },
         ...(loud
           ? {
               label: `${STATUS_TEXT[status].icon} ${STATUS_TEXT[status].word}`,
