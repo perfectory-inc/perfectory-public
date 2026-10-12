@@ -1,38 +1,23 @@
-// apps/web/components/panels/parcel/summary.tsx
 "use client";
-import { useQueries } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
-import { byPnuLaneQuery, isByPnuLane, type KindState } from "@/lib/api/by-pnu-lane";
-import { type EdgeParcelProfile, FIRST_PAINT_KINDS, parcelSummary } from "@/lib/api/parcels";
+import type { KindState } from "@/lib/api/by-pnu-lane";
+import type { ParcelSummary } from "@/lib/api/parcels";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 
-// The kinds whose lane the contract names, read in parallel (root ADR-0193 §5).
-const SERVED_LANES = FIRST_PAINT_KINDS.map((kind) => kind.lane).filter(isByPnuLane);
-
 export function ParcelSummaryCard({
   entry,
-  data: bundle,
+  data: { info: data, states },
 }: {
   entry: Extract<PanelStackEntry, { kind: "parcel" }>;
-  data: EdgeParcelProfile;
+  data: ParcelSummary;
 }) {
   const t = useTranslations("panels.parcel.summary");
   const { push } = usePanelStack();
-  const lanes = useQueries({
-    queries: SERVED_LANES.map((lane) => byPnuLaneQuery(lane, entry.id)),
-  });
-  const { info: data, states } = parcelSummary(
-    bundle,
-    entry.id,
-    Object.fromEntries(SERVED_LANES.map((lane, i) => [lane, lanes[i]])),
-  );
-  // Each row draws its own kind's answer: a value, none, still coming, or failed.
+  // Each row draws its own kind's answer: a value, none, or failed.
   const row = (state: KindState<unknown>["state"], value: ReactNode) =>
-    state === "loading" ? (
-      <span aria-busy="true">…</span>
-    ) : state === "error" ? (
+    state === "error" ? (
       <span className="text-[var(--color-error)]">{t("loadFailed")}</span>
     ) : (
       (value ?? t("unknown"))
