@@ -1,0 +1,11 @@
+[Unit]
+Description=Bound the Docker build cache on the root disk daily (root ADR-0198)
+
+[Timer]
+OnCalendar=*-*-* 04:40:00
+Persistent=true
+RandomizedDelaySec=20m
+Unit=foundation-host-retention.service
+
+[Install]
+WantedBy=timers.target

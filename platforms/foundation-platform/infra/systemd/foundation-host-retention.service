@@ -1,0 +1,20 @@
+[Unit]
+Description=Foundation Platform: bound the Docker build cache and drop dangling images (root ADR-0198)
+Requires=docker.service
+After=docker.service
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+ExecStart=/opt/foundation-platform/current/scripts/ops/host-retention.sh
+TimeoutStartSec=1h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

@@ -1118,6 +1118,26 @@ migrate_runtime() {
 # backfills run -- and anything that cannot be (a column the contract does not declare, a required
 # column with no backfill) stops the deploy here, the way a failed database migration does.
 # Temporary compatibility exceptions are owned and reported by the migration job (ADR-0124).
+# What ages out on the host ships with the release (root ADR-0198): every file under
+# infra/host/<directory>/ is installed into the /etc directory of the same name, so the rule lives
+# once, in the repository, and a deploy cannot leave an older copy behind. Scratch is cleaned
+# right away rather than at the OS's next daily tmpfiles run, and journald is restarted only when
+# its drop-in changed.
+install_host_retention() {
+  local host="${release_root}/current/infra/host" file journald_before journald_after
+  install -d -o root -g root -m 0755 /etc/tmpfiles.d /etc/systemd/journald.conf.d
+  journald_before="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  for file in "${host}"/tmpfiles.d/*.conf; do
+    install -o root -g root -m 0644 -t /etc/tmpfiles.d "${file}"
+    systemd-tmpfiles --clean "/etc/tmpfiles.d/${file##*/}"
+  done
+  for file in "${host}"/journald.conf.d/*.conf; do
+    install -o root -g root -m 0644 -t /etc/systemd/journald.conf.d "${file}"
+  done
+  journald_after="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  [[ "${journald_before}" == "${journald_after}" ]] || systemctl restart systemd-journald
+}
+
 install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
@@ -1311,6 +1331,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
     # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
+    install_host_retention
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
@@ -1320,6 +1341,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The identity databases' backup, its age check and its weekly restore drill: host infrastructure too.
     systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
       foundation-identity-restore-drill.timer
+    # Like the backup, the root disk's retention is host infrastructure (root ADR-0198).
+    systemctl enable --now foundation-host-retention.timer
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off
