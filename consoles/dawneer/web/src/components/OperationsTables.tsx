@@ -1,3 +1,5 @@
+// The tables of the 데이터 흐름 screen's 자세히 tabs: the job list, what runs now, the quality
+// checks and collection freshness (root ADR-0165, ADR-0188). They were the 운영 현황 page.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -19,7 +21,7 @@ import {
   type Tone,
 } from "../lib/operations";
 
-const TONE_CLASS: Record<Tone, string> = {
+export const TONE_CLASS: Record<Tone, string> = {
   bad: "bg-red-100 text-red-800",
   warn: "bg-amber-100 text-amber-800",
   ok: "bg-emerald-100 text-emerald-800",
@@ -28,11 +30,11 @@ const TONE_CLASS: Record<Tone, string> = {
 
 const PIPELINE_TONE: Record<string, Tone> = { failed: "bad", stale: "warn", unknown: "warn", running: "ok", healthy: "ok" };
 
-function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
+export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${TONE_CLASS[tone]}`}>{children}</span>;
 }
 
-function When({ iso }: { iso: string | null | undefined }) {
+export function When({ iso }: { iso: string | null | undefined }) {
   if (!iso) return <span className="text-slate-400">—</span>;
   return (
     <span title={iso}>
@@ -41,7 +43,7 @@ function When({ iso }: { iso: string | null | undefined }) {
   );
 }
 
-function Section({ title, note, children }: { title: string; note: ReactNode; children: ReactNode }) {
+export function Section({ title, note, children }: { title: string; note: ReactNode; children: ReactNode }) {
   return (
     <section className="mt-8">
       <h2 className="text-lg font-semibold">{title}</h2>
@@ -54,7 +56,7 @@ function Section({ title, note, children }: { title: string; note: ReactNode; ch
 const TH = "px-3 py-2 text-left font-medium";
 const TD = "px-3 py-2 align-top";
 
-function Loading({ what, query }: { what: string; query: { isPending: boolean; isError: boolean; error: Error | null } }) {
+export function Loading({ what, query }: { what: string; query: { isPending: boolean; isError: boolean; error: Error | null } }) {
   if (query.isPending) return <p className="text-sm text-slate-500">불러오는 중…</p>;
   if (query.isError) return <p className="text-sm text-red-700">{what}을(를) 읽지 못했습니다: {query.error?.message}</p>;
   return null;
@@ -98,12 +100,12 @@ function JobRow({ job, runsReadable }: { job: ScheduledJobStatus; runsReadable: 
   );
 }
 
-function useScheduledJobs(client: DawneerClient) {
+export function useScheduledJobs(client: DawneerClient) {
   return useQuery({ queryKey: ["scheduled-jobs"], queryFn: () => client.scheduledJobs(), refetchInterval: 60_000 });
 }
 
 /** The clock, advanced every `everyMs`, so elapsed and remaining times move between refetches. */
-function useNow(everyMs: number): Date {
+export function useNow(everyMs: number): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), everyMs);
@@ -159,7 +161,7 @@ function RunningRow({ row }: { row: RunningJob }) {
   );
 }
 
-function RunningNow({ client }: { client: DawneerClient }) {
+export function RunningNow({ client }: { client: DawneerClient }) {
   const jobs = useScheduledJobs(client);
   const now = useNow(30_000);
   const loading = Loading({ what: "지금 도는 작업", query: jobs });
@@ -198,7 +200,7 @@ function RunningNow({ client }: { client: DawneerClient }) {
   );
 }
 
-function ScheduledJobs({ client }: { client: DawneerClient }) {
+export function ScheduledJobs({ client }: { client: DawneerClient }) {
   const jobs = useScheduledJobs(client);
   const loading = Loading({ what: "예약 작업", query: jobs });
   if (loading || !jobs.data) return loading;
@@ -232,8 +234,16 @@ function ScheduledJobs({ client }: { client: DawneerClient }) {
   );
 }
 
-function QualityChecks({ client }: { client: DawneerClient }) {
-  const quality = useQuery({ queryKey: ["quality-checks"], queryFn: () => client.qualityChecks(), refetchInterval: 300_000 });
+export function useQualityChecks(client: DawneerClient) {
+  return useQuery({ queryKey: ["quality-checks"], queryFn: () => client.qualityChecks(), refetchInterval: 300_000 });
+}
+
+export function usePipelineGraph(client: DawneerClient) {
+  return useQuery({ queryKey: ["pipeline-graph"], queryFn: () => client.pipelineGraph(), refetchInterval: 60_000 });
+}
+
+export function QualityChecks({ client }: { client: DawneerClient }) {
+  const quality = useQualityChecks(client);
   const [open, setOpen] = useState<string | null>(null);
   const loading = Loading({ what: "품질 검사 결과", query: quality });
   if (loading || !quality.data) return loading;
@@ -309,8 +319,8 @@ function QualityChecks({ client }: { client: DawneerClient }) {
   );
 }
 
-function Freshness({ client }: { client: DawneerClient }) {
-  const graph = useQuery({ queryKey: ["pipeline-graph"], queryFn: () => client.pipelineGraph(), refetchInterval: 60_000 });
+export function Freshness({ client }: { client: DawneerClient }) {
+  const graph = usePipelineGraph(client);
   const loading = Loading({ what: "수집·적재 기록", query: graph });
   if (loading || !graph.data) return loading;
   const rows = freshnessRows(graph.data);
@@ -353,38 +363,5 @@ function Freshness({ client }: { client: DawneerClient }) {
         </table>
       </div>
     </>
-  );
-}
-
-/** Whether the automated pipeline runs: scheduled jobs, quality checks and collection freshness (root ADR-0165). */
-export function OperationsPage({ client }: { client: DawneerClient }) {
-  return (
-    <section>
-      <h1 className="text-xl font-semibold">운영 현황</h1>
-      <p className="mt-1 text-sm text-slate-500">
-        자동으로 도는 데이터 작업이 언제 돌았고 어떻게 끝났는지, 품질 검사가 무엇을 찾았는지, 원천 수집과 적재가 언제 마지막으로 기록됐는지 보여 줍니다.
-      </p>
-      <Section
-        title="지금 도는 작업"
-        note="마지막 실행이 아직 끝나지 않은 작업입니다. 남은 시간은 Foundation 이 계산한 그 작업의 보통 걸리는 시간(최근 성공 실행의 중앙값)으로 어림합니다. 30초마다 시계를, 1분마다 기록을 새로 읽습니다."
-      >
-        <RunningNow client={client} />
-      </Section>
-      <Section
-        title="예약 작업"
-        note="작업 목록(orchestration/jobs.v1.json)의 모든 작업과, Airflow 가 데이터 카탈로그에 보낸 마지막 실행 기록입니다. 1분마다 새로 읽습니다."
-      >
-        <ScheduledJobs client={client} />
-      </Section>
-      <Section title="데이터 품질 검사" note="데이터 계약의 검사마다 품질 작업이 데이터 카탈로그에 기록한 마지막 결과입니다. 계약을 누르면 검사별 결과가 보입니다.">
-        <QualityChecks client={client} />
-      </Section>
-      <Section
-        title="수집·적재 기록"
-        note="데이터 지도(pipeline graph)에서 실행 기록과 연결된 항목마다 Foundation 이 기록 DB 에서 확인한 마지막 수집·적재·발행입니다. 상태에 마우스를 올리면 근거가 보입니다."
-      >
-        <Freshness client={client} />
-      </Section>
-    </section>
   );
 }

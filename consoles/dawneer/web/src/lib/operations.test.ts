@@ -16,6 +16,12 @@ function job(overrides: Partial<ScheduledJobStatus>): ScheduledJobStatus {
     last_run: null,
     typical_duration_seconds: null,
     typical_duration_runs: 0,
+    recent_runs: [],
+    started_by: "schedule",
+    upstream_job_ids: [],
+    pipeline_graph_edges: [],
+    reads: [],
+    writes: [],
     ...overrides,
   };
 }

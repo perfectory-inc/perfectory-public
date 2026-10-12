@@ -6,6 +6,10 @@
 //! search and lineage (root ADR-0119), and adds only what the catalog does not hold: the job list
 //! itself (`orchestration/jobs.v1.json`) and each job's next start, computed from its schedule
 //! there, and how long each job usually takes, from the durations of its recent succeeded runs.
+//!
+//! What each job reads, writes and waits on is not derived here: `orchestration/dags/job_specs.py`
+//! derives it for the scheduler and renders it to `orchestration/job-dependencies.v1.json`, which a
+//! test keeps equal to that derivation; this reads the rendered file (root ADR-0188).
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -16,7 +20,8 @@ use chrono::{DateTime, TimeZone, Utc};
 use croner::Cron;
 use foundation_contracts::data_catalog::{
     DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
-    ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStatus, ScheduledJobsStatus,
+    ScheduledJobDataset, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
+    ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -28,13 +33,17 @@ use crate::state::AppState;
 
 const JOBS_PATH_ENV: &str = "FOUNDATION_PLATFORM_SCHEDULED_JOBS_PATH";
 const DEFAULT_JOBS_PATH: &str = "orchestration/jobs.v1.json";
+const DEPENDENCIES_PATH_ENV: &str = "FOUNDATION_PLATFORM_JOB_DEPENDENCIES_PATH";
+const DEFAULT_DEPENDENCIES_PATH: &str = "orchestration/job-dependencies.v1.json";
+const DEPENDENCIES_SCHEMA: &str = "foundation-platform.orchestration_job_dependencies.v1";
 /// Search results per catalog page.
 const PAGE: u64 = 100;
 /// Pages read at most. A catalog with more flows or contracts than this is reported, never cut
 /// short silently: a job past the cut would otherwise look as if it had never run.
 const MAX_PAGES: u64 = 50;
 /// Child jobs of one flow (an Airflow DAG reports itself and its one task) and runs per child read.
-/// The runs read are also the ones a job's typical duration is the median of.
+/// The runs read are also the ones a job's typical duration is the median of, and the recent runs
+/// each job shows.
 const CHILD_JOBS: u64 = 10;
 const RUNS_PER_JOB: u64 = 10;
 
@@ -53,6 +62,23 @@ struct ListedJob {
     enabled: bool,
     #[serde(default)]
     disabled_reason: Option<String>,
+    started_by: ScheduledJobStart,
+    pipeline_graph_edges: Vec<String>,
+}
+
+/// `orchestration/job-dependencies.v1.json`, rendered by `job_specs.py`.
+#[derive(Debug, Deserialize)]
+struct DependencyDocument {
+    schema_version: String,
+    jobs: Vec<JobDependencies>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobDependencies {
+    id: String,
+    producers: Vec<String>,
+    reads: Vec<ScheduledJobDataset>,
+    writes: Vec<ScheduledJobDataset>,
 }
 
 /// Every scheduled job, its next start and its latest run.
@@ -71,6 +97,7 @@ pub(super) async fn scheduled_jobs(
     State(_state): State<Arc<AppState>>,
 ) -> Result<Json<ScheduledJobsStatus>, ApiError> {
     let list = read_job_list(&jobs_path())?;
+    let dependencies = read_dependencies(&dependencies_path(), &list)?;
     let now = Utc::now();
     let (flows, run_history_error) = match catalog_flows().await {
         Ok(flows) => (flows, None),
@@ -78,7 +105,7 @@ pub(super) async fn scheduled_jobs(
     };
     Ok(Json(ScheduledJobsStatus {
         read_at: now,
-        jobs: job_statuses(&list, &flows, now),
+        jobs: job_statuses(&list, &dependencies, &flows, now),
         run_history_error,
     }))
 }
@@ -129,6 +156,44 @@ fn jobs_path() -> PathBuf {
     )
 }
 
+fn dependencies_path() -> PathBuf {
+    crate::routes::pipeline_graph::artifact_path_from(
+        std::env::var(DEPENDENCIES_PATH_ENV).ok().as_deref(),
+        DEFAULT_DEPENDENCIES_PATH,
+    )
+}
+
+/// Each listed job's dependencies, in job-list order; refuses a file rendered from another list.
+fn read_dependencies(path: &Path, list: &JobList) -> Result<Vec<JobDependencies>, ApiError> {
+    let raw = std::fs::read_to_string(path).map_err(|error| {
+        ApiError::Internal(format!(
+            "cannot read the job dependencies {}: {error}",
+            path.display()
+        ))
+    })?;
+    let document: DependencyDocument = serde_json::from_str(&raw).map_err(|error| {
+        ApiError::Internal(format!(
+            "the job dependencies {} are invalid: {error}",
+            path.display()
+        ))
+    })?;
+    if document.schema_version != DEPENDENCIES_SCHEMA {
+        return Err(ApiError::Internal(format!(
+            "the job dependencies {} are not {DEPENDENCIES_SCHEMA}",
+            path.display()
+        )));
+    }
+    let rendered: Vec<&str> = document.jobs.iter().map(|job| job.id.as_str()).collect();
+    let listed: Vec<&str> = list.jobs.iter().map(|job| job.id.as_str()).collect();
+    if rendered != listed {
+        return Err(ApiError::Internal(format!(
+            "the job dependencies {} were rendered from another job list; run job_specs.py --write-dependencies",
+            path.display()
+        )));
+    }
+    Ok(document.jobs)
+}
+
 fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
     let raw = std::fs::read_to_string(path).map_err(|error| {
         ApiError::Internal(format!(
@@ -144,15 +209,18 @@ fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
     })
 }
 
-/// Each listed job with its next start and the latest run among the catalog flows named for it.
+/// Each listed job with its next start, its dependencies (`dependencies` in job-list order) and
+/// the latest runs among the catalog flows named for it.
 fn job_statuses(
     list: &JobList,
+    dependencies: &[JobDependencies],
     flows: &[JsonValue],
     now: DateTime<Utc>,
 ) -> Vec<ScheduledJobStatus> {
     list.jobs
         .iter()
-        .map(|job| {
+        .zip(dependencies)
+        .map(|(job, depends)| {
             let dag_id = format!("{}{}", list.dag_id_prefix, job.id);
             let runs: Vec<(String, ScheduledJobRun, i64)> = flows
                 .iter()
@@ -166,11 +234,17 @@ fn job_statuses(
             let last_run = latest.map(|(_, run, _)| run.clone());
             // The same catalog job's runs only: the DAG and its task each report every run, so
             // taking both would count one run twice.
-            let typical = typical_duration(
-                runs.iter()
-                    .filter(|(job_urn, _, _)| Some(job_urn) == catalog_job_urn.as_ref())
-                    .map(|(_, run, _)| run),
-            );
+            let mut own: Vec<&(String, ScheduledJobRun, i64)> = runs
+                .iter()
+                .filter(|(job_urn, _, _)| Some(job_urn) == catalog_job_urn.as_ref())
+                .collect();
+            let typical = typical_duration(own.iter().map(|(_, run, _)| run));
+            own.sort_by(|a, b| (b.2, &b.1.run_urn).cmp(&(a.2, &a.1.run_urn)));
+            let recent_runs = own
+                .iter()
+                .take(usize::try_from(RUNS_PER_JOB).unwrap_or(usize::MAX))
+                .map(|(_, run, _)| run.clone())
+                .collect();
             ScheduledJobStatus {
                 job_id: job.id.clone(),
                 dag_id,
@@ -186,6 +260,12 @@ fn job_statuses(
                 last_run,
                 typical_duration_seconds: typical.map(|(seconds, _)| seconds),
                 typical_duration_runs: typical.map_or(0, |(_, count)| count),
+                recent_runs,
+                started_by: job.started_by,
+                pipeline_graph_edges: job.pipeline_graph_edges.clone(),
+                upstream_job_ids: depends.producers.clone(),
+                reads: depends.reads.clone(),
+                writes: depends.writes.clone(),
             }
         })
         .collect()
@@ -443,6 +523,8 @@ mod tests {
                     schedule: "20 7 * * *".to_owned(),
                     enabled: true,
                     disabled_reason: None,
+                    started_by: ScheduledJobStart::Schedule,
+                    pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
                 },
                 ListedJob {
                     id: "half_hourly".to_owned(),
@@ -450,6 +532,8 @@ mod tests {
                     schedule: "0,30 * * * *".to_owned(),
                     enabled: true,
                     disabled_reason: None,
+                    started_by: ScheduledJobStart::Schedule,
+                    pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
                 },
                 ListedJob {
                     id: "off".to_owned(),
@@ -457,9 +541,28 @@ mod tests {
                     schedule: "40 4 * * *".to_owned(),
                     enabled: false,
                     disabled_reason: Some("waiting for a supervised run".to_owned()),
+                    started_by: ScheduledJobStart::Inputs,
+                    pipeline_graph_edges: Vec::new(),
                 },
             ],
         }
+    }
+
+    /// Dependencies for `list` as `job_specs.py` renders them: the half-hourly job feeds the others.
+    fn dependencies(list: &JobList) -> Vec<JobDependencies> {
+        list.jobs
+            .iter()
+            .map(|job| JobDependencies {
+                id: job.id.clone(),
+                producers: if job.id == "half_hourly" {
+                    Vec::new()
+                } else {
+                    vec!["half_hourly".to_owned()]
+                },
+                reads: Vec::new(),
+                writes: Vec::new(),
+            })
+            .collect()
     }
 
     fn event(status: &str, iso: &str, result: Option<&str>) -> JsonValue {
@@ -527,7 +630,7 @@ mod tests {
                 )],
             ),
         ];
-        let statuses = job_statuses(&list(), &flows, now);
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
         let nightly = &statuses[0];
         assert_eq!(nightly.dag_id, "synthetic_nightly");
         let last = nightly.last_run.as_ref();
@@ -700,7 +803,7 @@ mod tests {
                 ),
             ],
         )];
-        let statuses = job_statuses(&list(), &flows, now);
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
         let nightly = &statuses[0];
         assert_eq!(
             nightly.last_run.as_ref().map(|r| r.outcome),
@@ -768,7 +871,8 @@ mod tests {
         let list = read_job_list(&jobs_path()).unwrap_or_else(|error| unreachable!("{error:?}"));
         assert!(!list.jobs.is_empty());
         let now = at("2026-01-02T08:00:00Z");
-        for status in job_statuses(&list, &[], now) {
+        let depends = dependencies(&list);
+        for status in job_statuses(&list, &depends, &[], now) {
             assert!(status.dag_id.starts_with(&list.dag_id_prefix));
             if status.enabled {
                 assert!(
@@ -779,5 +883,128 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn recent_runs_are_the_latest_jobs_own_runs_newest_first_and_bounded() {
+        let now = at("2026-01-02T08:00:00Z");
+        let start = at("2026-01-01T00:00:00Z");
+        // Twelve hourly runs of the task, more than are shown, and one later run of the DAG
+        // itself, which reports the same runs and must not be shown beside them.
+        let task_runs: Vec<JsonValue> = (0..12)
+            .map(|hour| {
+                let began = start + chrono::Duration::hours(hour);
+                run(
+                    &format!("urn:li:dataProcessInstance:task-{hour:02}"),
+                    &[
+                        event("STARTED", &began.to_rfc3339(), None),
+                        event(
+                            "COMPLETE",
+                            &(began + chrono::Duration::minutes(5)).to_rfc3339(),
+                            Some("SUCCESS"),
+                        ),
+                    ],
+                )
+            })
+            .collect();
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[
+                (
+                    "synthetic_nightly",
+                    vec![run(
+                        "urn:li:dataProcessInstance:dag",
+                        &[event("STARTED", "2026-01-01T09:00:00Z", None)],
+                    )],
+                ),
+                ("synthetic_nightly.run", task_runs),
+            ],
+        )];
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let nightly = &statuses[0];
+        assert_eq!(
+            nightly.last_run.as_ref().map(|r| r.run_urn.as_str()),
+            Some("urn:li:dataProcessInstance:task-11")
+        );
+        let shown: Vec<&str> = nightly
+            .recent_runs
+            .iter()
+            .map(|r| r.run_urn.as_str())
+            .collect();
+        let expected: Vec<String> = (2..12)
+            .rev()
+            .map(|hour| format!("urn:li:dataProcessInstance:task-{hour:02}"))
+            .collect();
+        assert_eq!(shown, expected, "newest first, at most RUNS_PER_JOB");
+        assert_eq!(
+            nightly.recent_runs.first(),
+            nightly.last_run.as_ref(),
+            "the latest run leads"
+        );
+        assert!(statuses[1].recent_runs.is_empty(), "never ran: no runs");
+    }
+
+    #[test]
+    fn each_job_carries_its_rendered_dependencies_and_how_it_starts() {
+        let now = at("2026-01-02T08:00:00Z");
+        let statuses = job_statuses(&list(), &dependencies(&list()), &[], now);
+        assert_eq!(statuses[0].upstream_job_ids, vec!["half_hourly".to_owned()]);
+        assert!(statuses[1].upstream_job_ids.is_empty());
+        assert_eq!(statuses[2].started_by, ScheduledJobStart::Inputs);
+    }
+
+    #[test]
+    fn the_real_dependency_file_is_rendered_from_the_real_job_list() {
+        let list = read_job_list(&jobs_path()).unwrap_or_else(|error| unreachable!("{error:?}"));
+        let depends = read_dependencies(&dependencies_path(), &list)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        let listed: Vec<&str> = list.jobs.iter().map(|job| job.id.as_str()).collect();
+        for job in &depends {
+            for producer in &job.producers {
+                assert!(
+                    listed.contains(&producer.as_str()) && producer != &job.id,
+                    "{}: producer {producer} is another listed job",
+                    job.id
+                );
+            }
+            assert!(
+                job.reads
+                    .iter()
+                    .chain(&job.writes)
+                    .all(|d| !d.node_id.is_empty()),
+                "{}: every dataset names its pipeline-graph node",
+                job.id
+            );
+        }
+        assert!(
+            depends.iter().any(|job| !job.producers.is_empty()),
+            "the real jobs feed each other"
+        );
+    }
+
+    #[test]
+    fn a_dependency_file_rendered_from_another_job_list_is_refused() {
+        let directory = std::env::temp_dir().join(format!(
+            "foundation-job-dependencies-{}",
+            std::process::id()
+        ));
+        let path = directory.join("job-dependencies.v1.json");
+        let written = std::fs::create_dir_all(&directory).and_then(|()| {
+            std::fs::write(
+                &path,
+                json!({
+                    "schema_version": DEPENDENCIES_SCHEMA,
+                    "jobs": [{ "id": "nightly", "producers": [], "reads": [], "writes": [] }],
+                })
+                .to_string(),
+            )
+        });
+        assert!(written.is_ok(), "{written:?}");
+        let refused = read_dependencies(&path, &list());
+        let _ = std::fs::remove_dir_all(&directory);
+        assert!(
+            matches!(refused, Err(ApiError::Internal(ref message)) if message.contains("another job list")),
+            "{refused:?}"
+        );
     }
 }

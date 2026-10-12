@@ -89,7 +89,7 @@ pub enum ScheduledJobRunOutcome {
     Unknown,
 }
 
-/// The latest run of a scheduled job that the data catalog holds.
+/// One run of a scheduled job that the data catalog holds.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct ScheduledJobRun {
     /// The run's identifier in the data catalog.
@@ -102,6 +102,36 @@ pub struct ScheduledJobRun {
     pub outcome: ScheduledJobRunOutcome,
     /// The scheduler's own word for the result, as it sent it, when it sent one.
     pub native_result: Option<String>,
+}
+
+/// What starts a scheduled job (the job list's `started_by`, root ADR-0171).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduledJobStart {
+    /// Its schedule.
+    Schedule,
+    /// A run of a job in `upstream_job_ids` that changed one of its inputs, and its schedule as
+    /// the fallback.
+    Inputs,
+}
+
+/// One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
+/// carries out.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ScheduledJobDataset {
+    /// The dataset as the scheduler and the data catalog name it (`<platform>://<name>`).
+    pub dataset: String,
+    /// Its entity in the data catalog (`GET /data-catalog/v1/entity?urn=`).
+    pub catalog_urn: String,
+    /// Its node in the pipeline graph (`GET /catalog/v1/pipeline-graph`).
+    pub node_id: String,
+    /// The node's title there, in Korean.
+    pub title: String,
+    /// The node's kind there (for example `source_group`, `silver_table`, `gold_table`,
+    /// `serving_surface`), as the pipeline graph names it.
+    pub kind: String,
+    /// For a serving surface, what kind (for example `tiles` or `r2_baked_documents`).
+    pub surface_kind: Option<String>,
 }
 
 /// One scheduled job: what the job list says about it and its latest run.
@@ -131,6 +161,21 @@ pub struct ScheduledJobStatus {
     pub typical_duration_seconds: Option<u64>,
     /// How many succeeded runs `typical_duration_seconds` is the median of; 0 when it is absent.
     pub typical_duration_runs: u32,
+    /// The recent runs of the catalog job of `last_run`, newest first, at most ten; `last_run` is
+    /// the first.
+    pub recent_runs: Vec<ScheduledJobRun>,
+    /// What starts it.
+    pub started_by: ScheduledJobStart,
+    /// The other jobs that write one of the datasets it reads, in job-list order: the jobs it waits
+    /// on (root ADR-0171, ADR-0188).
+    pub upstream_job_ids: Vec<String>,
+    /// The pipeline-graph edges it carries out, as the job list names them; empty for a job that
+    /// only checks the data-contract tables.
+    pub pipeline_graph_edges: Vec<String>,
+    /// The datasets it reads.
+    pub reads: Vec<ScheduledJobDataset>,
+    /// The datasets it writes.
+    pub writes: Vec<ScheduledJobDataset>,
 }
 
 /// Every scheduled job and its latest run.

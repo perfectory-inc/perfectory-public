@@ -93,6 +93,9 @@ expect_rejected "a rival for a role §1.1 already assigned" "$(manifest rival \
   '  }' \
   '}')"
 
+# A graph layout beside the one §1.1 names (root ADR-0188).
+expect_rejected "a second graph layout" "$(manifest layout   '{'   '  "dependencies": {'   '    "@dagrejs/dagre": "^1.1.4"'   '  }'   '}')"
+
 # The name written as a value, not a key. Migration notes and deprecation comments
 # have to be able to say what was removed, or the guard makes its own history
 # unwritable — the failure mode this repository has already hit with text guards.

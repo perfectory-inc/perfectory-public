@@ -16,8 +16,8 @@ use axum::{
 use foundation_contracts::data_catalog::{
     DataCatalogEntity, DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood,
     DataCatalogSearchPage, DataContractQuality, DataQualityCheck, DataQualityDetail,
-    DataQualityResult, DataQualityStatus, ScheduledJobRun, ScheduledJobRunOutcome,
-    ScheduledJobStatus, ScheduledJobsStatus,
+    DataQualityResult, DataQualityStatus, ScheduledJobDataset, ScheduledJobRun,
+    ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -52,6 +52,8 @@ const MAX_NEIGHBOURS: u32 = 200;
         ScheduledJobStatus,
         ScheduledJobRun,
         ScheduledJobRunOutcome,
+        ScheduledJobStart,
+        ScheduledJobDataset,
         DataQualityStatus,
         DataContractQuality,
         DataQualityCheck,

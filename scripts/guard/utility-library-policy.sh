@@ -35,7 +35,7 @@ fi
 # else. Overlay and Hangul get no entries because nothing rival is likely to be
 # installed there — the way those two go wrong is hand-rolling, which a dependency
 # key cannot see.
-banned_key='^[[:space:]]*"(lodash([.-][a-z0-9.-]+)?|underscore|ramda|react-error-boundary|@types/(lodash|underscore|ramda)([.-][a-z0-9.-]+)?)"[[:space:]]*:'
+banned_key='^[[:space:]]*"(lodash([.-][a-z0-9.-]+)?|underscore|ramda|react-error-boundary|dagre|@dagrejs/dagre|reactflow|@types/(lodash|underscore|ramda)([.-][a-z0-9.-]+)?)"[[:space:]]*:'
 
 fail=0
 for manifest in "${manifests[@]}"; do
@@ -49,7 +49,7 @@ for manifest in "${manifests[@]}"; do
 done
 
 if [ "$fail" -ne 0 ]; then
-  echo "    The canonical JS/TS utility library is es-toolkit (docs/technology-stack.md §1)." >&2
+  echo "    The canonical JS/TS utility library is es-toolkit; a graph is @xyflow/react laid out by elkjs (docs/technology-stack.md §1.1)." >&2
   echo "    Use it, or change the canonical choice in that document and this guard together." >&2
   exit 1
 fi

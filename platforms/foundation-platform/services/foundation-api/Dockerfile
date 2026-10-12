@@ -23,6 +23,9 @@ ENV FOUNDATION_PLATFORM_PIPELINE_GRAPH_REGISTRY_PATH=/usr/local/share/foundation
 # same way and for the same reason.
 COPY orchestration/jobs.v1.json /usr/local/share/foundation-platform/jobs.v1.json
 ENV FOUNDATION_PLATFORM_SCHEDULED_JOBS_PATH=/usr/local/share/foundation-platform/jobs.v1.json
+# And what each job reads, writes and waits on, as job_specs.py renders it (root ADR-0188).
+COPY orchestration/job-dependencies.v1.json /usr/local/share/foundation-platform/job-dependencies.v1.json
+ENV FOUNDATION_PLATFORM_JOB_DEPENDENCIES_PATH=/usr/local/share/foundation-platform/job-dependencies.v1.json
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
