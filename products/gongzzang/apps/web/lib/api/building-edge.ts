@@ -3,6 +3,13 @@ import { env } from "@/lib/env";
 
 // Published foundation-contracts building_panel / UnitResponse wire shapes (root ADR-0100).
 export const PnuSchema = z.string().regex(/^[0-9]{10}[1289][0-9]{8}$/);
+export const OfficialPriceHistorySchema = z.array(
+  z.object({
+    base_date: z.string().regex(/^[0-9]{8}$/),
+    price_won: z.number().int().nonnegative(),
+  }),
+);
+export type OfficialPriceHistory = z.infer<typeof OfficialPriceHistorySchema>;
 export const EdgeUnitSchema = z.object({
   id: z.string().uuid(),
   parcel_id: z.string().uuid(),
@@ -14,9 +21,9 @@ export const EdgeUnitSchema = z.object({
   exclusive_area_m2: z.number().nonnegative().nullable(),
   usage_name: z.string(),
   structure_name: z.string(),
-  // A v2 document still embeds each unit's prices; they are served on their own now and read from
-  // there (`unit-price-edge.ts`, root ADR-0190), so whatever is here is never shown.
-  official_price_history: z.unknown().optional(),
+  // Only a v2 document embeds a unit's prices; they are served on their own now (`unit-price-edge.ts`,
+  // root ADR-0190), and these are drawn only while that lane does not answer.
+  official_price_history: OfficialPriceHistorySchema.optional(),
 });
 export const EdgeFloorSchema = z.object({
   floor_row_id: z.string(),

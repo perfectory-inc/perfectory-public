@@ -17,15 +17,21 @@ export function ParcelBuildingsCard({
 }) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
-  // The units' prices are the parcel's own document (root ADR-0190): one request per parcel,
-  // joined to the units by id. Until it answers, or when it fails, no price is shown.
+  // The units' prices are the parcel's own document (root ADR-0190): one request per parcel, sent
+  // when a unit list is first shown (unlinked units are shown at once), joined to the units by id.
   const hasUnits = data.buildings.some((b) => b.units.length > 0) || data.unlinked_units.length > 0;
-  const { data: prices } = useQuery({
+  const [unitsShown, setUnitsShown] = useState(data.unlinked_units.length > 0);
+  const prices = useQuery({
     queryKey: ["unit-prices", entry.id],
     queryFn: ({ signal }) => fetchUnitPrices(entry.id, signal),
-    enabled: hasUnits,
+    enabled: hasUnits && unitsShown,
     staleTime: 60 * 60_000,
   });
+  const priceState: PriceState = {
+    prices: prices.data,
+    loading: prices.isFetching && prices.data === undefined,
+    failed: prices.isError,
+  };
 
   if (data.buildings.length === 0 && data.unlinked_units.length === 0) {
     return <div className="p-6 text-center text-[var(--color-muted)]">{t("none")}</div>;
@@ -56,12 +62,15 @@ export function ParcelBuildingsCard({
                   : t("unknown")}
                 {b.approved_at && ` · ${b.approved_at}`}
               </div>
-              <details className="group mt-2">
+              <details
+                className="group mt-2"
+                onToggle={(event) => event.currentTarget.open && setUnitsShown(true)}
+              >
                 <summary className="cursor-pointer text-[length:var(--text-caption)] text-[var(--color-accent)]">
                   <span className="group-open:hidden">{t("units.show")}</span>
                   <span className="hidden group-open:inline">{t("units.hide")}</span>
                 </summary>
-                <UnitList units={b.units} prices={prices} />
+                <UnitList units={b.units} price={priceState} />
               </details>
             </li>
           );
@@ -72,7 +81,7 @@ export function ParcelBuildingsCard({
           <h3 className="font-semibold">
             {floorText("buildingFallback")} · {t("unknown")}
           </h3>
-          <UnitList units={data.unlinked_units} prices={prices} />
+          <UnitList units={data.unlinked_units} price={priceState} />
         </section>
       )}
       {/* PNU 의 entry.id 는 i18n 라벨 표시 외 미사용 — 본 view 는 list-only */}
@@ -81,15 +90,27 @@ export function ParcelBuildingsCard({
   );
 }
 
-function UnitList({ units, prices }: { units: BuildingUnit[]; prices: UnitPrices | undefined }) {
+type PriceState = { prices: UnitPrices | undefined; loading: boolean; failed: boolean };
+
+function UnitList({ units, price }: { units: BuildingUnit[]; price: PriceState }) {
   const t = useTranslations("panels.parcel.buildings");
   const [visibleCount, setVisibleCount] = useState(100);
+  // Whatever the lane says wins; until it answers, or when it fails or has no document, a v2
+  // building document's own prices are drawn, so no merge order leaves a gap (root ADR-0190).
+  const historyOf = (unit: BuildingUnit) =>
+    price.prices?.get(unit.id) ?? unit.official_price_history ?? [];
+  const lost = price.failed && !units.some((unit) => historyOf(unit).length > 0);
   return (
     <div className="mt-2 border-t border-[var(--color-hairline)] pt-2">
       {units.length === 0 && <div className="text-[var(--color-muted)]">{t("units.none")}</div>}
+      {lost && (
+        <div role="status" className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("units.priceError")}
+        </div>
+      )}
       <ul className="flex flex-col gap-1">
         {units.slice(0, visibleCount).map((unit) => {
-          const history = prices?.get(unit.id) ?? [];
+          const history = historyOf(unit);
           return (
             <li key={unit.id} className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="text-[var(--color-ink)]">
@@ -124,6 +145,15 @@ function UnitList({ units, prices }: { units: BuildingUnit[]; prices: UnitPrices
                     })}
                   </dl>
                 </details>
+              )}
+              {history.length === 0 && price.loading && (
+                // Holds the price row's height so the list does not move when the prices arrive.
+                <span
+                  aria-hidden="true"
+                  className="invisible w-full text-[length:var(--text-caption)]"
+                >
+                  {t("units.officialPriceHistory")}
+                </span>
               )}
             </li>
           );

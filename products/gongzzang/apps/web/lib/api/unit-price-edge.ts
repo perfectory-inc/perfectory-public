@@ -1,18 +1,10 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
-import { PnuSchema } from "./building-edge";
+import { type OfficialPriceHistory, OfficialPriceHistorySchema, PnuSchema } from "./building-edge";
 
 // A unit's official price history is its own by-PNU document, apart from the building document
 // (root ADR-0190): a monthly price vintage never rebuilds the buildings. The two join here by
 // unit id; a unit is served under the PNU its building document carries it.
-export const OfficialPriceHistorySchema = z.array(
-  z.object({
-    base_date: z.string().regex(/^[0-9]{8}$/),
-    price_won: z.number().int().nonnegative(),
-  }),
-);
-export type OfficialPriceHistory = z.infer<typeof OfficialPriceHistorySchema>;
-
 export const UnitPriceDocumentSchema = z.object({
   schema_version: z.literal("foundation-platform.unit_price_by_pnu.v1"),
   pnu: PnuSchema,

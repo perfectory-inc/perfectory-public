@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchUnitPrices, UnitPriceDocumentSchema } from "./unit-price-edge";
 
@@ -5,6 +7,15 @@ vi.mock("@/lib/env", () => ({
   env: { NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL: "https://unit-prices.example.test/" },
 }));
 
+const { prefix } = JSON.parse(
+  readFileSync(
+    resolve(
+      __dirname,
+      "../../../../../../platforms/foundation-platform/config/r2-connections.contract.json",
+    ),
+    "utf8",
+  ),
+).by_pnu_lanes["unit-price"].request_path;
 const pnu = "9999900000100000000";
 const unitId = "00000000-0000-8000-8000-000000000002";
 const document = () => ({
@@ -31,13 +42,10 @@ describe("unit price edge", () => {
     const signal = new AbortController().signal;
     const prices = await fetchUnitPrices(pnu, signal);
     expect(prices.get(unitId)).toEqual(document().units[0]?.official_price_history);
-    expect(fetcher).toHaveBeenCalledWith(
-      `https://unit-prices.example.test/unit-prices/by-pnu/${pnu}`,
-      {
-        signal,
-        headers: { accept: "application/json" },
-      },
-    );
+    expect(fetcher).toHaveBeenCalledWith(`https://unit-prices.example.test${prefix}${pnu}`, {
+      signal,
+      headers: { accept: "application/json" },
+    });
   });
 
   it("reads 404 as no prices and propagates outages", async () => {
