@@ -308,6 +308,26 @@ gate_step "Tool" >"$test_root/gated-other-step/example.yml"
 grep -q 'FOUNDATION_CI_GATE_SELECTED' "$test_root/gated-other-step/example.yml"
 expect_rejected gate-condition-on-a-gate-step "$test_root/gated-other-step"
 
+# The workspace build is saved only from main (root ADR-0201): the main-only
+# condition is admitted on that step, a wider one or the same one on a gate is not.
+named_if_step() {
+  awk -v name="$1" -v condition="        if: $2" \
+    '$0 == "      - name: Tool" { print "      - name: " name; print condition; next } { print }' \
+    "$test_root/valid/example.yml"
+}
+main_only="\${{ github.ref == 'refs/heads/main' }}"
+mkdir "$test_root/main-only-save" "$test_root/pull-request-save" "$test_root/main-only-gate"
+named_if_step "Save workspace build" "$main_only" >"$test_root/main-only-save/example.yml"
+named_if_step "Save workspace build" "always()" >"$test_root/pull-request-save/example.yml"
+named_if_step "Tool" "$main_only" >"$test_root/main-only-gate/example.yml"
+if ! "$checker" "$test_root/main-only-save" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the main-only workspace build save" >&2
+  exit 1
+fi
+expect_rejected workspace-build-saved-from-every-ref "$test_root/pull-request-save"
+expect_rejected main-only-condition-on-a-gate-step "$test_root/main-only-gate"
+
 mkdir "$test_root/pull-types-filter"
 sed '/^    branches: \[main\]$/a\    types: [opened]' \
   "$test_root/valid/example.yml" >"$test_root/pull-types-filter/example.yml"

@@ -275,8 +275,11 @@ for workflow in "${workflows[@]}"; do
   # turns the OSV report into a patch artifact (root ADR-0158); it gates nothing.
   # The pinned-release fill and save run only where a cache may be written, main and the daily
   # run (root ADR-0197); they fill a cache the fetcher re-verifies on every read and gate nothing.
+  # "Stash workspace build" and "Save workspace build" run only on main, after
+  # every gate step passed, and only feed the next run's cache (root ADR-0201).
   foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
-  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" \
+  main_only_if="\${{ github.ref == 'refs/heads/main' }}"
+  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" -v main_only="$main_only_if" \
     -v cache_writer="github.event_name == 'push' || github.event_name == 'schedule'" '
     function flush_step() {
       if (step_if == "") return
@@ -294,7 +297,9 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Set up Rust" && step_if == foundation_gate) \
         || (step_name == "Rust cache" && step_if == foundation_gate) \
         || (step_name == "Fill pinned release binaries" && step_if == cache_writer) \
-        || (step_name == "Save pinned release binaries" && step_if == cache_writer)
+        || (step_name == "Save pinned release binaries" && step_if == cache_writer) \
+        || (step_name == "Stash workspace build" && step_if == main_only) \
+        || (step_name == "Save workspace build" && step_if == main_only)
       if (!allowed) {
         print "FAIL workflow-policy: " file ": conditional step is not allowlisted: " step_name " / " step_if > "/dev/stderr"
         failed=1
