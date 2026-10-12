@@ -1180,7 +1180,7 @@ fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
     for (suite, plan) in area.python_tests.iter().zip(python_test_plans(area, &dir)) {
         // A suite that could not run cannot also be judged on its count; recording both would
         // report one failure twice and inflate the total the summary prints.
-        let Some(output) = log.absorb(python_capturing_output(&plan)) else {
+        let Some(output) = python_suite_output(&plan, log) else {
             continue;
         };
         if executed_python_test_count(&output) == 0 {
@@ -1268,10 +1268,110 @@ fn executed_python_test_count(output: &str) -> usize {
 /// verification image. The verdict would depend on where the command ran, which
 /// is the local/CI split ADR-0004 exists to remove.
 fn python_capturing_output(plan: &PythonCommandPlan) -> Result<String, String> {
+    python_capturing_output_with(plan, plan.args)
+}
+
+/// How many test modules of one suite run at once (root ADR-0199).
+const PYTHON_MODULE_WORKERS: usize = 4;
+
+/// Runs one Python suite and returns everything it printed, or records why it failed.
+///
+/// A `unittest discover -s <root> -p <prefix>*<suffix>` suite whose root holds no package is
+/// split into one process per test module, run [`PYTHON_MODULE_WORKERS`] at a time: on
+/// Foundation CI `orchestration/tests` alone took 277 s as one process, a long tail of tests
+/// that mostly wait on subprocesses (root ADR-0199). The modules are exactly the files discover
+/// would load — it does not descend into a directory without `__init__.py` — and a root that has
+/// a package keeps the single process. Every failing module is recorded, and the summed
+/// `Ran N tests` still decides the zero-tests check.
+fn python_suite_output(plan: &PythonCommandPlan, log: &mut FailureLog) -> Option<String> {
+    let Some(modules) = python_discover_modules(plan) else {
+        return log.absorb(python_capturing_output(plan));
+    };
+    let queue = std::sync::Mutex::new(modules.into_iter());
+    let results = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..PYTHON_MODULE_WORKERS {
+            scope.spawn(|| loop {
+                let next = queue
+                    .lock()
+                    .map(|mut modules| modules.next())
+                    .ok()
+                    .flatten();
+                let Some(args) = next else { break };
+                let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+                let result = python_capturing_output_with(plan, &borrowed);
+                if let Ok(mut results) = results.lock() {
+                    results.push(result);
+                }
+            });
+        }
+    });
+    let mut combined = String::new();
+    let mut failed = false;
+    for result in results.into_inner().unwrap_or_default() {
+        match result {
+            Ok(output) => combined.push_str(&output),
+            Err(message) => {
+                log.record(message);
+                failed = true;
+            }
+        }
+    }
+    (!failed).then_some(combined)
+}
+
+/// The per-module argument lists for a splittable discover suite, or `None` to run it whole.
+fn python_discover_modules(plan: &PythonCommandPlan) -> Option<Vec<Vec<String>>> {
+    let [m, unittest, discover, s, root, p, pattern] = plan.args else {
+        return None;
+    };
+    if (*m, *unittest, *discover, *s, *p) != ("-m", "unittest", "discover", "-s", "-p") {
+        return None;
+    }
+    let (prefix, suffix) = pattern.split_once('*')?;
+    if suffix.contains('*') {
+        return None;
+    }
+    let mut modules = Vec::new();
+    for entry in std::fs::read_dir(plan.current_dir.join(root)).ok()? {
+        let path = entry.ok()?.path();
+        if path.is_dir() {
+            if path.join("__init__.py").is_file() {
+                return None;
+            }
+            continue;
+        }
+        let name = path.file_name()?.to_str()?.to_owned();
+        if name.starts_with(prefix) && name.ends_with(suffix) && name.len() >= pattern.len() - 1 {
+            modules.push(name);
+        }
+    }
+    modules.sort();
+    Some(
+        modules
+            .into_iter()
+            .map(|module| {
+                [
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    root,
+                    "-p",
+                    module.as_str(),
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            })
+            .collect(),
+    )
+}
+
+fn python_capturing_output_with(plan: &PythonCommandPlan, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("python3");
     command
         .current_dir(&plan.current_dir)
-        .args(plan.args)
+        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     if let Some(python_path) = plan.python_path {
@@ -1841,6 +1941,50 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// A discover suite splits into exactly the modules discover itself would load (root
+    /// ADR-0199): matching files at the root only, not helpers, not a plain subdirectory; a root
+    /// with a package, or any other command shape, stays one process.
+    #[test]
+    fn a_discover_suite_splits_into_the_modules_discover_would_load() {
+        let root = std::env::temp_dir().join(format!("xtask-split-{}", std::process::id()));
+        let tests = root.join("tests");
+        std::fs::create_dir_all(tests.join("fixtures")).expect("fixture dirs");
+        for name in [
+            "test_b.py",
+            "test_a.py",
+            "helper.py",
+            "fixtures/test_inner.py",
+        ] {
+            std::fs::write(tests.join(name), "").expect("fixture file");
+        }
+        let plan = |args: &'static [&'static str]| PythonCommandPlan {
+            current_dir: root.clone(),
+            python_path: None,
+            args,
+        };
+        let discover = plan(&[
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py",
+        ]);
+        let modules = python_discover_modules(&discover).expect("splittable");
+        let patterns: Vec<&str> = modules.iter().map(|args| args[6].as_str()).collect();
+        assert_eq!(patterns, ["test_a.py", "test_b.py"]);
+        assert!(modules.iter().all(|args| args[..6] == discover.args[..6]));
+
+        assert!(python_discover_modules(&plan(&["-m", "pytest", "tests", "-q"])).is_none());
+        std::fs::write(tests.join("fixtures/__init__.py"), "").expect("package marker");
+        assert!(
+            python_discover_modules(&discover).is_none(),
+            "a package keeps one process"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// The Python/Node side runs while cargo runs, not after it (root ADR-0199). Each side waits

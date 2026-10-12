@@ -29,7 +29,12 @@ PR 하나가 병합까지 약 45분을 기다렸다. 같은 날 성공한 PR 실
    쪽의 실패는 하나의 `FailureLog` 에 모이고(ADR-0012 규칙 1 유지), 묶음 스레드가 패닉하면 그 자체가
    실패로 기록된다. 시험 `the_side_suites_run_beside_cargo_and_report_into_one_log` 는 두 쪽이 서로의 신호를
    기다리게 해서, 순서대로 돌리면 10초 시간 초과로 실패한다(일부러 순서대로 바꿔 실패를 확인했다).
-2. **PR(`pull_request`)은 `boundary-slice` 를 머지 큐에 맡긴다.** `scripts/ci/foundation_ci_scope.py` 의
+2. **`unittest discover` 묶음은 시험 모듈마다 프로세스 하나로, 네 개씩 동시에 돈다.** 첫 측정에서 1항만으로는
+   verify 가 895초 → 713초에 그쳤다: CPU 를 cargo 와 나눠 쓰자 `orchestration/tests` 가 277초에서 455초로
+   늘어 새 가장 긴 줄이 됐다. 나누는 단위는 discover 가 실제로 읽는 파일(시작 디렉터리 바로 아래의 패턴 일치
+   파일)과 같고, 시작 디렉터리에 패키지(`__init__.py`)가 있으면 한 프로세스로 둔다. 모듈마다 실패를 기록하고,
+   `Ran N tests` 합계로 0개 검사를 그대로 한다. 시험 `a_discover_suite_splits_into_the_modules_discover_would_load`.
+3. **PR(`pull_request`)은 `boundary-slice` 를 머지 큐에 맡긴다.** `scripts/ci/foundation_ci_scope.py` 의
    `MERGE_QUEUE_ONLY` 가 그 목록이다. `merge_group`·main 푸시·수동 실행은 지금과 똑같이 경로로 고른다 —
    경계 슬라이스 없이 main 에 들어가는 변경은 없다. 잡 이름과 `required/foundation` 은 그대로이며, PR 에서
    그 잡은 이유를 출력하고 성공한다. 시험이 PR 에서 빠지고 머지 큐·푸시에서 남는 것을 확인한다.
@@ -42,7 +47,8 @@ PR 하나가 병합까지 약 45분을 기다렸다. 같은 날 성공한 PR 실
   필요한 다음 단계로 둔다.
 - **verify 를 clippy·test 별도 잡으로 쪼갠다.** 잡마다 의존성 빌드·캐시 복원을 다시 치르고, ADR-0004 의
   "한 명령" 을 잡 경계로 흩는다. 같은 잡 안 동시 실행이 먼저다.
-- **파이썬 시험을 모듈 단위 프로세스 풀로.** 남는 여유가 있으면 다음에; 지금은 cargo 뒤에 숨는다.
+- **pytest-xdist 로 병렬화.** 대부분의 묶음은 unittest 이고 러너에 xdist 가 없다. 모듈 단위 프로세스는
+  표준 라이브러리만으로 같은 효과를 낸다.
 
 ## Consequences
 
