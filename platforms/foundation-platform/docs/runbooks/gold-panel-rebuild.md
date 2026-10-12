@@ -10,6 +10,8 @@ last_reviewed: 2026-10-11
 [루트 ADR-0139](../../../../docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md) 의 운영 절차다.
 `gold.parcel_panel`·`gold.building_panel` 은 by-PNU 서빙 굽기([parcel-by-pnu-serving-bake.md](./parcel-by-pnu-serving-bake.md))의
 원천이다. 이 작업은 Silver 입력이 행을 바꿨을 때만 기존 생산자로 Gold 를 다시 만든다.
+두 묶음 패널을 자료 종류마다 Gold 표 하나로 푸는 계획은
+[루트 ADR-0193](../../../../docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md)(제안)이다.
 
 | 무엇 | 정본 |
 | --- | --- |
