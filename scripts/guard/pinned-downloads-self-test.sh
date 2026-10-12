@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Proves the pinned fetcher retries a 5xx and then serves from its cache, refuses a checksum
-# mismatch, and that the pinned-downloads guard refuses each shape it exists to stop (root ADR-0197).
+# Proves the pinned-downloads guard refuses each shape it exists to stop (root ADR-0197). The
+# fetcher's own retry/cache/checksum tests run in the repository workflow (test_fetch_pinned.py).
 set -euo pipefail
 # The fixture is a real repository (the guard reads `git ls-files`); the library removes the
 # repository binding a hook hands its children and confines git to the fixture.
 . "$(dirname "$0")/lib/fixture-repo.sh"
 cd "$(dirname "$0")/../.."
 repo_root="$(pwd)"
-
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_fetch_pinned.py'
 
 fixture_root
 fixture="$FIXTURE_ROOT"
