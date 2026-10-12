@@ -35,7 +35,6 @@ GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel"}
 # with the contract's by_pnu_lanes once the kinds land there.
 # The lanes the parcel summary reads on open (ADR-0193 §5).
 FIRST_PAINT_KINDS = ("parcel-zoning", "parcel-price", "parcel-characteristics")
-R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
 LINEAGE_COLUMNS = ("row_digest", "source_snapshot_id", "published_at_utc")
 JSON_SEPARATORS = (",", ":")
 
@@ -49,9 +48,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def pack_rules(path: Path = R2_CONTRACT_PATH) -> tuple[int, int]:
+def r2_contract_path() -> Path:
+    # On the driver only: the Python workers import this module from Spark's file cache, outside the repo.
+    return Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
+
+
+def pack_rules() -> tuple[int, int]:
     """(whole-read bound, part target) of the contract's section packs (ADR-0151, ADR-0163)."""
-    packs = json.loads(path.read_text(encoding="utf-8"))["by_pnu_section_packs"]
+    packs = json.loads(r2_contract_path().read_text(encoding="utf-8"))["by_pnu_section_packs"]
     return packs["read_path"]["whole_pack_max_bytes"], packs["parts"]["part_target_bytes"]
 
 

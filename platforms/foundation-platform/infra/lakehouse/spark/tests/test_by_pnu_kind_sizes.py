@@ -88,7 +88,7 @@ class Sizes(unittest.TestCase):
 
 class PackParts(unittest.TestCase):
     def test_the_part_hash_is_the_contract_one(self):
-        contract = json.loads(sizes.R2_CONTRACT_PATH.read_text(encoding="utf-8"))
+        contract = json.loads(sizes.r2_contract_path().read_text(encoding="utf-8"))
         vectors = contract["by_pnu_section_packs"]["parts"]["hash_test_vectors"]
         self.assertTrue(vectors)
         for vector in vectors:
