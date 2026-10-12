@@ -1,6 +1,6 @@
-# ADR 0190: 릴리스는 적재 때 한 번 변경 기록이 되고, 모든 층은 변경만 읽는다
+# ADR 0191: 릴리스는 적재 때 한 번 변경 기록이 되고, 모든 층은 변경만 읽는다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-12
 - Builds on: [ADR-0180](./0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md) (Gold 는 바뀐 PNU 만),
   [ADR-0189](./0189-an-appended-silver-input-is-its-own-change-set.md) (append 입력은 추가분이 변경 집합),
@@ -35,8 +35,9 @@
      건너뛴 실행이 따라잡을 때 따로 쓸 논리가 없다.
    - `_from_snapshot_id`, `_to_snapshot_id`: 이 변경이 옮긴 Silver `main` 의 두 스냅숏.
    - 비교 단위는 `(change_key, row_fingerprint)` 의 다중집합 차이다. `change_key` 는 표마다 계약에 적고(건물
-     `mgm_bldrgst_pk` 계열, 토지 `pnu`), `row_fingerprint` 는 **계약의 계보 열을 뺀 모든 열**의 96비트 지문이다
-     (ADR-0180 과 같은 xxhash64 + murmur3). 계보 열만 바뀐 행은 바뀐 것이 아니다. 내용 열 목록은 따로 적지 않고
+     `mgm_bldrgst_pk` 계열, 토지 `pnu`), `row_fingerprint` 는 **계약의 계보 열을 뺀 모든 열**과 그 NULL 표시의
+     xxhash64 다. 같은 키 안에서만 비교하므로 바뀐 행이 같은 지문을 가질 확률은 행마다 2^-64 다.
+     계보 열만 바뀐 행은 바뀐 것이 아니다. 내용 열 목록은 따로 적지 않고
      "스키마 − 계보 열" 로 계산한다(거울 목록 금지).
    - ADR-0180 이 Silver 해시를 기각한 이유("해시가 덮는 열 ≠ 빌드가 읽는 열이면 변경을 놓친다")는 지문이 **모든**
      내용 열을 덮으므로 생기지 않는다. 빌드가 읽지 않는 열의 변경은 Gold 에서 다시 계산되지만 `row_digest` 가 같아
@@ -69,11 +70,13 @@
    - 앵커 하나가 표 전체에 닿는 입력(`WHOLE_TABLE_INPUTS`, 예: 용도지역 코드표)과 `max_changed_key_fraction` 초과.
 6. **정합성 관문.**
    - 적재 때: 변경 기록이 닫혀야 한다 — `count(옛 판) + Σ_weight = count(새 판)` 이고, 지문의 순서 무관 합
-     (`Σ hash mod 2^64`)도 같은 식을 만족해야 한다. 어긋나면 공개하지 않는다. 두 판을 다시 읽지 않는 산술 검사다.
+     (정확한 십진 합)도 같은 식을 만족해야 한다. 어긋나면 공개하지 않는다. 두 판을 다시 읽지 않는 산술 검사다.
    - Gold: 실행마다 패리티 표본(ADR-0180 §5) 그대로. 더해서 주기(계약 `full_reconciliation_days`, 첫 값 7)마다
      전량 빌드를 증분 결과 옆에 만들어 `row_digest` 다중집합을 비교하고, 다르면 전량 결과를 쓰고 경보한다.
    - 이 관문이 "아무 일도 안 일어남" 을 성공으로 읽지 않도록, 시험은 변경 기록에서 행 하나를 빼면 거부됨을 보인다.
-7. **이주 순서와 목표(레인마다 따로 병합, 운영 첫 실행은 감독).**
+7. **구현 위치.** 차이·합성·사슬 걷기·닫힘 검사는 `infra/lakehouse/spark/jobs/changelog.py` 하나다. Gold 의
+   두 판 차이(`gold_incremental._fingerprinted`)는 ③에서 이 지문으로 옮겨 지문 계산이 한 곳에만 남는다.
+8. **이주 순서와 목표(레인마다 따로 병합, 운영 첫 실행은 감독).**
 
    | 단계 | 범위 | 측정 (실행 로그 한 줄 `changelog-phase <단계> seconds= rows_read=`) | 목표 |
    |---|---|---|---|
