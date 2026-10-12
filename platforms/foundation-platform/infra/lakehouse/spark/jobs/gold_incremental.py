@@ -407,6 +407,11 @@ class Stages:
             shutil.rmtree(dead, ignore_errors=True)
         self.spark = spark
         self.root = local / f"{STAGES_PREFIX}{uuid.uuid4().hex}"
+        # Stages are read back row-wise: a vectorized batch of building panel rows asked for one
+        # contiguous 568 MiB buffer and died of heap on 2026-10-12, the read ADR-0185 already makes
+        # row-wise for the Gold table itself. The setting covers Spark's own Parquet reads only;
+        # Iceberg tables keep their table property.
+        spark.conf.set("spark.sql.parquet.enableVectorizedReader", "false")
 
     def materialize(self, name: str, frame: Any) -> Any:
         path = (self.root / name).as_posix()

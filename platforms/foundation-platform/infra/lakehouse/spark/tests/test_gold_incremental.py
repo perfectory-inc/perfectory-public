@@ -147,7 +147,7 @@ class ProducerDecisions(unittest.TestCase):
             (dead / "built" / "part-0.parquet").write_bytes(b"x")
             other = Path(local) / "blockmgr-kept"
             other.mkdir()
-            spark = SimpleNamespace(conf=SimpleNamespace(get=lambda key, default: f"{local},/elsewhere"))
+            spark = SimpleNamespace(conf=SimpleNamespace(get=lambda key, default: f"{local},/elsewhere", set=lambda key, value: None))
             stages = incremental.Stages(spark)
             self.assertFalse(dead.exists())
             self.assertTrue(other.exists())

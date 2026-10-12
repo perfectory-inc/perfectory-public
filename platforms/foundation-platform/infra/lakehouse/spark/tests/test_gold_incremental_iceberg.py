@@ -224,6 +224,8 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         # once the run ends: a whole unit price vintage filled the store in production (2026-10-12).
         held = [info.name() for info in self.spark.sparkContext._jsc.sc().getRDDStorageInfo() if info.memSize() > 0]
         self.assertEqual(held, [], "a merge stage was kept in executor memory")
+        self.assertEqual(self.spark.conf.get("spark.sql.parquet.enableVectorizedReader"), "false",
+                         "a stage of wide JSON rows is read back row-wise")
         local = (self.spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0]
         self.assertEqual(sorted(str(path) for path in Path(local).glob("gold-incremental-*")), [])
         self.run_job(job, pins2, "building_panel_full", "2099-02-01T00:00:00Z")
