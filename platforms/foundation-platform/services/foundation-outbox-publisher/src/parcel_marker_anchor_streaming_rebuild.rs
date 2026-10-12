@@ -13,7 +13,7 @@ use serde_json::json;
 use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
-use crate::postgis_parcel_boundary_mirror_national_rebuild::{
+use crate::parcel_boundary_handoff::{
     parse_stage_row, push_copy_csv_row, read_execution_evidence, validate_source_snapshot_id,
     ExecutionEvidence, HandoffObject,
 };
@@ -770,7 +770,7 @@ mod tests {
         StreamingAnchorConfig, DEFAULT_COPY_BUFFER_BYTES, DEFAULT_MAX_BOUNDED_OBJECT_COUNT,
         DEFAULT_MAX_BOUNDED_ROW_COUNT,
     };
-    use crate::postgis_parcel_boundary_mirror_national_rebuild::ExecutionEvidence;
+    use crate::parcel_boundary_handoff::ExecutionEvidence;
     use std::path::PathBuf;
 
     #[test]

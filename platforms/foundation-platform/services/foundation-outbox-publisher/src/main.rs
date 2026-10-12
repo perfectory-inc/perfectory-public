@@ -163,6 +163,7 @@ mod pack_lane_document;
 mod page_collector;
 mod page_count_plan_contract;
 mod pagination_guard;
+mod parcel_boundary_handoff;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
