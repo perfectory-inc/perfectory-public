@@ -12,13 +12,13 @@ pub mod industrial_complex_jsonl_transport;
 mod building_panel;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
+mod by_pnu_kind;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_right_registration;
 mod land_transfer_history;
 mod parcel_number_change_history;
 mod parcel_panel;
-mod parcel_zoning;
 mod unit_official_price;
 mod unit_price_panel;
 
@@ -42,6 +42,7 @@ pub mod lakehouse_run_summary;
 
 pub use building_register_apartment_price::SILVER_BUILDING_REGISTER_APARTMENT_PRICE;
 pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
+pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
@@ -94,6 +95,5 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
-pub use parcel_zoning::GOLD_PARCEL_ZONING;
 pub use unit_official_price::SILVER_UNIT_OFFICIAL_PRICE;
 pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;

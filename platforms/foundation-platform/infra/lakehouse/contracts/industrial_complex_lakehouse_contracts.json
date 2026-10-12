@@ -2279,6 +2279,286 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_characteristics": {
+      "table_name": "gold.parcel_characteristics",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "characteristics_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_forest_ledger": {
+      "table_name": "gold.parcel_forest_ledger",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "forest_ledger_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_land_rights": {
+      "table_name": "gold.parcel_land_rights",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_rights_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_right_total",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_price": {
+      "table_name": "gold.parcel_price",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "price_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_transfer_history": {
+      "table_name": "gold.parcel_transfer_history",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "transfer_history_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.parcel_zoning": {
       "table_name": "gold.parcel_zoning",
       "physical_format": "Parquet",
@@ -2326,7 +2606,7 @@
       "quality_gates": [
         "one row per pnu",
         "pnu matches the cadastral grammar",
-        "every row has a zoning",
+        "every row has its section",
         "row_digest contains content only",
         "published_at_utc is present"
       ],

@@ -66,11 +66,15 @@ while (($#)); do
     *) echo "gold-panel-rebuild: expected --dry-run or --unconditional <reason>, got '$1'" >&2; exit 64 ;;
   esac
 done
-# The tables' units in the contract's order, from the contract this script ships with: a table the
-# contract gains is rebuilt by `all` without an edit here.
-mapfile -t UNITS < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json" <<'PY'
-import json, sys
-print("\n".join(table["unit"] for table in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))
+# The tables' units in the contract's order, from the contract this script ships with, and then the
+# table of every by-PNU data kind (root ADR-0193; gold_rebuild.load_contract): a table the contract
+# gains, or a kind line the R2 connection contract gains, is rebuilt by `all` without an edit here.
+mapfile -t UNITS < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import gold_rebuild
+print("\n".join(table["unit"] for table in gold_rebuild.load_contract()["tables"].values()))
 PY
 )
 if [[ "${UNIT}" != all && ( -z "${UNIT}" || " ${UNITS[*]-} " != *" ${UNIT} "* ) ]]; then
@@ -128,9 +132,12 @@ CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/gold-panel-rebuild.contract.
 JOBS="${RELEASE_ROOT}/orchestration/jobs.v1.json"
 log() { printf 'gold-panel-rebuild %s: %s\n' "${UNIT}" "$*"; }
 
-read -r gold_table producer master driver_memory < <(python3 -I - "${CONTRACT}" "${UNIT}" <<'PY'
-import json, sys
-contract, unit = json.load(open(sys.argv[1])), sys.argv[2]
+read -r gold_table producer master driver_memory < <(python3 -I - "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${UNIT}" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import gold_rebuild
+contract, unit = gold_rebuild.load_contract(), sys.argv[2]
 (name, entry), = [(n, t) for n, t in contract["tables"].items() if t["unit"] == unit]
 print(name, entry["producer"], entry["spark"]["master"], entry["spark"]["driver_memory"])
 PY
@@ -256,14 +263,18 @@ if ! spark "${producer}.py" --input-mode iceberg --write-mode iceberg \
   log "FAILED: ${producer} refused or crashed; nothing was committed (log ${work}/${producer}.py.log)"
   exit 1
 fi
-read -r rows built changed_rows < <(python3 -I - "${work}/summary.json" <<'PY'
+read -r rows built changed_rows changed_keys < <(python3 -I - "${work}/summary.json" <<'PY'
 import json, sys
 summary = json.load(open(sys.argv[1]))
 rebuild = summary.get("rebuild") or {}
 # An incremental run whose recomputed PNUs all came out unchanged commits only the new pins.
-print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes")
+print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes",
+      (rebuild.get("counts") or {}).get("affected_pnus", "-"))
 PY
 )
+# The line root ADR-0193 §7 measures each Gold against (seconds and rows of a full build, changed keys
+# of an incremental one).
+echo "gold-kind ${gold_table} mode=${built} seconds=$((SECONDS - started)) rows=${rows} changed_keys=${changed_keys}${VALIDATE[0]:+ dry_run=yes}"
 if ((${#VALIDATE[@]})); then
   log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; nothing was committed"
 elif [[ "${changed_rows}" == no ]]; then

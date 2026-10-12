@@ -518,13 +518,15 @@ class ByPnuServingBake(unittest.TestCase):
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
         result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the others.
+        lanes = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
         self.assertEqual([call["command"] for call in calls],
                          ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
-                          "show-unit-price-by-pnu-serving-state"])
+                          *(f"show-{lane}-by-pnu-serving-state" for lane in lanes)])
         waiting = [line for line in result.stdout.splitlines() if "is not cut over yet" in line]
         self.assertEqual(waiting, ["by-pnu-serving-bake unit-price: nothing to do: the pack-only unit-price lane is not "
                                    "cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
-        self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 2, result.stdout)
+        self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 1 + len(lanes), result.stdout)
         # Once cut over its state is a served lane's, and it is baked like the others.
         self.log.unlink()
         result, calls = self.bake("unit-price", FAKE_GOLD="101")

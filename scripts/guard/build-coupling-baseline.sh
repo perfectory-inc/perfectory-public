@@ -238,7 +238,10 @@ BUILD_SCRIPT_BASELINE="${2:-1}"
 # Silver refresh's lane list: their release rules (member names, completeness) and runner values are
 # read from the bytes of the release that runs them, as the hub lanes' are. No other Rust code read
 # these contracts; the hand loaders that read them at run time (shell and Python) are retired.
-COMPILE_TIME_READ_BASELINE="${3:-126}"
+# 126 -> 127: root ADR-0193 §9 derives each by-PNU data kind's Gold table contract in lakehouse-domain
+# from its line in r2-connections.contract.json (`by_pnu_kind.rs`), so a kind is that one line and
+# never a hand-written table contract beside it. The publisher already embeds the same file.
+COMPILE_TIME_READ_BASELINE="${3:-127}"
 
 cd "$repo_root"
 

@@ -15,6 +15,8 @@ import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402
 import parcel_panel_silver_to_gold as parcel  # noqa: E402
 import unit_price_panel_silver_to_gold as prices  # noqa: E402
+import by_pnu_kind_silver_to_gold as kinds_job  # noqa: E402
+import by_pnu_kinds  # noqa: E402
 import gold_incremental as incremental  # noqa: E402
 
 ENTRY = {"producer": "fixture", "producer_arguments": [], "max_row_loss_fraction": 0.01}
@@ -201,6 +203,29 @@ class PinnedToAnotherGold(unittest.TestCase):
                              pinned_gold=pinned)
 
 
+    def test_every_input_of_a_kind_table_is_pinned_to_its_host_panel(self):
+        silver = {"silver.a": table(A1, self.A2), "silver.b": table(B1)}
+        entry = {**ENTRY, "pins_from": {"gold_table": "gold.y", "inputs": "all", "reason": "fixture",
+                                        "parity_argument": "--parity-panel-snapshot-id"}}
+        decision = rebuild.plan("gold.x", entry, INPUTS, None, silver, pinned_gold=gold({"silver.a": "11", "silver.b": "21"}))
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "11", "silver.b": "21"})
+        self.assertEqual(decision["producer_arguments"], ["--parity-panel-snapshot-id", "90"])
+
+    def test_a_parity_check_gets_the_followed_head_and_needs_every_input_pinned_there(self):
+        # Root ADR-0193 §6-2: a kind table checks its rows against the panel it was split from.
+        silver = {"silver.a": table(A1, self.A2), "silver.b": table(B1)}
+        entry = {**ENTRY, "pins_from": {"gold_table": "gold.y", "inputs": ["silver.a", "silver.b"], "reason": "fixture",
+                                        "parity_argument": "--parity-panel-snapshot-id"}}
+        decision = rebuild.plan("gold.x", entry, INPUTS, None, silver,
+                                pinned_gold=gold({"silver.a": "12", "silver.b": "21"}))
+        self.assertEqual(decision["producer_arguments"], ["--parity-panel-snapshot-id", "90"])
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "12", "silver.b": "21"})
+        # One input read at its head would make a mismatch the check reports, not a drift.
+        half = {**entry, "pins_from": {**entry["pins_from"], "inputs": ["silver.a"]}}
+        with self.assertRaisesRegex(rebuild.PlanError, r"\['silver.b'\] are not pinned"):
+            rebuild.plan("gold.x", half, INPUTS, None, silver, pinned_gold=gold({"silver.a": "12", "silver.b": "21"}))
+
+
 class PriceHistoryShrink(unittest.TestCase):
     """The unit price panel refuses a Gold that loses units' price records (2026-10-11: a partial
     vintage cost 47,153 units about 65% of theirs)."""
@@ -273,28 +298,53 @@ class Write(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
-        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel"})
+        kinds = by_pnu_kinds.kinds()
+        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel",
+                                                   *(kind.gold_table for kind in kinds.values())})
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
-        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices}
+        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices,
+                     **{kind.gold_table: kinds_job for kind in kinds.values()}}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
             producer = producers[name]
             self.assertEqual(entry["producer"], producer.JOB_NAME)
-            required, optional, _ = rebuild.producer_inputs(producer)
+            required, optional, _ = rebuild.producer_inputs(producer, entry)
             self.assertLessEqual(set(entry.get("unmeasured_inputs", {})), {*required, *optional})
             # A pinned input is read by both producers (root ADR-0190), and the table it follows is
             # rebuilt before it in `all`.
             follows = entry.get("pins_from")
             if follows is not None:
                 followed, _, _ = rebuild.producer_inputs(producers[follows["gold_table"]])
-                self.assertLessEqual(set(follows["inputs"]), set(required) & set(followed))
+                pinned = set(required) if follows["inputs"] == "all" else set(follows["inputs"])
+                self.assertLessEqual(pinned, set(required) & set(followed))
                 self.assertLess(list(contract["tables"]).index(follows["gold_table"]), list(contract["tables"]).index(name))
         self.assertEqual(contract["tables"]["gold.unit_price_panel"]["pins_from"]["gold_table"], "gold.building_panel")
+        # While a panel is the reference, each kind is its section: every input pinned to it, checked on
+        # every PNU (root ADR-0193 §3, §6-2), and its line is its whole entry: the producer run, its lane.
+        self.assertGreaterEqual(len(kinds), 6)
+        for lane, kind in kinds.items():
+            entry = contract["tables"][kind.gold_table]
+            self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
+            self.assertEqual(entry["pins_from"]["gold_table"], kind.host_panel)
+            self.assertEqual(entry["pins_from"]["inputs"], "all")
+            self.assertEqual(entry["pins_from"]["parity_argument"], "--parity-panel-snapshot-id")
+            required, _, anchor = rebuild.producer_inputs(kinds_job, entry)
+            self.assertEqual(anchor, parcel.PARCEL_SOURCE)
+            self.assertLessEqual(set(required), set(parcel.ALL_SOURCES))
+        # A table the contract writes by hand cannot also be a kind line's.
+        import tempfile
+        raw = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
+        raw["tables"]["gold.parcel_zoning"] = raw["tables"]["gold.parcel_panel"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "c.json"
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(rebuild.PlanError, "kind tables"):
+                rebuild.load_contract(path)
 
     def test_a_contract_without_a_tolerance_or_its_reason_is_refused(self):
         import tempfile

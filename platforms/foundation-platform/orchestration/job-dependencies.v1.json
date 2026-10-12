@@ -499,10 +499,50 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_characteristics",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
+          "node_id": "gold-parcel-characteristics",
+          "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_forest_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
+          "node_id": "gold-parcel-forest-ledger",
+          "title": "필지 임야대장 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_land_rights",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
+          "node_id": "gold-parcel-land-rights",
+          "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
           "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
+          "node_id": "gold-parcel-price",
+          "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_transfer_history,PROD)",
+          "node_id": "gold-parcel-transfer-history",
+          "title": "필지 토지이동이력 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1220,10 +1260,58 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_characteristics",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
+          "node_id": "gold-parcel-characteristics",
+          "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_forest_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
+          "node_id": "gold-parcel-forest-ledger",
+          "title": "필지 임야대장 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_land_rights",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
+          "node_id": "gold-parcel-land-rights",
+          "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
           "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
+          "node_id": "gold-parcel-price",
+          "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_transfer_history,PROD)",
+          "node_id": "gold-parcel-transfer-history",
+          "title": "필지 토지이동이력 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_zoning",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_zoning,PROD)",
+          "node_id": "gold-parcel-zoning",
+          "title": "필지 용도지역 판정 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1260,10 +1348,58 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_characteristics",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
+          "node_id": "gold-parcel-characteristics",
+          "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_forest_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
+          "node_id": "gold-parcel-forest-ledger",
+          "title": "필지 임야대장 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_land_rights",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
+          "node_id": "gold-parcel-land-rights",
+          "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
           "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
+          "node_id": "gold-parcel-price",
+          "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_transfer_history,PROD)",
+          "node_id": "gold-parcel-transfer-history",
+          "title": "필지 토지이동이력 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_zoning",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_zoning,PROD)",
+          "node_id": "gold-parcel-zoning",
+          "title": "필지 용도지역 판정 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1306,6 +1442,54 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-by-pnu-serving,PROD)",
           "node_id": "parcel-by-pnu-serving",
           "title": "필지 by-PNU 서빙 문서",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-characteristics-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-characteristics-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-characteristics-by-pnu-section-packs",
+          "title": "필지 토지특성 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-forest-ledger-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-forest-ledger-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-forest-ledger-by-pnu-section-packs",
+          "title": "필지 임야대장 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-land-rights-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-land-rights-by-pnu-section-packs",
+          "title": "필지 대지권 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-price-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-price-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-price-by-pnu-section-packs",
+          "title": "필지 개별공시지가 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-transfer-history-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-transfer-history-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-transfer-history-by-pnu-section-packs",
+          "title": "필지 토지이동이력 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-zoning-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-zoning-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-zoning-by-pnu-section-packs",
+          "title": "필지 용도지역 판정 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },

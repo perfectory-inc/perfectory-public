@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 용도지역 판정(포함코드 1·2, 코드표 앵커)만 담는다(루트 ADR-0193). 필지 패널의 같은 함수로 만들고, 토지이용계획 판이 바뀔 때 이 표만 다시 만든다. 서빙 레인은 아직 없다."
+  purpose: "PNU마다 포함코드 1·2 의 용도지역과 코드표 앵커만 담는 데이터 종류 표(루트 ADR-0193). 계약의 종류 한 줄(parcel-zoning)에서 유도되고, 필지 패널의 같은 섹션 함수로 만든다."
 team:
   name: "foundation-platform"
 servers:
@@ -53,7 +53,7 @@ schema:
       - type: "text"
         description: "pnu matches the cadastral grammar"
       - type: "text"
-        description: "every row has a zoning"
+        description: "every row has its section"
       - type: "text"
         description: "row_digest contains content only"
       - type: "text"

@@ -459,7 +459,30 @@
       ]
     }
   },
+  "by_pnu_lane_rule": {
+    "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+    "kind_line": "A data kind is one by_pnu_lanes line: host, kind, the host panel's section it is, and that section's content columns (a *_json field first, <name>:long for a count). Everything else follows from it: its Gold table gold.<lane with - as _> (lakehouse-domain by_pnu_kind.rs; a parcel kind adds attached_via), its rebuild (gold-panel-rebuild.contract.json kind_tables), its producer (by_pnu_kind_silver_to_gold.py, the host panel's own section function), and its lane below. documents_follow_lane may name another lane; it defaults to the host's.",
+    "latency_p95_max_ms": 1400,
+    "latency_p95_max_ms_reason": "every kind lane's pack-only gate (나) bound on its own cold and warm p95, with the host lane as its baseline (the same Worker and placement serve both): the slowest cold pack p95 a lane served at its cut-over (parcel generation 1, 1,379 ms from ai-server, root ADR-0162), so a slow host read cannot hide a slow kind inside the increase bound",
+    "purpose": "A by_pnu_lanes entry that names a host and a kind writes only what differs per lane; everything else is its host's gateway block with the kind inserted as a path segment before the last by-pnu segment of request_path.prefix, request_path.capabilities, object_key.root, object_key.manifest_object and object_key.manifest_history_dir, and before the last packs segment of section_packs.root; one documents section; request_path.accepted_queries empty; scheduled_bake.capability by_pnu_kind_section_pack_patches (one job capability for every kind lane); document_schema_version foundation-platform.<lane with - as _>_by_pnu.v1. The publisher (by_pnu_gateway_contract.rs resolve_lane_entry) and the Worker (lane.ts resolveLane) both apply it; these vectors hold both to it.",
+    "test_vectors": [
+      {"lane": "parcel-example", "host": "parcel_by_pnu_gateway", "kind": "example",
+       "request_prefix": "/parcels/example/by-pnu/", "capabilities": "/parcels/example/by-pnu/_capabilities",
+       "manifest_object": "serving/parcels/example/by-pnu/manifest.json", "pack_root": "serving/parcels/example/packs",
+       "document_schema_version": "foundation-platform.parcel_example_by_pnu.v1", "scheduled_bake_capability": "by_pnu_kind_section_pack_patches"},
+      {"lane": "building-example-two", "host": "building_by_pnu_gateway", "kind": "example-two",
+       "request_prefix": "/buildings/example-two/by-pnu/", "capabilities": "/buildings/example-two/by-pnu/_capabilities",
+       "manifest_object": "serving/buildings/example-two/by-pnu/manifest.json", "pack_root": "serving/buildings/example-two/packs",
+       "document_schema_version": "foundation-platform.building_example_two_by_pnu.v1", "scheduled_bake_capability": "by_pnu_kind_section_pack_patches"}
+    ]
+  },
   "by_pnu_lanes": {
+    "parcel-zoning": {"host": "parcel_by_pnu_gateway", "kind": "zoning", "section": "zonings", "columns": ["zonings_json"]},
+    "parcel-price": {"host": "parcel_by_pnu_gateway", "kind": "price", "section": "price", "columns": ["price_json"]},
+    "parcel-characteristics": {"host": "parcel_by_pnu_gateway", "kind": "characteristics", "section": "characteristics", "columns": ["characteristics_json"]},
+    "parcel-forest-ledger": {"host": "parcel_by_pnu_gateway", "kind": "forest-ledger", "section": "forest_ledger", "columns": ["forest_ledger_json"]},
+    "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
+    "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,
