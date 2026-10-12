@@ -64,12 +64,17 @@ env = option("--env")
 section = config["env"][env] if env else config
 name = option("--name") or section["name"]
 assert name == section["name"], f"--name {name} is not the config's {section['name']}"
-action = " ".join(w[:2])
+action = "deploy" if w[0] == "deploy" else " ".join(w[:2])
 log({"action": action, "name": name, "args": w})
-worker = cloud[name]
 fail = os.environ.get("FIXTURE_FAIL", "")
 if f"{action}:{name}" in fail.split(","):
     sys.exit(1)
+if name not in cloud and action != "deploy":
+    # Wrangler 4.86.0 on a script the account does not have (2026-10-12).
+    print(f"A request to the Cloudflare API (/workers/scripts/{name}/deployments) failed.\n"
+          "  This Worker does not exist on your account. [code: 10007]", file=sys.stderr)
+    sys.exit(1)
+worker = cloud.setdefault(name, {"versions": {}})
 # Wrangler 4.86.0 on a D1 binding without an id (2026-10-10).
 databases = json.loads(os.environ.get("FIXTURE_D1", "[]"))
 if action != "d1 list" and any(not d.get("database_id") for d in config.get("d1_databases") or []):
@@ -101,6 +106,13 @@ elif action == "versions deploy":
     version = w[2].removesuffix("@100%")
     assert version in worker["versions"], version
     worker["serving"] = version
+elif action == "deploy":
+    # Creates the script (and its custom domains) at a version of the config's variables alone.
+    version = str(uuid.uuid4())
+    worker["versions"][version] = [{"type": "plain_text", "name": k, "text": v}
+                                   for k, v in (section.get("vars") or {}).items()]
+    worker["serving"] = worker["latest"] = version
+    print(f"Deployed {name}\nCurrent Version ID: {version}")
 cloud_path.write_text(json.dumps(cloud))
 '''
 
@@ -129,9 +141,35 @@ if [[ "$1" == show && "$*" == *EnvironmentFiles* ]]; then
 fi
 '''
 
-FAKE_SYSTEMD_RUN = r'''#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${FIXTURE_ROOT}/monitor.log"
-[[ "$*" != *"${FIXTURE_MONITOR_FAILS:-no such host}"* ]]
+# The monitor writes its report where it is told and exits non-zero on a breach. FIXTURE_MONITOR_FAILS
+# makes a 500 (a content failure), FIXTURE_MONITOR_CRASH a run that stops before its report, and
+# FIXTURE_P95 ({hostname: [p95 of its 1st read, its 2nd, ...]}) the latency; 300 ms otherwise.
+FAKE_SYSTEMD_RUN = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+root = pathlib.Path(os.environ["FIXTURE_ROOT"])
+line = " ".join(args)
+with open(root / "monitor.log", "a") as out:
+    out.write(line + "\n")
+env = dict(args[i + 1].split("=", 1) for i, arg in enumerate(args) if arg == "-E")
+host = next(v for k, v in env.items() if k.endswith("_MONITOR_BASE_URL")).removeprefix("https://")
+if host in os.environ.get("FIXTURE_MONITOR_CRASH", "").split():
+    sys.exit(1)
+counts = root / "monitor-reads.json"
+seen = json.loads(counts.read_text()) if counts.exists() else {}
+plan = json.loads(os.environ.get("FIXTURE_P95", "{}")).get(host, [])
+p95 = plan[seen.get(host, 0)] if seen.get(host, 0) < len(plan) else 300.0
+seen[host] = seen.get(host, 0) + 1
+counts.write_text(json.dumps(seen))
+broken = os.environ.get("FIXTURE_MONITOR_FAILS", "no such host") in line
+report = {"pnus": 20, "answered": 20, "failures": ["a sample PNU: http_500"] if broken else [],
+          "drifted_from_served": [], "drifted_from_objects": [], "latency_ms": {"p50": p95 / 2, "p95": p95},
+          "latency_p95_max_ms": 3000.0}
+report["passed"] = not broken and p95 <= 3000.0
+path = next((v for k, v in env.items() if k.endswith("_MONITOR_REPORT_PATH")), None)
+if path:
+    pathlib.Path(path).write_text(json.dumps(report))
+sys.exit(0 if report["passed"] else 1)
 '''
 
 
@@ -315,6 +353,37 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.change("unit-price-gateway")
         self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="unit-price"), 1)
 
+    def without(self, worker_id):
+        cloud = self.cloud()
+        for name in self.names[worker_id]:
+            del cloud[name]
+        (self.root / "cloud.json").write_text(json.dumps(cloud))
+
+    def test_a_listed_worker_the_account_lacks_is_created_after_its_preview_passed(self):
+        # 2026-10-12: the unit-price Worker, new in its release, failed three times on code 10007.
+        preview, production = self.names["unit-price-gateway"]
+        self.without("unit-price-gateway")
+        self.assertEqual(self.tick(), 0)
+        steps = [(c["action"], c["name"]) for c in self.calls() if c.get("name") in (preview, production)
+                 and c["action"] in ("deploy", "versions upload", "versions deploy")]
+        self.assertEqual(steps, [("deploy", preview), ("versions upload", preview), ("versions deploy", preview),
+                                 ("deploy", production), ("versions upload", production),
+                                 ("versions deploy", production)])
+        record = json.loads((self.host.state / "workers/unit-price-gateway.json").read_text())
+        self.assertEqual(record["targets"]["production"]["to"], self.cloud()[production]["serving"])
+        self.assertIn(f"production {production} did not exist; created at", self.output.getvalue())
+        # Only the absent one is created.
+        self.assertEqual(set(self.acted_on("deploy")), {preview, production})
+
+    def test_a_new_worker_whose_preview_fails_is_never_created_in_production(self):
+        preview, production = self.names["unit-price-gateway"]
+        self.without("unit-price-gateway")
+        hostname = GATEWAYS["by_pnu_lanes"]["unit-price"]["section_packs"]["preview_worker"]["public_hostname"]
+        self.assertEqual(self.tick(FIXTURE_BROKEN=hostname), 1)
+        self.assertIn(preview, self.cloud())
+        self.assertNotIn(production, self.cloud())
+        self.assertNotIn(production, self.acted_on("versions upload"))
+
     def test_map_edit_applies_its_d1_migrations_before_it_uploads(self):
         self.assertEqual(self.tick(), 0)
         actions = [c["action"] for c in self.calls() if c.get("name") == "foundation-map-edit-gateway"]
@@ -375,6 +444,39 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="buildings-preview.perfectory.io"), 1)
         self.assertNotIn(production, self.acted_on("versions upload"))
         self.assertTrue(self.cloud()[preview]["serving"].startswith("00000000-"), "the preview was not rolled back")
+        # A wrong document is never weighed against another hostname's latency.
+        self.assertEqual(len(self.monitor_reads(" building")), 1)
+
+    def monitor_reads(self, lane):
+        lines = (self.root / "monitor.log").read_text().splitlines()
+        return [re.search(r"MONITOR_BASE_URL=https://(\S+)", line).group(1) for line in lines if line.endswith(lane)]
+
+    def test_a_slow_live_hostname_the_version_did_not_slow_does_not_block_it(self):
+        # 2026-10-12: the zone's Korean traffic moved edge; the unchanged production read as slowly.
+        preview, production = self.names["building-gateway"]
+        live = GATEWAYS["building_by_pnu_gateway"]["public_hostname"]
+        self.assertEqual(self.tick(FIXTURE_P95=json.dumps(
+            {"buildings-preview.perfectory.io": [9559, 4500], live: [4000]})), 0)
+        self.assertEqual(self.monitor_reads(" building"),
+                         ["buildings-preview.perfectory.io", live, "buildings-preview.perfectory.io", live])
+        self.assertFalse(self.cloud()[production]["serving"].startswith("00000000-"), "production was not deployed")
+        self.assertIn("not this version's doing", self.output.getvalue())
+
+    def test_a_version_slower_than_the_one_serving_is_blocked(self):
+        preview, production = self.names["building-gateway"]
+        live = GATEWAYS["building_by_pnu_gateway"]["public_hostname"]
+        self.assertEqual(self.tick(FIXTURE_P95=json.dumps(
+            {"buildings-preview.perfectory.io": [9000, 7000], live: [4000]})), 1)
+        self.assertNotIn(production, self.acted_on("versions upload"))
+        self.assertTrue(self.cloud()[preview]["serving"].startswith("00000000-"), "the preview was not rolled back")
+        failed = json.loads((self.host.state / "failed/building-gateway.json").read_text())
+        self.assertIn("p95 7000 ms against", failed["error"])
+
+    def test_a_monitor_that_wrote_no_report_fails_the_smoke(self):
+        preview, production = self.names["building-gateway"]
+        self.assertEqual(self.tick(FIXTURE_MONITOR_CRASH="buildings-preview.perfectory.io"), 1)
+        self.assertNotIn(production, self.acted_on("versions upload"))
+        self.assertIn("wrote no report", json.loads((self.host.state / "failed/building-gateway.json").read_text())["error"])
 
     def test_a_version_that_lost_a_variable_is_never_deployed(self):
         self.assertEqual(self.tick(FIXTURE_DROP="FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS"), 1)

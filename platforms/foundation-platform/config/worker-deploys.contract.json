@@ -76,6 +76,10 @@
       }
     }
   ],
+  "monitor_latency": {
+    "ratio_to_compared_hostname": 1.5,
+    "reason": "a by-PNU smoke's monitor holds a p95 bound that the live hostname can breach with no help from the new version: on 2026-10-12 the zone's Korean traffic moved to another edge and the unchanged production hostnames read at p95 3.7-9.9 s against a 3 s bound, so three Workers gave up. When only the p95 breaches (every PNU answered with the document the lane serves), the deployer reads the same sample from the other hostname of the Worker (the preview is compared with production, which still serves the version before; production with the preview, which already passed) and then again from this one, both warm (root ADR-0154: R2 temperature dominates a cold read), and blocks only when this one is slower than this ratio of the other's p95 and above the bound"
+  },
   "attempts_per_change": 3,
   "attempts_reason": "a Worker whose deploy failed is tried again on the next ticks while it is still behind (an npm or Cloudflare API blip should not wait for the next merge), at most this many times for the same inputs; then it waits for a change to its inputs, quietly. Each failed attempt alerts once through the unit's OnFailure",
   "containers": {

@@ -20,6 +20,9 @@ deployed a commit and on every tick that finds the host already on main's head. 
   it carries every variable and secret the version serving now has (keep_vars inherits them from the
   latest upload, which need not be the one serving), move 100% to it, apply the config's routes,
   and hold it to the smoke; a smoke that fails moves 100% back to the version that served before.
+  A listed Worker the account lacks is first created by `wrangler deploy` in its turn (root
+  ADR-0196); a monitor whose only breach is its p95 is weighed against the other hostname on the
+  same sample instead of blocking outright (held_to_monitor).
 
 A Worker that fails is tried again on later ticks while it is behind, at most the contract's
 attempts_per_change times for the same inputs and the same deployer files (TOOL_FILES); each failure exits 1 once so the unit's OnFailure
@@ -39,6 +42,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -46,6 +50,8 @@ PLATFORM = "platforms/foundation-platform"
 CREDENTIAL_GROUP = "cloudflare-deploy"
 CREDENTIAL_NAMES = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID")
 VERSION_ID = re.compile(r"Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+# Cloudflare's answer for a script the account does not have (2026-10-12, the unit-price Worker).
+WORKER_ABSENT = "[code: 10007]"
 VARIABLE_TYPES = ("plain_text", "json")
 SECRET_TYPES = ("secret_text", "secret_key")
 WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
@@ -114,6 +120,8 @@ class Worker:
     targets: list[Target]  # preview first when there is one
     # A by-PNU smoke runs the lane's serving monitor; off only for a pack-only lane not cut over yet.
     monitor: bool = True
+    # How much slower than the hostname it is compared with a version may read the sample (held_to_monitor).
+    latency_ratio: float = 1.0
 
 
 def _pointer(block: dict[str, Any], dotted: str) -> Any:
@@ -176,7 +184,8 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
                 raise Refused(65, f"{entry['id']}: d1_migrations without the gateway's d1_database_name")
         workers.append(Worker(id=entry["id"], gateway=block, service_dir=entry["service_dir"],
                               wrangler_config=entry["wrangler_config"], inputs=list(entry["inputs"]),
-                              smoke=entry["smoke"], d1_database=d1, targets=targets))
+                              smoke=entry["smoke"], d1_database=d1, targets=targets,
+                              latency_ratio=float(contract["monitor_latency"]["ratio_to_compared_hostname"])))
     return workers, int(contract["attempts_per_change"])
 
 
@@ -245,6 +254,20 @@ def check_credential(host: Host, path: pathlib.Path) -> None:
                           f"foundation-worker-autodeploy.service, whose EnvironmentFile loads {path}")
 
 
+def latency_only(report: dict[str, Any]) -> bool:
+    """Every PNU answered with the document the lane serves; only the p95 can have failed."""
+
+    return (report["answered"] == report["pnus"] and not report["failures"]
+            and not report["drifted_from_served"] and not report["drifted_from_objects"])
+
+
+def breach(report: dict[str, Any]) -> str:
+    return (f"{len(report['failures'])} failures, {report['pnus'] - report['answered']} unanswered, "
+            f"{len(report['drifted_from_served'])} drifted from what the lane serves, "
+            f"{len(report['drifted_from_objects'])} from the objects, p95 {report['latency_ms']['p95']:.0f} ms "
+            f"(bound {report['latency_p95_max_ms']:.0f} ms)")
+
+
 # --- commands ----------------------------------------------------------------------------------
 
 
@@ -300,10 +323,16 @@ class Deploy:
         derived.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         self.config = derived.name
 
-    def serving(self, target: Target) -> str:
-        """The one version at 100% now. A split (an operator's canary) is not ours to move."""
+    def serving(self, target: Target) -> str | None:
+        """The one version at 100% now, or None when the account has no Worker of that name yet. A
+        split (an operator's canary) is not ours to move."""
 
-        out = self.wrangler("deployments", "status", "--name", target.name, "--json", target=target).stdout
+        try:
+            out = self.wrangler("deployments", "status", "--name", target.name, "--json", target=target).stdout
+        except Failed as failure:
+            if WORKER_ABSENT in str(failure):
+                return None
+            raise
         try:
             versions = json.loads(out[out.index("{"):])["versions"]
         except (ValueError, KeyError) as error:
@@ -348,6 +377,18 @@ class Deploy:
             raise Failed(f"{target.name}: the upload printed no version id; nothing was deployed")
         return found[-1]
 
+    def create(self, target: Target) -> str:
+        """A listed Worker the account does not have yet: `wrangler deploy` creates the script with
+        the config's routes and custom domains (`versions upload` cannot). The version it serves is
+        then the one a failed smoke rolls back to; it carries no secret, so the config must not need one."""
+
+        self.wrangler("deploy", "--message", f"autodeploy {self.commit} (first deploy)", target=target)
+        created = self.serving(target)
+        if created is None:
+            raise Failed(f"{target.name}: still absent after its first deploy")
+        log(f"{self.worker.id}: {target.label} {target.name} did not exist; created at {created}")
+        return created
+
     def move(self, target: Target, version: str, message: str) -> None:
         self.wrangler("versions", "deploy", f"{version}@100%", "--name", target.name, "--yes",
                       "--message", message, target=target)
@@ -388,14 +429,44 @@ class Deploy:
             self.wait_for(url, lambda status, headers: status == 200 and headers.get(header) == version,
                           f"200 from {version}")
             if self.worker.monitor:
-                self.monitor(smoke["lane"], target.hostname)
+                self.held_to_monitor(smoke["lane"], target)
         else:
             url = f"https://{target.hostname}{smoke['path']}"
             self.wait_for(url, lambda status, _: status == smoke["status"], str(smoke["status"]))
         log(f"{self.worker.id}: {target.label} {target.name} passed its smoke on {version}")
 
-    def monitor(self, lane: str, hostname: str) -> None:
-        """The lane's hourly serving monitor, pointed at this hostname, with its unit's files."""
+    def held_to_monitor(self, lane: str, target: Target) -> None:
+        """A failure or a drifted document blocks the version. A p95 above the lane's bound alone
+        blocks it only when it is the version's doing: the live hostname's latency moves with the
+        edge's routing and R2's temperature (root ADR-0154), so the sample is read again from a
+        hostname the version did not change — the one still serving the version before for the
+        preview, the preview already held to it for production — and then from this one, both warm,
+        and this one may be at most the contract's ratio slower."""
+
+        first = self.monitor(lane, target.hostname)
+        if first["passed"]:
+            return
+        if not latency_only(first):
+            raise Failed(f"the monitor of {target.hostname} found {breach(first)}")
+        reference = next((t for t in self.worker.targets if t is not target), None)
+        if reference is None:
+            raise Failed(f"the monitor of {target.hostname} found {breach(first)}, and no other hostname to compare")
+        baseline = self.monitor(lane, reference.hostname)
+        again = self.monitor(lane, target.hostname)
+        if not again["passed"] and not latency_only(again):
+            raise Failed(f"the monitor of {target.hostname}, read again, found {breach(again)}")
+        bound = again["latency_p95_max_ms"]
+        limit = max(bound, self.worker.latency_ratio * baseline["latency_ms"]["p95"])
+        if again["latency_ms"]["p95"] > limit:
+            raise Failed(f"{target.hostname} reads the sample at p95 {again['latency_ms']['p95']:.0f} ms against "
+                         f"{reference.hostname}'s {baseline['latency_ms']['p95']:.0f} ms (limit {limit:.0f} ms): "
+                         f"slower than the hostname it is compared with")
+        log(f"{self.worker.id}: {target.label} {target.name}: p95 {first['latency_ms']['p95']:.0f} ms was above the "
+            f"bound of {bound:.0f} ms, but read again it is {again['latency_ms']['p95']:.0f} ms against "
+            f"{reference.hostname}'s {baseline['latency_ms']['p95']:.0f} ms on the same sample: not this version's doing")
+
+    def monitor(self, lane: str, hostname: str) -> dict[str, Any]:
+        """The lane's hourly serving monitor, pointed at this hostname, with its unit's files; its report."""
 
         unit = f"foundation-by-pnu-serving-monitor@{lane}.service"
         shown = command(["systemctl", "show", "-p", "EnvironmentFiles", "--value", unit]).stdout
@@ -404,11 +475,21 @@ class Deploy:
         if not files:
             raise Failed(f"{unit} names no environment files; is it installed?")
         prefix = f"FOUNDATION_PLATFORM_{lane.upper().replace('-', '_')}_BY_PNU_SERVING"
-        command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
-                 "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
-                 *[item for path in files for item in ("-p", f"EnvironmentFile={path}")],
-                 "-E", f"{prefix}_MONITOR_BASE_URL=https://{hostname}",
-                 str(self.host.release_root / "current/scripts/ops/by-pnu-serving-monitor.sh"), lane])
+        with tempfile.TemporaryDirectory(prefix="worker-autodeploy-monitor-") as directory:
+            command(["chown", "foundation-platform", directory])
+            report = pathlib.Path(directory) / "report.json"
+            result = command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
+                              "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
+                              *[item for path in files for item in ("-p", f"EnvironmentFile={path}")],
+                              "-E", f"{prefix}_MONITOR_BASE_URL=https://{hostname}",
+                              "-E", f"{prefix}_MONITOR_REPORT_PATH={report}",
+                              str(self.host.release_root / "current/scripts/ops/by-pnu-serving-monitor.sh"), lane],
+                             check=False)
+            if not report.exists():
+                # It stopped before it read anything (inputs, the manifest): a failure, whatever its status.
+                tail = (result.stdout + result.stderr).strip().splitlines()[-20:]
+                raise Failed(f"the monitor of {hostname} wrote no report (exit {result.returncode}):\n  " + "\n  ".join(tail))
+            return json.loads(report.read_text(encoding="utf-8"))
 
     # -- the whole deploy --
 
@@ -421,7 +502,8 @@ class Deploy:
             log(f"{self.worker.id}: D1 migrations applied to {self.worker.d1_database}")
         record = {}
         for target in self.worker.targets:
-            old = before[target.label]
+            # Created here, not up front: production appears only after the preview passed.
+            old = before[target.label] or self.create(target)
             new = self.upload(target)
             log(f"{self.worker.id}: {target.label} {target.name} uploaded {new} (serving {old})")
             self.same_settings(target, old, new)

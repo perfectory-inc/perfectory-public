@@ -50,6 +50,9 @@ journalctl -fu foundation-worker-autodeploy.service
 | `<id>: preview … uploaded <버전> (serving <옛 버전>)` → `moved to` → `passed its smoke` | 정상 진행 |
 | `… does not keep what <옛> serves with (variable … is missing)` | 새 버전이 서빙 버전의 변수를 잃었다. 배포하지 않았다(3 절) |
 | `traffic is split across 2 versions` | 운영자의 카나리아가 진행 중이다. 끝나면 다음 틱에 다시 한다 |
+| `<id>: … did not exist; created at <버전>` | 계약에 있는데 계정에 없던 Worker 를 `wrangler deploy` 로 만들었다(호스트명 포함). 이어서 평소 흐름을 탄다(root ADR-0196) |
+| `p95 … was above the bound …, but read again it is … against <호스트>'s …: not this version's doing` | 지연만 한도를 넘었고 서빙 중인 버전도 같은 표본에서 그만큼 느렸다. 통과시켰다(root ADR-0196). 사용자 체감은 시간별 감시에서 본다 |
+| `reads the sample at p95 … against <호스트>'s … (limit …)` | 새 버전이 비교 호스트명보다 계약의 배수 이상 느렸다. 막고 되돌렸다 |
 | `rolled back to <옛>` | 스모크가 실패해 그 대상을 옛 버전으로 되돌렸다 |
 | `THE ROLLBACK OF … FAILED` | 되돌리기도 실패했다. 줄에 적힌 `wrangler versions deploy <옛>@100%` 를 손으로 한다 |
 
