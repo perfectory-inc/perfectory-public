@@ -503,6 +503,9 @@
     "parcel-forest-ledger": {"host": "parcel_by_pnu_gateway", "kind": "forest-ledger", "section": "forest_ledger", "columns": ["forest_ledger_json"]},
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
     "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
+    "building-titles": {"host": "building_by_pnu_gateway", "kind": "titles", "section": "titles", "columns": ["buildings_json"]},
+    "building-floors": {"host": "building_by_pnu_gateway", "kind": "floors", "section": "floors", "documents_follow_lane": "building-titles", "columns": ["floors_json"]},
+    "building-units": {"host": "building_by_pnu_gateway", "kind": "units", "section": "units", "documents_follow_lane": "building-titles", "columns": ["units_json", "unlinked_units_json"]},
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

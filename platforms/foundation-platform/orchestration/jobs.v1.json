@@ -559,7 +559,10 @@
         "gold-parcel-panel-to-gold-parcel-characteristics",
         "gold-parcel-panel-to-gold-parcel-forest-ledger",
         "gold-parcel-panel-to-gold-parcel-transfer-history",
-        "gold-parcel-panel-to-gold-parcel-land-rights"
+        "gold-parcel-panel-to-gold-parcel-land-rights",
+        "gold-building-panel-to-gold-building-titles",
+        "gold-building-panel-to-gold-building-floors",
+        "gold-building-panel-to-gold-building-units"
       ],
       "enabled": true,
       "enabled_since": "2026-10-12T22:17:38Z"
@@ -611,7 +614,10 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
+        "gold-building-titles-to-building-titles-by-pnu-section-packs",
+        "gold-building-floors-to-building-floors-by-pnu-section-packs",
+        "gold-building-units-to-building-units-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"
