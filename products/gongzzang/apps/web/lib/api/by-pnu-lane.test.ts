@@ -38,7 +38,7 @@ describe("the lane registry is the contract's", () => {
     };
     expect(rule.test_vectors.length).toBeGreaterThan(0);
     for (const vector of rule.test_vectors) {
-      const entry = { host: vector.host, kind: vector.kind, section: "s" };
+      const entry = { host: vector.host, kind: vector.kind, section: "s", columns: ["s_json"] };
       const lane = resolveWebLane(
         { ...contract, by_pnu_lanes: { [vector.lane]: entry } },
         vector.lane,
@@ -81,8 +81,15 @@ describe("the lane registry is the contract's", () => {
     ).contracts["gold.parcel_panel"].columns.map(({ name }: { name: string }) => name);
     for (const [lane, entry] of Object.entries(BY_PNU_LANES)) {
       if (entry.section === null) continue;
-      expect(kindLines[lane]?.columns?.[0], lane).toBe(`${entry.section}_json`);
-      if (entry.host === "parcel") expect(panel, lane).toContain(`${entry.section}_json`);
+      // Its document fields are its columns without `_json` or a `:type` (the publisher's rule).
+      expect(entry.fields, lane).toEqual(
+        kindLines[lane]?.columns?.map((column) => column.split(":")[0]?.replace(/_json$/, "")),
+      );
+      // A parcel kind's first field is its panel section, so the bundle answers for it by that name.
+      if (entry.host === "parcel") {
+        expect(entry.fields?.[0], lane).toBe(entry.section);
+        expect(panel, lane).toContain(`${entry.section}_json`);
+      }
     }
   });
 

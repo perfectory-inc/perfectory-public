@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { type EdgeBuildingProfile, EdgeUnitSchema, fetchBuildingProfile } from "./building-edge";
+import { EdgeUnitSchema } from "./building-edge";
+import { type BuildingProfile, fetchBuildingProfile } from "./building-kinds";
 
 export const BuildingUnitSchema = EdgeUnitSchema;
 export type BuildingUnit = z.infer<typeof BuildingUnitSchema>;
@@ -8,7 +9,7 @@ export type BuildingUnitsResponse = z.infer<typeof BuildingUnitsResponseSchema>;
 
 /** All units are already present; an absent title link remains a separate group. */
 export function toBuildingUnitsResponse(
-  profile: EdgeBuildingProfile,
+  profile: BuildingProfile,
   buildingId?: string | null,
 ): BuildingUnitsResponse {
   if (buildingId === null) return { units: profile.unlinked_units };

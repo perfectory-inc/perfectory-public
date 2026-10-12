@@ -3,7 +3,7 @@ import {
   BuildingNotServedError,
   EdgeBuildingProfileSchema,
   EdgeUnitSchema,
-  fetchBuildingProfile,
+  fetchBuildingBundle,
 } from "./building-edge";
 import { toBuildingUnitsResponse } from "./building-units";
 import { toBuildingsResponse } from "./buildings";
@@ -124,7 +124,7 @@ describe("building edge transport", () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json(document()));
     vi.stubGlobal("fetch", fetcher);
     const signal = new AbortController().signal;
-    expect(await fetchBuildingProfile(pnu, signal)).toEqual(
+    expect(await fetchBuildingBundle(pnu, signal)).toEqual(
       EdgeBuildingProfileSchema.parse(document()),
     );
     expect(fetcher).toHaveBeenCalledWith(
@@ -142,8 +142,8 @@ describe("building edge transport", () => {
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
       .mockResolvedValueOnce(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetcher);
-    await expect(fetchBuildingProfile(pnu)).rejects.toBeInstanceOf(BuildingNotServedError);
-    await expect(fetchBuildingProfile(pnu)).rejects.toThrow("503");
+    await expect(fetchBuildingBundle(pnu)).rejects.toBeInstanceOf(BuildingNotServedError);
+    await expect(fetchBuildingBundle(pnu)).rejects.toThrow("503");
   });
 
   it("refuses a noncanonical request and a response for another parcel", async () => {
@@ -151,8 +151,8 @@ describe("building edge transport", () => {
       .fn()
       .mockResolvedValue(Response.json({ ...document(), pnu: "9999900000200000000" }));
     vi.stubGlobal("fetch", fetcher);
-    await expect(fetchBuildingProfile("../manifest.json")).rejects.toThrow();
+    await expect(fetchBuildingBundle("../manifest.json")).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
-    await expect(fetchBuildingProfile(pnu)).rejects.toThrow("PNU");
+    await expect(fetchBuildingBundle(pnu)).rejects.toThrow("PNU");
   });
 });

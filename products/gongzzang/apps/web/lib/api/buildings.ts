@@ -1,6 +1,6 @@
 // apps/web/lib/api/buildings.ts
 import { z } from "zod";
-import { type EdgeBuildingProfile, fetchBuildingProfile } from "./building-edge";
+import { type BuildingProfile, fetchBuildingProfile } from "./building-kinds";
 import { BuildingUnitSchema } from "./building-units";
 
 export const BuildingSchema = z.object({
@@ -23,7 +23,7 @@ export const BuildingsResponseSchema = z.object({
 
 export type BuildingsResponse = z.infer<typeof BuildingsResponseSchema>;
 
-export function toBuildingsResponse(profile: EdgeBuildingProfile): BuildingsResponse {
+export function toBuildingsResponse(profile: BuildingProfile): BuildingsResponse {
   return {
     buildings: profile.buildings.map((building) => ({
       id: building.id,

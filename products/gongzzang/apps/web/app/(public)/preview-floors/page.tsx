@@ -7,7 +7,7 @@
 // PNU는 표준 사투리(11번째 자리 1=일반/2=산) — ADR-0023 canonical.
 import { createTranslator } from "next-intl";
 import type { ReactNode } from "react";
-import { fetchBuildingProfile } from "@/lib/api/building-edge";
+import { fetchBuildingProfile } from "@/lib/api/building-kinds";
 import { type BuildingUnit, toBuildingUnitsResponse } from "@/lib/api/building-units";
 import { type FloorsResponse, toFloorsResponse } from "@/lib/api/floors";
 import { compareHoName, unitFloorRank, unitFloorText } from "@/lib/api/unit-floor";

@@ -80,7 +80,8 @@ export class BuildingNotServedError extends Error {
   }
 }
 
-export async function fetchBuildingProfile(
+/** The bundle document (root ADR-0100), read beside the kind lanes until it retires (building-kinds.ts). */
+export async function fetchBuildingBundle(
   pnu: string,
   signal?: AbortSignal,
 ): Promise<EdgeBuildingProfile> {

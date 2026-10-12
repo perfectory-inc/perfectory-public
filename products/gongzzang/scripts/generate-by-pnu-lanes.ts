@@ -30,6 +30,7 @@ interface LaneEntry {
   host?: string;
   kind?: string;
   section?: string;
+  columns?: string[];
   gold_table?: string;
   document_schema_version?: string;
   request_path?: { prefix: string };
@@ -44,6 +45,9 @@ export interface WebLane {
   /** The host panel's section a kind line's document carries under the same name; none for a lane
    * that is its own Worker. */
   section: string | null;
+  /** The document fields a kind line's document carries its section under (its content columns
+   * without `_json` or a `:type`); none for a lane that is its own Worker. */
+  fields: readonly string[] | null;
   documentSchemaVersion: string;
   goldTable: string;
 }
@@ -70,13 +74,20 @@ export function resolveWebLane(contract: Record<string, unknown>, name: string):
       kind: name,
       path: request_path.prefix,
       section: null,
+      fields: null,
       documentSchemaVersion: document_schema_version,
       goldTable: gold_table,
     };
   }
   const host = entry.host.match(/^(.+)_by_pnu_gateway$/)?.[1];
   const block = contract[entry.host] as Gateway | undefined;
-  if (host === undefined || block === undefined || !entry.kind || !entry.section) {
+  if (
+    host === undefined ||
+    block === undefined ||
+    !entry.kind ||
+    !entry.section ||
+    !entry.columns?.length
+  ) {
     throw new Error(
       `lane ${name} names host ${entry.host} and kind ${entry.kind}, not a kind line`,
     );
@@ -87,6 +98,7 @@ export function resolveWebLane(contract: Record<string, unknown>, name: string):
     kind: entry.kind,
     path: withKind(block.request_path.prefix, "by-pnu", entry.kind),
     section: entry.section,
+    fields: entry.columns.map((column) => column.split(":")[0]?.replace(/_json$/, "") ?? column),
     documentSchemaVersion: `foundation-platform.${snake}_by_pnu.v1`,
     goldTable: `gold.${snake}`,
   };
@@ -102,6 +114,7 @@ export function renderByPnuLanes(contract: Record<string, unknown>): string {
       `    kind: ${JSON.stringify(lane.kind)},`,
       `    path: ${JSON.stringify(lane.path)},`,
       `    section: ${JSON.stringify(lane.section)},`,
+      `    fields: ${JSON.stringify(lane.fields)?.replaceAll(`","`, `", "`)},`,
       `    documentSchemaVersion: ${JSON.stringify(lane.documentSchemaVersion)},`,
       `    goldTable: ${JSON.stringify(lane.goldTable)},`,
       "  },",
