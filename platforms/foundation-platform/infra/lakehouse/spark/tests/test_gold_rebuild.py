@@ -15,6 +15,7 @@ import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402
 import parcel_panel_silver_to_gold as parcel  # noqa: E402
 import unit_price_panel_silver_to_gold as prices  # noqa: E402
+import parcel_zoning_silver_to_gold as zoning  # noqa: E402
 import gold_incremental as incremental  # noqa: E402
 
 ENTRY = {"producer": "fixture", "producer_arguments": [], "max_row_loss_fraction": 0.01}
@@ -201,6 +202,21 @@ class PinnedToAnotherGold(unittest.TestCase):
                              pinned_gold=pinned)
 
 
+    def test_a_parity_check_gets_the_followed_head_and_needs_every_input_pinned_there(self):
+        # Root ADR-0193 §6-2: a kind table checks its rows against the panel it was split from.
+        silver = {"silver.a": table(A1, self.A2), "silver.b": table(B1)}
+        entry = {**ENTRY, "pins_from": {"gold_table": "gold.y", "inputs": ["silver.a", "silver.b"], "reason": "fixture",
+                                        "parity_argument": "--parity-panel-snapshot-id"}}
+        decision = rebuild.plan("gold.x", entry, INPUTS, None, silver,
+                                pinned_gold=gold({"silver.a": "12", "silver.b": "21"}))
+        self.assertEqual(decision["producer_arguments"], ["--parity-panel-snapshot-id", "90"])
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "12", "silver.b": "21"})
+        # One input read at its head would make a mismatch the check reports, not a drift.
+        half = {**entry, "pins_from": {**entry["pins_from"], "inputs": ["silver.a"]}}
+        with self.assertRaisesRegex(rebuild.PlanError, r"\['silver.b'\] are not pinned"):
+            rebuild.plan("gold.x", half, INPUTS, None, silver, pinned_gold=gold({"silver.a": "12", "silver.b": "21"}))
+
+
 class PriceHistoryShrink(unittest.TestCase):
     """The unit price panel refuses a Gold that loses units' price records (2026-10-11: a partial
     vintage cost 47,153 units about 65% of theirs)."""
@@ -273,14 +289,16 @@ class Write(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
-        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel"})
+        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel",
+                                                   "gold.parcel_zoning"})
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
-        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices}
+        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices,
+                     "gold.parcel_zoning": zoning}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
             producer = producers[name]
@@ -295,6 +313,12 @@ class Contract(unittest.TestCase):
                 self.assertLessEqual(set(follows["inputs"]), set(required) & set(followed))
                 self.assertLess(list(contract["tables"]).index(follows["gold_table"]), list(contract["tables"]).index(name))
         self.assertEqual(contract["tables"]["gold.unit_price_panel"]["pins_from"]["gold_table"], "gold.building_panel")
+        # While the panel is the reference, the zoning kind is its section: every input pinned to it, checked
+        # on every PNU (root ADR-0193 §3, §6-2).
+        follows = contract["tables"]["gold.parcel_zoning"]["pins_from"]
+        self.assertEqual(follows["gold_table"], "gold.parcel_panel")
+        self.assertEqual(set(follows["inputs"]), set(zoning.ALL_SOURCES))
+        self.assertEqual(follows["parity_argument"], "--parity-panel-snapshot-id")
 
     def test_a_contract_without_a_tolerance_or_its_reason_is_refused(self):
         import tempfile

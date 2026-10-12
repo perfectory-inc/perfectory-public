@@ -256,14 +256,18 @@ if ! spark "${producer}.py" --input-mode iceberg --write-mode iceberg \
   log "FAILED: ${producer} refused or crashed; nothing was committed (log ${work}/${producer}.py.log)"
   exit 1
 fi
-read -r rows built changed_rows < <(python3 -I - "${work}/summary.json" <<'PY'
+read -r rows built changed_rows changed_keys < <(python3 -I - "${work}/summary.json" <<'PY'
 import json, sys
 summary = json.load(open(sys.argv[1]))
 rebuild = summary.get("rebuild") or {}
 # An incremental run whose recomputed PNUs all came out unchanged commits only the new pins.
-print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes")
+print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes",
+      (rebuild.get("counts") or {}).get("affected_pnus", "-"))
 PY
 )
+# The line root ADR-0193 §7 measures each Gold against (seconds and rows of a full build, changed keys
+# of an incremental one).
+echo "gold-kind ${gold_table} mode=${built} seconds=$((SECONDS - started)) rows=${rows} changed_keys=${changed_keys}${VALIDATE[0]:+ dry_run=yes}"
 if ((${#VALIDATE[@]})); then
   log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; nothing was committed"
 elif [[ "${changed_rows}" == no ]]; then

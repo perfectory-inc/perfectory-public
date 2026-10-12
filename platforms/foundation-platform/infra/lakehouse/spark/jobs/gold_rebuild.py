@@ -101,6 +101,9 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
                     or not str(follows.get("reason", "")).strip()):
                 raise PlanError(f"{name}: pins_from names another table of this contract, the inputs it "
                                 "pins and its reason")
+            parity = follows.get("parity_argument")
+            if parity is not None and not (isinstance(parity, str) and parity.startswith("--")):
+                raise PlanError(f"{name}: pins_from.parity_argument must be a producer flag")
     return contract
 
 
@@ -243,6 +246,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     `measuring`: a dry run, which may read an input the contract lists as unmeasured.
     `pinned_gold`: the state of the table the contract's `pins_from` names, like `gold`: the inputs
     it lists are pinned to the snapshots that table's current Gold was built from, not to their heads.
+    With `pins_from.parity_argument` every input must be pinned so, and the producer gets that flag with
+    the followed table's head snapshot, against which it checks its rows before it writes.
     """
     if unconditional is not None and not unconditional.strip():
         raise PlanError(f"{table}: an unconditional rebuild needs its reason")
@@ -273,6 +278,14 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                                 "of both producers")
             pins[name] = followed[name]
     flags = [flag for name, flag in optional.items() if silver.get(name) is None]
+    if follows is not None and follows.get("parity_argument"):
+        # Root ADR-0193 §6-2: the producer checks its rows against the followed table's, which is only
+        # a check when every input it reads is pinned where that table's were.
+        unpinned = sorted(set(present) - set(follows["inputs"]))
+        if unpinned:
+            raise PlanError(f"{table}: checks parity with {follows['gold_table']}, but {unpinned} are not "
+                            "pinned to what that table was built from")
+        flags += [follows["parity_argument"], pinned_gold["head"]]
     reasons: list[str] = [f"unconditional rebuild: {unconditional.strip()}"] if unconditional else []
     previous = None
     if gold is None or gold.get("head") is None:

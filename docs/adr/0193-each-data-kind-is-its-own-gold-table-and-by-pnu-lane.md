@@ -114,7 +114,9 @@
      - 필지 쪽: 다른 필지 종류 다섯은 `silver.parcel_boundaries`·`silver.parcel_lineage` 를 `gold.parcel_zoning` 이
        만들어진 스냅숏에 고정한다. 한 PNU 가 어떤 레인에서는 퇴역, 다른 레인에서는 살아 있는 일이 없게 한다.
      - 이행 중에는 기준이 아직 묶음이다: 표제부가 옮겨지기 전의 `gold.building_units` 는 `gold.building_panel` 에,
-       `gold.parcel_zoning` 은 `gold.parcel_panel` 에 고정한다. 기준 종류가 옮겨지는 PR 이 고정 대상을 바꾼다(지금
+       `gold.parcel_zoning` 은 `gold.parcel_panel` 에 고정한다. 묶음이 기준인 동안 종류 표는 묶음의 한 섹션이므로
+       **입력 전부**를 묶음의 핀에 고정하고, 전량 재생성마다 그 묶음 스냅숏과 모든 PNU 에서 대등성을 검사한다
+       (`pins_from.parity_argument`, 6-2 의 검사가 한 번이 아니라 매 전량 실행이 된다). 기준 종류가 옮겨지는 PR 이 고정 대상을 바꾼다(지금
        `gold.unit_price_panel` 이 `gold.building_panel` 에 고정된 것도 표제부 PR 이 `gold.building_titles` 로 바꾼다).
    - **레인의 Gold 표는 한 곳에만 적는다.** `by_pnu_lanes.<lane>.gold_table` 이 정본이고, 재생성 계약은 표 이름으로
      자기 항목(생산자·한도)을 연다. 두 계약 사이의 참조는 검사 하나가 지킨다: 모든 레인의 `gold_table` 은 재생성

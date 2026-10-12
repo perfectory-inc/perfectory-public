@@ -1228,6 +1228,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_zoning",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_zoning,PROD)",
+          "node_id": "gold-parcel-zoning",
+          "title": "필지 용도지역 판정 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.unit_price_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
           "node_id": "gold-unit-price-panel",

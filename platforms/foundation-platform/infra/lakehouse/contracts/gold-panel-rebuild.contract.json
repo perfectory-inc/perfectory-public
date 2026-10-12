@@ -51,6 +51,28 @@
         "reason": "Root ADR-0190. A unit's price is served under the PNU its building document carries it, so both documents must place each unit from the same register snapshots: a unit relinked to another title between two separate pins would be under one PNU in the building document and another in the price document. The rebuild pins these inputs to the snapshots the current building Gold was built from (it runs after the building panel in `all`), never to their heads."
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
+    },
+    "gold.parcel_zoning": {
+      "unit": "parcel-zoning",
+      "producer": "parcel_zoning_silver_to_gold",
+      "producer_arguments": [],
+      "max_row_loss_fraction": 0.01,
+      "max_row_loss_reason": "One row per served parcel with a zoning verdict (root ADR-0193), a subset of the parcel panel's rows. A land use plan vintage moves the zoned parcels by far less than 1% of them; losing more means a vintage lost a region or the anchor walk broke, which must not reach the bake.",
+      "unmeasured_inputs": {
+        "silver.parcel_lineage": "As for gold.parcel_panel: no run carrying the lineage was measured, and this table's inputs are pinned to the panel's, which has none."
+      },
+      "incremental": {
+        "max_changed_key_fraction": 0.3,
+        "parity_sample_keys": 20000,
+        "reason": "Root ADR-0180, as for the parcel panel. A land use plan vintage reaches the PNUs it zones; a zone code table change is a whole-table input and rebuilds whole (the producer's WHOLE_TABLE_INPUTS)."
+      },
+      "pins_from": {
+        "gold_table": "gold.parcel_panel",
+        "inputs": ["silver.parcel_boundaries", "silver.land_use_plan", "silver.land_use_zone_code"],
+        "parity_argument": "--parity-panel-snapshot-id",
+        "reason": "Root ADR-0193 §3 and §6-2. While gold.parcel_panel is what the web reads, this table is that panel's zonings section: every input is pinned to the snapshots the current panel was built from, so a served PNU is never alive in one lane and retired in the other, and every full rebuild checks its verdicts against the panel's on every PNU before it writes. Last in `all`, after the panel it follows: its first build (a full one) cannot hold the building tables past the job's timeout. When the zoning lane becomes the reference (the panel retires) this entry is removed."
+      },
+      "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
   }
 }
