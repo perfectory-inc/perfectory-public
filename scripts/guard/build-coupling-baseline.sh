@@ -171,7 +171,12 @@ set -euo pipefail
 # migration, so the disposable database exercises the exact six-column identity
 # this binary ships rather than the superseded two-column key.
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
-BUILD_SCRIPT_BASELINE="${2:-1}"
+# Build scripts 1 -> 6: root ADR-0201 has CI keep the workspace crates main built,
+# so a package is rebuilt only when cargo sees one of its inputs change. The five
+# other packages that embed the migration set get the same one-line
+# `rerun-if-changed` the API already had; without it an added migration would
+# leave a reused binary with the old set. Each reads nothing and writes nothing.
+BUILD_SCRIPT_BASELINE="${2:-6}"
 # 105 -> 106: ADR-0092 embeds the measured headerless HUB layout in the exporter.
 # The runtime reads that same contract for column positions instead of copying an index map.
 # 106 -> 107: ADR-0094 adds the exclusive-unit source contract as the second HUB lane.

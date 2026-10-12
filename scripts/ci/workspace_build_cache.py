@@ -1,4 +1,4 @@
-"""Keep workspace-crate build artifacts across CI runs (root ADR-0200).
+"""Keep workspace-crate build artifacts across CI runs (root ADR-0201).
 
 Swatinem/rust-cache caches dependencies only: before it saves it deletes every
 workspace crate's artifacts, and even if it kept them a fresh checkout stamps
@@ -38,6 +38,7 @@ from pathlib import Path
 
 MANIFEST = "source-mtimes.tsv"
 ARTIFACTS = "artifacts"
+DIRECTORY = "directory"  # the blob column of a directory line
 # The profile subdirectories that hold compiled units and their fingerprints.
 # Uplifted copies in the profile root are relinked by cargo from these.
 UNIT_DIRS = ("deps", ".fingerprint", "build")
@@ -80,6 +81,16 @@ def tracked_blobs(repo: Path) -> dict[str, str]:
     return blobs
 
 
+def tracked_children(paths: list[str]) -> dict[str, set[str]]:
+    """Directory -> names directly inside it, for every directory above `paths`."""
+    children: dict[str, set[str]] = {}
+    for path in paths:
+        parts = path.split("/")
+        for depth in range(1, len(parts)):
+            children.setdefault("/".join(parts[:depth]), set()).add(parts[depth])
+    return children
+
+
 def snapshot(repo: Path, targets: list[str], out: Path) -> int:
     files = artifact_files(repo, targets)
     out.write_text("".join(f"{path}\n" for path in files), encoding="utf-8")
@@ -94,10 +105,14 @@ def stash(repo: Path, targets: list[str], snapshot_file: Path, stash_dir: Path) 
     (stash_dir / ARTIFACTS).mkdir(parents=True)
 
     lines = []
+    recorded = []
     for path, blob in sorted(tracked_blobs(repo).items()):
         source = repo / path
         if source.is_file() and not source.is_symlink():
             lines.append(f"{blob}\t{source.stat().st_mtime_ns}\t{path}\n")
+            recorded.append(path)
+    for directory in sorted(tracked_children(recorded)):
+        lines.append(f"{DIRECTORY}\t{(repo / directory).stat().st_mtime_ns}\t{directory}\n")
     (stash_dir / MANIFEST).write_text("".join(lines), encoding="utf-8")
 
     moved = 0
@@ -134,11 +149,19 @@ def restore(repo: Path, stash_dir: Path) -> dict[str, int]:
             os.replace(source, destination)
             stats["artifacts"] += 1
 
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        blob, mtime_ns, path = line.split("\t", 2)
-        if current.get(path) == blob and (repo / path).is_file():
+    entries = [line.split("\t", 2) for line in manifest.read_text(encoding="utf-8").splitlines()]
+    for blob, mtime_ns, path in entries:
+        if blob != DIRECTORY and current.get(path) == blob and (repo / path).is_file():
             os.utime(repo / path, ns=(int(mtime_ns), int(mtime_ns)))
             stats["unchanged"] += 1
+    # Cargo also reads a directory's own mtime (`rerun-if-changed=<dir>`, the
+    # migration set). A directory gets its recorded mtime back only when its
+    # tracked entries are the same names, so an added or deleted file shows.
+    then = tracked_children([path for blob, _mtime, path in entries if blob != DIRECTORY])
+    now = tracked_children(list(current))
+    for blob, mtime_ns, path in entries:
+        if blob == DIRECTORY and then.get(path) == now.get(path) and (repo / path).is_dir():
+            os.utime(repo / path, ns=(int(mtime_ns), int(mtime_ns)))
     # Changed and added files keep the checkout time, newer than any artifact.
     stats["changed"] = len(current) - stats["unchanged"]
     return stats

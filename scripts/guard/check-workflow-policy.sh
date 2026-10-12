@@ -276,7 +276,7 @@ for workflow in "${workflows[@]}"; do
   # The pinned-release fill and save run only where a cache may be written, main and the daily
   # run (root ADR-0197); they fill a cache the fetcher re-verifies on every read and gate nothing.
   # "Stash workspace build" and "Save workspace build" run only on main, after
-  # every gate step passed, and only feed the next run's cache (root ADR-0200).
+  # every gate step passed, and only feed the next run's cache (root ADR-0201).
   foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
   main_only_if="\${{ github.ref == 'refs/heads/main' }}"
   awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" -v main_only="$main_only_if" \

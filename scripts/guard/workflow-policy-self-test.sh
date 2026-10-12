@@ -308,7 +308,7 @@ gate_step "Tool" >"$test_root/gated-other-step/example.yml"
 grep -q 'FOUNDATION_CI_GATE_SELECTED' "$test_root/gated-other-step/example.yml"
 expect_rejected gate-condition-on-a-gate-step "$test_root/gated-other-step"
 
-# The workspace build is saved only from main (root ADR-0200): the main-only
+# The workspace build is saved only from main (root ADR-0201): the main-only
 # condition is admitted on that step, a wider one or the same one on a gate is not.
 named_if_step() {
   awk -v name="$1" -v condition="        if: $2" \

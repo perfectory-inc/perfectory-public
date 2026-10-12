@@ -29,7 +29,7 @@ def write(path: Path, text: str) -> None:
 def touch_all_now(repo: Path) -> None:
     """What a fresh checkout does to every tracked file."""
     for path in repo.rglob("*"):
-        if path.is_file() and ".git" not in path.parts:
+        if ".git" not in path.parts:
             os.utime(path)
 
 
@@ -114,17 +114,21 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
 
         self.assertEqual(len(cache.cache_pressure(calm, "owner/repo", "prefix-")), 2)
 
-    @unittest.skipUnless(shutil.which("cargo") or os.environ.get("CI"), "cargo is not on PATH")
-    def test_cargo_rebuilds_only_the_crate_whose_source_changed(self) -> None:
-        """The premise itself: cargo trusts restored mtimes and still sees an edit."""
+    def cargo_after_change(self, change) -> str:
+        """Build a workspace, stash it, check it out anew with `change`, rebuild."""
         repo = self.scratch / "repo"
-        write(repo / "Cargo.toml", '[workspace]\nmembers = ["kept", "edited"]\nresolver = "2"\n')
-        for name in ("kept", "edited"):
+        members = ("kept", "edited", "migrated")
+        write(repo / "Cargo.toml", '[workspace]\nmembers = ["kept", "edited", "migrated"]\nresolver = "2"\n')
+        for name in members:
             write(
                 repo / name / "Cargo.toml",
                 f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n',
             )
             write(repo / name / "src/lib.rs", "pub fn f() -> u8 { 1 }\n")
+        # The shape of every package that embeds the migration set.
+        write(repo / "migrated/build.rs", 'fn main() { println!("cargo:rerun-if-changed=../migrations"); }\n')
+        write(repo / "migrations/1_a.sql", "select 1;\n")
+        write(repo / "migrations/2_b.sql", "select 2;\n")
         write(repo / ".gitignore", "/target\n")
         git(repo, "init", "-q")
         git(repo, "add", ".")
@@ -156,14 +160,31 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         # A later run on another runner: a new checkout, after the stash was built.
         time.sleep(1.1)
         shutil.rmtree(repo / "target")
-        write(repo / "edited/src/lib.rs", "pub fn f() -> u8 { 2 }\n")
-        git(repo, "add", ".")
+        change(repo)
+        git(repo, "add", "-A")
         touch_all_now(repo)
         cache.restore(repo, stash_dir)
+        return build()
 
-        log = build()
+    @unittest.skipUnless(shutil.which("cargo") or os.environ.get("CI"), "cargo is not on PATH")
+    def test_cargo_rebuilds_only_the_crate_whose_source_changed(self) -> None:
+        """The premise itself: cargo trusts restored mtimes and still sees an edit."""
+        log = self.cargo_after_change(lambda repo: write(repo / "edited/src/lib.rs", "pub fn f() -> u8 { 2 }\n"))
         self.assertIn("Fresh kept", log)
+        self.assertIn("Fresh migrated", log)
         self.assertIn("Compiling edited", log)
+
+    @unittest.skipUnless(shutil.which("cargo") or os.environ.get("CI"), "cargo is not on PATH")
+    def test_an_added_migration_rebuilds_the_package_that_embeds_the_set(self) -> None:
+        log = self.cargo_after_change(lambda repo: write(repo / "migrations/3_c.sql", "select 3;\n"))
+        self.assertIn("Compiling migrated", log)
+        self.assertIn("Fresh kept", log)
+
+    @unittest.skipUnless(shutil.which("cargo") or os.environ.get("CI"), "cargo is not on PATH")
+    def test_a_deleted_migration_rebuilds_the_package_that_embeds_the_set(self) -> None:
+        log = self.cargo_after_change(lambda repo: (repo / "migrations/2_b.sql").unlink())
+        self.assertIn("Compiling migrated", log)
+        self.assertIn("Fresh kept", log)
 
 
 if __name__ == "__main__":

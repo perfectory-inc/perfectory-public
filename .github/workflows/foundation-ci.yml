@@ -87,7 +87,7 @@ jobs:
             tools/xtask
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # rust-cache keeps dependencies only; this keeps the workspace crates main
-      # last built, so a pull request recompiles only what it changed (ADR-0200).
+      # last built, so a pull request recompiles only what it changed (ADR-0201).
       - name: Restore workspace build
         id: workspace-build
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
