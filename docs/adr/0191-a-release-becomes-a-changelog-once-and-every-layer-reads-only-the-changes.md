@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-12
 - Builds on: [ADR-0180](./0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md) (Gold 는 바뀐 PNU 만),
-  [ADR-0189](./0189-an-appended-silver-input-is-its-own-change-set.md) (append 입력은 추가분이 변경 집합),
+  ADR-0189 (PR #425, 병합 대기) (append 입력은 추가분이 변경 집합),
   [ADR-0183](./0183-a-release-loaded-in-batches-is-staged-on-a-branch-and-published-at-once.md) (브랜치 적재·공개 한 번),
   [ADR-0169](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md) (Silver 레인),
   [ADR-0099](./0099-daily-serving-updates-bake-only-changed-parcels.md)·[ADR-0147](./0147-by-pnu-documents-are-served-from-section-packs.md) (굽기의 변경 집합)
