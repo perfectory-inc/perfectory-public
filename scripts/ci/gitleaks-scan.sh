@@ -10,7 +10,7 @@ case "$mode" in
   *) echo "FAIL gitleaks-scan: mode must be tree or all" >&2; exit 2 ;;
 esac
 
-for command_name in curl git mktemp realpath sha256sum tar uname; do
+for command_name in git mktemp python3 realpath tar uname; do
   command -v "$command_name" >/dev/null || {
     echo "FAIL gitleaks-scan: missing command '$command_name'" >&2
     exit 1
@@ -80,11 +80,8 @@ bash "$root/scripts/ci/materialize-public-candidate-tree.sh" \
 
 archive_name="gitleaks_${GITLEAKS_VERSION}_${platform}_${architecture}.${archive_type}"
 archive="$scan_temp/$archive_name"
-curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
-  --output "$archive" \
-  "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive_name}"
-printf '%s  %s\n' "$expected_sha" "$archive" \
-  | sha256sum --check --strict -
+# Downloaded, checksum-verified and cached by the one pinned fetcher (root ADR-0197).
+python3 "$root/scripts/ci/fetch_pinned.py" tool gitleaks --output "$archive"
 if [ "$archive_type" = zip ]; then
   command -v unzip >/dev/null || {
     echo "FAIL gitleaks-scan: unzip is required on Windows" >&2

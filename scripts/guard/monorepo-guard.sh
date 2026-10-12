@@ -51,6 +51,7 @@ for g in hook-isolation-self-test \
          container-images-match-the-contract-self-test container-images-match-the-contract \
          workflow-policy-self-test github-policy-json-self-test \
          rust-ci-setup-self-test rust-ci-setup \
+         pinned-downloads-self-test pinned-downloads \
          repository-identity-policy-self-test \
          legal-publication-self-test \
          third-party-artifact-policy-self-test \
