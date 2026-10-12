@@ -174,6 +174,7 @@ class ParcelPanelLineageTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job.F, "expr", create=True))
                     stack.enter_context(mock.patch.object(job.F, "col", create=True))
                     stack.enter_context(mock.patch.object(job.StorageLevel, "MEMORY_AND_DISK", "disk", create=True))
+                    stack.enter_context(mock.patch.object(job.StorageLevel, "DISK_ONLY", "disk", create=True))
                     stdout = stack.enter_context(redirect_stdout(io.StringIO()))
 
                     self.assertEqual(job.main(), 0)
