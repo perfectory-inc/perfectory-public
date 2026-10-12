@@ -1,9 +1,11 @@
 // apps/web/components/panels/parcel/buildings.tsx
 "use client";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import type { BuildingUnit } from "@/lib/api/building-units";
 import type { BuildingsResponse } from "@/lib/api/buildings";
+import { fetchUnitPrices, type UnitPrices } from "@/lib/api/unit-price-edge";
 import type { PanelStackEntry } from "@/lib/panel/types";
 
 export function ParcelBuildingsCard({
@@ -15,6 +17,15 @@ export function ParcelBuildingsCard({
 }) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
+  // The units' prices are the parcel's own document (root ADR-0190): one request per parcel,
+  // joined to the units by id. Until it answers, or when it fails, no price is shown.
+  const hasUnits = data.buildings.some((b) => b.units.length > 0) || data.unlinked_units.length > 0;
+  const { data: prices } = useQuery({
+    queryKey: ["unit-prices", entry.id],
+    queryFn: ({ signal }) => fetchUnitPrices(entry.id, signal),
+    enabled: hasUnits,
+    staleTime: 60 * 60_000,
+  });
 
   if (data.buildings.length === 0 && data.unlinked_units.length === 0) {
     return <div className="p-6 text-center text-[var(--color-muted)]">{t("none")}</div>;
@@ -50,7 +61,7 @@ export function ParcelBuildingsCard({
                   <span className="group-open:hidden">{t("units.show")}</span>
                   <span className="hidden group-open:inline">{t("units.hide")}</span>
                 </summary>
-                <UnitList units={b.units} />
+                <UnitList units={b.units} prices={prices} />
               </details>
             </li>
           );
@@ -61,7 +72,7 @@ export function ParcelBuildingsCard({
           <h3 className="font-semibold">
             {floorText("buildingFallback")} · {t("unknown")}
           </h3>
-          <UnitList units={data.unlinked_units} />
+          <UnitList units={data.unlinked_units} prices={prices} />
         </section>
       )}
       {/* PNU 의 entry.id 는 i18n 라벨 표시 외 미사용 — 본 view 는 list-only */}
@@ -70,48 +81,53 @@ export function ParcelBuildingsCard({
   );
 }
 
-function UnitList({ units }: { units: BuildingUnit[] }) {
+function UnitList({ units, prices }: { units: BuildingUnit[]; prices: UnitPrices | undefined }) {
   const t = useTranslations("panels.parcel.buildings");
   const [visibleCount, setVisibleCount] = useState(100);
   return (
     <div className="mt-2 border-t border-[var(--color-hairline)] pt-2">
       {units.length === 0 && <div className="text-[var(--color-muted)]">{t("units.none")}</div>}
       <ul className="flex flex-col gap-1">
-        {units.slice(0, visibleCount).map((unit) => (
-          <li key={unit.id} className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="text-[var(--color-ink)]">
-              {unit.dong_name} {unit.ho_name}
-            </span>
-            <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
-              {unit.floor_label}
-              {unit.exclusive_area_m2 != null &&
-                ` · ${unit.exclusive_area_m2.toLocaleString("ko-KR")} ㎡`}
-              {unit.usage_name && ` · ${unit.usage_name}`}
-            </span>
-            {unit.official_price_history.length > 0 && (
-              <details className="w-full text-[length:var(--text-caption)]">
-                <summary className="cursor-pointer text-[var(--color-accent)]">
-                  {t("units.officialPriceHistory")}
-                </summary>
-                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                  {unit.official_price_history.map((price) => {
-                    const date = `${price.base_date.slice(0, 4)}-${price.base_date.slice(4, 6)}-${price.base_date.slice(6, 8)}`;
-                    return (
-                      <div key={price.base_date} className="contents">
-                        <dt>
-                          <time dateTime={date}>{date}</time>
-                        </dt>
-                        <dd className="text-right">
-                          {t("units.priceWon", { value: price.price_won.toLocaleString("ko-KR") })}
-                        </dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </details>
-            )}
-          </li>
-        ))}
+        {units.slice(0, visibleCount).map((unit) => {
+          const history = prices?.get(unit.id) ?? [];
+          return (
+            <li key={unit.id} className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-[var(--color-ink)]">
+                {unit.dong_name} {unit.ho_name}
+              </span>
+              <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+                {unit.floor_label}
+                {unit.exclusive_area_m2 != null &&
+                  ` · ${unit.exclusive_area_m2.toLocaleString("ko-KR")} ㎡`}
+                {unit.usage_name && ` · ${unit.usage_name}`}
+              </span>
+              {history.length > 0 && (
+                <details className="w-full text-[length:var(--text-caption)]">
+                  <summary className="cursor-pointer text-[var(--color-accent)]">
+                    {t("units.officialPriceHistory")}
+                  </summary>
+                  <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                    {history.map((price) => {
+                      const date = `${price.base_date.slice(0, 4)}-${price.base_date.slice(4, 6)}-${price.base_date.slice(6, 8)}`;
+                      return (
+                        <div key={price.base_date} className="contents">
+                          <dt>
+                            <time dateTime={date}>{date}</time>
+                          </dt>
+                          <dd className="text-right">
+                            {t("units.priceWon", {
+                              value: price.price_won.toLocaleString("ko-KR"),
+                            })}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </details>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {visibleCount < units.length && (
         <button

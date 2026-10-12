@@ -150,6 +150,11 @@ const PublicEnvSchema = z.object({
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: requiredProductionPublicUrl.default(
     "https://buildings.perfectory.io",
   ),
+  // The unit price lane's gateway (root ADR-0190): `by_pnu_lanes.unit-price.public_hostname` in the
+  // foundation connection contract.
+  NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL: requiredProductionPublicUrl.default(
+    "https://unit-prices.perfectory.io",
+  ),
   // The edit store's public overlay of admin polygon edits not yet baked into the tiles (root
   // ADR-0112). Its host is `map_edit_gateway.public_hostname` in the foundation connection contract.
   NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL: requiredProductionPublicUrl.default(
@@ -188,6 +193,7 @@ const parsed = Schema.safeParse({
   NEXT_PUBLIC_TILES_MANIFEST_URL: process.env.NEXT_PUBLIC_TILES_MANIFEST_URL,
   NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: process.env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: process.env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
+  NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL: process.env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL,
   NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL: process.env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL,
   ZITADEL_ISSUER: process.env.ZITADEL_ISSUER,
   ZITADEL_CLIENT_ID: process.env.ZITADEL_CLIENT_ID,

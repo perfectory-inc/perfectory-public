@@ -267,7 +267,14 @@ function buildCspHeader(hostname: string, nonce: string): string {
   const tileOrigins = resolveVectorTileAllowedOrigins().join(" ");
   // The admin edit overlay (root ADR-0112) is read by the browser alongside the tiles.
   const mapEditOrigin = new URL(env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL).origin;
-  const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin].filter(Boolean).join(" ")}`;
+  // The panels read the by-PNU edges directly from the browser: parcels, buildings and the units'
+  // prices, each its own lane (root ADR-0190).
+  const edgeOrigins = [
+    env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
+    env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
+    env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL,
+  ].map((url) => new URL(url).origin);
+  const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin, ...edgeOrigins].filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
     : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com${tileConnectSrc}`;
