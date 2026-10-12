@@ -483,6 +483,16 @@ class Registration(unittest.TestCase):
                    if job["id"] == "gold_panel_rebuild")
         self.assertEqual(set(job["pipeline_graph_edges"]), expected)
 
+    def test_every_lane_serves_a_gold_this_job_rebuilds_and_no_two_lanes_share_one(self):
+        # A lane names its Gold once (r2-connections.contract.json by_pnu_lanes, root ADR-0193 §3);
+        # this job's contract is where that table gets built.
+        lanes = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
+        contract = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json").read_text(encoding="utf-8"))
+        served = [lane["gold_table"] for lane in lanes.values()]
+        self.assertTrue(served)
+        self.assertEqual(sorted(set(served) - set(contract["tables"])), [])
+        self.assertEqual(len(served), len(set(served)))
+
 
 if __name__ == "__main__":
     unittest.main()
