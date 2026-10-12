@@ -19,7 +19,7 @@ SCOPE_JOB = """\
     name: Change scope
     runs-on: ubuntu-24.04
     outputs:
-      run: ${{ steps.select.outputs.run }}
+      affected: ${{ steps.select.outputs.affected }}
     steps:
       - name: Select
         id: select
@@ -28,7 +28,7 @@ SCOPE_JOB = """\
 BUILD_JOB = """\
   build:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - run: cargo xtask verify example
@@ -41,7 +41,7 @@ REQUIRED_JOB = """\
     steps:
       - name: Require
         env:
-          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_BUILD: ${{ needs.build.result }}
         run: bash scripts/ci/require-successful-needs.sh
@@ -188,7 +188,7 @@ class CheckTest(unittest.TestCase):
 
     def test_job_not_gated_by_scope_is_refused(self) -> None:
         fixture = Fixture(self)
-        fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace("    if: ${{ needs.scope.outputs.run == 'true' }}\n", ""))
+        fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace("    if: ${{ needs.scope.outputs.affected == 'true' }}\n", ""))
         self.assertRejected(fixture, "job `build` must run only")
 
     def test_job_not_needing_scope_is_refused(self) -> None:
@@ -208,7 +208,7 @@ class CheckTest(unittest.TestCase):
 
     def test_required_job_without_scope_result_is_refused(self) -> None:
         fixture = Fixture(self)
-        fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace("          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}\n", ""))
+        fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace("          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n", ""))
         self.assertRejected(fixture, "required job must pass")
 
     def test_stale_glob_is_refused(self) -> None:

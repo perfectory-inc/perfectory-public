@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.select.outputs.run }}
+      affected: ${{ steps.select.outputs.affected }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -47,7 +47,7 @@ jobs:
 
   frontend:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: lint / typecheck / unit / e2e / a11y / bundle
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -177,7 +177,7 @@ jobs:
           persist-credentials: false
       - name: Require the frontend gate
         env:
-          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_FRONTEND: ${{ needs.frontend.result }}
         working-directory: .

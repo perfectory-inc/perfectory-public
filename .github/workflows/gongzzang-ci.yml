@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.select.outputs.run }}
+      affected: ${{ steps.select.outputs.affected }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -55,7 +55,7 @@ jobs:
 
   rust:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Rust (fmt, clippy, test, build)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -90,7 +90,7 @@ jobs:
 
   cargo-deny:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: cargo-deny
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -121,7 +121,7 @@ jobs:
 
   guardrails:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Repo guardrails
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -169,7 +169,7 @@ jobs:
 
   traffic-auth-policy-drift:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Traffic/auth policy drift
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -224,7 +224,7 @@ jobs:
           persist-credentials: false
       - name: Require every Gongzzang core gate
         env:
-          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
           REQUIRED_RESULT_CARGO_DENY: ${{ needs.cargo-deny.result }}

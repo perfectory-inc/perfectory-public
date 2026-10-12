@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.select.outputs.run }}
+      affected: ${{ steps.select.outputs.affected }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -44,7 +44,7 @@ jobs:
 
   rust:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Intelligence Rust quality and integration
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -94,7 +94,7 @@ jobs:
 
   supply-chain:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Intelligence supply-chain policy
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -139,7 +139,7 @@ jobs:
           persist-credentials: false
       - name: Require every Intelligence gate
         env:
-          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
           REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}

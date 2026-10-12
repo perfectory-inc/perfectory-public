@@ -128,7 +128,7 @@ expect_rejected required-step-name-spoof "$test_root/step-name-spoof"
 # A scoped workflow (root ADR-0201): the terminal step carries the scope answer
 # exactly when a `scope` job exists, and never in place of a result mapping.
 mkdir "$test_root/scoped"
-sed 's/^  build:$/  scope:\n    name: Change scope\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo synthetic\n  build:/; s/needs: \[build, test\]/needs: [scope, build, test]/; s/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}\n          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}\n          REQUIRED_RESULT_BUILD:/' \
+sed 's/^  build:$/  scope:\n    name: Change scope\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo synthetic\n  build:/; s/needs: \[build, test\]/needs: [scope, build, test]/; s/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}\n          REQUIRED_RESULT_BUILD:/' \
   "$test_root/valid/example.yml" >"$test_root/scoped/example.yml"
 "$checker" "$test_root/scoped" "$test_root/ruleset.json" "$test_root/actions.json" \
   --semantic-self-test >/dev/null || {
@@ -139,11 +139,11 @@ mkdir "$test_root/scoped-without-answer"
 sed '/CHANGE_SCOPE_RUN:/d' "$test_root/scoped/example.yml" >"$test_root/scoped-without-answer/example.yml"
 expect_rejected scoped-terminal-without-scope-answer "$test_root/scoped-without-answer"
 mkdir "$test_root/answer-without-scope"
-sed 's/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}\n          REQUIRED_RESULT_BUILD:/' \
+sed 's/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n          REQUIRED_RESULT_BUILD:/' \
   "$test_root/valid/example.yml" >"$test_root/answer-without-scope/example.yml"
 expect_rejected scope-answer-without-scope-job "$test_root/answer-without-scope"
 mkdir "$test_root/scope-answer-forged"
-sed 's/CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}/CHANGE_SCOPE_RUN: false/' \
+sed 's/CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}/CHANGE_SCOPE_RUN: false/' \
   "$test_root/scoped/example.yml" >"$test_root/scope-answer-forged/example.yml"
 expect_rejected forged-scope-answer "$test_root/scope-answer-forged"
 

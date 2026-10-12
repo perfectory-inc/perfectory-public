@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      run: ${{ steps.select.outputs.run }}
+      affected: ${{ steps.select.outputs.affected }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -50,7 +50,7 @@ jobs:
 
   rust-quality:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Identity Rust quality
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -83,7 +83,7 @@ jobs:
 
   live-contracts:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Identity live database contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -143,7 +143,7 @@ jobs:
 
   compose-smoke:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Identity Compose smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -244,7 +244,7 @@ jobs:
 
   contract-determinism:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Identity OpenAPI determinism
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -270,7 +270,7 @@ jobs:
 
   supply-chain:
     needs: [scope]
-    if: ${{ needs.scope.outputs.run == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Identity supply-chain policy
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -315,7 +315,7 @@ jobs:
           persist-credentials: false
       - name: Require every Identity gate
         env:
-          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
           REQUIRED_RESULT_LIVE_CONTRACTS: ${{ needs.live-contracts.result }}

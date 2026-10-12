@@ -82,6 +82,11 @@ jobs:
         run: python3 scripts/ci/test_fetch_pinned.py -v
       - name: Repository guard and harness verification
         run: cargo xtask verify tooling
+      # Root ADR-0201: the scope selector's unit suite plants every refused shape
+      # and its last test checks the repository's workflows against
+      # tools/ci/change-scope.json. This repository-wide context always runs.
+      - name: Change scope contract and selector
+        run: python3 scripts/ci/test_change_scope.py
       - name: REUSE license compliance
         run: bash scripts/ci/reuse-lint.sh
       # Every tracked Cargo.lock and pnpm-lock.yaml in the repository, so the

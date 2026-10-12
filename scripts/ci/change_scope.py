@@ -31,8 +31,8 @@ XTASK_RUN = re.compile(r"cargo\s+.*xtask\s+(verify|integration)")
 XTASK_INPUTS = ("tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml")
 # Repository files a workflow names in its steps are its inputs without being listed.
 NAMED_FILE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:sh|py|json|toml|yml|yaml))\b")
-SCOPE_IF = "${{ needs.scope.outputs.run == 'true' }}"
-SCOPE_ENV = "CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}"
+SCOPE_IF = "${{ needs.scope.outputs.affected == 'true' }}"
+SCOPE_ENV = "CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}"
 
 
 def glob_regex(glob: str) -> re.Pattern[str]:
@@ -145,8 +145,8 @@ def check_workflow(workflow: str, text: str) -> list[str]:
         errors.append(f"{workflow}: a scoped workflow keeps no `paths:` filter; its inputs live in {CONTRACT}")
     jobs = _jobs(text)
     scope = jobs.get("scope", "")
-    if f"run: python3 {SELECTOR} select --workflow {workflow}\n" not in scope or "run: ${{ steps.select.outputs.run }}" not in scope:
-        errors.append(f"{workflow}: job `scope` must run `python3 {SELECTOR} select --workflow {workflow}` and output `run`")
+    if f"run: python3 {SELECTOR} select --workflow {workflow}\n" not in scope or "affected: ${{ steps.select.outputs.affected }}" not in scope:
+        errors.append(f"{workflow}: job `scope` must run `python3 {SELECTOR} select --workflow {workflow}` and output `affected`")
     for job, block in jobs.items():
         if job == "scope":
             continue
@@ -211,7 +211,7 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    select = sub.add_parser("select", help="write run=true|false for one workflow to $GITHUB_OUTPUT")
+    select = sub.add_parser("select", help="write affected=true|false for one workflow to $GITHUB_OUTPUT")
     select.add_argument("--workflow", required=True)
     paths = sub.add_parser("paths", help="print one scoped workflow's input globs")
     paths.add_argument("--workflow", required=True)
@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8", newline="\n") as handle:
-            handle.write(f"run={str(run).lower()}\n")
+            handle.write(f"affected={str(run).lower()}\n")
     return 0
 
 

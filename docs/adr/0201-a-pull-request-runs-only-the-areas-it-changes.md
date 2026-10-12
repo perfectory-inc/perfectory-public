@@ -24,8 +24,8 @@
 1. **영역→경로의 정본은 [`tools/ci/change-scope.json`](../../tools/ci/change-scope.json) 하나다.**
    범위가 있는 워크플로우는 `paths:` 필터를 갖지 않는다. 범위 없이 늘 도는 워크플로우는 `unscoped`에 이유와 함께 적는다.
 2. **공통 형태 하나.** 범위가 있는 워크플로우는 늘 시작하고 첫 잡 `scope`가
-   `python3 scripts/ci/change_scope.py select --workflow <자기 파일>`로 `run`을 낸다. 다른 잡은
-   `needs: [scope]`, `if: ${{ needs.scope.outputs.run == 'true' }}`로만 돈다. 필수 잡은
+   `python3 scripts/ci/change_scope.py select --workflow <자기 파일>`로 `affected`를 낸다. 다른 잡은
+   `needs: [scope]`, `if: ${{ needs.scope.outputs.affected == 'true' }}`로만 돈다. 필수 잡은
    `CHANGE_SCOPE_RUN`을 받아 `scripts/ci/require-successful-needs.sh`에 넘긴다.
    그 스크립트는 `scope` 잡이 성공했고 답이 정확히 `false`일 때에만 `skipped`를 통과시킨다.
    그래서 영역을 건드리지 않은 풀 리퀘스트에서도 `required/*`는 몇 초 만에 성공으로 보고된다.
@@ -35,7 +35,7 @@
    (`base...head`, 머지 베이스 기준). 비교할 수 없으면(첫 푸시, git 실패) 전부 돈다.
    `merge_group`은 워크플로우마다 `full` 또는 `scoped`를 계약에 적는다. 서비스를 실제로 띄우는
    통합 레인(identity, db-migrations, walking-skeleton)은 목록이 놓친 입력에 대한 마지막 안전망으로 `full`이다.
-5. **기계적 거부.** `scripts/guard/change-scope-self-test.sh`(monorepo-guard)가 다음을 거부한다.
+5. **기계적 거부.** `required/repository`(monorepo-guard.yml)의 `python3 scripts/ci/test_change_scope.py`가 다음을 거부한다.
    계약에 없는 새 풀 리퀘스트 워크플로우, 범위 워크플로우에 남은 `paths:`, `scope`에 묶이지 않은 잡,
    `CHANGE_SCOPE_RUN`을 넘기지 않는 필수 잡, 추적 파일을 하나도 가리키지 않는 낡은 경로,
    `cargo xtask verify|integration`을 돌리면서 `tools/xtask/**`·`.cargo/config.toml`·`rust-toolchain.toml`을
