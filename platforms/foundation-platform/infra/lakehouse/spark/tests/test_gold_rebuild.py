@@ -363,7 +363,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(contract["tables"]["gold.unit_price_panel"]["pins_from"]["gold_table"], "gold.building_panel")
         # While a panel is the reference, each kind is its section: every input pinned to it, checked on
         # every PNU (root ADR-0193 §3, §6-2), and its line is its whole entry: the producer run, its lane.
-        self.assertGreaterEqual(len(kinds), 6)
+        self.assertGreaterEqual(len(kinds), 9)
         for lane, kind in kinds.items():
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
@@ -371,8 +371,12 @@ class Contract(unittest.TestCase):
             self.assertEqual(entry["pins_from"]["inputs"], "all")
             self.assertEqual(entry["pins_from"]["parity_argument"], "--parity-panel-snapshot-id")
             required, _, anchor = rebuild.producer_inputs(kinds_job, entry)
-            self.assertEqual(anchor, parcel.PARCEL_SOURCE)
-            self.assertLessEqual(set(required), set(parcel.ALL_SOURCES))
+            host = parcel if kind.host == "parcel_by_pnu_gateway" else building
+            self.assertEqual(anchor, rebuild.producer_inputs(host)[2])
+            self.assertLessEqual(set(required), set(host.ALL_SOURCES))
+            # The lineage is unmeasured only where a kind can read it.
+            self.assertEqual(set(entry["unmeasured_inputs"]),
+                             {parcel.LINEAGE_SOURCE} if host is parcel else set())
         # A table the contract writes by hand cannot also be a kind line's.
         import tempfile
         raw = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
