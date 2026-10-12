@@ -971,16 +971,26 @@ fn main() {
             // area was verified, and under `verify all` the first failing area hid every area after
             // it — the same rule-1 defect one level up from the stages inside `verify`.
             let mut log = FailureLog::default();
-            repository_guard(&mut log);
+            let part = verify_part(
+                args.get(2).map(String::as_str),
+                args.get(3).map(String::as_str),
+            )
+            .unwrap_or_else(|| {
+                fail_usage("usage: cargo xtask verify <area|all> [--part cargo|suites]")
+            });
+            // The repository guard runs once per gate: with the whole verify, or with its cargo part.
+            if part != VerifyPart::Suites {
+                repository_guard(&mut log);
+            }
             match args.get(1).map(String::as_str) {
                 Some("all") => {
                     for area in AREAS {
                         eprintln!("\n=== xtask verify {} ===", area.slug);
-                        verify(area, &mut log);
+                        verify(area, part, &mut log);
                     }
                 }
                 Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
-                    Some(area) => verify(area, &mut log),
+                    Some(area) => verify(area, part, &mut log),
                     None => fail_usage(&format!(
                         "unknown area '{name}'. known: {}, all",
                         AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
@@ -1091,9 +1101,36 @@ fn container_image(root: &Path, key: &str) -> String {
 }
 
 /// Canonical verification for one area — the single policy (ADR-0004).
-fn verify(area: &Area, log: &mut FailureLog) {
+/// Which half of `verify` to run (root ADR-0199).
+///
+/// Run whole, the Python/Node suites share the machine with cargo. On a 4-vCPU CI runner that is
+/// the CPU cargo needs: measured, the suites beside cargo stretched the test build from 143 to
+/// 209 s and the verify step stayed at about 12 minutes. CI therefore runs the two halves as two
+/// jobs on two runners; locally `verify <area>` still runs everything as one command (ADR-0004).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum VerifyPart {
+    Whole,
+    Cargo,
+    Suites,
+}
+
+fn verify_part(flag: Option<&str>, value: Option<&str>) -> Option<VerifyPart> {
+    match (flag, value) {
+        (None, None) => Some(VerifyPart::Whole),
+        (Some("--part"), Some("cargo")) => Some(VerifyPart::Cargo),
+        (Some("--part"), Some("suites")) => Some(VerifyPart::Suites),
+        _ => None,
+    }
+}
+
+fn verify(area: &Area, part: VerifyPart, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
+    match part {
+        VerifyPart::Cargo => return verify_cargo(area, &dir, log),
+        VerifyPart::Suites => return verify_python_and_node(area, &dir, log),
+        VerifyPart::Whole => {}
+    }
 
     // The Python and Node suites build nothing cargo builds and read nothing it writes, so they run
     // on their own thread beside fmt, clippy and the Rust tests rather than after them (root
@@ -1941,6 +1978,71 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// `--part` selects one half and nothing else parses (root ADR-0199).
+    #[test]
+    fn verify_parts_parse_strictly() {
+        assert_eq!(verify_part(None, None), Some(VerifyPart::Whole));
+        assert_eq!(
+            verify_part(Some("--part"), Some("cargo")),
+            Some(VerifyPart::Cargo)
+        );
+        assert_eq!(
+            verify_part(Some("--part"), Some("suites")),
+            Some(VerifyPart::Suites)
+        );
+        assert_eq!(verify_part(Some("--part"), None), None);
+        assert_eq!(verify_part(Some("--part"), Some("python")), None);
+        assert_eq!(verify_part(Some("--fast"), None), None);
+    }
+
+    /// A workflow that runs one half of an area's verify runs the other half too, or the half it
+    /// left out would stop running in CI while every check stayed green (root ADR-0199).
+    #[test]
+    fn every_workflow_that_splits_verify_runs_both_halves() {
+        let workflows = repo_root().join(".github/workflows");
+        let mut split = 0;
+        for entry in std::fs::read_dir(&workflows).expect("workflow directory") {
+            let path = entry.expect("workflow entry").path();
+            let text = std::fs::read_to_string(&path).expect("workflow text");
+            assert_eq!(
+                unpaired_verify_parts(&text),
+                Vec::<String>::new(),
+                "{}",
+                path.display()
+            );
+            split += text.matches("--part ").count();
+        }
+        assert!(
+            split > 0,
+            "no workflow splits verify; the pairing check would see nothing"
+        );
+        assert_eq!(
+            unpaired_verify_parts("run: cargo xtask verify foundation --part cargo\n"),
+            ["foundation --part suites"]
+        );
+    }
+
+    fn unpaired_verify_parts(workflow: &str) -> Vec<String> {
+        let mut missing = Vec::new();
+        for line in workflow.lines() {
+            let Some(rest) = line.split("cargo xtask verify ").nth(1) else {
+                continue;
+            };
+            let mut words = rest.split_whitespace();
+            let (Some(area), Some("--part"), Some(part)) =
+                (words.next(), words.next(), words.next())
+            else {
+                continue;
+            };
+            let other = if part == "cargo" { "suites" } else { "cargo" };
+            let wanted = format!("{area} --part {other}");
+            if !workflow.contains(&format!("cargo xtask verify {wanted}")) {
+                missing.push(wanted);
+            }
+        }
+        missing
     }
 
     /// A discover suite splits into exactly the modules discover itself would load (root

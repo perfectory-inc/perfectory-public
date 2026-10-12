@@ -194,13 +194,13 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_still_aggregates_exactly_eight_jobs(self) -> None:
+    def test_required_foundation_aggregates_exactly_nine_jobs(self) -> None:
         self.assertIn(
-            "needs: [rust-quality, static-release-toolchain-windows, supply-chain, "
+            "needs: [rust-quality, suites, static-release-toolchain-windows, supply-chain, "
             "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
             self.workflow,
         )
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 8)
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 9)
 
     def test_each_heavy_job_uses_the_scope_selector_and_success_guard(self) -> None:
         for gate in scope.GATES:
