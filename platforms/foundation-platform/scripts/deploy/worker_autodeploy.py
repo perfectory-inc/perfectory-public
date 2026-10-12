@@ -13,7 +13,8 @@ deployed a commit and on every tick that finds the host already on main's head. 
   whose inputs changed since their last deploy here (the first run deploys all); a Worker whose
   Wrangler config names a Worker other than its gateway block's is refused before anything runs;
 - refuses with exit 78 before any side effect when the host is half configured (the token file
-  lacks a name or is open to others, a by-PNU lane's monitor file is missing);
+  lacks a name or is open to others, a by-PNU lane's monitor file is missing; a pack-only lane's
+  missing file means it is not cut over yet, and its smoke is the capabilities read alone);
 - per Worker: dependencies from the lockfile, D1 migrations when the entry has them, then for the
   preview Worker (when the gateway has one) and then production: upload a version, refuse it unless
   it carries every variable and secret the version serving now has (keep_vars inherits them from the
@@ -111,6 +112,8 @@ class Worker:
     smoke: dict[str, Any]
     d1_database: str | None
     targets: list[Target]  # preview first when there is one
+    # A by-PNU smoke runs the lane's serving monitor; off only for a pack-only lane not cut over yet.
+    monitor: bool = True
 
 
 def _pointer(block: dict[str, Any], dotted: str) -> Any:
@@ -136,7 +139,11 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
     gateways = json.loads((platform / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
     workers = []
     for entry in contract["workers"]:
-        block = gateways.get(entry["gateway"])
+        # A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+        try:
+            block = _pointer(gateways, entry["gateway"])
+        except Refused:
+            block = None
         if not isinstance(block, dict) or not block.get("worker_name"):
             raise Refused(65, f"{entry['id']}: no gateway block {entry['gateway']!r} with a worker_name")
         config_path = platform / entry["service_dir"] / entry["wrangler_config"]
@@ -380,7 +387,8 @@ class Deploy:
             url = f"https://{target.hostname}{self.worker.gateway['request_path']['capabilities']}"
             self.wait_for(url, lambda status, headers: status == 200 and headers.get(header) == version,
                           f"200 from {version}")
-            self.monitor(smoke["lane"], target.hostname)
+            if self.worker.monitor:
+                self.monitor(smoke["lane"], target.hostname)
         else:
             url = f"https://{target.hostname}{smoke['path']}"
             self.wait_for(url, lambda status, _: status == smoke["status"], str(smoke["status"]))
@@ -395,7 +403,7 @@ class Deploy:
                  for path, ignore in re.findall(r"(/\S+) \(ignore_errors=(yes|no)\)", shown)]
         if not files:
             raise Failed(f"{unit} names no environment files; is it installed?")
-        prefix = f"FOUNDATION_PLATFORM_{lane.upper()}_BY_PNU_SERVING"
+        prefix = f"FOUNDATION_PLATFORM_{lane.upper().replace('-', '_')}_BY_PNU_SERVING"
         command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
                  "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
                  *[item for path in files for item in ("-p", f"EnvironmentFile={path}")],
@@ -521,6 +529,13 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
         check_credential(host, credential)
         for worker, _, _ in behind:
             if worker.smoke["kind"] == "by-pnu" and not monitor_file(tree, worker.smoke["lane"]).exists():
+                # The operator writes a pack-only lane's monitor file at its cut-over (root ADR-0190):
+                # until then every PNU is a 503 and the capabilities read is the whole smoke.
+                if worker.gateway.get("pack_only") is True:
+                    worker.monitor = False
+                    log(f"{worker.id}: the {worker.smoke['lane']} lane is not cut over "
+                        f"({monitor_file(tree, worker.smoke['lane'])} does not exist); its smoke reads capabilities only")
+                    continue
                 raise Refused(78, f"{worker.id}: its smoke runs the {worker.smoke['lane']} serving monitor, whose file "
                                   f"{monitor_file(tree, worker.smoke['lane'])} does not exist")
     except Refused as refusal:

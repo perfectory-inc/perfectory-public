@@ -1,0 +1,54 @@
+//! One row per PNU with its units' official price histories, apart from the building panel
+//! (root ADR-0190).
+use crate::lakehouse::{
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+};
+
+const COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "pnu",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "units_json",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "row_digest",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "source_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "published_at_utc",
+        logical_type: "string",
+        required: true,
+    },
+];
+/// Gold unit price panel: each priced unit under the PNU whose building document carries it.
+pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.unit_price_panel",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    columns: COLUMNS,
+    partition_spec: &["source_snapshot_id"],
+    sort_order: &["pnu"],
+    write_distribution: LakehouseWriteDistribution::Range,
+    quality_gates: &[
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has a priced unit",
+        "row_digest contains content only",
+        "published_at_utc is present",
+    ],
+    load: LakehouseLoadUnit::Derived,
+};

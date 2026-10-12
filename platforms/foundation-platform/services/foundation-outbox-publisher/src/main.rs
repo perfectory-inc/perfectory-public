@@ -159,6 +159,7 @@ mod national_data_collection_scope_writer;
 mod national_data_collection_shard_manifest_writer;
 mod national_page_count_plan_writer;
 mod official_administrative_boundary_source_snapshot;
+mod pack_lane_document;
 mod page_collector;
 mod page_count_plan_contract;
 mod pagination_guard;

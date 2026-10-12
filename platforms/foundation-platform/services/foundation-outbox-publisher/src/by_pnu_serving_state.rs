@@ -129,15 +129,45 @@ pub async fn run_building() -> anyhow::Result<()> {
     run(ByPnuLane::Building).await
 }
 
-async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
+/// `show-<lane>-by-pnu-serving-state` of any lane. A pack-only lane that has no manifest yet
+/// (root ADR-0190: its first publish is the pack-only cut-over) writes only that it is not cut
+/// over, so the scheduled bake leaves it to the operator.
+///
+/// # Errors
+/// Refuses when the manifest or the catalog cannot be read, or the state file cannot be written.
+pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let output = ProfileStoreConfig::parse(
         &optional_env_value(&lane.env("OUTPUT_STORAGE_DRIVER"))?
             .unwrap_or_else(|| "local".to_owned()),
         local_root(optional_env_value(&lane.env("OUTPUT_ROOT"))?),
     )?;
     let store = ByPnuServingStore::open(lane, &output)?;
+    if lane.pack_lane().is_some() && !store.exists(by_pnu::manifest_key(lane)?).await? {
+        return write_json(&NotCutOver {
+            schema_version: STATE_SCHEMA_VERSION,
+            unit: lane.unit(),
+            cut_over: false,
+        });
+    }
     let state = read_state(&store, current_snapshot(gold_table(lane)).await?).await?;
     write_state(&state)
+}
+
+/// The state of a pack-only lane before its first publish.
+#[derive(Serialize)]
+struct NotCutOver {
+    schema_version: &'static str,
+    unit: &'static str,
+    cut_over: bool,
+}
+
+fn write_json(value: &impl Serialize) -> anyhow::Result<()> {
+    let path = PathBuf::from(required_env_value(STATE_PATH_ENV)?);
+    if !path.is_absolute() {
+        bail!("{STATE_PATH_ENV} must be an absolute path");
+    }
+    let body = serde_json::to_vec_pretty(value).context("serialize the lane state")?;
+    std::fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))
 }
 
 /// The lane's state from its store and the Gold table's current snapshot.
@@ -274,12 +304,7 @@ async fn current_snapshot(table: &str) -> anyhow::Result<Option<String>> {
 }
 
 fn write_state(state: &LaneState) -> anyhow::Result<()> {
-    let path = PathBuf::from(required_env_value(STATE_PATH_ENV)?);
-    if !path.is_absolute() {
-        bail!("{STATE_PATH_ENV} must be an absolute path");
-    }
-    let body = serde_json::to_vec_pretty(state).context("serialize the lane state")?;
-    std::fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))?;
+    write_json(state)?;
     tracing::info!(
         unit = state.unit,
         gold_iceberg_snapshot_id = state.gold_iceberg_snapshot_id.as_deref().unwrap_or("(none)"),

@@ -14,6 +14,7 @@ import test_industrial_complex_gold_schema_evolution  # noqa: F401  Import-only 
 import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402
 import parcel_panel_silver_to_gold as parcel  # noqa: E402
+import unit_price_panel_silver_to_gold as prices  # noqa: E402
 import gold_incremental as incremental  # noqa: E402
 
 ENTRY = {"producer": "fixture", "producer_arguments": [], "max_row_loss_fraction": 0.01}
@@ -169,6 +170,64 @@ class Plan(unittest.TestCase):
         self.assertIsNone(decision["minimum_row_count"])
 
 
+class PinnedToAnotherGold(unittest.TestCase):
+    """Root ADR-0190: the unit price panel places units from the register snapshots the building
+    panel was built from, so both documents put each unit under the same PNU."""
+
+    ENTRY = {**ENTRY, "pins_from": {"gold_table": "gold.y", "inputs": ["silver.a"], "reason": "fixture"}}
+    A2 = snap("12", "11", "2026-01-20T00:00:00Z", "overwrite", added=5, deleted=4)
+
+    def test_a_pinned_input_takes_the_other_golds_pin_not_its_head(self):
+        silver = {"silver.a": table(A1, self.A2), "silver.b": table(B1)}
+        # The building Gold was not rebuilt past silver.a 11: the price Gold stays on 11 too.
+        decision = rebuild.plan("gold.x", self.ENTRY, INPUTS, gold({"silver.a": "11", "silver.b": "21"}), silver,
+                                pinned_gold=gold({"silver.a": "11"}))
+        self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
+        # Once it is, the price Gold follows.
+        decision = rebuild.plan("gold.x", self.ENTRY, INPUTS, gold({"silver.a": "11", "silver.b": "21"}), silver,
+                                pinned_gold=gold({"silver.a": "12"}))
+        self.assertEqual(decision["action"], "rebuild")
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "12", "silver.b": "21"})
+        # Without the entry the head decides, as for every other table.
+        decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold({"silver.a": "11", "silver.b": "21"}), silver,
+                                pinned_gold=gold({"silver.a": "11"}))
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "12", "silver.b": "21"})
+
+    def test_a_followed_gold_without_pins_or_without_that_input_is_refused(self):
+        silver = {"silver.a": table(A1), "silver.b": table(B1)}
+        for pinned in (None, gold(None), gold({"silver.b": "21"})):
+            with self.subTest(pinned=pinned), self.assertRaises(rebuild.PlanError):
+                rebuild.plan("gold.x", self.ENTRY, INPUTS, gold({"silver.a": "11", "silver.b": "21"}), silver,
+                             pinned_gold=pinned)
+
+
+class PriceHistoryShrink(unittest.TestCase):
+    """The unit price panel refuses a Gold that loses units' price records (2026-10-11: a partial
+    vintage cost 47,153 units about 65% of theirs)."""
+
+    def test_shrinking_more_units_than_the_contract_allows_is_refused_and_growth_is_not(self):
+        bound = rebuild.load_contract()["tables"]["gold.unit_price_panel"]["max_price_history_shrink_fraction"]
+        self.assertEqual(bound, 0.001)
+        self.assertIsNone(prices.shrink_verdict(0, 1_000_000, bound), "a vintage that only adds records")
+        self.assertIsNone(prices.shrink_verdict(1_000, 1_000_000, bound), "retired registers, a few at a time")
+        refused = prices.shrink_verdict(47_153, 1_000_000, bound)
+        self.assertIn("47153 of the current Gold's 1000000 units would keep fewer price records", refused)
+        self.assertIsNotNone(prices.shrink_verdict(1_001, 1_000_000, bound))
+
+    def test_a_contract_bound_without_its_reason_or_out_of_range_is_refused(self):
+        import tempfile
+        good = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
+        for field, value in (("max_price_history_shrink_fraction", 1), ("max_price_history_shrink_fraction", "0.001"),
+                             ("max_price_history_shrink_reason", "")):
+            bad = json.loads(json.dumps(good))
+            bad["tables"]["gold.unit_price_panel"][field] = value
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "c.json"
+                path.write_text(json.dumps(bad), encoding="utf-8")
+                with self.assertRaises(rebuild.PlanError):
+                    rebuild.load_contract(path)
+
+
 class RowLoss(unittest.TestCase):
     def test_row_loss_beyond_the_tolerance_is_refused_and_within_it_is_not(self):
         minimum = rebuild.plan("gold.x", ENTRY, INPUTS, gold(rows=1000),
@@ -214,17 +273,28 @@ class Write(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
-        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel"})
+        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel"})
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
+        self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
+        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
-            producer = parcel if name == "gold.parcel_panel" else building
+            producer = producers[name]
+            self.assertEqual(entry["producer"], producer.JOB_NAME)
             required, optional, _ = rebuild.producer_inputs(producer)
             self.assertLessEqual(set(entry.get("unmeasured_inputs", {})), {*required, *optional})
+            # A pinned input is read by both producers (root ADR-0190), and the table it follows is
+            # rebuilt before it in `all`.
+            follows = entry.get("pins_from")
+            if follows is not None:
+                followed, _, _ = rebuild.producer_inputs(producers[follows["gold_table"]])
+                self.assertLessEqual(set(follows["inputs"]), set(required) & set(followed))
+                self.assertLess(list(contract["tables"]).index(follows["gold_table"]), list(contract["tables"]).index(name))
+        self.assertEqual(contract["tables"]["gold.unit_price_panel"]["pins_from"]["gold_table"], "gold.building_panel")
 
     def test_a_contract_without_a_tolerance_or_its_reason_is_refused(self):
         import tempfile

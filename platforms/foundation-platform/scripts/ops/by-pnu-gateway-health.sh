@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One canary step's verdict for a by-PNU gateway (root ADR-0151 Revision, ADR-0160):
 #
-#   by-pnu-gateway-health.sh <building|parcel> <new-version-id> [<old-version-id>]
+#   by-pnu-gateway-health.sh <building|parcel|a by_pnu_lanes lane> <new-version-id> [<old-version-id>]
 #
 # Run as root on the host that holds the Cloudflare analytics token: the publisher reads it in a
 # transient unit from the file the contract names (by_pnu_section_packs.cloudflare_analytics.
@@ -11,20 +11,22 @@
 # Cloudflare analytics. scripts/ops/by-pnu-gateway-canary.sh calls it through
 # CANARY_HEALTH_COMMAND. Exits non-zero on a breach.
 #
-#   by-pnu-gateway-health.sh <building|parcel> --preflight
+#   by-pnu-gateway-health.sh <building|parcel|a by_pnu_lanes lane> --preflight
 #
 # runs both analytics queries the verdict needs (Workers invocations, and the zone's HTTP
 # responses) once, so the canary refuses before it uploads anything when the token lacks either
 # permission or the zone id is missing.
 set -euo pipefail
-USAGE="usage: by-pnu-gateway-health.sh <building|parcel> <new-version-id> [<old-version-id>] | --preflight"
+USAGE="usage: by-pnu-gateway-health.sh <building|parcel|a by_pnu_lanes lane> <new-version-id> [<old-version-id>] | --preflight"
 LANE="${1:-}"
-[[ "${LANE}" == building || "${LANE}" == parcel ]] || { echo "${USAGE}" >&2; exit 64; }
+# The parcel and building lanes, and every pack-only lane the contract this script ships with names (root ADR-0190).
+python3 -I -c 'import json, sys; sys.exit(sys.argv[2] not in ["parcel", "building", *json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})])' \
+  "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${LANE}" || { echo "${USAGE}" >&2; exit 64; }
 NEW="${2:?${USAGE}}"
 OLD="${3:-}"
 # The publisher's command and environment names carry the lane (section_packs.rs).
 COMMAND="check-${LANE}-gateway-version-health"
-PREFIX="FOUNDATION_PLATFORM_${LANE^^}_BY_PNU_SERVING"
+PREFIX="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The file is named once, by the runtime-secrets contract (root ADR-0153), group cloudflare-analytics.
 ENV_FILE="$(python3 -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == "cloudflare-analytics"))' \

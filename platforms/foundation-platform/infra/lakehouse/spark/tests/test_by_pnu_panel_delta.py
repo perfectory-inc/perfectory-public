@@ -42,6 +42,18 @@ class SnapshotIds(unittest.TestCase):
             self.assertEqual(code, delta.EXIT_NO_COMPARISON)
             self.assertFalse(Path(work, "s.json").exists())
 
+    def test_every_lane_the_contract_names_is_a_unit(self):
+        # Root ADR-0190: a pack-only lane's Gold panel is compared like the parcel and building ones.
+        import json
+        lanes = json.loads(delta.R2_CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_lanes"]
+        self.assertTrue(lanes)
+        for name, lane in lanes.items():
+            self.assertEqual(delta.GOLD_TABLES[name], lane["gold_table"])
+            self.assertEqual(delta.parse_args([
+                "--unit", name, "--current-snapshot-id", "202", "--max-delta-fraction", "0.5",
+                "--upsert-output", "u", "--delete-output", "d", "--summary-output", "s.json",
+            ]).unit, name)
+
 
 class RefusalCodes(unittest.TestCase):
     def test_the_two_cannot_compare_refusals_have_their_own_exit_codes(self):

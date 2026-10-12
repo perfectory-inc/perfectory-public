@@ -12,6 +12,7 @@
 //! Every recogniser round-trips through its builder, so a key it accepts is one this module would
 //! itself have produced.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -29,22 +30,31 @@ fn anchored(pattern: &str) -> Result<Regex, String> {
 }
 
 fn grammar(lane: ByPnuLane) -> anyhow::Result<&'static LaneGrammar> {
-    static PARCEL: OnceLock<Result<LaneGrammar, String>> = OnceLock::new();
-    static BUILDING: OnceLock<Result<LaneGrammar, String>> = OnceLock::new();
-    let cell = match lane {
-        ByPnuLane::Parcel => &PARCEL,
-        ByPnuLane::Building => &BUILDING,
-    };
-    cell.get_or_init(|| {
-        let layout = &lane.policy().map_err(|error| error.to_string())?.object_key;
-        Ok(LaneGrammar {
-            generation_dir: anchored(&layout.generation_dir_pattern)?,
-            patch_dir: anchored(&layout.patch_dir_pattern)?,
-            pnu: anchored(&layout.pnu_pattern)?,
+    // Every lane's grammar, compiled once: the contract's lanes are known when it is read.
+    static GRAMMARS: OnceLock<Result<BTreeMap<&'static str, LaneGrammar>, String>> =
+        OnceLock::new();
+    GRAMMARS
+        .get_or_init(|| {
+            ByPnuLane::all()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .map(|lane| {
+                    let layout = &lane.policy().map_err(|error| error.to_string())?.object_key;
+                    Ok((
+                        lane.unit(),
+                        LaneGrammar {
+                            generation_dir: anchored(&layout.generation_dir_pattern)?,
+                            patch_dir: anchored(&layout.patch_dir_pattern)?,
+                            pnu: anchored(&layout.pnu_pattern)?,
+                        },
+                    ))
+                })
+                .collect()
         })
-    })
-    .as_ref()
-    .map_err(|message| anyhow::anyhow!(message.clone()))
+        .as_ref()
+        .map_err(|message| anyhow::anyhow!(message.clone()))?
+        .get(lane.unit())
+        .ok_or_else(|| anyhow::anyhow!("no grammar for the {} lane", lane.unit()))
 }
 
 fn layout(lane: ByPnuLane) -> anyhow::Result<&'static ByPnuObjectKeyPolicy> {

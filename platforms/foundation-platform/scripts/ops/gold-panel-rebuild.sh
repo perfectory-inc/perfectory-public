@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # The scheduled panel Gold rebuild (root ADR-0139, ADR-0122).
 #
-#   gold-panel-rebuild.sh parcel|building|all [--dry-run] [--unconditional <reason>]
+#   gold-panel-rebuild.sh <a table's unit>|all [--dry-run] [--unconditional <reason>]
 #   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
-# `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, in the order of
-# infra/lakehouse/contracts/gold-panel-rebuild.contract.json. One Spark run at a time: each takes
-# the whole compose `spark` cap (root ADR-0138). A failed table does not stop the other; `all`
-# fails if either did. One run of a table:
+# A table's unit (parcel, building, unit-price, ...) is its `unit` in
+# infra/lakehouse/contracts/gold-panel-rebuild.contract.json. `all` (the registered job) rebuilds
+# every table of that contract in its order (gold.parcel_panel, gold.building_panel,
+# gold.unit_price_panel; root ADR-0190). One Spark run at a time: each takes the whole compose
+# `spark` cap (root ADR-0138). A failed table does not stop the others; `all` fails if any did.
+# One run of a table:
 #
 # 1. plans (infra/lakehouse/spark/jobs/gold_rebuild.py): reads the Gold table's and its Silver
 #    inputs' snapshot histories from the catalog. No input changed rows since the Silver snapshots
@@ -64,11 +66,17 @@ while (($#)); do
     *) echo "gold-panel-rebuild: expected --dry-run or --unconditional <reason>, got '$1'" >&2; exit 64 ;;
   esac
 done
-case "${UNIT}" in
-  parcel | building) ;;
-  all) ;;
-  *) echo "gold-panel-rebuild: expected parcel, building, all or cleanup, got '${UNIT}'" >&2; exit 64 ;;
-esac
+# The tables' units in the contract's order, from the contract this script ships with: a table the
+# contract gains is rebuilt by `all` without an edit here.
+mapfile -t UNITS < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json" <<'PY'
+import json, sys
+print("\n".join(table["unit"] for table in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))
+PY
+)
+if [[ "${UNIT}" != all && ( -z "${UNIT}" || " ${UNITS[*]-} " != *" ${UNIT} "* ) ]]; then
+  echo "gold-panel-rebuild: expected one of ${UNITS[*]-}, all or cleanup, got '${UNIT}'" >&2
+  exit 64
+fi
 # A run outside systemd (a supervised manual run) names its own project; ExecStopPost is not there
 # to clean it, so the operator is told how.
 if [[ -z "${INVOCATION_ID:-}" ]]; then
@@ -97,15 +105,20 @@ if [[ "${UNIT}" == all ]]; then
   # Each table that commits a snapshot names itself here; the job's last line says whether any did,
   # which is what starts the by-PNU bake (root ADR-0171).
   GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
-  export GOLD_PANEL_REBUILD_COMMITTED
-  "${BASH_SOURCE[0]}" parcel ${OPTIONS[@]+"${OPTIONS[@]}"} || status=$?
-  "${BASH_SOURCE[0]}" building ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
+  # The table whose run joined the unit prices names itself here, so a later table of this run that
+  # reads them does not start the national join again (step 0).
+  GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED="$(mktemp)"
+  export GOLD_PANEL_REBUILD_COMMITTED GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED
+  for unit in ${UNITS[@]+"${UNITS[@]}"}; do
+    [[ -n "${unit}" ]] || continue
+    "${BASH_SOURCE[0]}" "${unit}" ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
+  done
   if [[ -s "${GOLD_PANEL_REBUILD_COMMITTED}" ]]; then
     echo "foundation-job-outcome changed"
   else
     echo "foundation-job-outcome unchanged"
   fi
-  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}"
+  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}" "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
   exit "${status}"
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -144,17 +157,23 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
-# 0. The building panel's unit prices (root ADR-0182): silver.unit_official_price joins the two hub
+# 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0190): silver.unit_official_price joins the two hub
 # tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
 # The join belongs to this job because only this job reads it, and because the spark pool has no
 # room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.
-if [[ "${UNIT}" == building ]] && ((${#VALIDATE[@]} == 0)); then
-  if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
-    grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
-    log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
-    exit 1
+# Within one `all`, a table after the one whose join succeeded skips it: the join just ran.
+if [[ "${UNIT}" == building || "${UNIT}" == unit-price ]] && ((${#VALIDATE[@]} == 0)); then
+  if [[ -s "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]]; then
+    log "unit prices: already joined by this run's $(head -1 "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}") rebuild"
+  else
+    if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
+      grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
+      log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
+      exit 1
+    fi
+    log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
+    [[ -z "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]] || echo "${UNIT}" >>"${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
   fi
-  log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
 fi
 
 # 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a

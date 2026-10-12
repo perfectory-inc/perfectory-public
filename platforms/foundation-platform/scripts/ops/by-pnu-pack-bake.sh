@@ -26,17 +26,26 @@
 #   bake's completeness rule: one snapshot, no overlap, every Gold row exported.
 set -euo pipefail
 
+# The pack-only lanes the contract this script ships with names (root ADR-0190).
+mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
+import json, sys
+print("\n".join(json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})))
+PY
+)
+is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" GENERATION="${2:-}"
 log() { printf '%s by-pnu-pack-bake %s: %s\n' "$(date -u +%FT%TZ)" "${LANE}" "$*"; }
-if [[ "$#" != 2 || ! ("${LANE}" == building || "${LANE}" == parcel) || ! "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]]; then
-  echo "usage: by-pnu-pack-bake.sh <building|parcel> <generation>" >&2
+known=no
+if [[ "${LANE}" == building || "${LANE}" == parcel ]] || is_pack_lane "${LANE}"; then known=yes; fi
+if [[ "$#" != 2 || "${known}" != yes || ! "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]]; then
+  echo "usage: by-pnu-pack-bake.sh <building|parcel|a by_pnu_lanes lane> <generation>" >&2
   exit 64
 fi
 # Workers are reaped one by one with `wait -n -p` (bash 5.1).
 ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 501)) || { log "refused: needs bash 5.1 or later"; exit 69; }
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
-P="FOUNDATION_PLATFORM_${LANE^^}_BY_PNU_SERVING"
+P="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 WORK="${STATE_ROOT}/${LANE}-pack-g${GENERATION}"
 SUMMARIES="${WORK}/summaries" SHARDS="${WORK}/shards"

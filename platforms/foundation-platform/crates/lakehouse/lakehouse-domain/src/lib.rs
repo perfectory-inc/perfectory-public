@@ -19,6 +19,7 @@ mod land_transfer_history;
 mod parcel_number_change_history;
 mod parcel_panel;
 mod unit_official_price;
+mod unit_price_panel;
 
 /// Provider-neutral table contracts.
 pub mod lakehouse;
@@ -93,3 +94,4 @@ pub use lakehouse_run_summary::{
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
 pub use unit_official_price::SILVER_UNIT_OFFICIAL_PRICE;
+pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;

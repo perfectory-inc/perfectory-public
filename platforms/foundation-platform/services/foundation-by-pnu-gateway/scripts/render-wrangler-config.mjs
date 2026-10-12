@@ -1,20 +1,25 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-/// One source, one Wrangler config per by-PNU lane (root ADR-0160): `wrangler.building.jsonc` and
-/// `wrangler.parcel.jsonc`, each the contract's `<lane>_by_pnu_gateway` block and a `define` that
-/// fixes the lane the bundle serves (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`.
-export const LANES = ["building", "parcel"];
-
+/// One source, one Wrangler config per by-PNU lane (root ADR-0160): `wrangler.building.jsonc`,
+/// `wrangler.parcel.jsonc` and one per pack-only lane of the contract's `by_pnu_lanes` (root
+/// ADR-0190), each the lane's gateway block and a `define` that fixes the lane the bundle serves
+/// (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`.
 const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
+
+export const LANES = [
+  "building",
+  "parcel",
+  ...Object.keys(JSON.parse(await readFile(contractUrl, "utf8")).by_pnu_lanes ?? {}),
+];
 
 export function outputUrl(lane) {
   return new URL(`../wrangler.${lane}.jsonc`, import.meta.url);
 }
 
 export function render(contract, lane) {
-  const block = `${lane}_by_pnu_gateway`;
-  const gateway = contract[block];
+  const block = contract.by_pnu_lanes?.[lane] === undefined ? `${lane}_by_pnu_gateway` : `by_pnu_lanes.${lane}`;
+  const gateway = contract[`${lane}_by_pnu_gateway`] ?? contract.by_pnu_lanes?.[lane];
   if (gateway === undefined) throw new Error(`the contract has no ${block}`);
   const connection = contract.connections[gateway.connection];
   if (connection === undefined) {

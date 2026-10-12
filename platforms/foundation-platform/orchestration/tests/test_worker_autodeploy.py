@@ -10,6 +10,7 @@ and `systemd-run` play the serving monitor. scripts/deploy/worker-wrangler.sh ru
 """
 
 import contextlib
+import functools
 import importlib.util
 import io
 import json
@@ -173,7 +174,8 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         # set in the dashboard, and a script no contract lists.
         cloud, hosts, self.names = {}, {}, {}
         for number, entry in enumerate(CONTRACT["workers"]):
-            block = GATEWAYS[entry["gateway"]]
+            # A gateway is a top-level block or a dotted path into one (`by_pnu_lanes.<lane>`).
+            block = functools.reduce(lambda value, key: value[key], entry["gateway"].split("."), GATEWAYS)
             names = [(block["worker_name"], block.get("public_hostname") or entry["smoke"]["hostname"])]
             if entry.get("preview"):
                 preview = block["section_packs"]["preview_worker"]
@@ -272,10 +274,13 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def test_a_shared_input_deploys_every_worker_built_from_it(self):
         self.assertEqual(self.tick(), 0)
         (self.root / "calls.log").unlink()
-        self.change("parcel-gateway")  # one source, two lanes (root ADR-0160)
+        self.change("parcel-gateway")  # one source, every by-PNU lane (root ADR-0160, ADR-0190)
         self.assertEqual(self.tick(), 0)
-        self.assertEqual(sorted(self.acted_on("versions deploy")), sorted(
-            self.names["parcel-gateway"] + self.names["building-gateway"]))
+        shared = [entry["id"] for entry in CONTRACT["workers"]
+                  if entry["service_dir"] == "services/foundation-by-pnu-gateway"]
+        self.assertGreaterEqual(len(shared), 3)
+        self.assertEqual(sorted(self.acted_on("versions deploy")),
+                         sorted(name for worker in shared for name in self.names[worker]))
 
     def test_the_preview_goes_first_and_production_only_after_its_smoke(self):
         self.assertEqual(self.tick(), 0)
@@ -289,6 +294,26 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(len(parcel), 2)
         self.assertIn("MONITOR_BASE_URL=https://catalog-preview.perfectory.io", parcel[0])
         self.assertIn(f"MONITOR_BASE_URL=https://{GATEWAYS['parcel_by_pnu_gateway']['public_hostname']}", parcel[1])
+
+    def test_a_pack_only_lane_is_held_to_its_monitor_once_it_is_cut_over(self):
+        # Before the cut-over the operator has written no monitor file: the smoke is capabilities only.
+        monitor_env = self.root / "unit-price-serving-monitor.env"
+        monitor_env.unlink()
+        self.assertEqual(self.tick(), 0)
+        self.assertIn("unit-price-gateway: the unit-price lane is not cut over", self.output.getvalue())
+        lines = (self.root / "monitor.log").read_text().splitlines()
+        self.assertEqual([line for line in lines if line.endswith(" unit-price")], [])
+        # The cut-over's monitor-sample step writes it: from then on every deploy runs the monitor.
+        monitor_env.write_text("X=1\n")
+        self.change("unit-price-gateway")
+        self.assertEqual(self.tick(), 0)
+        lines = [line for line in (self.root / "monitor.log").read_text().splitlines() if line.endswith(" unit-price")]
+        preview = GATEWAYS["by_pnu_lanes"]["unit-price"]["section_packs"]["preview_worker"]["public_hostname"]
+        self.assertEqual(len(lines), 2)
+        self.assertIn(f"FOUNDATION_PLATFORM_UNIT_PRICE_BY_PNU_SERVING_MONITOR_BASE_URL=https://{preview}", lines[0])
+        # A breach rolls the lane back like any other.
+        self.change("unit-price-gateway")
+        self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="unit-price"), 1)
 
     def test_map_edit_applies_its_d1_migrations_before_it_uploads(self):
         self.assertEqual(self.tick(), 0)

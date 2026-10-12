@@ -371,6 +371,7 @@ impl Lane {
             }),
             cold_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
             cold_live_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
+            baseline_lane: None,
         };
         let path = self
             .work
@@ -1174,6 +1175,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         load: None,
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
+        baseline: None,
     };
     let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
@@ -1455,6 +1457,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         load: None,
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
+        baseline: None,
     };
     let live = route(5, body.clone()).await?;
     let close = route(15, joined.clone()).await?;

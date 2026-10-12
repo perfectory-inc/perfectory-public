@@ -22,6 +22,19 @@
       "smoke": {"kind": "by-pnu", "lane": "building"}
     },
     {
+      "id": "unit-price-gateway",
+      "gateway": "by_pnu_lanes.unit-price",
+      "preview": "section_packs.preview_worker",
+      "service_dir": "services/foundation-by-pnu-gateway",
+      "wrangler_config": "wrangler.unit-price.jsonc",
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "smoke": {
+        "kind": "by-pnu",
+        "lane": "unit-price",
+        "reason": "a pack-only lane (root ADR-0190) is held to its serving monitor once it is cut over, like the parcel and building lanes. Before its first publish every PNU is a 503 and the monitor has nothing to read, so while the lane's monitor file (runtime-secrets group unit-price-serving-monitor, written by the operator's monitor-sample step of the cut-over) does not exist its smoke is the capabilities read alone"
+      }
+    },
+    {
       "id": "tile-gateway",
       "gateway": "vector_tile_gateway",
       "service_dir": "services/foundation-tile-gateway",

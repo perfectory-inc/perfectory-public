@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,7 +43,12 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": command, "env": env}) + "\n")
 lane = "PARCEL" if "parcel" in command else "BUILDING"
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
-if command.startswith("show-"):
+if command.startswith("show-") and os.environ.get("FAKE_NOT_CUT_OVER") == command:
+    # A pack-only lane before its first publish (root ADR-0190) says only that.
+    with open(os.environ["FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH"], "w") as out:
+        json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v2",
+                   "unit": command.removeprefix("show-").removesuffix("-serving-state"), "cut_over": False}, out)
+elif command.startswith("show-"):
     with open(os.environ["FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH"], "w") as out:
         json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v2",
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
@@ -506,6 +512,36 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([call["command"] for call in self.published(calls)],
                          ["publish-building-by-pnu-serving-manifest"])
+
+    def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
+        # Root ADR-0190. The release ships the contract that names the pack-only lanes.
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call["command"] for call in calls],
+                         ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
+                          "show-unit-price-by-pnu-serving-state"])
+        waiting = [line for line in result.stdout.splitlines() if "is not cut over yet" in line]
+        self.assertEqual(waiting, ["by-pnu-serving-bake unit-price: nothing to do: the pack-only unit-price lane is not "
+                                   "cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
+        self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 2, result.stdout)
+        # Once cut over its state is a served lane's, and it is baked like the others.
+        self.log.unlink()
+        result, calls = self.bake("unit-price", FAKE_GOLD="101")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("not cut over", result.stdout)
+        self.assertIn("already reflects Gold snapshot 101", result.stdout)
+
+    def test_a_lane_whose_documents_follow_the_building_lane_waits_when_that_lane_failed(self):
+        # Root ADR-0190: the unit price documents place units where the building documents do; a
+        # run whose building lane failed does not publish them ahead of it.
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        result, calls = self.bake("all", FAKE_SHORT_PREFIX="9999913", FAKE_SHORT_LANE="BUILDING",
+                                  FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("show-unit-price-by-pnu-serving-state", [call["command"] for call in calls])
+        self.assertIn("by-pnu-serving-bake unit-price: skipped: the building lane it follows failed in this run",
+                      result.stdout)
 
     def test_an_unknown_lane_is_refused(self):
         result, calls = self.bake("tiles")
