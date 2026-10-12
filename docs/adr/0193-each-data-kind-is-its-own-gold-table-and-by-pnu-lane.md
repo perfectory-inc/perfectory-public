@@ -74,18 +74,18 @@
      p95 가 목표(7항)를 넘는 것이 측정되면 다시 연다.
 2. **종류 목록과 이름.** 키는 모두 `pnu`, 법정동(PNU 앞 10 자리) 묶음, ADR-0163 조각 규칙 그대로.
 
-   | 레인(unit) | Gold 표 | 문서 본문 칸 | PNU 범위 |
+   | 레인(`by_pnu_lanes` 키) | Gold 표 | 문서 본문 칸 | PNU 범위 |
    |---|---|---|---|
-   | `parcel-zoning-by-pnu` | `gold.parcel_zoning` | `zonings` | 판정이 있는 PNU |
-   | `parcel-price-by-pnu` | `gold.parcel_price` | `price` | 가격이 있는 PNU |
-   | `parcel-characteristics-by-pnu` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
-   | `parcel-forest-ledger-by-pnu` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
-   | `parcel-transfer-history-by-pnu` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
-   | `parcel-land-rights-by-pnu` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
-   | `building-titles-by-pnu` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
-   | `building-floors-by-pnu` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
-   | `building-units-by-pnu` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
-   | (ADR-0190) | (ADR-0190 의 호 가격 표) | ADR-0190 | ADR-0190 |
+   | `parcel-zoning` | `gold.parcel_zoning` | `zonings` | 판정이 있는 PNU |
+   | `parcel-price` | `gold.parcel_price` | `price` | 가격이 있는 PNU |
+   | `parcel-characteristics` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
+   | `parcel-forest-ledger` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
+   | `parcel-transfer-history` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
+   | `parcel-land-rights` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
+   | `building-titles` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
+   | `building-floors` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
+   | `building-units` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
+   | `unit-price`(ADR-0190) | `gold.unit_price_panel` | `units` | 가격 있는 호가 놓인 PNU |
 
    - Gold 행 모양은 ADR-0190 의 호 가격 표와 같다: `pnu`, 본문 JSON 열, (필지 종류만) `attached_via`,
      `row_digest`(내용 열만, ADR-0099), `source_snapshot_id`, `published_at_utc`. 정렬 `pnu`, range 분포(ADR-0164).
@@ -102,8 +102,12 @@
    올린다. 계획기(ADR-0139)가 입력이 안 바뀐 종류는 건너뛰므로 **안 바뀐 종류의 비용은 0** 이다.
    - `silver.land_use_zone_code` 의 `WHOLE_TABLE_INPUTS` 전량 재생성은 `gold.parcel_zoning` 에만 걸린다.
 4. **서빙: 레인은 계약의 한 줄, Worker 는 호스트당 하나.** 레인 목록과 각 레인의 Gold 표·뿌리 경로·문서 스키마는
-   ADR-0190 의 레인 계약 한 곳에 둔다. 굽기(`section_packs::bake`), 첫 발행 관문(ADR-0190, PNU 객체 없이 묶음으로
-   첫 발행), 패치(ADR-0141), 감시·카나리아는 레인 이름만 받는다.
+   ADR-0190 의 `r2-connections.contract.json` `by_pnu_lanes.<lane>`(`pack_only: true`) 한 곳에 둔다. 문서는 그 표의
+   `*_json` 열을 일반 렌더러(`pack_lane_document.rs`)가 만든다. 굽기(`section_packs::bake`), 묶음 전용 첫 발행 관문,
+   패치(ADR-0141), 감시·카나리아는 레인 이름만 받는다. 새 종류는 새 코드가 아니라 Gold 생산자 + 계약 항목이다.
+   - ADR-0190 의 레인 항목은 Worker 설정(배치·CPU·CORS·카나리아·감시 등)을 레인마다 통째로 담는다. 레인이 열 개가 되면
+     같은 값 열 벌이다. 레인마다 다른 값(Gold 표·스키마·뿌리·경로·관문 기준 레인)만 레인 항목에 두고, Worker 설정은
+     호스트 단위 한 곳에서 읽게 바꾼다(이 ADR 의 구현 첫 단계, ADR-0190 병합 뒤).
    - 경로: 필지 종류는 `catalog.perfectory.io/parcels/{kind}/by-pnu/{pnu}`, 건물 종류는
      `buildings.perfectory.io/buildings/{kind}/by-pnu/{pnu}`. 기존 `/parcels/by-pnu`·`/buildings/by-pnu` 는 퇴역까지 그대로.
      호스트마다 Worker 빌드 하나가 계약의 레인을 경로로 고른다(레인마다 Worker 를 늘리지 않는다).
