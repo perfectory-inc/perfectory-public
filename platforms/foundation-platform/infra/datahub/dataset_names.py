@@ -6,6 +6,7 @@ ADR-0122) both name a node through this module, so a run and the plan land on th
 - A lakehouse table (silver./gold./reference.) is on the `iceberg` platform, the entity the
   lakehouse ingestion fills with columns and snapshots.
 - Every other node (sources, serving tables, surfaces) is on the `perfectory` platform.
+- Its catalog entity is `urn_of(platform, name)`, the data catalog's dataset URN.
 """
 
 DECLARED = "perfectory"
@@ -19,3 +20,7 @@ def name_of(node):
 
 def platform_of(node):
     return LAKEHOUSE if name_of(node).startswith(LAKEHOUSE_NAMESPACES) else DECLARED
+
+
+def urn_of(platform, name):
+    return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{name},PROD)"

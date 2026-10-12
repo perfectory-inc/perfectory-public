@@ -27,6 +27,8 @@ export type CatalogNeighbourhood = DataCatalogSchemas["DataCatalogNeighbourhood"
 export type ScheduledJobsStatus = DataCatalogSchemas["ScheduledJobsStatus"];
 export type ScheduledJobStatus = DataCatalogSchemas["ScheduledJobStatus"];
 export type ScheduledJobRunOutcome = DataCatalogSchemas["ScheduledJobRunOutcome"];
+export type ScheduledJobRun = DataCatalogSchemas["ScheduledJobRun"];
+export type ScheduledJobDataset = DataCatalogSchemas["ScheduledJobDataset"];
 export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
 export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
@@ -40,10 +42,16 @@ export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
 export interface PipelineGraph {
   nodes: {
     id: string;
+    /** `source_group`, `silver_table`, `reference_table`, `gold_table`, `serving_surface`, `serving_group`. */
+    type?: string;
     title?: string;
+    description?: string;
     table_name?: string;
+    /** For a serving surface, what kind (`tiles`, `r2_baked_documents`, …). */
+    surface_kind?: string;
     runtime_bindings?: { kind: string; value: string }[];
   }[];
+  edges?: { id: string; from: string; to: string }[];
   runtime?: {
     database_ready?: boolean;
     nodes?: Record<

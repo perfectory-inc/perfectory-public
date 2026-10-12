@@ -22,6 +22,10 @@ from dataclasses import dataclass
 PLATFORM_ROOT = pathlib.Path(__file__).resolve().parents[2]
 JOBS = PLATFORM_ROOT / "orchestration" / "jobs.v1.json"
 GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
+# What each job reads and writes and which jobs feed it, rendered from the two files above by
+# dependency_document() for readers that are not Python (foundation-api, root ADR-0188).
+DEPENDENCIES = PLATFORM_ROOT / "orchestration" / "job-dependencies.v1.json"
+DEPENDENCIES_SCHEMA = "foundation-platform.orchestration_job_dependencies.v1"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
 CONTRACTS = PLATFORM_ROOT / "contracts" / "data"
 # Where a unit's ExecStart finds the release on the host.
@@ -51,7 +55,7 @@ OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged)\r?$", r
 OUTCOME_TAIL_BYTES = 64 * 1024
 
 sys.path.insert(0, str(PLATFORM_ROOT / "infra" / "datahub"))
-from dataset_names import name_of, platform_of  # noqa: E402
+from dataset_names import name_of, platform_of, urn_of  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -324,19 +328,13 @@ def pool_starvation(jobs, graph=None):
     return problems
 
 
-def datasets(jobs, graph):
-    """Job id -> (inputs, outputs): the datasets, (namespace, name), each job reads and writes.
+def job_nodes(jobs, graph):
+    """Job id -> (inputs, outputs): the pipeline-graph node ids each job reads and writes.
 
     A job's are the endpoints of the pipeline-graph edges it names; a job that checks the
     data-contract tables (`reads_data_contracts`) reads those tables and writes nothing.
     """
-    nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {edge["id"]: edge for edge in graph["edges"]}
-
-    def dataset(node_id):
-        node = nodes[node_id]
-        return (platform_of(node), name_of(node))
-
     found = {}
     for job in jobs["jobs"]:
         job_id = job["id"]
@@ -356,11 +354,24 @@ def datasets(jobs, graph):
             unknown_tables = [table for table in tables if table not in by_table]
             if not tables or unknown_tables:
                 raise JobListError(f"{job_id}: data contracts {unknown_tables or 'none'} have no pipeline-graph table")
-            found[job_id] = (sorted({dataset(by_table[table]) for table in tables}), [])
+            found[job_id] = (sorted({by_table[table] for table in tables}), [])
         else:
-            found[job_id] = (sorted({dataset(edge["from"]) for edge in carried}),
-                             sorted({dataset(edge["to"]) for edge in carried}))
+            found[job_id] = (sorted({edge["from"] for edge in carried}), sorted({edge["to"] for edge in carried}))
     return found
+
+
+def datasets(jobs, graph):
+    """Job id -> (inputs, outputs): the datasets, (namespace, name), each job reads and writes."""
+    nodes = {node["id"]: node for node in graph["nodes"]}
+
+    def dataset(node_id):
+        node = nodes[node_id]
+        return (platform_of(node), name_of(node))
+
+    return {
+        job_id: (sorted({dataset(node) for node in inputs}), sorted({dataset(node) for node in outputs}))
+        for job_id, (inputs, outputs) in job_nodes(jobs, graph).items()
+    }
 
 
 def producers(jobs, graph):
@@ -375,6 +386,53 @@ def producers(jobs, graph):
                     if other["id"] != job["id"] and set(found[other["id"]][1]) & set(found[job["id"]][0])]
         for job in jobs["jobs"]
     }
+
+
+def dependency_document(jobs=None, graph=None):
+    """The job dependencies as foundation-api serves them: rendered here, never derived twice.
+
+    Per job, in job-list order: the jobs that feed it (`producers`) and the datasets it reads and
+    writes, each with its pipeline-graph node, the node's title and its kind, so a screen can name
+    the job by what it makes and place it in its stage. The file is checked in (DEPENDENCIES) and a test fails when it differs from this
+    (root ADR-0188).
+    """
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    feeders = producers(jobs, graph)
+    carried = job_nodes(jobs, graph)
+
+    def described(node_ids):
+        return [
+            {
+                "dataset": asset_uri((platform_of(nodes[node_id]), name_of(nodes[node_id]))),
+                "catalog_urn": urn_of(platform_of(nodes[node_id]), name_of(nodes[node_id])),
+                "node_id": node_id,
+                "title": nodes[node_id]["title"],
+                "kind": nodes[node_id]["type"],
+                "surface_kind": nodes[node_id].get("surface_kind"),
+            }
+            for node_id in node_ids
+        ]
+
+    return {
+        "schema_version": DEPENDENCIES_SCHEMA,
+        "generated_by": "orchestration/dags/job_specs.py --write-dependencies; do not edit by hand",
+        "jobs": [
+            {
+                "id": job["id"],
+                "producers": feeders[job["id"]],
+                "reads": described(carried[job["id"]][0]),
+                "writes": described(carried[job["id"]][1]),
+            }
+            for job in jobs["jobs"]
+        ],
+    }
+
+
+def rendered_dependencies(jobs=None, graph=None):
+    """dependency_document() exactly as the checked-in file holds it."""
+    return json.dumps(dependency_document(jobs, graph), ensure_ascii=False, indent=2) + "\n"
 
 
 def unpause_order(jobs=None, graph=None):
@@ -488,3 +546,14 @@ def load_specs(jobs=None, graph=None):
     if starvation:
         raise JobListError("; ".join(starvation))
     return specs
+
+
+if __name__ == "__main__":
+    # `--write-dependencies` renders DEPENDENCIES; `--check-dependencies` fails when it is stale.
+    if sys.argv[1:] == ["--write-dependencies"]:
+        DEPENDENCIES.write_bytes(rendered_dependencies().encode("utf-8"))
+    elif sys.argv[1:] == ["--check-dependencies"]:
+        if DEPENDENCIES.read_bytes() != rendered_dependencies().encode("utf-8"):
+            sys.exit(f"{DEPENDENCIES} is stale; run: python orchestration/dags/job_specs.py --write-dependencies")
+    else:
+        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies")

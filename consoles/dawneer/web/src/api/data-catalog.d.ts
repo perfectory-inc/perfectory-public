@@ -198,7 +198,28 @@ export interface components {
             /** @description Stable opaque diagnostic. */
             error: string;
         };
-        /** @description The latest run of a scheduled job that the data catalog holds. */
+        /**
+         * @description One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
+         *     carries out.
+         */
+        ScheduledJobDataset: {
+            /** @description Its entity in the data catalog (`GET /data-catalog/v1/entity?urn=`). */
+            catalog_urn: string;
+            /** @description The dataset as the scheduler and the data catalog name it (`<platform>://<name>`). */
+            dataset: string;
+            /**
+             * @description The node's kind there (for example `source_group`, `silver_table`, `gold_table`,
+             *     `serving_surface`), as the pipeline graph names it.
+             */
+            kind: string;
+            /** @description Its node in the pipeline graph (`GET /catalog/v1/pipeline-graph`). */
+            node_id: string;
+            /** @description For a serving surface, what kind (for example `tiles` or `r2_baked_documents`). */
+            surface_kind?: string | null;
+            /** @description The node's title there, in Korean. */
+            title: string;
+        };
+        /** @description One run of a scheduled job that the data catalog holds. */
         ScheduledJobRun: {
             /**
              * Format: date-time
@@ -223,6 +244,11 @@ export interface components {
          * @enum {string}
          */
         ScheduledJobRunOutcome: "running" | "succeeded" | "failed" | "skipped" | "up_for_retry" | "unknown";
+        /**
+         * @description What starts a scheduled job (the job list's `started_by`, root ADR-0171).
+         * @enum {string}
+         */
+        ScheduledJobStart: "schedule" | "inputs";
         /** @description One scheduled job: what the job list says about it and its latest run. */
         ScheduledJobStatus: {
             /** @description The job's entity in the data catalog that holds the latest run, once a run reported. */
@@ -243,8 +269,22 @@ export interface components {
              * @description The next time its schedule starts it; absent for a job that is off.
              */
             next_run_at?: string | null;
+            /**
+             * @description The pipeline-graph edges it carries out, as the job list names them; empty for a job that
+             *     only checks the data-contract tables.
+             */
+            pipeline_graph_edges: string[];
+            /** @description The datasets it reads. */
+            reads: components["schemas"]["ScheduledJobDataset"][];
+            /**
+             * @description The recent runs of the catalog job of `last_run`, newest first, at most ten; `last_run` is
+             *     the first.
+             */
+            recent_runs: components["schemas"]["ScheduledJobRun"][];
             /** @description When it runs: the job list's cron schedule, in UTC. */
             schedule: string;
+            /** @description What starts it. */
+            started_by: components["schemas"]["ScheduledJobStart"];
             /**
              * Format: int32
              * @description How many succeeded runs `typical_duration_seconds` is the median of; 0 when it is absent.
@@ -257,6 +297,13 @@ export interface components {
              *     Absent when none of those runs succeeded with both times recorded.
              */
             typical_duration_seconds?: number | null;
+            /**
+             * @description The other jobs that write one of the datasets it reads, in job-list order: the jobs it waits
+             *     on (root ADR-0171, ADR-0188).
+             */
+            upstream_job_ids: string[];
+            /** @description The datasets it writes. */
+            writes: components["schemas"]["ScheduledJobDataset"][];
         };
         /** @description Every scheduled job and its latest run. */
         ScheduledJobsStatus: {

@@ -28,6 +28,44 @@ def real_inputs():
     )
 
 
+class TheRenderedDependencies(unittest.TestCase):
+    """Root ADR-0188: foundation-api serves the job dependencies job_specs derives, rendered, not re-derived."""
+
+    def test_the_checked_in_file_is_what_job_specs_renders_from_the_real_files(self):
+        self.assertEqual(
+            job_specs.DEPENDENCIES.read_bytes().decode("utf-8"),
+            job_specs.rendered_dependencies(),
+            "stale: run python orchestration/dags/job_specs.py --write-dependencies",
+        )
+
+    def test_each_job_names_the_producers_and_datasets_the_dags_use(self):
+        jobs, graph = real_inputs()
+        document = job_specs.dependency_document(jobs, graph)
+        specs = {spec.job_id: spec for spec in job_specs.load_specs(jobs, graph)}
+        self.assertEqual([entry["id"] for entry in document["jobs"]], [job["id"] for job in jobs["jobs"]])
+        for entry in document["jobs"]:
+            spec = specs[entry["id"]]
+            self.assertEqual(tuple(entry["producers"]), spec.producers, entry["id"])
+            self.assertEqual(
+                sorted({item["dataset"] for item in entry["reads"]}),
+                sorted(job_specs.asset_uri(dataset) for dataset in spec.inputs),
+                entry["id"],
+            )
+            self.assertEqual(
+                sorted({item["dataset"] for item in entry["writes"]}),
+                sorted(job_specs.asset_uri(dataset) for dataset in spec.outputs),
+                entry["id"],
+            )
+
+    def test_a_changed_edge_makes_the_checked_in_file_stale(self):
+        jobs, graph = real_inputs()
+        changed = copy.deepcopy(jobs)
+        bake(changed)["pipeline_graph_edges"] = bake(changed)["pipeline_graph_edges"][:1]
+        floor = next(job for job in changed["jobs"] if job["id"] == "building_register_floor")
+        floor["pipeline_graph_edges"] = list(bake(jobs)["pipeline_graph_edges"][:1])
+        self.assertNotEqual(job_specs.rendered_dependencies(changed, graph), job_specs.rendered_dependencies(jobs, graph))
+
+
 class TheUnpauseOrder(unittest.TestCase):
     """Root ADR-0179: a deploy unpauses every reader before the job whose outputs start it."""
 

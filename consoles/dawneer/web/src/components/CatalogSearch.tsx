@@ -52,14 +52,17 @@ function neighbourhoodGraph(data: CatalogNeighbourhood): { nodes: Node[]; edges:
   };
 }
 
-function EntityView({
+export function EntityView({
   client,
   urn,
   onSelect,
+  compact = false,
 }: {
   client: DawneerClient;
   urn: string;
   onSelect: (entity: CatalogEntity) => void;
+  /** Narrower, for the 데이터 흐름 side panel. */
+  compact?: boolean;
 }) {
   const detail = useQuery({ queryKey: ["catalog-entity", urn], queryFn: () => client.catalogEntity(urn) });
   const graph = useMemo(() => (detail.data ? neighbourhoodGraph(detail.data) : null), [detail.data]);
@@ -82,7 +85,7 @@ function EntityView({
           앞 단계 {upstream.length}개 · 뒤 단계 {downstream.length}개 — 그림에서 칸을 누르면 그 칸으로 옮겨 갑니다.
         </p>
       </div>
-      <div className="h-[520px] rounded-lg border border-slate-200 bg-white">
+      <div className={`${compact ? "h-[320px]" : "h-[520px]"} rounded-lg border border-slate-200 bg-white`}>
         {graph ? (
           <ReactFlow
             nodes={graph.nodes}
@@ -125,8 +128,11 @@ function EntityView({
   );
 }
 
-/** Find data, read what it is, and walk its lineage one step at a time (root ADR-0117, ADR-0119). */
-export function DataCatalogPage({ client }: { client: DawneerClient }) {
+/**
+ * Find data, read what it is, and walk its lineage one step at a time (root ADR-0117, ADR-0119).
+ * It was the 데이터 카탈로그 page; it is now a tab of the 데이터 흐름 screen (root ADR-0188).
+ */
+export function CatalogSearch({ client }: { client: DawneerClient }) {
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
   const [start, setStart] = useState(0);
@@ -141,7 +147,7 @@ export function DataCatalogPage({ client }: { client: DawneerClient }) {
   return (
     <section>
       <div className="flex flex-wrap items-end gap-4">
-        <h1 className="mr-auto text-xl font-semibold">데이터 카탈로그</h1>
+        <h2 className="mr-auto text-lg font-semibold">데이터 찾기</h2>
         <form
           className="flex gap-2"
           onSubmit={(event) => {

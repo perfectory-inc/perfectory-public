@@ -22,7 +22,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from dataset_names import DECLARED, LAKEHOUSE, name_of, platform_of
+from dataset_names import DECLARED, LAKEHOUSE, name_of, platform_of, urn_of
 
 GRAPH = os.environ.get(
     "FOUNDATION_PIPELINE_GRAPH_URL", "http://127.0.0.1:18080/catalog/v1/pipeline-graph"
@@ -32,10 +32,6 @@ LINEAGE = f"{GMS}/openapi/openlineage/api/v1/lineage"
 INGEST = f"{GMS}/aspects?action=ingestProposal"
 PRODUCER = "https://github.com/perfectory-inc/perfectory-public/pipeline-graph-seed"
 SCHEMA = "https://openlineage.io/spec/2-0-2/OpenLineage.json#/$defs/RunEvent"
-
-
-def urn_of(platform, name):
-    return f"urn:li:dataset:(urn:li:dataPlatform:{platform},{name},PROD)"
 
 
 def description_of(node):

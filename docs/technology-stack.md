@@ -73,6 +73,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | `debounce`, `throttle`, `groupBy`, `chunk`, deep clone/equal 같은 범용 유틸리티 | [es-toolkit](https://github.com/toss/es-toolkit) `1.51.0` | 같은 함수가 파일마다 조금씩 다르게 존재하고, 어느 것이 맞는지 판정할 SSOT가 없다 |
 | error boundary, Suspense 경계, loading flash 방지, client-only 렌더 | [@suspensive/react](https://github.com/toss/suspensive) `3.21.3` | 클래스 컴포넌트로 boundary를 매번 새로 짠다. reset·selective catch·중첩 boundary는 대개 빠진 채로 남는다 |
 | 모달·다이얼로그·시트를 여닫고 결과를 돌려받기 | [overlay-kit](https://github.com/toss/overlay-kit) | 화면마다 `isOpen` state와 콜백이 흩어지고, 오버레이 UI가 그것을 띄운 화면에 묶여 재사용이 안 된다 |
+| 노드·간선 그림(파이프라인 지도, 계보)과 그 자동 배치 | [@xyflow/react](https://github.com/xyflow/xyflow) `12.12.0` 위에 [elkjs](https://github.com/kieler/elkjs) `0.12.0`(layered) — root ADR-0188 | 좌표를 손으로 계산하는 배치가 화면마다 생기고, 순환·떨어진 노드·단계 열 순서에서 조용히 틀린다 |
 | 초성 검색, 조사(은/는·이/가) 자동 선택, 한글 분해·조합 | [es-hangul](https://github.com/toss/es-hangul) | 자모 배열과 유니코드 산술을 손으로 적게 된다. 한국어가 1차 언어인 제품에서 가장 조용히 틀리는 자리다 |
 
 운영 규칙:

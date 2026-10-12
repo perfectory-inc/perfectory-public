@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { DawneerClient, loadSession, signOut } from "./api/client";
+import { MENU, movedTo, resolveRoute } from "./lib/routes";
 import { ComplexesPage } from "./pages/ComplexesPage";
-import { DataCatalogPage } from "./pages/DataCatalogPage";
-import { OperationsPage } from "./pages/OperationsPage";
+import { FlowPage } from "./pages/FlowPage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
 import { ReviewListPage } from "./pages/ReviewListPage";
 import { TilesPage } from "./pages/TilesPage";
@@ -16,17 +16,14 @@ function useHashRoute(): string {
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
-  return hash.replace(/^#/, "") || "/";
+  const path = hash.replace(/^#/, "") || "/";
+  // An old address (운영 현황, 데이터 카탈로그) is rewritten to where it lives now, without a history entry.
+  const moved = movedTo(path);
+  useEffect(() => {
+    if (moved) window.history.replaceState(null, "", `#${moved}`);
+  }, [moved]);
+  return moved ?? path;
 }
-
-/** The console's menus; each is a platform's own screen composed here (root ADR-0114). */
-const MENU = [
-  { href: "#/", label: "필지 계보 검토", active: (route: string) => route === "/" || route.startsWith("/items/") },
-  { href: "#/catalog", label: "데이터 카탈로그", active: (route: string) => route === "/catalog" },
-  { href: "#/tiles", label: "지도 타일 발행", active: (route: string) => route === "/tiles" },
-  { href: "#/complexes", label: "산업단지", active: (route: string) => route === "/complexes" },
-  { href: "#/operations", label: "운영 현황", active: (route: string) => route === "/operations" },
-] as const;
 
 export function App() {
   const session = useQuery({ queryKey: ["session"], queryFn: () => loadSession() });
@@ -50,7 +47,7 @@ export function App() {
     );
   }
 
-  const itemId = route.match(/^\/items\/([0-9a-f-]{36})$/)?.[1];
+  const page = resolveRoute(route);
   const current = session.data;
   const onSignOut = async () => {
     window.location.href = await signOut(current);
@@ -68,7 +65,7 @@ export function App() {
               <a
                 key={item.href}
                 href={item.href}
-                className={`text-sm hover:text-slate-900 ${item.active(route) ? "font-semibold text-slate-900" : "text-slate-600"}`}
+                className={`text-sm hover:text-slate-900 ${(item.page as readonly string[]).includes(page.page) ? "font-semibold text-slate-900" : "text-slate-600"}`}
               >
                 {item.label}
               </a>
@@ -83,16 +80,14 @@ export function App() {
         </div>
       </header>
       <main className="mx-auto max-w-[1600px] px-6 py-6">
-        {itemId ? (
-          <ReviewItemPage client={client} itemId={itemId} me={current.sub} />
-        ) : route === "/catalog" ? (
-          <DataCatalogPage client={client} />
-        ) : route === "/tiles" ? (
+        {page.page === "review-item" ? (
+          <ReviewItemPage client={client} itemId={page.itemId} me={current.sub} />
+        ) : page.page === "flow" ? (
+          <FlowPage client={client} tab={page.tab} />
+        ) : page.page === "tiles" ? (
           <TilesPage client={client} />
-        ) : route === "/complexes" ? (
+        ) : page.page === "complexes" ? (
           <ComplexesPage client={client} />
-        ) : route === "/operations" ? (
-          <OperationsPage client={client} />
         ) : (
           <ReviewListPage client={client} />
         )}
