@@ -27,7 +27,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
-use crate::postgis_parcel_boundary_mirror_national_rebuild::{
+use crate::parcel_boundary_handoff::{
     parse_stage_row, push_copy_csv_row, read_execution_evidence, validate_source_snapshot_id,
     ExecutionEvidence, HandoffObject,
 };
