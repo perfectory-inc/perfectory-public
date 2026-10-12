@@ -88,12 +88,17 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # rust-cache keeps dependencies only; this keeps the workspace crates main
       # last built, so a pull request recompiles only what it changed (ADR-0201).
+      # One stash per UTC day: cache keys are immutable and the workflow token
+      # cannot delete entries, so the day bounds how many the 10 GB cap holds.
+      - name: Name workspace build day
+        id: workspace-build-day
+        run: echo "day=$(date -u +%Y-%m-%d)" >>"$GITHUB_OUTPUT"
       - name: Restore workspace build
         id: workspace-build
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ runner.temp }}/workspace-build
-          key: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-${{ github.sha }}
+          key: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-${{ steps.workspace-build-day.outputs.day }}
           restore-keys: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-
       - name: Reuse unchanged workspace crates
         working-directory: ${{ github.workspace }}
