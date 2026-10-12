@@ -4,10 +4,11 @@
 Reads one snapshot of `gold.parcel_panel` or `gold.building_panel` and splits every row into the
 kinds ADR-0193 names, the same way the per-kind lanes will carry them. For each kind it reports how
 many PNUs have content, the per-PNU body size (raw and gzip, the pack member compression of
-`by_pnu_pack.rs`) at p50/p95/max, and the size of each 법정동 pack (sum of its members' gzip) at
-p50/p95/max with how many packs and documents pass the 256 KiB bounds of ADR-0151/0163. `bundle`
-is today's whole panel row, the baseline the kinds are compared with; `first-paint` is the sum of
-the three kinds the parcel summary reads on open.
+`by_pnu_pack.rs`) at p50/p95/max, the size of each 법정동 (sum of its members' gzip, `dong_bytes`),
+and the packs the bake would write after ADR-0163 splits a large 법정동 into parts (`pack_bytes`,
+the size ADR-0193 §7 bounds), with how many packs and documents pass the whole-read bound.
+`bundle` is today's whole panel row, the baseline the kinds are compared with; `first-paint` is
+the sum of the three kinds the parcel summary reads on open.
 
 Sizes are of the document body only; the per-kind envelope (schema, pnu, source) adds about a
 hundred bytes before gzip. Building kinds are re-serialised from the panel JSON, so number
@@ -30,9 +31,11 @@ from typing import Any, Iterator
 JOB_NAME = "by_pnu_kind_sizes"
 SUMMARY_SCHEMA_VERSION = "foundation-platform.by_pnu_kind_sizes.v1"
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel"}
+# shortcut: the kind names below and FIRST_PAINT_KINDS copy ADR-0193 §2/§5 by hand; replace them
+# with the contract's by_pnu_lanes once the kinds land there.
 # The lanes the parcel summary reads on open (ADR-0193 §5).
 FIRST_PAINT_KINDS = ("parcel-zoning", "parcel-price", "parcel-characteristics")
-PACK_BOUND_BYTES = 256 * 1024
+R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
 LINEAGE_COLUMNS = ("row_digest", "source_snapshot_id", "published_at_utc")
 JSON_SEPARATORS = (",", ":")
 
@@ -44,6 +47,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-catalog-name", default="r2")
     parser.add_argument("--summary-output", required=True)
     return parser.parse_args(argv)
+
+
+def pack_rules(path: Path = R2_CONTRACT_PATH) -> tuple[int, int]:
+    """(whole-read bound, part target) of the contract's section packs (ADR-0151, ADR-0163)."""
+    packs = json.loads(path.read_text(encoding="utf-8"))["by_pnu_section_packs"]
+    return packs["read_path"]["whole_pack_max_bytes"], packs["parts"]["part_target_bytes"]
+
+
+def fnv1a32(text: str) -> int:
+    """The part hash of ADR-0163 (contract by_pnu_section_packs.parts.hash_definition)."""
+    value = 0x811C9DC5
+    for byte in text.encode("ascii"):
+        value = ((value ^ byte) * 0x01000193) & 0xFFFFFFFF
+    return value
 
 
 def dumps(value: Any) -> str:
@@ -98,8 +115,20 @@ KIND_SPLITTERS = {"parcel": parcel_kinds, "building": building_kinds}
 
 
 def bundle_body(row: dict[str, Any]) -> str:
-    """Today's panel row as one document: every content column (lineage excluded)."""
-    return dumps({k: v for k, v in row.items() if k != "pnu" and k not in LINEAGE_COLUMNS})
+    """Today's panel row as one document: every content column (lineage excluded).
+
+    A `*_json` column is embedded as the JSON it holds, as the served document carries it, not
+    as a string of escaped JSON.
+    """
+    body = {}
+    for key, value in row.items():
+        if key == "pnu" or key in LINEAGE_COLUMNS:
+            continue
+        if key.endswith("_json"):
+            body[key[: -len("_json")]] = None if value is None else json.loads(value)
+        else:
+            body[key] = value
+    return dumps(body)
 
 
 def gzip_size(text: str) -> int:
@@ -107,18 +136,21 @@ def gzip_size(text: str) -> int:
     return len(gzip.compress(text.encode("utf-8"), compresslevel=9, mtime=0))
 
 
-def measure_row(unit: str, row: dict[str, Any]) -> Iterator[tuple[str, str, int, int]]:
-    """(pnu, kind, raw bytes, gzip bytes) for each kind the row carries, plus the bundle."""
+def measure_row(unit: str, row: dict[str, Any]) -> Iterator[tuple[str, str, int, int, int]]:
+    """(pnu, kind, raw bytes, gzip bytes, part hash) for each kind the row carries, plus the bundle."""
     pnu = row["pnu"]
+    part_hash = fnv1a32(pnu)
     for kind, body in KIND_SPLITTERS[unit](row).items():
-        yield pnu, kind, len(body.encode("utf-8")), gzip_size(body)
+        yield pnu, kind, len(body.encode("utf-8")), gzip_size(body), part_hash
     bundle = bundle_body(row)
-    yield pnu, "bundle", len(bundle.encode("utf-8")), gzip_size(bundle)
+    yield pnu, "bundle", len(bundle.encode("utf-8")), gzip_size(bundle), part_hash
 
 
-def measure_frame(spark: Any, unit: str, frame: Any) -> dict[str, Any]:
+def measure_frame(spark: Any, unit: str, frame: Any, rules: tuple[int, int] | None = None) -> dict[str, Any]:
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
+
+    bound, part_target = rules or pack_rules()
 
     # Row by row through the RDD: the Spark image has no pandas, and a building row can be 12.7M
     # characters (2026-10-11), so only one row's split is held at a time.
@@ -126,15 +158,16 @@ def measure_frame(spark: Any, unit: str, frame: Any) -> dict[str, Any]:
     spark.sparkContext.addPyFile(__file__)
     measured = spark.createDataFrame(
         frame.rdd.flatMap(lambda row: measure_row(unit, row.asDict())),
-        "pnu string, kind string, raw_bytes long, gzip_bytes long",
+        "pnu string, kind string, raw_bytes long, gzip_bytes long, part_hash long",
     )
     if unit == "parcel":
         first_paint = (
             measured.where(F.col("kind").isin(*FIRST_PAINT_KINDS))
             .groupBy("pnu")
-            .agg(F.sum("raw_bytes").alias("raw_bytes"), F.sum("gzip_bytes").alias("gzip_bytes"))
+            .agg(F.sum("raw_bytes").alias("raw_bytes"), F.sum("gzip_bytes").alias("gzip_bytes"),
+                 F.first("part_hash").alias("part_hash"))
             .withColumn("kind", F.lit("first-paint"))
-            .select("pnu", "kind", "raw_bytes", "gzip_bytes")
+            .select("pnu", "kind", "raw_bytes", "gzip_bytes", "part_hash")
         )
         measured = measured.unionByName(first_paint)
     measured = measured.withColumn("dong", F.substring("pnu", 1, 10)).persist(StorageLevel.DISK_ONLY)
@@ -148,24 +181,37 @@ def measure_frame(spark: Any, unit: str, frame: Any) -> dict[str, Any]:
 
     documents = measured.groupBy("kind").agg(
         F.count("*").alias("pnus"),
-        F.sum(F.when(F.col("gzip_bytes") > PACK_BOUND_BYTES, 1).otherwise(0)).alias("documents_over_bound"),
+        F.sum(F.when(F.col("gzip_bytes") > bound, 1).otherwise(0)).alias("documents_over_bound"),
         *pct("raw_bytes"),
         *pct("gzip_bytes"),
     )
+    packed = measured.where(F.col("kind") != "first-paint")
+    # ADR-0163: K = max(1, ceil(dong bytes / part target)); a PNU goes to part fnv1a32(pnu) mod K.
+    dongs = (
+        packed.groupBy("kind", "dong")
+        .agg(F.sum("gzip_bytes").alias("dong_bytes"))
+        .withColumn("parts", F.greatest(F.lit(1), F.ceil(F.col("dong_bytes") / F.lit(part_target))))
+    )
     packs = (
-        measured.where(F.col("kind") != "first-paint")
-        .groupBy("kind", "dong")
+        packed.join(dongs.select("kind", "dong", "parts"), ["kind", "dong"])
+        .groupBy("kind", "dong", F.pmod(F.col("part_hash"), F.col("parts")).alias("part"))
         .agg(F.sum("gzip_bytes").alias("pack_bytes"))
         .groupBy("kind")
         .agg(
             F.count("*").alias("packs"),
-            F.sum(F.when(F.col("pack_bytes") > PACK_BOUND_BYTES, 1).otherwise(0)).alias("packs_over_bound"),
+            F.sum(F.when(F.col("pack_bytes") > bound, 1).otherwise(0)).alias("packs_over_bound"),
             *pct("pack_bytes"),
         )
     )
+    dong_summary = dongs.groupBy("kind").agg(
+        F.count("*").alias("dongs"),
+        F.sum(F.when(F.col("parts") > 1, 1).otherwise(0)).alias("parted_dongs"),
+        *pct("dong_bytes"),
+    )
     kinds = {row["kind"]: row.asDict() for row in documents.collect()}
-    for row in packs.collect():
-        kinds[row["kind"]].update(row.asDict())
+    for summary in (dong_summary, packs):
+        for row in summary.collect():
+            kinds[row["kind"]].update(row.asDict())
     measured.unpersist()
     return {kind: {k: v for k, v in values.items() if k != "kind"} for kind, values in sorted(kinds.items())}
 
@@ -195,19 +241,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     table = GOLD_TABLES[args.unit]
-    version = f" VERSION AS OF {int(args.snapshot_id)}" if args.snapshot_id else ""
-    frame = spark.sql(f"SELECT * FROM `{args.iceberg_catalog_name}`.{table}{version}")
-    kinds = measure_frame(spark, args.unit, frame)
+    qualified = f"`{args.iceberg_catalog_name}`.{table}"
+    # Resolve "current" to its id first, so the summary names the snapshot it measured.
+    snapshot_id = args.snapshot_id or str(
+        spark.sql(f"SELECT snapshot_id FROM {qualified}.refs WHERE name = 'main'").collect()[0][0])
+    frame = spark.sql(f"SELECT * FROM {qualified} VERSION AS OF {int(snapshot_id)}")
+    bound, part_target = pack_rules()
+    kinds = measure_frame(spark, args.unit, frame, (bound, part_target))
     write_summary(args.summary_output, {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "job_name": JOB_NAME,
         "table": table,
-        "snapshot_id": args.snapshot_id or "current",
-        "pack_bound_bytes": PACK_BOUND_BYTES,
+        "snapshot_id": snapshot_id,
+        "pack_bound_bytes": bound,
+        "part_target_bytes": part_target,
         "kinds": kinds,
         "wall_seconds": round(time.monotonic() - started, 1),
     })
-    print(f"{JOB_NAME}-ok unit={args.unit} kinds={','.join(kinds)}")
+    print(f"{JOB_NAME}-ok unit={args.unit} snapshot_id={snapshot_id} kinds={','.join(kinds)}")
     spark.stop()
     return 0
 
