@@ -360,15 +360,18 @@ fn neighbours(lineage: &JsonValue) -> Vec<DataCatalogEntity> {
 mod tests {
     use super::*;
 
-    /// Every GraphQL document this module and `operations` send, read from their source so a new
-    /// one is checked without being listed: each `const ...: &str = "query...";`.
-    fn graphql_documents() -> Vec<(String, String)> {
-        let sources = [
-            include_str!("data_catalog.rs"),
-            include_str!("data_catalog/operations.rs"),
-        ];
+    /// Every GraphQL document this module and its submodules send, read from their source so a
+    /// new one is checked without being listed: each `const ...: &str = "query...";`. Cargo runs
+    /// a test in its package directory.
+    fn graphql_documents() -> std::io::Result<Vec<(String, String)>> {
+        let routes = std::path::Path::new("src/routes");
+        let mut files = vec![routes.join("data_catalog.rs")];
+        for entry in std::fs::read_dir(routes.join("data_catalog"))? {
+            files.push(entry?.path());
+        }
         let mut found = Vec::new();
-        for source in sources {
+        for file in files {
+            let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
             for chunk in source.split("\nconst ").skip(1) {
                 let Some((name, rest)) = chunk.split_once(": &str = \"") else {
                     continue;
@@ -381,14 +384,14 @@ mod tests {
                 }
             }
         }
-        found
+        Ok(found)
     }
 
     #[test]
-    fn every_graphql_document_closes_what_it_opens() {
+    fn every_graphql_document_closes_what_it_opens() -> std::io::Result<()> {
         // 2026-10-09 to 10-12 the flows query lacked one `}`: DataHub refused it, and every job
         // read as "runs could not be read" in production while the fake catalog never parsed it.
-        let documents = graphql_documents();
+        let documents = graphql_documents()?;
         assert!(documents.len() >= 4, "found only {documents:?}");
         for (name, body) in documents {
             let mut open = Vec::new();
@@ -412,6 +415,7 @@ mod tests {
             }
             assert!(open.is_empty(), "{name} leaves {open:?} open");
         }
+        Ok(())
     }
 
     #[test]
