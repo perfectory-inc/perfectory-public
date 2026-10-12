@@ -125,7 +125,7 @@ sed 's/^    name: required\/example$/    name: Aggregate/; s/^      - name: Requ
   "$test_root/valid/example.yml" >"$test_root/step-name-spoof/example.yml"
 expect_rejected required-step-name-spoof "$test_root/step-name-spoof"
 
-# A scoped workflow (root ADR-0201): the terminal step carries the scope answer
+# A scoped workflow (root ADR-0202): the terminal step carries the scope answer
 # exactly when a `scope` job exists, and never in place of a result mapping.
 mkdir "$test_root/scoped"
 sed 's/^  build:$/  scope:\n    name: Change scope\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo synthetic\n  build:/; s/needs: \[build, test\]/needs: [scope, build, test]/; s/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}\n          REQUIRED_RESULT_BUILD:/' \
@@ -477,7 +477,7 @@ if REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=skipped \
   exit 1
 fi
 
-# A scoped workflow (root ADR-0201) may skip its gated jobs only when its scope
+# A scoped workflow (root ADR-0202) may skip its gated jobs only when its scope
 # job succeeded and answered an explicit `false`.
 scoped_ok() {
   env "$@" scripts/ci/require-successful-needs.sh >/dev/null 2>&1

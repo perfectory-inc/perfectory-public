@@ -25,7 +25,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Root ADR-0201: whether this workflow's area changed (tools/ci/change-scope.json).
+  # Root ADR-0202: whether this workflow's area changed (tools/ci/change-scope.json).
   # An untouched area skips every job below and required/* still reports success.
   scope:
     name: Change scope

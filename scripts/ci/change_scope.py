@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decide whether a pull-request workflow does its work, from the changed paths (root ADR-0201).
+"""Decide whether a pull-request workflow does its work, from the changed paths (root ADR-0202).
 
 `tools/ci/change-scope.json` is the one place an area's inputs are written. Every
 scoped workflow starts on every pull request and reports its required context; its

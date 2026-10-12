@@ -32,7 +32,7 @@ on:
       # `area-ci-input-coverage` derives this requirement from the sources.
       - "docs/architecture/**"
       - ".github/workflows/foundation-ci.yml"
-      # The tile-contract guard reads the frontend workflow's inputs here (root ADR-0201).
+      # The tile-contract guard reads the frontend workflow's inputs here (root ADR-0202).
       - "tools/ci/change-scope.json"
       # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
       # toolchain pin change how THIS area is verified, so they must retrigger it.

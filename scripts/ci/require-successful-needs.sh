@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stable terminal-job gate: every declared upstream result must be `success`.
-# A scoped workflow (root ADR-0201) also passes CHANGE_SCOPE_RUN, its `scope`
+# A scoped workflow (root ADR-0202) also passes CHANGE_SCOPE_RUN, its `scope`
 # job's answer. Only an explicit `false` lets the gated jobs be `skipped`; the
 # scope job itself must still succeed, so a broken selector cannot skip a gate.
 set -euo pipefail

@@ -393,7 +393,7 @@ while IFS= read -r workflow; do
   grep -Eq '^  group:[[:space:]]*[^[:space:]]' "$workflow" \
     || fail "$workflow concurrency group is missing"
   # A new push supersedes a pull request's run; a main push or a merge-queue run
-  # is never cancelled by the next one, or main goes unverified (root ADR-0201).
+  # is never cancelled by the next one, or main goes unverified (root ADR-0202).
   grep -Fxq "  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" "$workflow" \
     || fail "$workflow must set concurrency.cancel-in-progress to \${{ github.event_name == 'pull_request' }}"
 

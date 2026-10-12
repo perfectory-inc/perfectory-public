@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The change-scope selector and its contract check (root ADR-0201)."""
+"""The change-scope selector and its contract check (root ADR-0202)."""
 
 from __future__ import annotations
 

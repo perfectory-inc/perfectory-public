@@ -572,7 +572,7 @@ fn http_evidence_redacts_url_secrets_and_failure_cleanup_removes_unverified_arti
 #[test]
 fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
     let foundation_ci = read(".github/workflows/foundation-ci.yml");
-    // Area workflows take their inputs from the change-scope contract (root ADR-0201).
+    // Area workflows take their inputs from the change-scope contract (root ADR-0202).
     let change_scope: serde_json::Value =
         serde_json::from_str(&read("tools/ci/change-scope.json")).expect("parse change scope");
     let frontend_inputs = change_scope["workflows"]["gongzzang-frontend.yml"]["paths"]

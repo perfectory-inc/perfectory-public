@@ -399,7 +399,7 @@ for workflow in "${workflows[@]}"; do
     }
     in_steps && in_step && /^          [A-Z][A-Z0-9_]*:[[:space:]]*/ {
       mapping=$0
-      # A scoped workflow (root ADR-0201) hands its scope answer to the result
+      # A scoped workflow (root ADR-0202) hands its scope answer to the result
       # check; that one exact mapping is admitted beside the result mappings.
       if (mapping ~ /^          CHANGE_SCOPE_RUN:[[:space:]]*\$\{\{[[:space:]]*needs\.scope\.outputs\.affected[[:space:]]*\}\}[[:space:]]*$/) {
         scope_env_count[job]++
