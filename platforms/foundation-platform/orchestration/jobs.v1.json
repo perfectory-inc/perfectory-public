@@ -461,6 +461,10 @@
     {
       "surface": "parcel-tiles",
       "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
+    },
+    {
+      "surface": "parcel-zoning-by-pnu-section-packs",
+      "reason": "Planned (root ADR-0193 §6-3): the zoning lane gets its contract entry, bake and pack-only first-publish gate after gold.parcel_zoning has passed parity with the parcel panel; its bake joins by_pnu_serving_bake then."
     }
   ]
 }

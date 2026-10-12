@@ -18,6 +18,7 @@ mod land_right_registration;
 mod land_transfer_history;
 mod parcel_number_change_history;
 mod parcel_panel;
+mod parcel_zoning;
 mod unit_official_price;
 mod unit_price_panel;
 
@@ -93,5 +94,6 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
+pub use parcel_zoning::GOLD_PARCEL_ZONING;
 pub use unit_official_price::SILVER_UNIT_OFFICIAL_PRICE;
 pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;
