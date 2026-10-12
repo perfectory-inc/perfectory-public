@@ -19,11 +19,13 @@
 #   parity     the producer's check against the bundle Gold, when the rebuild contract declares one
 #              for the table (`pins_from.parity_argument`): a full rebuild refuses, before it
 #              writes, a kind that differs from the bundle on any PNU (ADR-0193 §6-2). An
-#              incremental commit does not run it, so this step passes only when this run's `gold`
-#              committed the table by a full rebuild (its `gold-kind <table> mode=full` line and its
-#              `committed <table>` line in the operator's Gold log); an incremental commit or
-#              "nothing to do" stops the run, since the head served would be one no full parity
-#              checked. A table without one is reported `not-declared`, never `passed`.
+#              incremental commit does not run it, so this step passes only when the Gold head was
+#              committed by a full rebuild that carried the parity argument: the newest run of the
+#              table's unit in the rebuild's state directory that wrote the table (its summary is
+#              not `validate_only`) is `full` and its plan names the argument. That run is this
+#              one's gold step, or (gold says "nothing to do") the earlier run that made the head,
+#              e.g. the scheduled kind rebuild. An incremental head stops the run. A table without
+#              one is reported `not-declared`, never `passed`.
 #   bake, equality, latency, publish, monitor-sample
 #              the operator's steps of that name for <generation>
 #
@@ -57,6 +59,8 @@ BAKE_ROOT="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bak
 ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"
 # by-pnu-pack-operator.sh's GOLD_LOG: its gold-rebuild unit's output.
 GOLD_LOG="${BAKE_ROOT}/gold-rebuild/logs/gold-rebuild.log"
+# gold-panel-rebuild.sh's state root: one directory per run of each unit, its plan and summary.
+GOLD_STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-panel-rebuild}"
 # The FOUNDATION_CUTOVER_* overrides exist for the tests; the operator's sudo grant resets them.
 POLL_SECONDS="${FOUNDATION_CUTOVER_POLL_SECONDS:-60}"
 SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-45}"
@@ -190,7 +194,7 @@ if [[ -n "${DRY_RUN}" ]]; then
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table})" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
-                  || what="passes only if gold commits ${table} by a full rebuild, whose ${parity} checks every PNU" ;;
+                  || what="passes only if ${table}'s head was committed by a full rebuild, whose ${parity} checks every PNU" ;;
         *) what="by-pnu-pack-operator.sh ${lane} ${step} ${GENERATION}" ;;
       esac
       verdict="$(window_verdict "${BUDGET[${step}]}")"
@@ -250,10 +254,29 @@ for entry in "${PLAN[@]}"; do
           log "${lane} parity: not-declared (${table} has no pins_from.parity_argument)"
           continue
         fi
-        grep -qE "^gold-kind ${table} mode=full " <<<"${gold_output}" && ! grep -q "dry_run=yes" <<<"${gold_output}" \
-          && grep -qF "committed ${table}:" <<<"${gold_output}" \
-          || fail "${lane}" "${step}" 0 "this run's gold did not commit ${table} by a full rebuild ($(grep -E "^gold-kind ${table} |nothing to do|recorded the new pins" <<<"${gold_output}" | tail -1 || true)), so no full parity with the bundle (${parity}) checked the head it would serve; run a full rebuild of ${table} first"
-        reason="this run's full rebuild of ${table} checked each PNU against the bundle Gold (${parity}) before it committed"
+        head="$(python3 -I - "${GOLD_STATE_ROOT}/${unit}/runs" "${parity}" <<'PY'
+import json, os, sys
+runs, argument = sys.argv[1], sys.argv[2]
+names = sorted(os.listdir(runs), reverse=True) if os.path.isdir(runs) else []
+for name in names:
+    try:
+        summary = json.load(open(os.path.join(runs, name, "summary.json"), encoding="utf-8"))
+        plan = json.load(open(os.path.join(runs, name, "plan.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        continue  # a run that planned "nothing to do" or failed before it wrote
+    if summary.get("write_disposition") == "validate_only":
+        continue  # a dry run commits nothing
+    mode = (summary.get("rebuild") or {}).get("mode", "full")
+    parity = argument in plan.get("producer_arguments", [])
+    print(f"{'ok' if mode == 'full' and parity else 'no'} run {name}: {mode} rebuild"
+          f"{'' if parity else ' without ' + argument}, {summary.get('row_count')} rows")
+    sys.exit(0)
+print("no run of the table wrote it")
+PY
+)"
+        [[ "${head}" == ok\ * ]] \
+          || fail "${lane}" "${step}" 0 "${table}'s head was not committed by a full rebuild with ${parity} (${head#no }); an incremental commit skips the parity with the bundle, so the head it would serve was never checked on every PNU; run a full rebuild of ${table} first"
+        reason="${table}'s head: ${head#ok }, whose ${parity} checked each PNU against the bundle Gold before it committed"
         ;;
       gold)
         # What this run appends to the operator's Gold log (by-pnu-pack-operator.sh GOLD_LOG) is the
