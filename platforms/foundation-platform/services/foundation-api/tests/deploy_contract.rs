@@ -146,12 +146,10 @@ fn api_image_is_locked_non_root_and_health_checked() -> TestResult {
     assert!(dockerfile.contains("USER 10001:10001"));
     assert!(dockerfile.contains("HEALTHCHECK"));
     assert!(dockerfile.contains("foundation-migrate"));
-    assert!(
-        dockerfile
-            .lines()
-            .filter(|line| line.starts_with("FROM "))
-            .all(|line| line.contains("@sha256:"))
-    );
+    assert!(dockerfile
+        .lines()
+        .filter(|line| line.starts_with("FROM "))
+        .all(|line| line.contains("@sha256:")));
     assert!(!dockerfile.contains("apt-get install"));
     assert!(!dockerfile.contains("COPY . ."));
     assert!(!dockerfile.contains("latest"));
@@ -806,12 +804,10 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
     assert!(dockerfile.contains(
         "COPY --chmod=0755 infra/postgres/recovery-entrypoint.sh /usr/local/bin/foundation-postgres-recovery-entrypoint"
     ));
-    assert!(
-        dockerfile
-            .lines()
-            .filter(|line| line.starts_with("FROM "))
-            .all(|line| line.contains("@sha256:"))
-    );
+    assert!(dockerfile
+        .lines()
+        .filter(|line| line.starts_with("FROM "))
+        .all(|line| line.contains("@sha256:")));
     Ok(())
 }
 
