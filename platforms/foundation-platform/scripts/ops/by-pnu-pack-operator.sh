@@ -60,11 +60,13 @@ is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" ACTION="${2:-}"
 # A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish, status,
 # and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
-# then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`.
+# then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`,
+# or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
+# preview serve it by path.
 [[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" || refuse "${USAGE}"
 if is_pack_lane "${LANE}"; then
   [[ " bake equality latency publish status monitor-sample health " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample or health"
-  GATEWAY_BLOCK="by_pnu_lanes.${LANE}"
+  GATEWAY_BLOCK="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["by_pnu_lanes"][sys.argv[2]].get("host") or "by_pnu_lanes." + sys.argv[2])'     "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${LANE}")"
 else
   GATEWAY_BLOCK="${LANE}_by_pnu_gateway"
 fi

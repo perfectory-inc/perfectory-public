@@ -8,7 +8,8 @@
 //! Besides the parcel and building lanes, the contract's `by_pnu_lanes` names lanes that serve
 //! from section packs only, each a Gold panel of one kind of data (root ADR-0190). Nothing of such
 //! a lane is written in code: its manifest unit, environment prefix and commands follow from its
-//! name.
+//! name. A lane that names a `host` and a `kind` (root ADR-0193 §4) writes only what differs per
+//! lane; its gateway block is the host lane's, with the kind in its paths (`resolve_lane_entry`).
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -145,8 +146,139 @@ struct R2ConnectionContract {
     building_by_pnu_gateway: ByPnuGatewayPolicy,
     by_pnu_serving_patches: ByPnuServingPatchPolicy,
     by_pnu_section_packs: SectionPackPolicy,
-    #[serde(default, deserialize_with = "pack_lanes")]
+    /// The `by_pnu_lanes` entries as written; `contract()` resolves them into `by_pnu_lanes`.
+    #[serde(default, rename = "by_pnu_lanes")]
+    lane_entries: BTreeMap<String, serde_json::Value>,
+    #[serde(skip)]
     by_pnu_lanes: BTreeMap<String, PackLane>,
+}
+
+/// The gateway blocks a derived lane may name as its `host` (root ADR-0193 §4).
+pub(crate) const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gateway"];
+
+/// The only fields a lane with a `host` writes by hand: what differs per lane, and why.
+const DERIVED_LANE_HAND_FIELDS: [&str; 10] = [
+    "decision",
+    "host",
+    "kind",
+    "gold_table",
+    "documents_follow_lane",
+    "documents_follow_lane_reason",
+    "latency_baseline_lane",
+    "latency_baseline_lane_reason",
+    "latency_p95_max_ms",
+    "latency_p95_max_ms_reason",
+];
+
+/// A lane entry as the pack-only machinery reads it. An entry without a `host` is written whole
+/// (root ADR-0190). An entry with one is its host's gateway block with `{kind}/` inserted before
+/// the `by-pnu` segment of its request path and object keys and before the `packs` segment of its
+/// pack root, one `documents` section, the lane's own bake capability and document schema, and
+/// the entry's hand fields (root ADR-0193 §4). The Worker (`lane.ts`) applies the same rule; the
+/// contract's `by_pnu_lane_rule.test_vectors` hold both to it.
+pub(crate) fn resolve_lane_entry(
+    name: &str,
+    entry: &serde_json::Value,
+    contract: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use serde_json::{json, Value};
+    let Some(fields) = entry.as_object() else {
+        return Err(format!("by_pnu_lanes.{name} is not an object"));
+    };
+    let Some(host) = fields.get("host") else {
+        return Ok(entry.clone());
+    };
+    if let Some(field) = fields
+        .keys()
+        .find(|field| !DERIVED_LANE_HAND_FIELDS.contains(&field.as_str()))
+    {
+        return Err(format!(
+            "by_pnu_lanes.{name}.{field} follows from its host and kind (root ADR-0193 §4); a \
+             lane with a host writes only {DERIVED_LANE_HAND_FIELDS:?}"
+        ));
+    }
+    let host = host
+        .as_str()
+        .filter(|host| LANE_HOSTS.contains(host))
+        .ok_or_else(|| format!("by_pnu_lanes.{name}.host must be one of {LANE_HOSTS:?}"))?;
+    let kind = fields
+        .get("kind")
+        .and_then(Value::as_str)
+        .filter(|kind| lane_grammar(kind))
+        .ok_or_else(|| format!("by_pnu_lanes.{name}.kind must be lowercase words joined by -"))?;
+    let mut block = contract
+        .get(host)
+        .cloned()
+        .ok_or_else(|| format!("the contract has no {host}"))?;
+    let snake = name.replace('-', "_");
+    for (pointer, segment) in [
+        ("/request_path/prefix", "by-pnu"),
+        ("/request_path/capabilities", "by-pnu"),
+        ("/object_key/root", "by-pnu"),
+        ("/object_key/manifest_object", "by-pnu"),
+        ("/object_key/manifest_history_dir", "by-pnu"),
+        ("/section_packs/root", "packs"),
+    ] {
+        let path = block
+            .pointer_mut(pointer)
+            .ok_or_else(|| format!("{host}{pointer} is missing"))?;
+        let derived = path
+            .as_str()
+            .and_then(|path| with_kind(path, segment, kind))
+            .ok_or_else(|| {
+                format!("{host}{pointer} has no {segment} segment to put a kind before")
+            })?;
+        *path = Value::String(derived);
+    }
+    let derived = block
+        .as_object_mut()
+        .ok_or_else(|| format!("{host} is not an object"))?;
+    derived.insert("pack_only".to_owned(), json!(true));
+    derived.insert(
+        "document_schema_version".to_owned(),
+        json!(format!("foundation-platform.{snake}_by_pnu.v1")),
+    );
+    if let Some(Value::Object(request_path)) = derived.get_mut("request_path") {
+        request_path.insert("accepted_queries".to_owned(), json!([]));
+        request_path.remove("accepted_queries_reason");
+    }
+    if let Some(Value::Object(packs)) = derived.get_mut("section_packs") {
+        packs.insert("sections".to_owned(), json!(["documents"]));
+        packs.insert("anchor_section".to_owned(), json!("documents"));
+        packs.remove("sections_reason");
+        if let Some(Value::Object(bake)) = packs.get_mut("scheduled_bake") {
+            bake.insert(
+                "capability".to_owned(),
+                json!(format!("{snake}_section_pack_patches")),
+            );
+        }
+    }
+    for (field, value) in fields {
+        if !["host", "kind"].contains(&field.as_str()) {
+            derived.insert(field.clone(), value.clone());
+        }
+    }
+    Ok(block)
+}
+
+/// `path` with `{kind}/` inserted before its last `segment` segment.
+fn with_kind(path: &str, segment: &str, kind: &str) -> Option<String> {
+    let mut segments = path.split('/').collect::<Vec<_>>();
+    let at = segments.iter().rposition(|part| *part == segment)?;
+    segments.insert(at, kind);
+    Some(segments.join("/"))
+}
+
+/// Lowercase words of letters and digits, each starting with a letter, joined by `-`.
+fn lane_grammar(name: &str) -> bool {
+    name.split('-').all(|word| {
+        word.bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+            && word
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    })
 }
 
 /// One `by_pnu_lanes` entry as the contract writes it: a gateway block like the parcel and
@@ -191,32 +323,14 @@ pub(crate) const PACK_LANE_NON_CONTENT_COLUMNS: [&str; 4] = [
     "published_at_utc",
 ];
 
-fn pack_lanes<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<BTreeMap<String, PackLane>, D::Error> {
-    use serde::de::Error as _;
-    BTreeMap::<String, PackLaneEntry>::deserialize(deserializer)?
-        .into_iter()
-        .map(|(name, entry)| {
-            pack_lane(&name, entry)
-                .map(|lane| (name, lane))
-                .map_err(D::Error::custom)
-        })
-        .collect()
-}
+/// The one content column of a pack lane that is text, not JSON: the lineage path a parcel kind
+/// carried its content through (root ADR-0193 §2), or null.
+pub(crate) const PACK_LANE_ATTACHED_VIA_COLUMN: &str = "attached_via";
 
 /// Resolves one entry, refusing a name, a baseline, a Gold table or a document the pack-only
 /// machinery cannot serve.
 fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
-    let grammar = name.split('-').all(|word| {
-        word.bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_lowercase())
-            && word
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-    });
-    if !grammar || ["parcel", "building"].contains(&name) {
+    if !lane_grammar(name) || ["parcel", "building"].contains(&name) {
         return Err(format!(
             "by_pnu_lanes names a lane {name:?} outside the lane grammar"
         ));
@@ -258,11 +372,14 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         .iter()
         .all(|column| columns.contains(column))
         || content.is_empty()
-        || !content.iter().all(|column| column.ends_with("_json"))
+        || !content
+            .iter()
+            .all(|column| column.ends_with("_json") || **column == PACK_LANE_ATTACHED_VIA_COLUMN)
+        || !content.iter().any(|column| column.ends_with("_json"))
     {
         return Err(format!(
             "{} is not a by-PNU panel: a pack-only document carries every column but \
-             {PACK_LANE_NON_CONTENT_COLUMNS:?}, each a *_json field",
+             {PACK_LANE_NON_CONTENT_COLUMNS:?}, each a *_json field or {PACK_LANE_ATTACHED_VIA_COLUMN}",
             entry.gold_table
         ));
     }
@@ -556,8 +673,18 @@ fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
     static CONTRACT: OnceLock<Result<R2ConnectionContract, String>> = OnceLock::new();
     CONTRACT
         .get_or_init(|| {
-            let contract: R2ConnectionContract = serde_json::from_str(R2_CONNECTION_CONTRACT)
+            let mut contract: R2ConnectionContract =
+                serde_json::from_str(R2_CONNECTION_CONTRACT)
+                    .map_err(|error| format!("invalid R2 connection contract: {error}"))?;
+            let written: serde_json::Value = serde_json::from_str(R2_CONNECTION_CONTRACT)
                 .map_err(|error| format!("invalid R2 connection contract: {error}"))?;
+            for (name, entry) in std::mem::take(&mut contract.lane_entries) {
+                let entry: PackLaneEntry =
+                    serde_json::from_value(resolve_lane_entry(&name, &entry, &written)?)
+                        .map_err(|error| format!("by_pnu_lanes.{name}: {error}"))?;
+                let lane = pack_lane(&name, entry)?;
+                contract.by_pnu_lanes.insert(name, lane);
+            }
             if contract.schema_version != 2 {
                 return Err(format!(
                     "R2 connection contract schema must be 2, got {}",
@@ -737,4 +864,108 @@ pub(crate) fn section_pack_policy() -> anyhow::Result<&'static SectionPackPolicy
 /// The patch bounds shared by both lanes.
 pub(crate) fn by_pnu_serving_patch_policy() -> anyhow::Result<&'static ByPnuServingPatchPolicy> {
     Ok(&contract()?.by_pnu_serving_patches)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Context as _;
+    use serde_json::{json, Value};
+
+    fn written() -> anyhow::Result<Value> {
+        Ok(serde_json::from_str(R2_CONNECTION_CONTRACT)?)
+    }
+
+    #[test]
+    fn a_lane_with_a_host_is_its_hosts_block_with_the_kind_in_its_paths() -> anyhow::Result<()> {
+        // Root ADR-0193 §4: the contract's vectors hold this rule and the Worker's to one answer.
+        let contract = written()?;
+        let vectors = contract
+            .pointer("/by_pnu_lane_rule/test_vectors")
+            .and_then(Value::as_array)
+            .context("the contract holds the lane rule's test vectors")?;
+        assert!(!vectors.is_empty());
+        for vector in vectors {
+            let field = |name: &str| vector[name].as_str().map(str::to_owned).unwrap_or_default();
+            let entry =
+                json!({"host": vector["host"], "kind": vector["kind"], "gold_table": "gold.x"});
+            let lane = resolve_lane_entry(&field("lane"), &entry, &contract)
+                .map_err(anyhow::Error::msg)?;
+            for (pointer, expected) in [
+                ("/request_path/prefix", "request_prefix"),
+                ("/request_path/capabilities", "capabilities"),
+                ("/object_key/manifest_object", "manifest_object"),
+                ("/section_packs/root", "pack_root"),
+                ("/document_schema_version", "document_schema_version"),
+                (
+                    "/section_packs/scheduled_bake/capability",
+                    "scheduled_bake_capability",
+                ),
+            ] {
+                assert_eq!(lane.pointer(pointer), Some(&vector[expected]), "{pointer}");
+            }
+            let host = &contract[vector["host"].as_str().unwrap_or_default()];
+            // What does not differ per lane is the host's: the same Worker serves it.
+            for pointer in [
+                "/worker_name",
+                "/public_hostname",
+                "/section_packs/preview_worker",
+            ] {
+                assert_eq!(lane.pointer(pointer), host.pointer(pointer), "{pointer}");
+            }
+            assert_eq!(lane["pack_only"], json!(true));
+            assert_eq!(lane["request_path"]["accepted_queries"], json!([]));
+            assert_eq!(lane["section_packs"]["sections"], json!(["documents"]));
+            assert_eq!(lane["gold_table"], json!("gold.x"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_lane_with_a_host_that_writes_a_derived_field_or_names_no_host_block_is_refused(
+    ) -> anyhow::Result<()> {
+        let contract = written()?;
+        let lane =
+            json!({"host": "parcel_by_pnu_gateway", "kind": "zoning", "gold_table": "gold.x"});
+        for (field, value) in [
+            ("section_packs", json!({"root": "serving/elsewhere/packs"})),
+            ("host", json!("by_pnu_lanes")),
+            ("kind", json!("Zoning")),
+        ] {
+            let mut entry = lane.clone();
+            entry[field] = value;
+            assert!(
+                resolve_lane_entry("parcel-zoning", &entry, &contract).is_err(),
+                "{field}"
+            );
+        }
+        // A lane written whole (root ADR-0190) is read as it is written.
+        let whole = json!({"pack_only": true, "worker_name": "w"});
+        assert_eq!(
+            resolve_lane_entry("unit-price", &whole, &contract),
+            Ok(whole)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_zoning_lane_is_served_by_the_parcel_worker_under_its_own_paths() -> anyhow::Result<()> {
+        let lane =
+            ByPnuLane::named("parcel-zoning")?.context("the contract names the zoning lane")?;
+        let pack = lane
+            .pack_lane()
+            .context("a contract lane serves packs only")?;
+        let policy = lane.policy()?;
+        let parcel = ByPnuLane::Parcel.policy()?;
+        assert_eq!(policy.worker_name, parcel.worker_name);
+        assert_eq!(policy.request_path.prefix, "/parcels/zoning/by-pnu/");
+        assert_eq!(lane.section_packs()?.root, "serving/parcels/zoning/packs");
+        assert_eq!(pack.gold.table_name, "gold.parcel_zoning");
+        assert_eq!(
+            pack.document_schema_version,
+            "foundation-platform.parcel_zoning_by_pnu.v1"
+        );
+        assert_eq!(lane.unit(), "parcel-zoning-by-pnu");
+        Ok(())
+    }
 }

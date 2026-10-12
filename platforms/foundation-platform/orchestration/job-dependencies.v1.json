@@ -1276,6 +1276,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_zoning",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_zoning,PROD)",
+          "node_id": "gold-parcel-zoning",
+          "title": "필지 용도지역 판정 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.unit_price_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
           "node_id": "gold-unit-price-panel",
@@ -1314,6 +1322,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-by-pnu-serving,PROD)",
           "node_id": "parcel-by-pnu-serving",
           "title": "필지 by-PNU 서빙 문서",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-zoning-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-zoning-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-zoning-by-pnu-section-packs",
+          "title": "필지 용도지역 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },

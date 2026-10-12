@@ -204,7 +204,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 |---|---|---|
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
-| `gold.parcel_zoning` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.parcel_boundary_served` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -292,7 +291,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 호 공시가격 by-PNU 묶음 파일 (`unit-price-by-pnu-section-packs`) | 실행 경로 있음 | gold.unit_price_panel 의 PNU 문서를 법정동 묶음 파일로 굽는다. 객체 레인 없이 묶음으로만 서빙하는 첫 레인이다(루트 ADR-0190). 웹은 건물 문서와 호 id 로 합친다. |
 | 필지 by-PNU 서빙 문서 (`parcel-by-pnu-serving`) | 실행 경로 있음 | gold.parcel_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0096). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
 | 필지 by-PNU 묶음 파일 (`parcel-by-pnu-section-packs`) | 일부 연결 | gold.parcel_panel 의 PNU 문서(용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권을 합친 한 문서)를 법정동 묶음 파일로 굽는다(루트 ADR-0147 §8, ADR-0160). 건물 묶음과 같은 형식·관문·Worker 소스를 쓴다. 전환 전에는 객체가 서빙한다. |
-| 필지 용도지역 by-PNU 묶음 파일 (`parcel-zoning-by-pnu-section-packs`) | 예정 | gold.parcel_zoning 의 PNU 문서를 법정동 묶음으로만 굽는 레인(루트 ADR-0193). 계약 항목·굽기·첫 발행 관문은 다음 단계다. |
+| 필지 용도지역 by-PNU 묶음 파일 (`parcel-zoning-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_zoning 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/zoning/by-pnu/ 경로로 서빙하는 첫 종류 레인이다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
 | 스튜어드 검토 화면 (`steward-review-surface`) | 예정 | 사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항). |
 
@@ -377,7 +376,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 브이월드 공간·토지 파일 → 산업단지 기본 정보 | `build-industrial-complex-address-resolution`<br>`export-industrial-complex-bronze-raw-jsonl`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` |
 | 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 용도지역 판정 by-PNU 표 → 필지 용도지역 by-PNU 묶음 파일 | `docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md` |
+| 필지 용도지역 판정 by-PNU 표 → 필지 용도지역 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 호 공시가격 by-PNU 패널 → 호 공시가격 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_by_pnu_serving_export.rs` |

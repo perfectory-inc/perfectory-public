@@ -17,6 +17,7 @@ EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=-/etc/foundation-platform/building-serving-monitor.env
 EnvironmentFile=-/etc/foundation-platform/parcel-serving-monitor.env
 EnvironmentFile=-/etc/foundation-platform/unit-price-serving-monitor.env
+EnvironmentFile=-/etc/foundation-platform/parcel-zoning-serving-monitor.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-monitor.sh %i
 TimeoutStartSec=10m
 # Twenty sequential reads and twenty documents: far below this.

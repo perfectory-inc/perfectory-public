@@ -130,14 +130,16 @@
      `building_by_pnu_gateway`), `kind`, `gold_table`, `documents_follow_lane`, 관문 기준(`latency_baseline_lane`,
      `latency_p95_max_ms`)과 각 이유. 나머지는 아래 규칙으로 만든다. ADR-0190 의 레인 항목은 이 값들(Worker 설정·경로·
      뿌리·호스트)을 통째로 손으로 담는다. 레인이 열 개면 같은 값 열 벌이고, 손으로 적은 경로는 규칙과 어긋날 수 있다.
-     규칙을 읽는 코드는 이 ADR 의 구현 첫 단계(ADR-0190 병합 뒤)이고, 그 전까지 이 항은 결정일 뿐이다.
+     규칙은 발행기(`by_pnu_gateway_contract.rs` `resolve_lane_entry`)와 Worker(`lane.ts` `resolveLane`)가 각자
+     적용하고, 계약의 `by_pnu_lane_rule.test_vectors` 가 둘을 같은 답에 묶는다(묶음 조각 해시의 시험 벡터와 같은 방식).
+     호스트가 있는 레인 항목에 규칙이 만드는 칸을 손으로 적으면 계약 읽기가 거부한다.
 
      | 값 | 규칙 | `parcel-zoning` 의 값 |
      |---|---|---|
      | 공개 호스트 | `<host>.public_hostname` | `catalog.perfectory.io` |
      | 요청 경로 | `<host>.request_path.prefix` 끝의 `by-pnu/` 앞에 `{kind}/` | `/parcels/zoning/by-pnu/` |
      | 묶음 뿌리 | `<host>.section_packs.root` 끝의 `packs` 앞에 `{kind}/` | `serving/parcels/zoning/packs` |
-     | manifest·세대·패치 | 묶음 뿌리 아래, 레인마다 따로 | `serving/parcels/zoning/packs/manifest.json` |
+     | manifest·객체 키 | `<host>.object_key` 의 `by-pnu` 앞에 `{kind}/`(ADR-0190 레인과 같은 배치: manifest 는 객체 뿌리, 묶음은 그 옆) | `serving/parcels/zoning/by-pnu/manifest.json` |
      | 문서 스키마 | `foundation-platform.<레인 키의 - 를 _ 로>_by_pnu.v1` | `foundation-platform.parcel_zoning_by_pnu.v1` |
      | Worker 설정(배치·CPU·CORS·캐시·카나리아·감시·바인딩) | `<host>` 의 값 | 필지 호스트의 값 |
 

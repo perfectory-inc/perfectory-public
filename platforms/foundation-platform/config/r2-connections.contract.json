@@ -459,7 +459,33 @@
       ]
     }
   },
+  "by_pnu_lane_rule": {
+    "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+    "purpose": "A by_pnu_lanes entry that names a host and a kind writes only what differs per lane; everything else is its host's gateway block with the kind inserted as a path segment before the last by-pnu segment of request_path.prefix, request_path.capabilities, object_key.root, object_key.manifest_object and object_key.manifest_history_dir, and before the last packs segment of section_packs.root; one documents section; request_path.accepted_queries empty; scheduled_bake.capability <lane with - as _>_section_pack_patches; document_schema_version foundation-platform.<lane with - as _>_by_pnu.v1. The publisher (by_pnu_gateway_contract.rs resolve_lane_entry) and the Worker (lane.ts resolveLane) both apply it; these vectors hold both to it.",
+    "test_vectors": [
+      {"lane": "parcel-example", "host": "parcel_by_pnu_gateway", "kind": "example",
+       "request_prefix": "/parcels/example/by-pnu/", "capabilities": "/parcels/example/by-pnu/_capabilities",
+       "manifest_object": "serving/parcels/example/by-pnu/manifest.json", "pack_root": "serving/parcels/example/packs",
+       "document_schema_version": "foundation-platform.parcel_example_by_pnu.v1", "scheduled_bake_capability": "parcel_example_section_pack_patches"},
+      {"lane": "building-example-two", "host": "building_by_pnu_gateway", "kind": "example-two",
+       "request_prefix": "/buildings/example-two/by-pnu/", "capabilities": "/buildings/example-two/by-pnu/_capabilities",
+       "manifest_object": "serving/buildings/example-two/by-pnu/manifest.json", "pack_root": "serving/buildings/example-two/packs",
+       "document_schema_version": "foundation-platform.building_example_two_by_pnu.v1", "scheduled_bake_capability": "building_example_two_section_pack_patches"}
+    ]
+  },
   "by_pnu_lanes": {
+    "parcel-zoning": {
+      "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+      "host": "parcel_by_pnu_gateway",
+      "kind": "zoning",
+      "gold_table": "gold.parcel_zoning",
+      "latency_baseline_lane": "parcel",
+      "latency_baseline_lane_reason": "every PNU with a zoning verdict has a parcel document, served by the same Worker at the same placement (the zoning lane is a path of the parcel host, root ADR-0193 §4): the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds the parcel lane's cut-over to",
+      "latency_p95_max_ms": 1400,
+      "latency_p95_max_ms_reason": "as the unit-price lane's: the slowest cold pack p95 a lane served at its cut-over (parcel generation 1, 1,379 ms from ai-server, root ADR-0162), so a slow parcel read cannot hide a slow lane inside the increase bound",
+      "documents_follow_lane": "parcel",
+      "documents_follow_lane_reason": "while gold.parcel_panel is the reference this lane's Gold is built on the panel's pins (gold-panel-rebuild.contract.json pins_from, root ADR-0193 §3): in the registered bake it runs after the parcel lane and is not baked in a run where that lane failed, so the two never serve verdicts of different pins for longer than one bake run"
+    },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

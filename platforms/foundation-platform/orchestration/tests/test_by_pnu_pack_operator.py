@@ -383,6 +383,18 @@ class PackOperator(unittest.TestCase):
         # The earlier evidence is kept, never overwritten.
         self.assertEqual(len(list(work.glob("latency-*.json"))), 1)
 
+    def test_a_kind_lane_is_probed_through_its_hosts_preview(self):
+        # Root ADR-0193 §4: a lane written as a host and a kind has no Worker of its own; its host's
+        # preview serves its unpublished generation under its own path.
+        work = self.work("parcel-zoning")
+        (work / "equality.json").write_text(json.dumps({"passed": True}))
+        result, calls = self.run_operator("parcel-zoning", "latency", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, _ = self.unit(calls)
+        self.assertEqual(args[-1], "probe-parcel-zoning-by-pnu-section-pack-latency")
+        preview = CONTRACT["parcel_by_pnu_gateway"]["section_packs"]["preview_worker"]["public_hostname"]
+        self.assertEqual(env["FOUNDATION_PLATFORM_PARCEL_ZONING_BY_PNU_SERVING_PACK_PREVIEW_BASE_URL"], f"https://{preview}")
+
     def test_publish_needs_gate_ga_passed_and_gate_na_measured_and_pins_the_bake_snapshot(self):
         work = self.work()
         (work / "equality.json").write_text(json.dumps({"passed": False}))
@@ -475,6 +487,8 @@ class MonitorReasons(unittest.TestCase):
         lanes = {"parcel": CONTRACT["parcel_by_pnu_gateway"], "building": CONTRACT["building_by_pnu_gateway"],
                  **CONTRACT.get("by_pnu_lanes", {})}
         for lane, block in lanes.items():
+            if "host" in block:
+                continue  # Its monitor block is its host's (root ADR-0193 §4); the host's case covers it.
             with self.subTest(lane=lane):
                 reason = block["section_packs"]["monitor"]["reason"]
                 self.assertIn(f"instance {lane}", reason)
