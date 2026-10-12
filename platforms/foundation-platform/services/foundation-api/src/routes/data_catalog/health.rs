@@ -3,10 +3,13 @@
 //! Five signals, each read from a fact Foundation already holds, never from a second list: a
 //! failed latest run (and the cause its scheduler log gives), a job whose inputs will not come
 //! because a job it waits on failed (`upstream_job_ids`, rendered by `job_specs.py`), a scheduled
-//! start whose time limit has passed with no success since (the job list's `schedule` and
-//! `timeout_minutes`), a run much longer than the job's median, and a run that wrote far fewer or
-//! far more rows than the runs before it (the `added-records` of the snapshots it committed to the
-//! Iceberg tables it writes). A new job in the job list gets all five without a line here.
+//! start whose time limit has passed with no success since and no run of it queued or running in
+//! the scheduler (the job list's `schedule` and `timeout_minutes`; a run waiting for its pool's
+//! slots is not late, `job_specs.py` bounds that wait), a run much longer than the job's median,
+//! and a run that wrote far fewer or far more rows than the runs before it of the same kind (the
+//! `added-records` of the snapshots it committed to the Iceberg tables it writes; a run that
+//! rewrote a whole table is compared only with runs that did too, an incremental one only with
+//! incremental ones). A new job in the job list gets all five without a line here.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
@@ -52,6 +55,9 @@ pub(super) struct HealthFacts<'a> {
     pub tables: &'a BTreeMap<String, Vec<IcebergSnapshotSummary>>,
     /// The failed latest runs' logs, by DAG id.
     pub failures: &'a BTreeMap<String, FailedRunLog>,
+    /// By DAG id, when the newest run the scheduler holds queued or running was due
+    /// (`run_after`); a job with one is not late.
+    pub in_progress: &'a BTreeMap<String, DateTime<Utc>>,
     /// False when the data catalog did not answer: then no run is known and nothing is late.
     pub runs_readable: bool,
     pub now: DateTime<Utc>,
@@ -84,7 +90,9 @@ pub(super) fn annotate(statuses: &mut [ScheduledJobStatus], facts: &HealthFacts<
         }
         if problems.is_empty() && facts.runs_readable {
             let timeout = facts.timeouts.get(&status.job_id).copied().unwrap_or(0);
-            problems.extend(late(status, timeout, facts.now));
+            if !facts.in_progress.contains_key(&status.dag_id) {
+                problems.extend(late(status, timeout, facts.now));
+            }
         }
         problems.extend(slow(status, facts.now));
         if let Some(tables) = &tables {
@@ -119,12 +127,11 @@ fn written_tables<'a>(
     (!written.is_empty()).then_some(written)
 }
 
-/// The rows a finished run added to `tables`: the `added-records` of the snapshots committed
-/// between its start and its finish.
-fn rows_of<'a>(
+/// The snapshots committed to `tables` between a finished run's start and its finish.
+fn committed_by<'a>(
     run: &ScheduledJobRun,
     tables: impl Iterator<Item = &'a [IcebergSnapshotSummary]>,
-) -> Option<u64> {
+) -> Option<Vec<&'a IcebergSnapshotSummary>> {
     let start = run.started_at?.timestamp_millis();
     let finish = run.finished_at?.timestamp_millis();
     Some(
@@ -135,9 +142,32 @@ fn rows_of<'a>(
                     .timestamp_ms
                     .is_some_and(|at| start <= at && at <= finish)
             })
+            .collect(),
+    )
+}
+
+/// The rows a finished run added to `tables`: the `added-records` of the snapshots it committed.
+fn rows_of<'a>(
+    run: &ScheduledJobRun,
+    tables: impl Iterator<Item = &'a [IcebergSnapshotSummary]>,
+) -> Option<u64> {
+    Some(
+        committed_by(run, tables)?
+            .into_iter()
             .filter_map(IcebergSnapshotSummary::added_records)
             .sum(),
     )
+}
+
+/// Whether the commit left no row it did not add: a whole-table rewrite (an overwrite of every
+/// partition, a replace, a first load). Iceberg calls a merge of a few partitions an `overwrite`
+/// too, so the `operation` cannot tell them apart; the counts can.
+fn rewrote_table(snapshot: &IcebergSnapshotSummary) -> bool {
+    let total = snapshot
+        .summary
+        .get("total-records")
+        .and_then(|total| total.parse::<u64>().ok());
+    matches!((snapshot.added_records(), total), (Some(added), Some(total)) if added >= total)
 }
 
 fn failed(
@@ -159,7 +189,7 @@ fn failed(
 }
 
 /// Late: the latest scheduled start whose time limit has passed, with no success finished since.
-fn late(
+pub(super) fn late(
     status: &ScheduledJobStatus,
     timeout_minutes: u32,
     now: DateTime<Utc>,
@@ -199,7 +229,9 @@ fn slow(status: &ScheduledJobStatus, now: DateTime<Utc>) -> Option<ScheduledJobP
     })
 }
 
-/// Per table, the latest succeeded run that wrote rows against the median of the earlier ones.
+/// Per table, the latest succeeded run that wrote rows against the median of the earlier ones of
+/// its kind: a full rewrite writes every row and an incremental run only the changed ones, so a
+/// rewrite after incremental runs (or the reverse) is no change in volume.
 fn volume(
     status: &ScheduledJobStatus,
     tables: &BTreeMap<String, &[IcebergSnapshotSummary]>,
@@ -213,16 +245,29 @@ fn volume(
         .iter()
         .filter_map(|(node_id, snapshots)| {
             // A run that changed nothing wrote no rows; it is not a small batch.
-            let rows: Vec<u64> = finished
+            let rows: Vec<(u64, bool)> = finished
                 .iter()
-                .filter_map(|run| rows_of(run, std::iter::once(*snapshots)))
-                .filter(|rows| *rows > 0)
+                .filter_map(|run| {
+                    let committed = committed_by(run, std::iter::once(*snapshots))?;
+                    let rows: u64 = committed
+                        .iter()
+                        .filter_map(|snapshot| snapshot.added_records())
+                        .sum();
+                    let rewrote = committed.iter().any(|snapshot| rewrote_table(snapshot));
+                    Some((rows, rewrote))
+                })
+                .filter(|(rows, _)| *rows > 0)
                 .collect();
-            let (latest, earlier) = rows.split_first()?;
+            let ((latest, rewrote), earlier) = rows.split_first()?;
+            let earlier: Vec<u64> = earlier
+                .iter()
+                .filter(|(_, earlier_rewrote)| earlier_rewrote == rewrote)
+                .map(|(rows, _)| *rows)
+                .collect();
             if earlier.len() < VOLUME_MIN_RUNS {
                 return None;
             }
-            let typical = median(earlier);
+            let typical = median(&earlier);
             let unusual = latest * VOLUME_FACTOR <= typical || *latest >= typical * VOLUME_FACTOR;
             unusual.then(|| ScheduledJobProblem::Volume {
                 node_id: node_id.clone(),
@@ -347,6 +392,19 @@ mod tests {
         }
     }
 
+    /// A commit as Iceberg summarises it: the rows it added and the rows the table holds after it.
+    fn commit(iso: &str, added: Option<u64>, total: u64) -> IcebergSnapshotSummary {
+        let mut summary = BTreeMap::from([("total-records".to_owned(), total.to_string())]);
+        if let Some(added) = added {
+            summary.insert("added-records".to_owned(), added.to_string());
+        }
+        IcebergSnapshotSummary {
+            snapshot_id: at(iso).timestamp(),
+            timestamp_ms: Some(at(iso).timestamp_millis()),
+            summary,
+        }
+    }
+
     fn kinds(status: &ScheduledJobStatus) -> Vec<&'static str> {
         status
             .problems
@@ -377,6 +435,7 @@ mod tests {
                 timeouts: &timeouts,
                 tables,
                 failures,
+                in_progress: &BTreeMap::new(),
                 runs_readable: true,
                 now: at(now),
             },
@@ -657,6 +716,131 @@ mod tests {
     }
 
     #[test]
+    fn a_run_queued_or_running_in_the_scheduler_is_not_late() {
+        // Due at 06:00 with an hour's limit, no success since, and at 13:00 the run is still
+        // waiting for its pool's slots: a fold may wait that long (`job_specs.py`).
+        let mut statuses = vec![job(
+            "fold",
+            &[],
+            vec![ran(
+                "yesterday",
+                "2026-01-01T06:00:00Z",
+                5,
+                ScheduledJobRunOutcome::Succeeded,
+            )],
+        )];
+        let timeouts = BTreeMap::from([("fold".to_owned(), 60)]);
+        let judge = |statuses: &mut [ScheduledJobStatus],
+                     in_progress: &BTreeMap<String, DateTime<Utc>>| {
+            annotate(
+                statuses,
+                &HealthFacts {
+                    timeouts: &timeouts,
+                    tables: &BTreeMap::new(),
+                    failures: &BTreeMap::new(),
+                    in_progress,
+                    runs_readable: true,
+                    now: at("2026-01-02T13:00:00Z"),
+                },
+            );
+        };
+        judge(&mut statuses, &BTreeMap::new());
+        assert_eq!(kinds(&statuses[0]), vec!["late"], "no run in the scheduler");
+        let queued = BTreeMap::from([("synthetic_fold".to_owned(), at("2026-01-02T06:00:00Z"))]);
+        judge(&mut statuses, &queued);
+        assert!(
+            statuses[0].problems.is_empty(),
+            "{:?}",
+            statuses[0].problems
+        );
+    }
+
+    /// The commits of a real Gold panel (2026-10-07 to 10-12): four whole rewrites of 5,945,767
+    /// rows, an empty append between them, then an incremental merge of 47,153 rows. Iceberg calls
+    /// the rewrites and the merge `overwrite` alike.
+    fn panel_commits() -> Vec<IcebergSnapshotSummary> {
+        vec![
+            commit("2026-10-12T08:38:22Z", Some(47_153), 5_945_767),
+            commit("2026-10-11T10:37:07Z", Some(5_945_767), 5_945_767),
+            commit("2026-10-10T21:41:16Z", None, 5_945_767),
+            commit("2026-10-10T14:59:28Z", Some(5_945_767), 5_945_767),
+            commit("2026-10-09T10:41:22Z", Some(5_945_767), 5_945_767),
+            commit("2026-10-07T15:56:57Z", Some(5_945_767), 5_945_767),
+        ]
+    }
+
+    /// One succeeded run around each commit, newest first, judged the day after the last.
+    fn volume_of(commits: Vec<IcebergSnapshotSummary>) -> Vec<ScheduledJobProblem> {
+        let runs = commits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, commit)| {
+                let committed = DateTime::from_timestamp_millis(commit.timestamp_ms?)?;
+                Some(ran(
+                    &format!("run-{index}"),
+                    &(committed - Duration::minutes(10)).to_rfc3339(),
+                    20,
+                    ScheduledJobRunOutcome::Succeeded,
+                ))
+            })
+            .collect();
+        let mut statuses = vec![job("panel", &[], runs)];
+        statuses[0].enabled = false;
+        let tables = BTreeMap::from([("silver.panel".to_owned(), commits)]);
+        annotate_at(
+            &mut statuses,
+            &tables,
+            &BTreeMap::new(),
+            "2026-10-13T00:00:00Z",
+        );
+        statuses.remove(0).problems
+    }
+
+    #[test]
+    fn an_incremental_run_after_full_rewrites_is_no_change_in_volume_nor_the_reverse() {
+        assert!(volume_of(panel_commits()).is_empty());
+
+        // A rewrite after three incremental merges.
+        let mut commits = vec![
+            commit("2026-10-14T08:00:00Z", Some(5_945_767), 5_945_767),
+            commit("2026-10-13T08:00:00Z", Some(40_000), 5_945_767),
+        ];
+        commits.extend(panel_commits());
+        assert!(volume_of(commits).is_empty());
+    }
+
+    #[test]
+    fn runs_of_the_same_kind_are_still_compared() {
+        // Three incremental merges near 47 thousand rows, then one of 900 thousand.
+        let mut commits = vec![
+            commit("2026-10-15T08:00:00Z", Some(900_000), 5_945_767),
+            commit("2026-10-14T08:00:00Z", Some(52_000), 5_945_767),
+            commit("2026-10-13T08:00:00Z", Some(40_000), 5_945_767),
+        ];
+        commits.extend(panel_commits());
+        assert_eq!(
+            volume_of(commits),
+            vec![ScheduledJobProblem::Volume {
+                node_id: "node-panel".to_owned(),
+                rows: 900_000,
+                typical_rows: 47_153
+            }]
+        );
+
+        // A rewrite that lost half the table, against the rewrites before it.
+        let mut commits = vec![commit("2026-10-13T08:00:00Z", Some(2_900_000), 2_900_000)];
+        commits.extend(panel_commits());
+        assert_eq!(
+            volume_of(commits),
+            vec![ScheduledJobProblem::Volume {
+                node_id: "node-panel".to_owned(),
+                rows: 2_900_000,
+                typical_rows: 5_945_767
+            }]
+        );
+    }
+
+    #[test]
     fn nothing_is_claimed_late_when_the_runs_were_not_read() {
         let mut statuses = vec![job("daily", &[], Vec::new())];
         let timeouts = BTreeMap::from([("daily".to_owned(), 60)]);
@@ -666,6 +850,7 @@ mod tests {
                 timeouts: &timeouts,
                 tables: &BTreeMap::new(),
                 failures: &BTreeMap::new(),
+                in_progress: &BTreeMap::new(),
                 runs_readable: false,
                 now: at("2026-01-02T08:00:00Z"),
             },

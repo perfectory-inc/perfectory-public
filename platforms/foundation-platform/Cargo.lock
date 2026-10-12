@@ -1742,6 +1742,7 @@ dependencies = [
  "lakehouse-application",
  "lakehouse-domain",
  "lakehouse-infrastructure",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

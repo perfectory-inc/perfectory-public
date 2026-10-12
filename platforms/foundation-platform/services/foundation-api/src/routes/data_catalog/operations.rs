@@ -11,6 +11,7 @@
 //! derives it for the scheduler and renders it to `orchestration/job-dependencies.v1.json`, which a
 //! test keeps equal to that derivation; this reads the rendered file (root ADR-0188).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -54,6 +55,16 @@ const RUNS_PER_JOB: u64 = 10;
 pub(super) struct JobList {
     dag_id_prefix: String,
     jobs: Vec<ListedJob>,
+}
+
+impl JobList {
+    /// Each job's time limit in minutes, by job id.
+    pub(super) fn timeouts(&self) -> BTreeMap<String, u32> {
+        self.jobs
+            .iter()
+            .map(|job| (job.id.clone(), job.timeout_minutes))
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,17 +126,14 @@ async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
         Err(error) => (&[][..], Some(error.clone())),
     };
     let mut jobs = job_statuses(&list, &dependencies, flows, now);
-    let timeouts = list
-        .jobs
-        .iter()
-        .map(|job| (job.id.clone(), job.timeout_minutes))
-        .collect();
+    let timeouts = list.timeouts();
     health::annotate(
         &mut jobs,
         &health::HealthFacts {
             timeouts: &timeouts,
             tables: &facts.tables,
             failures: &facts.failures,
+            in_progress: &facts.in_progress,
             runs_readable: run_history_error.is_none(),
             now,
         },

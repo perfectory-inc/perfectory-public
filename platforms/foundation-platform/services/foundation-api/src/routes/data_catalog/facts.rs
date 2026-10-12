@@ -6,21 +6,27 @@
 //! screen refresh would make each answer as slow as the slowest of them, so one read is kept and
 //! served for `FRESH_FOR`; a request after that gets the kept read at once and starts the next in
 //! the background (stale-while-revalidate). A table is read again only when a job that writes it
-//! finished since it was read, or after `TABLE_FRESH_FOR`; a failed run's log is read once.
+//! finished since it was read, or after `TABLE_FRESH_FOR`; a failed run's log is read once, and
+//! one the scheduler did not give is asked for again only after `SCHEDULER_RETRY_AFTER`. The
+//! scheduler is asked which runs it holds queued or running only while some job is past its
+//! scheduled start's time limit, with one sign-in per read.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use chrono::{DateTime, Duration, Utc};
-use foundation_contracts::data_catalog::{FailureCause, ScheduledJobRunOutcome};
+use foundation_contracts::data_catalog::{
+    FailureCause, ScheduledJobRunOutcome, ScheduledJobStatus,
+};
 use lakehouse_infrastructure::{
     IcebergRestCatalog, IcebergSnapshotSummary, LakehouseCatalogConfig,
 };
+use regex::Regex;
 use serde_json::{json, Value as JsonValue};
 use tokio::sync::RwLock;
 
-use super::health::{iceberg_table, FailedRunLog};
+use super::health::{iceberg_table, late, FailedRunLog};
 use super::operations::{
     catalog_flows, job_statuses, unread_runs_reason, JobDependencies, JobList,
 };
@@ -35,6 +41,12 @@ const SCHEDULER_USERNAME_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_API_USERNAME";
 const SCHEDULER_PASSWORD_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_API_PASSWORD";
 /// The task of every job's DAG that runs it (`orchestration/dags/foundation_jobs.py`).
 const RUN_TASK: &str = "run";
+/// How long the scheduler is left after it did not answer (a log it did not give, a refused
+/// sign-in) before it is asked again: a failed job stays failed for hours, and every read would
+/// otherwise sign in and ask three times for it.
+const SCHEDULER_RETRY_AFTER: Duration = Duration::minutes(10);
+/// The most queued and running runs one ask reads; the scheduler holds far fewer.
+const IN_PROGRESS_LIMIT: &str = "100";
 /// A cause line is cut to this many characters.
 const CAUSE_LINE_CHARS: usize = 240;
 
@@ -52,8 +64,49 @@ pub(super) struct Facts {
     pub lakehouse_error: Option<String>,
     /// The logs of the failed latest runs, by DAG id.
     pub failures: BTreeMap<String, FailedRunLog>,
-    /// Why a failed run's log could not be read, when one could not.
+    /// The failed latest runs whose log the scheduler did not give, by DAG id.
+    log_misses: BTreeMap<String, SchedulerMiss>,
+    /// By DAG id, when the newest run the scheduler holds queued or running was due.
+    pub in_progress: BTreeMap<String, DateTime<Utc>>,
+    /// The scheduler refused the sign-in: it is not asked again before the miss's `retry_at`.
+    sign_in_miss: Option<SchedulerMiss>,
+    /// Why the scheduler could not answer something, when it could not.
     pub scheduler_error: Option<String>,
+}
+
+/// Something the scheduler did not answer, for which run, why, and when to ask again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SchedulerMiss {
+    run_urn: String,
+    error: String,
+    retry_at: DateTime<Utc>,
+}
+
+/// What to do for a failed latest run's log on this read.
+#[derive(Debug, Eq, PartialEq)]
+enum LogRead {
+    /// It was read for this run before.
+    Known(FailedRunLog),
+    /// The scheduler did not give it for this run a short while ago.
+    Wait(SchedulerMiss),
+    /// Ask the scheduler for it.
+    Ask,
+}
+
+fn log_read(
+    failures: &BTreeMap<String, FailedRunLog>,
+    misses: &BTreeMap<String, SchedulerMiss>,
+    dag_id: &str,
+    run_urn: &str,
+    now: DateTime<Utc>,
+) -> LogRead {
+    if let Some(log) = failures.get(dag_id).filter(|log| log.run_urn == run_urn) {
+        return LogRead::Known(log.clone());
+    }
+    misses
+        .get(dag_id)
+        .filter(|miss| miss.run_urn == run_urn && now < miss.retry_at)
+        .map_or(LogRead::Ask, |miss| LogRead::Wait(miss.clone()))
 }
 
 fn kept() -> &'static RwLock<Option<Arc<Facts>>> {
@@ -125,52 +178,154 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
     let (tables, table_read_at, lakehouse_error) =
         read_tables(&tables, previous, &written_at, read_at).await;
 
-    let mut failures = BTreeMap::new();
-    let mut scheduler_error = None;
-    let failed: Vec<(&str, &str)> = statuses
-        .iter()
-        .filter_map(|status| {
-            let run = status.last_run.as_ref()?;
-            matches!(
-                run.outcome,
-                ScheduledJobRunOutcome::Failed | ScheduledJobRunOutcome::UpForRetry
-            )
-            .then_some((status.dag_id.as_str(), run.run_urn.as_str()))
-        })
-        .collect();
-    if !failed.is_empty() {
-        match Scheduler::from_env() {
-            None => scheduler_error = Some("the scheduler's API is not configured".to_owned()),
-            Some(scheduler) => {
-                for (dag_id, run_urn) in failed {
-                    let known = previous
-                        .and_then(|facts| facts.failures.get(dag_id))
-                        .filter(|log| log.run_urn == run_urn);
-                    if let Some(log) = known {
-                        failures.insert(dag_id.to_owned(), log.clone());
-                        continue;
-                    }
-                    match scheduler.latest_failure(dag_id, run_urn).await {
-                        Ok(log) => {
-                            failures.insert(dag_id.to_owned(), log);
-                        }
-                        Err(error) => {
-                            tracing::warn!(%dag_id, %error, "a failed run's log could not be read");
-                            scheduler_error = Some(error);
-                        }
-                    }
-                }
-            }
-        }
+    let (mut scheduler, ask) = known_logs(previous, &statuses, read_at);
+    // Only a job past its scheduled start's time limit can be told apart by a queued or running
+    // run, so the scheduler is asked for those only while there is one.
+    let timeouts = list.timeouts();
+    let overdue = statuses.iter().any(|status| {
+        let timeout = timeouts.get(&status.job_id).copied().unwrap_or(0);
+        late(status, timeout, read_at).is_some()
+    });
+    if !ask.is_empty() || overdue {
+        ask_scheduler(previous, &mut scheduler, &ask, overdue, read_at).await;
     }
+    let mut errors = scheduler.errors;
+    errors.sort();
+    errors.dedup();
     Facts {
         read_at,
         flows,
         tables,
         table_read_at,
         lakehouse_error,
-        failures,
-        scheduler_error,
+        failures: scheduler.failures,
+        log_misses: scheduler.log_misses,
+        in_progress: scheduler.in_progress,
+        sign_in_miss: scheduler.sign_in_miss,
+        scheduler_error: (!errors.is_empty()).then(|| errors.join("; ")),
+    }
+}
+
+/// What one read learns from the scheduler.
+#[derive(Default)]
+struct SchedulerFacts {
+    failures: BTreeMap<String, FailedRunLog>,
+    log_misses: BTreeMap<String, SchedulerMiss>,
+    in_progress: BTreeMap<String, DateTime<Utc>>,
+    sign_in_miss: Option<SchedulerMiss>,
+    errors: Vec<String>,
+}
+
+/// The failed latest runs' logs already read or not to be asked for yet, and the (DAG id, run)
+/// pairs to ask the scheduler for.
+fn known_logs<'a>(
+    previous: Option<&Facts>,
+    statuses: &'a [ScheduledJobStatus],
+    read_at: DateTime<Utc>,
+) -> (SchedulerFacts, Vec<(&'a str, &'a str)>) {
+    let no_failures = BTreeMap::new();
+    let no_misses = BTreeMap::new();
+    let (known, misses) = previous.map_or((&no_failures, &no_misses), |facts| {
+        (&facts.failures, &facts.log_misses)
+    });
+    let mut facts = SchedulerFacts {
+        sign_in_miss: previous
+            .and_then(|facts| facts.sign_in_miss.clone())
+            .filter(|miss| read_at < miss.retry_at),
+        ..SchedulerFacts::default()
+    };
+    let mut ask = Vec::new();
+    for status in statuses {
+        let Some(run) = status.last_run.as_ref().filter(|run| {
+            matches!(
+                run.outcome,
+                ScheduledJobRunOutcome::Failed | ScheduledJobRunOutcome::UpForRetry
+            )
+        }) else {
+            continue;
+        };
+        let dag_id = status.dag_id.as_str();
+        match log_read(known, misses, dag_id, &run.run_urn, read_at) {
+            LogRead::Known(log) => {
+                facts.failures.insert(dag_id.to_owned(), log);
+            }
+            LogRead::Wait(miss) => {
+                facts.errors.push(miss.error.clone());
+                facts.log_misses.insert(dag_id.to_owned(), miss);
+            }
+            LogRead::Ask => ask.push((dag_id, run.run_urn.as_str())),
+        }
+    }
+    (facts, ask)
+}
+
+/// Signs in once and asks for each log in `ask`, and for the queued and running runs when
+/// `overdue`. A read that cannot ask keeps the last answer about queued and running runs.
+async fn ask_scheduler(
+    previous: Option<&Facts>,
+    facts: &mut SchedulerFacts,
+    ask: &[(&str, &str)],
+    overdue: bool,
+    read_at: DateTime<Utc>,
+) {
+    let kept_in_progress = || {
+        previous
+            .map(|facts| facts.in_progress.clone())
+            .unwrap_or_default()
+    };
+    let Some(scheduler) = Scheduler::from_env() else {
+        facts
+            .errors
+            .push("the scheduler's API is not configured".to_owned());
+        return;
+    };
+    if let Some(miss) = &facts.sign_in_miss {
+        facts.errors.push(miss.error.clone());
+        facts.in_progress = kept_in_progress();
+        return;
+    }
+    let token = match scheduler.sign_in().await {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::warn!(%error, "the scheduler refused Foundation's sign-in");
+            facts.errors.push(error.clone());
+            facts.in_progress = kept_in_progress();
+            facts.sign_in_miss = Some(SchedulerMiss {
+                run_urn: String::new(),
+                error,
+                retry_at: read_at + SCHEDULER_RETRY_AFTER,
+            });
+            return;
+        }
+    };
+    for (dag_id, run_urn) in ask {
+        match scheduler.latest_failure(&token, dag_id, run_urn).await {
+            Ok(log) => {
+                facts.failures.insert((*dag_id).to_owned(), log);
+            }
+            Err(error) => {
+                tracing::warn!(%dag_id, %error, "a failed run's log could not be read");
+                facts.errors.push(error.clone());
+                facts.log_misses.insert(
+                    (*dag_id).to_owned(),
+                    SchedulerMiss {
+                        run_urn: (*run_urn).to_owned(),
+                        error,
+                        retry_at: read_at + SCHEDULER_RETRY_AFTER,
+                    },
+                );
+            }
+        }
+    }
+    if overdue {
+        match scheduler.in_progress(&token).await {
+            Ok(runs) => facts.in_progress = runs,
+            Err(error) => {
+                tracing::warn!(%error, "the scheduler's queued and running runs could not be read");
+                facts.errors.push(error);
+                facts.in_progress = kept_in_progress();
+            }
+        }
     }
 }
 
@@ -303,9 +458,8 @@ impl Scheduler {
             .map_err(|_| format!("the scheduler's answer for {what} is not JSON"))
     }
 
-    /// The cause of `dag_id`'s latest failed (or retrying) run, read for the data catalog's
-    /// failed run `run_urn`.
-    async fn latest_failure(&self, dag_id: &str, run_urn: &str) -> Result<FailedRunLog, String> {
+    /// A token for the read-only account.
+    async fn sign_in(&self) -> Result<String, String> {
         let signed_in: JsonValue = super::http()
             .post(format!("{}/auth/token", self.api))
             .json(&json!({ "username": self.username, "password": self.password }))
@@ -315,9 +469,38 @@ impl Scheduler {
             .json()
             .await
             .map_err(|_| "the scheduler refused Foundation's sign-in".to_owned())?;
-        let token = signed_in["access_token"]
+        signed_in["access_token"]
             .as_str()
-            .ok_or_else(|| "the scheduler refused Foundation's sign-in".to_owned())?;
+            .map(str::to_owned)
+            .ok_or_else(|| "the scheduler refused Foundation's sign-in".to_owned())
+    }
+
+    /// By DAG id, when the newest run the scheduler holds queued (waiting for its turn or for its
+    /// pool's slots) or running was due.
+    async fn in_progress(&self, token: &str) -> Result<BTreeMap<String, DateTime<Utc>>, String> {
+        let runs = self
+            .get(
+                token,
+                &["api", "v2", "dags", "~", "dagRuns"],
+                &[
+                    ("state", "queued"),
+                    ("state", "running"),
+                    ("order_by", "-run_after"),
+                    ("limit", IN_PROGRESS_LIMIT),
+                ],
+            )
+            .await?;
+        Ok(in_progress_runs(&runs))
+    }
+
+    /// The cause of `dag_id`'s latest failed (or retrying) run, read for the data catalog's
+    /// failed run `run_urn`.
+    async fn latest_failure(
+        &self,
+        token: &str,
+        dag_id: &str,
+        run_urn: &str,
+    ) -> Result<FailedRunLog, String> {
         // A run whose task waits for its retry is still running as a DAG run.
         let runs = self
             .get(
@@ -367,6 +550,26 @@ impl Scheduler {
             cause_line,
         })
     }
+}
+
+/// By DAG id, the latest `run_after` of the queued and running runs in a `dagRuns` answer.
+fn in_progress_runs(answer: &JsonValue) -> BTreeMap<String, DateTime<Utc>> {
+    let mut runs: BTreeMap<String, DateTime<Utc>> = BTreeMap::new();
+    for run in answer["dag_runs"].as_array().into_iter().flatten() {
+        if !matches!(run["state"].as_str(), Some("queued" | "running")) {
+            continue;
+        }
+        let due = run["run_after"]
+            .as_str()
+            .and_then(|at| DateTime::parse_from_rfc3339(at).ok());
+        let (Some(dag_id), Some(due)) = (run["dag_id"].as_str(), due) else {
+            continue;
+        };
+        let due = due.with_timezone(&Utc);
+        let entry = runs.entry(dag_id.to_owned()).or_insert(due);
+        *entry = (*entry).max(due);
+    }
+    runs
 }
 
 /// The lines of a task log as the scheduler's API returns it: structured events, or plain text.
@@ -455,41 +658,43 @@ pub(super) fn classify(lines: &[String]) -> (FailureCause, Option<String>) {
     (cause, lines.get(at).map(|line| mask(line.trim())))
 }
 
-/// A log line with credentials hidden and its length cut, the way the host's journal relay masks
-/// what it relays (`scripts/ops/job-journal.sh`): a URL's password, a bearer token, and the value
-/// of any `*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `*ACCESS_KEY*` or `*API_KEY*` assignment.
+/// The masks a relayed log line goes through, in order, each a pattern and what the match becomes.
+/// The host's journal relay masks the same kinds (`scripts/ops/job-journal.sh`); these also catch
+/// the spaced, quoted and command-line forms a failing tool prints.
+static MASKS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    // A name that holds a credential: `*SECRET*`, `*PASSWORD*`, `*PASSWD*`, `*TOKEN*`,
+    // `*ACCESS_KEY*`, `*API_KEY*`, `*CREDENTIAL*`, in any case and with `_`, `-` or `.` inside.
+    const NAME: &str = r"[A-Za-z0-9_.-]*(?i:secret|password|passwd|token|access[_-]?key|api[_-]?key|credential)[A-Za-z0-9_.-]*";
+    [
+        // A URL's password: `scheme://user:password@host`.
+        (r"(://[^/\s:@]+:)[^@\s]+@".to_owned(), "${1}***@"),
+        // An `Authorization` header's credentials, with or without a scheme word.
+        (
+            r#"(?i)(authorization["']?\s*[:=]\s*["']?(?:(?:basic|bearer|digest|token|negotiate)\s+)?)[^\s"',]+"#
+                .to_owned(),
+            "${1}***",
+        ),
+        (r#"(?i)(\bbearer\s+)[^\s"',]+"#.to_owned(), "${1}***"),
+        // `name = "value"`, `"name": "value"`, `name: 'value'`: the whole quoted value.
+        (format!(r#"(\b{NAME}"?\s*[=:]\s*")[^"]*""#), "${1}***\""),
+        (format!(r"(\b{NAME}'?\s*[=:]\s*')[^']*'"), "${1}***'"),
+        // `name=value`, `name: value`, `name = value`.
+        (format!(r#"(\b{NAME}["']?\s*[=:]\s*)[^\s"',;&}}]+"#), "${1}***"),
+        // A command-line option and its value: `--password value`.
+        (format!(r"(--{NAME}\s+)[^\s-]\S*"), "${1}***"),
+    ]
+    .into_iter()
+    .filter_map(|(pattern, replacement)| Some((Regex::new(&pattern).ok()?, replacement)))
+    .collect()
+});
+
+/// A log line with credentials hidden and its length cut (`MASKS`).
 pub(super) fn mask(line: &str) -> String {
-    const SECRET_NAMES: [&str; 5] = ["SECRET", "PASSWORD", "TOKEN", "ACCESS_KEY", "API_KEY"];
-    let mut words: Vec<String> = Vec::new();
-    let mut bearer = false;
-    for word in line.split(' ') {
-        let mut word = word.to_owned();
-        if bearer && !word.is_empty() {
-            "***".clone_into(&mut word);
-        }
-        bearer = word.eq_ignore_ascii_case("bearer");
-        if let Some(scheme) = word.find("://") {
-            let rest = &word[scheme + 3..];
-            if let Some(at) = rest.find('@') {
-                if let Some(colon) = rest[..at].find(':') {
-                    word = format!(
-                        "{}{}***{}",
-                        &word[..scheme + 3],
-                        &rest[..=colon],
-                        &rest[at..]
-                    );
-                }
-            }
-        }
-        if let Some(split) = word.find(['=', ':']) {
-            let name = word[..split].to_ascii_uppercase();
-            if SECRET_NAMES.iter().any(|secret| name.contains(secret)) && split + 1 < word.len() {
-                word = format!("{}***", &word[..=split]);
-            }
-        }
-        words.push(word);
-    }
-    let masked = words.join(" ");
+    let masked = MASKS
+        .iter()
+        .fold(line.to_owned(), |line, (pattern, replacement)| {
+            pattern.replace_all(&line, *replacement).into_owned()
+        });
     if masked.chars().count() > CAUSE_LINE_CHARS {
         format!(
             "{}...",
@@ -583,6 +788,121 @@ Successfully emitted OpenLineage `FAIL` event";
         }
         assert!(masked.contains("https://reader:***@synthetic.example/x"));
         assert_eq!(mask(&"x".repeat(500)).chars().count(), CAUSE_LINE_CHARS + 3);
+    }
+
+    #[test]
+    fn every_mask_compiles() {
+        // A pattern that does not compile is dropped, and its secrets would show.
+        assert_eq!(MASKS.len(), 7);
+    }
+
+    #[test]
+    fn spaced_quoted_and_command_line_credentials_are_hidden_too() {
+        for (line, expected) in [
+            (
+                r#"config {"user": "reader", "password": "two words"}"#,
+                r#"config {"user": "reader", "password": "***"}"#,
+            ),
+            (
+                r#"{"db_password":"pw1","host":"h"}"#,
+                r#"{"db_password":"***","host":"h"}"#,
+            ),
+            (
+                "spark-submit --password pw2 --name job",
+                "spark-submit --password *** --name job",
+            ),
+            ("aws_secret_access_key = pw3", "aws_secret_access_key = ***"),
+            ("AWS_SECRET_ACCESS_KEY: pw4", "AWS_SECRET_ACCESS_KEY: ***"),
+            (
+                "Authorization: Basic cmVhZGVyOnB3NQ==",
+                "Authorization: Basic ***",
+            ),
+            (
+                "headers={'Authorization': 'Token pw6'}",
+                "headers={'Authorization': 'Token ***'}",
+            ),
+            (
+                "client_secret='pw7' scope=read",
+                "client_secret='***' scope=read",
+            ),
+            ("--api-key=pw8", "--api-key=***"),
+        ] {
+            assert_eq!(mask(line), expected, "{line}");
+        }
+        assert_eq!(
+            mask("synthetic: FAILED: synthetic_silver_to_gold refused; 3 of 9 files"),
+            "synthetic: FAILED: synthetic_silver_to_gold refused; 3 of 9 files",
+            "a line without a credential is left as it is"
+        );
+    }
+
+    #[test]
+    fn a_log_the_scheduler_did_not_give_is_asked_for_again_only_later() {
+        let now = DateTime::parse_from_rfc3339("2026-01-02T08:00:00Z")
+            .map(|at| at.with_timezone(&Utc))
+            .unwrap_or_default();
+        let log = FailedRunLog {
+            run_urn: "run-1".to_owned(),
+            scheduler_run_id: None,
+            cause: FailureCause::Other,
+            cause_line: None,
+        };
+        let failures = BTreeMap::from([("dag".to_owned(), log.clone())]);
+        let miss = SchedulerMiss {
+            run_urn: "run-2".to_owned(),
+            error: "the scheduler answered 404".to_owned(),
+            retry_at: now + Duration::minutes(5),
+        };
+        let misses = BTreeMap::from([("dag".to_owned(), miss.clone())]);
+        let (no_failures, no_misses) = (BTreeMap::new(), BTreeMap::new());
+        assert_eq!(
+            log_read(&failures, &no_misses, "dag", "run-1", now),
+            LogRead::Known(log)
+        );
+        assert_eq!(
+            log_read(&no_failures, &misses, "dag", "run-2", now),
+            LogRead::Wait(miss)
+        );
+        assert_eq!(
+            log_read(
+                &no_failures,
+                &misses,
+                "dag",
+                "run-2",
+                now + Duration::minutes(5)
+            ),
+            LogRead::Ask,
+            "after the wait"
+        );
+        assert_eq!(
+            log_read(&failures, &misses, "dag", "run-3", now),
+            LogRead::Ask,
+            "a newer failed run"
+        );
+    }
+
+    #[test]
+    fn queued_and_running_runs_are_read_by_dag_newest_first() {
+        // The shape of Airflow 3's `GET /api/v2/dags/~/dagRuns`, ids made up.
+        let answer = json!({
+            "dag_runs": [
+                { "dag_id": "fold", "dag_run_id": "scheduled__b", "state": "queued", "run_after": "2026-01-02T07:00:00Z" },
+                { "dag_id": "fold", "dag_run_id": "scheduled__a", "state": "running", "run_after": "2026-01-02T06:00:00Z" },
+                { "dag_id": "bake", "dag_run_id": "manual__c", "state": "running", "run_after": "2026-01-02T05:30:00+00:00" },
+                { "dag_id": "done", "dag_run_id": "scheduled__d", "state": "success", "run_after": "2026-01-02T05:00:00Z" },
+                { "dag_id": "odd", "state": "queued" }
+            ],
+            "total_entries": 5
+        });
+        let runs = in_progress_runs(&answer);
+        assert_eq!(
+            runs.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["bake", "fold"]
+        );
+        assert_eq!(
+            runs.get("fold").map(DateTime::to_rfc3339),
+            Some("2026-01-02T07:00:00+00:00".to_owned())
+        );
     }
 
     #[test]

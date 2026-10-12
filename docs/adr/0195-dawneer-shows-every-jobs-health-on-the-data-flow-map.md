@@ -40,27 +40,37 @@ ADR-0188 의 데이터 흐름 화면은 작업이 "지금 도는지·끝났는�
 | Marquez(OpenLineage 참조 구현) | 데이터셋을 누르면 버전(스냅숏) 목록, 각 버전을 만든 실행, 실행 목록(시작·걸린 시간·결과) | 옆 패널의 실행 표와 스냅숏 목록, "이걸 읽은 것/읽은 것" |
 | Dagster asset health | 자산마다 신선도(freshness policy)·검사·실행 상태를 합친 한 색 | 다섯 신호를 한 칸 색으로, 맨 위 "문제 N건" |
 | Monte Carlo / 데이터 관측 도구 | 볼륨 이상(평소 대비 행 수), 신선도 이상 | 양 이상 = 최근 실행 중앙값 대비 ½ 이하 또는 2배 이상 |
-| Airflow SLA miss | 예약 시각 + 허용 시간 뒤 성공이 없으면 늦음 | 늦음 = 마지막 예약 시작 + `timeout_minutes` 가 지났는데 그 뒤 성공 없음 |
+| Airflow SLA miss | 예약 시각 + 허용 시간 뒤 성공이 없으면 늦음 | 늦음 = 마지막 예약 시작 + `timeout_minutes` 가 지났는데 그 뒤 성공 없음, 단 Airflow 에 대기·실행 중인 실행이 없을 때 |
 
 ## Decision
 
 1. **다섯 신호는 Foundation 이 계산하고 `ScheduledJobStatus.problems` 로 내보낸다.** 나쁜 것부터:
    - `failed` — 마지막 실행 실패(또는 재시도 대기). Airflow 로그에서 원인을 `out_of_memory`·`timed_out`·
-     `source_missing`·`other` 로 가르고, 그 줄을 비밀값을 가린 채(`scripts/ops/job-journal.sh` 와 같은 규칙) 240자로 싣는다.
+     `source_missing`·`other` 로 가르고, 그 줄을 비밀값을 가린 채 240자로 싣는다. 가리는 규칙은
+     `scripts/ops/job-journal.sh` 의 것에 더해 띄어 쓰거나 따옴표로 감싼 값(`"password": "x"`,
+     `aws_secret_access_key = x`), 명령줄 옵션(`--password x`), `Authorization: Basic x` 도 잡는다.
      systemd `result=` 가 `oom-kill`·`timeout` 이면 그것이 원인이다. 아니면 작업 자신의 `FAILED`/`refused` 줄,
      없으면 마지막 오류 줄. Spark 셔플 파일의 "No such file" 은 원천 없음이 아니다.
    - `blocked` — `upstream_job_ids` 를 따라 올라가 켜진 작업 중 실패했거나 막힌 것이 있으면. 막힌 작업은 늦음으로
      또 세지 않는다.
-   - `late` — 켜진 작업의 마지막 예약 시작이 `timeout_minutes` 전보다 앞서는데 그 뒤 성공이 없으면. 실행 기록을 못
-     읽었으면 아무것도 늦었다고 하지 않는다.
+   - `late` — 켜진 작업의 마지막 예약 시작이 `timeout_minutes` 전보다 앞서는데 그 뒤 성공이 없고, Airflow 가 그
+     DAG 의 실행을 대기(`queued`, 또는 `running` 인데 태스크가 풀 자리를 기다림)·실행 중으로 들고 있지도 않으면.
+     Spark 풀은 한 자리라 접기 작업은 설계상 최대 1,200분까지 기다린다(`job_specs.py` 의 굶주림 상한); 그 기다림은
+     늦음이 아니다. 실행 기록을 못 읽었으면 아무것도 늦었다고 하지 않는다. Airflow 를 못 읽었으면 직전에 읽은 대기 목록을
+     쓰고, 그것도 없으면 예약 시각으로 판정하며 `scheduler_error` 가 그 사실을 말한다.
    - `slow` — 마지막 실행(도는 중이면 지금까지)이 중앙값의 1.5배를 넘고 중앙값 + 10분 이상. 성공 3회 이상일 때만.
    - `volume` — 쓰는 Iceberg 표마다, 행을 쓴 최근 성공 실행의 행 수가 그 전 실행들 중앙값의 ½ 이하이거나 2배 이상.
      비교 대상이 3회 이상일 때만. 실행의 행 수 = 그 실행의 시작~끝 사이에 커밋된 `main` 스냅숏의 `added-records` 합
-     (`ScheduledJobRun.rows_written`).
+     (`ScheduledJobRun.rows_written`). **같은 종류의 실행끼리만 비교한다**: 표 전체를 다시 쓴 실행(커밋 하나라도
+     `added-records` ≥ `total-records`)은 전체 재작성끼리, 나머지는 증분끼리. 운영 Gold 패널(2026-10-07~12)은 전체
+     재작성 5,945,767행 넷 뒤에 증분 병합 47,153행이 왔고 Iceberg 는 둘 다 `operation=overwrite` 라 `operation` 으로는
+     못 가른다; 종류를 안 가르면 이런 전환마다 양 이상이 울린다.
    새 작업은 작업 목록에 넣는 것만으로 다섯 신호를 다 받는다. 신호용 목록은 따로 없다.
 2. **세 저장소를 한 번 읽어 30초 동안 쓰고, 그 뒤 요청은 들고 있던 것을 바로 주며 뒤에서 다시 읽는다**
    (stale-while-revalidate, `routes/data_catalog/facts.rs`). 표는 그 표를 쓰는 작업이 끝난 뒤나 30분 뒤에만 다시 읽고,
-   실패 로그는 실행마다 한 번 읽는다.
+   실패 로그는 실행마다 한 번 읽는다. Airflow 가 답하지 않은 것(못 준 로그, 거절된 로그인)은 10분 동안 다시 묻지 않고
+   그 이유를 계속 보인다. Airflow 의 대기·실행 중 실행 목록은 예약 시각으로 늦은 작업이 있을 때만, 모든 DAG 를 GET
+   한 번(`/api/v2/dags/~/dagRuns?state=queued&state=running`)으로 읽는다. 로그인은 읽기마다 한 번이다.
 3. **`GET /data-catalog/v1/dataset-snapshots?node_id=` 가 데이터셋의 스냅숏을 최신부터 준다**: 언제, 무슨 커밋,
    몇 행, 만든 실행(그 시각에 돌던 쓰는 작업의 실행), 넣은 원천 파일, 읽은 스냅숏(`read_from`), 그 스냅숏을 읽은 다른
    표의 스냅숏(`read_by`). 더니어 릴레이는 이 경로만 더 연다(GET 하나).

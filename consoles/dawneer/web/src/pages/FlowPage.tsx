@@ -168,7 +168,7 @@ export function FlowPage({ client, tab }: { client: DawneerClient; tab: FlowTab 
 }
 
 /** The top line (root ADR-0195): all fine, or how many problems and each one, a click away. */
-function HealthLine({
+export function HealthLine({
   rows,
   titleOf,
   now,
@@ -188,9 +188,12 @@ function HealthLine({
   }
   return (
     <section className="mt-4 rounded-lg border-2 border-red-600 bg-red-50 px-4 py-3" aria-labelledby="health-line">
-      <h2 id="health-line" className="text-lg font-bold text-red-800" role="status">
-        <span aria-hidden>⚠</span> 문제 {rows.length}건
-      </h2>
+      {/* The live region wraps the heading: role="status" on the h2 would take its heading role away. */}
+      <div role="status">
+        <h2 id="health-line" className="text-lg font-bold text-red-800">
+          <span aria-hidden>⚠</span> 문제 {rows.length}건
+        </h2>
+      </div>
       <ul className="mt-2 space-y-1">
         {rows.map((row) => (
           <li key={`${row.job.job_id}-${row.problem.kind}-${row.problem.kind === "volume" ? row.problem.node_id : ""}`}>
