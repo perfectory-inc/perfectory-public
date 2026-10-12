@@ -595,7 +595,12 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         "cargo xtask verify foundation --part cargo\n",
         "cargo xtask verify foundation --part suites\n",
     ] {
-        assert_eq!(ci.matches(half).count(), 1, "CI must run `{}` exactly once", half.trim_end());
+        assert_eq!(
+            ci.matches(half).count(),
+            1,
+            "CI must run `{}` exactly once",
+            half.trim_end()
+        );
     }
     assert_eq!(
         ci.matches("cargo xtask verify foundation").count(),
