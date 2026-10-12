@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0203-pull-request-ci-has-one-wall-clock-budget.md",
+  "rule": "A pull request attempt's wall time is the first workflow start to the last workflow finish over every pull_request run of one head SHA. The median attempt of each full UTC week must stay within pull_request_wall_minutes; attempts above it are reported one by one.",
+  "measured_by": "scripts/ci/ci_time_budget.py",
+  "pull_request_wall_minutes": 10
+}

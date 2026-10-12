@@ -60,6 +60,7 @@ for g in hook-isolation-self-test \
          actions-cache-controls-self-test billing-budgets-self-test \
          tiles-slice-proof-env-self-test \
          foundation-ci-scope-self-test \
+         ci-time-budget-self-test \
          live-lane-completeness-self-test live-lane-completeness \
          build-coupling-baseline-self-test build-coupling-baseline \
          lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \

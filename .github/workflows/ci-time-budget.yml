@@ -1,0 +1,40 @@
+name: ci-time-budget
+# Weekly trend of pull request CI wall time against the one budget in
+# tools/ci/ci-time-budget.contract.json (root ADR-0203). It gates no pull request:
+# a red run here means last week's median PR waited longer than the budget.
+on:
+  schedule:
+    - cron: "23 1 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trend:
+    name: CI time trend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: python3 -m unittest scripts/ci/test_ci_time_budget.py -v
+      # The runs API needs no extra scope on a public repository; the token only
+      # lifts the anonymous rate limit.
+      - name: Measure the last four weeks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/ci_time_budget.py measure --weeks 4 --out ci-time-trend.json --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload trend
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (SHA pin, ADR 0028)
+        with:
+          name: ci-time-trend
+          path: ci-time-trend.json
+          retention-days: 7
+      - name: Judge last week against the budget
+        run: python3 scripts/ci/ci_time_budget.py judge ci-time-trend.json

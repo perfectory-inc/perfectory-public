@@ -367,6 +367,55 @@ jobs:
 YAML
 expect_rejected single-required-job-condition "$test_root/single-required-conditional"
 
+# A schedule-only report workflow (root ADR-0203) is admitted without a PR trigger or
+# required context, but stays under every other rule, and any extra trigger or a
+# required context puts it back under the required shape.
+scheduled_fixture() {
+  mkdir "$test_root/$1"
+  cp "$test_root/valid/example.yml" "$test_root/$1/example.yml"
+  cat >"$test_root/$1/report.yml" <<'YAML'
+name: synthetic-report
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  report:
+    name: Report
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Tool
+        uses: example/tool@1111111111111111111111111111111111111111
+YAML
+}
+scheduled_fixture scheduled-report
+if ! "$checker" "$test_root/scheduled-report" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected a schedule-only report workflow" >&2
+  exit 1
+fi
+scheduled_fixture scheduled-required
+sed -i 's/^    name: Report$/    name: required\/example/' "$test_root/scheduled-required/report.yml"
+expect_rejected scheduled-required-context "$test_root/scheduled-required"
+# The duplicate context alone would also fail; require the schedule rule to be the reason.
+scheduled_required_error="$("$checker" "$test_root/scheduled-required" "$test_root/ruleset.json" \
+  "$test_root/actions.json" --semantic-self-test 2>&1 >/dev/null || true)"
+if [[ "$scheduled_required_error" != *'schedule-only workflow must not define a required'* ]]; then
+  echo "FAIL workflow-policy-self-test: a schedule-only required context was not named" >&2
+  exit 1
+fi
+scheduled_fixture scheduled-push
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/scheduled-push/report.yml"
+expect_rejected scheduled-with-push-trigger "$test_root/scheduled-push"
+scheduled_fixture scheduled-runner
+sed -i 's/runs-on: ubuntu-24.04/runs-on: self-hosted/' "$test_root/scheduled-runner/report.yml"
+expect_rejected scheduled-untrusted-runner "$test_root/scheduled-runner"
+scheduled_fixture scheduled-write
+sed -i 's/^  contents: read$/  contents: write/' "$test_root/scheduled-write/report.yml"
+expect_rejected scheduled-write-permission "$test_root/scheduled-write"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \
