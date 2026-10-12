@@ -153,21 +153,6 @@ export const API_PROXY_CLIENT_OPERATIONS = {
     targetPath: "api/complexes/:lakehouse_complex_id",
     methods: ["GET"],
   },
-  buildingsRead: {
-    sourcePolicyId: "gongzzang.api_proxy.buildings_read",
-    targetPath: "api/buildings",
-    methods: ["GET"],
-  },
-  buildingUnitsRead: {
-    sourcePolicyId: "gongzzang.api_proxy.building_units_read",
-    targetPath: "api/buildings/:building_id/units",
-    methods: ["GET"],
-  },
-  floorsRead: {
-    sourcePolicyId: "gongzzang.api_proxy.floors_read",
-    targetPath: "api/floors",
-    methods: ["GET"],
-  },
 } as const;
 
 export const apiProxyClient = {
@@ -435,19 +420,5 @@ export const apiProxyClient = {
       options?: ApiProxyRequestOptions,
     ) =>
       api.get(`api/complexes/${encodePathParam(params.lakehouse_complex_id)}`, options).json<T>(),
-  },
-  buildingsRead: {
-    get: (options?: ApiProxyRequestOptions) => api.get("api/buildings", options),
-    getJson: <T>(options?: ApiProxyRequestOptions) => api.get("api/buildings", options).json<T>(),
-  },
-  buildingUnitsRead: {
-    get: (params: { readonly building_id: string }, options?: ApiProxyRequestOptions) =>
-      api.get(`api/buildings/${encodePathParam(params.building_id)}/units`, options),
-    getJson: <T>(params: { readonly building_id: string }, options?: ApiProxyRequestOptions) =>
-      api.get(`api/buildings/${encodePathParam(params.building_id)}/units`, options).json<T>(),
-  },
-  floorsRead: {
-    get: (options?: ApiProxyRequestOptions) => api.get("api/floors", options),
-    getJson: <T>(options?: ApiProxyRequestOptions) => api.get("api/floors", options).json<T>(),
   },
 } as const;

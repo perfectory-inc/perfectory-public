@@ -38,23 +38,6 @@
       "success_shape": "object",
       "not_found_behavior": "none",
       "required_response_fields": ["complexes", "total", "page", "size", "has_next"]
-    },
-    {
-      "operation_id": "listParcelBuildingsByPnu",
-      "transport_module": "crates/foundation-platform-client/src/catalog.rs",
-      "adapter_module": "services/gongzzang-api/src/building_reader.rs",
-      "method": "GET",
-      "path_template": "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
-      "path_pattern_literal": "catalog/v1/parcels/by-pnu/{}/buildings",
-      "success_shape": "array",
-      "required_response_fields": [
-        "id",
-        "parcel_id",
-        "below_ground_floors",
-        "has_rooftop",
-        "rooftop_usage",
-        "updated_at"
-      ]
     }
   ]
 }

@@ -221,18 +221,6 @@
     {
       "source_policy_id": "gongzzang.api_proxy.complex_read",
       "reason": "key_strategy_not_representable_in_wafv2"
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.buildings_read",
-      "reason": "key_strategy_not_representable_in_wafv2"
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.building_units_read",
-      "reason": "key_strategy_not_representable_in_wafv2"
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.floors_read",
-      "reason": "key_strategy_not_representable_in_wafv2"
     }
   ],
   "service_identity_rules": [

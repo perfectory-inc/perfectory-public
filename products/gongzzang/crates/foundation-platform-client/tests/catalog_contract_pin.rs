@@ -54,6 +54,14 @@ fn catalog_snapshot_hash_and_consumed_surface_match_the_pin() -> Result<(), Box<
         assert!(endpoint
             .adapter_module
             .starts_with("services/gongzzang-api/src/"));
+        // A pinned endpoint whose adapter was deleted is a surface nobody consumes any more.
+        let product_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert!(
+            product_root.join(&endpoint.adapter_module).is_file(),
+            "{} pins adapter {} which does not exist; drop the stale endpoint from the pin",
+            endpoint.operation_id,
+            endpoint.adapter_module
+        );
 
         let operation =
             &openapi["paths"][&endpoint.path_template][endpoint.method.to_ascii_lowercase()];

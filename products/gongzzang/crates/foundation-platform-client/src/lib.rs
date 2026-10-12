@@ -8,12 +8,11 @@ use thiserror::Error;
 mod catalog;
 
 pub use catalog::{
-    CatalogBuildingResponse, CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
+    CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
     CatalogParcelCharacteristic, CatalogParcelEdgeClient, CatalogParcelForestLedger,
     CatalogParcelLandRight, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelTransferEvent,
-    CatalogParcelZoning, CatalogUnitOfficialPrice, CatalogUnitPageResponse, CatalogUnitResponse,
-    FoundationCatalogClient, FoundationCatalogClientConfigError,
+    CatalogParcelZoning, FoundationCatalogClient, FoundationCatalogClientConfigError,
     FoundationCatalogClientRequestError, FoundationCatalogHttpError,
 };
 
