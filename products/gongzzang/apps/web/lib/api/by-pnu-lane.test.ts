@@ -1,12 +1,11 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "@/lib/env";
 import {
-  documentSections,
   OUTPUT_PATH,
   readContract,
-  readGoldContracts,
   renderByPnuLanes,
   resolveWebLane,
 } from "../../../../scripts/generate-by-pnu-lanes";
@@ -17,14 +16,17 @@ import { type EdgeParcelProfile, parcelSummary, SUMMARY_LANES } from "./parcels"
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
 const PNU = "9999900000100000000";
 const contract = readContract();
-const goldContracts = readGoldContracts();
+const kindLines = contract.by_pnu_lanes as Record<
+  string,
+  { host?: string; section?: string; columns?: string[]; public_hostname?: string }
+>;
 
 describe("the lane registry is the contract's", () => {
-  it("is the generator's output for the committed contracts", () => {
-    expect(readFileSync(OUTPUT_PATH, "utf8")).toBe(renderByPnuLanes(contract, goldContracts));
+  it("is the generator's output for the committed contract", () => {
+    expect(readFileSync(OUTPUT_PATH, "utf8")).toBe(renderByPnuLanes(contract));
   });
 
-  it("resolves a host's kind by the rule the publisher and the Worker share", () => {
+  it("resolves a kind line by the rule the publisher and the Worker share", () => {
     const rule = contract.by_pnu_lane_rule as {
       test_vectors: {
         lane: string;
@@ -36,56 +38,61 @@ describe("the lane registry is the contract's", () => {
     };
     expect(rule.test_vectors.length).toBeGreaterThan(0);
     for (const vector of rule.test_vectors) {
-      const entry = { host: vector.host, kind: vector.kind, gold_table: "gold.parcel_zoning" };
+      const entry = { host: vector.host, kind: vector.kind, section: "s" };
       const lane = resolveWebLane(
         { ...contract, by_pnu_lanes: { [vector.lane]: entry } },
         vector.lane,
-        goldContracts,
       );
       expect(lane.path).toBe(vector.request_prefix);
       expect(lane.documentSchemaVersion).toBe(vector.document_schema_version);
       expect(lane.kind).toBe(vector.kind);
+      expect(lane.goldTable).toBe(`gold.${vector.lane.replaceAll("-", "_")}`);
     }
   });
 
-  it("refuses a lane that names a host the contract has no gateway for", () => {
-    const entry = { host: "nowhere_by_pnu_gateway", kind: "x", gold_table: "gold.parcel_zoning" };
-    expect(() => resolveWebLane({ by_pnu_lanes: { x: entry } }, "x", goldContracts)).toThrow(
-      /not a gateway/,
+  it("refuses a kind line without a gateway host or a section", () => {
+    const refused = (entry: object) => () =>
+      resolveWebLane({ ...contract, by_pnu_lanes: { x: entry } }, "x");
+    expect(refused({ host: "nowhere_by_pnu_gateway", kind: "x", section: "s" })).toThrow(
+      /not a kind line/,
     );
-  });
-
-  it("names a document's sections by the publisher's rule and refuses a table without one", () => {
-    expect(documentSections(goldContracts, "gold.parcel_zoning")).toEqual(["zonings"]);
-    const bare = { contracts: { "gold.t": { columns: [{ name: "pnu" }] } } };
-    expect(() => documentSections(bare, "gold.t")).toThrow(/no \*_json column/);
-    expect(() => documentSections(bare, "gold.missing")).toThrow(/no Gold table/);
+    expect(refused({ host: "parcel_by_pnu_gateway", kind: "x" })).toThrow(/not a kind line/);
   });
 
   it("sends every lane to the public host the contract serves it on", () => {
-    const lanes = contract.by_pnu_lanes as Record<
-      string,
-      { host?: string; public_hostname?: string }
-    >;
     for (const lane of Object.keys(BY_PNU_LANES) as ByPnuLaneName[]) {
-      const entry = lanes[lane];
+      const entry = kindLines[lane];
       const block = entry?.host === undefined ? entry : (contract[entry.host] as typeof entry);
       expect(new URL(laneUrl(lane, PNU)).host, lane).toBe(block?.public_hostname);
     }
   });
 
-  it("serves every parcel lane's sections under the names the bundle carries them", () => {
-    // The bundle answers for a kind during migration only if the lane's body field is its section.
-    const panel = documentSections(goldContracts, "gold.parcel_panel");
-    for (const entry of Object.values(BY_PNU_LANES)) {
-      if (entry.host === "parcel")
-        for (const section of entry.sections) expect(panel).toContain(section);
+  it("reads each kind's document field under the bundle section it is named for", () => {
+    // The document's first field is the first column without `_json` (the publisher's rule), and
+    // the bundle answers for a kind during migration only under that same name.
+    const panel = JSON.parse(
+      readFileSync(
+        resolve(
+          __dirname,
+          "../../../../../../platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        ),
+        "utf8",
+      ),
+    ).contracts["gold.parcel_panel"].columns.map(({ name }: { name: string }) => name);
+    for (const [lane, entry] of Object.entries(BY_PNU_LANES)) {
+      if (entry.section === null) continue;
+      expect(kindLines[lane]?.columns?.[0], lane).toBe(`${entry.section}_json`);
+      if (entry.host === "parcel") expect(panel, lane).toContain(`${entry.section}_json`);
     }
   });
 
-  it("finds the lane serving a section on a host and none elsewhere", () => {
-    expect(SUMMARY_LANES).toEqual({ zonings: "parcel-zoning" });
-    expect(lanesForSections("unit-price", ["zonings", "units"])).toEqual({ units: "unit-price" });
+  it("finds the lane serving each summary section, and none on another host", () => {
+    expect(SUMMARY_LANES).toEqual({
+      zonings: "parcel-zoning",
+      price: "parcel-price",
+      characteristics: "parcel-characteristics",
+    });
+    expect(lanesForSections("unit-price", ["zonings"])).toEqual({});
   });
 });
 

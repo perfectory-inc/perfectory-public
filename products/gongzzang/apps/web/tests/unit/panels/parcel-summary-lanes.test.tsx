@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { afterEach, expect, it, vi } from "vitest";
 import "@/components/panels/parcel/register";
 import { BY_PNU_LANES } from "@/lib/api/by-pnu-lanes.generated";
+import { SUMMARY_LANES } from "@/lib/api/parcels";
 import koMessages from "@/lib/i18n/ko.json";
 import { PanelEntryView } from "@/lib/panel/panel-entry-view";
 
@@ -36,11 +37,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Opens the parcel summary panel against edges answering `bundleAnswer` and `laneAnswer`. */
+/**
+ * Opens the parcel summary panel. The bundle answers `bundleAnswer`, the zoning lane `laneAnswer`,
+ * and the other summary lanes 503 (not published yet).
+ */
 function openSummary(bundleAnswer: () => Response, laneAnswer: () => Response) {
-  const fetch = vi.fn(async (url: string) =>
-    url.includes(zoning.path) ? laneAnswer() : bundleAnswer(),
-  );
+  const fetch = vi.fn(async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.startsWith(zoning.path)) return laneAnswer();
+    if (path.startsWith("/parcels/by-pnu/")) return bundleAnswer();
+    return new Response(null, { status: 503 });
+  });
   vi.stubGlobal("fetch", fetch);
   render(
     <NextIntlClientProvider locale="ko" messages={koMessages}>
@@ -54,17 +61,21 @@ function openSummary(bundleAnswer: () => Response, laneAnswer: () => Response) {
   return fetch;
 }
 
-it("draws the zoning its own lane serves over the bundle's, both read at once", async () => {
+it("draws the zoning its own lane serves over the bundle's, every lane read with the bundle", async () => {
   const fetch = openSummary(
     () => json(bundle),
     () => json(zoningDocument),
   );
   expect(await screen.findByText("공업지역")).toBeInTheDocument();
   expect(screen.queryByText("주거지역")).toBeNull();
-  expect(fetch.mock.calls.map(([url]) => new URL(url).pathname).sort()).toEqual([
-    `/parcels/by-pnu/${PNU}`,
-    `${zoning.path}${PNU}`,
-  ]);
+  expect(fetch.mock.calls.map(([url]) => new URL(url).pathname).sort()).toEqual(
+    [
+      `/parcels/by-pnu/${PNU}`,
+      ...Object.values(SUMMARY_LANES).map((lane) => `${BY_PNU_LANES[lane].path}${PNU}`),
+    ].sort(),
+  );
+  // The price and characteristics lanes are not published: the bundle answers for them.
+  expect(screen.getByText("1,000 원/㎡")).toBeInTheDocument();
 });
 
 it("keeps the bundle's zoning and asks once while the lane is not published (503)", async () => {
@@ -74,7 +85,8 @@ it("keeps the bundle's zoning and asks once while the lane is not published (503
   );
   expect(await screen.findByText("주거지역")).toBeInTheDocument();
   expect(screen.queryByText("불러오지 못했어요")).toBeNull();
-  expect(fetch.mock.calls.filter(([url]) => url.includes(zoning.path))).toHaveLength(1);
+  // Each lane is asked once: none of the three 503s is retried.
+  expect(fetch).toHaveBeenCalledTimes(1 + Object.keys(SUMMARY_LANES).length);
 });
 
 it("draws what the lanes serve for a parcel the bundle does not serve", async () => {
@@ -83,6 +95,6 @@ it("draws what the lanes serve for a parcel the bundle does not serve", async ()
     () => json(zoningDocument),
   );
   expect(await screen.findByText("공업지역")).toBeInTheDocument();
-  // The kinds no lane serves yet have no source left: they are drawn as failed, not as none.
+  // The unpublished kinds have no source left: they are drawn as failed, not as none.
   expect(screen.getAllByText("불러오지 못했어요")).toHaveLength(2);
 });

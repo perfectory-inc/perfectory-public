@@ -33,9 +33,13 @@ export function lanesForSections<S extends string>(
     ByPnuLaneName,
     (typeof BY_PNU_LANES)[ByPnuLaneName],
   ][]) {
-    if (entry.host !== host) continue;
-    for (const section of entry.sections) {
-      if ((sections as readonly string[]).includes(section)) lanes[section as S] = lane;
+    const { section } = entry;
+    if (
+      entry.host === host &&
+      section !== null &&
+      (sections as readonly string[]).includes(section)
+    ) {
+      lanes[section as S] = lane;
     }
   }
   return lanes;
