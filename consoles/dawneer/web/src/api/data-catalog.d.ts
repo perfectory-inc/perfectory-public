@@ -245,6 +245,18 @@ export interface components {
             next_run_at?: string | null;
             /** @description When it runs: the job list's cron schedule, in UTC. */
             schedule: string;
+            /**
+             * Format: int32
+             * @description How many succeeded runs `typical_duration_seconds` is the median of; 0 when it is absent.
+             */
+            typical_duration_runs: number;
+            /**
+             * Format: int64
+             * @description How long the job usually takes, in whole seconds: the median of `finished_at - started_at`
+             *     over the recent succeeded runs the data catalog holds for the catalog job of `last_run`.
+             *     Absent when none of those runs succeeded with both times recorded.
+             */
+            typical_duration_seconds?: number | null;
         };
         /** @description Every scheduled job and its latest run. */
         ScheduledJobsStatus: {

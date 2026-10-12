@@ -5,7 +5,7 @@
 //! (root ADR-0117 §6, ADR-0123). Foundation reads them back with fixed questions, as it does for
 //! search and lineage (root ADR-0119), and adds only what the catalog does not hold: the job list
 //! itself (`orchestration/jobs.v1.json`) and each job's next start, computed from its schedule
-//! there.
+//! there, and how long each job usually takes, from the durations of its recent succeeded runs.
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -34,8 +34,9 @@ const PAGE: u64 = 100;
 /// short silently: a job past the cut would otherwise look as if it had never run.
 const MAX_PAGES: u64 = 50;
 /// Child jobs of one flow (an Airflow DAG reports itself and its one task) and runs per child read.
+/// The runs read are also the ones a job's typical duration is the median of.
 const CHILD_JOBS: u64 = 10;
-const RUNS_PER_JOB: u64 = 5;
+const RUNS_PER_JOB: u64 = 10;
 
 /// The part of the job list this screen reads.
 #[derive(Debug, Deserialize)]
@@ -153,13 +154,23 @@ fn job_statuses(
         .iter()
         .map(|job| {
             let dag_id = format!("{}{}", list.dag_id_prefix, job.id);
-            let latest = flows
+            let runs: Vec<(String, ScheduledJobRun, i64)> = flows
                 .iter()
                 .filter(|flow| flow["flowId"].as_str() == Some(dag_id.as_str()))
                 .flat_map(child_runs)
+                .collect();
+            let latest = runs
+                .iter()
                 .max_by_key(|(_, run, last_event)| (*last_event, run.run_urn.clone()));
-            let (catalog_job_urn, last_run) =
-                latest.map_or((None, None), |(job_urn, run, _)| (Some(job_urn), Some(run)));
+            let catalog_job_urn = latest.map(|(job_urn, _, _)| job_urn.clone());
+            let last_run = latest.map(|(_, run, _)| run.clone());
+            // The same catalog job's runs only: the DAG and its task each report every run, so
+            // taking both would count one run twice.
+            let typical = typical_duration(
+                runs.iter()
+                    .filter(|(job_urn, _, _)| Some(job_urn) == catalog_job_urn.as_ref())
+                    .map(|(_, run, _)| run),
+            );
             ScheduledJobStatus {
                 job_id: job.id.clone(),
                 dag_id,
@@ -173,9 +184,36 @@ fn job_statuses(
                     .flatten(),
                 catalog_job_urn,
                 last_run,
+                typical_duration_seconds: typical.map(|(seconds, _)| seconds),
+                typical_duration_runs: typical.map_or(0, |(_, count)| count),
             }
         })
         .collect()
+}
+
+/// The median duration of the succeeded runs among `runs` that recorded both a start and a
+/// finish, in whole seconds, and how many runs it is the median of; `None` when there is none.
+///
+/// The median, not the mean: one run that waited out a long retry must not move what "usually"
+/// means. An even count takes the mean of the two middle durations, rounded down.
+fn typical_duration<'a>(runs: impl Iterator<Item = &'a ScheduledJobRun>) -> Option<(u64, u32)> {
+    let mut seconds: Vec<u64> = runs
+        .filter(|run| run.outcome == ScheduledJobRunOutcome::Succeeded)
+        .filter_map(|run| {
+            let took = run.finished_at?.signed_duration_since(run.started_at?);
+            u64::try_from(took.num_seconds()).ok()
+        })
+        .collect();
+    seconds.sort_unstable();
+    let count = seconds.len();
+    let upper = *seconds.get(count / 2)?;
+    let median = if count.is_multiple_of(2) {
+        let lower = *seconds.get(count / 2 - 1)?;
+        lower + (upper - lower) / 2
+    } else {
+        upper
+    };
+    Some((median, u32::try_from(count).unwrap_or(u32::MAX)))
 }
 
 /// The next time a five-field cron schedule starts a job after `now`, in UTC as Airflow reads it.
@@ -568,6 +606,113 @@ mod tests {
         ))
         .unwrap_or_else(|| unreachable!("the run has a state change"));
         assert_eq!(strange.outcome, ScheduledJobRunOutcome::Unknown);
+    }
+
+    /// A run of `minutes`, started at a fixed synthetic time, ending with `result`.
+    fn took(urn: &str, minutes: i64, result: &str) -> JsonValue {
+        let start = at("2026-01-01T07:20:00Z");
+        let end = start + chrono::Duration::minutes(minutes);
+        run(
+            urn,
+            &[
+                event("STARTED", &start.to_rfc3339(), None),
+                event("COMPLETE", &end.to_rfc3339(), Some(result)),
+            ],
+        )
+    }
+
+    fn typical_of(runs: &[JsonValue]) -> Option<(u64, u32)> {
+        let parsed: Vec<ScheduledJobRun> =
+            runs.iter().filter_map(run_from).map(|(r, _)| r).collect();
+        typical_duration(parsed.iter())
+    }
+
+    #[test]
+    fn the_typical_duration_is_the_median_of_succeeded_runs_with_both_times() {
+        assert_eq!(
+            typical_of(&[
+                took("a", 10, "SUCCESS"),
+                took("b", 30, "SUCCESS"),
+                took("c", 20, "SUCCESS")
+            ]),
+            Some((20 * 60, 3)),
+            "odd count: the middle one"
+        );
+        assert_eq!(
+            typical_of(&[
+                took("a", 10, "SUCCESS"),
+                took("b", 40, "SUCCESS"),
+                took("c", 20, "SUCCESS"),
+                took("d", 25, "SUCCESS"),
+            ]),
+            Some((22 * 60 + 30, 4)),
+            "even count: the mean of the two middle ones"
+        );
+        assert_eq!(
+            typical_of(&[
+                took("ok", 10, "SUCCESS"),
+                took("failed", 90, "FAILURE"),
+                took("retry", 90, "UP_FOR_RETRY"),
+                took("skipped", 0, "SKIPPED"),
+                run("running", &[event("STARTED", "2026-01-01T07:20:00Z", None)]),
+            ]),
+            Some((10 * 60, 1)),
+            "failed, retried, skipped and running runs are not durations of the job"
+        );
+        assert_eq!(
+            typical_of(&[
+                run(
+                    "no-start",
+                    &[event("COMPLETE", "2026-01-01T07:30:00Z", Some("SUCCESS"))]
+                ),
+                took("ok", 5, "SUCCESS"),
+            ]),
+            Some((5 * 60, 1)),
+            "a run without a recorded start has no duration"
+        );
+        assert_eq!(
+            typical_of(&[took("failed", 10, "FAILURE")]),
+            None,
+            "no succeeded run: no typical duration"
+        );
+        assert_eq!(typical_of(&[]), None);
+    }
+
+    #[test]
+    fn a_running_job_carries_the_typical_duration_of_its_own_catalog_job() {
+        let now = at("2026-01-02T08:00:00Z");
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[
+                // The DAG reports the same runs as its task; they must not count twice.
+                ("synthetic_nightly", vec![took("dag-1", 99, "SUCCESS")]),
+                (
+                    "synthetic_nightly.run",
+                    vec![
+                        run(
+                            "urn:li:dataProcessInstance:now",
+                            &[event("STARTED", "2026-01-02T07:20:00Z", None)],
+                        ),
+                        took("task-1", 30, "SUCCESS"),
+                        took("task-2", 40, "SUCCESS"),
+                        took("task-3", 50, "SUCCESS"),
+                    ],
+                ),
+            ],
+        )];
+        let statuses = job_statuses(&list(), &flows, now);
+        let nightly = &statuses[0];
+        assert_eq!(
+            nightly.last_run.as_ref().map(|r| r.outcome),
+            Some(ScheduledJobRunOutcome::Running)
+        );
+        assert_eq!(nightly.typical_duration_seconds, Some(40 * 60));
+        assert_eq!(nightly.typical_duration_runs, 3);
+        let never = &statuses[1];
+        assert_eq!(
+            (never.typical_duration_seconds, never.typical_duration_runs),
+            (None, 0)
+        );
     }
 
     #[test]
