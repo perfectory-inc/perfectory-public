@@ -419,6 +419,32 @@ describe("section pack format (golden bytes)", () => {
     expect(() => parseHead(corrupt, "")).toThrow();
   });
 
+  it("reads the publisher's format 2 golden pack by its PNU-and-suffix keys (root ADR-0204)", async () => {
+    const bytes = new Uint8Array(await readFile(new URL("format-wide-key.golden.pack", fixtures)));
+    const head = parseHead(bytes, "");
+    if (head === null) throw new Error("the golden head is incomplete");
+    expect(new DataView(bytes.buffer).getUint16(8, true)).toBe(PACK_POLICY.wide_key_format_version);
+    expect(head.keyLength).toBe(55);
+    expect(head.entryCount).toBe(3);
+    const second = findEntry(head, `9999900000100000000${"a".repeat(36)}`);
+    if (second === null) throw new Error("A's second building is missing");
+    const member = bytes.slice(head.bodyStart + second.offset, head.bodyStart + second.offset + second.length);
+    const decoded = await new Response(new Blob([member]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    expect(decoded).toBe('{"units":[1]}');
+    expect(findEntry(head, `9999900000100000000${"0".repeat(36)}`)?.state).toBe(1);
+    expect(findEntry(head, `9999900000100010000${"b".repeat(36)}`)).toMatchObject({ state: 2, length: 0 });
+    // A PNU alone, or a key of another length, is in no entry of a format 2 pack.
+    expect(findEntry(head, "9999900000100000000")).toBeNull();
+    expect(findEntry(head, `9999900000100000000${"a".repeat(35)}`)).toBeNull();
+    // A format 1 pack still reads with 19-byte keys.
+    const narrow = parseHead(new Uint8Array(await readFile(new URL("format.golden.pack", fixtures))), "");
+    expect(narrow?.keyLength).toBe(19);
+    // The version and the key length are read together: a format 2 pack that claims format 1 is refused.
+    const claimsOne = bytes.slice();
+    new DataView(claimsOne.buffer).setUint16(8, PACK_POLICY.format_version, true);
+    expect(() => parseHead(claimsOne, "")).toThrow();
+  });
+
   it("the lane serves exactly one section, the contract's anchor (root ADR-0151)", () => {
     expect([...PACKS.sections]).toEqual([PACKS.anchor_section]);
     expect(parseSectionPacks(sectionPacks([]), 64)?.fingerprint).toBe("packs-g1-p0");
