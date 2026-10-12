@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up the identity databases daily, before the foundation backup takes the night
+
+[Timer]
+OnCalendar=*-*-* 01:45:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=foundation-identity-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Drill the identity database restore weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=foundation-identity-restore-drill.service
+
+[Install]
+WantedBy=timers.target
