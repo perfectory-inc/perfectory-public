@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform: bound the Docker build cache and drop dangling images (root ADR-0198)
+Description=Foundation Platform: remove Docker images nothing on the host still needs (root ADR-0198)
 Requires=docker.service
 After=docker.service
 OnFailure=foundation-unit-failed@%n.service
@@ -9,7 +9,11 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
-ExecStart=/opt/foundation-platform/current/scripts/ops/host-retention.sh
+# ProtectHome hides the service user's ~/.docker and ProtectSystem makes the rest read-only, so the
+# Docker CLI gets a config directory it can write inside the unit's private /tmp.
+Environment=DOCKER_CONFIG=/tmp/docker-config
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/foundation-platform/current/scripts/ops/host_retention.py --reference-root /opt/perfectory-control/current
 TimeoutStartSec=1h
 NoNewPrivileges=true
 PrivateTmp=true

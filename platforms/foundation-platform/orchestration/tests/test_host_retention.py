@@ -7,13 +7,17 @@ images or volumes; and the release must install every file it ships under infra/
 
 from __future__ import annotations
 
+import io
+import json
 import os
 import pathlib
 import shutil
 import subprocess
 import tempfile
+import sys
 import time
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 AREA = pathlib.Path(__file__).resolve().parents[2]
 HOST = AREA / "infra" / "host"
@@ -107,50 +111,110 @@ class TheJournalCap(unittest.TestCase):
         self.assertIn("SystemKeepFree", settings)
 
 
-FAKE_DOCKER = """#!/bin/sh
-printf '%s\\n' "$*" >>"$DOCKER_CALLS"
-"""
-FAKE_DF = """#!/bin/sh
-printf 'Avail\\n%s\\n' "$(cat "$DF_ANSWER")"
-"""
+sys.path.insert(0, str(AREA / "scripts" / "ops"))
+import host_retention  # noqa: E402
+
+NOW = 1_800_000_000.0
+OLD = NOW - 30 * DAY
+PINNED_DIGEST = "a" * 64
 
 
-class TheDailyPrune(unittest.TestCase):
-    script = AREA / "scripts" / "ops" / "host-retention.sh"
+def image(name: str, *, tags=(), digests=(), created=OLD, size=100) -> host_retention.Image:
+    return host_retention.Image(f"sha256:{name}", tuple(tags), tuple(digests), created, size)
 
-    def run_prune(self) -> list[str]:
-        with tempfile.TemporaryDirectory(prefix="host-retention-") as temporary:
+
+class TheImagePrune(unittest.TestCase):
+    """Only images nothing needs go: not in use, not young, not the release's, not pinned."""
+
+    def choose(self, *images):
+        return [found.image_id for found in host_retention.removable(
+            images, used={"sha256:in-use"}, referenced_tags={"postgres:17-alpine"},
+            referenced_digests={PINNED_DIGEST}, now=NOW, min_age_days=7)]
+
+    def test_each_reason_to_keep_keeps(self):
+        chosen = self.choose(
+            image("in-use", tags=["agent/old:1"]),
+            image("young", tags=["agent/new:1"], created=NOW - DAY),
+            image("release", tags=["foundation-tippecanoe:0123abcd"]),
+            image("emergency", digests=[f"foundation-outbox-publisher@sha256:{'b' * 64}"]),
+            image("pinned-tag", tags=["postgres:17-alpine"]),
+            image("pinned-digest", digests=[f"apache/airflow@sha256:{PINNED_DIGEST}"]),
+            image("leftover", tags=["perfectory-verify:task74"]),
+            image("untagged", digests=[f"redis@sha256:{'c' * 64}"]),
+        )
+        self.assertEqual(chosen, ["sha256:leftover", "sha256:untagged"])
+
+    def test_references_come_from_the_deployed_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            bin_dir = root / "bin"
-            bin_dir.mkdir()
-            for name, body in (("docker", FAKE_DOCKER), ("df", FAKE_DF)):
-                (bin_dir / name).write_text(body, encoding="utf-8")
-                (bin_dir / name).chmod(0o755)
-            (root / "df").write_text("1073741824")
-            env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                       DOCKER_CALLS=str(root / "calls"), DF_ANSWER=str(root / "df"))
-            result = subprocess.run(["bash", str(self.script)], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("host-retention-ok", result.stdout)
-            return (root / "calls").read_text().splitlines()
+            (root / "infra").mkdir()
+            (root / "infra" / "compose.yaml").write_text(
+                f"image: postgres:17-alpine@sha256:{PINNED_DIGEST}\n", encoding="utf-8")
+            (root / "tools.env").write_text("SPARK_IMAGE=apache/spark:3.5.6\n", encoding="utf-8")
+            (root / "node_modules").mkdir()
+            (root / "node_modules" / "x.json").write_text('"busybox:1.36"', encoding="utf-8")
+            tags, digests = host_retention.references(root)
+        self.assertIn("postgres:17-alpine", tags)
+        self.assertIn("apache/spark:3.5.6", tags)
+        self.assertNotIn("busybox:1.36", tags)
+        self.assertEqual(digests, {PINNED_DIGEST})
 
-    @unittest.skipUnless(shutil.which("bash") and os.name != "nt", "the unit runs bash on the Linux host")
-    def test_it_bounds_the_build_cache_and_removes_only_dangling_images(self):
-        calls = self.run_prune()
-        self.assertEqual(len(calls), 2)
-        self.assertRegex(calls[0], r"^builder prune --force --max-used-space [0-9]+GB$")
-        self.assertEqual(calls[1], "image prune --force")
+    def run_main(self, *arguments):
+        calls = []
+        inspected = [
+            {"Id": "sha256:leftover", "RepoTags": ["agent/a:1", "agent/b:1"], "RepoDigests": [],
+             "Created": "2026-01-01T00:00:00.123Z", "Size": 10},
+            {"Id": "sha256:untagged", "RepoTags": [], "RepoDigests": [], "Created": "2026-01-01T00:00:00Z",
+             "Size": 5},
+        ]
 
-    def test_it_never_removes_tagged_images_volumes_or_everything(self):
-        text = self.script.read_text(encoding="utf-8")
-        commands = [line for line in text.splitlines() if line.startswith("docker ")]
-        for command in commands:
-            self.assertNotRegex(command, r"--all\b|\s-a\b|system prune|volume prune|container prune")
+        def runner(command):
+            calls.append(list(command))
+            if command[:3] == ["docker", "image", "ls"]:
+                return "sha256:leftover\nsha256:untagged\n"
+            if command[:3] == ["docker", "image", "inspect"]:
+                return json.dumps(inspected)
+            return ""
 
-    def test_the_unit_runs_the_script_daily(self):
+        with tempfile.TemporaryDirectory() as temporary, redirect_stdout(io.StringIO()) as out:
+            code = host_retention.main(["--reference-root", temporary, *arguments], runner=runner)
+        return code, calls, out.getvalue()
+
+    def test_a_run_removes_by_every_tag_or_by_id_and_prunes_only_aged_cache(self):
+        code, calls, out = self.run_main()
+        self.assertEqual(code, 0)
+        removals = [call[3] for call in calls if call[:3] == ["docker", "image", "rm"]]
+        self.assertEqual(removals, ["agent/a:1", "agent/b:1", "sha256:untagged"])
+        self.assertIn(["docker", "builder", "prune", "--force", "--filter", "until=168h"], calls)
+        self.assertIn("host-retention-ok images=2 image_bytes=15", out)
+
+    def test_a_dry_run_removes_nothing(self):
+        code, calls, out = self.run_main("--dry-run")
+        self.assertEqual(code, 0)
+        self.assertFalse([call for call in calls if call[1:3] in (["image", "rm"], ["builder", "prune"])])
+        self.assertIn("would-remove agent/a:1,agent/b:1", out)
+
+    def test_without_the_pinned_list_nothing_is_judged(self):
+        with redirect_stderr(io.StringIO()):
+            code = host_retention.main(["--reference-root", "/nonexistent/reference"],
+                                       runner=lambda command: self.fail(f"ran {command}"))
+        self.assertEqual(code, 65)
+
+    def test_it_only_removes_chosen_images_and_aged_cache(self):
+        _, calls, _ = self.run_main()
+        writes = [call for call in calls if call[1:3] not in (
+            ["image", "ls"], ["image", "inspect"], ["ps", "--all"], ["container", "inspect"])]
+        for call in writes:
+            self.assertIn(call[1:3], (["image", "rm"], ["builder", "prune"]), call)
+            self.assertNotIn("--all", call)
+            self.assertNotIn("-a", call)
+
+    def test_the_unit_runs_the_script_daily_with_a_writable_docker_config(self):
         unit = (AREA / "infra" / "systemd" / "foundation-host-retention.service").read_text()
         timer = (AREA / "infra" / "systemd" / "foundation-host-retention.timer").read_text()
-        self.assertIn("ExecStart=/opt/foundation-platform/current/scripts/ops/host-retention.sh\n", unit)
+        self.assertIn("scripts/ops/host_retention.py --reference-root /opt/perfectory-control/current", unit)
+        self.assertIn("Environment=DOCKER_CONFIG=/tmp/", unit)
+        self.assertIn("PrivateTmp=true", unit)
         self.assertIn("Unit=foundation-host-retention.service\n", timer)
         self.assertIn("OnCalendar=", timer)
 
