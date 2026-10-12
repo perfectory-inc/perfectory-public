@@ -10,7 +10,7 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 import { findEntry, parseHead, parseSectionPacks } from "../src/packs";
 
 // The golden packs and documents are written by the publisher's own tests
-// (`foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/tests.rs`), so
+// (`foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/tests.rs`), so
 // this reader and that writer are held to one set of bytes. PNUs and snapshot ids sit in the
 // repository-reserved synthetic namespaces (`scripts/guard/public-fixture-safety.py`).
 const PNU_A = "9999900000100000000";

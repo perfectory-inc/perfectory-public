@@ -1,0 +1,39 @@
+[package]
+name = "foundation-publisher-by-pnu"
+version = "0.1.0"
+description = "The outbox-publisher by-PNU serving lane: building and parcel exports, section packs, manifest publication, state, rebase, pins and patches (root ADR-0200)."
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+catalog-domain = { workspace = true }
+chrono = { workspace = true }
+# The section packs' gzip bytes are pinned by golden files the Worker also reads (root ADR-0147 §2),
+# and flate2's bytes depend on its backend. Inside the publisher executable `zip`'s deflate feature
+# switched zlib-rs on as a side effect; this lane names the backend it is pinned to instead.
+flate2 = { workspace = true, features = ["zlib-rs"] }
+foundation-contracts = { workspace = true }
+foundation-outbox = { workspace = true }
+foundation-publisher-core = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+futures-util = { workspace = true }
+lakehouse-domain = { workspace = true }
+lakehouse-infrastructure = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "v7"] }
+
+[dev-dependencies]
+foundation-publisher-core = { workspace = true, features = ["test-fixtures"] }
+wiremock = { workspace = true }

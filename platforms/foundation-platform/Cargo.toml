@@ -22,6 +22,8 @@ members = [
     "crates/technical/foundation-shapefile",
     "crates/technical/foundation-disposable-database",
     "crates/foundation-outbox",
+    "crates/publisher/foundation-publisher-core",
+    "crates/publisher/foundation-publisher-by-pnu",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
     "crates/publisher/foundation-publisher-silver",
@@ -160,6 +162,8 @@ foundation-publisher-silver = { path = "crates/publisher/foundation-publisher-si
 foundation-shapefile = { path = "crates/technical/foundation-shapefile" }
 foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }
+foundation-publisher-core   = { path = "crates/publisher/foundation-publisher-core" }
+foundation-publisher-by-pnu = { path = "crates/publisher/foundation-publisher-by-pnu" }
 
 [profile.release]
 lto = "thin"
