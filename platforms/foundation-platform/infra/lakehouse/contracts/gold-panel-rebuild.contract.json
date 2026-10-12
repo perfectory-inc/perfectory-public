@@ -32,12 +32,17 @@
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },
-    "gold.unit_price_history": {
+    "gold.unit_price_panel": {
       "unit": "unit-price",
-      "producer": "unit_price_history_silver_to_gold",
+      "producer": "unit_price_panel_silver_to_gold",
       "producer_arguments": [],
       "max_row_loss_fraction": 0.01,
-      "max_row_loss_reason": "One row per unit and reference date of the newest price vintage (root ADR-0189). A vintage keeps every reference date it ever published, so a new one only adds rows; losing more than 1% means a vintage lost a region or the unit join broke, which must not reach the bake.",
+      "max_row_loss_reason": "One row per PNU with a priced unit (root ADR-0189). A price vintage keeps every reference date it ever published and units are rarely removed, so a monthly refresh moves the count by far less than 1%; losing more means a vintage lost a region or the unit join broke, which must not reach the bake.",
+      "incremental": {
+        "max_changed_key_fraction": 0.3,
+        "parity_sample_keys": 20000,
+        "reason": "Root ADR-0180, as for the building panel. A monthly vintage changes the prices of few units, so its PNUs are recomputed and merged; a new reference date a year changes most priced PNUs and runs the full rebuild, which is then the cheaper commit."
+      },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
   }

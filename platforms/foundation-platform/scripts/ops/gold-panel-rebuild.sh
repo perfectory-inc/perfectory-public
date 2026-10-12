@@ -5,7 +5,7 @@
 #   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
 # `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, then
-# gold.unit_price_history (root ADR-0189), in the order of
+# gold.unit_price_panel (root ADR-0189), in the order of
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. One Spark run at a time: each takes
 # the whole compose `spark` cap (root ADR-0138). A failed table does not stop the other; `all`
 # fails if either did. One run of a table:

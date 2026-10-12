@@ -14,7 +14,7 @@ import test_industrial_complex_gold_schema_evolution  # noqa: F401  Import-only 
 import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402
 import parcel_panel_silver_to_gold as parcel  # noqa: E402
-import unit_price_history_silver_to_gold as prices  # noqa: E402
+import unit_price_panel_silver_to_gold as prices  # noqa: E402
 import gold_incremental as incremental  # noqa: E402
 
 ENTRY = {"producer": "fixture", "producer_arguments": [], "max_row_loss_fraction": 0.01}
@@ -215,14 +215,14 @@ class Write(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
-        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_history"})
+        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel"})
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
-        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_history": prices}
+        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
             producer = producers[name]
