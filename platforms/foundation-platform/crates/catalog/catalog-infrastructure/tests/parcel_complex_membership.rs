@@ -93,19 +93,6 @@ impl Fixture {
             .execute(&mut **tx)
             .await?;
         }
-        for (id, pnu) in [
-            (parcel_id, "9999900101100010001"),
-            (other_parcel_id, "9999900101100010002"),
-        ] {
-            sqlx::query(
-                "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-                 VALUES ($1, $2, 'factory', 1, 1)",
-            )
-            .bind(id)
-            .bind(pnu)
-            .execute(&mut **tx)
-            .await?;
-        }
         sqlx::query(
             "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
              VALUES ($1, 'test', $2, repeat('a', 64))",
@@ -477,10 +464,9 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 
 /// A parcel carries no industrial complex, and one outside every complex can exist.
 ///
-/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, which is the
-/// stronger statement — the old model is not refused, it is unwritable. Asserted against
-/// `information_schema` rather than by attempting a write, because a write would fail with the same
-/// error whether the column is absent or merely misspelled in the test.
+/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, and root ADR-0194
+/// dropped `catalog.parcel` itself. Asserted with `to_regclass` rather than by attempting a write,
+/// because a write would fail with the same error whether the table is absent or misspelled here.
 ///
 /// The second half is the point of the whole change: a parcel belonging to no complex is now a row
 /// the database accepts. While the column was NOT NULL it was not, and most of the country is that
@@ -490,30 +476,24 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 async fn a_parcel_carries_no_complex_and_may_belong_to_none() -> TestResult {
     let pool = pool().await?;
 
-    let column_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (
-             SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'catalog'
-                AND table_name = 'parcel'
-                AND column_name = 'complex_id'
-         )",
-    )
-    .fetch_one(&pool)
-    .await?;
-    assert!(
-        !column_exists,
-        "catalog.parcel.complex_id must be gone; membership is a fact between two entities"
-    );
+    // ADR-0194 §1 went further than dropping the column: the parcel, building and unit copies are
+    // gone, while the parcel facts that still have a home (identifiers, membership) stay.
+    for (table, expected) in [
+        ("catalog.parcel", false),
+        ("catalog.building", false),
+        ("catalog.building_unit", false),
+        ("catalog.parcel_identifier", true),
+        ("catalog.parcel_complex_membership", true),
+    ] {
+        let exists = sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(exists, expected, "{table}");
+    }
 
     let mut tx = pool.begin().await?;
     let unaffiliated_parcel = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-         VALUES ($1, '9999900101100019999', 'other', 1, 1)",
-    )
-    .bind(unaffiliated_parcel)
-    .execute(&mut *tx)
-    .await?;
 
     let memberships = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM catalog.parcel_current_complex WHERE parcel_id = $1",

@@ -217,9 +217,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 책임 | 물리 표 |
 |---|---|
-| 필지 기본·식별자 | `catalog.parcel`<br>`catalog.parcel_identifier` |
-| 건물 | `catalog.building` |
-| 건물의 호 | `catalog.building_unit` |
+| 필지 기본·식별자 | `catalog.parcel_identifier` |
 | 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_publication` |
 | 산업단지 | `catalog.industrial_complex` |
 | 산업단지 프로필 포인터 | `catalog.industrial_complex_gold_pointer` |

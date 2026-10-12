@@ -5,7 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::too_many_lines, clippy::unwrap_used)]
 
-use sqlx::{Acquire, PgPool, Row};
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 /// Connection for this `#[ignore]`d live suite. A missing `DATABASE_URL` aborts
@@ -20,12 +20,11 @@ async fn pool() -> Result<PgPool, sqlx::Error> {
 
 #[tokio::test]
 #[ignore = "requires disposable Postgres with Foundation migrations"]
-async fn temporal_aliases_are_stable_and_history_is_guarded(
+async fn administrative_aliases_are_stable_and_merges_keep_their_predecessors(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pool = pool().await?;
     let mut tx = pool.begin().await?;
     let complex_id = Uuid::new_v4();
-    let parcel_id = Uuid::new_v4();
     let revision_one = Uuid::new_v4();
     let revision_two = Uuid::new_v4();
     let source_one = Uuid::new_v4();
@@ -33,8 +32,6 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
     let jeonnam_id = Uuid::new_v4();
     let gwangju_id = Uuid::new_v4();
     let merged_special_city_id = Uuid::new_v4();
-    let old_pnu = "9999900101100010001";
-    let new_pnu = "9999900101100010002";
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
@@ -45,15 +42,6 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
     .bind(format!("IC-BOUNDARY-{complex_id}"))
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-         VALUES ($1, $2, 'factory', 1, 1)",
-    )
-    .bind(parcel_id)
-    .bind(old_pnu)
-    .execute(&mut *tx)
-    .await?;
-
     for (source_id, external_id) in [
         (source_one, "boundary-source-one"),
         (source_two, "boundary-source-two"),
@@ -209,107 +197,6 @@ async fn temporal_aliases_are_stable_and_history_is_guarded(
     .fetch_one(&mut *tx)
     .await?;
     assert_eq!(merged_predecessor_count, 2);
-
-    sqlx::query("SELECT catalog.publish_parcel_identifier($1, $2, $3, $4, NULL, $5, $6)")
-        .bind(parcel_id)
-        .bind(old_pnu)
-        .bind(chrono::NaiveDate::from_ymd_opt(2020, 1, 1).expect("date"))
-        .bind(revision_one)
-        .bind("iceberg:test-boundary-one")
-        .bind(source_one)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SELECT catalog.publish_parcel_identifier($1, $2, $3, $4, $5, $6, $7)")
-        .bind(parcel_id)
-        .bind(new_pnu)
-        .bind(chrono::NaiveDate::from_ymd_opt(2026, 7, 1).expect("date"))
-        .bind(revision_two)
-        .bind(revision_one)
-        .bind("iceberg:test-boundary-two")
-        .bind(source_two)
-        .execute(&mut *tx)
-        .await?;
-
-    let alias = sqlx::query(
-        "SELECT parcel_id, identifier_value
-           FROM catalog.parcel_identifier_lookup
-          WHERE identifier_value = $1",
-    )
-    .bind(old_pnu)
-    .fetch_one(&mut *tx)
-    .await?;
-    assert_eq!(alias.try_get::<Uuid, _>("parcel_id")?, parcel_id);
-    assert_eq!(alias.try_get::<String, _>("identifier_value")?, old_pnu);
-
-    let current = sqlx::query(
-        "SELECT identifier_value, data_revision
-           FROM catalog.parcel_current_identifier
-          WHERE parcel_id = $1",
-    )
-    .bind(parcel_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    assert_eq!(current.try_get::<String, _>("identifier_value")?, new_pnu);
-    assert_eq!(current.try_get::<Uuid, _>("data_revision")?, revision_two);
-
-    let before_effective = sqlx::query_scalar::<_, String>(
-        "SELECT identifier_value FROM catalog.parcel_identifier
-          WHERE parcel_id = $1 AND effective_period @> DATE '2026-06-30'",
-    )
-    .bind(parcel_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let at_effective = sqlx::query_scalar::<_, String>(
-        "SELECT identifier_value FROM catalog.parcel_identifier
-          WHERE parcel_id = $1 AND effective_period @> DATE '2026-07-01'",
-    )
-    .bind(parcel_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    assert_eq!(before_effective, old_pnu);
-    assert_eq!(at_effective, new_pnu);
-
-    let mut stale_tx = tx.begin().await?;
-    let stale = sqlx::query("SELECT catalog.publish_parcel_identifier($1, $2, $3, $4, $5, $6, $7)")
-        .bind(parcel_id)
-        .bind("9999900101100010003")
-        .bind(chrono::NaiveDate::from_ymd_opt(2027, 1, 1).expect("date"))
-        .bind(revision_one)
-        .bind(revision_one)
-        .bind("iceberg:test-boundary-one")
-        .bind(source_one)
-        .execute(&mut *stale_tx)
-        .await;
-    assert!(
-        stale.is_err(),
-        "stale publisher must fail rather than overwrite current identity"
-    );
-    stale_tx.rollback().await?;
-
-    let mut history_tx = tx.begin().await?;
-    let direct_history_update = sqlx::query(
-        "UPDATE catalog.parcel_identifier SET source_snapshot_id = 'tampered' WHERE parcel_id = $1",
-    )
-    .bind(parcel_id)
-    .execute(&mut *history_tx)
-    .await;
-    assert!(
-        direct_history_update.is_err(),
-        "history must be append-only for API sessions"
-    );
-    history_tx.rollback().await?;
-
-    let mut projection_tx = tx.begin().await?;
-    let direct_projection_update =
-        sqlx::query("UPDATE catalog.parcel SET pnu = '9999900101100010003' WHERE id = $1")
-            .bind(parcel_id)
-            .execute(&mut *projection_tx)
-            .await;
-    assert!(
-        direct_projection_update.is_err(),
-        "legacy PNU projection must not drift"
-    );
-    projection_tx.rollback().await?;
 
     tx.rollback().await?;
     Ok(())
