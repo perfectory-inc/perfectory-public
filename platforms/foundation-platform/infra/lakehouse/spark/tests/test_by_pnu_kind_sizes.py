@@ -17,8 +17,8 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import by_pnu_kind_sizes as sizes  # noqa: E402
 
-PNU_A = "1100000000100000000"
-PNU_B = "1100000000100000001"
+PNU_A = "9999910100100010000"
+PNU_B = "9999910100100020000"
 
 
 def parcel_row(**overrides):
