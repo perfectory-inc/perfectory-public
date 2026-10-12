@@ -224,12 +224,13 @@ def unit_areas(areas):
 
 
 def unit_placement(units, titles):
-    """Each unit with the building it hangs off (`_parent_pnu`, `building_register_pk`, `building_id`,
-    NULL when unlinked) and `serving_pnu`, the PNU whose document carries it: its building's when
-    linked, its own when not. The unit price history Gold places its rows with this same function
-    (root ADR-0190), so a unit's prices are served under the PNU its building document is."""
+    """Each unit with the building it hangs off (`_parent_pnu`, `building_register_pk`, and the
+    title's catalog `id` as `building_id`; NULL when unlinked) and `serving_pnu`, the PNU whose
+    document carries it: its building's when linked, its own when not. The unit price panel places
+    its units with this same function (root ADR-0190), so a unit's prices are served under the PNU
+    its building document is."""
     links = titles.select(F.col("pnu").alias("_parent_pnu"), F.col("mgm_bldrgst_pk").alias("building_register_pk"),
-                          canonical_id("building", F.col("mgm_bldrgst_pk")).alias("building_id"))
+                          F.col("id").alias("building_id"))
     units = verified_building_links(units).withColumn("building_register_pk", text_or_null("building_mgm_bldrgst_pk"))
     placed = units.join(links, "building_register_pk", "left")
     return placed.withColumn("serving_pnu", F.when(F.col("building_id").isNotNull(), F.col("_parent_pnu")).otherwise(F.col("pnu")))

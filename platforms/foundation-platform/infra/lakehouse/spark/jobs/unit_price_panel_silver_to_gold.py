@@ -120,6 +120,7 @@ def build_gold_frame(frames, source_snapshot_id, published_at_utc, counters):
     prices = panel.checked_prices(frames[PRICE_SOURCE])
     histories = prices.groupBy("mgm_bldrgst_pk").agg(
         F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
+    titles = titles.withColumn("id", panel.canonical_id("building", F.col("mgm_bldrgst_pk")))
     placed = panel.unit_placement(units, titles).select(
         "mgm_bldrgst_pk", F.col("serving_pnu").alias("pnu"),
         panel.canonical_id("building_unit", F.col("mgm_bldrgst_pk")).alias("id"))
