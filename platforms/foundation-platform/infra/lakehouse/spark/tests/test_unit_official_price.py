@@ -100,9 +100,13 @@ class UnitOfficialPriceTest(unittest.TestCase):
         self.assertIsNone(newest_batch([older, "older-source"]))
         self.assertIsNone(newest_batch([]))
         self.assertIsNone(batch_vintage("price:1|exclusive:2|vintage:2099"))
-        # Two batches of one vintage are never written; reading one would be a guess.
-        with self.assertRaisesRegex(ValueError, "2 batches of vintage 209908"):
-            newest_batch([newer, batch_source_snapshot_id(5, 6, "209908")])
+        # A vintage joined again from newer hub snapshots: the later batch, by commit order.
+        rejoined = batch_source_snapshot_id(5, 6, "209908")
+        self.assertEqual(newest_batch([newer, rejoined], [older, newer, rejoined]), rejoined)
+        self.assertEqual(newest_batch([newer, rejoined], [rejoined, newer]), newer)
+        # Without the order it is refused, not guessed.
+        with self.assertRaisesRegex(ValueError, "2 batches of vintage 209908 and their order is unknown"):
+            newest_batch([newer, rejoined])
 
 
 if __name__ == "__main__":

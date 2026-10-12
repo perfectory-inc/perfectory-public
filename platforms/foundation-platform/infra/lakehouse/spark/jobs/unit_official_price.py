@@ -73,21 +73,53 @@ def batch_vintage(source_snapshot_id: str | None) -> str | None:
     return match.group(1) if match else None
 
 
-def newest_batch(source_snapshot_ids) -> str | None:
+def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
     """The batch of the newest vintage among `source_snapshot_ids` (root ADR-0182).
 
     None when any id is not one this job writes: the reader then cannot tell which is newest and
-    keeps refusing the mix. Two batches of the newest vintage are refused by name: the derivation
-    never writes a second one, so that is an incident, not a choice.
+    keeps refusing the mix. A vintage joined again from newer hub snapshots (a release reloaded in
+    full after a partial one, 2026-10-11) has a later batch; the last one appended wins, by
+    `commit_order` (`batch_commit_order`). Without that order two batches of one vintage are
+    refused by name rather than guessed between.
     """
     vintages = {source: batch_vintage(source) for source in set(source_snapshot_ids)}
     if not vintages or None in vintages.values():
         return None
     newest = max(vintages.values())
-    batches = sorted(source for source, vintage in vintages.items() if vintage == newest)
-    if len(batches) > 1:
-        raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest}: {batches}")
-    return batches[0]
+    batches = {source for source, vintage in vintages.items() if vintage == newest}
+    if len(batches) == 1:
+        return next(iter(batches))
+    ordered = [batch for batch in commit_order if batch in batches]
+    if set(ordered) != batches:
+        raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest} "
+                         f"and their order is unknown: {sorted(batches)}")
+    return ordered[-1]
+
+
+def batch_commit_order(spark, qualified_table: str) -> list[str]:
+    """The batches main records, in the order they were appended (the ingest registry, ADR-0069).
+
+    Each batch's load identities are `unit-official-price/base-date-v2/<sido>/<batch>`.
+    """
+    from lakehouse_ingest import read_ingested_objects, unquoted_table_name
+
+    ingested = read_ingested_objects(spark, qualified_table, unquoted_table_name(qualified_table))
+    # Position in main's lineage, oldest first: the parent chain orders commits exactly, where
+    # commit times can tie.
+    heads = spark.sql(f"SELECT snapshot_id FROM {qualified_table}.refs WHERE name = 'main'").collect()
+    parents = {int(row.snapshot_id): (None if row.parent_id is None else int(row.parent_id))
+               for row in spark.sql(f"SELECT snapshot_id, parent_id FROM {qualified_table}.snapshots").collect()}
+    chain, current = [], int(heads[0].snapshot_id) if heads else None
+    while current is not None and current in parents and current not in chain:
+        chain.append(current)
+        current = parents[current]
+    position = {snapshot: index for index, snapshot in enumerate(reversed(chain))}
+    last: dict[str, int] = {}
+    for record, snapshot in ingested.items():
+        parts = record.split("/", 3)
+        if len(parts) == 4 and batch_vintage(parts[3]) is not None and snapshot in position:
+            last[parts[3]] = max(last.get(parts[3], -1), position[snapshot])
+    return sorted(last, key=last.__getitem__)
 
 
 def refuse_conflicting(conflicting: int) -> None:
@@ -168,11 +200,14 @@ def main(argv=None):
         spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
         # Refuse a year-only target; preserve it and replay the dated sources (ADR-0101).
         evolve_iceberg_table_to_contract(spark, target, contract)
-        held = sorted(row.source_snapshot_id for row in spark.table(target).select("source_snapshot_id").distinct().collect()
-                      if batch_vintage(row.source_snapshot_id) == args.vintage)
+        source_snapshot = batch_source_snapshot_id(price_snapshot, exclusive_snapshot, args.vintage)
+        held = [row.source_snapshot_id for row in spark.table(target).select("source_snapshot_id").distinct().collect()
+                if row.source_snapshot_id == source_snapshot]
         if held:
-            # One batch per vintage: a compaction or a reload of the same month gives the hub
-            # tables new snapshot ids, and a second batch of the month would duplicate it.
+            # The batch of exactly these hub snapshots is already joined. A batch of the same vintage
+            # from other snapshots is not: the price table's main moved since (a full reload after a
+            # partial one on 2026-10-11), so the vintage is joined again and the panel reads the
+            # later batch (newest_batch).
             summary = {"vintage": args.vintage, "appended": False, "held_by": held,
                        "elapsed_seconds": time.monotonic() - started}
             print(f"unit-official-price-unchanged {json.dumps(summary, sort_keys=True)}", flush=True)
@@ -194,7 +229,6 @@ def main(argv=None):
         unmatched = int(spark.sql("""SELECT COUNT(*) FROM reference_prices p
             LEFT JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
             WHERE d.mgmt_key IS NULL OR d.pnu IS NULL OR NOT (d.pnu REGEXP '^[0-9]{19}$')""").first()[0])
-        source_snapshot = batch_source_snapshot_id(price_snapshot, exclusive_snapshot, args.vintage)
         sido = F.substring("pnu", 1, 2)
         # One load identity per province, as the per-province runs wrote them: the registry keeps
         # one record per province and vintage.

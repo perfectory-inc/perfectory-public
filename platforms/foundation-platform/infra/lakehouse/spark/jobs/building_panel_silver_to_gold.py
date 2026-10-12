@@ -30,7 +30,7 @@ from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identi
 from building_link_evidence import evidence_policy, verified_building_links
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
-from unit_official_price import newest_batch
+from unit_official_price import batch_commit_order, newest_batch
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -150,8 +150,10 @@ def read_source(spark, args, name, pins):
         # The price table keeps every vintage's batch, each the whole history of reference dates;
         # the panel serves the newest (root ADR-0182). Ids the derivation did not write leave the
         # mix to be refused (assert_single_snapshot), unless a batch is named.
+        order = batch_commit_order(spark, f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}") \
+            if args.input_mode == "iceberg" else ()
         batch = args.price_source_snapshot_id or newest_batch(
-            row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect())
+            (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
     predicate = current_row_predicate(contract)
@@ -493,10 +495,28 @@ def main():
         spark.stop()
 
 
+# A Gold row carries a whole parcel's buildings, units and their price history as JSON: up to 12.7
+# million characters (measured 2026-10-11). The vectorized Parquet reader packs a batch's strings
+# into one Arrow buffer capped at 2 GiB, and an incremental rebuild reading this table failed on it
+# (OversizedAllocationException, 2026-10-11). Every reader of the table reads it row-wise: a table
+# property, set before anything reads the table, so a reader that knows nothing of it is covered
+# (the same decision as root ADR-0064 for the parcel boundaries).
+GOLD_READ_PROPERTIES = {"read.parquet.vectorization.enabled": "false"}
+
+
+def apply_gold_read_properties(spark, target_table):
+    if not spark.catalog.tableExists(target_table.replace("`", "")):
+        return
+    assignments = ", ".join(f"'{key}' = '{value}'" for key, value in GOLD_READ_PROPERTIES.items())
+    spark.sql(f"ALTER TABLE {target_table} SET TBLPROPERTIES ({assignments})")
+
+
 def run(spark, args, pins):
     """Build, check and write the Gold: whole, or only the changed PNUs merged (root ADR-0180)."""
     previous = incremental.validate_arguments(args, ALL_SOURCES)
     target_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{args.target_iceberg_table}`"
+    if args.write_mode == "iceberg":
+        apply_gold_read_properties(spark, target_table)
     snapshots, counters = {}, {}
     frames = read_inputs(spark, args, pins, snapshots)
     source_id = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()
@@ -520,6 +540,7 @@ def run(spark, args, pins):
             spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
             # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
             added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
+            apply_gold_read_properties(spark, target_table)  # a table this run created
             # The snapshot records the Silver pins it was built from (root ADR-0139).
             outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
             incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,

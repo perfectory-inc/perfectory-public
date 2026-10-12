@@ -222,6 +222,10 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         for name, snapshot in pins2.items():
             ref = self.spark.sql(f"SELECT snapshot_id FROM proof.{name}.refs WHERE name = '{tag}'").first()
             self.assertEqual(str(ref.snapshot_id), snapshot, f"{name} keeps the next comparison point")
+        # Its JSON rows overflow the vectorized reader's 2 GiB batch buffer in production: every
+        # reader reads the table row-wise (2026-10-11).
+        properties = {row.key: row.value for row in self.spark.sql("SHOW TBLPROPERTIES proof.gold.building_panel").collect()}
+        self.assertEqual(properties.get("read.parquet.vectorization.enabled"), "false")
 
         # No input moved: nothing to merge, and the commit records the pins only.
         quiet = self.run_job(job, pins2, "building_panel", "2099-03-01T00:00:00Z", previous=pins2)
