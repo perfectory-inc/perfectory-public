@@ -2,7 +2,7 @@
 # The operator's root steps of a by-PNU section pack cut-over (root ADR-0147, ADR-0160, ADR-0161,
 # ADR-0166), one fixed action at a time:
 #
-#   by-pnu-pack-operator.sh <building|parcel> bake <generation>
+#   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> bake <generation>
 #   by-pnu-pack-operator.sh <building|parcel> equality <generation>
 #   by-pnu-pack-operator.sh <building|parcel> latency <generation>
 #   by-pnu-pack-operator.sh <building|parcel> publish <generation>
@@ -50,8 +50,23 @@ log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
 USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
+# The pack-only lanes the contract this script ships with names (root ADR-0190).
+mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
+import json, sys
+print("\n".join(json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})))
+PY
+)
+is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" ACTION="${2:-}"
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || refuse "${USAGE}"
+# A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish and status:
+# its cut-over is the pack-only gate. Its gateway block is `by_pnu_lanes.<lane>`.
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" || refuse "${USAGE}"
+if is_pack_lane "${LANE}"; then
+  [[ " bake equality latency publish status " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish or status"
+  GATEWAY_BLOCK="by_pnu_lanes.${LANE}"
+else
+  GATEWAY_BLOCK="${LANE}_by_pnu_gateway"
+fi
 shift 2 || refuse "${USAGE}"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The release the host serves, not this checkout: the publisher and its scripts are the admitted
@@ -65,7 +80,7 @@ ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"
 SERVICE_OWNER="${FOUNDATION_OPERATOR_SERVICE_OWNER:-foundation-platform}"
 SERVICE_GROUP="${FOUNDATION_OPERATOR_SERVICE_GROUP:-foundation-platform}"
 ROOT_OWNER="${FOUNDATION_OPERATOR_ROOT_OWNER:-root}"
-P="FOUNDATION_PLATFORM_${LANE^^}_BY_PNU_SERVING"
+P="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING"
 # sudo runs the control checkout's copy; the work is done by the current release's own copy, which
 # binds its publisher from its own directory like every job (root ADR-0134 §3).
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -121,7 +136,8 @@ refuse_while_baking() {
   refuse_while_active "${BAKE_SCHEDULED}"
   running="$(running_units "${PACK_BAKES}")"
   [[ -z "${running}" ]] || refuse "a section pack bake is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
-  for lane in building parcel; do
+  for lane in building parcel ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
+    [[ -n "${lane}" ]] || continue
     lock="${BAKE_ROOT}/${lane}/lane.lock"
     if [[ -e "${lock}" ]] && ! flock -n "${lock}" true; then refuse "a run of the ${lane} lane holds ${lock}" 75; fi
   done
@@ -337,11 +353,12 @@ case "${ACTION}" in
   latency)
     [[ -s "${WORK}/equality.json" ]] || refuse "gate (나) draws its sample from ${WORK}/equality.json; run equality first" 65
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-latency-probe)"
-    preview="https://$(contract "${LANE}_by_pnu_gateway.section_packs.preview_worker.public_hostname")"
+    preview="https://$(contract "${GATEWAY_BLOCK}.section_packs.preview_worker.public_hostname")"
     if [[ -f "${WORK}/latency.json" ]]; then
       cp -p "${WORK}/latency.json" "${WORK}/latency-$(date -u -r "${WORK}/latency.json" +%Y%m%dT%H%M%SZ).json"
     fi
-    env=("${P}_PACK_GENERATION=${GENERATION}" "${P}_PACK_PREVIEW_BASE_URL=${preview}"
+    # A pack-only lane's probe reads its unpublished packs back from R2 to know each answer's content.
+    env=("${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_PACK_GENERATION=${GENERATION}" "${P}_PACK_PREVIEW_BASE_URL=${preview}"
       "${P}_PACK_EQUALITY_EVIDENCE_PATH=${WORK}/equality.json" "${P}_PACK_LATENCY_EVIDENCE_PATH=${WORK}/latency.json")
     command="probe-${LANE}-by-pnu-section-pack-latency"
     ;;

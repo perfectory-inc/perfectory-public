@@ -154,35 +154,22 @@ def validate_gold_frame(gold, expected_count):
     return metrics["row_count"], metrics
 
 
-def affected_pnus(old, new, changed):
-    """Every PNU whose row can read a row that differs between `old` and `new` (ADR-0180 §2).
+def _with_building_inputs(frames):
+    """`frames` and the floors and areas the building panel's dependency maps also read, empty: this
+    panel places units exactly as the building panel does, so it uses those maps, not a copy."""
+    empty = frames[TITLE_SOURCE].select("mgm_bldrgst_pk").limit(0)
+    return {**frames, panel.FLOOR_SOURCE: empty, panel.AREA_SOURCE: empty}
 
-    A changed price or unit names its unit register; a changed title names its building register,
-    which places every unit under it. Each reached unit's serving PNU counts on both sides — its
-    own PNU (unlinked) and its building's (linked) — so a PNU a unit left is recomputed too.
-    """
-    changes = {name: incremental.changed_rows(old[name], new[name], panel._register_keys(new[name])) for name in changed}
-    registers = [panel._registers(changes[name], "mgm_bldrgst_pk") for name in changes]
-    if UNIT_SOURCE in changes:
-        registers.append(panel._registers(changes[UNIT_SOURCE], "building_mgm_bldrgst_pk"))
-    if not registers:
-        return incremental.trimmed_keys(new[TITLE_SOURCE]).limit(0)
-    named = incremental.union_keys(registers, "_register")
-    units = old[UNIT_SOURCE].unionByName(new[UNIT_SOURCE])
-    titles = old[TITLE_SOURCE].unionByName(new[TITLE_SOURCE])
-    reached_units = incremental.rows_matching_any(
-        units, [("mgm_bldrgst_pk", named, "_register", False), ("building_mgm_bldrgst_pk", named, "_register", False)])
-    parents = panel._registers(reached_units, "building_mgm_bldrgst_pk")
-    reached_titles = titles.join(parents, titles.mgm_bldrgst_pk == parents._register, "left_semi")
-    return incremental.union_keys([incremental.trimmed_keys(reached_units), incremental.trimmed_keys(reached_titles)])
+
+def affected_pnus(old, new, changed, appended=None):
+    """Every PNU whose row can read a row that differs between `old` and `new` (ADR-0180 §2): the
+    building panel's map, since a unit's prices are served under the PNU its building document is."""
+    return panel.affected_pnus(_with_building_inputs(old), _with_building_inputs(new), changed, appended)
 
 
 def restrict_inputs(frames, keys):
     """The input rows the Gold rows of `keys` (a frame of `pnu`) are built from (ADR-0180 §2)."""
-    # The building panel's restriction places units the same way; it also restricts the floors and
-    # areas it reads, so it is handed empty ones and only this panel's inputs are kept.
-    empty = frames[TITLE_SOURCE].select("mgm_bldrgst_pk").limit(0)
-    restricted = panel.restrict_inputs({**frames, panel.FLOOR_SOURCE: empty, panel.AREA_SOURCE: empty}, keys)
+    restricted = panel.restrict_inputs(_with_building_inputs(frames), keys)
     return {name: restricted[name] for name in ALL_SOURCES}
 
 
@@ -221,7 +208,10 @@ def run(spark, args, pins):
     lane = incremental.Lane(
         build=lambda inputs: build_gold_frame(inputs, source_id, args.published_at_utc, counters),
         restrict=restrict_inputs, whole_table_inputs=WHOLE_TABLE_INPUTS,
-        affected=lambda changed: affected_pnus(read_inputs(spark, args, previous), frames, changed),
+        affected=lambda changed, appended: affected_pnus(
+            read_inputs(spark, args, previous), frames, changed,
+            panel.appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
+        append_inputs={name: panel.iceberg_table(args, name) for name in ALL_SOURCES},
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,

@@ -136,7 +136,11 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
     gateways = json.loads((platform / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
     workers = []
     for entry in contract["workers"]:
-        block = gateways.get(entry["gateway"])
+        # A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+        try:
+            block = _pointer(gateways, entry["gateway"])
+        except Refused:
+            block = None
         if not isinstance(block, dict) or not block.get("worker_name"):
             raise Refused(65, f"{entry['id']}: no gateway block {entry['gateway']!r} with a worker_name")
         config_path = platform / entry["service_dir"] / entry["wrangler_config"]

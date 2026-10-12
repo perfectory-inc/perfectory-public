@@ -22,6 +22,20 @@
       "smoke": {"kind": "by-pnu", "lane": "building"}
     },
     {
+      "id": "unit-price-gateway",
+      "gateway": "by_pnu_lanes.unit-price",
+      "preview": "section_packs.preview_worker",
+      "service_dir": "services/foundation-by-pnu-gateway",
+      "wrangler_config": "wrangler.unit-price.jsonc",
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "smoke": {
+        "kind": "http",
+        "path": "/unit-prices/by-pnu/_capabilities",
+        "status": 200,
+        "reason": "a pack-only lane (root ADR-0190) answers its capabilities before its first publish, while every PNU is still a 503: until the operator's cut-over its serving monitor has nothing to read. The cut-over makes this smoke kind by-pnu"
+      }
+    },
+    {
       "id": "tile-gateway",
       "gateway": "vector_tile_gateway",
       "service_dir": "services/foundation-tile-gateway",
