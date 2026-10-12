@@ -17,6 +17,12 @@ export const CONTRACT_PATH = fileURLToPath(
     import.meta.url,
   ),
 );
+export const GOLD_CONTRACTS_PATH = fileURLToPath(
+  new URL(
+    "../../../platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+    import.meta.url,
+  ),
+);
 export const OUTPUT_PATH = fileURLToPath(
   new URL("../apps/web/lib/api/by-pnu-lanes.generated.ts", import.meta.url),
 );
@@ -36,7 +42,12 @@ interface LaneEntry {
 export interface WebLane {
   /** `parcel` or `building` for a lane of a shared host; the lane itself when it is its own Worker. */
   host: string;
+  /** The kind's path segment on a shared host; the lane itself when it is its own Worker. */
+  kind: string;
   path: string;
+  /** The document's body fields: its Gold table's `*_json` columns without `_json` (the
+   * publisher's `pack_lane_document.rs` rule). */
+  sections: string[];
   documentSchemaVersion: string;
   goldTable: string;
 }
@@ -50,7 +61,23 @@ export function withKind(path: string, segment: string, kind: string): string {
   return parts.join("/");
 }
 
-export function resolveWebLane(contract: Record<string, unknown>, name: string): WebLane {
+/** The body fields a Gold table's lane document carries. */
+export function documentSections(goldContracts: Record<string, unknown>, table: string): string[] {
+  const contracts = goldContracts.contracts as Record<string, { columns: { name: string }[] }>;
+  const columns = contracts[table]?.columns;
+  if (columns === undefined) throw new Error(`the lakehouse contracts name no Gold table ${table}`);
+  const sections = columns.flatMap(({ name }) =>
+    name.endsWith("_json") ? [name.slice(0, -5)] : [],
+  );
+  if (sections.length === 0) throw new Error(`${table} has no *_json column for a document body`);
+  return sections;
+}
+
+export function resolveWebLane(
+  contract: Record<string, unknown>,
+  name: string,
+  goldContracts: Record<string, unknown>,
+): WebLane {
   const entry = (contract.by_pnu_lanes as Record<string, LaneEntry>)[name];
   if (entry === undefined) throw new Error(`the contract names no by-PNU lane ${name}`);
   if (entry.host === undefined) {
@@ -59,7 +86,9 @@ export function resolveWebLane(contract: Record<string, unknown>, name: string):
     }
     return {
       host: name,
+      kind: name,
       path: entry.request_path.prefix,
+      sections: documentSections(goldContracts, entry.gold_table),
       documentSchemaVersion: entry.document_schema_version,
       goldTable: entry.gold_table,
     };
@@ -71,26 +100,34 @@ export function resolveWebLane(contract: Record<string, unknown>, name: string):
   }
   return {
     host,
+    kind: entry.kind,
     path: withKind(block.request_path.prefix, "by-pnu", entry.kind),
+    sections: documentSections(goldContracts, entry.gold_table),
     documentSchemaVersion: `foundation-platform.${name.replaceAll("-", "_")}_by_pnu.v1`,
     goldTable: entry.gold_table,
   };
 }
 
-export function renderByPnuLanes(contract: Record<string, unknown>): string {
+export function renderByPnuLanes(
+  contract: Record<string, unknown>,
+  goldContracts: Record<string, unknown>,
+): string {
   const names = Object.keys(contract.by_pnu_lanes as object).sort();
   const lanes = names.map((name) => {
-    const lane = resolveWebLane(contract, name);
+    const lane = resolveWebLane(contract, name, goldContracts);
     return [
       `  ${JSON.stringify(name)}: {`,
       `    host: ${JSON.stringify(lane.host)},`,
+      `    kind: ${JSON.stringify(lane.kind)},`,
       `    path: ${JSON.stringify(lane.path)},`,
+      `    sections: ${JSON.stringify(lane.sections).replaceAll(",", ", ")},`,
       `    documentSchemaVersion: ${JSON.stringify(lane.documentSchemaVersion)},`,
       `    goldTable: ${JSON.stringify(lane.goldTable)},`,
       "  },",
     ].join("\n");
   });
-  return `// Generated from platforms/foundation-platform/config/r2-connections.contract.json (by_pnu_lanes).
+  return `// Generated from platforms/foundation-platform/config/r2-connections.contract.json (by_pnu_lanes)
+// and the lanes' Gold tables in infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json.
 // Run \`node scripts/generate-by-pnu-lanes.ts\` from products/gongzzang after editing the contract.
 
 /** Every by-PNU lane the web reads: the host serving it, its path there and its document. */
@@ -107,6 +144,10 @@ export function readContract(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONTRACT_PATH, "utf8"));
 }
 
+export function readGoldContracts(): Record<string, unknown> {
+  return JSON.parse(readFileSync(GOLD_CONTRACTS_PATH, "utf8"));
+}
+
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
-  writeFileSync(OUTPUT_PATH, renderByPnuLanes(readContract()));
+  writeFileSync(OUTPUT_PATH, renderByPnuLanes(readContract(), readGoldContracts()));
 }

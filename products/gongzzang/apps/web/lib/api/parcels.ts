@@ -6,13 +6,17 @@
 // document is mapped into the panel's existing `ParcelInfo` shape so the summary card is
 // unchanged — only the source moved from Postgres to R2.
 import { z } from "zod";
-import { type KindState, kindSection, type LaneDocument } from "./by-pnu-lane";
+import { env } from "@/lib/env";
+import {
+  fetchLaneDocument,
+  type KindState,
+  kindSection,
+  type LaneDocument,
+  lanesForSections,
+} from "./by-pnu-lane";
+import type { ByPnuLaneName } from "./by-pnu-lanes.generated";
 
-const parcelEdgeBaseUrl = (): string => {
-  const base = process.env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL;
-  if (!base) throw new Error("NEXT_PUBLIC_PARCEL_EDGE_BASE_URL is required for parcel detail");
-  return base.endsWith("/") ? base.slice(0, -1) : base;
-};
+const parcelEdgeBaseUrl = (): string => env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
 
 /** The panel's view model. Kept stable so `ParcelSummaryCard` needs no change. */
 export const ParcelInfoSchema = z.object({
@@ -95,19 +99,18 @@ export async function fetchParcel(pnu: string, signal?: AbortSignal): Promise<Ed
   return EdgeParcelProfileSchema.parse(await response.json());
 }
 
-type Section = "zonings" | "price" | "characteristics";
-
-/**
- * The summary's kinds (root ADR-0193 §5), each its lane and the bundle section it carries under the
- * same name. A lane the contract does not name yet is read from the bundle alone.
- */
-export const FIRST_PAINT_KINDS: readonly { lane: string; section: Section }[] = [
-  { lane: "parcel-zoning", section: "zonings" },
-  { lane: "parcel-price", section: "price" },
-  { lane: "parcel-characteristics", section: "characteristics" },
-];
+/** The bundle sections the summary draws (root ADR-0193 §5); each kind's lane serves it by name. */
+export const SUMMARY_SECTIONS = ["zonings", "price", "characteristics"] as const;
+type Section = (typeof SUMMARY_SECTIONS)[number];
+/** Which lane serves each section, from the generated registry. A section no lane serves yet is
+ * read from the bundle alone. */
+export const SUMMARY_LANES = lanesForSections("parcel", SUMMARY_SECTIONS);
 
 export type LaneQuery = { data?: LaneDocument; isError: boolean };
+export type ParcelSummary = {
+  info: ParcelInfo;
+  states: Record<Section, KindState<unknown>["state"]>;
+};
 
 /**
  * The summary of one parcel from its kinds' lanes and, while it is still served, the bundle. A
@@ -116,12 +119,12 @@ export type LaneQuery = { data?: LaneDocument; isError: boolean };
 export function parcelSummary(
   bundle: EdgeParcelProfile | undefined,
   pnu: string,
-  lanes: Readonly<Record<string, LaneQuery | undefined>>,
-): { info: ParcelInfo; states: Record<Section, KindState<unknown>["state"]> } {
+  lanes: Readonly<Partial<Record<Section, LaneQuery>>>,
+): ParcelSummary {
   const profile: EdgeParcelProfile = { schema_version: bundle?.schema_version ?? "", pnu };
-  const states = {} as Record<Section, KindState<unknown>["state"]>;
-  for (const { lane, section } of FIRST_PAINT_KINDS) {
-    let kind = kindSection(lanes[lane], section, bundle);
+  const states = {} as ParcelSummary["states"];
+  for (const section of SUMMARY_SECTIONS) {
+    let kind = kindSection(lanes[section], section, bundle);
     if (kind.state === "ok") {
       const parsed = EdgeParcelProfileSchema.shape[section].safeParse(kind.value);
       kind = parsed.success ? kind : kindSection(undefined, section, bundle);
@@ -130,4 +133,30 @@ export function parcelSummary(
     states[section] = kind.state;
   }
   return { info: toParcelInfo(profile), states };
+}
+
+/**
+ * The bundle and every summary lane read at once. Each lane is asked once: a lane not published
+ * yet (503) is not retried, the bundle answers for it. A parcel the bundle does not serve is still
+ * drawn from what its lanes serve; only a parcel nothing serves is an error.
+ */
+export async function fetchParcelSummary(
+  pnu: string,
+  signal?: AbortSignal,
+): Promise<ParcelSummary> {
+  const served = Object.entries(SUMMARY_LANES) as [Section, ByPnuLaneName][];
+  const [bundle, ...answers] = await Promise.allSettled([
+    fetchParcel(pnu, signal),
+    ...served.map(([, lane]) => fetchLaneDocument(lane, pnu, signal)),
+  ]);
+  const lanes: Partial<Record<Section, LaneQuery>> = {};
+  served.forEach(([section], i) => {
+    const answer = answers[i];
+    lanes[section] =
+      answer?.status === "fulfilled" ? { data: answer.value, isError: false } : { isError: true };
+  });
+  if (bundle.status === "fulfilled") return parcelSummary(bundle.value, pnu, lanes);
+  const summary = parcelSummary(undefined, pnu, lanes);
+  if (Object.values(summary.states).includes("ok")) return summary;
+  throw bundle.reason;
 }

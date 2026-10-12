@@ -3,22 +3,25 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "@/lib/env";
 import {
+  documentSections,
   OUTPUT_PATH,
   readContract,
+  readGoldContracts,
   renderByPnuLanes,
   resolveWebLane,
 } from "../../../../scripts/generate-by-pnu-lanes";
-import { fetchLaneDocument, kindSection, laneUrl } from "./by-pnu-lane";
+import { fetchLaneDocument, kindSection, lanesForSections, laneUrl } from "./by-pnu-lane";
 import { BY_PNU_LANES, type ByPnuLaneName } from "./by-pnu-lanes.generated";
-import { type EdgeParcelProfile, parcelSummary } from "./parcels";
+import { type EdgeParcelProfile, parcelSummary, SUMMARY_LANES } from "./parcels";
 
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
 const PNU = "9999900000100000000";
 const contract = readContract();
+const goldContracts = readGoldContracts();
 
 describe("the lane registry is the contract's", () => {
-  it("is the generator's output for the committed contract", () => {
-    expect(readFileSync(OUTPUT_PATH, "utf8")).toBe(renderByPnuLanes(contract));
+  it("is the generator's output for the committed contracts", () => {
+    expect(readFileSync(OUTPUT_PATH, "utf8")).toBe(renderByPnuLanes(contract, goldContracts));
   });
 
   it("resolves a host's kind by the rule the publisher and the Worker share", () => {
@@ -33,27 +36,30 @@ describe("the lane registry is the contract's", () => {
     };
     expect(rule.test_vectors.length).toBeGreaterThan(0);
     for (const vector of rule.test_vectors) {
+      const entry = { host: vector.host, kind: vector.kind, gold_table: "gold.parcel_zoning" };
       const lane = resolveWebLane(
-        {
-          ...contract,
-          by_pnu_lanes: {
-            [vector.lane]: { host: vector.host, kind: vector.kind, gold_table: "t" },
-          },
-        },
+        { ...contract, by_pnu_lanes: { [vector.lane]: entry } },
         vector.lane,
+        goldContracts,
       );
       expect(lane.path).toBe(vector.request_prefix);
       expect(lane.documentSchemaVersion).toBe(vector.document_schema_version);
+      expect(lane.kind).toBe(vector.kind);
     }
   });
 
   it("refuses a lane that names a host the contract has no gateway for", () => {
-    expect(() =>
-      resolveWebLane(
-        { by_pnu_lanes: { x: { host: "nowhere_by_pnu_gateway", kind: "x", gold_table: "t" } } },
-        "x",
-      ),
-    ).toThrow(/not a gateway/);
+    const entry = { host: "nowhere_by_pnu_gateway", kind: "x", gold_table: "gold.parcel_zoning" };
+    expect(() => resolveWebLane({ by_pnu_lanes: { x: entry } }, "x", goldContracts)).toThrow(
+      /not a gateway/,
+    );
+  });
+
+  it("names a document's sections by the publisher's rule and refuses a table without one", () => {
+    expect(documentSections(goldContracts, "gold.parcel_zoning")).toEqual(["zonings"]);
+    const bare = { contracts: { "gold.t": { columns: [{ name: "pnu" }] } } };
+    expect(() => documentSections(bare, "gold.t")).toThrow(/no \*_json column/);
+    expect(() => documentSections(bare, "gold.missing")).toThrow(/no Gold table/);
   });
 
   it("sends every lane to the public host the contract serves it on", () => {
@@ -66,6 +72,20 @@ describe("the lane registry is the contract's", () => {
       const block = entry?.host === undefined ? entry : (contract[entry.host] as typeof entry);
       expect(new URL(laneUrl(lane, PNU)).host, lane).toBe(block?.public_hostname);
     }
+  });
+
+  it("serves every parcel lane's sections under the names the bundle carries them", () => {
+    // The bundle answers for a kind during migration only if the lane's body field is its section.
+    const panel = documentSections(goldContracts, "gold.parcel_panel");
+    for (const entry of Object.values(BY_PNU_LANES)) {
+      if (entry.host === "parcel")
+        for (const section of entry.sections) expect(panel).toContain(section);
+    }
+  });
+
+  it("finds the lane serving a section on a host and none elsewhere", () => {
+    expect(SUMMARY_LANES).toEqual({ zonings: "parcel-zoning" });
+    expect(lanesForSections("unit-price", ["zonings", "units"])).toEqual({ units: "unit-price" });
   });
 });
 
@@ -156,7 +176,7 @@ describe("parcelSummary", () => {
     characteristics: { land_category: "x" },
   };
   const lane = (zonings: unknown) => ({
-    "parcel-zoning": { data: { status: "found" as const, document: { zonings } }, isError: false },
+    zonings: { data: { status: "found" as const, document: { zonings } }, isError: false },
   });
 
   it("draws the zoning from its lane and the other kinds from the bundle", () => {
@@ -175,13 +195,12 @@ describe("parcelSummary", () => {
     expect(parcelSummary(bundle, PNU, lane([{ zone_code: 7 }])).info.zoning).toBe("residential");
   });
 
-  it("draws a kind its lane does not have as none, and a failed one as failed", () => {
+  it("draws a kind its lane does not have as none, and one nothing serves as failed", () => {
     const { info, states } = parcelSummary(undefined, PNU, {
-      "parcel-zoning": { data: { status: "absent" }, isError: false },
-      "parcel-price": { isError: true },
+      zonings: { data: { status: "absent" }, isError: false },
+      price: { isError: true },
     });
     expect(info.zoning).toBeNull();
-    expect(states.zonings).toBe("empty");
-    expect(states.price).toBe("error");
+    expect(states).toEqual({ zonings: "empty", price: "error", characteristics: "error" });
   });
 });

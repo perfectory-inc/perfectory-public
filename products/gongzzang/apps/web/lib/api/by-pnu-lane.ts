@@ -1,9 +1,8 @@
 // apps/web/lib/api/by-pnu-lane.ts
 //
 // Each data kind is its own by-PNU document on its own lane (root ADR-0193): one generic read per
-// lane, keyed `["by-pnu", lane, pnu]` so two views of the same kind share one request. The lanes,
-// their hosts, paths and documents come from the generated registry, never from a hand list.
-import { queryOptions } from "@tanstack/react-query";
+// lane. The lanes, their hosts, paths and document sections come from the generated registry, never
+// from a hand list: a view names the sections it draws, the registry names the lanes serving them.
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { PnuSchema } from "./building-edge";
@@ -24,8 +23,22 @@ function hostBaseUrl(host: ByPnuHost): string {
   return bases[host].replace(/\/$/, "");
 }
 
-export function isByPnuLane(name: string): name is ByPnuLaneName {
-  return Object.hasOwn(BY_PNU_LANES, name);
+/** The lane of `host` whose document carries each section, if the contract names one. */
+export function lanesForSections<S extends string>(
+  host: ByPnuHost,
+  sections: readonly S[],
+): Partial<Record<S, ByPnuLaneName>> {
+  const lanes: Partial<Record<S, ByPnuLaneName>> = {};
+  for (const [lane, entry] of Object.entries(BY_PNU_LANES) as [
+    ByPnuLaneName,
+    (typeof BY_PNU_LANES)[ByPnuLaneName],
+  ][]) {
+    if (entry.host !== host) continue;
+    for (const section of entry.sections) {
+      if ((sections as readonly string[]).includes(section)) lanes[section as S] = lane;
+    }
+  }
+  return lanes;
 }
 
 export function laneUrl(lane: ByPnuLaneName, pnu: string): string {
@@ -61,14 +74,6 @@ export async function fetchLaneDocument(
   if (document.pnu !== pnu) throw new Error(`${lane} edge response PNU disagrees with request`);
   return { status: "found", document };
 }
-
-/** Root ADR-0193 §5: one key per lane and PNU, 30 minutes fresh. */
-export const byPnuLaneQuery = (lane: ByPnuLaneName, pnu: string) =>
-  queryOptions({
-    queryKey: ["by-pnu", lane, pnu] as const,
-    queryFn: ({ signal }) => fetchLaneDocument(lane, pnu, signal),
-    staleTime: 30 * 60_000,
-  });
 
 /** What a view draws for one kind of one PNU. */
 export type KindState<T> =
