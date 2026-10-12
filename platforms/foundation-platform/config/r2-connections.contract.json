@@ -461,9 +461,9 @@
   },
   "by_pnu_lanes": {
     "unit-price": {
-      "decision": "docs/adr/0189-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
+      "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,
-      "pack_only_reason": "a lane of one kind of data (root ADR-0189) is born serving from section packs: it never had an object lane, so its first publish is the pack-only cut-over gate and its Worker never reads objects",
+      "pack_only_reason": "a lane of one kind of data (root ADR-0190) is born serving from section packs: it never had an object lane, so its first publish is the pack-only cut-over gate and its Worker never reads objects",
       "gold_table": "gold.unit_price_panel",
       "document_schema_version": "foundation-platform.unit_price_by_pnu.v1",
       "latency_baseline_lane": "building",

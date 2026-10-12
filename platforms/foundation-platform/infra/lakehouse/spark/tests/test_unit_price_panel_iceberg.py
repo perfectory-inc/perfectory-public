@@ -1,4 +1,4 @@
-"""gold.unit_price_panel on a real local Iceberg catalog (root ADR-0189).
+"""gold.unit_price_panel on a real local Iceberg catalog (root ADR-0190).
 
 The producer runs its own `run` against Silver tables made from the lakehouse contracts: v1 in
 full, then a new price vintage (one price corrected, a reference date added, a unit's prices

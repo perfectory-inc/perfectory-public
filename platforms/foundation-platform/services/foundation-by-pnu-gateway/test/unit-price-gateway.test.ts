@@ -5,7 +5,7 @@ import { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 
-// A pack-only lane of the contract's `by_pnu_lanes` (root ADR-0189): it never had objects, so a
+// A pack-only lane of the contract's `by_pnu_lanes` (root ADR-0190): it never had objects, so a
 // manifest without section packs is an outage and an object at the base key is never read, whatever
 // the serving binding says. PNUs and snapshot ids sit in the repository-reserved synthetic
 // namespaces (`scripts/guard/public-fixture-safety.py`).

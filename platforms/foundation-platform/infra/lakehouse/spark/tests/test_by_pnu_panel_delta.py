@@ -43,7 +43,7 @@ class SnapshotIds(unittest.TestCase):
             self.assertFalse(Path(work, "s.json").exists())
 
     def test_every_lane_the_contract_names_is_a_unit(self):
-        # Root ADR-0189: a pack-only lane's Gold panel is compared like the parcel and building ones.
+        # Root ADR-0190: a pack-only lane's Gold panel is compared like the parcel and building ones.
         import json
         lanes = json.loads(delta.R2_CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_lanes"]
         self.assertTrue(lanes)

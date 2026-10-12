@@ -227,7 +227,7 @@ def unit_placement(units, titles):
     """Each unit with the building it hangs off (`_parent_pnu`, `building_register_pk`, `building_id`,
     NULL when unlinked) and `serving_pnu`, the PNU whose document carries it: its building's when
     linked, its own when not. The unit price history Gold places its rows with this same function
-    (root ADR-0189), so a unit's prices are served under the PNU its building document is."""
+    (root ADR-0190), so a unit's prices are served under the PNU its building document is."""
     links = titles.select(F.col("pnu").alias("_parent_pnu"), F.col("mgm_bldrgst_pk").alias("building_register_pk"),
                           canonical_id("building", F.col("mgm_bldrgst_pk")).alias("building_id"))
     units = verified_building_links(units).withColumn("building_register_pk", text_or_null("building_mgm_bldrgst_pk"))

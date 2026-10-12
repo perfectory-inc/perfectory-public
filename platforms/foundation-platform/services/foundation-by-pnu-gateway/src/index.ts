@@ -547,7 +547,7 @@ async function answerByPnu(
   // serves one, and the live route serves a generation only when the manifest already names it.
   // A version whose serving binding is off answers from objects while the manifest already names
   // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
-  // A pack-only lane (root ADR-0189) has no objects to roll back to: it serves packs regardless.
+  // A pack-only lane (root ADR-0190) has no objects to roll back to: it serves packs regardless.
   const servesPacks = packOnly || env[lanePacks.serving_binding] !== "off";
   let packs = servesPacks ? plan.packs : undefined;
   let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);

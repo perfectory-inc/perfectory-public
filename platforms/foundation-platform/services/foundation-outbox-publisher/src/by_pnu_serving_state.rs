@@ -130,7 +130,7 @@ pub async fn run_building() -> anyhow::Result<()> {
 }
 
 /// `show-<lane>-by-pnu-serving-state` of any lane. A pack-only lane that has no manifest yet
-/// (root ADR-0189: its first publish is the pack-only cut-over) writes only that it is not cut
+/// (root ADR-0190: its first publish is the pack-only cut-over) writes only that it is not cut
 /// over, so the scheduled bake leaves it to the operator.
 ///
 /// # Errors

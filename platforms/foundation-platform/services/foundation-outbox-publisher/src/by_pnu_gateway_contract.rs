@@ -6,7 +6,7 @@
 //! writes under and the grammar the Workers resolve are one fact. Every lane shares one shape.
 //!
 //! Besides the parcel and building lanes, the contract's `by_pnu_lanes` names lanes that serve
-//! from section packs only, each a Gold panel of one kind of data (root ADR-0189). Nothing of such
+//! from section packs only, each a Gold panel of one kind of data (root ADR-0190). Nothing of such
 //! a lane is written in code: its manifest unit, environment prefix and commands follow from its
 //! name.
 
@@ -30,7 +30,7 @@ const CLOUDFLARE_ANALYTICS_GROUP: &str = "cloudflare-analytics";
 pub(crate) enum ByPnuLane {
     Parcel,
     Building,
-    /// A lane the contract's `by_pnu_lanes` names, served from section packs only (root ADR-0189).
+    /// A lane the contract's `by_pnu_lanes` names, served from section packs only (root ADR-0190).
     Pack(&'static PackLane),
 }
 

@@ -3,7 +3,7 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 /// The by-PNU lane this build serves, fixed when the Worker is bundled (root ADR-0160): Wrangler's
 /// `define` in `wrangler.<lane>.jsonc`, vitest's in `vitest.config.ts`. One source serves every
 /// lane; the Workers differ only in the contract block they read: the parcel and building blocks,
-/// or a pack-only lane of the contract's `by_pnu_lanes` (root ADR-0189).
+/// or a pack-only lane of the contract's `by_pnu_lanes` (root ADR-0190).
 declare const __FOUNDATION_BY_PNU_LANE__: string;
 
 export const LANE = __FOUNDATION_BY_PNU_LANE__;

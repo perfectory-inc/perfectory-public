@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 /// One source, every lane (root ADR-0160): every test runs under the lane its file is for, the way
 /// `wrangler.<lane>.jsonc` bundles it. `parcel-*.test.ts` is the parcel lane, `unit-price-*.test.ts`
-/// the pack-only unit price lane (root ADR-0189); the rest is the building lane, which the pack read
+/// the pack-only unit price lane (root ADR-0190); the rest is the building lane, which the pack read
 /// path was built and measured on.
 const shared = {
   testTimeout: 20_000,

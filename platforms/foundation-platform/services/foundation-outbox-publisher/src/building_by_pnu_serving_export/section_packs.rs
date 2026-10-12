@@ -12,7 +12,7 @@
 //!
 //! Each command exists for every lane, with the lane's name in place of `building`
 //! (`export-parcel-by-pnu-section-packs`, `check-unit-price-gateway-version-health`, ...): the
-//! parcel lane and every lane the contract's `by_pnu_lanes` names (root ADR-0189). Environment
+//! parcel lane and every lane the contract's `by_pnu_lanes` names (root ADR-0190). Environment
 //! variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`,
 //! `FOUNDATION_PLATFORM_UNIT_PRICE_BY_PNU_SERVING_`).
 
@@ -61,7 +61,7 @@ pub(crate) struct PackCommand {
 
 impl PackCommand {
     /// The command a name spells, if it is one of these, for any lane: the parcel and building
-    /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0189).
+    /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0190).
     pub(crate) fn parse(name: &str) -> Option<Self> {
         const KINDS: [(&str, &str, PackCommandKind); 8] = [
             ("export-", "-by-pnu-section-packs", PackCommandKind::Export),

@@ -84,7 +84,7 @@ pub(crate) enum Renderer {
     Building(ApprovedBuildingLinks),
     /// The parcel document is the Gold row alone.
     Parcel,
-    /// A pack-only lane's document is its Gold row, rendered by rule (root ADR-0189).
+    /// A pack-only lane's document is its Gold row, rendered by rule (root ADR-0190).
     Pack(&'static PackLane),
 }
 

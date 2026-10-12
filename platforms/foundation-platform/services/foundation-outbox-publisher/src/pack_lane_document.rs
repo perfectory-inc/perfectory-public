@@ -1,4 +1,4 @@
-//! The served document of a pack-only lane (root ADR-0189): its Gold panel row, rendered by rule.
+//! The served document of a pack-only lane (root ADR-0190): its Gold panel row, rendered by rule.
 //!
 //! A pack-only lane's Gold is one row per PNU whose content columns are all `*_json` (checked when
 //! the contract is read). The document is the lane's document schema, the PNU, the Gold snapshot

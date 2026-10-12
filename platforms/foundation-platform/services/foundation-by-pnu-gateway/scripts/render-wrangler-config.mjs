@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 /// One source, one Wrangler config per by-PNU lane (root ADR-0160): `wrangler.building.jsonc`,
 /// `wrangler.parcel.jsonc` and one per pack-only lane of the contract's `by_pnu_lanes` (root
-/// ADR-0189), each the lane's gateway block and a `define` that fixes the lane the bundle serves
+/// ADR-0190), each the lane's gateway block and a `define` that fixes the lane the bundle serves
 /// (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`.
 const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
 

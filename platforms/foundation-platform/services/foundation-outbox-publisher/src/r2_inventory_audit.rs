@@ -875,7 +875,7 @@ fn by_pnu_serving_classification(key: &str) -> Option<Classification> {
             }
         }
     }
-    // A pack-only lane (root ADR-0189) writes no objects: its manifest and the manifests it kept.
+    // A pack-only lane (root ADR-0190) writes no objects: its manifest and the manifests it kept.
     let pack_lanes = ByPnuLane::all().unwrap_or_default();
     for lane in pack_lanes
         .into_iter()
@@ -885,14 +885,14 @@ fn by_pnu_serving_classification(key: &str) -> Option<Classification> {
             return Some(Classification {
                 name: "pack_lane_by_pnu_serving_manifest_pointer",
                 action: "keep",
-                reason: "Canonical manifest pointer of a pack-only by-PNU lane (root ADR-0189).",
+                reason: "Canonical manifest pointer of a pack-only by-PNU lane (root ADR-0190).",
             });
         }
         if by_pnu::is_manifest_history_key(lane, key) {
             return Some(Classification {
                 name: "pack_lane_by_pnu_serving_manifest_history",
                 action: "keep",
-                reason: "A replaced manifest of a pack-only by-PNU lane (root ADR-0189).",
+                reason: "A replaced manifest of a pack-only by-PNU lane (root ADR-0190).",
             });
         }
     }

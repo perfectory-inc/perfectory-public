@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 그 PNU 건물 문서가 싣는 호들의 공시가격 이력(루트 ADR-0189). 건물 패널과 떨어져 있어 가격 판은 건물 행을 건드리지 않는다."
+  purpose: "PNU마다 그 PNU 건물 문서가 싣는 호들의 공시가격 이력(루트 ADR-0190). 건물 패널과 떨어져 있어 가격 판은 건물 행을 건드리지 않는다."
 team:
   name: "foundation-platform"
 servers:

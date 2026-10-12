@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build gold.unit_price_panel: one row per PNU with its units' official price histories (root ADR-0189).
+"""Build gold.unit_price_panel: one row per PNU with its units' official price histories (root ADR-0190).
 
 A unit's price history is a time series on its own cadence (a monthly vintage, a new reference
 date a year). Its record of truth stays long and append-only in `silver.unit_official_price`; this

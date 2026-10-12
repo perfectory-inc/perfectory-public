@@ -4,7 +4,7 @@
 #   by-pnu-serving-bake.sh parcel|building|<a by_pnu_lanes lane>|all
 #
 # `all` (the registered job) bakes the parcel lane, then the building lane, then every pack-only
-# lane config/r2-connections.contract.json names in `by_pnu_lanes` (root ADR-0189), in this one
+# lane config/r2-connections.contract.json names in `by_pnu_lanes` (root ADR-0190), in this one
 # process tree: the host memory budget fits one lane's export at a time (root ADR-0138). A failed
 # lane does not stop the others; `all` fails if any did. A pack-only lane that has not been cut
 # over yet (no manifest: its first publish is the pack-only gate, run by the operator) is
@@ -180,7 +180,7 @@ rm -f "${state}"
 FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${state}" \
   "${PUBLISHER_BIN}" "show-${UNIT}-by-pnu-serving-state"
 if python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("cut_over") is not False)' "${state}"; then
-  log "nothing to do: the pack-only ${UNIT} lane is not cut over yet; its first publish is the operator's pack-only gate (root ADR-0189)"
+  log "nothing to do: the pack-only ${UNIT} lane is not cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"
   exit 0
 fi
 read -r gold base base_objects reflected patch_count newest_patch cumulative served_schema \

@@ -5,7 +5,7 @@
 #   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
 # `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, then
-# gold.unit_price_panel (root ADR-0189), in the order of
+# gold.unit_price_panel (root ADR-0190), in the order of
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. One Spark run at a time: each takes
 # the whole compose `spark` cap (root ADR-0138). A failed table does not stop the other; `all`
 # fails if either did. One run of a table:
@@ -146,7 +146,7 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
-# 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0189): silver.unit_official_price joins the two hub
+# 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0190): silver.unit_official_price joins the two hub
 # tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
 # The join belongs to this job because only this job reads it, and because the spark pool has no
 # room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.

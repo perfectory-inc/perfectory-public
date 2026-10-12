@@ -1,5 +1,5 @@
 //! One row per PNU with its units' official price histories, apart from the building panel
-//! (root ADR-0189).
+//! (root ADR-0190).
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
     LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,

@@ -165,7 +165,7 @@ pub(crate) async fn publish(
     let live = match &stored {
         Some((bytes, _)) => ServedManifest::parse(config.lane, bytes)
             .context("the live manifest cannot be read; refusing to replace it")?,
-        // A pack-only lane's first publish writes its first manifest (root ADR-0189).
+        // A pack-only lane's first publish writes its first manifest (root ADR-0190).
         None => pack_only_envelope(config)?,
     };
     let live = if live.wire_schema_version == 1 {
@@ -221,7 +221,7 @@ pub(crate) async fn publish(
     Ok(state)
 }
 
-/// The v2 envelope a pack-only lane's first manifest carries (root ADR-0189): no object was ever
+/// The v2 envelope a pack-only lane's first manifest carries (root ADR-0190): no object was ever
 /// written, so it names a base generation of none (`object_count` 0) at the snapshot being
 /// published, and only its `section_packs` block serves. The lane's Worker never reads objects.
 ///

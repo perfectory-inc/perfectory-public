@@ -270,7 +270,7 @@ pub(crate) struct LatencyEvidence {
     /// compared against the production route never opens the gate.
     #[serde(default)]
     pub(crate) cold_live_read_paths: BTreeMap<String, u64>,
-    /// The lane a pack-only lane's preview was measured against (root ADR-0189); `None` when the
+    /// The lane a pack-only lane's preview was measured against (root ADR-0190); `None` when the
     /// live side was the lane's own object path. The publish holds it to the contract's.
     #[serde(default)]
     pub(crate) baseline_lane: Option<String>,

@@ -1,4 +1,4 @@
-//! A pack-only lane (root ADR-0189) end to end on a local store: the contract's `unit-price` lane
+//! A pack-only lane (root ADR-0190) end to end on a local store: the contract's `unit-price` lane
 //! bakes its Gold panel by rule, passes gate (가), and its first publish writes the lane's first
 //! manifest, holding the latency evidence to the contract's baseline lane. PNUs and snapshot ids sit
 //! in the repository-reserved synthetic namespaces (`scripts/guard/public-fixture-safety.py`).

@@ -86,7 +86,7 @@ pub(crate) struct LatencyConfig {
     /// The unit of each sampled PNU, from the equality evidence (root ADR-0163): a read is cold on
     /// the first of its unit. Empty, each PNU's unit is its dong.
     pub(crate) sample_units: Vec<String>,
-    /// A pack-only lane's comparison (root ADR-0189); `None` for a lane with an object path.
+    /// A pack-only lane's comparison (root ADR-0190); `None` for a lane with an object path.
     pub(crate) baseline: Option<Baseline>,
 }
 

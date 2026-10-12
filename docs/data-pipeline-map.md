@@ -288,7 +288,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 수집 객체 등록부 (`lakehouse-object-registry`) | 실행 경로 있음 | 수집 원장 전체에서 객체 재고를 등록·대조한다. |
 | 건물 by-PNU 서빙 문서 (`building-by-pnu-serving`) | 실행 경로 있음 | gold.building_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0100). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
 | 건물 by-PNU 묶음 파일 (`building-by-pnu-section-packs`) | 실행 경로 있음 | gold.building_panel 의 PNU 문서를 법정동 묶음 파일(머리+색인+본문, 문서 통째의 gzip 덩어리)로 굽는다(루트 ADR-0147, ADR-0151). 2026-10-07 부터 운영 주소가 이 묶음으로 서빙하고, 매일 바뀐 문서는 패치 묶음으로 반영한다. |
-| 호 공시가격 by-PNU 묶음 파일 (`unit-price-by-pnu-section-packs`) | 실행 경로 있음 | gold.unit_price_panel 의 PNU 문서를 법정동 묶음 파일로 굽는다. 객체 레인 없이 묶음으로만 서빙하는 첫 레인이다(루트 ADR-0189). 웹은 건물 문서와 호 id 로 합친다. |
+| 호 공시가격 by-PNU 묶음 파일 (`unit-price-by-pnu-section-packs`) | 실행 경로 있음 | gold.unit_price_panel 의 PNU 문서를 법정동 묶음 파일로 굽는다. 객체 레인 없이 묶음으로만 서빙하는 첫 레인이다(루트 ADR-0190). 웹은 건물 문서와 호 id 로 합친다. |
 | 필지 by-PNU 서빙 문서 (`parcel-by-pnu-serving`) | 실행 경로 있음 | gold.parcel_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0096). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다. |
 | 필지 by-PNU 묶음 파일 (`parcel-by-pnu-section-packs`) | 일부 연결 | gold.parcel_panel 의 PNU 문서(용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권을 합친 한 문서)를 법정동 묶음 파일로 굽는다(루트 ADR-0147 §8, ADR-0160). 건물 묶음과 같은 형식·관문·Worker 소스를 쓴다. 전환 전에는 객체가 서빙한다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
