@@ -781,3 +781,94 @@ async fn a_resumed_load_reads_what_its_branch_records_or_mains_before_it_exists(
     assert_eq!(not_made.into_iter().collect::<Vec<_>>(), ["part-0001"]);
     Ok(())
 }
+
+#[tokio::test]
+async fn reads_mains_snapshot_history_newest_first_without_other_branches(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "prefix").await;
+    Mock::given(method("GET"))
+        .and(path("/v1/prefix/namespaces/gold/tables/synthetic_panel"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://bucket/gold/synthetic_panel/metadata/00004.json",
+            "metadata": {
+                "current-snapshot-id": 3,
+                "refs": {
+                    "main": {"snapshot-id": 3, "type": "branch"},
+                    "staged": {"snapshot-id": 9, "type": "branch"}
+                },
+                "snapshots": [
+                    {"snapshot-id": 1, "timestamp-ms": 1000, "summary": {"operation": "append", "added-records": "10",
+                     "foundation.ingest-batch-objects": "bronze/a.zip,bronze/b.zip"}},
+                    {"snapshot-id": 3, "parent-snapshot-id": 1, "timestamp-ms": 3000,
+                     "summary": {"operation": "overwrite", "added-records": "12",
+                                 "foundation.source-iceberg-snapshots": "{\"silver.a\":\"7\"}"}},
+                    {"snapshot-id": 9, "parent-snapshot-id": 3, "timestamp-ms": 9000, "summary": {"operation": "append"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let history = catalog
+        .load_main_snapshot_history("gold.synthetic_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+
+    let ids: Vec<i64> = history
+        .iter()
+        .map(|snapshot| snapshot.snapshot_id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec![3, 1],
+        "main's lineage, newest first, not the staged branch"
+    );
+    assert_eq!(history[0].timestamp_ms, Some(3000));
+    assert_eq!(
+        history[0].summary.get("added-records").map(String::as_str),
+        Some("12")
+    );
+    assert_eq!(
+        history[0]
+            .summary
+            .get("foundation.source-iceberg-snapshots")
+            .map(String::as_str),
+        Some("{\"silver.a\":\"7\"}")
+    );
+    assert_eq!(history[0].added_records(), Some(12));
+    assert_eq!(
+        history[0].source_snapshots(),
+        std::collections::BTreeMap::from([("silver.a".to_owned(), 7)])
+    );
+    assert!(history[1].source_snapshots().is_empty());
+    assert_eq!(
+        history[1].ingested_objects(),
+        vec!["bronze/a.zip", "bronze/b.zip"]
+    );
+    assert!(history[0].ingested_objects().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_table_never_written_has_an_empty_history() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "prefix").await;
+    // The R2 catalog leaves out `current-snapshot-id` and `snapshots` until the first commit.
+    Mock::given(method("GET"))
+        .and(path("/v1/prefix/namespaces/silver/tables/synthetic_empty"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://bucket/silver/synthetic_empty/metadata/00000.json",
+            "metadata": {"format-version": 2, "last-sequence-number": 0, "refs": {}}
+        })))
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let history = catalog
+        .load_main_snapshot_history("silver.synthetic_empty")
+        .await?;
+    assert_eq!(history, Some(Vec::new()));
+    Ok(())
+}

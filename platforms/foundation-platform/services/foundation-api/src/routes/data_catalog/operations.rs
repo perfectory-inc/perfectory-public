@@ -11,6 +11,7 @@
 //! derives it for the scheduler and renders it to `orchestration/job-dependencies.v1.json`, which a
 //! test keeps equal to that derivation; this reads the rendered file (root ADR-0188).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -20,14 +21,14 @@ use chrono::{DateTime, TimeZone, Utc};
 use croner::Cron;
 use foundation_contracts::data_catalog::{
     DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
-    ScheduledJobDataset, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
-    ScheduledJobStatus, ScheduledJobsStatus,
+    OperationsLinks, ScheduledJobDataset, ScheduledJobRun, ScheduledJobRunOutcome,
+    ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
-use super::{ask, text};
+use super::{ask, facts, health, text};
 use crate::routes::api_error::ApiError;
 use crate::state::AppState;
 
@@ -36,6 +37,8 @@ const DEFAULT_JOBS_PATH: &str = "orchestration/jobs.v1.json";
 const DEPENDENCIES_PATH_ENV: &str = "FOUNDATION_PLATFORM_JOB_DEPENDENCIES_PATH";
 const DEFAULT_DEPENDENCIES_PATH: &str = "orchestration/job-dependencies.v1.json";
 const DEPENDENCIES_SCHEMA: &str = "foundation-platform.orchestration_job_dependencies.v1";
+const SCHEDULER_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_UI_URL";
+const CATALOG_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_UI_URL";
 /// Search results per catalog page.
 const PAGE: u64 = 100;
 /// Pages read at most. A catalog with more flows or contracts than this is reported, never cut
@@ -49,9 +52,19 @@ const RUNS_PER_JOB: u64 = 10;
 
 /// The part of the job list this screen reads.
 #[derive(Debug, Deserialize)]
-struct JobList {
+pub(super) struct JobList {
     dag_id_prefix: String,
     jobs: Vec<ListedJob>,
+}
+
+impl JobList {
+    /// Each job's time limit in minutes, by job id.
+    pub(super) fn timeouts(&self) -> BTreeMap<String, u32> {
+        self.jobs
+            .iter()
+            .map(|job| (job.id.clone(), job.timeout_minutes))
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +72,10 @@ struct ListedJob {
     id: String,
     description: String,
     schedule: String,
+    /// How long a run may take (root ADR-0122): a scheduled start this long ago with no success
+    /// since is late (root ADR-0195).
+    #[serde(default)]
+    timeout_minutes: u32,
     enabled: bool,
     #[serde(default)]
     disabled_reason: Option<String>,
@@ -74,11 +91,11 @@ struct DependencyDocument {
 }
 
 #[derive(Debug, Deserialize)]
-struct JobDependencies {
+pub(super) struct JobDependencies {
     id: String,
     producers: Vec<String>,
-    reads: Vec<ScheduledJobDataset>,
-    writes: Vec<ScheduledJobDataset>,
+    pub(super) reads: Vec<ScheduledJobDataset>,
+    pub(super) writes: Vec<ScheduledJobDataset>,
 }
 
 /// Every scheduled job, its next start and its latest run.
@@ -96,18 +113,60 @@ struct JobDependencies {
 pub(super) async fn scheduled_jobs(
     State(_state): State<Arc<AppState>>,
 ) -> Result<Json<ScheduledJobsStatus>, ApiError> {
+    Ok(Json(jobs_status().await?))
+}
+
+/// Every scheduled job with its runs and problems, from the kept read of the three stores.
+async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
+    let (list, dependencies) = read_registry()?;
+    let facts = facts::current(Arc::clone(&list), Arc::clone(&dependencies)).await;
+    let now = Utc::now();
+    let (flows, run_history_error) = match &facts.flows {
+        Ok(flows) => (flows.as_slice(), None),
+        Err(error) => (&[][..], Some(error.clone())),
+    };
+    let mut jobs = job_statuses(&list, &dependencies, flows, now);
+    let timeouts = list.timeouts();
+    health::annotate(
+        &mut jobs,
+        &health::HealthFacts {
+            timeouts: &timeouts,
+            tables: &facts.tables,
+            failures: &facts.failures,
+            in_progress: &facts.in_progress,
+            runs_readable: run_history_error.is_none(),
+            now,
+        },
+    );
+    Ok(ScheduledJobsStatus {
+        read_at: now,
+        jobs,
+        run_history_error,
+        lakehouse_error: facts.lakehouse_error.clone(),
+        scheduler_error: facts.scheduler_error.clone(),
+        links: links(),
+    })
+}
+
+/// The job list and its rendered dependencies, shared with the run facts' background read.
+pub(super) fn read_registry() -> Result<(Arc<JobList>, Arc<Vec<JobDependencies>>), ApiError> {
     let list = read_job_list(&jobs_path())?;
     let dependencies = read_dependencies(&dependencies_path(), &list)?;
-    let now = Utc::now();
-    let (flows, run_history_error) = match catalog_flows().await {
-        Ok(flows) => (flows, None),
-        Err(error) => (Vec::new(), Some(unread_runs_reason(error))),
+    Ok((Arc::new(list), Arc::new(dependencies)))
+}
+
+/// Where staff open the scheduler's and the data catalog's own screens: the runtime names them
+/// (`compose.orchestration-bridge.yml`, `compose.metadata-bridge.yml`), nothing here does.
+fn links() -> OperationsLinks {
+    let value = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
     };
-    Ok(Json(ScheduledJobsStatus {
-        read_at: now,
-        jobs: job_statuses(&list, &dependencies, &flows, now),
-        run_history_error,
-    }))
+    OperationsLinks {
+        scheduler_url: value(SCHEDULER_UI_URL_ENV),
+        catalog_url: value(CATALOG_UI_URL_ENV),
+    }
 }
 
 /// Every data contract the catalog holds and the latest result of each of its checks.
@@ -137,7 +196,7 @@ pub(super) async fn quality_checks(
 
 /// What the screen is told when the runs could not be read. An internal failure's detail goes to
 /// the log, as `ApiError::Internal` does for a whole response.
-fn unread_runs_reason(error: ApiError) -> String {
+pub(super) fn unread_runs_reason(error: ApiError) -> String {
     match error {
         ApiError::Unavailable(message) => message,
         other => {
@@ -211,7 +270,7 @@ fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
 
 /// Each listed job with its next start, its dependencies (`dependencies` in job-list order) and
 /// the latest runs among the catalog flows named for it.
-fn job_statuses(
+pub(super) fn job_statuses(
     list: &JobList,
     dependencies: &[JobDependencies],
     flows: &[JsonValue],
@@ -266,6 +325,7 @@ fn job_statuses(
                 upstream_job_ids: depends.producers.clone(),
                 reads: depends.reads.clone(),
                 writes: depends.writes.clone(),
+                problems: Vec::new(),
             }
         })
         .collect()
@@ -366,6 +426,7 @@ fn run_from(run: &JsonValue) -> Option<(ScheduledJobRun, i64)> {
             native_result: complete
                 .then(|| text(&result["nativeResultType"]))
                 .flatten(),
+            rows_written: None,
         },
         last_event,
     ))
@@ -376,7 +437,7 @@ fn millis(value: i64) -> Option<DateTime<Utc>> {
 }
 
 /// Every Airflow-style flow in the catalog with its child jobs and their latest runs.
-async fn catalog_flows() -> Result<Vec<JsonValue>, ApiError> {
+pub(super) async fn catalog_flows() -> Result<Vec<JsonValue>, ApiError> {
     search_all(
         FLOWS_QUERY,
         json!({ "children": CHILD_JOBS, "runs": RUNS_PER_JOB }),
@@ -521,6 +582,7 @@ mod tests {
                     id: "nightly".to_owned(),
                     description: "a nightly job".to_owned(),
                     schedule: "20 7 * * *".to_owned(),
+                    timeout_minutes: 60,
                     enabled: true,
                     disabled_reason: None,
                     started_by: ScheduledJobStart::Schedule,
@@ -530,6 +592,7 @@ mod tests {
                     id: "half_hourly".to_owned(),
                     description: "a half-hourly job".to_owned(),
                     schedule: "0,30 * * * *".to_owned(),
+                    timeout_minutes: 60,
                     enabled: true,
                     disabled_reason: None,
                     started_by: ScheduledJobStart::Schedule,
@@ -539,6 +602,7 @@ mod tests {
                     id: "off".to_owned(),
                     description: "a job that is off".to_owned(),
                     schedule: "40 4 * * *".to_owned(),
+                    timeout_minutes: 60,
                     enabled: false,
                     disabled_reason: Some("waiting for a supervised run".to_owned()),
                     started_by: ScheduledJobStart::Inputs,

@@ -5,6 +5,11 @@
 #                                         once (0600); never prints a secret
 #   airflow-runtime.sh provision EMAIL...  pre-create staff accounts (Admin); sign-in is Zitadel only
 #   airflow-runtime.sh trigger JOB         run one enabled job now, e.g. `trigger outbox_publish`
+#   airflow-runtime.sh api-reader          create (or re-key) the read-only account Foundation's
+#                                         operations map reads failed runs' logs with (root
+#                                         ADR-0195) and write its sign-in to
+#                                         $AIRFLOW_RUNTIME_DIR/operations-map-reader.env (0600),
+#                                         for the operator to merge into operations-map.env
 #   airflow-runtime.sh <compose args...>   e.g. `up -d`, `ps`, `logs airflow-scheduler`
 #
 # After `up`/`restart`/`start` it waits for the API, makes sure the `spark` pool has its one slot
@@ -201,7 +206,26 @@ trigger() {
   airflow_cli dags trigger "foundation_$1"
 }
 
-(($# > 0)) || fail "usage: $0 init-secrets | provision EMAIL... | trigger JOB | <docker compose args>"
+# The one account that signs in with a password (staff sign in through Zitadel): Viewer, so it
+# reads runs and logs and changes nothing. Re-running replaces its password.
+api_reader() {
+  local username=foundation-operations-map password file="${runtime_dir}/operations-map-reader.env"
+  password="$(random_hex)"
+  if airflow_cli users list --output json | USERNAME="${username}" python3 -c '
+import json, os, sys
+sys.exit(0 if any(u.get("username") == os.environ["USERNAME"] for u in json.load(sys.stdin)) else 1)'; then
+    airflow_cli users delete --username "${username}" >/dev/null
+  fi
+  compose exec -T -e READER_PASSWORD="${password}" airflow-scheduler sh -c \
+    'exec airflow users create --username "$1" --email "$1@foundation.invalid" --firstname operations --lastname map --role Viewer --password "${READER_PASSWORD}"' \
+    sh "${username}" >/dev/null
+  umask 077
+  printf 'FOUNDATION_PLATFORM_AIRFLOW_API_USERNAME=%s\nFOUNDATION_PLATFORM_AIRFLOW_API_PASSWORD=%s\n' \
+    "${username}" "${password}" >"${file}"
+  printf 'api-reader: %s is a Viewer; its sign-in is in %s\n' "${username}" "${file}"
+}
+
+(($# > 0)) || fail "usage: $0 init-secrets | provision EMAIL... | trigger JOB | api-reader | <docker compose args>"
 case "$1" in
   init-secrets) init_secrets ;;
   provision)
@@ -212,6 +236,7 @@ case "$1" in
     shift
     trigger "$@"
     ;;
+  api-reader) api_reader ;;
   *)
     compose "$@"
     case "$1" in

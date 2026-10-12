@@ -27,7 +27,8 @@
         "platforms/foundation-platform/docker-compose.yml",
         "platforms/foundation-platform/compose.recovery.yml",
         "platforms/foundation-platform/compose.identity-bridge.yml",
-        "platforms/foundation-platform/compose.metadata-bridge.yml"
+        "platforms/foundation-platform/compose.metadata-bridge.yml",
+        "platforms/foundation-platform/compose.orchestration-bridge.yml"
       ],
       "profiles": ["recovery"]
     },

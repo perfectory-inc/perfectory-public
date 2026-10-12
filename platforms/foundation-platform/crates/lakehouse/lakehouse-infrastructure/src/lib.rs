@@ -32,6 +32,7 @@ pub use gold_publication::{
 };
 pub use iceberg_rest_catalog::{
     IcebergRestCatalog, IcebergSnapshotManifestList, IcebergSnapshotRef, IcebergSnapshotRefs,
+    IcebergSnapshotSummary,
 };
 pub use lakehouse_batch_audit::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 pub use lakehouse_config::{

@@ -3,10 +3,10 @@
 // waits on what (`job_specs.py`'s derivation, served by Foundation), and how each job's runs stand.
 // This file only places the datasets in stages, gives each one the state of the job that makes
 // it, and says those states in plain Korean.
-import { maxBy, minBy, orderBy, uniq } from "es-toolkit";
+import { maxBy, minBy, orderBy, trimEnd, uniq } from "es-toolkit";
 
-import type { DataContractQuality, PipelineGraph, ScheduledJobStatus } from "../api/client";
-import { runningJobs, type RunningJob } from "./operations";
+import type { DataContractQuality, FailureCause, OperationsLinks, PipelineGraph, ScheduledJobProblem, ScheduledJobStatus } from "../api/client";
+import { durationLabel, runningJobs, type RunningJob } from "./operations";
 
 /** The stages of the flow, left to right. */
 export const STAGES = ["collect", "silver", "gold", "bake", "serve"] as const;
@@ -173,13 +173,31 @@ export function waitingJobs(jobs: ScheduledJobStatus[]): Map<string, Waiting> {
   return waiting;
 }
 
-export type FlowStatus = "running" | "retry" | "failed" | "waiting" | "done" | "skipped" | "never" | "off" | "manual" | "unread";
+export type FlowStatus =
+  | "running"
+  | "retry"
+  | "failed"
+  | "blocked"
+  | "late"
+  | "slow"
+  | "volume"
+  | "waiting"
+  | "done"
+  | "skipped"
+  | "never"
+  | "off"
+  | "manual"
+  | "unread";
 
 /** One icon and one word per state, so colour is never the only signal. */
 export const STATUS_TEXT: Record<FlowStatus, { icon: string; word: string }> = {
   running: { icon: "⟳", word: "하는 중" },
   retry: { icon: "✕", word: "실패 · 다시 할 예정" },
   failed: { icon: "✕", word: "실패" },
+  blocked: { icon: "⛔", word: "막힘" },
+  late: { icon: "⏰", word: "늦음" },
+  slow: { icon: "🐢", word: "느림" },
+  volume: { icon: "⚖", word: "양이 이상함" },
   waiting: { icon: "⏸", word: "기다림" },
   done: { icon: "✓", word: "끝남" },
   skipped: { icon: "↷", word: "건너뜀" },
@@ -197,7 +215,12 @@ export interface JobState {
   waiting: Waiting | null;
   /** When it last finished, ISO-8601; null when it never did. */
   finishedAt: string | null;
+  /** What Foundation says is wrong with it, worst first (root ADR-0195). */
+  problems: ScheduledJobProblem[];
 }
+
+/** The problem kinds, worst first. */
+export const PROBLEM_ORDER: ScheduledJobProblem["kind"][] = ["failed", "blocked", "late", "slow", "volume"];
 
 /** Each job's state at `now`; `runsReadable` false when the data catalog did not answer. */
 export function jobStates(jobs: ScheduledJobStatus[], now: Date, runsReadable = true): Map<string, JobState> {
@@ -206,43 +229,61 @@ export function jobStates(jobs: ScheduledJobStatus[], now: Date, runsReadable = 
   return new Map(
     jobs.map((job): [string, JobState] => {
       const outcome = job.last_run?.outcome;
+      const problems = job.problems ?? [];
+      const has = (kind: ScheduledJobProblem["kind"]) => problems.some((problem) => problem.kind === kind);
+      // A problem wins over the plain state it is about: a slow run is shown slow, not running.
       const status: FlowStatus = !job.enabled
         ? "off"
         : !runsReadable
           ? "unread"
-          : outcome === "running"
-            ? "running"
-            : outcome === "up_for_retry"
-              ? "retry"
-              : waiting.has(job.job_id)
-                ? "waiting"
-                : outcome === "failed"
-                  ? "failed"
-                  : outcome === "succeeded"
-                    ? "done"
-                    : outcome === "skipped"
-                      ? "skipped"
-                      : outcome === undefined
-                        ? "never"
-                        : "unread";
+          : outcome === "up_for_retry"
+            ? "retry"
+            : outcome === "failed"
+              ? "failed"
+              : has("blocked")
+                ? "blocked"
+                : has("slow")
+                  ? "slow"
+                  : outcome === "running"
+                    ? "running"
+                    : waiting.has(job.job_id)
+                      ? "waiting"
+                      : has("late")
+                        ? "late"
+                        : has("volume")
+                          ? "volume"
+                          : outcome === "succeeded"
+                            ? "done"
+                            : outcome === "skipped"
+                              ? "skipped"
+                              : outcome === undefined
+                                ? "never"
+                                : "unread";
       const finishedAt = job.recent_runs.find((run) => run.finished_at)?.finished_at ?? null;
-      return [job.job_id, { job, status, running: running.get(job.job_id) ?? null, waiting: waiting.get(job.job_id) ?? null, finishedAt }];
+      return [
+        job.job_id,
+        { job, status, running: running.get(job.job_id) ?? null, waiting: waiting.get(job.job_id) ?? null, finishedAt, problems },
+      ];
     }),
   );
 }
 
 /** Which state wins when several jobs touch one dataset or edge: what needs eyes first. */
 const STATUS_RANK: Record<FlowStatus, number> = {
-  running: 0,
+  failed: 0,
   retry: 1,
-  failed: 2,
-  waiting: 3,
-  unread: 4,
-  done: 5,
-  skipped: 6,
-  never: 7,
-  off: 8,
-  manual: 9,
+  blocked: 2,
+  late: 3,
+  slow: 4,
+  volume: 5,
+  running: 6,
+  waiting: 7,
+  unread: 8,
+  done: 9,
+  skipped: 10,
+  never: 11,
+  off: 12,
+  manual: 13,
 };
 
 /** The state that speaks for a set of jobs; `manual` when there is none. */
@@ -268,7 +309,15 @@ export function statusNote(state: JobState | null, titleOf: (jobId: string) => s
       return `약 ${minutes(measured.remainingSeconds)} 남음`;
     }
     case "retry":
-      return "곧 다시 해요";
+    case "failed":
+    case "blocked":
+    case "late":
+    case "slow":
+    case "volume": {
+      const problem = state.problems.find((candidate) => candidate.kind !== "volume" || state.status === "volume");
+      if (problem) return problemSentence(problem, titleOf, now);
+      return state.status === "retry" ? "곧 다시 해요" : state.finishedAt ? agoWords(state.finishedAt, now) : null;
+    }
     case "waiting": {
       const names = (state.waiting?.on ?? []).map(titleOf).join(", ");
       return state.waiting?.startsAfter ? `앞 단계가 끝나면 시작해요 (${names})` : `앞 단계가 일하는 중이에요 (${names})`;
@@ -349,4 +398,71 @@ export function datasetState(node: FlowNode, states: Map<string, JobState>): Job
 /** The state an edge shows: the strongest of the jobs that carry it out. */
 export function edgeState(edge: FlowEdge, states: Map<string, JobState>): JobState | null {
   return strongest(edge.jobs.map((jobId) => states.get(jobId)));
+}
+
+/** A failure's cause in plain words. */
+export const CAUSE_WORD: Record<FailureCause, string> = {
+  out_of_memory: "메모리 부족",
+  timed_out: "시간 초과",
+  source_missing: "원천 자료 없음",
+  other: "오류",
+};
+
+/** One problem as one plain sentence: the cause, what it waits on, or how far off usual it is. */
+export function problemSentence(problem: ScheduledJobProblem, titleOf: (jobId: string) => string, now: Date): string {
+  switch (problem.kind) {
+    case "failed":
+      if (!problem.cause) return "실패 · 로그를 못 읽어 원인을 몰라요";
+      return `${CAUSE_WORD[problem.cause]}${problem.cause_line ? ` · ${problem.cause_line}` : ""}`;
+    case "blocked":
+      return `앞 단계가 실패해서 멈춰 있어요 (${problem.upstream_job_ids.map(titleOf).join(", ")})`;
+    case "late":
+      return `${agoWords(problem.due_at, now)} 돌았어야 하는데 아직 성공 못 했어요${
+        problem.last_success_at ? ` · 마지막 성공 ${agoWords(problem.last_success_at, now)}` : " · 성공 기록 없음"
+      }`;
+    case "slow":
+      return `보통 ${durationLabel(problem.typical_seconds)}인데 ${durationLabel(problem.seconds)}${problem.running ? "째 도는 중" : " 걸렸어요"}`;
+    case "volume":
+      return `보통 ${problem.typical_rows.toLocaleString("ko-KR")}행인데 이번엔 ${problem.rows.toLocaleString("ko-KR")}행`;
+  }
+}
+
+/** One problem the top line lists, with the dataset to open for it. */
+export interface ProblemRow {
+  job: ScheduledJobStatus;
+  problem: ScheduledJobProblem;
+  /** The dataset to show: the table a volume problem names, else the first one the job writes. */
+  nodeId: string | null;
+}
+
+/** Every problem of every enabled job, worst kind first, then in job-list order. */
+export function problemRows(jobs: ScheduledJobStatus[]): ProblemRow[] {
+  const rows = jobs
+    .filter((job) => job.enabled)
+    .flatMap((job) =>
+      (job.problems ?? []).map(
+        (problem): ProblemRow => ({
+          job,
+          problem,
+          nodeId: problem.kind === "volume" ? problem.node_id : (job.writes[0]?.node_id ?? null),
+        }),
+      ),
+    );
+  return orderBy(rows, [(row) => PROBLEM_ORDER.indexOf(row.problem.kind)], ["asc"]);
+}
+
+/** The scheduler's page for a job's DAG, or for one run's `run` task, where its log is. */
+export function schedulerUrl(links: OperationsLinks | undefined, dagId: string, runId?: string | null): string | null {
+  const base = trimEnd(links?.scheduler_url ?? "", "/");
+  if (!base) return null;
+  const dag = `${base}/dags/${encodeURIComponent(dagId)}`;
+  return runId ? `${dag}/runs/${encodeURIComponent(runId)}/tasks/run` : dag;
+}
+
+/** The data catalog's lineage page for a dataset or job. */
+export function catalogLineageUrl(links: OperationsLinks | undefined, urn: string | null): string | null {
+  const base = trimEnd(links?.catalog_url ?? "", "/");
+  if (!base || !urn) return null;
+  const kind = urn.startsWith("urn:li:dataJob:") ? "tasks" : "dataset";
+  return `${base}/${kind}/${encodeURIComponent(urn)}/Lineage`;
 }

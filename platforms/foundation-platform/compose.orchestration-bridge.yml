@@ -1,0 +1,14 @@
+# Orchestration bridge for the foundation runtime (root ADR-0195).
+# The operations map reads three stores besides DataHub: the scheduler (Airflow) for a failed
+# run's log, the lakehouse catalog for each table's snapshots, and the addresses of both tools'
+# own screens for staff. foundation-api reaches the scheduler's API on the identity network both
+# join (`airflow-apiserver`). The sign-in, the catalog token and the screen addresses live in the
+# uncommitted operations-map.env (config/runtime-secrets.contract.json); without it the map still
+# answers, saying which store it could not read.
+services:
+  foundation-api:
+    environment:
+      FOUNDATION_PLATFORM_AIRFLOW_API_URL: "http://airflow-apiserver:8080"
+    env_file:
+      - path: ${FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE:-./operations-map.env}
+        required: false

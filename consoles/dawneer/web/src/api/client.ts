@@ -29,6 +29,11 @@ export type ScheduledJobStatus = DataCatalogSchemas["ScheduledJobStatus"];
 export type ScheduledJobRunOutcome = DataCatalogSchemas["ScheduledJobRunOutcome"];
 export type ScheduledJobRun = DataCatalogSchemas["ScheduledJobRun"];
 export type ScheduledJobDataset = DataCatalogSchemas["ScheduledJobDataset"];
+export type ScheduledJobProblem = DataCatalogSchemas["ScheduledJobProblem"];
+export type FailureCause = DataCatalogSchemas["FailureCause"];
+export type OperationsLinks = DataCatalogSchemas["OperationsLinks"];
+export type DatasetSnapshots = DataCatalogSchemas["DatasetSnapshots"];
+export type DatasetSnapshot = DataCatalogSchemas["DatasetSnapshot"];
 export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
 export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
@@ -218,6 +223,11 @@ export class DawneerClient {
   /** Every scheduled job with its next start and latest run (root ADR-0165). */
   scheduledJobs(): Promise<ScheduledJobsStatus> {
     return this.call("scheduled-jobs", {}, "data-catalog");
+  }
+
+  /** A dataset's Iceberg snapshots with the run that made each and what read it (root ADR-0195). */
+  datasetSnapshots(nodeId: string): Promise<DatasetSnapshots> {
+    return this.call(`dataset-snapshots?${new URLSearchParams({ node_id: nodeId }).toString()}`, {}, "data-catalog");
   }
 
   /** Every data contract with its checks' latest results (root ADR-0165). */
