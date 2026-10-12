@@ -50,7 +50,7 @@ pub async fn inspect(
     generation: Option<u64>,
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
-    by_pnu::check_pnu(lane, pnu)?;
+    by_pnu::check_key(lane, pnu)?;
     let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
     let (view, from) = match generation {
         Some(generation) => (

@@ -81,6 +81,27 @@ fn patch_dir(lane: ByPnuLane, patch: u64) -> anyhow::Result<String> {
     Ok(dir)
 }
 
+/// Refuses a document key outside the lane's grammar: a PNU, or for a lane keyed narrower than a
+/// PNU (root ADR-0204) a PNU then a suffix of the lane's `document_key_suffix` pattern. A patch's
+/// upsert and delete lists, and the operator's inspect, name keys.
+///
+/// # Errors
+/// Returns an error when the key violates the lane's grammar.
+pub(crate) fn check_key(lane: ByPnuLane, key: &str) -> anyhow::Result<()> {
+    let Some(suffix) = lane.pack_lane().and_then(|lane| lane.key_suffix.as_ref()) else {
+        return check_pnu(lane, key);
+    };
+    let pnu = super::by_pnu_packs::pnu_of(key);
+    check_pnu(lane, pnu)?;
+    anyhow::ensure!(
+        key.get(pnu.len()..).is_some_and(|rest| suffix.admits(rest)),
+        "{key:?} is not a {} key: a PNU then a {} of the contract's pattern",
+        lane.noun(),
+        suffix.column
+    );
+    Ok(())
+}
+
 /// Refuses a PNU outside the contract grammar.
 ///
 /// # Errors

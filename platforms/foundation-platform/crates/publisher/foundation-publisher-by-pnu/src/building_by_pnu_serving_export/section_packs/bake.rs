@@ -39,7 +39,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
 use super::super::{
-    optional_env, parse_max_concurrency, read_pnu_allowlist, refuse_a_moved_table, select_rows,
+    optional_env, parse_max_concurrency, read_pnu_allowlist, refuse_a_moved_table, select_rows_by,
     write_summary, MAX_ROWS_PER_RUN,
 };
 use super::sections::{self, PackDocument, PackProvenance, Renderer};
@@ -586,7 +586,14 @@ pub async fn bake(
     renderer: &Renderer,
 ) -> anyhow::Result<PackExportSummary> {
     let started = Instant::now();
-    let selected = select_rows(rows, config.upserts.as_ref(), config.pnu_prefix.as_deref())?;
+    // By key: a lane keyed narrower than a PNU (root ADR-0204) has several rows per PNU, and its
+    // patch's upserts name keys.
+    let selected = select_rows_by(
+        rows,
+        config.upserts.as_ref(),
+        config.pnu_prefix.as_deref(),
+        |row| renderer.key(row),
+    )?;
     // Rows are grouped by dong and turned into documents one dong at a time, inside the write
     // job: a shard's documents are never all in memory beside its rows.
     let mut units: BTreeMap<String, Vec<&JsonMap<String, JsonValue>>> = BTreeMap::new();

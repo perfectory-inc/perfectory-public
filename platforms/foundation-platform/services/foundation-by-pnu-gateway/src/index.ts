@@ -64,10 +64,11 @@ interface ServingPlan {
   packs?: PackPlan;
 }
 
-/// A canonical request: the PNU, and the unpublished pack generation a preview asks for, with the
-/// probe run it is read in (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate
-/// run's first read of a document is an R2 read on both sides (2026-10-13: a baseline answered from
-/// edge copies an earlier run left was timed against R2 reads).
+/// A canonical request: the key (a PNU, or a PNU and the lane's key suffix, root ADR-0204), and
+/// the unpublished pack generation a preview asks for, with the probe run it is read in
+/// (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate run's first read of a
+/// document is an R2 read on both sides (2026-10-13: a baseline answered from edge copies an
+/// earlier run left was timed against R2 reads).
 interface CanonicalRequest {
   pnu: string;
   previewGeneration: number | null;
@@ -89,13 +90,18 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
   const prefix = lane.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
+  const previewGeneration = preview === null ? null : Number(preview[1]);
+  const previewRun = preview?.[2] ?? null;
+  if (lane.keySuffix !== null) {
+    // `<pnu>/<suffix>`: the key is the two joined, as the bake writes it (root ADR-0204).
+    const [pnu, suffix, ...rest] = candidate.split("/");
+    if (pnu === undefined || suffix === undefined || rest.length > 0) return null;
+    if (!pnuPattern.test(pnu) || !lane.keySuffix.test(suffix)) return null;
+    return { pnu: `${pnu}${suffix}`, previewGeneration, previewRun };
+  }
   if (!pnuPattern.test(candidate)) return null;
   if (url.pathname !== `${prefix}${candidate}`) return null;
-  return {
-    pnu: candidate,
-    previewGeneration: preview === null ? null : Number(preview[1]),
-    previewRun: preview?.[2] ?? null,
-  };
+  return { pnu: candidate, previewGeneration, previewRun };
 }
 
 function canonicalPnu(url: URL): string | null {
