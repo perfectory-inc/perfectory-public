@@ -29,6 +29,27 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # main and the daily run fill and save the cache every job that downloads a pinned release
+      # binary restores (root ADR-0197); pull requests and merge groups only read it, so a cold
+      # runner meeting one 5xx from the release CDN no longer fails a pull request. The fetcher
+      # verifies every file against its pin on the way in and on every read. A key that already
+      # exists is left alone (the save warns and succeeds), so this writes once per pin set.
+      - name: Fill pinned release binaries
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        shell: bash
+        run: python3 scripts/ci/fetch_pinned.py prefetch --prune
+      - name: Save pinned release binaries
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json') }}
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -78,3 +99,4 @@ jobs:
           name: repository-supply-chain
           path: target/supply-chain/
           if-no-files-found: warn
+

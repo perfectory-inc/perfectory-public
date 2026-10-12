@@ -17,7 +17,6 @@ import stat
 import sys
 import tarfile
 import tempfile
-import urllib.request
 import zipfile
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -205,10 +204,25 @@ def image_environment(contract: Mapping[str, Any]) -> dict[str, str]:
     return result
 
 
-def _download(url: str, timeout_seconds: float) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "perfectory-toolchain/1"})
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        return response.read()
+def _pinned_download(sha256: str) -> Callable[[str, float], bytes]:
+    """Download through the one pinned fetcher: cached by checksum, retried on a cold miss.
+
+    Imported here, not at module load: the container policy self-test copies this file alone into
+    a fixture tree to project image references, and that path never downloads (root ADR-0197).
+    """
+
+    def download(url: str, timeout_seconds: float) -> bytes:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        try:
+            import fetch_pinned
+        finally:
+            sys.path.pop(0)
+        try:
+            return fetch_pinned.fetch(url, sha256, timeout=timeout_seconds).read_bytes()
+        except fetch_pinned.FetchError as error:
+            raise ContractError(str(error)) from error
+
+    return download
 
 
 def _file_sha256(path: pathlib.Path) -> str:
@@ -240,7 +254,7 @@ def install_contract(
     destination: pathlib.Path,
     *,
     platform_key: str | None = None,
-    downloader: Callable[[str, float], bytes] = _download,
+    downloader: Callable[[str, float], bytes] | None = None,
     timeout_seconds: float = 30,
     _expected_tools: frozenset[str] = SUPPORTED_TOOL_NAMES,
 ) -> list[pathlib.Path]:
@@ -287,8 +301,9 @@ def install_contract(
     verified: dict[str, bytes] = {}
     for distribution_name, artifact in selected:
         url = str(artifact["url"])
+        download = downloader or _pinned_download(str(artifact["sha256"]))
         try:
-            archive = downloader(url, timeout_seconds)
+            archive = download(url, timeout_seconds)
         except Exception as error:
             raise ContractError(f"{distribution_name} download failed: {error}") from error
         actual_archive_sha = hashlib.sha256(archive).hexdigest()

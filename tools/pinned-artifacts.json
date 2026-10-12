@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "description": "Where each checksum-pinned release binary CI uses is downloaded from. The versions and SHA-256 values stay in the env file each entry names; this file only says how to spell the asset URL for a platform. scripts/ci/fetch_pinned.py is the only reader and the only downloader (root ADR-0197).",
+  "tools": {
+    "actionlint": {
+      "pins": "tools/actionlint.env",
+      "version_variable": "ACTIONLINT_VERSION",
+      "sha256_variable": "ACTIONLINT_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "amd64", "aarch64": "arm64"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
+      "url": "https://github.com/rhysd/actionlint/releases/download/v{version}/actionlint_{version}_{os}_{arch}.{extension}"
+    },
+    "gitleaks": {
+      "pins": "tools/gitleaks.env",
+      "version_variable": "GITLEAKS_VERSION",
+      "sha256_variable": "GITLEAKS_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "x64", "aarch64": "arm64"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v{version}/gitleaks_{version}_{os}_{arch}.{extension}"
+    },
+    "osv-scanner": {
+      "pins": "tools/osv-scanner.env",
+      "version_variable": "OSV_SCANNER_VERSION",
+      "sha256_variable": "OSV_SCANNER_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "amd64", "aarch64": "arm64"},
+      "extension": {"linux": "", "darwin": "", "windows": ".exe"},
+      "url": "https://github.com/google/osv-scanner/releases/download/v{version}/osv-scanner_{os}_{arch}{extension}"
+    },
+    "cargo-deny": {
+      "pins": "tools/cargo-deny.env",
+      "version_variable": "CARGO_DENY_VERSION",
+      "sha256_variable": "CARGO_DENY_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux"},
+      "arch": {"x86_64": "amd64"},
+      "extension": {"linux": "tar.gz"},
+      "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/{version}/cargo-deny-{version}-x86_64-unknown-linux-musl.{extension}"
+    },
+    "syft": {
+      "pins": "tools/syft.env",
+      "version_variable": "SYFT_VERSION",
+      "sha256_variable": "SYFT_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux"},
+      "arch": {"x86_64": "amd64"},
+      "extension": {"linux": "tar.gz"},
+      "url": "https://github.com/anchore/syft/releases/download/v{version}/syft_{version}_{os}_{arch}.{extension}"
+    }
+  },
+  "contracts": [
+    "platforms/foundation-platform/config/static-release-toolchain.contract.json"
+  ]
+}

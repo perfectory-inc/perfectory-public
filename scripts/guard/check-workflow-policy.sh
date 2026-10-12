@@ -258,8 +258,11 @@ for workflow in "${workflows[@]}"; do
   # renders the uncommitted document reports (root ADR-0176) even after a check failed.
   # "Prepare npm advisory fix" runs only after the job has already failed and
   # turns the OSV report into a patch artifact (root ADR-0158); it gates nothing.
+  # The pinned-release fill and save run only where a cache may be written, main and the daily
+  # run (root ADR-0197); they fill a cache the fetcher re-verifies on every read and gate nothing.
   foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
-  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" '
+  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" \
+    -v cache_writer="github.event_name == 'push' || github.event_name == 'schedule'" '
     function flush_step() {
       if (step_if == "") return
       allowed=(step_name == "Upload supply-chain artifacts" && step_if == "always()") \
@@ -274,7 +277,9 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Check ADR names, headings and numbers" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Publish document reports to the job summary" && step_if == "${{ !cancelled() }}") \
         || (step_name == "Set up Rust" && step_if == foundation_gate) \
-        || (step_name == "Rust cache" && step_if == foundation_gate)
+        || (step_name == "Rust cache" && step_if == foundation_gate) \
+        || (step_name == "Fill pinned release binaries" && step_if == cache_writer) \
+        || (step_name == "Save pinned release binaries" && step_if == cache_writer)
       if (!allowed) {
         print "FAIL workflow-policy: " file ": conditional step is not allowlisted: " step_name " / " step_if > "/dev/stderr"
         failed=1

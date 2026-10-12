@@ -30,6 +30,8 @@ required_files=(
   SECURITY.md
   scripts/ci/gitleaks-scan.sh
   scripts/ci/actionlint.sh
+  scripts/ci/fetch_pinned.py
+  tools/pinned-artifacts.json
   scripts/ci/materialize-public-candidate-tree.sh
   scripts/ci/materialize-public-candidate-tree.py
   scripts/ci/require-successful-needs.sh

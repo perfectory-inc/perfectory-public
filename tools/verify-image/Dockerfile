@@ -76,22 +76,27 @@ WORKDIR /toolchain
 RUN rustup toolchain install
 WORKDIR /
 
-# Warm the actionlint download cache. `scripts/guard/check-workflow-policy.sh` runs
+# Warm the pinned release cache with actionlint. `scripts/guard/check-workflow-policy.sh` runs
 # `scripts/ci/actionlint.sh`, which fetches a checksum-pinned release on first use — the last thing
 # in the guard chain that reached the network, and the reason a network-less run died there without
 # printing a verdict.
 #
-# The fetch runs through that script rather than a copy of its logic, so the version and checksum
-# keep their single home in `tools/actionlint.env`. It needs a workflow to lint before it will exit
-# zero, so it is pointed at a stub: the subject here is the cache, not this file. The script verifies
-# the checksum again at run time, so a corrupted cache is caught rather than trusted.
-COPY tools/actionlint.env /warm/tools/actionlint.env
-COPY scripts/ci/actionlint.sh /warm/scripts/ci/actionlint.sh
+# The fetch runs through that script and the one pinned fetcher rather than a copy of their logic,
+# so the version and checksum keep their single home in `tools/actionlint.env` and the URL in
+# `tools/pinned-artifacts.json` (root ADR-0197). The cache sits at a fixed path rather than under a
+# home directory, so whichever user the container runs as finds it. It needs a workflow to lint
+# before it will exit zero, so it is pointed at a stub: the subject here is the cache, not this
+# file. The fetcher verifies the checksum again on every read, so a corrupted cache is caught
+# rather than trusted.
+ENV PERFECTORY_PINNED_CACHE=/opt/perfectory-pinned
+COPY tools/actionlint.env tools/pinned-artifacts.json /warm/tools/
+COPY scripts/ci/actionlint.sh scripts/ci/fetch_pinned.py /warm/scripts/ci/
 RUN set -eu; \
   mkdir -p /warm/.github/workflows; \
   printf 'name: warm\non:\n  push:\njobs:\n  warm:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: "true"\n' \
     > /warm/.github/workflows/warm.yml; \
-  cd /warm && bash scripts/ci/actionlint.sh .github/workflows; \
+  cd /warm && PYTHONDONTWRITEBYTECODE=1 bash scripts/ci/actionlint.sh .github/workflows; \
+  chmod -R a+rX "$PERFECTORY_PINNED_CACHE"; \
   rm -rf /warm
 
 # Docker COPY dereferences `/usr/local/bin/corepack` from the Node image. Recreate

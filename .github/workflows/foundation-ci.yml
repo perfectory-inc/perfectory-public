@@ -52,8 +52,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  SYFT_VERSION: "v1.44.0"
-  SYFT_LINUX_AMD64_SHA256: "0e91737aee2b5baf1d255b959630194a302335d848ff97bb07921eb6205b5f5a"
 
 jobs:
   rust-quality:
@@ -66,6 +64,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
 
       - name: Verify Foundation CI scope selection
         working-directory: ${{ github.workspace }}
@@ -137,6 +141,26 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # main fills and saves the Windows cache of pinned release binaries this job restores
+      # (root ADR-0197; the Linux cache is filled by the repository guard). A key that already
+      # exists is left alone (the save warns and succeeds), so this writes once per pin set.
+      - name: Fill pinned release binaries
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: python scripts/ci/fetch_pinned.py prefetch --prune
+      - name: Save pinned release binaries
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json') }}
 
       - name: Select Windows static-release toolchain gate
         working-directory: ${{ github.workspace }}
@@ -196,6 +220,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
@@ -220,11 +250,10 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           if ! command -v syft >/dev/null 2>&1; then
-            version="${SYFT_VERSION#v}"
-            archive="/tmp/syft_${version}_linux_amd64.tar.gz"
-            curl -sSfL --output "$archive" \
-              "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${version}_linux_amd64.tar.gz"
-            echo "$SYFT_LINUX_AMD64_SHA256  $archive" | sha256sum --check --strict -
+            # The pin lives in tools/syft.env; the one pinned fetcher downloads, verifies and
+            # caches it (root ADR-0197).
+            archive="$RUNNER_TEMP/syft.tar.gz"
+            python3 "$GITHUB_WORKSPACE/scripts/ci/fetch_pinned.py" tool syft --output "$archive"
             tar xzf "$archive" -C "$HOME/.local/bin" syft
           fi
 
