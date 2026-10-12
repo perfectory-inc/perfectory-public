@@ -11,13 +11,18 @@
 //!        8   format_version    u16 LE    the contract's `format_version`
 //!       10   reserved          u16 LE    0
 //!       12   header_length     u32 LE    bytes of the header JSON
-//!       16   index_length      u32 LE    bytes of the index = entry_count x INDEX_ENTRY_BYTES
+//!       16   index_length      u32 LE    bytes of the index = entry_count x entry bytes (28)
 //!       20   header            JSON      [`PackHeader`], compact, UTF-8
 //!            index             entries   sorted by PNU, distinct
 //!            body              bytes     the documents' gzip members back to back
-//! index entry: pnu (19 ASCII digits) | offset u32 LE (from the body start) | length u32 LE
+//! index entry: key (19 ASCII digits) | offset u32 LE (from the body start) | length u32 LE
 //!              | state u8 (1 document, 2 tombstone; a tombstone has length 0)
 //! ```
+//!
+//! That is format 1, whose keys are PNUs. Format 2 (root ADR-0204) is the same layout for a lane
+//! whose document key is a PNU and a suffix (unit-price: the PNU and a building id): its header
+//! states `key_length`, every key is that long, and an entry is `key_length + 9` bytes. A pack
+//! whose keys are PNUs is always written as format 1, so the packs already served keep their bytes.
 //!
 //! Gzip is the one compression the Worker can both decode natively (`DecompressionStream`) and
 //! hand to a client unchanged as `Content-Encoding: gzip`. Every member is written with mtime 0
@@ -35,9 +40,9 @@ use crate::by_pnu_gateway_contract::section_pack_policy;
 
 /// Bytes before the header: magic, format version, reserved, header length, index length.
 pub(crate) const PREFIX_BYTES: usize = crate::by_pnu_gateway_contract::PACK_PREFIX_BYTES;
-/// Bytes of one index entry.
-pub(crate) const INDEX_ENTRY_BYTES: usize = 28;
 const PNU_BYTES: usize = 19;
+/// Bytes after an entry's key: offset, length, state.
+const ENTRY_TAIL_BYTES: usize = 9;
 const STATE_DOCUMENT: u8 = 1;
 const STATE_TOMBSTONE: u8 = 2;
 /// The only compression a pack names.
@@ -65,6 +70,10 @@ pub(crate) struct PackHeader {
     pub(crate) index_length: u64,
     pub(crate) body_length: u64,
     pub(crate) body_sha256: String,
+    /// Bytes of every key of a format 2 pack (root ADR-0204); absent in format 1, whose keys are
+    /// 19-digit PNUs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) key_length: Option<u64>,
 }
 
 /// What the writer is told; the counts, lengths and checksum are the writer's to fill in.
@@ -79,7 +88,7 @@ pub(crate) struct PackIdentity {
     pub(crate) gold_iceberg_snapshot_id: String,
 }
 
-/// One PNU's entry: a document, or a tombstone (the PNU is gone as of this patch).
+/// One key's entry: a document, or a tombstone (the key is gone as of this patch).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum EntryState {
     Document,
@@ -89,6 +98,7 @@ pub(crate) enum EntryState {
 /// One index entry as read.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct IndexEntry {
+    /// The entry's key: a PNU, or a PNU and its lane's suffix (root ADR-0204).
     pub(crate) pnu: String,
     pub(crate) offset: u32,
     pub(crate) length: u32,
@@ -162,16 +172,24 @@ impl PackWriter {
 
     fn check_next(&self, pnu: &str) -> anyhow::Result<()> {
         ensure!(
-            pnu.len() == PNU_BYTES
-                && is_digits(pnu)
-                && pnu.starts_with(crate::r2_layout::by_pnu_packs::dong_of(&self.identity.unit)),
-            "{pnu:?} is not a 19-digit PNU of legal dong {}",
+            is_key(
+                pnu,
+                &self.identity.unit,
+                section_pack_policy()?.max_key_bytes
+            ),
+            "{pnu:?} is not a key of legal dong {}: its 19-digit PNU, then printable ASCII other \
+             than '/'",
             self.identity.unit
         );
         if let Some(last) = self.entries.last() {
             ensure!(
+                last.pnu.len() == pnu.len(),
+                "every key of one pack has one length: {pnu} after {}",
+                last.pnu
+            );
+            ensure!(
                 last.pnu.as_str() < pnu,
-                "pack entries must be in strictly ascending PNU order: {pnu} after {}",
+                "pack entries must be in strictly ascending key order: {pnu} after {}",
                 last.pnu
             );
         }
@@ -191,7 +209,17 @@ impl PackWriter {
             self.entries.len(),
             policy.max_index_entries
         );
-        let mut index = Vec::with_capacity(self.entries.len() * INDEX_ENTRY_BYTES);
+        let key_length = self.entries[0].pnu.len();
+        // A pack of PNU keys is format 1, byte for byte as before root ADR-0204.
+        let (version, header_key_length) = if key_length == PNU_BYTES {
+            (policy.format_version, None)
+        } else {
+            (
+                policy.wide_key_format_version,
+                Some(u64::try_from(key_length)?),
+            )
+        };
+        let mut index = Vec::with_capacity(self.entries.len() * (key_length + ENTRY_TAIL_BYTES));
         for entry in &self.entries {
             index.extend_from_slice(entry.pnu.as_bytes());
             index.extend_from_slice(&entry.offset.to_le_bytes());
@@ -207,7 +235,7 @@ impl PackWriter {
             .filter(|entry| entry.state == EntryState::Tombstone)
             .count();
         let header = PackHeader {
-            format_version: policy.format_version,
+            format_version: version,
             lane: self.identity.lane,
             section: self.identity.section,
             generation: self.identity.generation,
@@ -222,12 +250,13 @@ impl PackWriter {
             index_length: u64::try_from(index.len())?,
             body_length: u64::try_from(self.body.len())?,
             body_sha256: format!("{:x}", Sha256::digest(&self.body)),
+            key_length: header_key_length,
         };
         let header = serde_json::to_vec(&header).context("failed to serialize a pack header")?;
         let mut pack =
             Vec::with_capacity(PREFIX_BYTES + header.len() + index.len() + self.body.len());
         pack.extend_from_slice(magic(policy)?);
-        pack.extend_from_slice(&policy.format_version.to_le_bytes());
+        pack.extend_from_slice(&version.to_le_bytes());
         pack.extend_from_slice(&0_u16.to_le_bytes());
         pack.extend_from_slice(&u32::try_from(header.len())?.to_le_bytes());
         pack.extend_from_slice(
@@ -253,6 +282,7 @@ pub(crate) struct Pack {
 /// The lengths the fixed prefix declares.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PackPrefix {
+    pub(crate) format_version: u16,
     pub(crate) header_length: usize,
     pub(crate) index_length: usize,
 }
@@ -280,9 +310,10 @@ pub(crate) fn read_prefix(bytes: &[u8]) -> anyhow::Result<PackPrefix> {
     );
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
     ensure!(
-        version == policy.format_version,
-        "pack format version {version} is not the contract's {}",
-        policy.format_version
+        version == policy.format_version || version == policy.wide_key_format_version,
+        "pack format version {version} is not the contract's {} or {}",
+        policy.format_version,
+        policy.wide_key_format_version
     );
     ensure!(
         bytes[10] == 0 && bytes[11] == 0,
@@ -290,14 +321,10 @@ pub(crate) fn read_prefix(bytes: &[u8]) -> anyhow::Result<PackPrefix> {
     );
     let header_length = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
     let index_length = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
-    let index_length = usize::try_from(index_length)?;
-    ensure!(
-        index_length % INDEX_ENTRY_BYTES == 0,
-        "pack index length {index_length} is not a whole number of entries"
-    );
     Ok(PackPrefix {
+        format_version: version,
         header_length: usize::try_from(header_length)?,
-        index_length,
+        index_length: usize::try_from(index_length)?,
     })
 }
 
@@ -323,29 +350,60 @@ pub(crate) fn read_head(bytes: &[u8]) -> anyhow::Result<(PackHeader, Vec<IndexEn
         header.compression
     );
     ensure!(
+        header.format_version == prefix.format_version,
+        "the pack header's format version disagrees with its prefix"
+    );
+    let policy = section_pack_policy()?;
+    // Format 1 keys are PNUs; format 2 states its key length (root ADR-0204).
+    let key_length = if prefix.format_version == policy.format_version {
+        ensure!(
+            header.key_length.is_none(),
+            "a format {} pack states a key length",
+            policy.format_version
+        );
+        PNU_BYTES
+    } else {
+        header
+            .key_length
+            .and_then(|length| usize::try_from(length).ok())
+            .filter(|length| (PNU_BYTES + 1..=policy.max_key_bytes).contains(length))
+            .with_context(|| {
+                format!(
+                    "a format {} pack states no key length between {} and {}",
+                    policy.wide_key_format_version,
+                    PNU_BYTES + 1,
+                    policy.max_key_bytes
+                )
+            })?
+    };
+    let entry_bytes = key_length + ENTRY_TAIL_BYTES;
+    ensure!(
+        prefix.index_length % entry_bytes == 0,
+        "pack index length {} is not a whole number of entries",
+        prefix.index_length
+    );
+    ensure!(
         header.index_length == u64::try_from(prefix.index_length)?
-            && header.entry_count == u64::try_from(prefix.index_length / INDEX_ENTRY_BYTES)?
+            && header.entry_count == u64::try_from(prefix.index_length / entry_bytes)?
             && header.document_count + header.tombstone_count == header.entry_count,
         "the pack header's counts disagree with its index"
     );
-    let mut entries = Vec::with_capacity(prefix.index_length / INDEX_ENTRY_BYTES);
-    for raw in bytes[header_end..prefix.head_length()].chunks_exact(INDEX_ENTRY_BYTES) {
-        let pnu = std::str::from_utf8(&raw[..PNU_BYTES])
+    let mut entries = Vec::with_capacity(prefix.index_length / entry_bytes);
+    for raw in bytes[header_end..prefix.head_length()].chunks_exact(entry_bytes) {
+        let pnu = std::str::from_utf8(&raw[..key_length])
             .ok()
-            .filter(|pnu| {
-                is_digits(pnu)
-                    && pnu.starts_with(crate::r2_layout::by_pnu_packs::dong_of(&header.unit))
-            })
-            .context("a pack index entry names no PNU of the pack's dong")?;
-        let state = match raw[27] {
+            .filter(|key| is_key(key, &header.unit, policy.max_key_bytes))
+            .context("a pack index entry names no key of the pack's dong")?;
+        let tail = &raw[key_length..];
+        let state = match tail[8] {
             STATE_DOCUMENT => EntryState::Document,
             STATE_TOMBSTONE => EntryState::Tombstone,
             other => bail!("pack index entry {pnu} has unknown state {other}"),
         };
         let entry = IndexEntry {
             pnu: pnu.to_owned(),
-            offset: u32::from_le_bytes([raw[19], raw[20], raw[21], raw[22]]),
-            length: u32::from_le_bytes([raw[23], raw[24], raw[25], raw[26]]),
+            offset: u32::from_le_bytes([tail[0], tail[1], tail[2], tail[3]]),
+            length: u32::from_le_bytes([tail[4], tail[5], tail[6], tail[7]]),
             state,
         };
         ensure!(
@@ -360,7 +418,7 @@ pub(crate) fn read_head(bytes: &[u8]) -> anyhow::Result<(PackHeader, Vec<IndexEn
             let last: &IndexEntry = last;
             ensure!(
                 last.pnu < entry.pnu,
-                "the pack index is not in ascending PNU order"
+                "the pack index is not in ascending key order"
             );
         }
         entries.push(entry);
@@ -461,6 +519,19 @@ fn magic(policy: &crate::by_pnu_gateway_contract::SectionPackPolicy) -> anyhow::
 
 fn is_digits(raw: &str) -> bool {
     !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// A key of a pack of `unit`: the 19-digit PNU of its dong, then nothing (format 1) or a suffix of
+/// printable ASCII other than '/' (format 2, root ADR-0204), at most `max` bytes in all.
+fn is_key(key: &str, unit: &str, max: usize) -> bool {
+    key.len() <= max
+        && key.get(..PNU_BYTES).is_some_and(|pnu| {
+            is_digits(pnu) && pnu.starts_with(crate::r2_layout::by_pnu_packs::dong_of(unit))
+        })
+        && key
+            .bytes()
+            .skip(PNU_BYTES)
+            .all(|byte| byte.is_ascii_graphic() && byte != b'/')
 }
 
 #[cfg(test)]

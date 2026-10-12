@@ -415,12 +415,27 @@ pub(crate) fn cold_reads(pnus: &[String], units: &[String]) -> anyhow::Result<Ve
         .collect()
 }
 
-/// The preview's URL for `pnu` at the probed generation.
+/// The preview's URL for the key `pnu` at the probed generation.
 fn preview_url(config: &LatencyConfig, prefix: &str, parameter: &str, pnu: &str) -> String {
     format!(
-        "{}{prefix}{pnu}?{parameter}=g{}",
+        "{}{prefix}{}?{parameter}=g{}",
         config.preview_base_url.trim_end_matches('/'),
+        by_pnu_packs::request_path_of(pnu),
         config.generation
+    )
+}
+
+/// The live URL gate (나) compares against for the key `pnu`: the lane's own, or its baseline
+/// lane's for the key's PNU (root ADR-0190, ADR-0204: the baseline knows PNUs only).
+fn live_url(config: &LatencyConfig, live_prefix: &str, pnu: &str) -> String {
+    let path = if config.baseline.is_some() {
+        by_pnu_packs::pnu_of(pnu).to_owned()
+    } else {
+        by_pnu_packs::request_path_of(pnu)
+    };
+    format!(
+        "{}{live_prefix}{path}",
+        config.live_base_url.trim_end_matches('/')
     )
 }
 
@@ -452,10 +467,7 @@ pub(crate) async fn probe(
         .zip(cold)
         .enumerate()
         .map(|(index, (pnu, cold))| {
-            let live_url = format!(
-                "{}{live_prefix}{pnu}",
-                config.live_base_url.trim_end_matches('/')
-            );
+            let live_url = live_url(config, &live_prefix, pnu);
             let pack_url = preview_url(config, &prefix, &policy.preview_query_parameter, pnu);
             (index, cold, live_url, pack_url)
         })

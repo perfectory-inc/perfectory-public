@@ -132,7 +132,11 @@ pub(crate) async fn check(
     };
     let mut latency = Vec::new();
     for pnu in pnus {
-        let url = format!("{}{prefix}{pnu}", base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}{prefix}{}",
+            base_url.trim_end_matches('/'),
+            crate::r2_layout::by_pnu_packs::request_path_of(pnu)
+        );
         let answer = match timed_get(lane, &client, &url, Accept::Gzip).await {
             Ok(answer) => answer,
             Err(failure) => {
