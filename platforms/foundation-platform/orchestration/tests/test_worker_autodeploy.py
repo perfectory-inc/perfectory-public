@@ -10,6 +10,7 @@ and `systemd-run` play the serving monitor. scripts/deploy/worker-wrangler.sh ru
 """
 
 import contextlib
+import functools
 import importlib.util
 import io
 import json
@@ -173,7 +174,8 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         # set in the dashboard, and a script no contract lists.
         cloud, hosts, self.names = {}, {}, {}
         for number, entry in enumerate(CONTRACT["workers"]):
-            block = GATEWAYS[entry["gateway"]]
+            # A gateway is a top-level block or a dotted path into one (`by_pnu_lanes.<lane>`).
+            block = functools.reduce(lambda value, key: value[key], entry["gateway"].split("."), GATEWAYS)
             names = [(block["worker_name"], block.get("public_hostname") or entry["smoke"]["hostname"])]
             if entry.get("preview"):
                 preview = block["section_packs"]["preview_worker"]

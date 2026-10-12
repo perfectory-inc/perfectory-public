@@ -531,6 +531,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.unit_price_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://reference.legal_dong_code_change",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
           "node_id": "reference-legal-dong-code-change",
