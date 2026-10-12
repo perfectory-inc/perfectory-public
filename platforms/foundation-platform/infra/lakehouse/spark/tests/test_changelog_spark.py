@@ -77,7 +77,25 @@ class ChangeSetSparkTest(unittest.TestCase):
         direct = changelog.change_set(r1, r3, KEYS)
         as_weights = lambda f: Counter({(r["pnu"], r["area"]): r[changelog.WEIGHT] for r in f.collect()})
         self.assertEqual(as_weights(composed), as_weights(direct))
+        # A Counter forgets zero weights: the row count sees a pair that summed to 0 and was kept.
+        self.assertEqual(composed.count(), 2)
         self.assertEqual(as_weights(direct), Counter({("B", 2.0): -1, ("C", 3.0): 1}))
+
+    def test_a_composed_pair_carries_its_latest_image_whole(self):
+        # A enters in r2, leaves in r3, enters again in r4: the one surviving row is r4's image.
+        r1, r2, r3, r4 = (self.release(rows, label) for rows, label in
+                          (([], "r1"), ([("A", 1.0)], "r2"), ([], "r3"), ([("A", 1.0)], "r4")))
+        steps = changelog.stamped(changelog.change_set(r1, r2, KEYS), 1, 2).unionByName(
+            changelog.stamped(changelog.change_set(r2, r3, KEYS), 2, 3)).unionByName(
+            changelog.stamped(changelog.change_set(r3, r4, KEYS), 3, 4))
+        [row] = changelog.net(steps, KEYS).collect()
+        self.assertEqual((row["pnu"], row[changelog.WEIGHT], row["source_snapshot_id"]), ("A", 1, "r4"))
+
+    def test_the_fingerprint_does_not_depend_on_column_order(self):
+        frame = self.spark.createDataFrame([("A", 1.0, "r1")], SCHEMA)
+        reordered = frame.select(*reversed(frame.columns))
+        fingerprint = lambda f: changelog.with_fingerprint(f, LINEAGE).first()[changelog.FINGERPRINT]
+        self.assertEqual(fingerprint(frame), fingerprint(reordered))
 
     def test_a_lost_change_row_fails_the_closure(self):
         from pyspark.sql import functions as F
