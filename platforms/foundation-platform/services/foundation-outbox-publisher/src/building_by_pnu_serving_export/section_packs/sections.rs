@@ -21,7 +21,8 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::super::building_document::{self, BuildingByPnuDocument};
 use crate::building_link_evidence::ApprovedBuildingLinks;
-use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
+use crate::pack_lane_document;
 use crate::parcel_by_pnu_serving_export::parcel_document::{self, PARCEL_DOCUMENT_SCHEMA_VERSION};
 
 pub(crate) const DOCUMENTS: &str = "documents";
@@ -56,6 +57,7 @@ pub(crate) const fn gold_table(lane: ByPnuLane) -> &'static LakehouseTableContra
     match lane {
         ByPnuLane::Building => &GOLD_BUILDING_PANEL,
         ByPnuLane::Parcel => &GOLD_PARCEL_PANEL,
+        ByPnuLane::Pack(lane) => lane.gold,
     }
 }
 
@@ -82,6 +84,8 @@ pub(crate) enum Renderer {
     Building(ApprovedBuildingLinks),
     /// The parcel document is the Gold row alone.
     Parcel,
+    /// A pack-only lane's document is its Gold row, rendered by rule (root ADR-0189).
+    Pack(&'static PackLane),
 }
 
 impl Renderer {
@@ -93,6 +97,7 @@ impl Renderer {
         match lane {
             ByPnuLane::Building => Ok(Self::Building(ApprovedBuildingLinks::load_current().await?)),
             ByPnuLane::Parcel => Ok(Self::Parcel),
+            ByPnuLane::Pack(lane) => Ok(Self::Pack(lane)),
         }
     }
 
@@ -132,6 +137,15 @@ impl Renderer {
                     pnu: artifact.pnu,
                     bytes: artifact.body,
                 })
+            }
+            Self::Pack(lane) => {
+                let (pnu, bytes) = pack_lane_document::render(
+                    lane,
+                    &provenance.table,
+                    &provenance.iceberg_snapshot_id,
+                    row,
+                )?;
+                Ok(PackDocument { pnu, bytes })
             }
         }
     }
@@ -185,6 +199,7 @@ pub(crate) fn join(lane: ByPnuLane, fragments: &[(&str, &[u8])]) -> anyhow::Resu
             );
             Ok(())
         }
+        ByPnuLane::Pack(lane) => pack_lane_document::check(lane, bytes),
     }
 }
 

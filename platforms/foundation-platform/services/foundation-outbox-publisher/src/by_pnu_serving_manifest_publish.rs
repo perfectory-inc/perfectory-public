@@ -54,10 +54,11 @@ const DELTA_SUMMARY_JOB: &str = "by_pnu_panel_delta";
 const GATEWAY_PROBE_TIMEOUT_SECONDS: u64 = 15;
 
 /// The document schema the lane's export bakes now.
-pub(crate) const fn document_schema_version(lane: ByPnuLane) -> &'static str {
+pub(crate) fn document_schema_version(lane: ByPnuLane) -> &'static str {
     match lane {
         ByPnuLane::Parcel => PARCEL_DOCUMENT_SCHEMA_VERSION,
         ByPnuLane::Building => BUILDING_DOCUMENT_SCHEMA_VERSION,
+        ByPnuLane::Pack(lane) => &lane.document_schema_version,
     }
 }
 
@@ -66,6 +67,7 @@ pub(crate) const fn gold_table(lane: ByPnuLane) -> &'static str {
     match lane {
         ByPnuLane::Parcel => GOLD_PARCEL_PANEL.table_name,
         ByPnuLane::Building => GOLD_BUILDING_PANEL.table_name,
+        ByPnuLane::Pack(lane) => lane.gold.table_name,
     }
 }
 

@@ -10,10 +10,11 @@
 //! | `check-building-gateway-version-health`          | one canary step's verdict, from analytics |
 //! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
 //!
-//! Each command exists for the parcel lane too, with `parcel` in place of `building`
-//! (`export-parcel-by-pnu-section-packs`, `check-parcel-gateway-version-health`, ...). Environment
+//! Each command exists for every lane, with the lane's name in place of `building`
+//! (`export-parcel-by-pnu-section-packs`, `check-unit-price-gateway-version-health`, ...): the
+//! parcel lane and every lane the contract's `by_pnu_lanes` names (root ADR-0189). Environment
 //! variables carry the lane's prefix (`FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_`,
-//! `FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_`).
+//! `FOUNDATION_PLATFORM_UNIT_PRICE_BY_PNU_SERVING_`).
 
 use crate::by_pnu_gateway_contract::ByPnuLane;
 
@@ -33,6 +34,8 @@ pub(crate) mod sections;
 #[cfg(test)]
 mod latency_tests;
 #[cfg(test)]
+mod pack_lane_tests;
+#[cfg(test)]
 mod tests;
 
 /// What a section pack command does.
@@ -45,6 +48,8 @@ pub(crate) enum PackCommandKind {
     Inspect,
     CheckVersionHealth,
     Monitor,
+    /// `show-<lane>-by-pnu-serving-state`, for the lanes `main` does not name itself.
+    ShowState,
 }
 
 /// One section pack command of one lane.
@@ -55,44 +60,48 @@ pub(crate) struct PackCommand {
 }
 
 impl PackCommand {
-    /// The command a name spells, if it is one of these.
+    /// The command a name spells, if it is one of these, for any lane: the parcel and building
+    /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0189).
     pub(crate) fn parse(name: &str) -> Option<Self> {
-        let (lane, kind) = match name {
-            "export-building-by-pnu-section-packs" => {
-                (ByPnuLane::Building, PackCommandKind::Export)
-            }
-            "verify-building-by-pnu-section-pack-equality" => {
-                (ByPnuLane::Building, PackCommandKind::VerifyEquality)
-            }
-            "probe-building-by-pnu-section-pack-latency" => {
-                (ByPnuLane::Building, PackCommandKind::ProbeLatency)
-            }
-            "publish-building-by-pnu-section-packs" => {
-                (ByPnuLane::Building, PackCommandKind::Publish)
-            }
-            "inspect-building-by-pnu-section-packs" => {
-                (ByPnuLane::Building, PackCommandKind::Inspect)
-            }
-            "check-building-gateway-version-health" => {
-                (ByPnuLane::Building, PackCommandKind::CheckVersionHealth)
-            }
-            "monitor-building-by-pnu-serving" => (ByPnuLane::Building, PackCommandKind::Monitor),
-            "export-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Export),
-            "verify-parcel-by-pnu-section-pack-equality" => {
-                (ByPnuLane::Parcel, PackCommandKind::VerifyEquality)
-            }
-            "probe-parcel-by-pnu-section-pack-latency" => {
-                (ByPnuLane::Parcel, PackCommandKind::ProbeLatency)
-            }
-            "publish-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Publish),
-            "inspect-parcel-by-pnu-section-packs" => (ByPnuLane::Parcel, PackCommandKind::Inspect),
-            "check-parcel-gateway-version-health" => {
-                (ByPnuLane::Parcel, PackCommandKind::CheckVersionHealth)
-            }
-            "monitor-parcel-by-pnu-serving" => (ByPnuLane::Parcel, PackCommandKind::Monitor),
-            _ => return None,
-        };
-        Some(Self { lane, kind })
+        const KINDS: [(&str, &str, PackCommandKind); 8] = [
+            ("export-", "-by-pnu-section-packs", PackCommandKind::Export),
+            (
+                "verify-",
+                "-by-pnu-section-pack-equality",
+                PackCommandKind::VerifyEquality,
+            ),
+            (
+                "probe-",
+                "-by-pnu-section-pack-latency",
+                PackCommandKind::ProbeLatency,
+            ),
+            (
+                "publish-",
+                "-by-pnu-section-packs",
+                PackCommandKind::Publish,
+            ),
+            (
+                "inspect-",
+                "-by-pnu-section-packs",
+                PackCommandKind::Inspect,
+            ),
+            (
+                "check-",
+                "-gateway-version-health",
+                PackCommandKind::CheckVersionHealth,
+            ),
+            ("monitor-", "-by-pnu-serving", PackCommandKind::Monitor),
+            ("show-", "-by-pnu-serving-state", PackCommandKind::ShowState),
+        ];
+        let lanes = ByPnuLane::all().ok()?;
+        KINDS.into_iter().find_map(|(verb, object, kind)| {
+            let lane = name.strip_prefix(verb)?.strip_suffix(object)?;
+            let lane = lanes
+                .iter()
+                .copied()
+                .find(|candidate| candidate.name() == lane)?;
+            Some(Self { lane, kind })
+        })
     }
 
     /// Runs the command.
@@ -109,6 +118,7 @@ impl PackCommand {
             PackCommandKind::Inspect => inspect::run(lane).await,
             PackCommandKind::CheckVersionHealth => health::run(lane).await,
             PackCommandKind::Monitor => monitor::run(lane).await,
+            PackCommandKind::ShowState => crate::by_pnu_serving_state::run(lane).await,
         }
     }
 }

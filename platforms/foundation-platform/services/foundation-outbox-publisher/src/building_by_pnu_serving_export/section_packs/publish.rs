@@ -148,14 +148,26 @@ pub(crate) async fn publish(
     store: &ByPnuServingStore,
     gateway_base_url: &str,
 ) -> anyhow::Result<SectionPacksState> {
-    let (bytes, version) = store.read_manifest().await.with_context(|| {
-        format!(
-            "the {} lane has no readable manifest; packs are published over a served lane",
-            config.lane.unit()
-        )
-    })?;
-    let live = ServedManifest::parse(config.lane, &bytes)
-        .context("the live manifest cannot be read; refusing to replace it")?;
+    let stored = if config.lane.pack_lane().is_some()
+        && !store
+            .exists(crate::r2_layout::by_pnu::manifest_key(config.lane)?)
+            .await?
+    {
+        None
+    } else {
+        Some(store.read_manifest().await.with_context(|| {
+            format!(
+                "the {} lane has no readable manifest; packs are published over a served lane",
+                config.lane.unit()
+            )
+        })?)
+    };
+    let live = match &stored {
+        Some((bytes, _)) => ServedManifest::parse(config.lane, bytes)
+            .context("the live manifest cannot be read; refusing to replace it")?,
+        // A pack-only lane's first publish writes its first manifest (root ADR-0189).
+        None => pack_only_envelope(config)?,
+    };
     let live = if live.wire_schema_version == 1 {
         restate_v1(config, store, live).await?
     } else {
@@ -190,12 +202,12 @@ pub(crate) async fn publish(
     );
     let manifest = with_packs(&live, state.clone(), published_at_utc)?;
     let body = manifest.to_bytes()?;
-    let stored = StoredManifest {
+    let stored = stored.map(|(bytes, version)| StoredManifest {
         manifest: live,
         bytes,
         version,
-    };
-    if let Err(error) = manifest_publish::commit(store, Some(&stored), &body).await {
+    });
+    if let Err(error) = manifest_publish::commit(store, stored.as_ref(), &body).await {
         // A write whose answer was lost after it landed is a success; anything else is not, and
         // the new pin stays until the next publish releases it (root ADR-0146 §2).
         match store.read_manifest().await {
@@ -207,6 +219,40 @@ pub(crate) async fn publish(
     }
     manifest_publish::release_behind_live(store, &snapshot_pins).await;
     Ok(state)
+}
+
+/// The v2 envelope a pack-only lane's first manifest carries (root ADR-0189): no object was ever
+/// written, so it names a base generation of none (`object_count` 0) at the snapshot being
+/// published, and only its `section_packs` block serves. The lane's Worker never reads objects.
+///
+/// # Errors
+/// Refuses a lane with an object path, and a publish that is not of a base.
+fn pack_only_envelope(config: &PublishConfig) -> anyhow::Result<ServedManifest> {
+    ensure!(
+        config.lane.pack_lane().is_some() && config.summary_dir.is_some(),
+        "only a pack-only lane's first base publish writes a manifest where none is"
+    );
+    let snapshot = config.expected_gold_snapshot.clone();
+    Ok(ServedManifest {
+        wire_schema_version: 2,
+        unit: config.lane.unit().to_owned(),
+        base_generation: 1,
+        base_object_count: 0,
+        document_schema_version: Some(
+            manifest_publish::document_schema_version(config.lane).to_owned(),
+        ),
+        gold_table: gold_table(config.lane).to_owned(),
+        gold_iceberg_snapshot_id: snapshot.clone(),
+        reflected_gold_iceberg_snapshot_id: snapshot,
+        pnu_prefix_length: Some(
+            crate::by_pnu_gateway_contract::by_pnu_serving_patch_policy()?.pnu_prefix_length,
+        ),
+        patches: Vec::new(),
+        object_count: 0,
+        published_at_utc: manifest_publish::now(),
+        reflected_gold_snapshot_tag: None,
+        section_packs: None,
+    })
 }
 
 /// The live manifest with a new `section_packs` block; every v2 field unchanged.

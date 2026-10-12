@@ -86,6 +86,21 @@ pub(crate) struct LatencyConfig {
     /// The unit of each sampled PNU, from the equality evidence (root ADR-0163): a read is cold on
     /// the first of its unit. Empty, each PNU's unit is its dong.
     pub(crate) sample_units: Vec<String>,
+    /// A pack-only lane's comparison (root ADR-0189); `None` for a lane with an object path.
+    pub(crate) baseline: Option<Baseline>,
+}
+
+/// What a pack-only lane is measured against: it has no object path of its own, so its preview is
+/// timed against the live preview of `latency_baseline_lane` reading the same PNUs (the same Worker
+/// code at the same placement), and its content is held to the documents the bake wrote, read
+/// back from the unpublished packs in R2.
+#[derive(Clone, Debug)]
+pub(crate) struct Baseline {
+    pub(crate) lane: ByPnuLane,
+    /// The baseline lane's request path prefix, under `live_base_url`.
+    pub(crate) prefix: String,
+    /// Each sampled PNU's document as the packs hold it; filled before the probe.
+    pub(crate) expected: HashMap<String, [u8; 32]>,
 }
 
 impl LatencyConfig {
@@ -112,6 +127,29 @@ impl LatencyConfig {
         // spending half an hour of reads on it.
         let analytics = Some(AnalyticsConfig::required("gate (나)")?);
         let preview_base_url = required("PACK_PREVIEW_BASE_URL")?;
+        let baseline = match lane.pack_lane() {
+            None => None,
+            Some(pack) => {
+                let baseline = ByPnuLane::named(&pack.latency_baseline_lane)?
+                    .with_context(|| format!("no lane is named {}", pack.latency_baseline_lane))?;
+                Some(Baseline {
+                    lane: baseline,
+                    prefix: baseline.policy()?.request_path.prefix.clone(),
+                    expected: HashMap::new(),
+                })
+            }
+        };
+        // A pack-only lane has no object path: its live side is the baseline lane's preview.
+        let live_default = match &baseline {
+            None => Some(preview_base_url.clone()),
+            Some(baseline) => baseline
+                .lane
+                .section_packs()?
+                .preview_worker
+                .as_ref()
+                .and_then(|preview| preview.public_hostname.as_ref())
+                .map(|host| format!("https://{host}")),
+        };
         Ok(Self {
             lane,
             generation: required("PACK_GENERATION")?
@@ -120,7 +158,15 @@ impl LatencyConfig {
             // The object side is the preview's own object path unless named: same Worker, same
             // placement, edge copies of its own version, so both sides read R2 cold and say so
             // (contract `cutover_gate.comparison_reason`).
-            live_base_url: env("PACK_LIVE_BASE_URL")?.unwrap_or_else(|| preview_base_url.clone()),
+            live_base_url: match env("PACK_LIVE_BASE_URL")? {
+                Some(url) => url,
+                None => live_default.with_context(|| {
+                    format!(
+                        "{} is required: the baseline lane names no preview hostname",
+                        lane.env("PACK_LIVE_BASE_URL")
+                    )
+                })?,
+            },
             preview_base_url,
             equality_evidence: PathBuf::from(required("PACK_EQUALITY_EVIDENCE_PATH")?),
             evidence_path: PathBuf::from(required("PACK_LATENCY_EVIDENCE_PATH")?),
@@ -139,6 +185,7 @@ impl LatencyConfig {
             )),
             no_gzip_sample_size: gate.no_gzip_sample_size,
             sample_units: Vec::new(),
+            baseline,
         })
     }
 }
@@ -152,6 +199,10 @@ pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let pnus = sample(&config)?;
     let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
     config.sample_units = equality.sample_units;
+    if let Some(baseline) = &mut config.baseline {
+        baseline.expected =
+            expected_documents(lane, config.generation, &pnus, config.concurrency).await?;
+    }
     let evidence = probe(&config, &pnus).await?;
     write_evidence(&config.evidence_path, &evidence)?;
     tracing::info!(
@@ -199,6 +250,45 @@ pub(crate) fn sample(config: &LatencyConfig) -> anyhow::Result<Vec<String>> {
         by_pnu_packs::unit_of(pnu)?;
     }
     Ok(equality.sample)
+}
+
+/// Each sampled PNU's document in the unpublished generation, read back from the lane's packs as
+/// the gateway would answer it (`inspect`), as the content digest the probe compares answers by.
+/// The bake already held those bytes to the Gold rows (gate 가); this holds the Worker to them.
+///
+/// # Errors
+/// Returns an error when the lane's store cannot be opened or a sampled PNU has no document.
+pub(crate) async fn expected_documents(
+    lane: ByPnuLane,
+    generation: u64,
+    pnus: &[String],
+    concurrency: usize,
+) -> anyhow::Result<HashMap<String, [u8; 32]>> {
+    let env = |name: &str| optional_env(&lane.env(name));
+    let output = crate::industrial_complex_gold_profile_store::ProfileStoreConfig::parse(
+        env("OUTPUT_STORAGE_DRIVER")?
+            .unwrap_or_else(|| "local".to_owned())
+            .as_str(),
+        crate::by_pnu_serving_store::local_root(env("OUTPUT_ROOT")?),
+    )?;
+    let store = crate::by_pnu_serving_store::ByPnuServingStore::open(lane, &output)?;
+    let store = &store;
+    let read = stream::iter(pnus.iter().cloned())
+        .map(|pnu| async move {
+            let report = super::inspect::inspect(store, &pnu, Some(generation)).await?;
+            let document = report
+                .get("document")
+                .filter(|document| !document.is_null())
+                .with_context(|| {
+                    format!("the packs of generation {generation} hold no document of {pnu}")
+                })?;
+            let digest = normalized_digest(&serde_json::to_vec(document)?)?;
+            anyhow::Ok((pnu, digest))
+        })
+        .buffer_unordered(concurrency.max(1))
+        .collect::<Vec<_>>()
+        .await;
+    read.into_iter().collect()
 }
 
 /// Whether a base URL is a stand-in: not https, or a loopback or private host.
@@ -346,6 +436,10 @@ pub(crate) async fn probe(
     let policy = section_pack_policy()?;
     let lane = config.lane;
     let prefix = lane.policy()?.request_path.prefix.clone();
+    let live_prefix = config
+        .baseline
+        .as_ref()
+        .map_or_else(|| prefix.clone(), |baseline| baseline.prefix.clone());
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .pool_max_idle_per_host(config.concurrency.max(1))
@@ -359,7 +453,7 @@ pub(crate) async fn probe(
         .enumerate()
         .map(|(index, (pnu, cold))| {
             let live_url = format!(
-                "{}{prefix}{pnu}",
+                "{}{live_prefix}{pnu}",
                 config.live_base_url.trim_end_matches('/')
             );
             let pack_url = preview_url(config, &prefix, &policy.preview_query_parameter, pnu);
@@ -394,7 +488,13 @@ pub(crate) async fn probe(
     let mut probed = probed;
     probed.sort_by_key(|(index, _)| *index);
 
-    let mut tally = Tally::default();
+    let mut tally = Tally {
+        expected: config
+            .baseline
+            .as_ref()
+            .map(|baseline| baseline.expected.clone()),
+        ..Tally::default()
+    };
     for (index, read) in &probed {
         let pnu = pnus
             .get(*index)
@@ -428,7 +528,7 @@ pub(crate) async fn probe(
                 &client,
                 &pnus[..take],
                 |pnu| preview_url(config, &prefix, &policy.preview_query_parameter, pnu),
-                &tally.live_digests,
+                tally.expected.as_ref().unwrap_or(&tally.live_digests),
                 config.concurrency,
             )
             .await?,
@@ -511,6 +611,10 @@ pub(crate) async fn probe(
         no_gzip,
         worker_cpu,
         bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
+        baseline_lane: config
+            .baseline
+            .as_ref()
+            .map(|baseline| baseline.lane.name().to_owned()),
         live_ms,
         pack_ms,
     };
@@ -544,6 +648,9 @@ struct Tally {
     cold_live_read_paths: BTreeMap<String, u64>,
     /// The live answer's content per PNU, which the no-gzip reads are held to.
     live_digests: HashMap<String, [u8; 32]>,
+    /// A pack-only lane's documents as its packs hold them: its preview's answers are held to these
+    /// instead of to the baseline lane's, which are another lane's documents.
+    expected: Option<HashMap<String, [u8; 32]>>,
 }
 
 impl Tally {
@@ -602,7 +709,11 @@ impl Tally {
                     self.live_warm.push(live.ms);
                     self.pack_warm.push(pack.ms);
                 }
-                if normalized_digest(&live.body)? != normalized_digest(&pack.body)? {
+                let wanted = match &self.expected {
+                    None => Some(normalized_digest(&live.body)?),
+                    Some(expected) => expected.get(pnu).copied(),
+                };
+                if wanted != Some(normalized_digest(&pack.body)?) {
                     self.mismatched += 1;
                     self.example(pnu);
                 }

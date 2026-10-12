@@ -32,7 +32,12 @@ from typing import Any
 
 JOB_NAME = "by_pnu_panel_delta"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
-GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel"}
+R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
+# The parcel and building lanes, and every pack-only lane the R2 contract names (root ADR-0189):
+# each lane's Gold panel is one row per PNU with a row_digest, so one comparison serves them all.
+GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel",
+               **{name: lane["gold_table"] for name, lane in
+                  json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8")).get("by_pnu_lanes", {}).items()}}
 EXIT_NO_COMPARISON = 3
 EXIT_NOT_A_DELTA = 4
 EXIT_NO_DIGEST = 5

@@ -1250,6 +1250,14 @@
           "title": "필지 by-PNU 제공용 패널",
           "kind": "gold_table",
           "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.unit_price_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
         }
       ],
       "writes": [
@@ -1282,6 +1290,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-by-pnu-serving,PROD)",
           "node_id": "parcel-by-pnu-serving",
           "title": "필지 by-PNU 서빙 문서",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://unit-price-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,unit-price-by-pnu-section-packs,PROD)",
+          "node_id": "unit-price-by-pnu-section-packs",
+          "title": "호 공시가격 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }

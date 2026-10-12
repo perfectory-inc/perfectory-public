@@ -13,7 +13,7 @@ import {
   type ReadTrace,
   type Resolved,
 } from "./packs";
-import { cacheOrigin, lanePacks, policy, UNIT } from "./lane";
+import { cacheOrigin, lanePacks, packOnly, policy, UNIT } from "./lane";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
@@ -547,7 +547,8 @@ async function answerByPnu(
   // serves one, and the live route serves a generation only when the manifest already names it.
   // A version whose serving binding is off answers from objects while the manifest already names
   // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
-  const servesPacks = env[lanePacks.serving_binding] !== "off";
+  // A pack-only lane (root ADR-0189) has no objects to roll back to: it serves packs regardless.
+  const servesPacks = packOnly || env[lanePacks.serving_binding] !== "off";
   let packs = servesPacks ? plan.packs : undefined;
   let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
   // A preview version says how it answered (`Server-Timing`); the live route does not.
@@ -563,6 +564,10 @@ async function answerByPnu(
   if (packs !== undefined) {
     // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
     return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
+  }
+  if (packOnly) {
+    // A manifest without packs cannot be this lane's: an outage, never an object read.
+    return withCors(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), origin, allowed);
   }
   // A preview version's object path is what gate (b) holds the pack path to (root ADR-0147 §6):
   // its edge copies are its own version's, so a fresh preview upload answers its first reads from

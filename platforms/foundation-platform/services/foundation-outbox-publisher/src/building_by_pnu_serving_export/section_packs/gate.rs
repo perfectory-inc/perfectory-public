@@ -270,6 +270,10 @@ pub(crate) struct LatencyEvidence {
     /// compared against the production route never opens the gate.
     #[serde(default)]
     pub(crate) cold_live_read_paths: BTreeMap<String, u64>,
+    /// The lane a pack-only lane's preview was measured against (root ADR-0189); `None` when the
+    /// live side was the lane's own object path. The publish holds it to the contract's.
+    #[serde(default)]
+    pub(crate) baseline_lane: Option<String>,
 }
 
 /// The environment a production probe names.
@@ -568,6 +572,16 @@ fn require_latency_identity(
         evidence.pack_generation == generation,
         "the live evidence measured generation {}, not {generation}",
         evidence.pack_generation
+    );
+    let baseline = lane
+        .pack_lane()
+        .map(|pack| pack.latency_baseline_lane.as_str());
+    ensure!(
+        evidence.baseline_lane.as_deref() == baseline,
+        "the live evidence was measured against {:?}, but the {} lane is measured against {:?}",
+        evidence.baseline_lane,
+        lane.unit(),
+        baseline
     );
     ensure!(
         evidence.sample_sha256 == equality.sample_sha256,

@@ -458,5 +458,105 @@
         "https://app.example.test/path"
       ]
     }
+  },
+  "by_pnu_lanes": {
+    "unit-price": {
+      "decision": "docs/adr/0189-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
+      "pack_only": true,
+      "pack_only_reason": "a lane of one kind of data (root ADR-0189) is born serving from section packs: it never had an object lane, so its first publish is the pack-only cut-over gate and its Worker never reads objects",
+      "gold_table": "gold.unit_price_panel",
+      "document_schema_version": "foundation-platform.unit_price_by_pnu.v1",
+      "latency_baseline_lane": "building",
+      "latency_baseline_lane_reason": "every PNU with a priced unit has a building document (a unit price is served under the PNU its building document carries it), so the building preview reads the same PNUs through the same Worker code at the same placement: the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds a cut-over to",
+      "connection": "lakehouse",
+      "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+      "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+      "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+      "compatibility_date": "2026-04-26",
+      "placement": {
+        "region": "aws:ap-northeast-1"
+      },
+      "placement_reason": "the bucket's location is APAC and the Worker reads it on every cold answer, while this zone's Korean traffic enters at LAX. Measured 2026-10-06 from ai-server, 1,000 PNUs per run, live copy and preview at the same placement: an R2 read of an object read before takes ~190 ms run at LAX, ~40 ms at Tokyo (aws:ap-northeast-1), ~70 ms at Seoul (aws:ap-northeast-2) and ~120 ms at Singapore (aws:ap-southeast-1). At Tokyo a cold pack answer is within the cut-over bounds of the object path (ADR-0154); the object path's own edge-cache hits pay the LAX-Tokyo hop (warm p50 444 -> 553 ms), which is what makes the pack path's edge copies affordable to drop. Placement travels with the uploaded version (2026-10-06, a throwaway Worker split 50/50 between an unplaced version and one uploaded with this hint answered both unplaced and remote-NRT), so the canary's code phase rolls it out and back like any other change",
+      "version_metadata_binding": "FOUNDATION_PLATFORM_WORKER_VERSION",
+      "version_header": "Foundation-Worker-Version",
+      "cpu_limit_ms": 50,
+      "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is five times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
+      "cors": {
+        "grammar": "comma-separated-serialized-http-origins-v1",
+        "allow_wildcard": false,
+        "accepted": [
+          "https://app.example.test",
+          " http://localhost:3000 , https://app.example.test "
+        ],
+        "rejected": [
+          "*",
+          "file:///tmp/app",
+          "https://app.example.test/path"
+        ]
+      },
+      "content_type": "application/json; charset=utf-8",
+      "cache_control": "public, max-age=3600",
+      "manifest_cache_control": "no-cache, max-age=0",
+      "manifest_edge_cache_seconds": 60,
+      "worker_name": "foundation-unit-price-gateway",
+      "public_hostname": "unit-prices.perfectory.io",
+      "object_key": {
+        "root": "serving/unit-prices/by-pnu",
+        "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+        "patch_dir_pattern": "p[1-9][0-9]{0,17}",
+        "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
+        "suffix": ".json",
+        "manifest_object": "serving/unit-prices/by-pnu/manifest.json",
+        "manifest_history_dir": "serving/unit-prices/by-pnu/manifest-history"
+      },
+      "request_path": {
+        "prefix": "/unit-prices/by-pnu/",
+        "capabilities": "/unit-prices/by-pnu/_capabilities",
+        "accepted_queries": []
+      },
+      "section_packs": {
+        "root": "serving/unit-prices/packs",
+        "sections": [
+          "documents"
+        ],
+        "anchor_section": "documents",
+        "preview_binding": "FOUNDATION_PLATFORM_UNIT_PRICE_PACK_PREVIEW",
+        "serving_binding": "FOUNDATION_PLATFORM_UNIT_PRICE_PACK_SERVING",
+        "serving_binding_reason": "a pack-only lane has no object path to fall back to: its Worker answers from packs whatever the binding says, and the binding stays named only so every lane's Worker reads one shape",
+        "canary": {
+          "steps_percent": [
+            1,
+            10,
+            50,
+            100
+          ],
+          "hold_seconds": 900,
+          "min_requests_per_step": 200,
+          "reason": "Cloudflare gradual deployments split by request; a step holds 15 minutes, then needs min_requests_per_step pinned reads answered by the new version itself (each answer names the version that served it in version_header) before its error rate, CPU and wall time are compared with the old one",
+          "analytics_min_coverage": 0.3,
+          "analytics_min_coverage_reason": "Workers analytics (workersInvocationsAdaptive) is sampled and late: its sum of requests is already scaled by the sample interval, but on 2026-10-06 it had counted 137 of the 300 pinned reads the new version answered (old version: 296 of 300) when the gate's ten-minute wait ran out, and 304 once the late rows arrived. So whether reads reached the new version is judged from the pinned answers, and analytics is used only for CPU, cut-offs and errors, which a sample answers; it must still have counted this share of the new version's pinned answers, so an analytics answer about the wrong version or window cannot pass as clean",
+          "synthetic_load": {
+            "requests_per_second": 5,
+            "duration_seconds": 60,
+            "max_in_flight": 16,
+            "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment), counts the answers that name the new version in version_header (a misdirected pin shows up as too few of them), and judges each version on its own answers (every one 200 and gzip) as well as on analytics. The PNUs are drawn by the new version id (load::canary_draw): with one fixed draw every rollout read the PNUs earlier runs had left in the old version's edge copies while the new version read them from R2, and on 2026-10-07 the 1% step refused a healthy version on CPU, cold against warm"
+          }
+        },
+        "monitor": {
+          "pnus": 20,
+          "latency_p95_max_ms": 3000,
+          "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+        },
+        "preview_worker": {
+          "wrangler_env": "preview",
+          "worker_name": "foundation-unit-price-gateway-preview",
+          "public_hostname": "unit-prices-preview.perfectory.io"
+        },
+        "scheduled_bake": {
+          "job": "by_pnu_serving_bake",
+          "capability": "unit_price_section_pack_patches"
+        }
+      }
+    }
   }
 }

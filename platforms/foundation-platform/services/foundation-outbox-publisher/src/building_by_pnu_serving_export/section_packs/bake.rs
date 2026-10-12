@@ -54,11 +54,13 @@ use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_kept, KeptPrefix, LakehouseObjectReader};
 use crate::r2_layout::by_pnu_packs;
 
-/// The schema of a lane's export summary; the publish reads only its own lane's.
+/// The schema of a lane's export summary; the publish reads only its own lane's (a pack-only
+/// lane's summary names its own Gold table, which the publish holds it to).
 pub(crate) const fn summary_schema_version(lane: ByPnuLane) -> &'static str {
     match lane {
         ByPnuLane::Building => "foundation-platform.building_by_pnu_section_pack_export_summary.v1",
         ByPnuLane::Parcel => "foundation-platform.parcel_by_pnu_section_pack_export_summary.v1",
+        ByPnuLane::Pack(_) => "foundation-platform.by_pnu_section_pack_export_summary.v1",
     }
 }
 const DEFAULT_MAX_CONCURRENCY: usize = 16;

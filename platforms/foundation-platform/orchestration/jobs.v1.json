@@ -427,10 +427,11 @@
     },
     {
       "id": "by_pnu_serving_bake",
-      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel (config/r2-connections.contract.json by_pnu_lanes, root ADR-0189), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
       "capabilities": [
         "building_section_pack_patches",
-        "parcel_section_pack_patches"
+        "parcel_section_pack_patches",
+        "unit_price_section_pack_patches"
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
@@ -446,7 +447,8 @@
         "gold-parcel-panel-to-parcel-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-section-packs",
-        "gold-parcel-panel-to-parcel-by-pnu-section-packs"
+        "gold-parcel-panel-to-parcel-by-pnu-section-packs",
+        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs"
       ],
       "enabled": true
     }

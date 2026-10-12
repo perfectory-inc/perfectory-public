@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # The scheduled by-PNU serving bake (root ADR-0122, ADR-0141; ADR-0096 parcels, ADR-0100 buildings).
 #
-#   by-pnu-serving-bake.sh parcel|building|all
+#   by-pnu-serving-bake.sh parcel|building|<a by_pnu_lanes lane>|all
 #
-# `all` (the registered job) bakes the parcel lane, then the building lane, in this one process
-# tree: the host memory budget fits one lane's export at a time (root ADR-0138). A failed lane
-# does not stop the other; `all` fails if either did.
+# `all` (the registered job) bakes the parcel lane, then the building lane, then every pack-only
+# lane config/r2-connections.contract.json names in `by_pnu_lanes` (root ADR-0189), in this one
+# process tree: the host memory budget fits one lane's export at a time (root ADR-0138). A failed
+# lane does not stop the others; `all` fails if any did. A pack-only lane that has not been cut
+# over yet (no manifest: its first publish is the pack-only gate, run by the operator) is
+# "nothing to do".
 #
 # One run of a lane:
 #
@@ -67,9 +70,14 @@
 set -euo pipefail
 
 UNIT="${1:-}"
+# The pack-only lanes, by name, from the contract this script ships with.
+mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
+import json, sys
+print("\n".join(json.load(open(sys.argv[1])).get("by_pnu_lanes", {})))
+PY
+)
 case "${UNIT}" in
-  parcel) LANE=PARCEL ;;
-  building) LANE=BUILDING ;;
+  parcel | building) ;;
   all)
     status=0
     # Each lane that publishes names itself here; the job's last line says whether any did (root
@@ -78,8 +86,11 @@ case "${UNIT}" in
     export BY_PNU_BAKE_PUBLISHED
     "${BASH_SOURCE[0]}" parcel || status=$?
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
-    env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
-      "${BASH_SOURCE[0]}" building || { lane_status=$?; ((status)) || status=${lane_status}; }
+    for lane in building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
+      [[ -n "${lane}" ]] || continue
+      env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
+        "${BASH_SOURCE[0]}" "${lane}" || { lane_status=$?; ((status)) || status=${lane_status}; }
+    done
     if [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
       echo "foundation-job-outcome changed"
     else
@@ -88,8 +99,13 @@ case "${UNIT}" in
     rm -f "${BY_PNU_BAKE_PUBLISHED}"
     exit "${status}"
     ;;
-  *) echo "by-pnu-serving-bake: expected parcel, building or all, got '${UNIT}'" >&2; exit 64 ;;
+  *)
+    [[ -n "${UNIT}" && " ${PACK_LANES[*]-} " == *" ${UNIT} "* ]] ||
+      { echo "by-pnu-serving-bake: expected parcel, building, a by_pnu_lanes lane or all, got '${UNIT}'" >&2; exit 64; }
+    ;;
 esac
+# The lane's environment prefix (FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING), as the publisher derives it.
+LANE="$(tr 'a-z-' 'A-Z_' <<<"${UNIT}")"
 log() { printf 'by-pnu-serving-bake %s: %s\n' "${UNIT}" "$*"; }
 FORCE_FULL="${FOUNDATION_BY_PNU_BAKE_FORCE_FULL:-false}"
 FORCE_FULL_REASON="${FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON:-}"
@@ -163,6 +179,10 @@ state="${STATE_ROOT}/state.json"
 rm -f "${state}"
 FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${state}" \
   "${PUBLISHER_BIN}" "show-${UNIT}-by-pnu-serving-state"
+if python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("cut_over") is not False)' "${state}"; then
+  log "nothing to do: the pack-only ${UNIT} lane is not cut over yet; its first publish is the operator's pack-only gate (root ADR-0189)"
+  exit 0
+fi
 read -r gold base base_objects reflected patch_count newest_patch cumulative served_schema \
   schema_now highest_listed highest_patch_listed max_patches max_ratio max_delta_fraction \
   served_prefix_length prefix_length < <(python3 -I - "${state}" <<'PY'

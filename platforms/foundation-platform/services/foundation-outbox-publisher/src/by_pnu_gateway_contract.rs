@@ -3,10 +3,19 @@
 //! The contract JSON is the SSOT (root ADR-0096 parcels, ADR-0100 buildings, ADR-0141 patches):
 //! the exports, the manifest publisher, and the by-PNU gateway Worker
 //! (`services/foundation-by-pnu-gateway`, both lanes) all read the same blocks, so the key grammar the uploader
-//! writes under and the grammar the Workers resolve are one fact. Both lanes share one shape.
+//! writes under and the grammar the Workers resolve are one fact. Every lane shares one shape.
+//!
+//! Besides the parcel and building lanes, the contract's `by_pnu_lanes` names lanes that serve
+//! from section packs only, each a Gold panel of one kind of data (root ADR-0189). Nothing of such
+//! a lane is written in code: its manifest unit, environment prefix and commands follow from its
+//! name.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use lakehouse_domain::{
+    industrial_complex_lakehouse_contract_by_table_name, LakehouseTableContract,
+};
 use serde::Deserialize;
 
 const R2_CONNECTION_CONTRACT: &str = include_str!("../../../config/r2-connections.contract.json");
@@ -15,42 +24,92 @@ const RUNTIME_SECRETS_CONTRACT: &str =
 /// The runtime-secrets group that holds the Cloudflare analytics variables.
 const CLOUDFLARE_ANALYTICS_GROUP: &str = "cloudflare-analytics";
 
-/// The two by-PNU serving lanes. Everything a lane differs by is named here once.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The by-PNU serving lanes. Everything a lane differs by is named here once: the parcel and
+/// building lanes in code, every other lane in the contract's `by_pnu_lanes`.
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum ByPnuLane {
     Parcel,
     Building,
+    /// A lane the contract's `by_pnu_lanes` names, served from section packs only (root ADR-0189).
+    Pack(&'static PackLane),
 }
 
+impl PartialEq for ByPnuLane {
+    fn eq(&self, other: &Self) -> bool {
+        self.unit() == other.unit()
+    }
+}
+
+impl Eq for ByPnuLane {}
+
 impl ByPnuLane {
+    /// Every lane: the parcel and building lanes, then the contract's in name order.
+    ///
+    /// # Errors
+    /// Returns an error when the contract cannot be read.
+    pub(crate) fn all() -> anyhow::Result<Vec<Self>> {
+        let mut lanes = vec![Self::Parcel, Self::Building];
+        lanes.extend(contract()?.by_pnu_lanes.values().map(Self::Pack));
+        Ok(lanes)
+    }
+
+    /// The lane a name (`parcel`, `building`, or a `by_pnu_lanes` key) names.
+    ///
+    /// # Errors
+    /// Returns an error when the contract cannot be read.
+    pub(crate) fn named(name: &str) -> anyhow::Result<Option<Self>> {
+        Ok(Self::all()?.into_iter().find(|lane| lane.name() == name))
+    }
+
+    /// The lane's name: the word in its commands and its bake script's argument.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Parcel => "parcel",
+            Self::Building => "building",
+            Self::Pack(lane) => &lane.name,
+        }
+    }
+
     /// The manifest's `unit` and the state's lane name.
-    pub(crate) const fn unit(self) -> &'static str {
+    pub(crate) fn unit(self) -> &'static str {
         match self {
             Self::Parcel => "parcel-by-pnu",
             Self::Building => "building-by-pnu",
+            Self::Pack(lane) => &lane.unit,
         }
     }
 
     /// The lane a manifest `unit` names.
     pub(crate) fn from_unit(unit: &str) -> Option<Self> {
-        [Self::Parcel, Self::Building]
+        Self::all()
+            .ok()?
             .into_iter()
             .find(|lane| lane.unit() == unit)
     }
 
     /// The word error messages use for one object of the lane.
-    pub(crate) const fn noun(self) -> &'static str {
+    pub(crate) fn noun(self) -> &'static str {
         match self {
             Self::Parcel => "parcel",
             Self::Building => "building",
+            Self::Pack(lane) => &lane.noun,
         }
     }
 
     /// The prefix of every environment variable the lane's commands read.
-    pub(crate) const fn env_prefix(self) -> &'static str {
+    pub(crate) fn env_prefix(self) -> &'static str {
         match self {
             Self::Parcel => "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING",
             Self::Building => "FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING",
+            Self::Pack(lane) => &lane.env_prefix,
+        }
+    }
+
+    /// The contract lane, when this is one: it serves from section packs only.
+    pub(crate) const fn pack_lane(self) -> Option<&'static PackLane> {
+        match self {
+            Self::Pack(lane) => Some(lane),
+            Self::Parcel | Self::Building => None,
         }
     }
 
@@ -65,6 +124,7 @@ impl ByPnuLane {
         Ok(match self {
             Self::Parcel => &contract.parcel_by_pnu_gateway,
             Self::Building => &contract.building_by_pnu_gateway,
+            Self::Pack(lane) => &lane.gateway,
         })
     }
 
@@ -85,6 +145,136 @@ struct R2ConnectionContract {
     building_by_pnu_gateway: ByPnuGatewayPolicy,
     by_pnu_serving_patches: ByPnuServingPatchPolicy,
     by_pnu_section_packs: SectionPackPolicy,
+    #[serde(default, deserialize_with = "pack_lanes")]
+    by_pnu_lanes: BTreeMap<String, PackLane>,
+}
+
+/// One `by_pnu_lanes` entry as the contract writes it: a gateway block like the parcel and
+/// building lanes', and what makes it a lane of its own Gold panel.
+#[derive(Debug, Deserialize)]
+struct PackLaneEntry {
+    /// Always true: a contract lane has no object lane, so its first publish is the pack-only
+    /// cut-over gate.
+    pack_only: bool,
+    gold_table: String,
+    document_schema_version: String,
+    /// The live lane whose preview serves the same PNUs: the pack-only gate (나) measures this
+    /// lane's preview against it.
+    latency_baseline_lane: String,
+    #[serde(flatten)]
+    gateway: ByPnuGatewayPolicy,
+}
+
+/// A lane the contract names, with what follows from its name resolved once.
+#[derive(Debug)]
+pub(crate) struct PackLane {
+    name: String,
+    unit: String,
+    noun: String,
+    env_prefix: String,
+    /// The Gold panel the lane bakes: one row per PNU, every content column a `*_json` field.
+    pub(crate) gold: &'static LakehouseTableContract,
+    pub(crate) document_schema_version: String,
+    pub(crate) latency_baseline_lane: String,
+    gateway: ByPnuGatewayPolicy,
+}
+
+/// The Gold columns a pack lane's document does not carry: its key and its lineage.
+pub(crate) const PACK_LANE_NON_CONTENT_COLUMNS: [&str; 4] = [
+    "pnu",
+    "row_digest",
+    "source_snapshot_id",
+    "published_at_utc",
+];
+
+fn pack_lanes<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, PackLane>, D::Error> {
+    use serde::de::Error as _;
+    BTreeMap::<String, PackLaneEntry>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(name, entry)| {
+            pack_lane(&name, entry)
+                .map(|lane| (name, lane))
+                .map_err(D::Error::custom)
+        })
+        .collect()
+}
+
+/// Resolves one entry, refusing a name, a baseline, a Gold table or a document the pack-only
+/// machinery cannot serve.
+fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
+    let grammar = name.split('-').all(|word| {
+        word.bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+            && word
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    });
+    if !grammar || ["parcel", "building"].contains(&name) {
+        return Err(format!(
+            "by_pnu_lanes names a lane {name:?} outside the lane grammar"
+        ));
+    }
+    if !entry.pack_only {
+        return Err(format!(
+            "by_pnu_lanes.{name} must be pack_only: it has no object lane"
+        ));
+    }
+    if !["parcel", "building"].contains(&entry.latency_baseline_lane.as_str()) {
+        return Err(format!(
+            "by_pnu_lanes.{name}.latency_baseline_lane must be a lane with a live preview, not {:?}",
+            entry.latency_baseline_lane
+        ));
+    }
+    let gold = industrial_complex_lakehouse_contract_by_table_name(&entry.gold_table).ok_or_else(
+        || {
+            format!(
+                "by_pnu_lanes.{name}.gold_table {} is no lakehouse contract",
+                entry.gold_table
+            )
+        },
+    )?;
+    let columns = gold
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let content = columns
+        .iter()
+        .filter(|column| !PACK_LANE_NON_CONTENT_COLUMNS.contains(column))
+        .collect::<Vec<_>>();
+    if !PACK_LANE_NON_CONTENT_COLUMNS
+        .iter()
+        .all(|column| columns.contains(column))
+        || content.is_empty()
+        || !content.iter().all(|column| column.ends_with("_json"))
+    {
+        return Err(format!(
+            "{} is not a by-PNU panel: a pack-only document carries every column but \
+             {PACK_LANE_NON_CONTENT_COLUMNS:?}, each a *_json field",
+            entry.gold_table
+        ));
+    }
+    if entry.document_schema_version.trim().is_empty() || entry.gateway.section_packs.is_none() {
+        return Err(format!(
+            "by_pnu_lanes.{name} names no document schema or no section packs"
+        ));
+    }
+    Ok(PackLane {
+        name: name.to_owned(),
+        unit: format!("{name}-by-pnu"),
+        noun: name.replace('-', " "),
+        env_prefix: format!(
+            "FOUNDATION_PLATFORM_{}_BY_PNU_SERVING",
+            name.replace('-', "_").to_ascii_uppercase()
+        ),
+        gold,
+        document_schema_version: entry.document_schema_version,
+        latency_baseline_lane: entry.latency_baseline_lane,
+        gateway: entry.gateway,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +342,9 @@ pub(crate) struct MonitorPolicy {
 pub(crate) struct PreviewWorker {
     /// The Workers script name, which the probe asks Workers analytics about.
     pub(crate) worker_name: String,
+    /// Its hostname: a pack-only lane's probe reads its baseline lane's preview there.
+    #[serde(default)]
+    pub(crate) public_hostname: Option<String>,
 }
 
 /// The job (`orchestration/jobs.v1.json`) that bakes a lane's daily changes as pack patches.
@@ -436,7 +629,10 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
     for gateway in [
         &contract.parcel_by_pnu_gateway,
         &contract.building_by_pnu_gateway,
-    ] {
+    ]
+    .into_iter()
+    .chain(contract.by_pnu_lanes.values().map(|lane| &lane.gateway))
+    {
         let Some(lane) = &gateway.section_packs else {
             continue;
         };
