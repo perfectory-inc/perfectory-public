@@ -447,3 +447,42 @@ fn a_scan_that_does_not_account_for_every_row_is_refused() {
     stopped.keep_limit_exceeded = true;
     assert!(stopped.ensure_complete().is_err());
 }
+
+/// A file whose last row breaks the contract (a null `pnu`, which the contract requires).
+fn parquet_ending_in_a_broken_row(pnus: &[&str]) -> anyhow::Result<Vec<u8>> {
+    let schema = Arc::new(ArrowSchema::new(vec![
+        Field::new("pnu", DataType::Utf8, true),
+        Field::new("label", DataType::Utf8, true),
+    ]));
+    let mut values = pnus.iter().copied().map(Some).collect::<Vec<_>>();
+    values.push(None);
+    let labels = values.iter().map(|_| None::<&str>).collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(StringArray::from(values)) as ArrayRef,
+            Arc::new(StringArray::from(labels)) as ArrayRef,
+        ],
+    )?;
+    let mut writer = ArrowWriter::try_new(Vec::new(), schema, None)?;
+    writer.write(&batch)?;
+    Ok(writer.into_inner()?)
+}
+
+#[test]
+fn decoding_hands_over_each_row_as_it_decodes_and_stops_when_told() -> anyhow::Result<()> {
+    // The scan holds what it keeps, never a whole decoded file: on 2026-10-11 decoding whole
+    // building panel files took a 47 thousand row patch past its 14G cap six times. A decoder
+    // that decoded the file first would still hand over the same rows, so this pins the stream
+    // itself: told to stop at the first row, decoding never reaches the broken last one.
+    let bytes = parquet_ending_in_a_broken_row(&["9999910100100010000", "9999910100100020000"])?;
+    let mut seen = Vec::new();
+    let decoded = super::iceberg_scan::decode_rows(&FIXTURE, bytes.clone(), |row| {
+        seen.push(row["pnu"].as_str().unwrap_or_default().to_owned());
+        false
+    })?;
+    assert_eq!((decoded, seen), (1, vec!["9999910100100010000".to_owned()]));
+    // Read to the end, the broken row is refused, as before.
+    assert!(super::iceberg_scan::decode_rows(&FIXTURE, bytes, |_| true).is_err());
+    Ok(())
+}
