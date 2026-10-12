@@ -301,13 +301,9 @@ class Contract(unittest.TestCase):
         good = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
         for field, value in (("max_row_loss_fraction", 1), ("max_row_loss_fraction", "0.01"),
                              ("max_row_loss_reason", ""), ("producer_arguments", ["x"]),
-                             ("unmeasured_inputs", {"silver.x": ""}), ("unmeasured_inputs", ["silver.x"]),
-                             ("max_price_history_shrink_fraction", 1),
-                             ("max_price_history_shrink_fraction", "0.001"),
-                             ("max_price_history_shrink_reason", "")):
+                             ("unmeasured_inputs", {"silver.x": ""}), ("unmeasured_inputs", ["silver.x"])):
             bad = json.loads(json.dumps(good))
-            table = "gold.building_panel" if field.startswith("max_price_history") else "gold.parcel_panel"
-            bad["tables"][table][field] = value
+            bad["tables"]["gold.parcel_panel"][field] = value
             with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "c.json"
                 path.write_text(json.dumps(bad), encoding="utf-8")

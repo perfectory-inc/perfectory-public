@@ -168,12 +168,46 @@ def history_lengths(gold):
                                     F.size("unit.official_price_history").alias("records"))
 
 
-shrink_verdict = panel.shrink_verdict
+def shrink_verdict(shrunk: int, units: int, max_fraction: float) -> str | None:
+    """Why a Gold whose `shrunk` of the current `units` units lost price records is refused, or None.
+
+    A vintage keeps every reference date it ever published (root ADR-0185), so a unit's history only
+    grows; a vintage loaded in part (2026-10-11: 47,153 units lost about 65% of their records) shrinks
+    many at once.
+    """
+    if shrunk == 0 or shrunk <= units * max_fraction:
+        return None
+    return (f"{shrunk} of the current Gold's {units} units would keep fewer price records than it holds "
+            f"({shrunk / max(units, 1):.4%}; at most {max_fraction:.4%} may, "
+            "gold-panel-rebuild.contract.json max_price_history_shrink_fraction): a price vintage that "
+            "lost records must not replace one that has them")
 
 
 def assert_price_histories_kept(spark, target_table, outcome, max_fraction):
-    """The building panel's guard (root ADR-0185), over this Gold's units."""
-    return panel.assert_price_histories_kept(spark, target_table, outcome, max_fraction, history_lengths)
+    """Refuses, before anything is written, a Gold that shrinks the current one's price histories.
+
+    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted PNUs
+    (a PNU the merge does not touch keeps its row). A unit missing from them counts as shrunk.
+    """
+    if not spark.catalog.tableExists(target_table.replace("`", "")):
+        return {}
+    current = spark.table(target_table)
+    if outcome.mode == "full":
+        before, after = current, outcome.gold
+    else:
+        source = outcome.merge["source"]
+        before = current.join(source.select(incremental.KEY), incremental.KEY, "left_semi")
+        after = source.where(~F.col(incremental.DELETE_FLAG))
+    later = history_lengths(after).withColumnRenamed("records", "later")
+    shrunk_units = (history_lengths(before).join(later, "id", "left")
+                    .where(F.coalesce(F.col("later"), F.lit(0)) < F.col("records")))
+    shrunk = shrunk_units.count()
+    units = history_lengths(current).count() if shrunk else 0
+    verdict = shrink_verdict(shrunk, units, max_fraction)
+    if verdict:
+        examples = sorted(r.id for r in shrunk_units.limit(3).collect())
+        raise ValueError(f"{verdict} (e.g. units {examples})")
+    return {"price_history_shrunk_unit_count": shrunk}
 
 
 def _with_building_inputs(frames):

@@ -29,7 +29,7 @@ from platform_contracts import (column_names, current_row_predicate, ensure_cont
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import evidence_policy, verified_building_links
-from gold_rebuild import assert_minimum_row_count, load_contract as load_rebuild_contract
+from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
 from unit_official_price import batch_commit_order, newest_batch
 
@@ -96,9 +96,6 @@ def parse_args(argv=None):
                         help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
-    parser.add_argument("--max-price-history-shrink-fraction", type=float,
-                        help="Refuse, before writing, a Gold in which more than this share of the current Gold's "
-                             "priced units keep fewer price records (default: gold-panel-rebuild.contract.json).")
     incremental.add_arguments(parser)
     return parser.parse_args(argv)
 
@@ -568,72 +565,6 @@ def apply_gold_read_properties(spark, target_table):
     spark.sql(f"ALTER TABLE {target_table} SET TBLPROPERTIES ({assignments})")
 
 
-# The compact JSON of a unit holding at least one price record (JSON_OPTIONS writes no spaces).
-PRICED_MARK = '"official_price_history":[{'
-
-
-def priced_history_lengths(gold):
-    """(id, records) of every unit of `gold`'s rows that holds a price record.
-
-    Rows without one are skipped before their JSON is parsed: most PNUs hold no apartment unit.
-    """
-    # Only what the guard reads of a unit; from_json ignores every other field.
-    unit = T.ArrayType(T.StructType([
-        T.StructField("id", T.StringType()),
-        T.StructField("official_price_history", T.ArrayType(T.StructType([T.StructField("base_date", T.StringType())])))]))
-    rows = gold.where(F.col("buildings_json").contains(PRICED_MARK) | F.col("unlinked_units_json").contains(PRICED_MARK))
-    linked = rows.select(F.explode(F.from_json("buildings_json", T.ArrayType(T.StructType([T.StructField("units", unit)])))).alias("b")) \
-        .select(F.explode("b.units").alias("unit"))
-    unlinked = rows.select(F.explode(F.from_json("unlinked_units_json", unit)).alias("unit"))
-    return (linked.unionByName(unlinked)
-            .select(F.col("unit.id").alias("id"), F.size("unit.official_price_history").alias("records"))
-            .where(F.col("records") > 0))
-
-
-def shrink_verdict(shrunk, units, max_fraction):
-    """Why a Gold in which `shrunk` of the current Gold's `units` priced units lost records is refused, or None.
-
-    A vintage keeps every reference date it ever published (root ADR-0185), so a unit's history only
-    grows; a vintage read in part (2026-10-11: 47,153 PNUs lost about 65% of their records) shrinks
-    many at once.
-    """
-    if shrunk == 0 or shrunk <= units * max_fraction:
-        return None
-    return (f"{shrunk} of the current Gold's {units} units would keep fewer price records than it holds "
-            f"({shrunk / max(units, 1):.4%}; at most {max_fraction:.4%} may, "
-            "gold-panel-rebuild.contract.json max_price_history_shrink_fraction): a price batch that "
-            "lost records must not replace one that has them")
-
-
-def assert_price_histories_kept(spark, target_table, outcome, max_fraction, lengths=None):
-    """Refuses, before anything is written, a Gold that shrinks the current one's price histories.
-
-    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted PNUs
-    (a PNU the merge does not touch keeps its row). A unit missing from them counts as shrunk.
-    `lengths` reads (id, records) of a frame of this Gold's rows; the unit price Gold passes its own.
-    """
-    lengths = lengths or priced_history_lengths
-    if not spark.catalog.tableExists(target_table.replace("`", "")):
-        return {}
-    current = spark.table(target_table)
-    if outcome.mode == "full":
-        before, after = current, outcome.gold
-    else:
-        source = outcome.merge["source"]
-        before = current.join(source.select(incremental.KEY), incremental.KEY, "left_semi")
-        after = source.where(~F.col(incremental.DELETE_FLAG))
-    later = lengths(after).withColumnRenamed("records", "later")
-    shrunk_units = (lengths(before).join(later, "id", "left")
-                    .where(F.coalesce(F.col("later"), F.lit(0)) < F.col("records")))
-    shrunk = shrunk_units.count()
-    units = lengths(current).count() if shrunk else 0
-    verdict = shrink_verdict(shrunk, units, max_fraction)
-    if verdict:
-        examples = sorted(r.id for r in shrunk_units.limit(3).collect())
-        raise ValueError(f"{verdict} (e.g. units {examples}); nothing was written")
-    return {"price_history_shrunk_unit_count": shrunk}
-
-
 def run(spark, args, pins):
     """Build, check and write the Gold: whole, or only the changed PNUs merged (root ADR-0180)."""
     previous = incremental.validate_arguments(args, ALL_SOURCES)
@@ -656,11 +587,6 @@ def run(spark, args, pins):
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
                                          validate_gold_frame, assert_minimum_row_count)
     try:
-        if args.write_mode == "iceberg":
-            max_shrink = args.max_price_history_shrink_fraction
-            if max_shrink is None:
-                max_shrink = load_rebuild_contract()["tables"][GOLD_CONTRACT_NAME]["max_price_history_shrink_fraction"]
-            counters.update(assert_price_histories_kept(spark, target_table, outcome, max_shrink))
         persisted_count, metrics, added, committed = None, outcome.metrics, (), None
         if not args.validate_only:
             if args.write_mode == "parquet":
