@@ -7,6 +7,7 @@ Snapshot ids are synthetic.
 """
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -127,6 +128,30 @@ class ProducerDecisions(unittest.TestCase):
         self.assertIn("NOT (t.`row_digest` <=> s.`row_digest`)", sql)
         self.assertIn(f"WHEN NOT MATCHED AND NOT s.`{incremental.DELETE_FLAG}` THEN INSERT", sql)
         self.assertNotIn(incremental.DELETE_FLAG, sql.split("INSERT", 1)[1].split("VALUES")[0])
+
+    def test_an_input_is_appended_only_when_every_snapshot_since_the_pin_appends(self):
+        chain = {11: (None, "append"), 12: (11, "append"), 13: (12, "append"), 14: (13, "overwrite"),
+                 15: (14, "append"), 21: (11, "delete")}
+        self.assertTrue(incremental.appended_span(chain, 11, 13))
+        self.assertTrue(incremental.appended_span(chain, 12, 12))
+        self.assertFalse(incremental.appended_span(chain, 11, 15), "an overwrite in between")
+        self.assertFalse(incremental.appended_span(chain, 11, 21), "a delete")
+        self.assertFalse(incremental.appended_span(chain, 12, 21), "another lineage")
+        self.assertFalse(incremental.appended_span(chain, 10, 13), "the pin expired")
+        self.assertFalse(incremental.appended_span({1: (2, "append"), 2: (1, "append")}, 3, 1), "a cycle")
+
+    def test_stages_remove_a_dead_runs_directories_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as local:
+            dead = Path(local) / f"{incremental.STAGES_PREFIX}dead"
+            (dead / "built").mkdir(parents=True)
+            (dead / "built" / "part-0.parquet").write_bytes(b"x")
+            other = Path(local) / "blockmgr-kept"
+            other.mkdir()
+            spark = SimpleNamespace(conf=SimpleNamespace(get=lambda key, default: f"{local},/elsewhere"))
+            stages = incremental.Stages(spark)
+            self.assertFalse(dead.exists())
+            self.assertTrue(other.exists())
+            self.assertEqual(stages.root.parent, Path(local))
 
     def test_incremental_arguments_are_refused_where_a_merge_cannot_follow(self):
         path = Path(self.id().replace(".", "_") + ".json")

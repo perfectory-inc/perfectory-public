@@ -134,23 +134,32 @@ def load_snapshot_pins(args):
                                      ALL_SOURCES, TITLE_SOURCE, args.iceberg_snapshot_id)
 
 
-def read_source(spark, args, name, pins):
+def iceberg_table(args, name):
+    return f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{name.split('.', 1)[1]}"
+
+
+def read_source(spark, args, name, pins, after=None, batches=None):
+    """`name` at its pin; with `after`, only the rows the appends since that snapshot added, and with
+    `batches`, the rows of these `source_snapshot_id`s instead of the newest price batch (root ADR-0189)."""
     contract = load_lakehouse_contract(name)
     table = name.split(".", 1)[1]
     if args.input_mode == "parquet":
         frame = spark.read.parquet(str(Path(args.input_root) / table))
+    elif after is not None:
+        frame = incremental.read_appended(spark, iceberg_table(args, name), after, pins[name])
     else:
-        frame = read_pinned_iceberg(spark,
-            f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}", name, pins)
+        frame = read_pinned_iceberg(spark, iceberg_table(args, name), name, pins)
     missing = set(column_names(contract)) - set(frame.columns)
     if missing:
         raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
     frame = frame.select(*column_names(contract))
-    if name == PRICE_SOURCE:
+    if batches is not None:
+        frame = frame.where(F.col("source_snapshot_id").isin(*batches))
+    elif name == PRICE_SOURCE:
         # The price table keeps every vintage's batch, each the whole history of reference dates;
         # the panel serves the newest (root ADR-0182). Ids the derivation did not write leave the
         # mix to be refused (assert_single_snapshot), unless a batch is named.
-        order = batch_commit_order(spark, f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}") \
+        order = batch_commit_order(spark, iceberg_table(args, name)) \
             if args.input_mode == "iceberg" else ()
         batch = args.price_source_snapshot_id or newest_batch(
             (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
@@ -419,16 +428,43 @@ def _register_keys(frame):
     return tuple(c for c in ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk") if c in frame.columns)
 
 
-def affected_pnus(old, new, changed):
+def appended_changes(spark, args, previous, pins, snapshots, new, appended):
+    """Each appended input's change set and the rows its PNUs are found through (root ADR-0189).
+
+    Every input is read as one batch (`assert_single_snapshot`). The same batch at both pins: the
+    change set is exactly the rows the appends added to it, and the old rows are among the new.
+    The batch read switched (a new unit price vintage): the rows of both batches at the new pin, a
+    superset of the difference that holds every old and new row the mapping needs, since an append
+    leaves the old batch untouched. Read by batch id, not compared row by row.
+    """
+    result = {}
+    for name in appended:
+        old_batch, new_batch = assert_single_snapshot(read_source(spark, args, name, previous), name), snapshots[name]
+        if old_batch == new_batch:
+            added = read_source(spark, args, name, pins, after=previous[name], batches=(new_batch,))
+            change = incremental.project_build_inputs({name: added}, BUILD_COLUMNS)[name]
+            result[name] = (change, new[name])
+        else:
+            both = read_source(spark, args, name, pins, batches=(old_batch, new_batch))
+            change = incremental.project_build_inputs({name: both}, BUILD_COLUMNS)[name]
+            result[name] = (change, change)
+    return result
+
+
+def affected_pnus(old, new, changed, appended=None):
     """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
 
     A row reaches a PNU's Gold row through its register key: a title by its own PNU; a floor, an
     area or a price through the title or unit register it names; a unit through its own PNU and
     its parent title's; a title also places its units (linked under it, unlinked under their own
-    PNU when it is gone). Old and new rows both count, so a PNU a row left is recomputed too.
+    PNU when it is gone). Old and new rows both count, so a PNU a row left is recomputed too. An
+    input in `appended` (`appended_changes`) brings its change set and those rows instead.
     """
-    changes = {name: incremental.changed_rows(old[name], new[name], _register_keys(new[name])) for name in changed}
-    every = {name: old[name].unionByName(new[name]) if name in changes else new[name] for name in ALL_SOURCES}
+    appended = appended or {}
+    changes = {name: appended[name][0] if name in appended else
+               incremental.changed_rows(old[name], new[name], _register_keys(new[name])) for name in changed}
+    every = {name: appended[name][1] if name in appended else
+             old[name].unionByName(new[name]) if name in changes else new[name] for name in ALL_SOURCES}
     registers = [_registers(changes[name], "mgm_bldrgst_pk") for name in changes]
     if UNIT_SOURCE in changes:
         registers.append(_registers(changes[UNIT_SOURCE], "building_mgm_bldrgst_pk"))
@@ -524,7 +560,10 @@ def run(spark, args, pins):
     lane = incremental.Lane(
         build=lambda inputs: build_gold_panel_frame(inputs, source_id, args.published_at_utc, counters),
         restrict=restrict_inputs, whole_table_inputs=WHOLE_TABLE_INPUTS,
-        affected=lambda changed: affected_pnus(read_inputs(spark, args, previous), frames, changed),
+        affected=lambda changed, appended: affected_pnus(
+            read_inputs(spark, args, previous), frames, changed,
+            appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
+        append_inputs={name: iceberg_table(args, name) for name in ALL_SOURCES},
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
