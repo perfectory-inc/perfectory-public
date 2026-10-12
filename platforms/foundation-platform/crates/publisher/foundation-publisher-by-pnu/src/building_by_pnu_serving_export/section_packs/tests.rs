@@ -36,7 +36,7 @@ use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::r2_layout::{by_pnu, by_pnu_packs};
 
 const LANE: ByPnuLane = ByPnuLane::Building;
-/// The Spark fixture row's PNU: one building with a floor and a priced unit, one unlinked unit.
+/// The Spark fixture row's PNU: one building with a floor and a unit, one unlinked unit.
 const PNU_A: &str = "9999900000100000000";
 /// A PNU with no building rows at all.
 const PNU_B: &str = "9999900000100010000";
@@ -78,13 +78,12 @@ fn empty_row(pnu: &str) -> JsonMap<String, JsonValue> {
     ])
 }
 
-/// The Spark row with its first unit's newest price changed: one changed document.
+/// The Spark row with its building's purpose code changed: one changed document.
 fn changed_row() -> anyhow::Result<JsonMap<String, JsonValue>> {
     let mut row = spark_row()?;
-    let buildings = row["buildings_json"]
-        .as_str()
-        .context("buildings_json")?
-        .replace("35000000", "37000000");
+    let before = row["buildings_json"].as_str().context("buildings_json")?;
+    let buildings = before.replace(r#""purpose_code":"03000""#, r#""purpose_code":"04000""#);
+    anyhow::ensure!(buildings != before, "the fixture's purpose code moved");
     row.insert("buildings_json".to_owned(), json!(buildings));
     Ok(row)
 }

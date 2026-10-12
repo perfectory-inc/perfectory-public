@@ -39,9 +39,9 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
-| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price_panel`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 호 공시가격 by-PNU 패널 (`gold.unit_price_panel`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 호 공시가격 by-PNU 패널 (`gold.unit_price_panel`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>필지 서빙본 (`gold.parcel_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 기본·식별자<br>필지 계보 스튜어드 결정<br>필지 경계 서빙 | 필지 지도 타일<br>카탈로그 조회 API<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
@@ -308,7 +308,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건물 층별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 호별 전유·공용 면적 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
-| 세대별 기준일 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 표제부 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 세대별 기준일 공시가격 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
