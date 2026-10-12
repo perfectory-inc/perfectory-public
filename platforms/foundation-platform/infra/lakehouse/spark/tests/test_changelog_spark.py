@@ -73,7 +73,7 @@ class ChangeSetSparkTest(unittest.TestCase):
         r3 = self.release([("A", 1.0), ("C", 3.0)], "r3")
         steps = changelog.stamped(changelog.change_set(r1, r2, KEYS), 1, 2).unionByName(
             changelog.stamped(changelog.change_set(r2, r3, KEYS), 2, 3))
-        composed = changelog.net(steps, KEYS)
+        composed = changelog.net(steps, KEYS, [(1, 2), (2, 3)])
         direct = changelog.change_set(r1, r3, KEYS)
         as_weights = lambda f: Counter({(r["pnu"], r["area"]): r[changelog.WEIGHT] for r in f.collect()})
         self.assertEqual(as_weights(composed), as_weights(direct))
@@ -85,10 +85,12 @@ class ChangeSetSparkTest(unittest.TestCase):
         # A enters in r2, leaves in r3, enters again in r4: the one surviving row is r4's image.
         r1, r2, r3, r4 = (self.release(rows, label) for rows, label in
                           (([], "r1"), ([("A", 1.0)], "r2"), ([], "r3"), ([("A", 1.0)], "r4")))
-        steps = changelog.stamped(changelog.change_set(r1, r2, KEYS), 1, 2).unionByName(
-            changelog.stamped(changelog.change_set(r2, r3, KEYS), 2, 3)).unionByName(
-            changelog.stamped(changelog.change_set(r3, r4, KEYS), 3, 4))
-        [row] = changelog.net(steps, KEYS).collect()
+        # Snapshot ids are random: the last step's id (20) is not the largest (40).
+        walk = [(30, 10), (10, 40), (40, 20)]
+        steps = changelog.stamped(changelog.change_set(r1, r2, KEYS), *walk[0]).unionByName(
+            changelog.stamped(changelog.change_set(r2, r3, KEYS), *walk[1])).unionByName(
+            changelog.stamped(changelog.change_set(r3, r4, KEYS), *walk[2]))
+        [row] = changelog.net(steps, KEYS, walk).collect()
         self.assertEqual((row["pnu"], row[changelog.WEIGHT], row["source_snapshot_id"]), ("A", 1, "r4"))
 
     def test_the_fingerprint_does_not_depend_on_column_order(self):

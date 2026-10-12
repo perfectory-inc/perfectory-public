@@ -55,7 +55,8 @@ def with_fingerprint(frame: Any, lineage: Iterable[str]) -> Any:
     """`frame` with `row_fingerprint` over its content columns (replacing any present)."""
     from pyspark.sql import functions as F
 
-    content = content_columns(frame.columns, lineage)
+    # Sorted: the same content in another column order is the same row.
+    content = sorted(content_columns(frame.columns, lineage))
     # Spark's hashes skip NULLs; the null flags keep (NULL, x) and (x, NULL) apart.
     hashed = [*(F.col(c).isNull() for c in content), *(F.col(c) for c in content)]
     return frame.drop(FINGERPRINT).withColumn(FINGERPRINT, F.xxhash64(*hashed))
@@ -89,17 +90,28 @@ def change_set(old: Any, new: Any, keys: tuple[str, ...]) -> Any:
     return entered.unionByName(left)
 
 
-def net(changes: Any, keys: tuple[str, ...]) -> Any:
-    """Several steps' changes as one: weights summed per (key, fingerprint), zeros dropped."""
+def net(changes: Any, keys: tuple[str, ...], steps: list[tuple[Any, Any]]) -> Any:
+    """The `steps` (from `chain`, oldest first) of `changes` as one: weights summed per
+    (key, fingerprint), zeros dropped.
+
+    Equal fingerprints are equal content but not equal lineage, so each pair carries the row of
+    its latest step whole: columns picked one by one could mix lineage from different loads.
+    Snapshot ids are random, so "latest" is the position in `steps`, not the larger id.
+    """
+    from itertools import chain as flatten
+
     from pyspark.sql import functions as F
 
     identity = [*keys, FINGERPRINT]
-    # Equal fingerprints within a key are equal content, so any image of the pair will do.
     images = [c for c in changes.columns if c not in identity and c not in CHANGE_COLUMNS]
+    position = F.create_map(*flatten.from_iterable(
+        (F.lit(int(to_id)), F.lit(index)) for index, (_, to_id) in enumerate(steps)))
+    latest = F.max_by(F.struct(*images), position[F.col(TO_SNAPSHOT)]).alias("_latest")
     return (
         changes.groupBy(*identity)
-        .agg(F.sum(WEIGHT).alias(WEIGHT), *(F.first(c).alias(c) for c in images))
+        .agg(F.sum(WEIGHT).alias(WEIGHT), latest)
         .where(F.col(WEIGHT) != 0)
+        .select(*identity, WEIGHT, *(F.col(f"_latest.`{c}`").alias(c) for c in images))
     )
 
 
