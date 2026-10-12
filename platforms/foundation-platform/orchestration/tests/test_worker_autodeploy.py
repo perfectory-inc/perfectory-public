@@ -274,10 +274,13 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def test_a_shared_input_deploys_every_worker_built_from_it(self):
         self.assertEqual(self.tick(), 0)
         (self.root / "calls.log").unlink()
-        self.change("parcel-gateway")  # one source, two lanes (root ADR-0160)
+        self.change("parcel-gateway")  # one source, every by-PNU lane (root ADR-0160, ADR-0190)
         self.assertEqual(self.tick(), 0)
-        self.assertEqual(sorted(self.acted_on("versions deploy")), sorted(
-            self.names["parcel-gateway"] + self.names["building-gateway"]))
+        shared = [entry["id"] for entry in CONTRACT["workers"]
+                  if entry["service_dir"] == "services/foundation-by-pnu-gateway"]
+        self.assertGreaterEqual(len(shared), 3)
+        self.assertEqual(sorted(self.acted_on("versions deploy")),
+                         sorted(name for worker in shared for name in self.names[worker]))
 
     def test_the_preview_goes_first_and_production_only_after_its_smoke(self):
         self.assertEqual(self.tick(), 0)
