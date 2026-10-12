@@ -22,6 +22,7 @@ from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
+    current_snapshot,
     iceberg_packages,
     SHUFFLE_SETTINGS,
 )
@@ -784,7 +785,9 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
             "catalog": args.iceberg_catalog_name,
             "namespace": args.target_iceberg_namespace,
             "table": args.target_iceberg_table,
-            "snapshot_id": args.iceberg_snapshot_id,
+            # The Gold snapshot this run committed, not the Silver snapshot it was given
+            # (`--iceberg-snapshot-id`, stamped into the rows).
+            "snapshot_id": summary["target"].get("snapshot_id"),
         },
         "quality_metrics": lineage_quality_metrics(summary),
         "column_lineage": column_lineage(),
@@ -948,6 +951,7 @@ def main() -> int:
             return 0
 
         added_columns: tuple[str, ...] = ()
+        committed = None
         if args.write_mode == "parquet":
             write_gold_parquet(gold, args.output)
             persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
@@ -955,6 +959,7 @@ def main() -> int:
             success_label = "gold-complex-catalog-write-ok"
         else:
             added_columns = write_gold_iceberg(spark, gold, args)
+            committed = current_snapshot(spark, qualified_target_table(args))
             persisted = read_iceberg_snapshot_for_batch(spark, gold, args)
             success_target = f"table={args.target_iceberg_namespace}.{args.target_iceberg_table}"
             success_label = "gold-complex-catalog-iceberg-write-ok"
@@ -968,17 +973,17 @@ def main() -> int:
                 f"Persisted row count changed. before={row_count} after={persisted_count}"
             )
 
-        emit_run_summary(
-            summary := build_run_summary(
-                args,
-                row_count=row_count,
-                persisted_row_count=persisted_count,
-                quality_metrics=persisted_quality_metrics,
-                source_snapshot_summary=source_snapshot_summary,
-                schema_evolution_added_columns=added_columns,
-            ),
-            args.summary_output,
+        summary = build_run_summary(
+            args,
+            row_count=row_count,
+            persisted_row_count=persisted_count,
+            quality_metrics=persisted_quality_metrics,
+            source_snapshot_summary=source_snapshot_summary,
+            schema_evolution_added_columns=added_columns,
         )
+        if committed is not None:
+            summary["target"]["snapshot_id"] = committed
+        emit_run_summary(summary, args.summary_output)
         emit_lineage_event(build_lineage_event(args, summary), args.lineage_output)
         print(f"{success_label} rows={persisted_count} {success_target}")
         return 0

@@ -75,6 +75,7 @@ from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
     assert_iceberg_runtime_loaded,
+    current_snapshot,
     iceberg_packages,
 )
 from platform_contracts import (
@@ -1135,7 +1136,8 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
             "catalog": args.iceberg_catalog_name,
             "namespace": args.target_iceberg_namespace,
             "table": args.target_iceberg_table,
-            "snapshot_id": args.iceberg_snapshot_id,
+            # The Gold snapshot this run committed, not the parcel pin it read (`--iceberg-snapshot-id`).
+            "snapshot_id": summary["target"].get("snapshot_id"),
         },
         "quality_metrics": {
             **summary["quality_metrics"],
@@ -1413,6 +1415,7 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
         summary["rebuild"] = outcome.report()
         if not args.validate_only and args.write_mode == "iceberg":
             summary["write_disposition"] = outcome.disposition(args)
+            summary["target"]["snapshot_id"] = current_snapshot(spark, qualified_target_table(args))
         emit_run_summary(summary, args.summary_output)
         if not args.validate_only:
             emit_lineage_event(build_lineage_event(args, summary), args.lineage_output)

@@ -20,7 +20,8 @@ from typing import Any
 
 from pyspark.sql import SparkSession, functions as F
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
+from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, current_snapshot,
+                              iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins
 from platform_contracts import (column_names, ensure_contract_table, load_lakehouse_contract,
     partition_column_names, required_column_names, sort_order)
@@ -167,46 +168,12 @@ def history_lengths(gold):
                                     F.size("unit.official_price_history").alias("records"))
 
 
-def shrink_verdict(shrunk: int, units: int, max_fraction: float) -> str | None:
-    """Why a Gold whose `shrunk` of the current `units` units lost price records is refused, or None.
-
-    A vintage keeps every reference date it ever published (root ADR-0185), so a unit's history only
-    grows; a vintage loaded in part (2026-10-11: 47,153 units lost about 65% of their records) shrinks
-    many at once.
-    """
-    if shrunk == 0 or shrunk <= units * max_fraction:
-        return None
-    return (f"{shrunk} of the current Gold's {units} units would keep fewer price records than it holds "
-            f"({shrunk / max(units, 1):.4%}; at most {max_fraction:.4%} may, "
-            "gold-panel-rebuild.contract.json max_price_history_shrink_fraction): a price vintage that "
-            "lost records must not replace one that has them")
+shrink_verdict = panel.shrink_verdict
 
 
 def assert_price_histories_kept(spark, target_table, outcome, max_fraction):
-    """Refuses, before anything is written, a Gold that shrinks the current one's price histories.
-
-    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted PNUs
-    (a PNU the merge does not touch keeps its row). A unit missing from them counts as shrunk.
-    """
-    if not spark.catalog.tableExists(target_table.replace("`", "")):
-        return {}
-    current = spark.table(target_table)
-    if outcome.mode == "full":
-        before, after = current, outcome.gold
-    else:
-        source = outcome.merge["source"]
-        before = current.join(source.select(incremental.KEY), incremental.KEY, "left_semi")
-        after = source.where(~F.col(incremental.DELETE_FLAG))
-    later = history_lengths(after).withColumnRenamed("records", "later")
-    shrunk_units = (history_lengths(before).join(later, "id", "left")
-                    .where(F.coalesce(F.col("later"), F.lit(0)) < F.col("records")))
-    shrunk = shrunk_units.count()
-    units = history_lengths(current).count() if shrunk else 0
-    verdict = shrink_verdict(shrunk, units, max_fraction)
-    if verdict:
-        examples = sorted(r.id for r in shrunk_units.limit(3).collect())
-        raise ValueError(f"{verdict} (e.g. units {examples})")
-    return {"price_history_shrunk_unit_count": shrunk}
+    """The building panel's guard (root ADR-0185), over this Gold's units."""
+    return panel.assert_price_histories_kept(spark, target_table, outcome, max_fraction, history_lengths)
 
 
 def _with_building_inputs(frames):
@@ -277,7 +244,7 @@ def run(spark, args, pins):
             if max_shrink is None:
                 max_shrink = load_rebuild_contract()["tables"][GOLD_CONTRACT_NAME]["max_price_history_shrink_fraction"]
             counters.update(assert_price_histories_kept(spark, target_table, outcome, max_shrink))
-        persisted_count, metrics, added = None, outcome.metrics, ()
+        persisted_count, metrics, added, committed = None, outcome.metrics, (), None
         if not args.validate_only:
             if args.write_mode == "parquet":
                 (outcome.gold.repartition(*partition_column_names(GOLD_CONTRACT))
@@ -289,6 +256,7 @@ def run(spark, args, pins):
                 added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 panel.apply_gold_read_properties(spark, target_table)
                 outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)
                 persisted = spark.table(target_table).select(*GOLD_COLUMNS)
@@ -299,7 +267,7 @@ def run(spark, args, pins):
             "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES)},
             "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
                       {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace,
-                       "table": args.target_iceberg_table},
+                       "table": args.target_iceberg_table, "snapshot_id": committed},
             "write_mode": args.write_mode,
             "write_disposition": "validate_only" if args.validate_only else (
                 "parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),

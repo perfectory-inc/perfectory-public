@@ -93,12 +93,19 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
     def head(self, table):
         return str(self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0])
 
+    # The building fixtures drop one of 20 priced units on purpose, far past the contract's shrink
+    # bound for millions of units; the shrink test sets None and runs with the contract's own.
+    shrink_bound = 0.5
+
     def args(self, job, table, published, previous=None, fraction=0.9, sample=100000, extra=()):
         work = Path(self.directory.name) / f"run-{table}-{published[:10]}"
         work.mkdir(parents=True, exist_ok=True)
         argv = ["--input-mode", "iceberg", "--write-mode", "iceberg", "--iceberg-catalog-name", "proof",
                 "--target-iceberg-table", table, "--allow-non-smoke-overwrite", "--iceberg-snapshot-id", "1",
-                "--published-at-utc", published, "--summary-output", str(work / "summary.json"), *extra]
+                "--published-at-utc", published, "--summary-output", str(work / "summary.json"),
+                "--lineage-output", str(work / "lineage.json"), *extra]
+        if hasattr(job, "assert_price_histories_kept") and self.shrink_bound is not None:
+            argv += ["--max-price-history-shrink-fraction", str(self.shrink_bound)]
         if previous is not None:
             (work / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
             argv += ["--incremental-from-snapshots", str(work / "previous.json"),
@@ -107,10 +114,17 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
 
     def run_job(self, job, pins, table, published, **options):
         args, summary = self.args(job, table, published, **options)
+        lineage = summary.with_name("lineage.json")
+        lineage.unlink(missing_ok=True)
         log = StringIO()
         with redirect_stdout(log):
             self.assertEqual(job.run(self.spark, args, pins), 0)
         self.log = log.getvalue()
+        # The lineage names the Gold snapshot the run left, never an input pin (the building run of
+        # 2026-10-12 recorded the titles snapshot).
+        recorded = json.loads(lineage.read_text(encoding="utf-8"))["iceberg_snapshot"]["snapshot_id"]
+        self.assertEqual(recorded, self.head(f"proof.gold.{table}"))
+        self.assertNotIn(recorded, pins.values())
         return json.loads(summary.read_text(encoding="utf-8"))
 
     def append(self, name, rows):
@@ -311,6 +325,47 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(diffed["rebuild"]["counts"]["affected_pnus"], 1, diffed["rebuild"])
         self.run_job(job, pins4, "building_append_full", "2099-04-01T00:00:00Z")
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
+
+    def test_a_price_vintage_read_in_part_does_not_replace_the_full_one(self):
+        """2026-10-11: a vintage read while it held two of its six load batches lost most units'
+        records. The Gold that would carry it is refused before anything is written, in full and
+        incrementally; the complete vintage after it is taken."""
+        import building_panel_silver_to_gold as job
+
+        self.shrink_bound = None
+        names = self.building_tables()
+        for name in names.values():
+            self.create(name)
+        data = self.building_v1()
+        price = names["prices"]
+        full = lambda batch, dates: [{**row, "base_date": date, "source_snapshot_id": batch}  # noqa: E731
+                                     for row in data["prices"] for date in dates]
+        pins1 = {names[k]: self.put(names[k], full("price:1|exclusive:1|vintage:202508", ("20240101", "20250101"))
+                                    if k == "prices" else rows) for k, rows in data.items()}
+        self.run_job(job, pins1, "building_shrink", "2099-01-01T00:00:00Z")
+        served = self.head("proof.gold.building_shrink")
+
+        # The newer vintage holds its first dates only for half the units: the rest lose every record.
+        partial = [row for row in full("price:2|exclusive:1|vintage:202509", ("20240101", "20250101"))
+                   if int(row["mgm_bldrgst_pk"][1:]) < 20]
+        pins2 = {**pins1, price: self.append(price, partial)}
+        for previous in (pins1, None):
+            args, _ = self.args(job, "building_shrink", "2099-02-01T00:00:00Z", previous=previous)
+            with self.subTest(incremental=previous is not None), redirect_stdout(StringIO()), \
+                    self.assertRaisesRegex(ValueError, "would keep fewer price records"):
+                job.run(self.spark, args, pins2)
+            self.assertEqual(self.head("proof.gold.building_shrink"), served, "a refused Gold was written")
+
+        # The complete vintage that follows keeps every record and adds its own.
+        pins3 = {**pins2, price: self.append(price, full("price:3|exclusive:1|vintage:202510",
+                                                         ("20240101", "20250101", "20260101")))}
+        summary = self.run_job(job, pins3, "building_shrink", "2099-03-01T00:00:00Z", previous=pins1)
+        self.assertEqual(summary["quality_metrics"]["price_history_shrunk_unit_count"], 0)
+        gold = self.rows("building_shrink", job)
+        histories = [unit["official_price_history"] for row in gold.values()
+                     for building in json.loads(row.buildings_json) for unit in building["units"]]
+        self.assertEqual(len(histories), len(data["prices"]))
+        self.assertTrue(all(len(history) == 3 for history in histories))
 
     # ---- parcel panel ------------------------------------------------------------------------
 

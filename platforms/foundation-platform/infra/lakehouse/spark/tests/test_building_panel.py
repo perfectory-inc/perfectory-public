@@ -41,5 +41,13 @@ class BuildingPanelContractTest(unittest.TestCase):
         ])
 
 
+class PriceHistoryShrinkTest(unittest.TestCase):
+    def test_the_contract_bounds_the_building_gold_while_it_carries_prices(self):
+        import gold_rebuild
+
+        entry = gold_rebuild.load_contract()["tables"][job.GOLD_CONTRACT_NAME]
+        self.assertLess(entry["max_price_history_shrink_fraction"], 0.01)
+
+
 if __name__ == "__main__":
     unittest.main()

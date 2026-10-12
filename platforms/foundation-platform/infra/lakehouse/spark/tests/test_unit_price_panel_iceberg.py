@@ -67,7 +67,8 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         work.mkdir(parents=True, exist_ok=True)
         argv = ["--input-mode", "iceberg", "--write-mode", "iceberg", "--iceberg-catalog-name", "proof",
                 "--target-iceberg-table", table, "--allow-non-smoke-overwrite", "--iceberg-snapshot-id", "1",
-                "--published-at-utc", published, "--summary-output", str(work / "summary.json")]
+                "--published-at-utc", published, "--summary-output", str(work / "summary.json"),
+                "--lineage-output", str(work / "lineage.json")]
         if previous is not None:
             (work / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
             argv += ["--incremental-from-snapshots", str(work / "previous.json"),
@@ -76,6 +77,10 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
             argv += ["--max-price-history-shrink-fraction", str(shrink)]
         with redirect_stdout(StringIO()):
             self.assertEqual(job.run(self.spark, job.parse_args(argv), pins), 0)
+        # The lineage names the Gold snapshot the run left, never an input pin.
+        recorded = json.loads((work / "lineage.json").read_text(encoding="utf-8"))["iceberg_snapshot"]["snapshot_id"]
+        self.assertEqual(recorded, str(self.spark.sql(
+            f"SELECT snapshot_id FROM proof.gold.{table}.refs WHERE name = 'main'").first()[0]))
         return json.loads((work / "summary.json").read_text(encoding="utf-8"))
 
     def rows(self, table):
