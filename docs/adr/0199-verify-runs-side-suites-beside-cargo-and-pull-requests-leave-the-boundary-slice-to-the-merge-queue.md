@@ -1,0 +1,54 @@
+# ADR 0199: verify 는 파이썬·노드 시험을 cargo 옆에서 돌리고, PR 은 경계 슬라이스를 머지 큐에 맡긴다
+
+- Status: Accepted
+- Date: 2026-10-13
+- Amends: [ADR-0004](./0004-verification-ssot.md) (verify 의 단계 순서), [ADR-0155](./0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md) (머지 큐가 판정)
+
+## Context
+
+2026-10-12 Foundation Platform CI 실측: `pull_request` 중앙 21.4분(최대 25.6), `merge_group` 22.4분 —
+PR 하나가 병합까지 약 45분을 기다렸다. 같은 날 성공한 PR 실행 하나의 단계별 시간:
+
+| 잡 / 단계 | 시간 |
+| --- | --- |
+| `Boundary vertical slice` — 컨테이너 안에서 퍼블리셔를 캐시 없이 컴파일 | 884초 |
+| `Rust fmt, unit tests, clippy` — `cargo xtask verify foundation` | 895초 |
+| 　└ 가드 85초 · clippy 62초 · 시험 빌드 143초 · Rust 시험 약 210초 | 약 500초 |
+| 　└ 그 **뒤에** 파이썬 묶음 4개(그중 `orchestration/tests` 394개가 277초) | 약 300초 |
+| 　└ 그 **뒤에** 노드 묶음 4개(pnpm install·typecheck·vitest·build) | 약 90초 |
+| `Postgres integration tests` | 407초 |
+| `Spark and Iceberg runtime tests` | 447초 |
+
+`orchestration/tests` 의 277초는 한 시험이 아니라 2–30초짜리 하위 프로세스 시험의 긴 꼬리였다(서버에서
+시험별 측정). 파이썬·노드 묶음은 cargo 가 만든 것을 읽지도, cargo 가 읽는 것을 쓰지도 않는데 cargo 가 끝난
+뒤에야 시작했다.
+
+## Decision
+
+1. **`xtask verify` 는 파이썬·노드 묶음을 자기 스레드에서 cargo(fmt·clippy·test)와 동시에 돌린다.** 두
+   쪽의 실패는 하나의 `FailureLog` 에 모이고(ADR-0012 규칙 1 유지), 묶음 스레드가 패닉하면 그 자체가
+   실패로 기록된다. 시험 `the_side_suites_run_beside_cargo_and_report_into_one_log` 는 두 쪽이 서로의 신호를
+   기다리게 해서, 순서대로 돌리면 10초 시간 초과로 실패한다(일부러 순서대로 바꿔 실패를 확인했다).
+2. **PR(`pull_request`)은 `boundary-slice` 를 머지 큐에 맡긴다.** `scripts/ci/foundation_ci_scope.py` 의
+   `MERGE_QUEUE_ONLY` 가 그 목록이다. `merge_group`·main 푸시·수동 실행은 지금과 똑같이 경로로 고른다 —
+   경계 슬라이스 없이 main 에 들어가는 변경은 없다. 잡 이름과 `required/foundation` 은 그대로이며, PR 에서
+   그 잡은 이유를 출력하고 성공한다. 시험이 PR 에서 빠지고 머지 큐·푸시에서 남는 것을 확인한다.
+
+검토한 대안:
+
+- **경계 슬라이스의 컨테이너 빌드를 캐시한다**(target 볼륨을 `actions/cache` 로, 또는 sccache). 저장소
+  캐시 한도 10GB 에서 퍼블리셔 디버그 산출물 몇 GB 를 따로 들고 있어야 하고, 컨테이너와 러너의 경로·glibc
+  가 달라 러너의 rust-cache 를 공유하지 못한다. 원격 컴파일 캐시(sccache+R2)는 비용 계산과 자격 증명이
+  필요한 다음 단계로 둔다.
+- **verify 를 clippy·test 별도 잡으로 쪼갠다.** 잡마다 의존성 빌드·캐시 복원을 다시 치르고, ADR-0004 의
+  "한 명령" 을 잡 경계로 흩는다. 같은 잡 안 동시 실행이 먼저다.
+- **파이썬 시험을 모듈 단위 프로세스 풀로.** 남는 여유가 있으면 다음에; 지금은 cargo 뒤에 숨는다.
+
+## Consequences
+
+- 예상: verify 약 15분 → 약 9–10분(파이썬·노드 약 6.5분이 cargo 약 7분 뒤에 숨는다), PR 의 Foundation CI
+  는 경계 슬라이스 15분이 빠져 가장 긴 잡이 verify 가 된다. 실측은 이 변경의 PR 본문에 적는다.
+- 머지 큐는 여전히 경계 슬라이스(약 15분)를 기다린다. 그것을 줄이는 일(컨테이너 빌드 캐시, 퍼블리셔 분할)은
+  다음 단계다.
+- 경계 슬라이스만 깨뜨리는 PR 은 이제 머지 큐에서 처음 실패한다. 그때 드는 비용은 큐 한 바퀴다.
+- 동시 실행으로 CPU 를 나눠 쓰므로, 시간에 민감한 파이썬 시험이 흔들리면 그 시험의 시간 여유를 고친다.

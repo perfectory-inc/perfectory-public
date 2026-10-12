@@ -1095,6 +1095,46 @@ fn verify(area: &Area, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
 
+    // The Python and Node suites build nothing cargo builds and read nothing it writes, so they run
+    // on their own thread beside fmt, clippy and the Rust tests rather than after them (root
+    // ADR-0199). Measured on Foundation CI (2026-10-12): cargo took about 7 minutes and the suites
+    // behind it 6.5 more, one after the other. Each suite still prints its output as one block and
+    // every failure from either side is in the one log the run is judged by.
+    run_beside(
+        log,
+        &format!("{} python/node verification", area.slug),
+        |log| verify_cargo(area, &dir, log),
+        |log| verify_python_and_node(area, &dir, log),
+    );
+}
+
+/// Runs `side` on its own thread while `main` runs on this one, and puts both sides' failures in
+/// `log`. A side that panics is itself a failure, never a silent pass.
+fn run_beside(
+    log: &mut FailureLog,
+    side_name: &str,
+    main: impl FnOnce(&mut FailureLog),
+    side: impl FnOnce(&mut FailureLog) + Send,
+) {
+    let joined = std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            let mut side_log = FailureLog::default();
+            side(&mut side_log);
+            side_log
+        });
+        main(log);
+        handle.join()
+    });
+    match joined {
+        Ok(side_log) => log.failures.extend(side_log.failures),
+        Err(_) => log.record(format!(
+            "{side_name} thread panicked; its suites did not report"
+        )),
+    }
+}
+
+fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
+    let dir = dir.to_path_buf();
     log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
     log.absorb(cargo_reporting(
         &dir,
@@ -1113,7 +1153,10 @@ fn verify(area: &Area, log: &mut FailureLog) {
     for command in verify_test_commands(area) {
         log.absorb(cargo_reporting(&dir, &command));
     }
+}
 
+fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
+    let dir = dir.to_path_buf();
     // A covers root that points at nothing is a claim no one can honour. The
     // shell guard proves every discovered file is claimed; it cannot prove a
     // claim still resolves, so a directory rename would leave the declaration
@@ -1798,6 +1841,48 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// The Python/Node side runs while cargo runs, not after it (root ADR-0199). Each side waits
+    /// for a signal only the other sends, so running them one after the other times out instead
+    /// of passing; both sides' failures, and a panicking side, all land in the one log.
+    #[test]
+    fn the_side_suites_run_beside_cargo_and_report_into_one_log() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (to_main, from_side) = mpsc::channel();
+        let (to_side, from_main) = mpsc::channel();
+        let mut log = FailureLog::default();
+        run_beside(
+            &mut log,
+            "side",
+            |log| {
+                to_side.send(()).ok();
+                if from_side.recv_timeout(Duration::from_secs(10)).is_err() {
+                    log.failures
+                        .push("main never heard from the side".to_owned());
+                }
+                log.failures.push("main failure".to_owned());
+            },
+            move |log| {
+                to_main.send(()).ok();
+                if from_main.recv_timeout(Duration::from_secs(10)).is_err() {
+                    log.failures.push("side never heard from main".to_owned());
+                }
+                log.failures.push("side failure".to_owned());
+            },
+        );
+        assert_eq!(log.failures, ["main failure", "side failure"]);
+
+        let mut log = FailureLog::default();
+        run_beside(
+            &mut log,
+            "python/node",
+            |_| {},
+            |_| panic!("suite runner crashed"),
+        );
+        assert_eq!(log.failures.len(), 1);
+        assert!(log.failures[0].contains("python/node thread panicked"));
     }
 
     /// An authoritative gate reports every failure, not the first one (ADR-0012 rule 1).

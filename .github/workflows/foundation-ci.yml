@@ -702,7 +702,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
-            echo "Boundary publication inputs are unaffected; vertical slice succeeds without containers."
+            echo "Boundary slice not selected for this event (inputs unaffected, or a pull request: the merge queue runs it); see the selector output above."
             exit 0
           fi
           bash scripts/tiles/boundary-slice-proof.sh

@@ -83,6 +83,25 @@ class FoundationCiScopeTest(unittest.TestCase):
             set(scope.GATES),
         )
 
+    def test_a_pull_request_leaves_the_boundary_slice_to_the_merge_queue(self) -> None:
+        boundary = ["scripts/tiles/boundary-slice-proof.sh"]
+        for event_name in ("merge_group", "push"):
+            with self.subTest(event_name=event_name):
+                self.assertIn(
+                    "boundary-slice",
+                    scope.selected_gates(event_name=event_name, base="a" * 40, head="b" * 40, paths=boundary),
+                )
+        self.assertNotIn(
+            "boundary-slice",
+            scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=boundary),
+        )
+        # Only the deferred gate moves: the rest of a pull request's selection is unchanged.
+        everything = scope.selected_gates(
+            event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]
+        )
+        self.assertEqual(everything, set(scope.GATES) - scope.MERGE_QUEUE_ONLY)
+        self.assertEqual(scope.MERGE_QUEUE_ONLY, {"boundary-slice"})
+
     def test_removing_a_required_route_is_detected(self) -> None:
         mutations = (
             ("boundary-slice", "prefixes", "scripts/tiles/"),

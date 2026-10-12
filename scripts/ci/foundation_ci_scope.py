@@ -25,6 +25,12 @@ GATES = (
     "static-release-toolchain-windows",
 )
 
+# Gates a pull request leaves to the merge queue (root ADR-0199). The boundary slice compiles the
+# publisher cold inside a container and took 15 of a pull request's 21 minutes on 2026-10-12; the
+# merge group, a push to main and a manual run still select it by path exactly as before, so
+# nothing reaches main without it. A pull request only waits less for its first verdict.
+MERGE_QUEUE_ONLY = frozenset({"boundary-slice"})
+
 # Changes to dependency locks or the path-selection mechanism itself have an
 # unbounded blast radius. Running every gate is the safe default.
 RUN_ALL_RULE = {
@@ -247,7 +253,10 @@ def selected_gates(
     if event_name == "workflow_dispatch" or not base or not head or set(base) == {"0"}:
         return set(GATES)
     changed = set(paths) if paths is not None else git_changed_paths(repository or Path.cwd(), base, head)
-    return classify_paths(changed)
+    selected = classify_paths(changed)
+    if event_name == "pull_request":
+        selected -= MERGE_QUEUE_ONLY
+    return selected
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -287,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
                 "gate": args.gate,
                 "selected": gate_selected,
                 "selected_gates": sorted(selected),
+                "deferred_to_merge_queue": sorted(MERGE_QUEUE_ONLY)
+                if args.event_name == "pull_request"
+                else [],
                 "fallback_reason": fallback_reason,
             },
             ensure_ascii=False,
