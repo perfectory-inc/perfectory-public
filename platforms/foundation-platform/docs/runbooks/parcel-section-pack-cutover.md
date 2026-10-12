@@ -71,6 +71,15 @@ sudo -n $op parcel monitor-sample 1  # 감시·단계 판정의 표본 파일
 # 단계 배포: CANARY_HEALTH_COMMAND='ssh <host> sudo -n '$op' parcel health @NEW@ @OLD@'
 ```
 
+묶음 전용 레인(`by_pnu_lanes`, 루트 ADR-0190·ADR-0193 §6)의 첫 전환은 위 단계를 한 번에 감독 실행한다. 단계·
+멈춤 조건·예약 창·Spark 대기의 정본은 `scripts/ops/by-pnu-lane-cutover.sh` 머리말이다.
+
+```bash
+sudo -n $op lanes cutover 1 --dry-run   # 아직 전환 안 된 레인 전부: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
+sudo -n $op unit-price cutover 1        # 한 레인: Gold → 대등성 → 굽기 → (가) → (나) → 발행 → 감시 표본, 첫 실패에서 멈춘다
+# 진행: <굽기 뿌리>/cutover/logs/cutover-g1.log, 단계별 시간·결과: <굽기 뿌리>/cutover/<실행 id>.jsonl
+```
+
 굽기(`bake`)가 하는 일은 `scripts/ops/by-pnu-pack-bake.sh` 머리말이 정본이다.
 
 - 샤드는 1..9 에서 시작해 수출기가 행 상한(900,000행)으로 거부한 샤드만 한 자리 긴 열 개로 나눈다(예약 굽기와 같은
