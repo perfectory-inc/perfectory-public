@@ -129,7 +129,12 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         git(repo, "init", "-q")
         git(repo, "add", ".")
         git(repo, "commit", "-qm", "base")
-        environment = {**os.environ, "CARGO_INCREMENTAL": "0", "CARGO_TARGET_DIR": str(repo / "target")}
+        environment = {
+            **os.environ,
+            "CARGO_INCREMENTAL": "0",
+            "CARGO_TARGET_DIR": str(repo / "target"),
+            "CARGO_TERM_COLOR": "never",
+        }
 
         def build() -> str:
             result = subprocess.run(
