@@ -12,52 +12,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Builds a synthetic repository: one area CI, its change-scope contract entry,
-# one area source file holding the given literal, and whichever files should
-# exist. Extra inputs are trailing arguments rather than one word-split string —
-# a glob like `docs/architecture/**` left unquoted is pathname-expanded against
-# the real repository, which silently replaced the intended entry with a list of files.
+# Builds a synthetic repository: one area CI, one area source file holding the
+# given literal, and whichever files should exist. Extra `paths:` entries are
+# trailing arguments rather than one word-split string — a filter like
+# `docs/architecture/**` left unquoted is pathname-expanded against the real
+# repository, which silently replaced the intended entry with a list of files.
 fixture() {
   local root="$1"
   local literal="$2"
   local place="$3" # area | repo | nowhere
   shift 3
   local area="platforms/example-platform"
-  mkdir -p "$root/.github/workflows" "$root/$area/src" "$root/tools/ci"
+  mkdir -p "$root/.github/workflows" "$root/$area/src"
   {
-    printf 'name: Example CI
-on:
-  pull_request:
-    branches: [main]
-'
-    printf 'jobs:
-  verify:
-    runs-on: ubuntu-latest
-'
-    printf '    steps:
-      - run: cargo xtask verify %s
-' "$area"
+    printf 'name: Example CI\non:\n  push:\n    branches: [main]\n    paths:\n'
+    printf '      - "%s/**"\n' "$area"
+    local glob
+    for glob in "$@"; do
+      printf '      - "%s"\n' "$glob"
+    done
+    printf 'jobs:\n  verify:\n    runs-on: ubuntu-latest\n'
+    printf '    steps:\n      - run: cargo xtask verify %s\n' "$area"
   } >"$root/.github/workflows/example-ci.yml"
-  scope_contract "$root" "$area/**" "$@"
-  printf 'const INPUT: &str = "%s";
-' "$literal" >"$root/$area/src/lib.rs"
+  printf 'const INPUT: &str = "%s";\n' "$literal" >"$root/$area/src/lib.rs"
   case "$place" in
-    area) mkdir -p "$(dirname "$root/$area/$literal")" && printf 'x
-' >"$root/$area/$literal" ;;
-    repo) mkdir -p "$(dirname "$root/$literal")" && printf 'x
-' >"$root/$literal" ;;
+    area) mkdir -p "$(dirname "$root/$area/$literal")" && printf 'x\n' >"$root/$area/$literal" ;;
+    repo) mkdir -p "$(dirname "$root/$literal")" && printf 'x\n' >"$root/$literal" ;;
     nowhere) ;;
   esac
-}
-# Writes tools/ci/change-scope.json scoping example-ci.yml to the given globs;
-# no globs leaves the workflow unscoped.
-scope_contract() {
-  local root="$1"
-  shift
-  python3 -c 'import json, sys
-globs = sys.argv[2:]
-workflows = {"example-ci.yml": {"merge_group": "scoped", "paths": globs}} if globs else {}
-open(sys.argv[1], "w").write(json.dumps({"workflows": workflows, "unscoped": {}}))'     "$root/tools/ci/change-scope.json" "$@"
 }
 expect_allowed() {
   bash "$checker" "$1" >/dev/null || {
@@ -116,54 +98,26 @@ mkdir -p "$test_root/etc"
 printf 'synthetic\n' >"$test_root/etc/passwd"
 expect_allowed "$outside_assertion"
 
-# An unscoped workflow always runs, so it cannot miss an input.
-unscoped="$test_root/unscoped"
-fixture "$unscoped" "docs/architecture/contract.md" repo
-scope_contract "$unscoped"
-expect_allowed "$unscoped"
-
-# An unscoped workflow that still filters its pushes with `paths:` can miss an
-# input on push; that filter is read in place of the contract.
-push_filtered="$test_root/push-filtered"
-fixture "$push_filtered" "docs/architecture/contract.md" repo
-scope_contract "$push_filtered"
+# An unfiltered workflow always runs, so it cannot miss an input.
+unfiltered="$test_root/unfiltered"
+fixture "$unfiltered" "docs/architecture/contract.md" repo
 {
-  printf 'name: Example CI
-on:
-  push:
-    branches: [main]
-    paths:
-'
-  printf '      - "platforms/example-platform/**"
-'
-  printf 'jobs:
-  verify:
-    runs-on: ubuntu-latest
-'
-  printf '    steps:
-      - run: cargo xtask verify platforms/example-platform
-'
-} >"$push_filtered/.github/workflows/example-ci.yml"
-expect_rejected "$push_filtered"
+  printf 'name: Example CI\non:\n  pull_request:\n    branches: [main]\n'
+  printf 'jobs:\n  verify:\n    runs-on: ubuntu-latest\n'
+  printf '    steps:\n      - run: cargo xtask verify platforms/example-platform\n'
+} >"$unfiltered/.github/workflows/example-ci.yml"
+expect_allowed "$unfiltered"
 
-# A scoped workflow that takes the area but does not run its tests cannot miss one. The real
+# A filtered workflow that watches the area but does not run its tests cannot miss one. The real
 # repository has two such workflows on `products/gongzzang/**`; demanding coverage from them would
 # be a failure with no defect behind it.
 does_not_run_tests="$test_root/does-not-run-tests"
 fixture "$does_not_run_tests" "docs/architecture/contract.md" repo
 {
-  printf 'name: Example Prepare
-on:
-  pull_request:
-    branches: [main]
-'
-  printf 'jobs:
-  prepare:
-    runs-on: ubuntu-latest
-'
-  printf '    steps:
-      - run: cargo sqlx prepare
-'
+  printf 'name: Example Prepare\non:\n  push:\n    branches: [main]\n    paths:\n'
+  printf '      - "platforms/example-platform/**"\n'
+  printf 'jobs:\n  prepare:\n    runs-on: ubuntu-latest\n'
+  printf '    steps:\n      - run: cargo sqlx prepare\n'
 } >"$does_not_run_tests/.github/workflows/example-ci.yml"
 expect_allowed "$does_not_run_tests"
 

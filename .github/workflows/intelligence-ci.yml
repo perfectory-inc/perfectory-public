@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: intelligence-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Root ADR-0201: whether this workflow's area changed (tools/ci/change-scope.json).

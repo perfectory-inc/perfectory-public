@@ -31,17 +31,30 @@
    그래서 영역을 건드리지 않은 풀 리퀘스트에서도 `required/*`는 몇 초 만에 성공으로 보고된다.
 3. **암묵 입력.** 워크플로우 파일 자신, 워크플로우가 이름으로 부르는 저장소 파일(스크립트·계약),
    그리고 선택기와 계약 파일(바뀌면 전부 돈다)은 목록에 적지 않아도 입력이다.
-4. **이벤트.** `workflow_dispatch`·`schedule`은 전부 돈다. `push`·`pull_request`는 바뀐 경로로 고른다
-   (`base...head`, 머지 베이스 기준). 비교할 수 없으면(첫 푸시, git 실패) 전부 돈다.
-   `merge_group`은 워크플로우마다 `full` 또는 `scoped`를 계약에 적는다. 서비스를 실제로 띄우는
-   통합 레인(identity, db-migrations, walking-skeleton)은 목록이 놓친 입력에 대한 마지막 안전망으로 `full`이다.
-5. **기계적 거부.** `required/repository`(monorepo-guard.yml)의 `python3 scripts/ci/test_change_scope.py`가 다음을 거부한다.
+4. **이벤트.** `workflow_dispatch`·`schedule`·`merge_group`은 전부 돈다. 머지 큐는 main 앞의 마지막 관문이라
+   범위를 줄이지 않는다. `push`·`pull_request`는 바뀐 경로로 고른다(`base...head`, 머지 베이스 기준).
+   비교할 수 없으면(첫 푸시, git 실패) 전부 돈다.
+5. **아무도 답하지 않는 경로는 전부 돌린다.** `unscoped` 항목은 이유와 함께 자기가 맡는 경로(`owns`)를 적는다
+   (Foundation 영역, 문서, 저장소 가드 등). 바뀐 경로가 어느 범위 워크플로우의 입력도, 어느 `owns`도 아니면
+   모든 범위 워크플로우가 돈다. 마크다운만 바꾼 풀 리퀘스트는 `docs`가 맡으므로 범위 워크플로우는 즉시 통과한다.
+6. **영역 소스가 읽는 파일은 입력이어야 한다.** 각 범위 워크플로우의 영역 디렉터리(`<dir>/**` 입력) 아래
+   `.rs`·`.ts`·`.tsx`·`.js`·`.mjs`·`.cjs`·`.py`·`.sh` 소스에서 따옴표 안의 경로를 저장소 루트·영역 루트·그 소스의
+   디렉터리 기준으로 풀어, 추적 파일(또는 디렉터리)이 되면 입력이어야 한다. 디렉터리는 같은 소스가 그 위에 붙이는
+   파일 이름으로 좁힌다(`resolve(docs, "catalog.v1.json")`). 주석 줄은 읽기가 아니다. `tools/xtask`는 모든 영역을
+   부르는 도구라 스캔하지 않는다(바뀌면 그것을 돌리는 워크플로우가 이미 전부 돈다). 처음 적용에서 실제 누락
+   10건이 드러났다(frontend 시험이 읽는 Foundation 계약 2개·다른 gongzzang 워크플로우·xtask, dawneer `api:check`가
+   읽는 OpenAPI 문서 2개).
+7. **기계적 거부.** `required/repository`(monorepo-guard.yml)의 `python3 scripts/ci/test_change_scope.py`가 다음을 거부한다.
    계약에 없는 새 풀 리퀘스트 워크플로우, 범위 워크플로우에 남은 `paths:`, `scope`에 묶이지 않은 잡,
-   `CHANGE_SCOPE_RUN`을 넘기지 않는 필수 잡, 추적 파일을 하나도 가리키지 않는 낡은 경로,
+   `CHANGE_SCOPE_RUN`을 넘기지 않는 필수 잡, 추적 파일을 하나도 가리키지 않는 낡은 경로·`owns`,
    `cargo xtask verify|integration`을 돌리면서 `tools/xtask/**`·`.cargo/config.toml`·`rust-toolchain.toml`을
-   입력으로 받지 않는 워크플로우. `check-workflow-policy.sh`는 필수 잡의 그 한 줄 매핑만 추가로 허용한다.
-6. `area-ci-input-coverage`는 이제 계약에서 입력을 읽는다. 범위 밖 워크플로우가 아직 `push: paths:`를
-   가지면(Foundation) 그 목록을 읽는다.
+   입력으로 받지 않는 워크플로우, 6항의 입력이 아닌 읽기. `check-workflow-policy.sh`는 필수 잡의 그 한 줄 매핑만
+   추가로 허용한다.
+8. **취소는 풀 리퀘스트에서만.** 모든 워크플로우의 `concurrency.cancel-in-progress`는
+   `${{ github.event_name == 'pull_request' }}`이다. 같은 풀 리퀘스트의 새 푸시는 옛 실행을 바로 취소해 러너를
+   비우고, main 푸시·머지 큐 실행은 다음 실행에 취소되지 않는다. `public-repository-safety.sh`가 이 한 형태만 받는다.
+9. `area-ci-input-coverage`는 그대로 YAML `paths:`를 읽는다. 범위 워크플로우는 `paths:`가 없으므로 6항이 맡고,
+   그 가드는 아직 `push: paths:`를 가진 Foundation만 본다.
 
 ## Consequences
 
