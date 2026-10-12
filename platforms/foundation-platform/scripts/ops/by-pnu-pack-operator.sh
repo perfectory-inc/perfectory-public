@@ -10,9 +10,25 @@
 #   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> health <new-version-id> [<old-version-id>] | --preflight
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
+#   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
+#   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
+#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
+#
+# `cutover` is the supervised first cut-over of pack-only lanes (root ADR-0190, ADR-0193 §6): the
+# release's by-pnu-lane-cutover.sh runs, lane after lane, its Gold, the parity with the bundle, then
+# bake, equality, latency, publish and monitor-sample for <generation>, each through this script,
+# stopping at the first failure. It runs as root in foundation-by-pnu-lane-cutover-g<generation>
+# (output <bake root>/cutover/logs/cutover-g<generation>.log); --dry-run runs it here and starts
+# nothing. `lanes` is every lane not cut over yet. The steps it calls wait for their unit
+# (FOUNDATION_OPERATOR_WAIT, which sudo's env_reset removes from a granted run: only the root
+# runner sets it).
+#
+# `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
+# input moved: a table's first full build is run and timed outside the scheduled job this way (root
+# ADR-0193 §7), so it does not first meet the job's time bound.
 #
 # `raon` drives the RAON large-file lane's supervised runs (root ADR-0170, runbook
 # provider-acquisition-fargate.md, first supervised run): `build` and `plan` run
@@ -41,14 +57,16 @@
 # under its time.
 #
 # `bake` runs the release's by-pnu-pack-bake.sh: the whole generation under the lane lock, never
-# published. `gold-rebuild` rebuilds both panel Gold tables unconditionally, once, the way the
+# published. `gold-rebuild` rebuilds every panel Gold table unconditionally, once, the way the
 # scheduled foundation-gold-panel-rebuild.service runs (its unit file is the definition), with a
-# fixed reason; it takes no argument beyond the lane. Neither starts while the other, the scheduled
+# fixed reason; it takes no argument beyond the lane. For a pack-only lane it rebuilds that lane's
+# Gold only (gold-panel-rebuild.sh <its table's unit>), and only when an input moved: a lane's
+# first Gold has no snapshot, so it is always built. Neither starts while the other, the scheduled
 # Gold rebuild or a by-PNU bake runs: a Gold that moves under a bake stops the bake.
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -61,9 +79,13 @@ LANE="${1:-}" ACTION="${2:-}"
 # A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish, status,
 # and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
 # then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`.
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" || refuse "${USAGE}"
-if is_pack_lane "${LANE}"; then
-  [[ " bake equality latency publish status monitor-sample health " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample or health"
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
+  || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
+  || refuse "${USAGE}"
+if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
+  GATEWAY_BLOCK=""
+elif is_pack_lane "${LANE}"; then
+  [[ " bake equality latency publish status monitor-sample health gold-rebuild cutover " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample, health, gold-rebuild or cutover"
   GATEWAY_BLOCK="by_pnu_lanes.${LANE}"
 else
   GATEWAY_BLOCK="${LANE}_by_pnu_gateway"
@@ -99,6 +121,10 @@ PACK_BAKES='foundation-*-pack-bake-g*.service'
 # The rebuild's one reason, so the plan and the Gold history name where it came from.
 GOLD_REASON="root ADR-0166: by-pnu-pack-operator gold-rebuild, the Gold a section pack generation is baked from"
 GOLD_LOG="${BAKE_ROOT}/gold-rebuild/logs/gold-rebuild.log"
+# Set only by by-pnu-lane-cutover.sh (root, not through sudo): a started step waits for its unit and
+# exits with its result, so the runner can stop at the first failure.
+WAIT=()
+[[ "${FOUNDATION_OPERATOR_WAIT:-}" != 1 ]] || WAIT=(--wait)
 
 contract() {
   python3 -I - "${RELEASE}/config/r2-connections.contract.json" "$1" <<'PY'
@@ -225,8 +251,39 @@ PY
   esac
 fi
 
+if [[ "${ACTION}" == cutover ]]; then
+  is_pack_lane "${LANE}" || [[ "${LANE}" == lanes ]] || refuse "cutover is the first cut-over of a pack-only lane, or of lanes"
+  [[ "$#" == 1 || ( "$#" == 2 && "${2}" == --dry-run ) ]] || refuse "cutover takes <generation> [--dry-run]"
+  [[ "${1}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "cutover takes a generation number"
+  if [[ "$#" == 2 ]]; then
+    exec "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1" --dry-run
+  fi
+  CUTOVER_UNIT="foundation-by-pnu-lane-cutover-g$1"
+  running="$(running_units 'foundation-by-pnu-lane-cutover-g*.service')"
+  [[ -z "${running}" ]] || refuse "a lane cut-over is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
+  install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/cutover" "${BAKE_ROOT}/cutover/logs"
+  log="${BAKE_ROOT}/cutover/logs/cutover-g$1.log"
+  log "starting ${CUTOVER_UNIT}: by-pnu-lane-cutover.sh ${LANE} $1; output ${log}"
+  # Root, like this script: each step it calls starts its own unit as the service user.
+  exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" \
+    --description="Foundation Platform pack-only lane cut-over, generation $1 (root ADR-0190, ADR-0193)" \
+    -p StandardOutput=append:"${log}" -p StandardError=append:"${log}" \
+    "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1"
+fi
+
+TABLE_UNIT=""
+if [[ "${LANE}" == gold ]]; then
+  (($# == 1)) || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json"
+  mapfile -t table_units < <(python3 -I -c 'import json, sys; print("\n".join(t["unit"] for t in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))' \
+    "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
+  printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
+  TABLE_UNIT="$1"
+  shift
+  ACTION=gold-rebuild
+fi
+
 if [[ "${ACTION}" == gold-rebuild ]]; then
-  (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds both panel Gold tables, and its reason is fixed"
+  (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds the panel Gold tables, and its reason is fixed"
   refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
   refuse_while_baking
   # The scheduled unit is the one definition of how a rebuild runs: account, environment files,
@@ -268,13 +325,25 @@ PY
   props=()
   for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
-  log "starting ${GOLD_UNIT}: gold-panel-rebuild.sh all --unconditional; output ${GOLD_LOG}"
-  # A oneshot unit: --no-block returns once it is queued, not when the rebuild ends.
-  "${SYSTEMD_RUN}" --no-block --collect --unit="${GOLD_UNIT}" \
+  if [[ -n "${TABLE_UNIT}" ]]; then
+    command=("${unit[0]}" "${TABLE_UNIT}")
+  elif is_pack_lane "${LANE}"; then
+    # The lane's own Gold, by the rebuild contract's unit for its table (root ADR-0193 §3).
+    table_unit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["tables"][sys.argv[2]]["unit"])' \
+      "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json" "$(contract "${GATEWAY_BLOCK}.gold_table")")" \
+      || refuse "the rebuild contract has no table for the ${LANE} lane's Gold" 65
+    command=("${unit[0]}" "${table_unit}")
+  else
+    command=("${unit[0]}" all --unconditional "${GOLD_REASON}")
+  fi
+  log "starting ${GOLD_UNIT}: gold-panel-rebuild.sh ${command[*]:1:2}; output ${GOLD_LOG}"
+  # A oneshot unit: --no-block returns once it is queued, not when the rebuild ends; --wait (the
+  # cut-over runner) returns with its result.
+  ((${#WAIT[@]})) || WAIT=(--no-block)
+  exec "${SYSTEMD_RUN}" "${WAIT[@]}" --collect --unit="${GOLD_UNIT}" \
     --description="Foundation Platform panel Gold rebuild, unconditional, for a section pack generation (root ADR-0166)" \
     "${props[@]}" -p StandardOutput=append:"${GOLD_LOG}" -p StandardError=append:"${GOLD_LOG}" \
-    "${unit[0]}" all --unconditional "${GOLD_REASON}"
-  exit 0
+    "${command[@]}"
 fi
 
 if [[ "${ACTION}" == health ]]; then
@@ -387,7 +456,7 @@ esac
 setenv=()
 for value in ${env[@]+"${env[@]}"}; do setenv+=(-E "${value}"); done
 log "starting ${UNIT}: ${command} (release ${release_id}); output ${WORK}/logs/${ACTION}.log"
-"${SYSTEMD_RUN}" --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax="${memory}" \
+"${SYSTEMD_RUN}" ${WAIT[@]+"${WAIT[@]}"} --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax="${memory}" \
   -p WorkingDirectory="${RELEASE}" "${props[@]}" ${setenv[@]+"${setenv[@]}"} \
   -p StandardOutput=append:"${WORK}/logs/${ACTION}.log" -p StandardError=append:"${WORK}/logs/${ACTION}.log" \
   "${run[@]}"

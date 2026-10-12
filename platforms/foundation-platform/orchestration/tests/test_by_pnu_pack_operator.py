@@ -23,10 +23,27 @@ RELEASE_ID = "c" * 40
 VERSION = "33333333-3333-4333-8333-333333333333"
 OLD = "44444444-4444-4444-8444-444444444444"
 
+# A unit whose name holds a FAKE_FAIL entry (comma separated) fails, as a --wait run reports it. The
+# Gold rebuild's unit writes FAKE_GOLD_OUTPUT to its output file.
 FAKE_SYSTEMD_RUN = r'''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"tool": "systemd-run", "args": sys.argv[1:]}) + "\n")
+unit = next((arg for arg in sys.argv[1:] if arg.startswith("--unit=")), "")
+if "gold-panel-rebuild" in unit and os.environ.get("FAKE_GOLD_OUTPUT"):
+    output = next(arg for arg in sys.argv[1:] if arg.startswith("StandardOutput=append:"))
+    with open(output.split(":", 1)[1], "a") as out:
+        out.write(os.environ["FAKE_GOLD_OUTPUT"])
+if any(part and part in unit for part in os.environ.get("FAKE_FAIL", "").split(",")):
+    sys.exit(3)
+'''
+
+# Each preview answers FAKE_CURL_CODE (200 when unset).
+FAKE_CURL = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps({"tool": "curl", "args": [sys.argv[-1]]}) + "\n")
+print(os.environ.get("FAKE_CURL_CODE", "200"), end="")
 '''
 
 # Units named in FAKE_ACTIVE (comma separated) are active, those in FAKE_ACTIVATING are a oneshot
@@ -79,7 +96,9 @@ with open(os.environ["FAKE_LOG"], "a") as log:
 FAKE_PUBLISHER = "#!/usr/bin/env bash\nexit 0\n"
 
 
-class PackOperator(unittest.TestCase):
+class OperatorHarness(unittest.TestCase):
+    """A release on a temporary host: its contracts, its operator scripts, fake systemd and curl."""
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="pack-operator-")
         self.addCleanup(temp.cleanup)
@@ -87,12 +106,12 @@ class PackOperator(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         # What the operator reads from the release: its contracts, its secrets tool, its admission.
-        for part in ("config", "scripts/deploy", "infra/systemd", "orchestration"):
+        for part in ("config", "scripts/deploy", "infra/systemd", "infra/lakehouse/contracts", "orchestration"):
             shutil.copytree(PLATFORM / part, release / part)
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
         for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",
-                     "by-pnu-bake-shards.sh"):
+                     "by-pnu-bake-shards.sh", "by-pnu-lane-cutover.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops")
         health = release / "scripts/ops/by-pnu-gateway-health.sh"
         health.write_text(FAKE_HEALTH)
@@ -112,7 +131,7 @@ class PackOperator(unittest.TestCase):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         for name, body in (("systemd-run", FAKE_SYSTEMD_RUN), ("systemctl", FAKE_SYSTEMCTL),
-                           ("journalctl", FAKE_JOURNALCTL)):
+                           ("journalctl", FAKE_JOURNALCTL), ("curl", FAKE_CURL)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.bake = self.root / "data/by-pnu-bake"
@@ -155,6 +174,8 @@ class PackOperator(unittest.TestCase):
         props = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
         return args, env, props
 
+
+class PackOperator(OperatorHarness):
     def test_silver_plan_runs_the_lanes_plan_as_the_service_with_its_contract_environment(self):
         # 2026-10-10: the owner had to run and paste a sudo loop for every lane plan (root ADR-0178).
         result, calls = self.run_operator("silver", "plan", "land-individual-price")
@@ -463,8 +484,8 @@ class PackOperator(unittest.TestCase):
         result, calls = self.run_operator("unit-price", "health", VERSION, OLD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [{"tool": "health", "args": ["unit-price", VERSION, OLD]}])
-        # Still not the object lanes' steps.
-        result, calls = self.run_operator("unit-price", "gold-rebuild")
+        # Nothing but its lane's steps.
+        result, calls = self.run_operator("unit-price", "shell", "1")
         self.assertEqual(result.returncode, 64, result.stderr)
 
 
