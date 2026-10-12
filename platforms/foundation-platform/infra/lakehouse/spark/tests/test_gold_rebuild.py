@@ -166,6 +166,16 @@ class Plan(unittest.TestCase):
             rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11", "silver.lineage": "31"}),
                          {"silver.a": table(A1), "silver.lineage": None})
 
+    def test_an_input_the_table_no_longer_reads_rebuilds_in_full(self):
+        """ADR-0190 took the unit prices out of the building panel: its Gold still carries them."""
+        decision = rebuild.plan("gold.x", {**ENTRY, "incremental": {}}, INPUTS,
+                                gold({"silver.a": "11", "silver.b": "21", "silver.gone": "41"}),
+                                {"silver.a": table(A1), "silver.b": table(B1)})
+        self.assertEqual(decision["action"], "rebuild")
+        self.assertIn("silver.gone", decision["reasons"][0])
+        self.assertEqual(decision["mode"], "full")
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "11", "silver.b": "21"})
+
     def test_a_table_without_gold_is_built_with_no_row_floor(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, None, {"silver.a": table(A1), "silver.b": table(B1)})
         self.assertEqual(decision["action"], "rebuild")

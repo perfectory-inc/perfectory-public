@@ -327,7 +327,11 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         previous = int(gold["row_count"])
         recorded = recorded_pins(gold["snapshots"], gold["head"])
         if recorded is not None:
-            vanished = [name for name in recorded if silver.get(name) is None]
+            # An input this table no longer reads is not looked up, so it is a change, not a loss.
+            dropped = sorted(set(recorded) - {*required, *optional})
+            reasons.extend(f"{name}: an input the current Gold was built from that this table no longer reads"
+                           for name in dropped)
+            vanished = [name for name in recorded if name not in dropped and silver.get(name) is None]
             if vanished:
                 raise PlanError(f"{table}: inputs the current Gold was built from no longer exist: {vanished}")
             for name in present:
