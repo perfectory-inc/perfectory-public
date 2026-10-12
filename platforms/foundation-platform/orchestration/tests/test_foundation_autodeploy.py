@@ -26,6 +26,8 @@ START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 JOBS = PLATFORM / "orchestration/jobs.v1.json"
 CURRENT = "a" * 40
 HEAD = "b" * 40
+RECHECK_SECONDS = int(next(line for line in SCRIPT.read_text().splitlines()
+                           if line.startswith("recheck_seconds=")).removeprefix("recheck_seconds="))
 
 sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
@@ -147,8 +149,11 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         (control / "scripts/github").mkdir(parents=True)
         (control / "scripts/github/safe-git-transport.sh").write_text(
             '[ -n "$FIXTURE_NO_HEAD" ] && exit 128\nprintf "%s\\trefs/heads/main\\n" "$FIXTURE_HEAD"\n')
+        # Answers FIXTURE_CHECKS and records each time it is asked (each is GitHub API requests).
         (deploy / "release_checks.py").write_text(
-            "import os, sys\nprint(os.environ['FIXTURE_CHECKS'])\n")
+            "import os, sys\n"
+            "open(os.path.join(os.environ['FIXTURE_ROOT'], 'asked.log'), 'a').write(sys.argv[3] + '\\n')\n"
+            "print(os.environ['FIXTURE_CHECKS'])\n")
         (deploy / "foundation-deploy.sh").write_text(
             'printf "%s\\n" "$1" >> "$FIXTURE_ROOT/deployed.log"\nexit "${FIXTURE_DEPLOY_EXIT:-0}"\n')
         # Whether a unit runs is the real definition (root ADR-0184), asking the systemctl below.
@@ -303,6 +308,50 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         result = self.tick()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.deployed(), [])
+
+    def asked(self):
+        log = self.root / "asked.log"
+        return log.read_text().split() if log.exists() else []
+
+    def age_the_last_ask(self, head=HEAD, seconds=RECHECK_SECONDS):
+        asked = self.state / "asked" / head
+        os.utime(asked, (asked.stat().st_mtime - seconds,) * 2)
+
+    def test_a_commit_without_a_verdict_is_asked_again_only_after_the_interval(self):
+        # ADR-0187: a tick every minute must not spend the anonymous API budget on one commit.
+        for _ in range(3):
+            self.assertEqual(self.tick(checks="wait still running: ci").returncode, 0)
+        self.assertEqual(self.asked(), [HEAD])
+        self.age_the_last_ask()
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.asked(), [HEAD, HEAD])
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_a_new_head_is_asked_at_once(self):
+        self.assertEqual(self.tick(checks="wait still running: ci").returncode, 0)
+        newer = "c" * 40
+        self.assertEqual(self.tick(head=newer).returncode, 0)
+        self.assertEqual(self.asked(), [HEAD, newer])
+        self.assertEqual(self.deployed(), [newer])
+
+    def test_a_passed_verdict_is_kept_while_the_deploy_waits(self):
+        unit = "foundation-gold-panel-rebuild-unconditional.service:yes"
+        for _ in range(3):
+            self.assertIn("waiting for the operator's", self.tick(FIXTURE_UNITS=unit).stdout)
+        # The operator's unit ended: deployed on the next tick, not an interval later, with one ask.
+        self.assertEqual(self.tick(checks="refuse never asked again").returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD])
+        self.assertEqual(self.asked(), [HEAD])
+
+    def test_the_asking_fits_the_anonymous_api_budget(self):
+        # GitHub allows an unauthenticated client 60 REST requests an hour; release_checks.py
+        # spends at least two per answer (check runs, then the merge queue's runs). Keep half the
+        # budget for everything else the host reads anonymously.
+        timer = (PLATFORM / "infra/systemd/foundation-autodeploy.timer").read_text()
+        tick = next(line for line in timer.splitlines() if line.startswith("OnUnitInactiveSec="))
+        self.assertLessEqual(int(tick.removeprefix("OnUnitInactiveSec=").removesuffix("min")) * 60,
+                             RECHECK_SECONDS, "asking on every tick")
+        self.assertLessEqual(3600 // RECHECK_SECONDS * 2, 60 // 2)
 
     def test_an_unreadable_head_waits(self):
         result = self.tick(FIXTURE_NO_HEAD="1")

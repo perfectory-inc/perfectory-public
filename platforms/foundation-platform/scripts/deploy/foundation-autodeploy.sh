@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The host deploys main by itself (root ADR-0159). foundation-autodeploy.timer runs this every few
-# minutes as root; each run either does nothing or deploys exactly one commit:
+# The host deploys main by itself (root ADR-0159). foundation-autodeploy.timer runs this every minute
+# as root (ADR-0187); each run either does nothing or deploys exactly one commit:
 #
 # - main's head is read from GitHub anonymously (the repository is public, ADR-0136);
 # - nothing happens when the host already runs it, when it was refused or failed before (a newer
@@ -63,13 +63,31 @@ for outcome in refused failed; do
   fi
 done
 
-if ! checks="$(python3 "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${head}")"; then
-  log "cannot read the checks of ${head}; asking again next time"
-  exit 0
+# A tick runs every minute (ADR-0187), but the check runs come from GitHub's REST API read
+# anonymously, which allows a host 60 requests an hour, and one answer takes release_checks.py at
+# least two. So a commit is asked about once per `recheck_seconds` at most while its checks give no
+# verdict (still running, or unreadable), and never again once they passed: the verdict is kept
+# while the deploy waits for an operator's unit or the Worker deploy. A new head is asked at once.
+recheck_seconds=300
+asked="${state}/asked/${head}"
+passed="${state}/passed/${head}"
+mkdir -p "${state}/asked" "${state}/passed"
+find "${state}/asked" "${state}/passed" -type f ! -name "${head}" -delete
+if [[ -e "${passed}" ]]; then
+  checks="$(cat "${passed}")"
+else
+  if [[ -e "${asked}" ]] && (( $(date +%s) - $(stat -c %Y "${asked}") < recheck_seconds )); then
+    exit 0
+  fi
+  touch "${asked}"
+  if ! checks="$(python3 "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${head}")"; then
+    log "cannot read the checks of ${head}; asking again in ${recheck_seconds}s"
+    exit 0
+  fi
 fi
 case "${checks%% *}" in
   wait)
-    log "${head}: ${checks#* }"
+    log "${head}: ${checks#* }; asking again in ${recheck_seconds}s"
     exit 0
     ;;
   refuse)
@@ -78,7 +96,7 @@ case "${checks%% *}" in
     log "${head} is not deployed: ${checks#* }"
     exit 1
     ;;
-  deploy) ;;
+  deploy) [[ -e "${passed}" ]] || printf '%s\n' "${checks}" >"${passed}" ;;
   *)
     log "unexpected answer from release_checks.py: ${checks}"
     exit 1

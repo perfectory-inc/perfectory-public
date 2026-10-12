@@ -59,3 +59,5 @@ FLOOR 설정 → 활성화·마이그레이션·타이머 → Airflow → 작업
 2026-10-10: §4 마지막 문장(배포 뒤 작업이 실패하면 DAG 는 멈춘 채로 둔다)은 [ADR-0173](./0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md) 이 바꿨다. 그 실패는 배포를 실패로 만들지 않고 DAG 를 다시 켜며, 유닛의 `OnFailure` 와 배포 로그 한 줄로 알린다.
 
 2026-10-10: Consequences 의 "Cloudflare Worker 배포 … 의 자동화는 이 다음이다"는 [ADR-0175](./0175-workers-deploy-themselves-after-the-host-deploys-main.md) 가 했다. 서버가 main 을 배포한 뒤 소스가 바뀐 Worker 를 미리보기 → 운영 순서로 배포하고, 스모크가 실패하면 옛 버전으로 되돌린다. 단계 배포 판정의 자동화는 여전히 다음이다.
+
+2026-10-12: §2 의 "10분마다"는 [ADR-0187](./0187-the-host-looks-for-main-every-minute-and-asks-the-checks-sparingly.md) 이 1분으로 바꿨다. 판정이 없는 커밋의 검사 결과는 5분에 한 번만 묻고, 통과 판정은 저장한다.

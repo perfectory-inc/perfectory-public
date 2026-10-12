@@ -569,7 +569,7 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 ## 평소 배포: 서버가 main 을 스스로 받는다
 
 [ADR-0159](../../../../docs/adr/0159-the-host-deploys-main-by-itself-once-its-checks-pass.md).
-`foundation-autodeploy.timer` 가 10분마다 main 의 머리를 보고, check run 이 모두 통과한 새 커밋이면
+`foundation-autodeploy.timer` 가 주기마다(간격은 그 타이머 파일, ADR-0187) main 의 머리를 보고, check run 이 모두 통과한 새 커밋이면
 `scripts/deploy/foundation-deploy.sh <sha>` 로 배포한다. 절차 전체와 그 작업 목록은 그 스크립트와
 `orchestration/jobs.v1.json` 에 있다.
 
