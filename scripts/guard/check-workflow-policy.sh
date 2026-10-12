@@ -215,12 +215,26 @@ for workflow in "${workflows[@]}"; do
     exit 1
   fi
 
+  # A report workflow triggered only by schedule and workflow_dispatch (root ADR-0203)
+  # gates no pull request, so it carries no PR trigger and no required/* context.
+  # Any other trigger beside those two puts it back under the required shape below.
+  scheduled_only="$(awk '
+    /^on:[[:space:]]*$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  [A-Za-z0-9_-]+:/ {
+      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
+      if (key == "schedule") schedule++
+      else if (key != "workflow_dispatch") other++
+    }
+    END { print (schedule == 1 && !other) ? 1 : 0 }
+  ' "$workflow")"
+
   # Every required workflow uses the same PR trigger shape. Push-only path
   # filters remain allowed for cost, but PR filters/types cannot suppress checks.
   # The same contexts must also report on merge_group, or a merge queue would
   # wait forever for a check that never starts (root ADR-0155); the default
   # checks_requested type is the only one GitHub sends, so no child is admitted.
-  awk -v file="$workflow" '
+  awk -v file="$workflow" -v scheduled="$scheduled_only" '
     function fail(message) {
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"
       failed=1
@@ -237,6 +251,7 @@ for workflow in "${workflows[@]}"; do
     /^  merge_group:/ { fail("merge_group must use the canonical bare block form") }
     END {
       if (on_count != 1) fail("must use one canonical block-form on key")
+      if (scheduled) exit failed ? 1 : 0
       if (pull_count != 1 || branch_count != 1) {
         fail("must run on every pull request targeting main")
       }
@@ -304,7 +319,7 @@ for workflow in "${workflows[@]}"; do
 
   # Job names, dependencies, and the terminal result gate are parsed only from
   # canonical indentation. Multi-job workflows have one exact terminal step.
-  awk -v file="$workflow" '
+  awk -v file="$workflow" -v scheduled="$scheduled_only" '
     function trim(value) {
       sub(/^[[:space:]]+/, "", value)
       sub(/[[:space:]]+$/, "", value)
@@ -402,7 +417,9 @@ for workflow in "${workflows[@]}"; do
           required_job=candidate
         }
       }
-       if (required_count != 1) {
+       if (scheduled) {
+         if (required_count != 0) fail("a schedule-only workflow must not define a required/* context")
+       } else if (required_count != 1) {
          fail("must define exactly one job-level required/* context")
        } else if (job_count == 1) {
          if (job_ifs[required_job] != "") fail("single required job must not be conditional")

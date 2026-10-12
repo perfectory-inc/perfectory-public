@@ -89,6 +89,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 
 - `scripts/guard/monorepo-guard.sh` 가 위 규칙을 기계 검사한다(CI + pre-push).
 - **검증 SSOT**: `cargo xtask verify <area>` 하나를 로컬 하네스와 CI가 똑같이 부른다([ADR-0004](./docs/adr/0004-verification-ssot.md)). 워크플로우에 raw `cargo clippy/fmt` 금지.
+- **CI 시간 예산**: PR 벽시계 상한은 [`tools/ci/ci-time-budget.contract.json`](./tools/ci/ci-time-budget.contract.json) 하나뿐이다. 주간 `ci-time-budget` 워크플로가 직전 주 p50과 비교한다([ADR-0203](./docs/adr/0203-pull-request-ci-has-one-wall-clock-budget.md)). CI를 느리게 하는 변경은 이 숫자 안에서 설명한다.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
 
 ## 작업 목록 SSOT
