@@ -1378,7 +1378,8 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
     lane = incremental.Lane(
         build=lambda inputs: build_panel(spark, args, inputs, candidates, counters, parcel_snapshot),
         restrict=lambda inputs, keys: restrict_inputs(inputs, keys, candidates),
-        affected=lambda changed: affected_pnus(
+        # No append_inputs: every input is diffed (root ADR-0189 lists only the building lane).
+        affected=lambda changed, _appended: affected_pnus(
             *read_inputs(spark, args, previous, {}), frames, candidates, changed),
         validate=lambda gold: validate_gold_frame(gold, None),
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,

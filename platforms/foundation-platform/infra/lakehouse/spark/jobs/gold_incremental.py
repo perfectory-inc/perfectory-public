@@ -13,6 +13,12 @@ this module adds is the machinery around it:
    changes no row here unless the columns the build reads changed: lineage columns are outside the
    projection, and a build that reads a column outside it fails on the missing column instead of
    silently seeing NULL — that is what makes the difference complete.
+   **An appended input skips the difference** (root ADR-0189). When every snapshot after the pin
+   up to the new one is an Iceberg `append` (`appended_span`), the new snapshot holds the old one's
+   rows unchanged plus the added ones, so the producer reads the added rows (`read_appended`, an
+   incremental append scan) as the change set instead of reading both snapshots in full. A read
+   that is not a row-local filter of the table (a producer that picks one batch of several) maps
+   that itself; any other operation in between takes the difference as before.
 2. **Which PNUs.** The producer maps changed rows to the PNUs whose Gold row can depend on them
    (old and new side, so a PNU a row left is recomputed too), and restricts its inputs to the rows
    those PNUs read. Both are the producer's, next to the build they describe.
@@ -37,6 +43,7 @@ from __future__ import annotations
 
 import math
 import shutil
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,6 +55,7 @@ KEY = "pnu"
 DELETE_FLAG = "_foundation_delete"
 MERGE_SOURCE_VIEW = "foundation_gold_incremental_merge_source"
 INPUT_TAG_PREFIX = "foundation-gold-input-"
+STAGES_PREFIX = "gold-incremental-"
 # Iceberg's table properties for row-level commands. The bake refuses delete files.
 MERGE_MODE_PROPERTY = "write.merge.mode"
 COPY_ON_WRITE = "copy-on-write"
@@ -125,6 +133,53 @@ def sample_threshold(sample_keys: int, gold_rows: int) -> int:
     if sample_keys <= 0 or gold_rows <= 0:
         return 0
     return min(HASH_SPACE, math.ceil(HASH_SPACE * sample_keys / gold_rows))
+
+
+def appended_span(snapshots: dict[int, tuple[int | None, str]], old: int, new: int) -> bool:
+    """Whether `new` descends from `old` through `append` snapshots only (root ADR-0189).
+
+    `snapshots` maps each snapshot id to (parent id, operation), as the table's `snapshots`
+    metadata table holds them. False when the chain does not reach `old` (expired, or another
+    branch's lineage) or passes any other operation (overwrite, delete, replace).
+    """
+    current, seen = new, set()
+    while current != old:
+        if current in seen or current not in snapshots:
+            return False
+        seen.add(current)
+        parent, operation = snapshots[current]
+        if operation != "append" or parent is None:
+            return False
+        current = parent
+    return True
+
+
+def appended_inputs(spark: Any, tables: dict[str, str], previous: dict[str, str], pins: dict[str, str],
+                    changed: list[str]) -> list[str]:
+    """The changed inputs among `tables` (input -> Iceberg table) whose pins moved by appends only."""
+    appended = []
+    for name in changed:
+        if name not in tables:
+            continue
+        rows = spark.sql(f"SELECT snapshot_id, parent_id, operation FROM {tables[name]}.snapshots").collect()
+        snapshots = {int(r.snapshot_id): (None if r.parent_id is None else int(r.parent_id), r.operation)
+                     for r in rows}
+        if appended_span(snapshots, int(previous[name]), int(pins[name])):
+            appended.append(name)
+    return appended
+
+
+def read_appended(spark: Any, table: str, old: str, new: str) -> Any:
+    """The rows the append snapshots after `old` up to `new` added (Iceberg's incremental append scan)."""
+    return (spark.read.format("iceberg").option("start-snapshot-id", str(int(old)))
+            .option("end-snapshot-id", str(int(new))).load(table))
+
+
+def phase_done(name: str, started: float) -> float:
+    """Print one phase's wall seconds to the run log; return the time it ended."""
+    now = time.monotonic()
+    print(f"gold-incremental-phase {name} seconds={now - started:.1f}", flush=True)
+    return now
 
 
 def project_build_inputs(frames: dict[str, Any], build_columns: dict[str, tuple[str, ...]]) -> dict[str, Any]:
@@ -205,15 +260,21 @@ def rows_matching_any(frame: Any, matches: list[tuple[str, Any, str, bool]]) -> 
 
 @dataclass
 class Lane:
-    """What a producer hands the incremental rebuild: its build and its two dependency maps."""
+    """What a producer hands the incremental rebuild: its build and its two dependency maps.
+
+    `affected(changed, appended)` maps the changed inputs to PNUs; `appended` are those of
+    `append_inputs` (input -> Iceberg table: the inputs whose producer can read an append as their
+    change set) whose pins moved by appends only (root ADR-0189).
+    """
 
     build: Callable[[dict[str, Any]], Any]
     restrict: Callable[[dict[str, Any], Any], dict[str, Any]]
-    affected: Callable[[list[str]], Any]
+    affected: Callable[[list[str], list[str]], Any]
     validate: Callable[[Any], tuple[int, dict[str, int]]]
     content_columns: tuple[str, ...]
     gold_columns: tuple[str, ...]
     whole_table_inputs: tuple[str, ...] = ()
+    append_inputs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -227,6 +288,7 @@ class Outcome:
     merge: dict[str, Any] | None = None
     full_reason: str | None = None
     changed_inputs: list[str] = field(default_factory=list)
+    appended_inputs: list[str] = field(default_factory=list)
     merged: bool | None = None
 
     def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
@@ -238,14 +300,17 @@ class Outcome:
         if self.mode == "full":
             write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True))
             return
+        started = time.monotonic()
         self.merged = merge_into_gold(spark, table, self.merge["source"],
                                       {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)})
+        phase_done("merge", started)
 
     def disposition(self, args: Any) -> str:
         return "iceberg_merge" if self.mode == "incremental" else "iceberg_" + args.iceberg_write_mode
 
     def report(self) -> dict[str, Any]:
-        report: dict[str, Any] = {"mode": self.mode, "changed_inputs": self.changed_inputs}
+        report: dict[str, Any] = {"mode": self.mode, "changed_inputs": self.changed_inputs,
+                                  "appended_inputs": self.appended_inputs}
         if self.full_reason:
             report["full_reason"] = self.full_reason
         if self.merge is not None:
@@ -273,7 +338,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     """
     from pyspark.storagelevel import StorageLevel
 
-    reason, changed = None, []
+    reason, changed, appended = None, [], []
     if previous is not None:
         try:
             changed = changed_inputs(previous, pins)
@@ -286,11 +351,13 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
             if tuple(current.columns) != lane.gold_columns:
                 raise IncrementalRefusal("the current Gold's columns differ from the contract")
             gold_rows = current.count()
-            affected = lane.affected(changed) if changed else current.select(KEY).limit(0)
+            started = time.monotonic()
+            appended = appended_inputs(spark, lane.append_inputs, previous, pins, changed)
+            affected = lane.affected(changed, appended) if changed else current.select(KEY).limit(0)
             plan = plan_merge(spark, build=lane.build, restrict=lane.restrict, new=frames, affected=affected,
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
-                              seed=pins_seed(pins))
+                              seed=pins_seed(pins), started=started)
             try:
                 _, metrics = lane.validate(plan["recomputed"])
                 if args.expected_count is not None and plan["row_count"] != args.expected_count:
@@ -299,7 +366,8 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
             except BaseException:
                 plan["stages"].remove()
                 raise
-            return Outcome("incremental", plan["row_count"], metrics, merge=plan, changed_inputs=changed)
+            return Outcome("incremental", plan["row_count"], metrics, merge=plan, changed_inputs=changed,
+                           appended_inputs=appended)
         except IncrementalRefusal as refusal:
             reason = str(refusal)
             print(f"gold-incremental-fallback {reason}", flush=True)
@@ -308,7 +376,8 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     gold = lane.build(frames).persist(StorageLevel.DISK_ONLY)
     count, metrics = validate_full(gold, args.expected_count)
     assert_minimum(count, args.minimum_count)
-    return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed)
+    return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed,
+                   appended_inputs=appended)
 
 
 def pins_seed(pins: dict[str, str]) -> str:
@@ -326,12 +395,18 @@ class Stages:
     heap after an hour. A stage written to Parquet and read back is a plan of one file scan that
     streams from disk and holds nothing in memory. The directory is under `spark.local.dir`, the
     disk Spark already spills to; `remove` deletes it once the merge committed or failed.
+
+    A run killed outright (SIGKILL, the OOM killer, a timeout) never reaches `remove`. Gold runs
+    are serialized by the rebuild lock (scripts/ops/gold-panel-rebuild.sh), so a sibling stage
+    directory found here can only be a dead run's, and it is deleted before this run writes.
     """
 
     def __init__(self, spark: Any) -> None:
-        local = (spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0]
+        local = Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
+        for dead in local.glob(STAGES_PREFIX + "*"):
+            shutil.rmtree(dead, ignore_errors=True)
         self.spark = spark
-        self.root = Path(local) / f"gold-incremental-{uuid.uuid4().hex}"
+        self.root = local / f"{STAGES_PREFIX}{uuid.uuid4().hex}"
 
     def materialize(self, name: str, frame: Any) -> Any:
         path = (self.root / name).as_posix()
@@ -345,7 +420,8 @@ class Stages:
 def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
-               max_fraction: float, sample_keys: int, seed: str) -> dict[str, Any]:
+               max_fraction: float, sample_keys: int, seed: str,
+               started: float | None = None) -> dict[str, Any]:
     """Recompute the affected PNUs and a parity sample; return the merge source and its counts.
 
     Raises IncrementalRefusal when the change set is too large or the parity sample disagrees.
@@ -363,7 +439,8 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
         return plan_merge_in(stages, build=build, restrict=restrict, new=new, affected=affected,
                              current_gold=current_gold, gold_rows=gold_rows,
                              content_columns=content_columns, max_fraction=max_fraction,
-                             sample_keys=sample_keys, seed=seed, F=F)
+                             sample_keys=sample_keys, seed=seed, F=F,
+                             started=time.monotonic() if started is None else started)
     except BaseException:
         stages.remove()
         raise
@@ -372,9 +449,10 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
 def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
                   restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                   affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
-                  max_fraction: float, sample_keys: int, seed: str, F: Any) -> dict[str, Any]:
+                  max_fraction: float, sample_keys: int, seed: str, F: Any, started: float) -> dict[str, Any]:
     affected = stages.materialize("affected", affected.select(KEY).distinct())
     affected_count = affected.count()
+    started = phase_done("affected", started)
     verdict = change_fraction_verdict(affected_count, gold_rows, max_fraction)
     if verdict:
         raise IncrementalRefusal(verdict)
@@ -385,7 +463,9 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
     keys = stages.materialize("keys", affected.unionByName(sample).distinct())
     restricted = {name: stages.materialize(f"input-{index}", frame)
                   for index, (name, frame) in enumerate(restrict(new, keys).items())}
+    started = phase_done("restrict", started)
     built = stages.materialize("built", build(restricted).join(keys, KEY, "left_semi"))
+    started = phase_done("build", started)
 
     compared = list(dict.fromkeys([KEY, *content_columns, "row_digest"]))
     rebuilt_sample = built.join(sample, KEY, "left_semi").select(*compared)
@@ -393,6 +473,7 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
     disagreements = rebuilt_sample.exceptAll(gold_sample).unionByName(gold_sample.exceptAll(rebuilt_sample))
     disagreeing = disagreements.select(KEY).distinct()
     disagreeing_count = disagreeing.count()
+    phase_done("parity", started)
     if disagreeing_count:
         examples = sorted(r[KEY] for r in disagreeing.limit(3).collect())
         raise IncrementalRefusal(
