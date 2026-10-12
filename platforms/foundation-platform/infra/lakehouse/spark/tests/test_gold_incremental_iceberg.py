@@ -210,6 +210,12 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(counts["affected_pnus"], 5, counts)  # PNU 1..5; the overwrite moved no other row
         self.assertGreater(counts["parity_sample_pnus"], 0)
         self.assertEqual(merged["write_disposition"], "iceberg_merge")
+        # The merge's stages live on local disk, never in the executor's memory store, and are gone
+        # once the run ends: a whole unit price vintage filled the store in production (2026-10-12).
+        held = [info.name() for info in self.spark.sparkContext._jsc.sc().getRDDStorageInfo() if info.memSize() > 0]
+        self.assertEqual(held, [], "a merge stage was kept in executor memory")
+        local = (self.spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0]
+        self.assertEqual(sorted(str(path) for path in Path(local).glob("gold-incremental-*")), [])
         self.run_job(job, pins2, "building_panel_full", "2099-02-01T00:00:00Z")
         self.assertEqual(self.content("building_panel", job), self.content("building_panel_full", job))
         self.assert_untouched(job, "building_panel", before, self.rows("building_panel", job),

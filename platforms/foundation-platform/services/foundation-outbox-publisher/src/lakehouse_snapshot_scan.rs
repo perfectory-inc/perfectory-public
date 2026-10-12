@@ -274,12 +274,18 @@ pub(crate) async fn scan_snapshot_rows_kept(
             .read_record_count
             .checked_add(data_file.record_count)
             .context("read record count overflow")?;
-        let decoded = iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?)?;
+        let rows = &mut scanned.rows;
+        let mut past_limit = false;
+        let decoded =
+            iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?, |row| {
+                past_limit = keep_row(rows, row, keep, max_kept);
+                !past_limit
+            })?;
         scanned.decoded_row_count = scanned
             .decoded_row_count
-            .checked_add(u64::try_from(decoded.len()).context("decoded row count overflow")?)
+            .checked_add(decoded)
             .context("decoded row count overflow")?;
-        if keep_within(&mut scanned.rows, decoded, keep, max_kept) {
+        if past_limit {
             scanned.keep_limit_exceeded = true;
             return Ok(scanned);
         }
@@ -287,20 +293,22 @@ pub(crate) async fn scan_snapshot_rows_kept(
     Ok(scanned)
 }
 
-/// Appends the rows `keep` accepts, up to `max_kept` in total. Returns whether a row past the
-/// limit was found; that row and every one after it is dropped, never held.
-fn keep_within(
+/// Appends `row` when `keep` accepts it and `rows` holds fewer than `max_kept`; a row `keep`
+/// refuses is dropped here, as it decodes. Returns whether `row` is a kept row past the limit:
+/// that row is dropped, never held, and the scan stops.
+fn keep_row(
     rows: &mut Vec<JsonMap<String, JsonValue>>,
-    decoded: Vec<JsonMap<String, JsonValue>>,
+    row: JsonMap<String, JsonValue>,
     keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
     max_kept: Option<usize>,
 ) -> bool {
-    for row in decoded.into_iter().filter(|row| keep(row)) {
-        if max_kept.is_some_and(|max| rows.len() >= max) {
-            return true;
-        }
-        rows.push(row);
+    if !keep(&row) {
+        return false;
     }
+    if max_kept.is_some_and(|max| rows.len() >= max) {
+        return true;
+    }
+    rows.push(row);
     false
 }
 
@@ -358,23 +366,26 @@ mod tests {
         let row =
             |pnu: &str| serde_json::Map::from_iter([("pnu".to_owned(), serde_json::json!(pnu))]);
         let mut rows = Vec::new();
-        let first = vec![row("1"), row("2")];
-        assert!(!super::keep_within(&mut rows, first, |_| true, Some(3)));
-        // The next file pushes the shard past its cap: the fourth row is never held.
-        let second = vec![row("3"), row("4"), row("5")];
-        assert!(super::keep_within(&mut rows, second, |_| true, Some(3)));
+        for pnu in ["1", "2", "3"] {
+            assert!(!super::keep_row(&mut rows, row(pnu), |_| true, Some(3)));
+        }
+        // The fourth kept row passes the cap: it is never held.
+        assert!(super::keep_row(&mut rows, row("4"), |_| true, Some(3)));
         assert_eq!(rows.len(), 3);
         // Rows the filter drops do not count toward the limit; no limit keeps everything.
         let mut kept = Vec::new();
-        let third = vec![row("1"), row("2"), row("3")];
-        assert!(!super::keep_within(
-            &mut kept,
-            third.clone(),
-            |r| r["pnu"] != "2",
-            Some(2)
-        ));
+        for pnu in ["1", "2", "3"] {
+            assert!(!super::keep_row(
+                &mut kept,
+                row(pnu),
+                |r| r["pnu"] != "2",
+                Some(2)
+            ));
+        }
         assert_eq!(kept.len(), 2);
-        assert!(!super::keep_within(&mut kept, third, |_| true, None));
+        for pnu in ["1", "2", "3"] {
+            assert!(!super::keep_row(&mut kept, row(pnu), |_| true, None));
+        }
         assert_eq!(kept.len(), 5);
     }
 

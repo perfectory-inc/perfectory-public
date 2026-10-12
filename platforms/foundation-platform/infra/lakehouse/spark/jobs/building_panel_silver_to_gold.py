@@ -529,41 +529,44 @@ def run(spark, args, pins):
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
                                          validate_gold_frame, assert_minimum_row_count)
-    persisted_count, metrics, added = None, outcome.metrics, ()
-    if not args.validate_only:
-        if args.write_mode == "parquet":
-            gold = outcome.gold
-            (gold.repartition(*partition_column_names(GOLD_CONTRACT)).sortWithinPartitions(*sort_order(GOLD_CONTRACT))
-             .write.mode("overwrite").partitionBy(*partition_column_names(GOLD_CONTRACT)).parquet(args.output))
-            persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
-        else:
-            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
-            # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
-            added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
-            apply_gold_read_properties(spark, target_table)  # a table this run created
-            # The snapshot records the Silver pins it was built from (root ADR-0139).
-            outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
-            incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
-                                               GOLD_CONTRACT_NAME, pins)
-            persisted = spark.table(target_table).select(*GOLD_COLUMNS)
-        persisted_count, metrics = validate_gold_frame(persisted, outcome.row_count)
-    summary = {
-        "schema_version": RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": GOLD_CONTRACT_NAME,
-        "created_at_utc": normalize_utc_timestamp(None),
-        "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES), "region_prefix": args.region_prefix, "pnu_prefix": args.pnu_prefix},
-        "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
-                  {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace, "table": args.target_iceberg_table},
-        "write_mode": args.write_mode,
-        "write_disposition": "validate_only" if args.validate_only else ("parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),
-        "row_count": outcome.row_count, "persisted_row_count": persisted_count, "quality_metrics": {**metrics, **counters},
-        "columns": list(GOLD_COLUMNS), "column_count": len(GOLD_COLUMNS), "required_columns": list(REQUIRED_GOLD_COLUMNS),
-        "schema_evolution_added_columns": list(added), "source_snapshot_count": len(snapshots),
-        "source_snapshot_ids": [snapshots[n] for n in sorted(snapshots)], "source_snapshots_by_dataset": snapshots,
-        "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())),
-        "source_snapshot_truncated": False,
-        "rebuild": outcome.report(),
-    }
-    outcome.release()
+    try:
+        persisted_count, metrics, added = None, outcome.metrics, ()
+        if not args.validate_only:
+            if args.write_mode == "parquet":
+                gold = outcome.gold
+                (gold.repartition(*partition_column_names(GOLD_CONTRACT)).sortWithinPartitions(*sort_order(GOLD_CONTRACT))
+                 .write.mode("overwrite").partitionBy(*partition_column_names(GOLD_CONTRACT)).parquet(args.output))
+                persisted = spark.read.parquet(args.output).select(*GOLD_COLUMNS)
+            else:
+                spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
+                # Range-ordered by pnu, so a by-PNU bake shard reads only its prefix's files (ADR-0164).
+                added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
+                apply_gold_read_properties(spark, target_table)  # a table this run created
+                # The snapshot records the Silver pins it was built from (root ADR-0139).
+                outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
+                                                   GOLD_CONTRACT_NAME, pins)
+                persisted = spark.table(target_table).select(*GOLD_COLUMNS)
+            persisted_count, metrics = validate_gold_frame(persisted, outcome.row_count)
+        summary = {
+            "schema_version": RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": GOLD_CONTRACT_NAME,
+            "created_at_utc": normalize_utc_timestamp(None),
+            "input": {"kind": args.input_mode, "sources": list(ALL_SOURCES), "region_prefix": args.region_prefix, "pnu_prefix": args.pnu_prefix},
+            "target": {"kind": args.write_mode, "path": args.output} if args.write_mode == "parquet" else
+                      {"kind": "iceberg", "catalog": args.iceberg_catalog_name, "namespace": args.target_iceberg_namespace, "table": args.target_iceberg_table},
+            "write_mode": args.write_mode,
+            "write_disposition": "validate_only" if args.validate_only else ("parquet_overwrite" if args.write_mode == "parquet" else outcome.disposition(args)),
+            "row_count": outcome.row_count, "persisted_row_count": persisted_count, "quality_metrics": {**metrics, **counters},
+            "columns": list(GOLD_COLUMNS), "column_count": len(GOLD_COLUMNS), "required_columns": list(REQUIRED_GOLD_COLUMNS),
+            "schema_evolution_added_columns": list(added), "source_snapshot_count": len(snapshots),
+            "source_snapshot_ids": [snapshots[n] for n in sorted(snapshots)], "source_snapshots_by_dataset": snapshots,
+            "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())),
+            "source_snapshot_truncated": False,
+            "rebuild": outcome.report(),
+        }
+    finally:
+        # The merge stages on local disk go whether the write succeeded or not.
+        outcome.release()
     emit_json(summary, args.summary_output, "gold-building-panel-summary-json")
     if args.lineage_output and not args.validate_only:
         emit_json(build_lineage_event(args, summary), args.lineage_output,

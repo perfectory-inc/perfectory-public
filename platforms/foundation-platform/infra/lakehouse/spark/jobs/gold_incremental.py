@@ -36,7 +36,10 @@ PySpark is imported inside the functions: the CI runner has no PySpark and tests
 from __future__ import annotations
 
 import math
+import shutil
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
@@ -254,6 +257,9 @@ class Outcome:
     def release(self) -> None:
         for frame in ([self.gold] if self.gold is not None else []) + (self.merge or {}).get("persisted", []):
             frame.unpersist()
+        stages = (self.merge or {}).get("stages")
+        if stages is not None:
+            stages.remove()
 
 
 def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pins: dict[str, str],
@@ -285,15 +291,21 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
                               seed=pins_seed(pins))
-            _, metrics = lane.validate(plan["recomputed"])
-            if args.expected_count is not None and plan["row_count"] != args.expected_count:
-                raise ValueError(f"Expected {args.expected_count} Gold rows, the merge leaves {plan['row_count']}")
-            assert_minimum(plan["row_count"], args.minimum_count)
+            try:
+                _, metrics = lane.validate(plan["recomputed"])
+                if args.expected_count is not None and plan["row_count"] != args.expected_count:
+                    raise ValueError(f"Expected {args.expected_count} Gold rows, the merge leaves {plan['row_count']}")
+                assert_minimum(plan["row_count"], args.minimum_count)
+            except BaseException:
+                plan["stages"].remove()
+                raise
             return Outcome("incremental", plan["row_count"], metrics, merge=plan, changed_inputs=changed)
         except IncrementalRefusal as refusal:
             reason = str(refusal)
             print(f"gold-incremental-fallback {reason}", flush=True)
-    gold = lane.build(frames).persist(StorageLevel.MEMORY_AND_DISK)
+    # On disk only: a full building panel does not fit the executor's memory store beside the
+    # work that reads it (see Stages).
+    gold = lane.build(frames).persist(StorageLevel.DISK_ONLY)
     count, metrics = validate_full(gold, args.expected_count)
     assert_minimum(count, args.minimum_count)
     return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed)
@@ -302,6 +314,32 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
 def pins_seed(pins: dict[str, str]) -> str:
     """The parity sample's seed: the same pins pick the same sample, new pins a new one."""
     return ",".join(f"{name}={pins[name]}" for name in sorted(pins))
+
+
+class Stages:
+    """Where `plan_merge` keeps each stage it materializes: Parquet on the run's local disk.
+
+    `localCheckpoint` would cut the lineage too, but it keeps every block in the executor's memory
+    store (MEMORY_AND_DISK) and caches a block read back from disk in memory again. On 2026-10-12
+    the building panel's merge of a whole new unit price vintage held its keys, restricted inputs
+    and rebuilt rows there; the store filled its 9.4 GiB, and a task reading a stage back died of
+    heap after an hour. A stage written to Parquet and read back is a plan of one file scan that
+    streams from disk and holds nothing in memory. The directory is under `spark.local.dir`, the
+    disk Spark already spills to; `remove` deletes it once the merge committed or failed.
+    """
+
+    def __init__(self, spark: Any) -> None:
+        local = (spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0]
+        self.spark = spark
+        self.root = Path(local) / f"gold-incremental-{uuid.uuid4().hex}"
+
+    def materialize(self, name: str, frame: Any) -> Any:
+        path = (self.root / name).as_posix()
+        frame.write.mode("errorifexists").parquet("file://" + path)
+        return self.spark.read.parquet("file://" + path)
+
+    def remove(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
 
 
 def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
@@ -313,26 +351,41 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
     Raises IncrementalRefusal when the change set is too large or the parity sample disagrees.
     `current_gold` is the Gold table at its current snapshot; `affected` a frame of `pnu`.
 
-    Each stage is materialized (`localCheckpoint`) before the next reads it: the build reads its
-    inputs several times over, and an input restricted by key frames that are themselves joins of
-    two snapshots would make one plan of every copy — on a 41-row fixture that plan alone took a
-    4g driver heap. The checkpoints also fix the merge source before the MERGE reads the target.
+    Each stage is materialized (`Stages`) before the next reads it: the build reads its inputs
+    several times over, and an input restricted by key frames that are themselves joins of two
+    snapshots would make one plan of every copy — on a 41-row fixture that plan alone took a 4g
+    driver heap. The stages also fix the merge source before the MERGE reads the target.
     """
     from pyspark.sql import functions as F
 
-    affected = affected.select(KEY).distinct().localCheckpoint()
+    stages = Stages(spark)
+    try:
+        return plan_merge_in(stages, build=build, restrict=restrict, new=new, affected=affected,
+                             current_gold=current_gold, gold_rows=gold_rows,
+                             content_columns=content_columns, max_fraction=max_fraction,
+                             sample_keys=sample_keys, seed=seed, F=F)
+    except BaseException:
+        stages.remove()
+        raise
+
+
+def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
+                  restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
+                  affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
+                  max_fraction: float, sample_keys: int, seed: str, F: Any) -> dict[str, Any]:
+    affected = stages.materialize("affected", affected.select(KEY).distinct())
     affected_count = affected.count()
     verdict = change_fraction_verdict(affected_count, gold_rows, max_fraction)
     if verdict:
         raise IncrementalRefusal(verdict)
     hashed = F.conv(F.substring(F.sha2(F.concat(F.col(KEY), F.lit("\x1f" + seed)), 256), 1, 8), 16, 10)
-    sample = (current_gold.select(KEY).join(affected, KEY, "left_anti")
-              .where(hashed.cast("long") < sample_threshold(sample_keys, gold_rows))
-              .localCheckpoint())
+    sample = stages.materialize("sample", current_gold.select(KEY).join(affected, KEY, "left_anti")
+                                .where(hashed.cast("long") < sample_threshold(sample_keys, gold_rows)))
     sample_count = sample.count()
-    keys = affected.unionByName(sample).distinct().localCheckpoint()
-    restricted = {name: frame.localCheckpoint() for name, frame in restrict(new, keys).items()}
-    built = build(restricted).join(keys, KEY, "left_semi").localCheckpoint()
+    keys = stages.materialize("keys", affected.unionByName(sample).distinct())
+    restricted = {name: stages.materialize(f"input-{index}", frame)
+                  for index, (name, frame) in enumerate(restrict(new, keys).items())}
+    built = stages.materialize("built", build(restricted).join(keys, KEY, "left_semi"))
 
     compared = list(dict.fromkeys([KEY, *content_columns, "row_digest"]))
     rebuilt_sample = built.join(sample, KEY, "left_semi").select(*compared)
@@ -359,7 +412,8 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
     gold_columns = list(current_gold.columns)
     source = upserts.select(*gold_columns).withColumn(DELETE_FLAG, F.lit(False)).unionByName(
         deletes.select(*[F.col(KEY) if c == KEY else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
-                         for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True))).localCheckpoint()
+                         for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True)))
+    source = stages.materialize("source", source)
     return {
         "source": source,
         "recomputed": recomputed,
@@ -373,6 +427,7 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
         },
         "row_count": gold_rows + inserted - deleted,
         "persisted": [],
+        "stages": stages,
     }
 
 
