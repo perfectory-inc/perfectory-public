@@ -122,6 +122,8 @@ def measure_frame(spark: Any, unit: str, frame: Any) -> dict[str, Any]:
 
     # Row by row through the RDD: the Spark image has no pandas, and a building row can be 12.7M
     # characters (2026-10-11), so only one row's split is held at a time.
+    # The row function runs in the Python workers, which import this module by name.
+    spark.sparkContext.addPyFile(__file__)
     measured = spark.createDataFrame(
         frame.rdd.flatMap(lambda row: measure_row(unit, row.asDict())),
         "pnu string, kind string, raw_bytes long, gzip_bytes long",
