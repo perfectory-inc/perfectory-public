@@ -589,10 +589,18 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
     ] {
         assert!(ci.contains(required), "CI is missing {required}");
     }
+    // CI runs the SSOT as its two halves on two runners (root ADR-0199): each half exactly once,
+    // and no other invocation beside them.
+    for half in [
+        "cargo xtask verify foundation --part cargo\n",
+        "cargo xtask verify foundation --part suites\n",
+    ] {
+        assert_eq!(ci.matches(half).count(), 1, "CI must run `{}` exactly once", half.trim_end());
+    }
     assert_eq!(
         ci.matches("cargo xtask verify foundation").count(),
-        1,
-        "CI must invoke the Foundation verification SSOT exactly once"
+        2,
+        "CI must invoke the Foundation verification SSOT only as its two halves"
     );
     assert!(
         !ci.contains("pnpm run") && !ci.contains("pnpm --dir"),
