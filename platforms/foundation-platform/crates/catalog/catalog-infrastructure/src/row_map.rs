@@ -4,13 +4,12 @@
 //! `IndustrialComplexKind::from_wire` / `ParcelKind::from_wire` 가 담당.
 
 use catalog_domain::{
-    Blueprint, BlueprintKind, Building, CatalogError, ComplexNotice, DigitalTwinAsset,
-    DigitalTwinAssetKind, FileAsset, FileAssetVisibility, IndustrialComplex,
-    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup,
-    IndustryGroupMember, NoticeType, Parcel, ParcelIndustryAssignment, ParcelKind, SpatialLayer,
-    SpatialLayerKind, TilesUrlTemplate, VectorTileArtifact, VectorTileLineage, VectorTileManifest,
-    ZoomRange,
+    Blueprint, BlueprintKind, CatalogError, ComplexNotice, DigitalTwinAsset, DigitalTwinAssetKind,
+    FileAsset, FileAssetVisibility, IndustrialComplex, IndustrialComplexDevelopmentStage,
+    IndustrialComplexKind, IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
+    IndustryAssignmentKind, IndustryCodeSystem, IndustryGroup, IndustryGroupMember, NoticeType,
+    ParcelIndustryAssignment, SpatialLayer, SpatialLayerKind, TilesUrlTemplate, VectorTileArtifact,
+    VectorTileLineage, VectorTileManifest, ZoomRange,
 };
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
@@ -18,7 +17,6 @@ use foundation_shared_kernel::ids::{
     IndustryGroupId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId,
     VectorTileArtifactId, VectorTileManifestId,
 };
-use foundation_shared_kernel::pnu::Pnu;
 use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -118,62 +116,6 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
             .map_err(map_sqlx)?,
         archived_at: row.try_get("archived_at").map_err(map_sqlx)?,
         version: row.try_get("version").map_err(map_sqlx)?,
-    })
-}
-
-pub fn row_to_parcel(row: &PgRow) -> Result<Parcel, CatalogError> {
-    // Both optional in the database and both read as optional here. Read as required, the first
-    // loaded parcel — which has neither until a person decides a kind and a source supplies an
-    // area — would fail every list that contains it (root ADR-0070).
-    let kind_raw: Option<String> = row.try_get("kind").map_err(map_sqlx)?;
-    let kind = match kind_raw {
-        Some(raw) => Some(
-            ParcelKind::from_wire(&raw).map_err(|e| CatalogError::Infrastructure(e.to_string()))?,
-        ),
-        None => None,
-    };
-    let area_i64: Option<i64> = row.try_get("area_m2").map_err(map_sqlx)?;
-    let area = area_i64.map(i64_to_u64).transpose()?;
-    let pnu_raw: String = row.try_get("pnu").map_err(map_sqlx)?;
-    let pnu = Pnu::parse(pnu_raw).map_err(CatalogError::InvalidPnu)?;
-    Ok(Parcel {
-        id: ParcelId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
-        pnu,
-        kind,
-        area_m2: area,
-        created_at: row
-            .try_get::<DateTime<Utc>, _>("created_at")
-            .map_err(map_sqlx)?,
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_sqlx)?,
-        version: row.try_get("version").map_err(map_sqlx)?,
-    })
-}
-
-/// The `catalog.building` columns [`row_to_building`] reads, table-aliased `b`, held once so a
-/// query cannot select fewer columns than the mapper decodes (the industrial-complex precedent).
-pub const BUILDING_COLUMNS: &str = "b.id, b.parcel_id, b.register_pk, b.purpose_code, \
-     b.structure_code, b.floor_area_m2, b.stories, b.below_ground_floors, b.has_rooftop, \
-     b.rooftop_area_m2, b.rooftop_usage, b.built_year, b.updated_at";
-
-pub fn row_to_building(row: &PgRow) -> Result<Building, CatalogError> {
-    Ok(Building {
-        id: BuildingId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
-        parcel_id: ParcelId::new(row.try_get::<Uuid, _>("parcel_id").map_err(map_sqlx)?),
-        register_pk: row.try_get("register_pk").map_err(map_sqlx)?,
-        purpose_code: row.try_get("purpose_code").map_err(map_sqlx)?,
-        structure_code: row.try_get("structure_code").map_err(map_sqlx)?,
-        floor_area_m2: row.try_get("floor_area_m2").map_err(map_sqlx)?,
-        stories: row.try_get("stories").map_err(map_sqlx)?,
-        below_ground_floors: row.try_get("below_ground_floors").map_err(map_sqlx)?,
-        has_rooftop: row.try_get("has_rooftop").map_err(map_sqlx)?,
-        rooftop_area_m2: row.try_get("rooftop_area_m2").map_err(map_sqlx)?,
-        rooftop_usage: row.try_get("rooftop_usage").map_err(map_sqlx)?,
-        built_year: row.try_get("built_year").map_err(map_sqlx)?,
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_sqlx)?,
     })
 }
 

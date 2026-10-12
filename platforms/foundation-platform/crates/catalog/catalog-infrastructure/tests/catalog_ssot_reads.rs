@@ -4,10 +4,9 @@
 
 use catalog_application::ports::{CatalogRepository, CatalogUnitOfWork};
 use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
-use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork, UnitPageKey};
+use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::Utc;
 use foundation_shared_kernel::ids::{ComplexId, ParcelId};
-use foundation_shared_kernel::pnu::Pnu;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -35,87 +34,11 @@ async fn repository_reads_industrial_complex_ssot_subresources() {
         .expect("create complex");
     fixture.insert(&pool).await;
 
-    assert_core_subresource_reads(&repo, &fixture).await;
     assert_document_subresource_reads(&repo, &fixture).await;
     assert_industry_reads(&repo, &fixture).await;
     assert_canonical_complex_reads(&repo, &fixture).await;
 
     fixture.cleanup(&pool).await;
-}
-
-// The complex-scoped parcel, building and manufacturer reads were deleted rather than migrated to
-// the membership table: nothing in this repository called them and the traffic-auth policy registry
-// declared no cross-repo consumer either (ADR-0021). What is left here is the PNU-scoped read, which
-// is the one gongzzang actually calls.
-async fn assert_core_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
-    let pnu = Pnu::parse(fixture.pnu.clone()).expect("fixture pnu");
-    let buildings_by_pnu = repo
-        .list_buildings_by_pnu(&pnu)
-        .await
-        .expect("list buildings by pnu");
-    assert_eq!(buildings_by_pnu.len(), 1);
-    assert_eq!(buildings_by_pnu[0].parcel_id, fixture.parcel_id);
-    assert_eq!(buildings_by_pnu[0].purpose_code.as_deref(), Some("02000"));
-
-    assert_building_resource_reads(repo, fixture).await;
-}
-
-/// The building answers as a resource, by both identities, and pages its units (ADR-0076).
-async fn assert_building_resource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
-    let register_pk = format!("99999-fixture-{}", fixture.building_id);
-    let by_id = repo
-        .find_building(fixture.building_id)
-        .await
-        .expect("find building by id")
-        .expect("the fixture building exists");
-    assert_eq!(by_id.register_pk, register_pk);
-
-    let by_key = repo
-        .find_building_by_register_pk(&register_pk)
-        .await
-        .expect("find building by register_pk")
-        .expect("the natural key names the same building");
-    assert_eq!(by_key.id, by_id.id);
-
-    assert!(
-        repo.find_building(Uuid::nil())
-            .await
-            .expect("query an absent building")
-            .is_none(),
-        "an absent building must be None, not an error"
-    );
-
-    // Walk the units in two pages of two: order is (dong_name, ho_name, id), and the second
-    // page starts exactly after the first page's last key — nothing skipped, nothing repeated.
-    let first = repo
-        .list_units_by_building(fixture.building_id, None, 2)
-        .await
-        .expect("first unit page");
-    assert_eq!(first.len(), 2);
-    assert_eq!(
-        (first[0].dong_name.as_str(), first[0].ho_name.as_str()),
-        ("101동", "101호")
-    );
-    assert_eq!(
-        (first[1].dong_name.as_str(), first[1].ho_name.as_str()),
-        ("101동", "201호")
-    );
-
-    let after = UnitPageKey {
-        dong_name: first[1].dong_name.clone(),
-        ho_name: first[1].ho_name.clone(),
-        id: first[1].id,
-    };
-    let second = repo
-        .list_units_by_building(fixture.building_id, Some(&after), 2)
-        .await
-        .expect("second unit page");
-    assert_eq!(second.len(), 1, "the walk must end, not wrap");
-    assert_eq!(
-        (second[0].dong_name.as_str(), second[0].ho_name.as_str()),
-        ("102동", "101호")
-    );
-    assert_eq!(second[0].building_id, Some(fixture.building_id));
 }
 
 async fn assert_document_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {

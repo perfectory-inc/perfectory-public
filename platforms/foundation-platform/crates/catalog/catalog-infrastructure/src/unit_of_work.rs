@@ -25,11 +25,10 @@ use catalog_domain::{
     static_release_pmtiles_object_key, validate_build_promotion, validate_build_result_report,
     validate_build_snapshot_binding, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError,
     CatalogMutationKind, ComplexMutation, IndustrialComplex, IndustrialComplexDevelopmentStage,
-    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, Parcel, ParcelKind, ParcelKindEdit,
-    RequestFingerprint, RuntimeTileLayer, ServingGeneration, VectorTileArtifact,
-    VectorTileBuildKind, VectorTileBuildOutcome, VectorTileBuildPromotionInput,
-    VectorTileBuildPromotionVerdict, VectorTileBuildStatus, VectorTileManifest,
-    VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, RequestFingerprint, RuntimeTileLayer,
+    ServingGeneration, VectorTileArtifact, VectorTileBuildKind, VectorTileBuildOutcome,
+    VectorTileBuildPromotionInput, VectorTileBuildPromotionVerdict, VectorTileBuildStatus,
+    VectorTileManifest, VectorTileRuntimeManifest, CATALOG_MUTATION_FINGERPRINT_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use foundation_shared_kernel::events::catalog_v1::{
@@ -38,7 +37,7 @@ use foundation_shared_kernel::events::catalog_v1::{
     VectorTileRuntimeUnitSelectionV2,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, ParcelId, StaffId, VectorTileBuildJobId, VectorTileManifestId,
+    ComplexId, FileAssetId, StaffId, VectorTileBuildJobId, VectorTileManifestId,
     VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use serde_json::Value as JsonValue;
@@ -47,7 +46,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::row_map::{
-    is_unique_violation_code, map_sqlx, row_to_complex, row_to_parcel, row_to_vector_tile_artifact,
+    is_unique_violation_code, map_sqlx, row_to_complex, row_to_vector_tile_artifact,
     row_to_vector_tile_manifest, u64_to_i64, INDUSTRIAL_COMPLEX_COLUMNS,
 };
 use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
@@ -304,107 +303,6 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
 
         tx.commit().await.map_err(map_sqlx)?;
         Ok(archived)
-    }
-
-    async fn update_parcel_kind(
-        &self,
-        id: ParcelId,
-        expected_version: i64,
-        new_kind: ParcelKind,
-        applied_by: StaffId,
-    ) -> Result<Parcel, CatalogError> {
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
-
-        // 변경 전 row 를 `FOR UPDATE` 로 잠가 event payload 의 previous_kind 가 race-free.
-        let before_row = sqlx::query(
-            "SELECT id, pnu, kind, area_m2, created_at, updated_at, version
-             FROM catalog.parcel
-             WHERE id = $1
-             FOR UPDATE",
-        )
-        .bind(id.as_uuid())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-
-        let before = if let Some(r) = before_row {
-            row_to_parcel(&r)?
-        } else {
-            return Err(CatalogError::ParcelNotFound(id.to_string()));
-        };
-
-        if before.version != expected_version {
-            return Err(CatalogError::ComplexVersionConflict {
-                expected: expected_version,
-                current: before.version,
-            });
-        }
-
-        let updated_row = sqlx::query(
-            "UPDATE catalog.parcel
-             SET kind = $3,
-                 updated_at = now(),
-                 version = version + 1
-             WHERE id = $1 AND version = $2
-             RETURNING id, pnu, kind, area_m2, created_at, updated_at, version",
-        )
-        .bind(id.as_uuid())
-        .bind(expected_version)
-        .bind(new_kind.wire_name())
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        let updated = row_to_parcel(&updated_row)?;
-
-        // The edit ledger row, in the same transaction as the row it describes. ADR-0006 rebuilds
-        // the serving projection from a snapshot plus an audited edit ledger, so an edit recorded
-        // only on the parcel is one a rebuild silently drops (ADR-0023).
-        //
-        // `catalog.catalog_edit` and not the Normalization context's own ledger: that one belongs
-        // to a package `package_boundary.rs` keeps out of Catalog, and Catalog does not depend on
-        // it. ADR-0023 §Decision 2 names it; this comment does not, because that guard reads source
-        // text and a comment spelling the table would be a crossing in its eyes.
-        //
-        // The snapshots carry the field that changed and the identity of what it changed on — not
-        // the whole row, because the ledger records the edit and the Iceberg snapshot records the
-        // rest.
-        sqlx::query(
-            "INSERT INTO catalog.catalog_edit
-             (id, command_type, target_kind, target_id, expected_version,
-              before_snapshot, after_snapshot, applied_by_principal_id)
-             VALUES ($1, 'parcel.kind.update.v1', 'parcel', $2, $3, $4, $5, $6)",
-        )
-        .bind(Uuid::new_v4())
-        .bind(id.as_uuid())
-        .bind(expected_version)
-        .bind(serde_json::json!({
-            "parcel_id": id.as_uuid(),
-            // `null` when nobody had decided one yet. The ledger records what was there, and
-            // what was there is nothing (root ADR-0070).
-            "kind": before.kind.map(ParcelKind::wire_name),
-            "version": before.version,
-        }))
-        .bind(serde_json::json!({
-            "parcel_id": id.as_uuid(),
-            "kind": updated.kind.map(ParcelKind::wire_name),
-            "version": updated.version,
-        }))
-        .bind(applied_by.as_uuid())
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-
-        // A parcel that had no kind is being given one, not having one replaced. Reporting
-        // the first assignment as a change would need a `previous_kind` that never existed
-        // (root ADR-0070).
-        let event = match before.kind_edit_event(new_kind) {
-            ParcelKindEdit::Assigned(assigned) => CatalogEvent::ParcelKindAssigned(assigned),
-            ParcelKindEdit::Changed(changed) => CatalogEvent::ParcelKindChanged(changed),
-        };
-        insert_outbox_event(&mut tx, &event).await?;
-
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(updated)
     }
 
     async fn rollback_vector_tile_manifest(

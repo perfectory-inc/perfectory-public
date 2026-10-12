@@ -79,8 +79,7 @@ fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .merge(system_routes())
         .merge(complex_catalog_routes(state))
-        .merge(parcel_catalog_routes(state))
-        .merge(building_catalog_routes(state))
+        .merge(parcel_catalog_routes())
         .merge(lakehouse_catalog_routes(state))
         .merge(map_catalog_routes(state))
         .merge(internal_routes(state))
@@ -136,10 +135,6 @@ fn complex_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
             get(catalog::get_complex_by_lakehouse_id),
-        )
-        .route(
-            "/catalog/v1/complexes/{id}/anchor-summary",
-            get(catalog::get_complex_anchor_summary),
         )
         .merge(complex_catalog_asset_routes(state))
         .route(
@@ -197,81 +192,11 @@ fn complex_catalog_asset_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> 
         )
 }
 
-fn parcel_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
-            protected_route(
-                get(catalog::building_units::list_parcel_buildings_by_pnu),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("pnu"),
-            ),
-        )
-        .route(
-            "/catalog/v1/parcels/by-pnu/{pnu}/units",
-            protected_route(
-                get(catalog::building_units::list_parcel_units_by_pnu),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("pnu"),
-            ),
-        )
-        .route(
-            "/catalog/v1/parcels/{id}",
-            protected_route(
-                get(catalog::get_parcel),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("id"),
-            ),
-        )
-        .route(
-            "/catalog/v1/parcels/{id}/industry-assignments",
-            get(catalog::list_parcel_industry_assignments),
-        )
-        .route(
-            "/catalog/v1/parcels/{id}/kind",
-            protected_route(
-                patch(catalog::update_parcel_kind),
-                state,
-                STAFF_CATALOG_WRITE,
-                Some("id"),
-            ),
-        )
-}
-
-fn building_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/catalog/v1/buildings/{id}",
-            protected_route(
-                get(catalog::building_units::get_building),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("id"),
-            ),
-        )
-        // The natural-key alias mirrors parcels' by-pnu precedent: the register PK is the name
-        // a person calls the building by, and the key a reload upserts on (ADR-0076 §2).
-        .route(
-            "/catalog/v1/buildings/by-register-pk/{register_pk}",
-            protected_route(
-                get(catalog::building_units::get_building_by_register_pk),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("register_pk"),
-            ),
-        )
-        .route(
-            "/catalog/v1/buildings/{id}/units",
-            protected_route(
-                get(catalog::building_units::list_building_units),
-                state,
-                SERVICE_CATALOG_READ,
-                Some("id"),
-            ),
-        )
+fn parcel_catalog_routes() -> Router<Arc<AppState>> {
+    Router::new().route(
+        "/catalog/v1/parcels/{id}/industry-assignments",
+        get(catalog::list_parcel_industry_assignments),
+    )
 }
 
 fn lakehouse_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {

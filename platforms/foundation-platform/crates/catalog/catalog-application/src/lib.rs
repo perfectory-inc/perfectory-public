@@ -51,9 +51,6 @@ pub mod rollback_vector_tile_manifest;
 /// Use case for updating an industrial complex.
 pub mod update_complex;
 
-/// Use case for updating a parcel kind.
-pub mod update_parcel_kind;
-
 /// Use cases for the static vector tile build lifecycle.
 pub mod vector_tile_build_lifecycle;
 
@@ -75,7 +72,6 @@ pub use rollback_vector_tile_manifest::{
     RollbackVectorTileManifest, RollbackVectorTileManifestInput,
 };
 pub use update_complex::{UpdateIndustrialComplex, UpdateIndustrialComplexInput};
-pub use update_parcel_kind::{UpdateParcelKind, UpdateParcelKindInput};
 pub use upsert_industrial_complex_catalog_rows::{
     IndustrialComplexCatalogRow, UpsertIndustrialComplexCatalogRows,
     UpsertIndustrialComplexCatalogRowsInput, UpsertIndustrialComplexCatalogRowsReport,
