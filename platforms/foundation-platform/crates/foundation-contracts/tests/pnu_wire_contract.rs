@@ -22,23 +22,7 @@ fn catalog_openapi_uses_the_standard_pnu_pattern_everywhere() -> TestResult {
     let catalog_openapi: serde_json::Value =
         serde_json::from_str(include_str!("../../../docs/openapi/catalog.v1.json"))?;
 
-    for path in [
-        "/catalog/v1/parcels/by-pnu/{pnu}/buildings",
-        "/catalog/v1/parcels/by-pnu/{pnu}/units",
-    ] {
-        let parameter = catalog_openapi["paths"][path]["get"]["parameters"]
-            .as_array()
-            .and_then(|parameters| {
-                parameters
-                    .iter()
-                    .find(|parameter| parameter["name"] == "pnu")
-            })
-            .ok_or_else(|| format!("missing PNU parameter for {path}"))?;
-        assert_eq!(parameter["schema"]["pattern"], STANDARD_PNU_PATTERN);
-        assert_eq!(parameter["schema"]["minLength"], 19);
-        assert_eq!(parameter["schema"]["maxLength"], 19);
-    }
-
+    // No route takes a PNU path parameter since the by-PNU reads left (root ADR-0194 §3).
     assert_eq!(
         catalog_openapi["components"]["schemas"]["ParcelResponse"]["properties"]["pnu"]["pattern"],
         STANDARD_PNU_PATTERN
