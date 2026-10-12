@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Prevents: a test that reads a file outside its own area, behind a CI path
-# filter that does not watch that file. The test then never reruns on the change
-# it is guarding. `xtask-path-coverage.sh` freezes this for one known input
+# Prevents: a test that reads a file outside its own area, behind a CI change
+# scope that does not take that file as an input (tools/ci/change-scope.json,
+# root ADR-0201). The test then never reruns on the change it is guarding.
+# `scripts/ci/change_scope.py check` freezes this for one known input
 # (tools/xtask); this guard derives the rest from what the sources actually read.
 #
 # That gap is not hypothetical. `administrative_boundary_contract` reads two
@@ -21,6 +22,7 @@
 set -euo pipefail
 
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
+selector="$(cd "$(dirname "$0")/../ci" && pwd -P)/change_scope.py"
 workflows_dir="${AREA_CI_INPUT_WORKFLOWS_DIR:-$repo_root/.github/workflows}"
 
 [ -d "$workflows_dir" ] || {
@@ -28,14 +30,14 @@ workflows_dir="${AREA_CI_INPUT_WORKFLOWS_DIR:-$repo_root/.github/workflows}"
   exit 1
 }
 
-for command in find grep sed sort; do
+for command in find grep python3 sed sort; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "FAIL area-ci-input-coverage: $command is required" >&2
     exit 1
   }
 done
 
-# Whether one `paths:` entry covers one repository-relative file.
+# Whether one input glob covers one repository-relative file.
 covered_by() {
   local glob="$1"
   local target="$2"
@@ -52,25 +54,30 @@ rc=0
 checked=0
 for workflow in "$workflows_dir"/*.yml; do
   [ -e "$workflow" ] || continue
-  grep -qE '^[[:space:]]*paths:' "$workflow" || continue # unfiltered -> always runs -> covered
+  # The workflow's inputs as the change-scope contract states them. A workflow
+  # the contract leaves unscoped runs on every pull request; only a push-only
+  # `paths:` filter it still carries can miss an input, so that list is read.
+  filters="$(python3 "$selector" paths --root "$repo_root" --workflow "$(basename "$workflow")")"
+  if [ -z "$filters" ] && grep -qE '^[[:space:]]*paths:' "$workflow"; then
+    filters="$(grep -oE '^[[:space:]]+- "[^"]+"$' "$workflow" | sed 's/^[^"]*"//; s/"$//')" || true
+  fi
+  [ -n "$filters" ] || continue
   # Only a workflow that actually runs the area's tests can miss one. `products/gongzzang/**` is
-  # also watched by an sqlx-prepare and a walking-skeleton workflow, and requiring those to watch
-  # every file the area's tests read would be a demand with no defect behind it. Same gate as
-  # `xtask-path-coverage`: `cargo xtask verify|integration` is what runs the tests (ADR-0004).
+  # also an input of an sqlx-prepare and a walking-skeleton workflow, and requiring those to take
+  # every file the area's tests read would be a demand with no defect behind it. Same gate as the
+  # xtask input check in change_scope.py: `cargo xtask verify|integration` runs the tests (ADR-0004).
   grep -qE 'cargo[[:space:]]+.*xtask[[:space:]]+(verify|integration)' "$workflow" || continue
 
-  # The area is the one `<platforms|products>/<name>/**` entry the workflow
-  # watches. A workflow watching several areas has no single area to scan, and a
-  # workflow watching none is not an area CI.
+  # The area is the one `<platforms|products|consoles>/<name>/**` input. A
+  # workflow taking several areas has no single area to scan, and a workflow
+  # taking none is not an area CI.
   areas="$(
-    grep -oE '"(platforms|products)/[A-Za-z0-9._-]+/\*\*"' "$workflow" \
-      | tr -d '"' | sed 's|/\*\*$||' | sort -u
+    printf '%s\n' "$filters" | grep -E '^(platforms|products|consoles)/[A-Za-z0-9._-]+/\*\*$' \
+      | sed 's|/\*\*$||' | sort -u
   )" || true
   [ "$(printf '%s\n' "$areas" | grep -c .)" -eq 1 ] || continue
   area="$areas"
   [ -d "$repo_root/$area" ] || continue
-
-  filters="$(grep -oE '^[[:space:]]+- "[^"]+"$' "$workflow" | sed 's/^[^"]*"//; s/"$//')" || true
 
   while IFS= read -r literal; do
     [ -n "$literal" ] || continue
@@ -97,7 +104,7 @@ for workflow in "$workflows_dir"/*.yml; do
 $filters
 EOF
     if [ "$is_covered" -eq 0 ]; then
-      echo "FAIL area-ci-input-coverage: $area reads $literal but $(basename "$workflow") does not watch it; a change to that file would not rerun the test that reads it" >&2
+      echo "FAIL area-ci-input-coverage: $area reads $literal but $(basename "$workflow") does not take it as an input in tools/ci/change-scope.json; a change to that file would not rerun the test that reads it" >&2
       rc=1
     fi
   done <<EOF

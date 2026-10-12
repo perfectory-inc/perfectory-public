@@ -5,9 +5,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "products/gongzzang/**"
-      - ".github/workflows/gongzzang-sqlx-prepare.yml"
   pull_request:
     branches: [main]
   merge_group:
@@ -32,7 +29,32 @@ env:
   POSTGRES_DB: gongzzang
 
 jobs:
+  # Root ADR-0201: whether this workflow's area changed (tools/ci/change-scope.json).
+  # An untouched area skips every job below and required/* still reports success.
+  scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select
+        id: select
+        working-directory: .
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: python3 scripts/ci/change_scope.py select --workflow gongzzang-sqlx-prepare.yml
+
   drift-check:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.run == 'true' }}
     name: SQLx offline metadata check
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -99,7 +121,7 @@ jobs:
   required:
     name: required/gongzzang-sqlx
     if: ${{ always() }}
-    needs: [drift-check]
+    needs: [scope, drift-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -108,6 +130,8 @@ jobs:
           persist-credentials: false
       - name: Require the SQLx gate
         env:
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_DRIFT_CHECK: ${{ needs.drift-check.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

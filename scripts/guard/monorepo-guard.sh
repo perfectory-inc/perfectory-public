@@ -78,6 +78,7 @@ for g in hook-isolation-self-test \
          no-silent-test-skip-self-test no-silent-test-skip \
          no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
          area-ci-input-coverage-self-test area-ci-input-coverage \
+         change-scope-self-test \
          document-contract-markers-self-test document-contract-markers \
          roadmap-owns-recorded-debt-self-test roadmap-owns-recorded-debt \
          judgment-position-exit-codes-self-test judgment-position-exit-codes \

@@ -1,0 +1,92 @@
+{
+  "$comment": "Which changed paths make each pull-request workflow do its work (root ADR-0201). The ONE place an area's inputs are written: workflows carry no `paths:` filter. A scoped workflow always starts and its required/* context always reports; its `scope` job runs scripts/ci/change_scope.py, and an untouched area finishes green in seconds. Implicit inputs, never listed here: the workflow file itself, every repository file the workflow names (scripts, contracts), and the selector and this file (those two run everything). `merge_group`: `full` reruns the whole workflow in the merge queue as a backstop for an input this list misses; `scoped` trusts the list there too. `unscoped` workflows always run in full, each with the reason.",
+  "workflows": {
+    "dawneer-ci.yml": {
+      "merge_group": "scoped",
+      "paths": [
+        "consoles/dawneer/**",
+        "platforms/foundation-platform/docs/openapi/lineage-review.v1.json",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "intelligence-ci.yml": {
+      "merge_group": "scoped",
+      "paths": [
+        "platforms/intelligence-platform/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "identity-ci.yml": {
+      "merge_group": "full",
+      "paths": [
+        "platforms/identity-platform/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "gongzzang-ci.yml": {
+      "merge_group": "scoped",
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "gongzzang-db-migrations.yml": {
+      "merge_group": "full",
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "gongzzang-frontend.yml": {
+      "merge_group": "scoped",
+      "paths": [
+        "products/gongzzang/apps/web/**",
+        "products/gongzzang/packages/ui/**",
+        "products/gongzzang/packages/api-types/**",
+        "products/gongzzang/pnpm-workspace.yaml",
+        "products/gongzzang/turbo.json",
+        "products/gongzzang/package.json",
+        "products/gongzzang/pnpm-lock.yaml",
+        "products/gongzzang/biome.json",
+        "products/gongzzang/**/*.md",
+        "products/gongzzang/.markdownlint.json",
+        "products/gongzzang/.markdownlint-cli2.jsonc",
+        "products/gongzzang/.markdownlintignore",
+        "products/gongzzang/.npmrc",
+        "scripts/tiles/vector-tile-manifest.local.json"
+      ]
+    },
+    "gongzzang-sqlx-prepare.yml": {
+      "merge_group": "scoped",
+      "paths": [
+        "products/gongzzang/**",
+        "rust-toolchain.toml"
+      ]
+    },
+    "gongzzang-walking-skeleton.yml": {
+      "merge_group": "full",
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    }
+  },
+  "unscoped": {
+    "docs.yml": "A link fix in one area can break a link in another, and the generated documents read every area; the whole job takes about two minutes.",
+    "secret-scan.yml": "A secret can arrive in any path; scanning every change is the point of the check.",
+    "monorepo-guard.yml": "Repository-wide invariants (layout, versions, workflow policy, supply chain) read every area.",
+    "foundation-ci.yml": "Selects its own heavy gates per job with scripts/ci/foundation_ci_scope.py; adopting this area scope there is a separate change to jobs another change is reshaping."
+  }
+}

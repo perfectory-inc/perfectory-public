@@ -35,6 +35,8 @@ required_files=(
   scripts/ci/materialize-public-candidate-tree.sh
   scripts/ci/materialize-public-candidate-tree.py
   scripts/ci/require-successful-needs.sh
+  scripts/ci/change_scope.py
+  tools/ci/change-scope.json
   scripts/github/github-policy-json.py
   scripts/github/validate-legal-publication.sh
   scripts/github/validate-public-repository-identity.sh

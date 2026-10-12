@@ -125,6 +125,28 @@ sed 's/^    name: required\/example$/    name: Aggregate/; s/^      - name: Requ
   "$test_root/valid/example.yml" >"$test_root/step-name-spoof/example.yml"
 expect_rejected required-step-name-spoof "$test_root/step-name-spoof"
 
+# A scoped workflow (root ADR-0201): the terminal step carries the scope answer
+# exactly when a `scope` job exists, and never in place of a result mapping.
+mkdir "$test_root/scoped"
+sed 's/^  build:$/  scope:\n    name: Change scope\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo synthetic\n  build:/; s/needs: \[build, test\]/needs: [scope, build, test]/; s/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}\n          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}\n          REQUIRED_RESULT_BUILD:/' \
+  "$test_root/valid/example.yml" >"$test_root/scoped/example.yml"
+"$checker" "$test_root/scoped" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null || {
+  echo "FAIL workflow-policy-self-test: rejected a valid scoped workflow" >&2
+  exit 1
+}
+mkdir "$test_root/scoped-without-answer"
+sed '/CHANGE_SCOPE_RUN:/d' "$test_root/scoped/example.yml" >"$test_root/scoped-without-answer/example.yml"
+expect_rejected scoped-terminal-without-scope-answer "$test_root/scoped-without-answer"
+mkdir "$test_root/answer-without-scope"
+sed 's/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}\n          REQUIRED_RESULT_BUILD:/' \
+  "$test_root/valid/example.yml" >"$test_root/answer-without-scope/example.yml"
+expect_rejected scope-answer-without-scope-job "$test_root/answer-without-scope"
+mkdir "$test_root/scope-answer-forged"
+sed 's/CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}/CHANGE_SCOPE_RUN: false/' \
+  "$test_root/scoped/example.yml" >"$test_root/scope-answer-forged/example.yml"
+expect_rejected forged-scope-answer "$test_root/scope-answer-forged"
+
 mkdir "$test_root/incomplete-terminal"
 sed 's/needs: \[build, test\]/needs: [build]/' "$test_root/valid/example.yml" \
   >"$test_root/incomplete-terminal/example.yml"
@@ -454,5 +476,22 @@ if REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=skipped \
   echo "FAIL workflow-policy-self-test: terminal helper accepted a skipped dependency" >&2
   exit 1
 fi
+
+# A scoped workflow (root ADR-0201) may skip its gated jobs only when its scope
+# job succeeded and answered an explicit `false`.
+scoped_ok() {
+  env "$@" scripts/ci/require-successful-needs.sh >/dev/null 2>&1
+}
+scoped_ok CHANGE_SCOPE_RUN=false REQUIRED_RESULT_SCOPE=success REQUIRED_RESULT_BUILD=skipped || {
+  echo "FAIL workflow-policy-self-test: terminal helper refused an untouched scoped area" >&2
+  exit 1
+}
+for refused in   "CHANGE_SCOPE_RUN=true REQUIRED_RESULT_SCOPE=success REQUIRED_RESULT_BUILD=skipped"   "CHANGE_SCOPE_RUN=false REQUIRED_RESULT_SCOPE=failure REQUIRED_RESULT_BUILD=skipped"   "CHANGE_SCOPE_RUN=false REQUIRED_RESULT_SCOPE=skipped REQUIRED_RESULT_BUILD=skipped"   "CHANGE_SCOPE_RUN= REQUIRED_RESULT_SCOPE=success REQUIRED_RESULT_BUILD=skipped"   "CHANGE_SCOPE_RUN=false REQUIRED_RESULT_SCOPE=success REQUIRED_RESULT_BUILD=failure"   "CHANGE_SCOPE_RUN=false REQUIRED_RESULT_BUILD=skipped"; do
+  # shellcheck disable=SC2086 # each case is a list of NAME=value words
+  if scoped_ok $refused; then
+    echo "FAIL workflow-policy-self-test: terminal helper accepted: $refused" >&2
+    exit 1
+  fi
+done
 
 echo "OK workflow-policy-self-test"

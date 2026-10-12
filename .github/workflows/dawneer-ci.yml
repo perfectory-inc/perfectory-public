@@ -4,17 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "consoles/dawneer/**"
-      - ".github/workflows/dawneer-ci.yml"
-      # The screens generate their API types from this document (`api:check`).
-      - "platforms/foundation-platform/docs/openapi/lineage-review.v1.json"
-      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
-      # toolchain pin change how THIS area is verified, so they must retrigger it.
-      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
-      - "tools/xtask/**"
-      - ".cargo/config.toml"
-      - "rust-toolchain.toml"
   pull_request:
     branches: [main]
   merge_group:
@@ -30,7 +19,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Root ADR-0201: whether this workflow's area changed (tools/ci/change-scope.json).
+  # An untouched area skips every job below and required/* still reports success.
+  scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select
+        id: select
+        working-directory: .
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: python3 scripts/ci/change_scope.py select --workflow dawneer-ci.yml
+
   rust:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.run == 'true' }}
     name: Dawneer Rust quality
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -70,6 +84,8 @@ jobs:
         run: cargo xtask verify dawneer
 
   supply-chain:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.run == 'true' }}
     name: Dawneer supply-chain policy
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -105,7 +121,7 @@ jobs:
   required:
     name: required/dawneer
     if: ${{ always() }}
-    needs: [rust, supply-chain]
+    needs: [scope, rust, supply-chain]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -114,6 +130,8 @@ jobs:
           persist-credentials: false
       - name: Require every Dawneer gate
         env:
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.run }}
+          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
           REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
         working-directory: .
