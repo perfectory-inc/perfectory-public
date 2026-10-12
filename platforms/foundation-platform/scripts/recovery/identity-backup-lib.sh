@@ -6,10 +6,8 @@ IDENTITY_BACKUP_TARGETS=(
     "zitadel-platform zitadel-db zitadel"
     "identity-platform-runtime identity-db identity"
 )
-# The pinned references tools/technology-versions.contract.json lists.
+# The pinned reference tools/technology-versions.contract.json lists.
 AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
-PG_IMAGE="postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
-SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
 # Object keys are postgres/<name>/<UTC yyyymmddHHMMSS>.dump.gpg; an upload is .partial until it is whole.
 DUMP_KEY_PATTERN='/[0-9]{14}\.dump\.gpg$'
 

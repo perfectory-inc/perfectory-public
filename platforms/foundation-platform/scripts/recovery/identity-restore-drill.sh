@@ -13,6 +13,11 @@ export AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCE
 export AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY}"
 # shellcheck source=identity-backup-lib.sh
 source "${script_dir}/identity-backup-lib.sh"
+# The pinned references tools/technology-versions.contract.json lists; the drill refuses to run when
+# a live database or Zitadel runs another one (a dump restores into the version it came from).
+PG_IMAGE="postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
 drill="identity-restore-drill-$(date -u +%Y%m%d%H%M%S)"
 
 cleanup() {
@@ -39,7 +44,7 @@ for target in "${IDENTITY_BACKUP_TARGETS[@]}"; do
     [[ "${live_image}" == "${PG_IMAGE}" ]] || { printf '%s runs %s, the drill %s\n' "${service}" "${live_image}" "${PG_IMAGE}" >&2; exit 1; }
     restored="${drill}-${name}"
     # The live service name is its network alias, so the restored Zitadel finds it where the live one does.
-    docker run -d --name "${restored}" --label "${drill}" --network "${drill}" --network-alias "${service}" \
+    docker run -d --name "${restored}" --label "${drill}" --network "${drill}" --network-alias="${service}" \
         --memory 1g -e POSTGRES_USER="$(container_env "${live}" POSTGRES_USER)" \
         -e POSTGRES_DB="$(container_env "${live}" POSTGRES_DB)" -e POSTGRES_HOST_AUTH_METHOD=trust \
         "${PG_IMAGE}" >/dev/null
@@ -72,18 +77,18 @@ for target in "${IDENTITY_BACKUP_TARGETS[@]}"; do
 done
 
 # Zitadel on the restored database: the live container's image, settings and masterkey. The values
-# pass by name (`-e NAME`), never on a command line.
+# reach docker on a file descriptor (`--env-file /dev/fd/3`), never a command line or a file.
 zitadel="$(service_container zitadel-platform zitadel)"
 zitadel_image="$(docker inspect --format '{{.Config.Image}}' "${zitadel}")"
-settings=()
+[[ "${zitadel_image}" == "${ZITADEL_IMAGE}" ]] || { printf 'Zitadel runs %s, the drill %s\n' "${zitadel_image}" "${ZITADEL_IMAGE}" >&2; exit 1; }
+settings="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${zitadel}" \
+    | grep -E '^ZITADEL_' | grep -vE '^ZITADEL_FIRSTINSTANCE_')"
 while IFS="=" read -r var value; do
-    [[ "${var}" == ZITADEL_* && "${var}" != ZITADEL_FIRSTINSTANCE_* ]] || continue
-    export "${var}=${value}"
-    settings+=(-e "${var}")
-done < <(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${zitadel}")
+    printf -v "${var}" '%s' "${value}"
+done <<<"${settings}"
 [[ -n "${ZITADEL_MASTERKEY:-}" ]] || { printf 'the live Zitadel has no ZITADEL_MASTERKEY\n' >&2; exit 1; }
-docker run -d --name "${drill}-zitadel-app" --label "${drill}" --network "${drill}" --memory 1g "${settings[@]}" \
-    "${zitadel_image}" start --masterkeyFromEnv --tlsMode disabled >/dev/null
+docker run -d --name "${drill}-zitadel-app" --label "${drill}" --network "${drill}" --memory 1g --env-file /dev/fd/3 \
+    "${ZITADEL_IMAGE}" start --masterkeyFromEnv --tlsMode disabled >/dev/null 3<<<"${settings}"
 
 # Zitadel finds its instance by the Host a client sends, the external domain and port. The probe
 # keeps its side open (shut-none): Go's server cancels a request whose client half-closes.
