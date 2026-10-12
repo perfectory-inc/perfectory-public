@@ -1317,6 +1317,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
     systemctl enable --now foundation-postgres-backup.timer
+    # The identity databases' backup, its age check and its weekly restore drill: host infrastructure too.
+    systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
+      foundation-identity-restore-drill.timer
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off
@@ -1329,8 +1332,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
         "${floor_unit}" >&2
       exit 65
     fi
-    printf 'timers-ok backup=%s autodeploy=%s\n' \
-      "$(systemctl is-enabled foundation-postgres-backup.timer)" "${autodeploy}"
+    printf 'timers-ok backup=%s identity-backup=%s autodeploy=%s\n' \
+      "$(systemctl is-enabled foundation-postgres-backup.timer)" \
+      "$(systemctl is-enabled foundation-identity-backup.timer)" "${autodeploy}"
     ;;
   rollback)
     [[ "$#" == 1 ]] || usage

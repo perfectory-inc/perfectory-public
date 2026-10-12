@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the identity database backups' age every six hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:30:00
+Persistent=true
+Unit=foundation-identity-backup-freshness.service
+
+[Install]
+WantedBy=timers.target

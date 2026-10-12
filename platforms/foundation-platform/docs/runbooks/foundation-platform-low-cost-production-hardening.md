@@ -175,6 +175,50 @@ journalctl -u foundation-postgres-backup.service --since today
 
 timer를 운영 상태로 인정하기 전에 첫 서비스 실행이 성공적으로 끝나야 한다.
 
+### 신원 DB 백업 (로그인에 필요한 두 DB)
+
+로그인에는 DB 두 개가 필요하다. Zitadel(compose project `zitadel-platform` 의 `zitadel-db`)과 신원
+플랫폼(`identity-platform-runtime` 의 `identity-db`: `identity.staff`, `staff_role`, `service_principal`,
+`revoked_jti`)이다. 둘 다 WAL 보관이 없는 작은 DB 라 pgBackRest 를 쓰지 않는다. 대상 목록은
+`scripts/recovery/identity-backup-lib.sh` 한 곳에 있다.
+
+| 유닛(timer) | 언제 | 하는 일 |
+|---|---|---|
+| `foundation-identity-backup` | 매일 01:45 (foundation 백업 앞) | DB 마다 `pg_dump --format=custom` 을 복구 cipher pass 로 gpg 대칭 암호화(AES256, 무결성 검사 포함)한다. 복구 bucket `postgres/<zitadel\|identity>/<UTC 14자리>.dump.gpg` 로 흘려 보낸다(호스트 디스크에 쓰지 않음). 먼저 `.partial` 로 올리고 크기를 되읽은 뒤 제 이름으로 옮긴다. 실패하면 `.partial` 을 지운다. 35일(`repo1-retention-full`)보다 오래된 것은 지운다. 한 DB 가 실패해도 다른 DB 는 백업한다. |
+| `foundation-identity-backup-freshness` | 6시간마다 | 두 DB 중 어느 하나라도 가장 새 덤프가 26시간보다 오래됐으면 실패한다. 백업 유닛이 아예 돌지 않은 경우도 여기서 잡는다. |
+| `foundation-identity-restore-drill` | 매주 일요일 04:30 | 읽기 키로 가장 새 덤프를 받아 운영과 같은 이미지의 임시 컨테이너에 복원하고, 표 수와 증인 행 수를 운영과 견준다. 그다음 운영 Zitadel 의 이미지·설정·masterkey 로 복원 DB 위에 Zitadel 을 띄운다. 운영 토큰(`LoadCredential=` 로 받음)으로 `/auth/v1/users/me` 가 200 인지 본다. 모든 것은 바깥으로 길이 없는 internal 네트워크에서 돌고, 끝나면 지운다. |
+
+세 유닛 모두 실패하면 `foundation-unit-failed@` 가 알린다. 복원 연습이 `/oauth/v2/keys` 만 보지 않는 이유가
+있다. 공개 키는 틀린 masterkey 로도 돌아온다(2026-10-12 실측). 토큰은 masterkey 가 봉인한 암호화 키로
+봉인돼 있어서, masterkey 가 틀리면 401(`decrypt access token`)이 난다.
+
+복원에 필요한 것 셋 가운데 R2 덤프만 서버 밖에 있다.
+
+> **위험 (보류된 TODO, 2026-10-12 사장 결정으로 나중에)**: 아래 두 열쇠는 지금 이 서버에만 있다. 서버를
+> 잃으면 R2 의 백업은 남아도 foundation·신원 백업 전체를 읽을 수 없고, Zitadel 로그인도 되살릴 수 없다.
+> 두 열쇠를 서버 밖에 한 벌씩 두기 전까지 이 위험은 열려 있다.
+
+- **Zitadel masterkey**: `system.encryption_keys` 를 봉인한다. 이것이 없으면 덤프를 복원해도 로그인할 수
+  없다. 서버의 원본은 `/etc/identity-platform/zitadel.env` 의 `ZITADEL_MASTERKEY` 이다.
+- **복구 cipher pass**: 이것이 없으면 foundation 백업도 신원 덤프도 읽을 수 없다. 서버의 원본은
+  `/etc/foundation-platform/recovery.env` 의 `FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS` 이다.
+- 서버 밖 보관 위치: 아직 없음(위의 위험). 정하면 이 줄에 위치를 이름만으로 적는다.
+- 서버 밖 사본을 만들면, 서버 것과 같은지 sha256 앞 12자리로 견준다. 복원 연습 증거
+  (`/var/lib/foundation-platform/recovery/identity-restore-drill.json` 의 `masterkey_sha256_prefix`)가
+  서버 쪽 값이다. 둘 중 하나를 바꾸면 서버 밖 사본도 같은 날 바꾼다.
+
+손으로 복원할 때(서버를 잃은 경우): 새 호스트에서 신원 플랫폼의 `bootstrap-identity.sql` 로 역할부터
+만든다(덤프에는 역할이 없다). 그다음 덤프를 `gpg --decrypt` 하고 `pg_restore` 한다. Zitadel 은 같은 버전
+이미지를 서버 밖의 masterkey 로 `start --masterkeyFromEnv` 한다.
+
+손으로 연습을 돌릴 때는 recovery.env 를 읽은 셸에서 토큰 파일을 지정한다.
+
+```bash
+FOUNDATION_RECOVERY_EVIDENCE_DIR=/var/lib/foundation-platform/recovery \
+ZITADEL_DRILL_TOKEN_FILE=/etc/identity-platform/secrets/zitadel-bootstrap-pat \
+  scripts/recovery/identity-restore-drill.sh
+```
+
 롤백은 어느 릴리스도 변경하지 않고 심볼릭 링크만 전환한다. 전환 후 영향을 받는 서비스를 재시작하고
 준비 상태 검사를 다시 실행한다.
 

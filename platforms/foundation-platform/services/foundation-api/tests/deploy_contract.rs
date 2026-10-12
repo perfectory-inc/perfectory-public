@@ -146,10 +146,12 @@ fn api_image_is_locked_non_root_and_health_checked() -> TestResult {
     assert!(dockerfile.contains("USER 10001:10001"));
     assert!(dockerfile.contains("HEALTHCHECK"));
     assert!(dockerfile.contains("foundation-migrate"));
-    assert!(dockerfile
-        .lines()
-        .filter(|line| line.starts_with("FROM "))
-        .all(|line| line.contains("@sha256:")));
+    assert!(
+        dockerfile
+            .lines()
+            .filter(|line| line.starts_with("FROM "))
+            .all(|line| line.contains("@sha256:"))
+    );
     assert!(!dockerfile.contains("apt-get install"));
     assert!(!dockerfile.contains("COPY . ."));
     assert!(!dockerfile.contains("latest"));
@@ -300,7 +302,10 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
         "prometheus_data:/prometheus",
         "alertmanager_data:/alertmanager",
     ] {
-        assert!(compose.contains(required), "observability Compose is missing {required}");
+        assert!(
+            compose.contains(required),
+            "observability Compose is missing {required}"
+        );
     }
 
     let prometheus = read_area_file("infra/observability/prometheus/prometheus.yml")?;
@@ -801,10 +806,12 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
     assert!(dockerfile.contains(
         "COPY --chmod=0755 infra/postgres/recovery-entrypoint.sh /usr/local/bin/foundation-postgres-recovery-entrypoint"
     ));
-    assert!(dockerfile
-        .lines()
-        .filter(|line| line.starts_with("FROM "))
-        .all(|line| line.contains("@sha256:")));
+    assert!(
+        dockerfile
+            .lines()
+            .filter(|line| line.starts_with("FROM "))
+            .all(|line| line.contains("@sha256:"))
+    );
     Ok(())
 }
 
@@ -879,6 +886,99 @@ fn assert_postgres_restore_drill_contract() -> TestResult {
     Ok(())
 }
 
+// The databases login needs (Zitadel's and the identity platform's) had no backup at all until
+// 2026-10-12. They are dumped nightly by their own unit, their age is checked apart from that unit
+// (a unit that never starts reports nothing), and a weekly drill restores them and logs in to the
+// restored Zitadel with its masterkey: the public keys alone come back under any masterkey.
+fn assert_identity_backup_contract() -> TestResult {
+    let lib = read_area_file("scripts/recovery/identity-backup-lib.sh")?;
+    assert!(lib.contains("\"zitadel-platform zitadel-db zitadel\""));
+    assert!(lib.contains("\"identity-platform-runtime identity-db identity\""));
+    // gpg authenticates what it decrypts; openssl enc's CBC let a cut-off dump decrypt to garbage.
+    assert!(lib.contains("--symmetric --cipher-algo AES256"));
+    assert!(lib.contains("--passphrase-fd 3"));
+    assert!(!lib.contains("openssl enc"));
+
+    let backup = read_area_file("scripts/recovery/run-identity-backup.sh")?;
+    let freshness = read_area_file("scripts/recovery/check-identity-backup-freshness.sh")?;
+    let drill = read_area_file("scripts/recovery/identity-restore-drill.sh")?;
+    for script in [&backup, &freshness, &drill] {
+        assert!(script.contains("set -Eeuo pipefail"));
+        assert!(script.contains("source \"${script_dir}/identity-backup-lib.sh\""));
+        assert!(!script.contains("set -x"));
+    }
+    assert!(backup.contains("RECOVERY_WRITER_ACCESS_KEY_ID"));
+    for reader in [&freshness, &drill] {
+        assert!(reader.contains("RECOVERY_READER_ACCESS_KEY_ID"));
+        assert!(!reader.contains("RECOVERY_WRITER_"));
+    }
+    // A cut-off upload never sits under a whole dump's name.
+    assert!(backup.contains("partial=\"${key}.partial\""));
+    assert!(backup.contains("trap remove_partial ERR"));
+    assert!(backup.contains(
+        "aws s3 mv --only-show-errors \"s3://${bucket}/${partial}\" \"s3://${bucket}/${key}\""
+    ));
+    assert!(
+        backup.contains("head-object"),
+        "an upload is checked, not assumed"
+    );
+    assert!(freshness.contains("max_age_hours=26 "));
+    assert!(drill.contains("--no-owner --no-privileges --exit-on-error"));
+    assert!(drill.contains("trap cleanup EXIT"));
+    assert!(drill.contains("docker network create --internal"));
+    assert!(drill.contains("start --masterkeyFromEnv"));
+    assert!(
+        drill.contains("/auth/v1/users/me"),
+        "the drill must make Zitadel decrypt a live token"
+    );
+    // Dumps are kept as long as the foundation repository keeps its full backups.
+    let config = read_area_file("infra/postgres/pgbackrest.conf")?;
+    let retention = config
+        .lines()
+        .find_map(|line| line.strip_prefix("repo1-retention-full="))
+        .ok_or("pgbackrest.conf has no repo1-retention-full")?;
+    assert!(
+        backup.contains(&format!("retention_days={retention} ")),
+        "the identity dumps must expire with the foundation's full backups ({retention} days)"
+    );
+
+    let release = read_area_file("scripts/deploy/foundation-release.sh")?;
+    for (unit, script) in [
+        ("foundation-identity-backup", "run-identity-backup.sh"),
+        (
+            "foundation-identity-backup-freshness",
+            "check-identity-backup-freshness.sh",
+        ),
+        (
+            "foundation-identity-restore-drill",
+            "identity-restore-drill.sh",
+        ),
+    ] {
+        let service = read_area_file(&format!("infra/systemd/{unit}.service"))?;
+        assert!(service.contains(&format!(
+            "ExecStart=/opt/foundation-platform/current/scripts/recovery/{script}"
+        )));
+        assert!(service.contains("EnvironmentFile=/etc/foundation-platform/recovery.env"));
+        assert!(
+            service.contains("OnFailure=foundation-unit-failed@%n.service"),
+            "{unit} must report its own failure"
+        );
+        let timer = read_area_file(&format!("infra/systemd/{unit}.timer"))?;
+        assert!(timer.contains(&format!("Unit={unit}.service")));
+        assert!(timer.contains("Persistent=true"));
+        assert!(
+            release.contains(&format!("{unit}.timer")),
+            "the deploy must enable {unit}.timer"
+        );
+    }
+    let drill_unit = read_area_file("infra/systemd/foundation-identity-restore-drill.service")?;
+    assert!(drill_unit.contains("LoadCredential=zitadel-token:"));
+    // Its own unit: a failed foundation backup must not skip it, nor it the foundation backup.
+    let foundation = read_area_file("infra/systemd/foundation-postgres-backup.service")?;
+    assert!(!foundation.contains("identity"));
+    Ok(())
+}
+
 fn assert_postgres_backup_scheduler_contract() -> TestResult {
     let backup = read_area_file("scripts/recovery/run-postgres-backup.sh")?;
     for required in [
@@ -895,7 +995,9 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
         );
     }
     assert_eq!(
-        backup.matches("run --rm -T --interactive=false --no-deps foundation-backup").count(),
+        backup
+            .matches("run --rm -T --interactive=false --no-deps foundation-backup")
+            .count(),
         7,
         "every scheduled backup operation must attach to the deployed database without starting dependencies"
     );
@@ -913,6 +1015,7 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
         "ExecStart=/opt/foundation-platform/current/scripts/recovery/run-postgres-backup.sh"
     ));
     assert!(service.contains("ReadWritePaths=/var/lib/foundation-platform/recovery"));
+    assert_identity_backup_contract()?;
     // A failed backup reports itself; the script's own exit code reached nobody for four weeks.
     assert!(service.contains("OnFailure=foundation-unit-failed@%n.service"));
     read_area_file("infra/systemd/foundation-unit-failed@.service")?;
@@ -1228,7 +1331,9 @@ fn spatial_publication_migration_keeps_the_transition_invariants_in_sql() -> Tes
     assert!(migration.contains("format('%s-%s', unit.unit_key, release.id)"));
     assert!(migration.contains("the first runtime publication must be dynamic PostGIS"));
     assert!(migration.contains("static PMTiles must use the currently selected data revision"));
-    assert!(migration.contains("vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"));
+    assert!(migration.contains(
+        "vector_tile_publication_unit_key_check CHECK (unit_key ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"
+    ));
     assert!(migration.contains(
         "vector_tile_release_layer_id_check CHECK (layer_id ~ '^[A-Za-z][A-Za-z0-9_-]{0,127}$')"
     ));
