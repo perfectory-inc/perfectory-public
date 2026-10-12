@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import copy
+import io
 import re
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import foundation_ci_scope as scope
 
@@ -101,6 +104,33 @@ class FoundationCiScopeTest(unittest.TestCase):
         )
         self.assertEqual(everything, set(scope.GATES) - scope.MERGE_QUEUE_ONLY)
         self.assertEqual(scope.MERGE_QUEUE_ONLY, {"boundary-slice"})
+
+    def run_selector(self, event_name: str, paths: set[str]) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            github_env = Path(temporary) / "env"
+            with mock.patch.object(scope, "git_changed_paths", return_value=paths), \
+                    redirect_stdout(io.StringIO()) as out:
+                scope.main([
+                    "--gate", "boundary-slice", "--event-name", event_name,
+                    "--base", "a" * 40, "--head", "b" * 40, "--github-env", str(github_env),
+                ])
+            return out.getvalue(), github_env.read_text(encoding="utf-8")
+
+    def test_a_deferred_slice_warns_on_the_pull_request_and_only_then(self) -> None:
+        boundary = {"scripts/tiles/boundary-slice-proof.sh"}
+        out, env = self.run_selector("pull_request", boundary)
+        self.assertIn("::warning title=boundary-slice deferred to the merge queue::", out)
+        self.assertIn("FOUNDATION_CI_GATE_SELECTED=false", env)
+        self.assertIn('"deferred_to_merge_queue": ["boundary-slice"]', out)
+
+        out, env = self.run_selector("merge_group", boundary)
+        self.assertNotIn("::warning", out)
+        self.assertIn("FOUNDATION_CI_GATE_SELECTED=true", env)
+
+        # Inputs unaffected: nothing was deferred, so there is nothing to warn about.
+        out, env = self.run_selector("pull_request", {"products/gongzzang/README.md"})
+        self.assertNotIn("::warning", out)
+        self.assertIn('"deferred_to_merge_queue": []', out)
 
     def test_removing_a_required_route_is_detected(self) -> None:
         mutations = (
