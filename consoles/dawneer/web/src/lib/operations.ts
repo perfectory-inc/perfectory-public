@@ -1,6 +1,9 @@
 // What the 운영 현황 screen derives from the platform's answers (root ADR-0165). The facts are the
 // platform's: the job list, the runs and quality results the data catalog holds, and the pipeline
-// graph's live overlay. This file only orders and counts them and says the codes in Korean.
+// graph's live overlay, and how long each job usually takes. This file only orders and counts them,
+// measures them against the clock and says the codes in Korean.
+import { clamp, orderBy, take } from "es-toolkit";
+
 import type {
   DataContractQuality,
   DataQualityResult,
@@ -57,7 +60,15 @@ export function jobTone(job: ScheduledJobStatus, runsReadable: boolean): Tone {
 export function runDuration(startedAt: string | null | undefined, finishedAt: string | null | undefined, now: Date = new Date()): string {
   if (!startedAt) return "—";
   const end = finishedAt ? new Date(finishedAt) : now;
-  const seconds = Math.max(0, Math.round((end.getTime() - new Date(startedAt).getTime()) / 1000));
+  return durationLabel(secondsBetween(startedAt, end));
+}
+
+function secondsBetween(fromIso: string, to: Date): number {
+  return Math.max(0, Math.round((to.getTime() - new Date(fromIso).getTime()) / 1000));
+}
+
+/** A number of seconds in the largest whole units. */
+export function durationLabel(seconds: number): string {
   if (seconds < 60) return `${seconds}초`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}분`;
@@ -156,5 +167,77 @@ export function freshnessRows(graph: PipelineGraph): FreshnessRow[] {
     });
   return rows.sort(
     (a, b) => (STATUS_RANK[a.status] ?? 2) - (STATUS_RANK[b.status] ?? 2) || a.title.localeCompare(b.title),
+  );
+}
+
+/** One job the scheduler is on now, measured against the clock. */
+export interface RunningJob {
+  job: ScheduledJobStatus;
+  /** `running`, or `up_for_retry` for a run that failed and waits for its next try. */
+  outcome: "running" | "up_for_retry";
+  startedAt: string | null;
+  /** Seconds since the run's first start; null when its start was not recorded. */
+  elapsedSeconds: number | null;
+  /** Foundation's typical duration of the job; null when it has no succeeded run to go by. */
+  typicalSeconds: number | null;
+  typicalRuns: number;
+  /** When the run should end at its typical pace, ISO-8601; null without a start or a typical duration. */
+  expectedFinishAt: string | null;
+  /** Seconds left until `expectedFinishAt`; 0 once it has passed. */
+  remainingSeconds: number | null;
+  /** Seconds past `expectedFinishAt`; 0 while it has not passed. */
+  overrunSeconds: number | null;
+  /** Elapsed over typical, between 0 and 1. */
+  progress: number | null;
+}
+
+/**
+ * Every job whose latest run is running or waiting for a retry, measured at `now`. The typical
+ * duration is Foundation's (`typical_duration_seconds`); this only sets it against the clock.
+ * Running before waiting, then the soonest expected finish first (an overrun is the soonest),
+ * runs without an estimate last.
+ */
+export function runningJobs(jobs: ScheduledJobStatus[], now: Date = new Date()): RunningJob[] {
+  const rows = jobs.flatMap((job): RunningJob[] => {
+    const run = job.last_run;
+    if (run?.outcome !== "running" && run?.outcome !== "up_for_retry") return [];
+    const startedAt = run.started_at ?? null;
+    const elapsedSeconds = startedAt ? secondsBetween(startedAt, now) : null;
+    const typicalSeconds = job.typical_duration_seconds ?? null;
+    const measured = elapsedSeconds !== null && typicalSeconds !== null && startedAt !== null;
+    const left = measured ? typicalSeconds - elapsedSeconds : null;
+    return [
+      {
+        job,
+        outcome: run.outcome,
+        startedAt,
+        elapsedSeconds,
+        typicalSeconds,
+        typicalRuns: job.typical_duration_runs,
+        expectedFinishAt: measured ? new Date(new Date(startedAt).getTime() + typicalSeconds * 1000).toISOString() : null,
+        remainingSeconds: left === null ? null : Math.max(0, left),
+        overrunSeconds: left === null ? null : Math.max(0, -left),
+        progress: measured ? (typicalSeconds === 0 ? 1 : clamp(elapsedSeconds / typicalSeconds, 0, 1)) : null,
+      },
+    ];
+  });
+  return orderBy(
+    rows,
+    [
+      (row) => (row.outcome === "running" ? 0 : 1),
+      (row) => (row.expectedFinishAt === null ? 1 : 0),
+      (row) => (row.expectedFinishAt === null ? 0 : new Date(row.expectedFinishAt).getTime()),
+      (row) => row.job.job_id,
+    ],
+    ["asc", "asc", "asc", "asc"],
+  );
+}
+
+/** The next `count` starts among the enabled jobs, soonest first. */
+export function nextStarts(jobs: ScheduledJobStatus[], count = 3): ScheduledJobStatus[] {
+  const scheduled = jobs.filter((job) => job.enabled && job.next_run_at);
+  return take(
+    orderBy(scheduled, [(job) => new Date(job.next_run_at ?? 0).getTime(), (job) => job.job_id], ["asc", "asc"]),
+    count,
   );
 }

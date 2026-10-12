@@ -1,17 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { DawneerClient, ScheduledJobStatus } from "../api/client";
 import { ago, label } from "../lib/catalogLabels";
 import {
   BINDING_KIND_LABEL,
+  durationLabel,
   freshnessRows,
   jobTone,
+  nextStarts,
   PIPELINE_STATUS_LABEL,
   QUALITY_RESULT_LABEL,
   RUN_OUTCOME_LABEL,
   runDuration,
+  runningJobs,
   summarizeQuality,
+  type RunningJob,
   type Tone,
 } from "../lib/operations";
 
@@ -94,8 +98,108 @@ function JobRow({ job, runsReadable }: { job: ScheduledJobStatus; runsReadable: 
   );
 }
 
+function useScheduledJobs(client: DawneerClient) {
+  return useQuery({ queryKey: ["scheduled-jobs"], queryFn: () => client.scheduledJobs(), refetchInterval: 60_000 });
+}
+
+/** The clock, advanced every `everyMs`, so elapsed and remaining times move between refetches. */
+function useNow(everyMs: number): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), everyMs);
+    return () => clearInterval(timer);
+  }, [everyMs]);
+  return now;
+}
+
+function RunningRow({ row }: { row: RunningJob }) {
+  const overrun = (row.overrunSeconds ?? 0) > 0;
+  return (
+    <li className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <span className="font-mono text-sm font-semibold text-slate-900">{row.job.job_id}</span>{" "}
+          <Badge tone={row.outcome === "running" ? "ok" : "bad"}>{RUN_OUTCOME_LABEL[row.outcome]}</Badge>
+          <div className="mt-0.5 line-clamp-2 max-w-3xl text-xs text-slate-500" title={row.job.description}>
+            {row.job.description}
+          </div>
+        </div>
+        <div className="text-right text-sm">
+          {row.remainingSeconds === null ? (
+            <span className="text-slate-500">예상 시간 없음(성공 기록 없음)</span>
+          ) : overrun ? (
+            <Badge tone="warn">예상보다 {durationLabel(row.overrunSeconds ?? 0)} 초과</Badge>
+          ) : (
+            <span className="font-semibold text-slate-900">약 {durationLabel(row.remainingSeconds)} 남음</span>
+          )}
+        </div>
+      </div>
+      {row.progress === null ? null : (
+        <div className="mt-2 h-2 overflow-hidden rounded bg-slate-100">
+          <div className={`h-2 ${overrun ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.round(row.progress * 100)}%` }} />
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+        <span>
+          시작 <When iso={row.startedAt} />
+        </span>
+        <span>경과 {row.elapsedSeconds === null ? "—" : durationLabel(row.elapsedSeconds)}</span>
+        {row.typicalSeconds === null ? null : (
+          <span>
+            보통 {durationLabel(row.typicalSeconds)} (최근 성공 {row.typicalRuns}회 기준)
+          </span>
+        )}
+        {row.expectedFinishAt === null ? null : (
+          <span>
+            예상 종료 <span title={row.expectedFinishAt}>{new Date(row.expectedFinishAt).toLocaleString("ko-KR")}</span>
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function RunningNow({ client }: { client: DawneerClient }) {
+  const jobs = useScheduledJobs(client);
+  const now = useNow(30_000);
+  const loading = Loading({ what: "지금 도는 작업", query: jobs });
+  if (loading || !jobs.data) return loading;
+  if (jobs.data.run_history_error != null) {
+    return (
+      <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        데이터 카탈로그에서 실행 기록을 읽지 못해 지금 도는 작업을 알 수 없습니다({jobs.data.run_history_error}).
+      </p>
+    );
+  }
+  const rows = runningJobs(jobs.data.jobs, now);
+  if (rows.length > 0) {
+    return (
+      <ul className="space-y-2">
+        {rows.map((row) => (
+          <RunningRow key={row.job.job_id} row={row} />
+        ))}
+      </ul>
+    );
+  }
+  const next = nextStarts(jobs.data.jobs);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm">
+      <p className="text-slate-700">지금 도는 작업이 없습니다.</p>
+      {next.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-xs text-slate-600">
+          {next.map((job) => (
+            <li key={job.job_id}>
+              다음 <When iso={job.next_run_at} /> · <span className="font-mono">{job.job_id}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function ScheduledJobs({ client }: { client: DawneerClient }) {
-  const jobs = useQuery({ queryKey: ["scheduled-jobs"], queryFn: () => client.scheduledJobs(), refetchInterval: 60_000 });
+  const jobs = useScheduledJobs(client);
   const loading = Loading({ what: "예약 작업", query: jobs });
   if (loading || !jobs.data) return loading;
   const runsReadable = jobs.data.run_history_error == null;
@@ -260,6 +364,12 @@ export function OperationsPage({ client }: { client: DawneerClient }) {
       <p className="mt-1 text-sm text-slate-500">
         자동으로 도는 데이터 작업이 언제 돌았고 어떻게 끝났는지, 품질 검사가 무엇을 찾았는지, 원천 수집과 적재가 언제 마지막으로 기록됐는지 보여 줍니다.
       </p>
+      <Section
+        title="지금 도는 작업"
+        note="마지막 실행이 아직 끝나지 않은 작업입니다. 남은 시간은 Foundation 이 계산한 그 작업의 보통 걸리는 시간(최근 성공 실행의 중앙값)으로 어림합니다. 30초마다 시계를, 1분마다 기록을 새로 읽습니다."
+      >
+        <RunningNow client={client} />
+      </Section>
       <Section
         title="예약 작업"
         note="작업 목록(orchestration/jobs.v1.json)의 모든 작업과, Airflow 가 데이터 카탈로그에 보낸 마지막 실행 기록입니다. 1분마다 새로 읽습니다."

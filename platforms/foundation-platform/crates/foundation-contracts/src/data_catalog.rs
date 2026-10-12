@@ -125,6 +125,12 @@ pub struct ScheduledJobStatus {
     pub catalog_job_urn: Option<String>,
     /// Its latest run the data catalog holds; absent before the first.
     pub last_run: Option<ScheduledJobRun>,
+    /// How long the job usually takes, in whole seconds: the median of `finished_at - started_at`
+    /// over the recent succeeded runs the data catalog holds for the catalog job of `last_run`.
+    /// Absent when none of those runs succeeded with both times recorded.
+    pub typical_duration_seconds: Option<u64>,
+    /// How many succeeded runs `typical_duration_seconds` is the median of; 0 when it is absent.
+    pub typical_duration_runs: u32,
 }
 
 /// Every scheduled job and its latest run.
