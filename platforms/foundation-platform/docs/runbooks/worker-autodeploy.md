@@ -34,7 +34,7 @@ ssh -t ai-server "sudo sed -n 's/=.*//p' /etc/foundation-platform/cloudflare-dep
 
 ## 2. 첫 실행 지켜보기
 
-토큰을 둔 뒤 다음 autodeploy 틱(10분 이내)이 유닛을 시작한다. 기다리지 않으려면 지금 시작하고 따라 읽는다.
+토큰을 둔 뒤 다음 autodeploy 틱(간격은 `foundation-autodeploy.timer`)이 유닛을 시작한다. 기다리지 않으려면 지금 시작하고 따라 읽는다.
 첫 실행은 다섯 Worker 를 모두 지금의 main 으로 다시 올린다(기록이 없으므로).
 
 ```bash
