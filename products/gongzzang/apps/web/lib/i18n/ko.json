@@ -250,7 +250,8 @@
         "viewFloors": "층 구성 보기",
         "viewListings": "등록 매물 보기",
         "codeFallback": "행정코드 {code}",
-        "unknown": "정보 없음"
+        "unknown": "정보 없음",
+        "loadFailed": "불러오지 못했어요"
       },
       "buildings": {
         "title": "건축물",

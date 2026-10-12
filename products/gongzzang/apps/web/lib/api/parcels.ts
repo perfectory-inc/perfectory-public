@@ -6,6 +6,7 @@
 // document is mapped into the panel's existing `ParcelInfo` shape so the summary card is
 // unchanged — only the source moved from Postgres to R2.
 import { z } from "zod";
+import { type KindState, kindSection, type LaneDocument } from "./by-pnu-lane";
 
 const parcelEdgeBaseUrl = (): string => {
   const base = process.env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL;
@@ -85,10 +86,48 @@ export class ParcelNotServedError extends Error {
   }
 }
 
-export async function fetchParcel(pnu: string, signal?: AbortSignal): Promise<ParcelInfo> {
+/** The bundle document: every parcel kind in one, until each kind's lane replaces it (ADR-0193). */
+export async function fetchParcel(pnu: string, signal?: AbortSignal): Promise<EdgeParcelProfile> {
   const url = `${parcelEdgeBaseUrl()}/parcels/by-pnu/${encodeURIComponent(pnu)}`;
   const response = await fetch(url, { signal, headers: { accept: "application/json" } });
   if (response.status === 404) throw new ParcelNotServedError(pnu);
   if (!response.ok) throw new Error(`parcel edge fetch failed: ${response.status}`);
-  return toParcelInfo(EdgeParcelProfileSchema.parse(await response.json()));
+  return EdgeParcelProfileSchema.parse(await response.json());
+}
+
+type Section = "zonings" | "price" | "characteristics";
+
+/**
+ * The summary's kinds (root ADR-0193 §5), each its lane and the bundle section it carries under the
+ * same name. A lane the contract does not name yet is read from the bundle alone.
+ */
+export const FIRST_PAINT_KINDS: readonly { lane: string; section: Section }[] = [
+  { lane: "parcel-zoning", section: "zonings" },
+  { lane: "parcel-price", section: "price" },
+  { lane: "parcel-characteristics", section: "characteristics" },
+];
+
+export type LaneQuery = { data?: LaneDocument; isError: boolean };
+
+/**
+ * The summary of one parcel from its kinds' lanes and, while it is still served, the bundle. A
+ * lane section that does not parse is a failure of that kind alone: it falls back like one.
+ */
+export function parcelSummary(
+  bundle: EdgeParcelProfile | undefined,
+  pnu: string,
+  lanes: Readonly<Record<string, LaneQuery | undefined>>,
+): { info: ParcelInfo; states: Record<Section, KindState<unknown>["state"]> } {
+  const profile: EdgeParcelProfile = { schema_version: bundle?.schema_version ?? "", pnu };
+  const states = {} as Record<Section, KindState<unknown>["state"]>;
+  for (const { lane, section } of FIRST_PAINT_KINDS) {
+    let kind = kindSection(lanes[lane], section, bundle);
+    if (kind.state === "ok") {
+      const parsed = EdgeParcelProfileSchema.shape[section].safeParse(kind.value);
+      kind = parsed.success ? kind : kindSection(undefined, section, bundle);
+    }
+    if (kind.state === "ok") Object.assign(profile, { [section]: kind.value });
+    states[section] = kind.state;
+  }
+  return { info: toParcelInfo(profile), states };
 }
