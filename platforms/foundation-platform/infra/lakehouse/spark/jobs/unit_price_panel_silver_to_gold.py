@@ -47,8 +47,12 @@ TITLE_SOURCE = panel.TITLE_SOURCE
 UNIT_SOURCE = panel.UNIT_SOURCE
 PRICE_SOURCE = panel.PRICE_SOURCE
 ALL_SOURCES = (TITLE_SOURCE, UNIT_SOURCE, PRICE_SOURCE)
-# What the build reads of each input (root ADR-0180 §1): placement and the price rows.
-BUILD_COLUMNS = {name: panel.BUILD_COLUMNS[name] for name in ALL_SOURCES}
+# What the build reads of each input (root ADR-0180 §1): the units' placement and the price rows.
+BUILD_COLUMNS = {
+    TITLE_SOURCE: panel.BUILD_COLUMNS[TITLE_SOURCE],
+    UNIT_SOURCE: panel.BUILD_COLUMNS[UNIT_SOURCE],
+    PRICE_SOURCE: ("mgm_bldrgst_pk", "base_date", "price_won"),
+}
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # Each unit's price records, as `units_json` holds them: enough to count them.
 UNIT_HISTORY_SCHEMA = "array<struct<id:string,official_price_history:array<struct<base_date:string>>>>"
@@ -125,12 +129,21 @@ def read_inputs(spark, args, pins, snapshots=None):
     return incremental.project_build_inputs(frames, BUILD_COLUMNS)
 
 
+def checked_prices(prices):
+    """The price rows, refused when a (register, reference date) repeats or a value is invalid."""
+    panel.assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
+    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
+                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
+        raise ValueError("unit official price has an invalid base_date or negative price")
+    return prices
+
+
 def build_gold_frame(frames, source_snapshot_id, published_at_utc, counters):
     titles = panel.valid_pnus(frames[TITLE_SOURCE], TITLE_SOURCE, counters)
     units = panel.valid_pnus(frames[UNIT_SOURCE], UNIT_SOURCE, counters)
     panel.assert_unique(titles, ["mgm_bldrgst_pk"], TITLE_SOURCE)
     panel.assert_unique(units, ["mgm_bldrgst_pk"], UNIT_SOURCE)
-    prices = panel.checked_prices(frames[PRICE_SOURCE])
+    prices = checked_prices(frames[PRICE_SOURCE])
     histories = prices.groupBy("mgm_bldrgst_pk").agg(
         F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
     titles = titles.withColumn("id", panel.canonical_id("building", F.col("mgm_bldrgst_pk")))
@@ -235,7 +248,13 @@ def affected_pnus(old, new, changed, appended=None):
 def restrict_inputs(frames, keys):
     """The input rows the Gold rows of `keys` (a frame of `pnu`) are built from (ADR-0180 §2)."""
     restricted = panel.restrict_inputs(_with_building_inputs(frames), keys)
-    return {name: restricted[name] for name in ALL_SOURCES}
+    units = panel._registers(restricted[UNIT_SOURCE], "mgm_bldrgst_pk")
+    return {
+        TITLE_SOURCE: restricted[TITLE_SOURCE],
+        UNIT_SOURCE: restricted[UNIT_SOURCE],
+        PRICE_SOURCE: incremental.rows_matching_any(
+            frames[PRICE_SOURCE], [("mgm_bldrgst_pk", units, "_register", False)]),
+    }
 
 
 def build_session(args):
@@ -275,7 +294,7 @@ def run(spark, args, pins):
         restrict=restrict_inputs, whole_table_inputs=WHOLE_TABLE_INPUTS,
         affected=lambda changed, appended: affected_pnus(
             read_inputs(spark, args, previous), frames, changed,
-            panel.appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
+            panel.appended_changes(spark, args, previous, pins, snapshots, frames, appended, BUILD_COLUMNS)),
         append_inputs={name: panel.iceberg_table(args, name) for name in ALL_SOURCES},
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS, row_key=ROW_KEY,
         validate=lambda gold: validate_gold_frame(gold, None))

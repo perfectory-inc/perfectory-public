@@ -121,10 +121,7 @@ if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   # Each table that commits a snapshot names itself here; the job's last line says whether any did,
   # which is what starts the by-PNU bake (root ADR-0171).
   GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
-  # The table whose run joined the unit prices names itself here, so a later table of this run that
-  # reads them does not start the national join again (step 0).
-  GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED="$(mktemp)"
-  export GOLD_PANEL_REBUILD_COMMITTED GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED
+  export GOLD_PANEL_REBUILD_COMMITTED
   for unit in ${RUN_UNITS[@]+"${RUN_UNITS[@]}"}; do
     [[ -n "${unit}" ]] || continue
     "${BASH_SOURCE[0]}" "${unit}" ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
@@ -134,7 +131,7 @@ if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   else
     echo "foundation-job-outcome unchanged"
   fi
-  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}" "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
+  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}"
   exit "${status}"
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -176,23 +173,17 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
-# 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0190): silver.unit_official_price joins the two hub
+# 0. The unit prices the unit price panel reads (root ADR-0182, ADR-0190): silver.unit_official_price joins the two hub
 # tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
 # The join belongs to this job because only this job reads it, and because the spark pool has no
 # room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.
-# Within one `all`, a table after the one whose join succeeded skips it: the join just ran.
-if [[ "${UNIT}" == building || "${UNIT}" == unit-price ]] && ((${#VALIDATE[@]} == 0)); then
-  if [[ -s "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]]; then
-    log "unit prices: already joined by this run's $(head -1 "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}") rebuild"
-  else
-    if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
-      grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
-      log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
-      exit 1
-    fi
-    log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
-    [[ -z "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]] || echo "${UNIT}" >>"${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
+if [[ "${UNIT}" == unit-price ]] && ((${#VALIDATE[@]} == 0)); then
+  if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
+    grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
+    log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
+    exit 1
   fi
+  log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
 fi
 
 # 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a
