@@ -7,8 +7,8 @@
   [ADR-0163](./0163-a-large-legal-dong-pack-is-split-into-parts-read-whole.md) (큰 동의 조각),
   [ADR-0164](./0164-panel-gold-is-written-in-pnu-order-and-a-shard-reads-only-its-files.md) (PNU 순서 쓰기),
   [ADR-0180](./0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md) (바뀐 PNU 만 다시 만들기)
-- Aligns with: ADR-0189 (Silver append 경로, PR #425), ADR-0190 (호실 가격 분리와 공용 첫 발행 관문·레인 계약),
-  ADR-0191 (Silver 변경 기록) — 모두 진행 중
+- Aligns with: ADR-0190 (호실 가격 분리와 공용 첫 발행 관문·레인 계약, 병합됨), ADR-0189 (Silver append 경로, PR #425),
+  ADR-0191 (Silver 변경 기록) — 둘은 진행 중
 
 ## Context
 
@@ -74,18 +74,22 @@
      p95 가 목표(7항)를 넘는 것이 측정되면 다시 연다.
 2. **종류 목록과 이름.** 키는 모두 `pnu`, 법정동(PNU 앞 10 자리) 묶음, ADR-0163 조각 규칙 그대로.
 
-   | 레인(`by_pnu_lanes` 키) | Gold 표 | 문서 본문 칸 | PNU 범위 |
-   |---|---|---|---|
-   | `parcel-zoning` | `gold.parcel_zoning` | `zonings` | 판정이 있는 PNU |
-   | `parcel-price` | `gold.parcel_price` | `price` | 가격이 있는 PNU |
-   | `parcel-characteristics` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
-   | `parcel-forest-ledger` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
-   | `parcel-transfer-history` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
-   | `parcel-land-rights` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
-   | `building-titles` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
-   | `building-floors` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
-   | `building-units` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
-   | `unit-price`(ADR-0190) | `gold.unit_price_panel` | `units` | 가격 있는 호가 놓인 PNU |
+   | 레인(`by_pnu_lanes` 키) | `host` | `kind` | Gold 표 | 문서 본문 칸 | PNU 범위 |
+   |---|---|---|---|---|---|
+   | `parcel-zoning` | parcel | `zoning` | `gold.parcel_zoning` | `zonings` | 판정이 있는 PNU |
+   | `parcel-price` | parcel | `price` | `gold.parcel_price` | `price` | 가격이 있는 PNU |
+   | `parcel-characteristics` | parcel | `characteristics` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
+   | `parcel-forest-ledger` | parcel | `forest-ledger` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
+   | `parcel-transfer-history` | parcel | `transfer-history` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
+   | `parcel-land-rights` | parcel | `land-rights` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
+   | `building-titles` | building | `titles` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
+   | `building-floors` | building | `floors` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
+   | `building-units` | building | `units` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
+   | `unit-price`(ADR-0190) | building | `unit-price` | `gold.unit_price_panel` | `units` | 가격 있는 호가 놓인 PNU |
+
+   `host` 의 parcel 은 계약의 `parcel_by_pnu_gateway`, building 은 `building_by_pnu_gateway` 다. 레인 키와 `kind` 를
+   따로 두는 이유: 레인 키는 계약·관문·감시가 쓰는 전역 이름이고(`parcel-`·`building-` 접두로 겹치지 않는다),
+   `kind` 는 호스트 안의 경로 조각이다. 레인 키를 경로에 쓰면 `/parcels/parcel-zoning/…` 처럼 접두가 두 번 붙는다.
 
    - Gold 행 모양은 ADR-0190 의 호 가격 표와 같다: `pnu`, 본문 JSON 열, (필지 종류만) `attached_via`,
      `row_digest`(내용 열만, ADR-0099), `source_snapshot_id`, `published_at_utc`. 정렬 `pnu`, range 분포(ADR-0164).
@@ -101,25 +105,63 @@
    묶음 생산자는 퇴역 전까지 같은 함수를 부른다. 재생성 계약(`gold-panel-rebuild.contract.json`)에 종류마다 표를 하나씩
    올린다. 계획기(ADR-0139)가 입력이 안 바뀐 종류는 건너뛰므로 **안 바뀐 종류의 비용은 0** 이다.
    - `silver.land_use_zone_code` 의 `WHOLE_TABLE_INPUTS` 전량 재생성은 `gold.parcel_zoning` 에만 걸린다.
+   - **같은 화면에서 합쳐지는 종류는 같은 입력 스냅숏에서 만든다(`pins_from`, ADR-0190).** 종류 표는 따로 다시
+     만들어지므로 그대로 두면 서로 다른 Silver 스냅숏 위에 선다. 웹은 레인을 PNU·건물 id·호 id 로 합치므로, 표제부
+     레인이 옛 판인데 호 레인이 새 판이면 새 건물의 호가 건물 없이 그려진다(고아 호). 그래서 재생성 계약에서:
+     - 건물 쪽: `gold.building_floors`·`gold.building_units`·`gold.unit_price_panel` 은
+       `silver.building_register_titles`·`silver.building_register_units` 를 `gold.building_titles` 가 만들어진
+       스냅숏에 고정한다(`pins_from.gold_table`). `all` 에서 표제부가 먼저 돈다.
+     - 필지 쪽: 다른 필지 종류 다섯은 `silver.parcel_boundaries`·`silver.parcel_lineage` 를 `gold.parcel_zoning` 이
+       만들어진 스냅숏에 고정한다. 한 PNU 가 어떤 레인에서는 퇴역, 다른 레인에서는 살아 있는 일이 없게 한다.
+     - 이행 중에는 기준이 아직 묶음이다: 표제부가 옮겨지기 전의 `gold.building_units` 는 `gold.building_panel` 에,
+       `gold.parcel_zoning` 은 `gold.parcel_panel` 에 고정한다. 기준 종류가 옮겨지는 PR 이 고정 대상을 바꾼다(지금
+       `gold.unit_price_panel` 이 `gold.building_panel` 에 고정된 것도 표제부 PR 이 `gold.building_titles` 로 바꾼다).
+   - **레인의 Gold 표는 한 곳에만 적는다.** `by_pnu_lanes.<lane>.gold_table` 이 정본이고, 재생성 계약은 표 이름으로
+     자기 항목(생산자·한도)을 연다. 두 계약 사이의 참조는 검사 하나가 지킨다: 모든 레인의 `gold_table` 은 재생성
+     계약의 표이고, 두 레인이 같은 표를 가리키지 않는다. 이 검사는 4항의 구현 첫 단계와 함께 들어가고 이미 있는
+     `unit-price` 에도 걸린다.
 4. **서빙: 레인은 계약의 한 줄, Worker 는 호스트당 하나.** 레인 목록과 각 레인의 Gold 표·뿌리 경로·문서 스키마는
    ADR-0190 의 `r2-connections.contract.json` `by_pnu_lanes.<lane>`(`pack_only: true`) 한 곳에 둔다. 문서는 그 표의
    `*_json` 열을 일반 렌더러(`pack_lane_document.rs`)가 만든다. 굽기(`section_packs::bake`), 묶음 전용 첫 발행 관문,
    패치(ADR-0141), 감시·카나리아는 레인 이름만 받는다. 새 종류는 새 코드가 아니라 Gold 생산자 + 계약 항목이다.
-   - ADR-0190 의 레인 항목은 Worker 설정(배치·CPU·CORS·카나리아·감시 등)을 레인마다 통째로 담는다. 레인이 열 개가 되면
-     같은 값 열 벌이다. 레인마다 다른 값(Gold 표·스키마·뿌리·경로·관문 기준 레인)만 레인 항목에 두고, Worker 설정은
-     호스트 단위 한 곳에서 읽게 바꾼다(이 ADR 의 구현 첫 단계, ADR-0190 병합 뒤).
-   - 경로: 필지 종류는 `catalog.perfectory.io/parcels/{kind}/by-pnu/{pnu}`, 건물 종류는
-     `buildings.perfectory.io/buildings/{kind}/by-pnu/{pnu}`. 기존 `/parcels/by-pnu`·`/buildings/by-pnu` 는 퇴역까지 그대로.
-     호스트마다 Worker 빌드 하나가 계약의 레인을 경로로 고른다(레인마다 Worker 를 늘리지 않는다).
-   - 이행: ADR-0190 의 `unit-price` 레인은 자기 호스트(`unit-prices.perfectory.io`, Worker 하나)로 먼저 나간다. 이
-     결정의 첫 건물 종류가 `buildings.perfectory.io` 에 경로 선택을 들일 때 `unit-price` 도
-     `/buildings/unit-price/by-pnu/{pnu}` 로 옮기고, 웹이 옮긴 뒤 한 달 서빙하고 그 호스트와 Worker 를 내린다.
-   - 묶음 뿌리: `serving/parcels/{kind}/packs`, `serving/buildings/{kind}/packs`. 레인마다 자기 manifest·세대·패치.
+   - **레인 항목에 손으로 적는 값은 레인마다 다른 것뿐이다:** `host`(`parcel_by_pnu_gateway` 또는
+     `building_by_pnu_gateway`), `kind`, `gold_table`, `documents_follow_lane`, 관문 기준(`latency_baseline_lane`,
+     `latency_p95_max_ms`)과 각 이유. 나머지는 아래 규칙으로 만든다. ADR-0190 의 레인 항목은 이 값들(Worker 설정·경로·
+     뿌리·호스트)을 통째로 손으로 담는다. 레인이 열 개면 같은 값 열 벌이고, 손으로 적은 경로는 규칙과 어긋날 수 있다.
+     규칙을 읽는 코드는 이 ADR 의 구현 첫 단계(ADR-0190 병합 뒤)이고, 그 전까지 이 항은 결정일 뿐이다.
+
+     | 값 | 규칙 | `parcel-zoning` 의 값 |
+     |---|---|---|
+     | 공개 호스트 | `<host>.public_hostname` | `catalog.perfectory.io` |
+     | 요청 경로 | `<host>.request_path.prefix` 끝의 `by-pnu/` 앞에 `{kind}/` | `/parcels/zoning/by-pnu/` |
+     | 묶음 뿌리 | `<host>.section_packs.root` 끝의 `packs` 앞에 `{kind}/` | `serving/parcels/zoning/packs` |
+     | manifest·세대·패치 | 묶음 뿌리 아래, 레인마다 따로 | `serving/parcels/zoning/packs/manifest.json` |
+     | 문서 스키마 | `foundation-platform.<레인 키의 - 를 _ 로>_by_pnu.v1` | `foundation-platform.parcel_zoning_by_pnu.v1` |
+     | Worker 설정(배치·CPU·CORS·캐시·카나리아·감시·바인딩) | `<host>` 의 값 | 필지 호스트의 값 |
+
+   - 기존 `/parcels/by-pnu`·`/buildings/by-pnu`(묶음 레인)는 퇴역까지 그대로다. 호스트마다 Worker 빌드 하나가 계약의
+     레인을 경로로 고른다(레인마다 Worker 를 늘리지 않는다).
+   - **`unit-price` 의 이행.** ADR-0190 의 `unit-price` 는 자기 호스트(`unit-prices.perfectory.io`, Worker 하나)와 손으로
+     적힌 뿌리 `serving/unit-prices/packs` 로 먼저 나간다. 규칙의 예외로 남기지 않는다: 첫 건물 종류
+     (`building-units`)가 `buildings.perfectory.io` 에 경로 선택을 들일 때 항목을 `host: building_by_pnu_gateway`,
+     `kind: unit-price` 로 바꾼다. 뿌리가 `serving/buildings/unit-price/packs` 로 바뀌므로 옮김은 새 뿌리의 전량 세대
+     하나다(객체 복사도 묶음 수만큼의 쓰기라 값이 같다). 그 세대는 8항대로 운영자가 금액을 보고 승인한 뒤 돈다; 새
+     기준일이 든 연간 빈티지는 어차피 전량 세대이므로 그 때에 맞추면 추가 비용이 없다. 웹이 새 경로로 옮긴 뒤 옛
+     호스트·뿌리를 한 달 서빙하고 Worker 와 객체를 내린다(삭제는 별도 승인).
+   - **레인 사이 발행 순서(`documents_follow_lane`, ADR-0190).** 3항의 고정은 Gold 를 맞추고 이 값은 서빙을 맞춘다.
+     따르는 레인은 기준 레인 다음에 굽고, 같은 실행에서 기준 레인의 굽기가 실패하면 굽지 않는다. 그래서 웹이 합치는
+     두 레인이 서로 다른 Gold 스냅숏을 서빙하는 시간이 한 굽기 실행 안으로 줄어든다.
+     - `building-floors`·`building-units`·`unit-price` → `building-titles`. 호 레인이 표제부 레인보다 먼저 새 건물의
+       호를 내지 않는다.
+     - 다른 필지 종류 다섯 → `parcel-zoning`.
+     - 이행 중에는 3항과 같이 기준이 묶음 레인(`building`, `parcel`)이다. 지금 `unit-price` 의
+       `documents_follow_lane: building` 은 표제부 레인이 서빙을 시작하는 PR 이 `building-titles` 로 바꾼다.
    - 응답: 문서는 오늘과 같은 `Cache-Control: public, max-age=3600`, ETag, gzip 그대로 전달. **없음(404 absent) 도 같은
      세대 지문으로 캐시한다.** 묶음 색인이 그 동에 그 PNU 가 없음을 증명하므로 없음은 그 세대의 사실이다. 드문 종류
-     (임야·대지권)는 대부분의 답이 없음이라, 없음을 `no-store` 로 두면 R2 읽기가 그대로 늘어난다. 지워진 PNU
-     (tombstone)는 지금처럼 `no-store`.
-   - 문서: `{schema_version: "foundation-platform.<kind>_by_pnu.v1", pnu, source: {table, snapshot}, <본문>}`.
+     (임야·대지권)는 대부분의 답이 없음이라, 없음을 `no-store` 로 두면 R2 읽기가 그대로 늘어난다. 대가로, 패치가 어떤
+     종류에 새 PNU 를 더하면 그 PNU 는 최대 한 시간(`max-age`) "자료 없음" 으로 보일 수 있다. 오늘 문서가 바뀐 PNU 도
+     같은 시간만큼 옛 문서를 보이므로 같은 크기의 지연이고, 받아들인다. 지워진 PNU(tombstone)는 지금처럼 `no-store`.
+   - 문서: `{schema_version, pnu, source: {table, snapshot}, <본문>}`.
 5. **화면 조립(gongzzang web).**
    - 쿼리 키는 `["by-pnu", lane, pnu]` 하나로 통일한다. 보기마다 키를 따로 두지 않으므로 건물 보기와 층 보기가 같은
      문서를 두 번 받지 않는다. `staleTime` 30 분.
@@ -142,13 +184,29 @@
    - 순서: 건물 쪽은 ADR-0190(호 가격)이 먼저다. 그 다음 **호 → 표제부 → 층 → 건물 묶음 퇴역**. 필지 쪽은 Gold 계산이
      무거운 순서로 **용도지역 판정 → 토지이동이력 → 대지권 → 임야대장 → 공시지가 → 토지특성 → 필지 묶음 퇴역**.
      첫 화면 셋(용도지역·공시지가·토지특성)이 다 나온 뒤에 첫 화면을 바꾼다.
-7. **종류마다 측정 목표.** 운영 규모로 재고, 못 맞추면 그 종류의 전환을 멈추고 원인을 ADR 로 남긴다.
-   - Gold: 월간 릴리스 하나의 증분 ≤ 10 분, 전량 ≤ 20 분(용도지역 판정은 전량 ≤ 30 분), 드라이버 16g 에서 OOM 0.
-   - 굽기: 전량 세대 ≤ 30 분, 패치 ≤ 15 분.
-   - 묶음: 조각 후 묶음 크기 p95 ≤ 256 KiB(통째 읽기 경로, ADR-0151), 최대 ≤ 256 KiB(조각 규칙, ADR-0163). PNU 문서
-     하나가 gzip 256 KiB 를 넘는 종류는 굽기가 거부한다 — 측정(6-1)에서 넘는 PNU 가 나오면 그 종류는 문서 키를
-     좁힌다(예: 호를 `pnu` + 건물 id 로) 그리고 이 ADR 을 개정한다.
-   - 첫 화면: 세 요청 합 gzip p95 ≤ 2 KB, 첫 읽기 p50 ≤ 오늘 필지 레인의 관문 (나) 기준.
+7. **종류마다 측정 목표.** 운영 규모로 재고, 못 맞추면 그 종류의 전환을 멈추고 원인을 ADR 로 남긴다. 목표마다
+   그것을 재는 실행 로그 한 줄이 있다. 아직 없는 줄은 그 종류의 2단계(Gold)·3단계(굽기) PR 이 넣고 같은 줄로 잰다.
+
+   | 대상 | 목표 | 측정(실행 로그 한 줄) |
+   |---|---|---|
+   | Gold 증분(월간 릴리스 하나) | ≤ 10 분 | `gold-kind <표> mode=incremental seconds= changed_keys=` |
+   | Gold 전량 | ≤ 20 분(용도지역 판정 ≤ 30 분) | `gold-kind <표> mode=full seconds= rows=` |
+   | Gold 메모리 | 드라이버 16g 에서 OOM 0 | 위 줄이 없고 `foundation-job-outcome` 이 실패면 OOM 여부를 그 실행의 JVM 로그로 가린다 |
+   | 굽기 전량 세대 | ≤ 30 분 | `pack-bake <레인> mode=generation seconds= packs= max_pack_bytes=` |
+   | 굽기 패치 | ≤ 15 분 | `pack-bake <레인> mode=patch seconds= packs= max_pack_bytes=` |
+   | 묶음 크기 | 조각 후 최대 ≤ 256 KiB(ADR-0163 조각 규칙. 최대가 지키면 ADR-0151 통째 읽기 경로의 상한도 지켜진다) | 같은 줄의 `max_pack_bytes=`; 전환 전에는 6-1 의 `kind-size` 요약 |
+   | 첫 화면 크기 | 세 요청 합 gzip p95 ≤ 2 KB | 6-1 의 `kind-size` 요약 |
+   | 첫 화면 지연 | 첫 읽기 p50 ≤ 오늘 필지 레인의 관문 (나) 기준 | 첫 발행 관문(ADR-0190)의 판정 보고 |
+
+   - PNU 문서 하나가 gzip 256 KiB 를 넘는 종류는 굽기가 거부한다 — 측정(6-1)에서 넘는 PNU 가 나오면 그 종류는 문서
+     키를 좁힌다(예: 호를 `pnu` + 건물 id 로) 그리고 이 ADR 을 개정한다.
+   - **공존 기간의 Spark 시간 예산.** 퇴역 전에는 HUB 릴리스 하나가 Gold 다섯(`gold.building_panel`,
+     `gold.unit_price_panel`, 옮겨진 건물 종류 셋)을 부른다. 다섯은 등록된 `gold_panel_rebuild` 작업 하나 안에서 차례로
+     돌고, 그 작업은 `spark` 풀 3 슬롯을 다 쓰며 `orchestration/jobs.v1.json` 의 자기 `timeout_minutes` 안에 끝나야
+     한다. 종류를 더하는 PR 은 직전 릴리스의 `gold-kind` 줄 합(묶음 포함)에 새 종류의 측정치를 더한 값이 그 한도 안인지
+     PR 에 적는다. 넘으면 한도를 올리기 전에 묶음 쪽을 줄인다: 대등성 검사(6-2)를 마친 종류의 섹션은 묶음 생산자가
+     증분에서 다시 만들지 않게 할 수 있다(그 종류의 레인이 웹의 정본이 된 뒤에만). 풀은 필지 판·계보·지도 접기와
+     하루를 나누므로 한도를 올리는 것은 풀의 하루 계획을 다시 재는 결정이다(ADR-0138).
 8. **비용 원칙.** 새 레인의 R2 쓰기는 동 묶음뿐이다(전량 세대 = 묶음 수 + 조각 색인 + manifest). 패치는 바뀐 동만.
    안 바뀐 종류는 쓰기 0. 돈이 드는 대량 작업(전량 굽기·관문 읽기)은 운영자가 금액을 보고 승인한 뒤에 돈다. 금액은
    공개 저장소에 적지 않는다.
@@ -161,6 +219,8 @@
 - 첫 화면 요청이 하나에서 셋이 된다. HTTP/2 한 연결 위의 병렬 요청이고 각 문서는 수백 바이트다.
 - 퇴역 전까지 두 체계를 함께 만든다: Gold 계산·R2 저장이 일시적으로 늘어난다.
 - 레인이 늘면 Worker 의 manifest 읽기가 레인 수만큼 는다(각 60 초 엣지 캐시). 측정 대상이다.
+- 레인 사이 고정(3항)과 발행 순서(4항) 때문에 기준 종류(표제부·용도지역 판정)의 Gold 나 굽기가 실패하면 같은
+  호스트의 다른 종류도 그날 새 판을 내지 않는다. 고아 호나 엇갈린 필지를 보이는 것보다 하루 늦는 것을 고른다.
 - 토지대장은 Silver 가 생길 때 같은 규칙으로 종류 하나가 된다.
 
 ### 기각한 대안
