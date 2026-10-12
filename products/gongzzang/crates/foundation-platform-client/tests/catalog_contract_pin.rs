@@ -8,8 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const PROVIDER_SNAPSHOT: &[u8] = include_bytes!("../openapi/catalog.v1.json");
-const CONSUMER_PIN: &str =
-    include_str!("../../../docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json");
+const CONSUMER_PIN: &str = "docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json";
 
 #[derive(Debug, Deserialize)]
 struct ContractPin {
@@ -32,7 +31,9 @@ struct EndpointPin {
 
 #[test]
 fn catalog_snapshot_hash_and_consumed_surface_match_the_pin() -> Result<(), Box<dyn Error>> {
-    let pin: ContractPin = serde_json::from_str(CONSUMER_PIN)?;
+    let product_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let pin: ContractPin =
+        serde_json::from_str(&std::fs::read_to_string(product_root.join(CONSUMER_PIN))?)?;
     let openapi: Value = serde_json::from_slice(PROVIDER_SNAPSHOT)?;
 
     assert_eq!(pin.source_path, "docs/openapi/catalog.v1.json");
@@ -55,7 +56,6 @@ fn catalog_snapshot_hash_and_consumed_surface_match_the_pin() -> Result<(), Box<
             .adapter_module
             .starts_with("services/gongzzang-api/src/"));
         // A pinned endpoint whose adapter was deleted is a surface nobody consumes any more.
-        let product_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         assert!(
             product_root.join(&endpoint.adapter_module).is_file(),
             "{} pins adapter {} which does not exist; drop the stale endpoint from the pin",
