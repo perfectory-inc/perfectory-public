@@ -113,6 +113,11 @@ jobs:
             --out "$RUNNER_TEMP/rust-cache-artifacts.txt"
           python3 scripts/ci/workspace_build_cache.py restore \
             --stash "$RUNNER_TEMP/workspace-build" --matched-key "$MATCHED_KEY"
+          # Workspace crates keep file:line backtraces but not full debug info:
+          # measured, the stash shrinks 3.08 -> 2.57 GB and a cold build of the
+          # workspace 4m10s -> 3m04s. Dependencies keep their `debug = 1`
+          # override, so the rust-cache key and contents do not change (ADR-0201).
+          echo "CARGO_PROFILE_DEV_DEBUG=line-tables-only" >>"$GITHUB_ENV"
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
         with:

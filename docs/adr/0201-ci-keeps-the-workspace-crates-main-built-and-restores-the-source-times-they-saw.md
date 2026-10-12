@@ -53,7 +53,7 @@ sccache(GHA 백엔드)는 이 시간을 줄이지 못한다. 링커를 부르는
 3. **퇴출을 보이게 한다.** 복원 단계가 매 실행 작업 요약에 적는다: 복원한 키와 산출물 수, 그 빌드 이후 바뀐 추적
    파일 수, 저장소 Actions 캐시 사용량/상한, 이 접두사의 보관본 수와 크기, 다음 퇴출 후보(마지막 사용이 가장 오래된
    셋). 복원 실패는 `::warning::` 이고 사용량 90% 이상도 `::warning::` 이다.
-4. **첫 적용은 Foundation `rust-quality` 잡 하나다.** 측정 뒤 같은 단계를 `postgres-integration` 에 넓힌다.
+4. **첫 적용은 Foundation `rust-quality` 잡 하나다.** `postgres-integration` 으로 넓히는 것은 캐시 상한 여유가 생긴 뒤다(아래).
 
 ### 기각한 대안
 
@@ -70,9 +70,28 @@ sccache(GHA 백엔드)는 이 시간을 줄이지 못한다. 링커를 부르는
 
 ## Consequences
 
-- 측정은 PR 본문에 있다(같은 PR 에서 콜드 실행과 재사용 실행).
-- 하루에 보관본이 하나 생긴다. 같은 날 뒤의 main 변경은 다음 날 보관본까지 PR 에서 다시 빌드된다. 크기는 요약에 매번 나온다. 상한 압박이 보이면 디버그 정보를
-  줄이는 것(`CARGO_PROFILE_DEV_DEBUG`)이 다음 손잡이다.
+- 측정(2026-10-12, 버리는 측정 브랜치의 workflow_dispatch, 의존성 캐시는 네 번 모두 같은 키로 적중):
+
+  | rust-quality | 콜드(full debug) | 재사용(full debug) | 콜드(line-tables-only) | 재사용(line-tables-only) |
+  |---|---|---|---|---|
+  | clippy 작업 공간 | 54.8s | 1.6s | 41.8s | 1.1s |
+  | 테스트 빌드 | 2m09s | 0.8s | 1m45s | 0.7s |
+  | 정적 툴체인 publisher 빌드 | 53s | 0.3s | 36s | 0.3s |
+  | 보관본 복원 | — | 44s | — | 42s |
+  | 보관본 크기(zstd) | 3.08GB | | 2.57GB | |
+
+  나머지 잡 시간은 테스트 실행(약 11분)이고 이 ADR 의 범위가 아니다.
+- **작업 공간 크레이트는 `line-tables-only` 디버그 정보로 빌드한다**(`CARGO_PROFILE_DEV_DEBUG`, 복원 단계가 잡 환경에
+  내보낸다). 역추적의 파일:줄은 남는다. 의존성은 `[profile.dev.package."*"] debug = 1` 이 이기므로 rust-cache 의 키와
+  내용은 그대로다. rust-cache 단계 뒤에 내보내므로 그 키 해시에도 들어가지 않는다.
+- 보관본 9.8GB(압축 전)의 거의 전부가 실행 파일 198개다. 가장 큰 넷이 publisher 의 바이너리·테스트 하네스를 두
+  feature 집합(`--workspace --all-features` 와 패키지 단위)으로 만든 것(각 0.9GB)이다. 실행 파일을 빼면 그 크레이트를
+  다시 컴파일하므로(publisher 하네스 2분) 뺄 수 없다. 더 줄이려면 feature 집합을 하나로 만드는 것이 손잡이다.
+- 하루에 보관본이 하나(2.6GB) 생긴다. 같은 날 뒤의 main 변경은 다음 날 보관본까지 PR 에서 다시 빌드된다. 크기와
+  저장소 사용량은 요약에 매번 나온다. 저장소 캐시는 이 변경 전부터 상한을 넘어 있다(측정 시 9.6–12.0GB): rust-quality 와
+  postgres-integration 의 의존성 캐시를 하나로 합치는 것은 기각했다 — verify 는 `--workspace --all-features`,
+  통합 레인은 패키지 단위로 빌드해 의존성 feature 집합이 달라, 먼저 저장한 잡이 키를 차지하면 다른 잡이 매번 자기 몫을
+  다시 컴파일한다.
 - 검사: `scripts/ci/test_workspace_build_cache.py` 가 실제 cargo 작업 공간으로 “안 바뀐 크레이트는 Fresh,
   바뀐 크레이트는 Compiling”을 확인하고, rust-quality 잡이 매번 먼저 돌린다. 시각 복원을 빼거나 blob 비교를 빼면
   실패함을 확인했다. 마이그레이션 디렉터리에 파일을 더하거나 지우면 그 패키지가 다시 빌드되는지도 실제 cargo 로
