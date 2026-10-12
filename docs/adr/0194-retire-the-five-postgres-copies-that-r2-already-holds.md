@@ -154,3 +154,9 @@ Airflow DAG와 systemd 유닛 가운데 두 표를 부르는 것은 없다. 나�
 - foundation-api의 catalog 읽기 경로가 줄어든다. gongzzang-api의 건물 중계 둘이 사라진다. 웹 화면은 바뀌지
   않는다.
 - 첫 전국 필지 굽기는 서버 자원을 쓴다. Spark 서빙본과 tippecanoe를 돌린다. 디스크는 `/data`만 쓴다.
+
+## Revision notes
+
+- 2026-10-13 (§3 이행 기록): gongzzang-api에서 지운 중계는 `/api/buildings`, `/api/buildings/{id}/units`에 더해
+  `/api/floors`도 있다. 같은 foundation-api 읽기를 중계했고 웹은 R2 엣지에서 층을 읽는다(PR #438).
+  웹 `preview-floors/page.tsx` 각주의 출처는 `building-edge (R2)`로 고쳤다(PR #442).

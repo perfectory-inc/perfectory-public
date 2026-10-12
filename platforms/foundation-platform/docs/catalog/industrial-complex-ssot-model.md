@@ -151,11 +151,14 @@ DB/API 이름은 `object_key` 와 `objectKey` 를 쓴다. `s3_key`, `s3Key`, `S3
 > 빠진 것이 아니라 없애기로 한 것이다. `anchor-summary`는 등록부가 Dawneer를 지명하므로 남으며,
 > [ADR-0019](../../../../docs/adr/0019-membership-is-a-dated-fact-not-a-column.md)의 읽기 이전
 > 대상이다.
+>
+> **2026-10-12.** `anchor-summary`, `GET /parcels/{id}`, `PATCH /parcels/{id}/kind`, by-PNU 건물·호
+> 목록과 건물 조회도 **삭제됐다.** 필지·건물·호는 R2 엣지 묶음이 서비스한다 —
+> [ADR-0194](../../../../docs/adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md) §3.
 
 | Endpoint | Consumer | 설명 |
 |---|---|---|
 | `GET /catalog/v1/complexes/{id}` | 모두 | 산업단지 기본 정보 |
-| `GET /catalog/v1/parcels/{id}` | 모두 | 단일 필지 |
 | `GET /catalog/v1/complexes/{id}/notices` | Dawneer 중심 | 공지/고시 |
 | `GET /catalog/v1/complexes/{id}/attachments` | 모두 | 공식 첨부/이미지 |
 | `GET /catalog/v1/complexes/{id}/blueprints` | Dawneer 중심 | 도면 |

@@ -379,7 +379,7 @@ export default async function PreviewFloorsPage() {
       </section>
 
       <p className="pf-foot">
-        {COPY.footnote} <code>catalog.building / building_unit</code> {COPY.footnoteDetail}
+        {COPY.footnote} <code>building-edge (R2)</code> {COPY.footnoteDetail}
       </p>
     </main>
   );

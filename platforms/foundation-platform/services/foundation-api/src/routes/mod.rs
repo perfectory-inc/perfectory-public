@@ -847,16 +847,10 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", "complexes", _, "archive"] => {
             "/catalog/v1/complexes/{id}/archive".to_owned()
         }
-        ["catalog", "v1", "complexes", _, "anchor-summary"] => {
-            "/catalog/v1/complexes/{id}/anchor-summary".to_owned()
-        }
-        ["catalog", "v1", "parcels", "by-pnu", _, "buildings"] => {
-            "/catalog/v1/parcels/by-pnu/{pnu}/buildings".to_owned()
-        }
-        // The parcel by-PNU detail route was retired (root ADR-0109), but requests still arrive
-        // (old clients, scanners) and 404. Keep the PNU normalized so those 404s stay one metric
-        // label instead of one per PNU — this normalizer bounds cardinality, it does not route.
-        ["catalog", "v1", "parcels", "by-pnu", _] => "/catalog/v1/parcels/by-pnu/{pnu}".to_owned(),
+        // Every by-PNU parcel read was retired (root ADR-0109, ADR-0194 §3), but requests still
+        // arrive (old clients, scanners) and 404. Keep the PNU normalized so those 404s stay one
+        // metric label instead of one per PNU — this normalizer bounds cardinality, it does not route.
+        ["catalog", "v1", "parcels", "by-pnu", ..] => "/catalog/v1/parcels/by-pnu/{pnu}".to_owned(),
         ["catalog", "v1", "complexes", _, "notices"] => {
             "/catalog/v1/complexes/{id}/notices".to_owned()
         }
@@ -890,11 +884,9 @@ fn canonical_route_label(path: &str) -> String {
         ["catalog", "v1", action] if action == &"parcel-marker-anchors:rebuild" => {
             "/catalog/v1/parcel-marker-anchors:rebuild".to_owned()
         }
-        ["catalog", "v1", "parcels", _] => "/catalog/v1/parcels/{id}".to_owned(),
         ["catalog", "v1", "parcels", _, "industry-assignments"] => {
             "/catalog/v1/parcels/{id}/industry-assignments".to_owned()
         }
-        ["catalog", "v1", "parcels", _, "kind"] => "/catalog/v1/parcels/{id}/kind".to_owned(),
         ["internal", "normalization", "proposals"] => {
             "/internal/normalization/proposals".to_owned()
         }
