@@ -223,10 +223,29 @@ def unit_areas(areas):
     return sums.join(top, "mgm_bldrgst_pk")
 
 
-def build_units(units, titles, areas, prices):
-    links = titles.select(F.col("pnu").alias("_parent_pnu"), F.col("mgm_bldrgst_pk").alias("building_register_pk"), F.col("id").alias("building_id"))
+def unit_placement(units, titles):
+    """Each unit with the building it hangs off (`_parent_pnu`, `building_register_pk`, `building_id`,
+    NULL when unlinked) and `serving_pnu`, the PNU whose document carries it: its building's when
+    linked, its own when not. The unit price history Gold places its rows with this same function
+    (root ADR-0189), so a unit's prices are served under the PNU its building document is."""
+    links = titles.select(F.col("pnu").alias("_parent_pnu"), F.col("mgm_bldrgst_pk").alias("building_register_pk"),
+                          canonical_id("building", F.col("mgm_bldrgst_pk")).alias("building_id"))
     units = verified_building_links(units).withColumn("building_register_pk", text_or_null("building_mgm_bldrgst_pk"))
-    joined = units.join(links, "building_register_pk", "left").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
+    placed = units.join(links, "building_register_pk", "left")
+    return placed.withColumn("serving_pnu", F.when(F.col("building_id").isNotNull(), F.col("_parent_pnu")).otherwise(F.col("pnu")))
+
+
+def checked_prices(prices):
+    """The price rows, refused when a (register, reference date) repeats or a value is invalid."""
+    assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
+    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
+                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
+        raise ValueError("unit official price has an invalid base_date or negative price")
+    return prices
+
+
+def build_units(units, titles, areas, prices):
+    joined = unit_placement(units, titles).drop("serving_pnu").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
     number, kind = F.col("floor_number"), F.col("floor_kind")
     label = (F.when(number.isNull(), F.lit(""))
              .when(kind == "basement", F.concat(F.lit("지하 "), number.cast("string"), F.lit("층")))
@@ -240,11 +259,7 @@ def build_units(units, titles, areas, prices):
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
-    assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
-    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
-                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
-        raise ValueError("unit official price has an invalid base_date or negative price")
-    histories = prices.groupBy("mgm_bldrgst_pk").agg(
+    histories = checked_prices(prices).groupBy("mgm_bldrgst_pk").agg(
         F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
     # Match price to unit by the unique register key (mgm_bldrgst_pk), not by
     # (pnu, dong, ho): dong_name is empty for single-building complexes, so the

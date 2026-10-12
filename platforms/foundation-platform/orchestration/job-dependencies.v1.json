@@ -1212,6 +1212,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.unit_price_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_history,PROD)",
+          "node_id": "gold-unit-price-history",
+          "title": "호 공시가격 이력",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.unit_official_price",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
           "node_id": "silver-unit-official-price",

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # The scheduled panel Gold rebuild (root ADR-0139, ADR-0122).
 #
-#   gold-panel-rebuild.sh parcel|building|all [--dry-run] [--unconditional <reason>]
+#   gold-panel-rebuild.sh parcel|building|unit-price|all [--dry-run] [--unconditional <reason>]
 #   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
-# `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, in the order of
+# `all` (the registered job) rebuilds gold.parcel_panel, then gold.building_panel, then
+# gold.unit_price_history (root ADR-0189), in the order of
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. One Spark run at a time: each takes
 # the whole compose `spark` cap (root ADR-0138). A failed table does not stop the other; `all`
 # fails if either did. One run of a table:
@@ -65,9 +66,9 @@ while (($#)); do
   esac
 done
 case "${UNIT}" in
-  parcel | building) ;;
+  parcel | building | unit-price) ;;
   all) ;;
-  *) echo "gold-panel-rebuild: expected parcel, building, all or cleanup, got '${UNIT}'" >&2; exit 64 ;;
+  *) echo "gold-panel-rebuild: expected parcel, building, unit-price, all or cleanup, got '${UNIT}'" >&2; exit 64 ;;
 esac
 # A run outside systemd (a supervised manual run) names its own project; ExecStopPost is not there
 # to clean it, so the operator is told how.
@@ -100,6 +101,7 @@ if [[ "${UNIT}" == all ]]; then
   export GOLD_PANEL_REBUILD_COMMITTED
   "${BASH_SOURCE[0]}" parcel ${OPTIONS[@]+"${OPTIONS[@]}"} || status=$?
   "${BASH_SOURCE[0]}" building ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
+  "${BASH_SOURCE[0]}" unit-price ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
   if [[ -s "${GOLD_PANEL_REBUILD_COMMITTED}" ]]; then
     echo "foundation-job-outcome changed"
   else
@@ -144,11 +146,11 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1
 }
 
-# 0. The building panel's unit prices (root ADR-0182): silver.unit_official_price joins the two hub
+# 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0189): silver.unit_official_price joins the two hub
 # tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
 # The join belongs to this job because only this job reads it, and because the spark pool has no
 # room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.
-if [[ "${UNIT}" == building ]] && ((${#VALIDATE[@]} == 0)); then
+if [[ "${UNIT}" == building || "${UNIT}" == unit-price ]] && ((${#VALIDATE[@]} == 0)); then
   if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
     grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
     log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
