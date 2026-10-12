@@ -117,6 +117,8 @@ fi
 UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Units that move the panel Gold, and the bakes that read it (root ADR-0166).
 GOLD_SCHEDULED=foundation-gold-panel-rebuild.service
+# The data kinds' rebuild (root ADR-0193): it moves the kind Golds a kind lane bakes.
+GOLD_KINDS=foundation-gold-kind-rebuild.service
 GOLD_UNIT=foundation-gold-panel-rebuild-unconditional
 BAKE_SCHEDULED=foundation-by-pnu-serving-bake.service
 PACK_BAKES='foundation-*-pack-bake-g*.service'
@@ -239,7 +241,7 @@ PY
       ;;
     start)
       # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
-      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
       running="$(running_units 'foundation-silver-refresh@*.service')"
       [[ -z "${running}" ]] || refuse "another Silver refresh lane is running" 75
       log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
@@ -276,8 +278,9 @@ fi
 TABLE_UNIT=""
 if [[ "${LANE}" == gold ]]; then
   (($# == 1)) || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json"
-  mapfile -t table_units < <(python3 -I -c 'import json, sys; print("\n".join(t["unit"] for t in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))' \
-    "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
+  # Every table's unit, the kind lines' too (root ADR-0193 §9; gold_rebuild.load_contract).
+  mapfile -t table_units < <(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import gold_rebuild; print("\n".join(t["unit"] for t in gold_rebuild.load_contract()["tables"].values()))' \
+    "${RELEASE}/infra/lakehouse/spark/jobs")
   printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
   TABLE_UNIT="$1"
   shift
@@ -286,7 +289,7 @@ fi
 
 if [[ "${ACTION}" == gold-rebuild ]]; then
   (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds the panel Gold tables, and its reason is fixed"
-  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
   refuse_while_baking
   # The scheduled unit is the one definition of how a rebuild runs: account, environment files,
   # time bound, the Spark cleanup after every exit, sandbox and state directory. This starts a
@@ -331,8 +334,8 @@ PY
     command=("${unit[0]}" "${TABLE_UNIT}")
   elif is_pack_lane "${LANE}"; then
     # The lane's own Gold, by the rebuild contract's unit for its table (root ADR-0193 §3).
-    table_unit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["tables"][sys.argv[2]]["unit"])' \
-      "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json" "$(contract "${GATEWAY_BLOCK}.gold_table")")" \
+    table_unit="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds, gold_rebuild; print(gold_rebuild.load_contract()["tables"][by_pnu_kinds.lane_fields(sys.argv[2])["gold_table"]]["unit"])' \
+      "${RELEASE}/infra/lakehouse/spark/jobs" "${LANE}")" \
       || refuse "the rebuild contract has no table for the ${LANE} lane's Gold" 65
     command=("${unit[0]}" "${table_unit}")
   else
@@ -369,7 +372,7 @@ case "${ACTION}" in
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
       [[ ! -f "${WORK}/logs/${action}.log" ]] || tail -3 "${WORK}/logs/${action}.log" | cut -c1-300
     done
-    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${BAKE_SCHEDULED}"; do
+    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${BAKE_SCHEDULED}"; do
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
     done
     [[ ! -f "${GOLD_LOG}" ]] || tail -3 "${GOLD_LOG}" | cut -c1-300
@@ -385,7 +388,7 @@ case "${ACTION}" in
     # file, and this step replaces its own line there.
     [[ -s "${WORK}/equality.json" ]] || refuse "${WORK}/equality.json does not exist; run equality first" 65
     group="${LANE}-serving-monitor"
-    [[ "${GATEWAY_BLOCK}" == "${LANE}_by_pnu_gateway" || "${GATEWAY_BLOCK}" == by_pnu_lanes.* ]] || group=by-pnu-kind-serving-monitor
+    ! is_pack_lane "${LANE}" || group="$(python3 -I "${RELEASE}/infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${LANE}" monitor_group)"
     file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2]))' \
       "${RELEASE}/config/runtime-secrets.contract.json" "${group}")"
     file="${ETC}/$(basename "${file}")"
@@ -413,7 +416,7 @@ case "${ACTION}" in
   bake)
     # A Gold that moves under the bake stops it; the lane lock (the bake takes it) keeps it apart
     # from the scheduled bake.
-    refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
+    refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-bake)"
     # Each worker exports one shard; the scheduled bake's MemoryMax is the measured bound of one
     # shard's export (its unit file says how it was measured), so the bake gets one per worker.

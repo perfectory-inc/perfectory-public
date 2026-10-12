@@ -439,7 +439,8 @@
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
-        "gold_panel_rebuild"
+        "gold_panel_rebuild",
+        "gold_kind_rebuild"
       ],
       "reads": [
         {
@@ -1260,6 +1261,48 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
+          "node_id": "gold-parcel-panel",
+          "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.unit_price_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
+          "node_id": "silver-unit-official-price",
+          "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "gold_kind_rebuild",
+      "producers": [
+        "gold_panel_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
+          "node_id": "gold-parcel-panel",
+          "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
           "dataset": "iceberg://gold.parcel_characteristics",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
@@ -1280,14 +1323,6 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://gold.parcel_panel",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
-          "node_id": "gold-parcel-panel",
-          "title": "필지 by-PNU 제공용 패널",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1314,29 +1349,14 @@
           "title": "필지 용도지역 판정 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://gold.unit_price_panel",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
-          "node_id": "gold-unit-price-panel",
-          "title": "호 공시가격 by-PNU 패널",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://silver.unit_official_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
-          "node_id": "silver-unit-official-price",
-          "title": "세대별 기준일 공시가격",
-          "kind": "silver_table",
-          "surface_kind": null
         }
       ]
     },
     {
       "id": "by_pnu_serving_bake",
       "producers": [
-        "gold_panel_rebuild"
+        "gold_panel_rebuild",
+        "gold_kind_rebuild"
       ],
       "reads": [
         {

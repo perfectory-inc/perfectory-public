@@ -108,6 +108,9 @@ class OperatorHarness(unittest.TestCase):
         # What the operator reads from the release: its contracts, its secrets tool, its admission.
         for part in ("config", "scripts/deploy", "infra/systemd", "infra/lakehouse/contracts", "orchestration"):
             shutil.copytree(PLATFORM / part, release / part)
+        # The lanes' derived fields and the rebuild's tables (root ADR-0193 §9) are read through these.
+        shutil.copytree(PLATFORM / "infra/lakehouse/spark/jobs", release / "infra/lakehouse/spark/jobs",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
         for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",

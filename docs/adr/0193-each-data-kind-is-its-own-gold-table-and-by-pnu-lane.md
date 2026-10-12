@@ -222,15 +222,19 @@
    | 무엇 | 어디서 유도 |
    |---|---|
    | Gold 표 `gold.<레인의 - 를 _>`, 열(`pnu`, 내용 열, 필지 종류는 `attached_via`, 지문·계보) | lakehouse-domain `by_pnu_kind.rs` → 계약 산출물 → ODCS |
-   | 재생성 항목(생산자 실행·한도·증분·호스트 패널 고정과 대등성) | `gold-panel-rebuild.contract.json` `kind_tables` 틀 하나, `gold_rebuild.load_contract` |
+   | 재생성 항목(생산자 실행·한도·증분·호스트 패널 고정과 대등성, 측정 안 된 입력은 호스트 패널 것) | `gold-panel-rebuild.contract.json` `kind_tables` 틀 하나, `gold_rebuild.load_contract` |
+   | 실행 | 패널 작업(`gold_panel_rebuild`)이 아니라 종류 작업(`gold_kind_rebuild`, `gold-panel-rebuild.sh kinds`) 하나가 종류를 차례로 돈다. 패널 Gold 가 커밋되면 시작되고(데이터 지도의 패널→종류 연결선), 같은 잠금을 써서 패널 재생성과 겹치지 않는다. 시간 안에 못 끝낸 종류는 지금 Gold 를 유지하고 다음 실행에서 이어진다 |
    | 생산자 | `by_pnu_kind_silver_to_gold.py --lane <레인>` 하나가 호스트 패널의 `SECTIONS` 표에서 그 섹션 함수를 그대로 부른다 |
    | 레인 경로·문서 스키마·기준 레인(호스트)·지연 상한·따르는 레인(호스트) | 4항 규칙, `by_pnu_lane_rule.latency_p95_max_ms` |
    | 굽기 job capability | 종류 공통 `by_pnu_kind_section_pack_patches` 하나 |
    | 감시 표본 경로 | 종류 공통 비밀 묶음 `by-pnu-kind-serving-monitor` 의 레인별 한 줄 |
 
-   손으로 남는 것은 데이터 지도(`pipeline-graph.v1.json`)의 노드·엣지다. 지도는 문서 SSOT 이고 가드가 새 Gold 표의
-   노드를 요구하므로 빠뜨릴 수 없다. 건물 종류(표제부·층·호)는 건물 패널의 조립을 섹션 표로 나눈 뒤 같은 방식으로
-   한 줄씩 더한다(다음 PR).
+   계약 줄 밖에서 종류마다 손으로 적는 것은 데이터 지도와 작업 목록의 연결이다: 지도에 Gold 노드·묶음 노드와
+   패널→종류·종류→묶음 연결선 넷, `jobs.v1.json` 의 종류 작업·굽기 작업에 그 두 연결선(지도 예제·작업 의존 파일·
+   ODCS·한국어 지도는 생성물). 콘솔과 API 가 이 목록을 그대로 읽으므로 생성하지 않고, 시험 하나
+   (`test_every_kind_line_is_wired_into_the_data_map_and_both_jobs`)가 줄마다 빠진 것을 이름으로 거부한다.
+   종류의 지도 입력은 Silver 가 아니라 호스트 패널이다: 종류는 패널의 핀에 고정되고 패널과 대조되므로, 패널이
+   바뀌어야 종류가 바뀐다.
 
 ## Consequences
 

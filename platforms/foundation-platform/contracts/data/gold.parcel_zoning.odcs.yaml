@@ -72,7 +72,4 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
-      - "silver.land_use_plan"
-      - "silver.land_use_zone_code"
-      - "silver.parcel_boundaries"
-      - "silver.parcel_lineage"
+      - "gold.parcel_panel"

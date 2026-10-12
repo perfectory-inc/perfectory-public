@@ -11,9 +11,13 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import unittest
 
 from test_by_pnu_pack_operator import CONTRACT, PLATFORM, OperatorHarness
+
+sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/jobs"))
+import by_pnu_kinds  # noqa: E402
 
 LANE = "unit-price"
 JOBS = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
@@ -47,6 +51,14 @@ class LaneCutover(OperatorHarness):
         (work / "latency.json").write_text(json.dumps({"passed": True}))
         return work
 
+    def mark_cut_over(self, *lanes):
+        """Write each lane's monitor sample where monitor-sample would: its own file, or the kinds' one
+        file a line each (root ADR-0193 §9)."""
+        for lane in lanes:
+            path = self.etc / f"{by_pnu_kinds.lane_fields(lane)['monitor_group']}.env"
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"FOUNDATION_PLATFORM_{lane.replace('-', '_').upper()}_BY_PNU_SERVING_MONITOR_SAMPLE_PATH=/x\n")
+
     def evidence(self):
         (path,) = (self.bake / "cutover").glob("*.jsonl")
         return [json.loads(line) for line in path.read_text().splitlines()]
@@ -76,7 +88,7 @@ class LaneCutover(OperatorHarness):
                 self.assertEqual(calls, [])
 
     def test_a_lane_gold_rebuild_is_its_own_table_and_waits_only_for_the_runner(self):
-        table = CONTRACT["by_pnu_lanes"][LANE]["gold_table"]
+        table = by_pnu_kinds.lane_fields(LANE)["gold_table"]
         contract = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
                               .read_text(encoding="utf-8"))
         unit = contract["tables"][table]["unit"]
@@ -124,13 +136,14 @@ class LaneCutover(OperatorHarness):
         self.assertTrue(all(isinstance(step["seconds"], int) and step["generation"] == 1 for step in steps))
         # A table with no declared parity is never reported as a passed parity.
         parity = next(step for step in steps if step["step"] == "parity")
-        table = CONTRACT["by_pnu_lanes"][LANE]["gold_table"]
+        table = by_pnu_kinds.lane_fields(LANE)["gold_table"]
         rebuild = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
                              .read_text(encoding="utf-8"))["tables"][table]
         declared = (rebuild.get("pins_from") or {}).get("parity_argument")
         self.assertEqual(parity["outcome"], "passed" if declared else "not-declared")
         self.assertEqual({step["outcome"] for step in steps if step["step"] != "parity"}, {"passed"})
         # `lanes` now finds nothing left to cut over and starts nothing.
+        self.mark_cut_over(*[lane for lane in CONTRACT["by_pnu_lanes"] if lane != LANE])
         self.log.unlink()
         result, calls = self.runner("lanes", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -142,7 +155,7 @@ class LaneCutover(OperatorHarness):
         # head it made was never checked on every PNU: the cut-over must not serve it.
         contract_path = self.release / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
-        table = CONTRACT["by_pnu_lanes"][LANE]["gold_table"]
+        table = by_pnu_kinds.lane_fields(LANE)["gold_table"]
         contract["tables"][table].setdefault("pins_from", {})["parity_argument"] = "--parity-panel-snapshot-id"
         contract_path.write_text(json.dumps(contract), encoding="utf-8")
         self.gates_ready()
@@ -262,10 +275,17 @@ class LaneCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         for lane in CONTRACT["by_pnu_lanes"]:
             self.assertIn(f"dry run {lane} gold:", result.stderr)
-        (self.etc / f"{LANE}-serving-monitor.env").write_text("cut over\n")
+        self.mark_cut_over(LANE)
         result, _ = self.run_operator("lanes", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(f"dry run {LANE} gold:", result.stderr)
+        # The kinds share one monitor file: one kind's line there leaves the others to cut over.
+        kinds = list(by_pnu_kinds.kinds())
+        self.mark_cut_over(kinds[0])
+        result, _ = self.run_operator("lanes", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(f"dry run {kinds[0]} gold:", result.stderr)
+        self.assertIn(f"dry run {kinds[1]} gold:", result.stderr)
 
 
 if __name__ == "__main__":

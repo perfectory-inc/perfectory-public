@@ -59,15 +59,18 @@ class PlanError(ValueError):
     pass
 
 
-def kind_tables(template: dict[str, Any], kinds: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
+                panels: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """One table entry per by-PNU data kind (root ADR-0193), from the contract's `kind_tables`."""
     tables = {}
     for lane, kind in kinds.items():
         pin = template["pins_from_host_panel"]
         tables[kind.gold_table] = {
             "unit": lane, "lane": lane, "producer": template["producer"], "producer_arguments": ["--lane", lane],
-            **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "incremental", "spark",
-                                        "unmeasured_inputs") if k in template},
+            **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "incremental", "spark")
+               if k in template},
+            # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
+            "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
             "pins_from": {"gold_table": kind.host_panel, "inputs": "all", "parity_argument": pin["parity_argument"],
                           "reason": pin["reason"]},
         }
@@ -81,7 +84,7 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
         raise PlanError("gold rebuild contract names no tables")
     if "kind_tables" in contract:
         import by_pnu_kinds
-        derived = kind_tables(contract["kind_tables"], by_pnu_kinds.kinds() if kinds is None else kinds)
+        derived = kind_tables(contract["kind_tables"], by_pnu_kinds.kinds() if kinds is None else kinds, tables)
         clash = sorted(set(derived) & set(tables))
         if clash:
             raise PlanError(f"{clash} are kind tables: their line in the R2 connection contract is their entry")

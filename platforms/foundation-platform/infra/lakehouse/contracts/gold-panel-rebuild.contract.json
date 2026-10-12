@@ -59,9 +59,6 @@
     "producer": "by_pnu_kind_silver_to_gold",
     "max_row_loss_fraction": 0.01,
     "max_row_loss_reason": "One row per PNU that has the kind's section, a subset of its host panel's rows. A monthly vintage moves those PNUs by far less than 1%; losing more means an input lost a region or a join broke, which must not reach the bake.",
-    "unmeasured_inputs": {
-      "silver.parcel_lineage": "As for gold.parcel_panel: no run carrying the lineage was measured, and a kind's inputs are pinned to its host panel's, which has none."
-    },
     "incremental": {
       "max_changed_key_fraction": 0.3,
       "parity_sample_keys": 20000,

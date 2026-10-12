@@ -239,6 +239,10 @@ class ByPnuServingBake(unittest.TestCase):
         for name in ("by-pnu-serving-bake.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh"):
             (release / "scripts/ops" / name).write_bytes((OPS / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        # A lane's derived fields (the lane it follows) are read through it (root ADR-0193 §9).
+        (release / "infra/lakehouse/spark/jobs").mkdir(parents=True)
+        (release / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").write_bytes(
+            (job_specs.PLATFORM_ROOT / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
