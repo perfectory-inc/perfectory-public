@@ -55,7 +55,6 @@ mod bronze_schema_profile;
 mod building_hub_bronze_catalog_recovery;
 mod building_hub_bulk_collection_plan;
 mod building_hub_bulk_ingest;
-use foundation_publisher_core::building_link_evidence;
 use foundation_publisher_silver::building_register_floor_silver_export;
 mod building_register_ingest;
 mod building_register_local_bronze_proof;
@@ -125,14 +124,10 @@ pub(crate) mod test_support {
     }
 }
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
-mod building_catalog_projection_load;
-mod building_unit_building_link_load;
-mod building_unit_catalog_projection_load;
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_by_pnu::by_pnu_serving_rebase;
 use foundation_publisher_by_pnu::by_pnu_serving_state;
 use foundation_publisher_core::by_pnu_gateway_contract;
-use foundation_publisher_core::handoff_manifest_support;
 mod handoff_object_support;
 mod lakehouse_bake_verdict;
 mod lakehouse_tile_bake;
@@ -159,7 +154,6 @@ mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
 use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
-mod parcel_catalog_projection_load;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_artifact_export;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_artifact_build;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_manifest_promote;
@@ -313,10 +307,6 @@ enum Command {
     ReaddressStaticRelease,
     ExportMapEditHandoff,
     BakeLakehouseTiles,
-    LoadBuildingCatalogProjection,
-    LoadBuildingUnitBuildingLink,
-    LoadBuildingUnitCatalogProjection,
-    LoadParcelCatalogProjection,
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
@@ -643,12 +633,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishParcelBoundaryStaticRelease => {
             Box::pin(parcel_boundary_static_release_publish::run())
         }
-        Command::LoadBuildingCatalogProjection => Box::pin(building_catalog_projection_load::run()),
-        Command::LoadBuildingUnitBuildingLink => Box::pin(building_unit_building_link_load::run()),
-        Command::LoadBuildingUnitCatalogProjection => {
-            Box::pin(building_unit_catalog_projection_load::run())
-        }
-        Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
         }
@@ -1238,12 +1222,6 @@ where
         Some("publish-parcel-boundary-static-release") => {
             Ok(Command::PublishParcelBoundaryStaticRelease)
         }
-        Some("load-building-catalog-projection") => Ok(Command::LoadBuildingCatalogProjection),
-        Some("load-building-unit-building-link") => Ok(Command::LoadBuildingUnitBuildingLink),
-        Some("load-building-unit-catalog-projection") => {
-            Ok(Command::LoadBuildingUnitCatalogProjection)
-        }
-        Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),

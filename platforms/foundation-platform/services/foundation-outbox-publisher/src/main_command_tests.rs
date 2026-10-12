@@ -1198,3 +1198,16 @@ fn every_silver_refresh_lane_exports_through_a_publisher_command() -> anyhow::Re
     }
     Ok(())
 }
+
+#[test]
+fn the_retired_catalog_loaders_are_not_commands() {
+    // ADR-0194 §4: nothing writes catalog.parcel, catalog.building or catalog.building_unit.
+    for retired in [
+        "load-parcel-catalog-projection",
+        "load-building-catalog-projection",
+        "load-building-unit-catalog-projection",
+        "load-building-unit-building-link",
+    ] {
+        assert!(parse_command(["publisher", retired]).is_err(), "{retired}");
+    }
+}
