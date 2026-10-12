@@ -6,8 +6,8 @@
 #   by-pnu-pack-operator.sh <building|parcel> equality <generation>
 #   by-pnu-pack-operator.sh <building|parcel> latency <generation>
 #   by-pnu-pack-operator.sh <building|parcel> publish <generation>
-#   by-pnu-pack-operator.sh <building|parcel> monitor-sample <generation>
-#   by-pnu-pack-operator.sh <building|parcel> health <new-version-id> [<old-version-id>] | --preflight
+#   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> monitor-sample <generation>
+#   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> health <new-version-id> [<old-version-id>] | --preflight
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
@@ -58,11 +58,12 @@ PY
 )
 is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" ACTION="${2:-}"
-# A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish and status:
-# its cut-over is the pack-only gate. Its gateway block is `by_pnu_lanes.<lane>`.
+# A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish, status,
+# and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
+# then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`.
 [[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" || refuse "${USAGE}"
 if is_pack_lane "${LANE}"; then
-  [[ " bake equality latency publish status " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish or status"
+  [[ " bake equality latency publish status monitor-sample health " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample or health"
   GATEWAY_BLOCK="by_pnu_lanes.${LANE}"
 else
   GATEWAY_BLOCK="${LANE}_by_pnu_gateway"
@@ -305,7 +306,10 @@ case "${ACTION}" in
     ;;
   monitor-sample)
     # The hourly monitor and the canary read the gate sample from the lane's file (runtime-secrets
-    # group <lane>-serving-monitor); it names this generation's equality evidence.
+    # group <lane>-serving-monitor); it names this generation's equality evidence. Then the lane's
+    # hourly monitor is switched on (already on for a lane cut over before): for a pack-only lane this
+    # step right after its first publish is what starts the watching, and the Worker autodeploy smoke
+    # runs the monitor from the moment this file exists (root ADR-0190).
     [[ -s "${WORK}/equality.json" ]] || refuse "${WORK}/equality.json does not exist; run equality first" 65
     file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2] + "-serving-monitor"))' \
       "${RELEASE}/config/runtime-secrets.contract.json" "${LANE}")"
@@ -313,6 +317,8 @@ case "${ACTION}" in
     printf '%s_MONITOR_SAMPLE_PATH=%s\n' "${P}" "${WORK}/equality.json" |
       install -m 0640 -o "${ROOT_OWNER}" -g "${SERVICE_GROUP}" /dev/stdin "${file}"
     log "${file} names ${WORK}/equality.json"
+    systemctl enable --now "foundation-by-pnu-serving-monitor@${LANE}.timer"
+    log "foundation-by-pnu-serving-monitor@${LANE}.timer is on"
     exit 0
     ;;
   bake | equality | latency | publish) ;;

@@ -885,3 +885,42 @@ fn a_canary_step_without_the_zone_refuses() -> anyhow::Result<()> {
     assert!(refused.contains(names.env_file()?), "{refused}");
     Ok(())
 }
+
+/// A pack-only lane (root ADR-0190) is timed against another lane's live preview, whose documents
+/// are not its own: its preview's answers are held to the documents its packs hold, and only the
+/// baseline lane's request path is read on the live side.
+#[tokio::test]
+async fn a_pack_only_lanes_answers_are_held_to_its_packs_not_to_the_baseline() -> anyhow::Result<()>
+{
+    use anyhow::Context as _;
+    let lane = ByPnuLane::named("unit-price")?.context("the contract names the unit-price lane")?;
+    let live = route(200, 0, Some(OBJECT_TIMING), true).await;
+    let pack = route(200, 0, Some(TIMING), true).await;
+    let held_to = |body: &str| -> anyhow::Result<latency::Baseline> {
+        let digest = latency::normalized_digest(body.as_bytes())?;
+        Ok(latency::Baseline {
+            lane: ByPnuLane::Building,
+            prefix: ByPnuLane::Building.policy()?.request_path.prefix.clone(),
+            expected: pnus().into_iter().map(|pnu| (pnu, digest)).collect(),
+        })
+    };
+    let mut config = config(&live, &pack, 4);
+    config.lane = lane;
+    // The preview answers what the baseline answers, which is not what the packs hold.
+    config.baseline = Some(held_to(r#"{"pnu":"x","units":[]}"#)?);
+    let evidence = latency::probe(&config, &pnus()).await?;
+    assert_eq!((evidence.answered, evidence.mismatched), (5, 5));
+    assert!(!evidence.passed);
+    // The preview answers what the packs hold.
+    config.baseline = Some(held_to(BODY)?);
+    let evidence = latency::probe(&config, &pnus()).await?;
+    assert_eq!((evidence.answered, evidence.mismatched), (5, 0));
+    assert_eq!(evidence.baseline_lane.as_deref(), Some("building"));
+    let baseline_prefix = ByPnuLane::Building.policy()?.request_path.prefix.clone();
+    let read = live.received_requests().await.unwrap_or_default();
+    assert!(!read.is_empty());
+    assert!(read
+        .iter()
+        .all(|request| request.url.path().starts_with(&baseline_prefix)));
+    Ok(())
+}

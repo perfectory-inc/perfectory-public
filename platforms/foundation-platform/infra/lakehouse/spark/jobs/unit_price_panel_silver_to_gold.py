@@ -27,7 +27,7 @@ from platform_contracts import (column_names, ensure_contract_table, load_lakeho
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 import building_panel_silver_to_gold as panel
-from gold_rebuild import assert_minimum_row_count
+from gold_rebuild import assert_minimum_row_count, load_contract as load_rebuild_contract
 import gold_incremental as incremental
 
 JOB_NAME = "unit_price_panel_silver_to_gold"
@@ -45,6 +45,8 @@ ALL_SOURCES = (TITLE_SOURCE, UNIT_SOURCE, PRICE_SOURCE)
 # What the build reads of each input (root ADR-0180 §1): placement and the price rows.
 BUILD_COLUMNS = {name: panel.BUILD_COLUMNS[name] for name in ALL_SOURCES}
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
+# Each unit's price records, as `units_json` holds them: enough to count them.
+UNIT_HISTORY_SCHEMA = "array<struct<id:string,official_price_history:array<struct<base_date:string>>>>"
 
 
 def parse_args(argv=None):
@@ -73,6 +75,9 @@ def parse_args(argv=None):
                         help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
+    parser.add_argument("--max-price-history-shrink-fraction", type=float,
+                        help="Refuse, before writing, a Gold in which more than this share of the current Gold's "
+                             "units keep fewer price records (default: gold-panel-rebuild.contract.json).")
     incremental.add_arguments(parser)
     return parser.parse_args(argv)
 
@@ -155,6 +160,55 @@ def validate_gold_frame(gold, expected_count):
     return metrics["row_count"], metrics
 
 
+def history_lengths(gold):
+    """(id, records): how many price records each unit of `gold`'s rows holds."""
+    unit = F.explode(F.from_json("units_json", UNIT_HISTORY_SCHEMA)).alias("unit")
+    return gold.select(unit).select(F.col("unit.id").alias("id"),
+                                    F.size("unit.official_price_history").alias("records"))
+
+
+def shrink_verdict(shrunk: int, units: int, max_fraction: float) -> str | None:
+    """Why a Gold whose `shrunk` of the current `units` units lost price records is refused, or None.
+
+    A vintage keeps every reference date it ever published (root ADR-0185), so a unit's history only
+    grows; a vintage loaded in part (2026-10-11: 47,153 units lost about 65% of their records) shrinks
+    many at once.
+    """
+    if shrunk == 0 or shrunk <= units * max_fraction:
+        return None
+    return (f"{shrunk} of the current Gold's {units} units would keep fewer price records than it holds "
+            f"({shrunk / max(units, 1):.4%}; at most {max_fraction:.4%} may, "
+            "gold-panel-rebuild.contract.json max_price_history_shrink_fraction): a price vintage that "
+            "lost records must not replace one that has them")
+
+
+def assert_price_histories_kept(spark, target_table, outcome, max_fraction):
+    """Refuses, before anything is written, a Gold that shrinks the current one's price histories.
+
+    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted PNUs
+    (a PNU the merge does not touch keeps its row). A unit missing from them counts as shrunk.
+    """
+    if not spark.catalog.tableExists(target_table.replace("`", "")):
+        return {}
+    current = spark.table(target_table)
+    if outcome.mode == "full":
+        before, after = current, outcome.gold
+    else:
+        source = outcome.merge["source"]
+        before = current.join(source.select(incremental.KEY), incremental.KEY, "left_semi")
+        after = source.where(~F.col(incremental.DELETE_FLAG))
+    later = history_lengths(after).withColumnRenamed("records", "later")
+    shrunk_units = (history_lengths(before).join(later, "id", "left")
+                    .where(F.coalesce(F.col("later"), F.lit(0)) < F.col("records")))
+    shrunk = shrunk_units.count()
+    units = history_lengths(current).count() if shrunk else 0
+    verdict = shrink_verdict(shrunk, units, max_fraction)
+    if verdict:
+        examples = sorted(r.id for r in shrunk_units.limit(3).collect())
+        raise ValueError(f"{verdict} (e.g. units {examples})")
+    return {"price_history_shrunk_unit_count": shrunk}
+
+
 def _with_building_inputs(frames):
     """`frames` and the floors and areas the building panel's dependency maps also read, empty: this
     panel places units exactly as the building panel does, so it uses those maps, not a copy."""
@@ -218,6 +272,11 @@ def run(spark, args, pins):
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
                                          validate_gold_frame, assert_minimum_row_count)
     try:
+        if args.write_mode == "iceberg":
+            max_shrink = args.max_price_history_shrink_fraction
+            if max_shrink is None:
+                max_shrink = load_rebuild_contract()["tables"][GOLD_CONTRACT_NAME]["max_price_history_shrink_fraction"]
+            counters.update(assert_price_histories_kept(spark, target_table, outcome, max_shrink))
         persisted_count, metrics, added = None, outcome.metrics, ()
         if not args.validate_only:
             if args.write_mode == "parquet":

@@ -295,6 +295,26 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertIn("MONITOR_BASE_URL=https://catalog-preview.perfectory.io", parcel[0])
         self.assertIn(f"MONITOR_BASE_URL=https://{GATEWAYS['parcel_by_pnu_gateway']['public_hostname']}", parcel[1])
 
+    def test_a_pack_only_lane_is_held_to_its_monitor_once_it_is_cut_over(self):
+        # Before the cut-over the operator has written no monitor file: the smoke is capabilities only.
+        monitor_env = self.root / "unit-price-serving-monitor.env"
+        monitor_env.unlink()
+        self.assertEqual(self.tick(), 0)
+        self.assertIn("unit-price-gateway: the unit-price lane is not cut over", self.output.getvalue())
+        lines = (self.root / "monitor.log").read_text().splitlines()
+        self.assertEqual([line for line in lines if line.endswith(" unit-price")], [])
+        # The cut-over's monitor-sample step writes it: from then on every deploy runs the monitor.
+        monitor_env.write_text("X=1\n")
+        self.change("unit-price-gateway")
+        self.assertEqual(self.tick(), 0)
+        lines = [line for line in (self.root / "monitor.log").read_text().splitlines() if line.endswith(" unit-price")]
+        preview = GATEWAYS["by_pnu_lanes"]["unit-price"]["section_packs"]["preview_worker"]["public_hostname"]
+        self.assertEqual(len(lines), 2)
+        self.assertIn(f"FOUNDATION_PLATFORM_UNIT_PRICE_BY_PNU_SERVING_MONITOR_BASE_URL=https://{preview}", lines[0])
+        # A breach rolls the lane back like any other.
+        self.change("unit-price-gateway")
+        self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="unit-price"), 1)
+
     def test_map_edit_applies_its_d1_migrations_before_it_uploads(self):
         self.assertEqual(self.tick(), 0)
         actions = [c["action"] for c in self.calls() if c.get("name") == "foundation-map-edit-gateway"]

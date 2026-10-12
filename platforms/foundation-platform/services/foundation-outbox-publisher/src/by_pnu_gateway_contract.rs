@@ -161,6 +161,9 @@ struct PackLaneEntry {
     /// The live lane whose preview serves the same PNUs: the pack-only gate (나) measures this
     /// lane's preview against it.
     latency_baseline_lane: String,
+    /// Gate (나)'s absolute bound on this lane's own cold and warm p95: the baseline's documents
+    /// are not this lane's, so the increase over them alone is not the bound.
+    latency_p95_max_ms: f64,
     #[serde(flatten)]
     gateway: ByPnuGatewayPolicy,
 }
@@ -176,6 +179,7 @@ pub(crate) struct PackLane {
     pub(crate) gold: &'static LakehouseTableContract,
     pub(crate) document_schema_version: String,
     pub(crate) latency_baseline_lane: String,
+    pub(crate) latency_p95_max_ms: f64,
     gateway: ByPnuGatewayPolicy,
 }
 
@@ -228,6 +232,11 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
             entry.latency_baseline_lane
         ));
     }
+    if !(entry.latency_p95_max_ms.is_finite() && entry.latency_p95_max_ms > 0.0) {
+        return Err(format!(
+            "by_pnu_lanes.{name}.latency_p95_max_ms must be a positive bound"
+        ));
+    }
     let gold = industrial_complex_lakehouse_contract_by_table_name(&entry.gold_table).ok_or_else(
         || {
             format!(
@@ -273,6 +282,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         gold,
         document_schema_version: entry.document_schema_version,
         latency_baseline_lane: entry.latency_baseline_lane,
+        latency_p95_max_ms: entry.latency_p95_max_ms,
         gateway: entry.gateway,
     })
 }

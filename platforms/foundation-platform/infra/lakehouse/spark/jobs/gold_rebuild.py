@@ -89,6 +89,18 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
                 raise PlanError(f"{name}: incremental.parity_sample_keys must be a non-negative integer")
             if not str(incremental.get("reason", "")).strip():
                 raise PlanError(f"{name}: incremental needs its reason")
+        shrink = table.get("max_price_history_shrink_fraction")
+        if shrink is not None and (type(shrink) not in (int, float) or not 0 <= shrink < 1
+                                   or not str(table.get("max_price_history_shrink_reason", "")).strip()):
+            raise PlanError(f"{name}: max_price_history_shrink_fraction must be a number from 0 up to 1 with its reason")
+        follows = table.get("pins_from")
+        if follows is not None:
+            inputs = follows.get("inputs")
+            if (follows.get("gold_table") not in tables or follows.get("gold_table") == name
+                    or not (isinstance(inputs, list) and inputs and all(isinstance(i, str) for i in inputs))
+                    or not str(follows.get("reason", "")).strip()):
+                raise PlanError(f"{name}: pins_from names another table of this contract, the inputs it "
+                                "pins and its reason")
     return contract
 
 
@@ -220,7 +232,8 @@ def incremental_mode(entry: dict[str, Any], gold: dict[str, Any] | None,
 def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] | None,
          silver: dict[str, dict[str, Any] | None], *, unconditional: str | None = None,
          time_fallback: bool = True, measuring: bool = False,
-         whole_table_inputs: tuple[str, ...] = ()) -> dict[str, Any]:
+         whole_table_inputs: tuple[str, ...] = (),
+         pinned_gold: dict[str, Any] | None = None) -> dict[str, Any]:
     """Decide one Gold table's rebuild.
 
     `gold`: {"head", "snapshots", "row_count", "published_at_utc"} or None when the table does
@@ -228,6 +241,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     `unconditional`: the reason to rebuild regardless of the history. `time_fallback`: whether a
     Gold without recorded pins may be judged by its publish time (the job is not enabled yet).
     `measuring`: a dry run, which may read an input the contract lists as unmeasured.
+    `pinned_gold`: the state of the table the contract's `pins_from` names, like `gold`: the inputs
+    it lists are pinned to the snapshots that table's current Gold was built from, not to their heads.
     """
     if unconditional is not None and not unconditional.strip():
         raise PlanError(f"{table}: an unconditional rebuild needs its reason")
@@ -244,6 +259,19 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
             "within the Spark cap, then remove them from unmeasured_inputs "
             "(contracts/gold-panel-rebuild.contract.json)")
     pins = {name: silver[name]["head"] for name in present}
+    follows = entry.get("pins_from")
+    if follows is not None:
+        followed = None
+        if pinned_gold is not None and pinned_gold.get("head") is not None:
+            followed = recorded_pins(pinned_gold["snapshots"], pinned_gold["head"])
+        if followed is None:
+            raise PlanError(f"{table}: its {follows['inputs']} are pinned to what {follows['gold_table']} was "
+                            "built from, and that table records no source pins")
+        for name in follows["inputs"]:
+            if name not in pins or name not in followed:
+                raise PlanError(f"{table}: {name} is pinned to {follows['gold_table']}, but it is not an input "
+                                "of both producers")
+            pins[name] = followed[name]
     flags = [flag for name, flag in optional.items() if silver.get(name) is None]
     reasons: list[str] = [f"unconditional rebuild: {unconditional.strip()}"] if unconditional else []
     previous = None
@@ -260,7 +288,7 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                 if name not in recorded:
                     reasons.append(f"{name}: a new input the current Gold was not built from")
                     continue
-                why = input_change_since_pin(silver[name]["snapshots"], silver[name]["head"], recorded[name])
+                why = input_change_since_pin(silver[name]["snapshots"], pins[name], recorded[name])
                 if why:
                     reasons.append(f"{name}: {why}")
         elif unconditional:
@@ -276,7 +304,7 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                 reasons.append("the Gold records no source pins and no published_at_utc")
             else:
                 for name in present:
-                    why = input_change_since_time(silver[name]["snapshots"], silver[name]["head"], built_at)
+                    why = input_change_since_time(silver[name]["snapshots"], pins[name], built_at)
                     if why:
                         reasons.append(f"{name}: {why}")
     minimum = None if previous is None else math.ceil(previous * (1 - entry["max_row_loss_fraction"]))
@@ -401,6 +429,8 @@ def main(argv=None) -> int:
         required, optional, _ = inputs
         silver = {name: _table_state(spark, args.iceberg_catalog_name, name) for name in (*required, *optional)}
         gold = _table_state(spark, args.iceberg_catalog_name, args.gold_table)
+        follows = entry.get("pins_from")
+        pinned_gold = None if follows is None else _table_state(spark, args.iceberg_catalog_name, follows["gold_table"])
         if gold is not None and gold["head"] is not None:
             head = next(s for s in gold["snapshots"] if s["snapshot_id"] == gold["head"])
             gold["row_count"] = int(head["summary"]["total-records"])
@@ -412,7 +442,7 @@ def main(argv=None) -> int:
         decision = plan(args.gold_table, entry, inputs, gold, silver,
                         unconditional=args.unconditional_reason, time_fallback=args.time_fallback,
                         measuring=args.measuring,
-                        whole_table_inputs=producer_whole_table_inputs(producer))
+                        whole_table_inputs=producer_whole_table_inputs(producer), pinned_gold=pinned_gold)
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):

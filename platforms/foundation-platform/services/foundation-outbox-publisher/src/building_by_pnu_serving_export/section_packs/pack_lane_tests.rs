@@ -248,6 +248,23 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         Some("building"),
         &dirs.work.join("baseline.json"),
     )?;
+    // Its own p95 is also held to the contract's absolute bound: a slow baseline read cannot hide
+    // a slow lane inside the increase bound.
+    let (mut slow, _) = gate::read::<LatencyEvidence>(&against)?;
+    assert!(slow.verdict()?);
+    let bound = lane
+        .pack_lane()
+        .context("a pack-only lane")?
+        .latency_p95_max_ms;
+    slow.live_ms.p95 = bound + 100.0;
+    slow.pack_ms.p95 = bound + 100.0;
+    assert!(!slow.verdict()?);
+    slow.lane = ByPnuLane::Building.unit().to_owned();
+    assert!(
+        slow.verdict()?,
+        "a lane with an object path is held to the increase alone"
+    );
+
     let state = publish::publish(&publish_config(against), &store, &gateway.uri()).await?;
     assert_eq!(state.document_count, 2);
     let live = ServedManifest::parse(lane, &store.read_manifest().await?.0)?;
@@ -255,5 +272,34 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     assert_eq!((live.object_count, live.base_object_count), (0, 0));
     assert_eq!(live.gold_table, "gold.unit_price_panel");
     assert!(live.section_packs.is_some());
+
+    // Once cut over, the hourly monitor holds the live answers to the packs alone: the lane never
+    // had an object to read.
+    let live_host = MockServer::start().await;
+    let prefix = lane.policy()?.request_path.prefix.clone();
+    for pnu in [PNU_A, PNU_B] {
+        let inspected = super::inspect::inspect(&store, pnu, None).await?;
+        Mock::given(method("GET"))
+            .and(path(format!("{prefix}{pnu}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(serde_json::to_vec(&inspected["document"])?),
+            )
+            .mount(&live_host)
+            .await;
+    }
+    let pnus = [PNU_A.to_owned(), PNU_B.to_owned()];
+    let report = super::monitor::check(&store, &live_host.uri(), &pnus, 3000.0).await?;
+    assert!(report.passed, "{report:?}");
+    assert_eq!(report.objects_not_compared, 2);
+    // And a live answer that is not the packs' document is a breach.
+    let drifted = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"units": []})))
+        .mount(&drifted)
+        .await;
+    let report = super::monitor::check(&store, &drifted.uri(), &pnus, 3000.0).await?;
+    assert!(!report.passed);
+    assert_eq!(report.drifted_from_served.len(), 2);
     Ok(())
 }

@@ -468,6 +468,10 @@
       "document_schema_version": "foundation-platform.unit_price_by_pnu.v1",
       "latency_baseline_lane": "building",
       "latency_baseline_lane_reason": "every PNU with a priced unit has a building document (a unit price is served under the PNU its building document carries it), so the building preview reads the same PNUs through the same Worker code at the same placement: the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds a cut-over to",
+      "documents_follow_lane": "building",
+      "documents_follow_lane_reason": "a unit's price is served under the PNU its building document carries it, and the Gold rebuild places the units of both panels from the same register snapshots (gold-panel-rebuild.contract.json pins_from). In the registered bake this lane runs after the building lane and is not baked in a run where the building lane failed, so it does not publish units under PNUs the served building documents do not yet carry them under",
+      "latency_p95_max_ms": 1400,
+      "latency_p95_max_ms_reason": "the baseline's documents carry more than this lane's (the building document carried the unit price history until root ADR-0190), so a slow building read could hide a slow lane inside the increase bound. Gate (나) also holds this lane's own cold and warm p95 to an absolute bound: the slowest cold pack p95 a lane now serves measured at its cut-over (parcel generation 1, 1,379 ms from ai-server, root ADR-0162)",
       "connection": "lakehouse",
       "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
       "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
@@ -545,7 +549,7 @@
         "monitor": {
           "pnus": 20,
           "latency_p95_max_ms": 3000,
-          "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+          "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance unit-price, switched on by the operator's monitor-sample step right after the lane's first publish), 20 PNUs from the gate sample read from the live hostname and held to the documents the lane's packs hold; the lane has no object documents (root ADR-0190): a 5xx, a document that differs from its packs, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
         },
         "preview_worker": {
           "wrangler_env": "preview",

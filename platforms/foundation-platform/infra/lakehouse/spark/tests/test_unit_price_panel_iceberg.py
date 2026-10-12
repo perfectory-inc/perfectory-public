@@ -60,7 +60,7 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         frame.writeTo(table).overwrite(F.lit(True))
         return str(self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0])
 
-    def run_job(self, pins, table, published, previous=None):
+    def run_job(self, pins, table, published, previous=None, shrink=None):
         import unit_price_panel_silver_to_gold as job
 
         work = Path(self.directory.name) / f"run-{table}-{published[:13]}"
@@ -72,6 +72,8 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
             (work / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
             argv += ["--incremental-from-snapshots", str(work / "previous.json"),
                      "--max-changed-key-fraction", "0.9", "--parity-sample-keys", "1000"]
+        if shrink is not None:
+            argv += ["--max-price-history-shrink-fraction", str(shrink)]
         with redirect_stdout(StringIO()):
             self.assertEqual(job.run(self.spark, job.parse_args(argv), pins), 0)
         return json.loads((work / "summary.json").read_text(encoding="utf-8"))
@@ -118,7 +120,9 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         units[5] = {**units[5], "building_mgm_bldrgst_pk": "T8"}
         pins2 = {**pins1, job.UNIT_SOURCE: self.put(job.UNIT_SOURCE, units),
                  job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(v2, "batch-2"))}
-        merged = self.run_job(pins2, "unit_price_panel", "2099-02-01T00:00:00Z", previous=pins1)
+        # U5's prices gone is one of 16 units: past the contract's bound in a table this small.
+        merged = self.run_job(pins2, "unit_price_panel", "2099-02-01T00:00:00Z", previous=pins1, shrink=0.1)
+        self.assertEqual(merged["quality_metrics"]["price_history_shrunk_unit_count"], 1)
         self.assertEqual(merged["rebuild"]["mode"], "incremental")
         full = self.run_job(pins2, "unit_price_panel_full", "2099-02-02T00:00:00Z")
         after, rebuilt = self.rows("unit_price_panel"), self.rows("unit_price_panel_full")
@@ -132,6 +136,53 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         for key in set(before) - reached:
             self.assertEqual(after[key], before[key], f"{key} was not reached but its row changed")
         self.assertIsNotNone(panel.unit_placement)
+
+    def test_a_vintage_that_loses_price_records_is_refused_before_it_is_written(self):
+        import unit_price_panel_silver_to_gold as job
+
+        titles = [{"mgm_bldrgst_pk": f"T{i}", "pnu": pnu(100 + i), "source_snapshot_id": "titles-v1"} for i in range(1, 9)]
+        units = [{"mgm_bldrgst_pk": f"U{i}", "pnu": pnu(100 + i), "building_mgm_bldrgst_pk": f"T{i}",
+                  "unit_row_id": f"u{i}", "building_link_method": "parent_key",
+                  "building_link_source_record_id": "synthetic#line=1", "building_link_input_sha256": "a" * 64,
+                  "source_snapshot_id": "units-v1"} for i in range(1, 9)]
+
+        def prices(rows, batch):
+            return [{"mgm_bldrgst_pk": k, "pnu": pnu(101), "dong_name": "", "ho_name": "", "base_date": d,
+                     "price_won": p, "sido": "99", "source_snapshot_id": batch, "source_record_id": f"{batch}/{k}/{d}"}
+                    for k, d, p in rows]
+
+        two_dates = [(f"U{i}", d, 10 * i) for i in range(1, 9) for d in ("20230101", "20240101")]
+        pins1 = {job.TITLE_SOURCE: self.put(job.TITLE_SOURCE, titles), job.UNIT_SOURCE: self.put(job.UNIT_SOURCE, units),
+                 job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(two_dates, "batch-1"))}
+        self.run_job(pins1, "unit_price_panel_shrink", "2099-03-01T00:00:00Z")
+        table = "proof.gold.unit_price_panel_shrink"
+        head = self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0]
+        before = self.rows("unit_price_panel_shrink")
+        # A vintage loaded in part: half the units lost their older reference date.
+        partial = [row for row in two_dates if not (row[1] == "20230101" and int(row[0][1:]) % 2)]
+        pins2 = {**pins1, job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(partial, "batch-2"))}
+        for previous in (pins1, None):
+            with self.subTest(incremental=previous is not None):
+                argv = ["--input-mode", "iceberg", "--write-mode", "iceberg", "--iceberg-catalog-name", "proof",
+                        "--target-iceberg-table", "unit_price_panel_shrink", "--allow-non-smoke-overwrite",
+                        "--iceberg-snapshot-id", "1", "--published-at-utc", "2099-03-02T00:00:00Z"]
+                if previous is not None:
+                    path = Path(self.directory.name) / "shrink-previous.json"
+                    path.write_text(json.dumps(previous), encoding="utf-8")
+                    argv += ["--incremental-from-snapshots", str(path), "--max-changed-key-fraction", "0.9",
+                             "--parity-sample-keys", "1000"]
+                with redirect_stdout(StringIO()), self.assertRaisesRegex(
+                        ValueError, "4 of the current Gold's 8 units would keep fewer price records"):
+                    job.run(self.spark, job.parse_args(argv), pins2)
+                self.assertEqual(self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0],
+                                 head, "nothing was committed")
+                self.assertEqual(self.rows("unit_price_panel_shrink"), before)
+        # A vintage that only adds a reference date passes under the contract's bound.
+        grown = two_dates + [(f"U{i}", "20250101", 11 * i) for i in range(1, 9)]
+        pins3 = {**pins1, job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(grown, "batch-3"))}
+        summary = self.run_job(pins3, "unit_price_panel_shrink", "2099-03-03T00:00:00Z", previous=pins1)
+        self.assertEqual(summary["quality_metrics"]["price_history_shrunk_unit_count"], 0)
+        self.assertEqual(len(self.rows("unit_price_panel_shrink")[pnu(101)][0][0]["official_price_history"]), 3)
 
 
 if __name__ == "__main__":

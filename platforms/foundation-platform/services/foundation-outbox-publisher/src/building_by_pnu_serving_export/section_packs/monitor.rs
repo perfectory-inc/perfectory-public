@@ -85,11 +85,12 @@ pub(crate) async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     if let Some(path) = env("MONITOR_REPORT_PATH")? {
         write_evidence(&PathBuf::from(path), &report)?;
     }
-    tracing::info!(report = ?report, "building serving monitor");
+    tracing::info!(report = ?report, lane = lane.name(), "serving monitor");
     ensure!(
         report.passed,
-        "the live building hostname breached the monitor: {} failures, {} drifted from what the \
+        "the live {} hostname breached the monitor: {} failures, {} drifted from what the \
          lane serves, {} from the objects, p95 {:.0} ms (bound {:.0} ms)",
+        lane.noun(),
         report.failures.len(),
         report.drifted_from_served.len(),
         report.drifted_from_objects.len(),
@@ -175,12 +176,16 @@ pub(crate) async fn check(
 }
 
 /// The object document of `pnu` in the manifest's base generation, or `None` when an object patch
-/// covers its prefix (then the base object may not be what the object lane serves).
+/// covers its prefix (then the base object may not be what the object lane serves), or the lane is
+/// pack-only (root ADR-0190) and never had an object.
 async fn object_document(
     store: &ByPnuServingStore,
     served: &ServedManifest,
     pnu: &str,
 ) -> anyhow::Result<Option<Vec<u8>>> {
+    if store.lane().pack_lane().is_some() {
+        return Ok(None);
+    }
     if let Some(length) = served.pnu_prefix_length {
         let prefix = pnu.get(..length).unwrap_or(pnu);
         if served

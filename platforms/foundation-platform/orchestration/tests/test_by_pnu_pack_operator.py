@@ -56,7 +56,7 @@ if args[0] == "list-units":
         if any(fnmatch.fnmatch(unit, pattern) for pattern in named):
             print(f"{unit} loaded {state} x fixture")
     sys.exit(0)
-if args[0] in ("start", "status"):
+if args[0] in ("start", "status", "enable"):
     import json
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps({"tool": "systemctl", "args": args}) + "\n")
@@ -445,6 +445,41 @@ class PackOperator(unittest.TestCase):
             (self.etc / "parcel-serving-monitor.env").read_text(),
             f"FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_MONITOR_SAMPLE_PATH={work}/equality.json\n",
         )
+
+    def test_a_pack_only_lane_is_watched_and_judged_after_its_first_publish(self):
+        # Root ADR-0190: the monitor-sample step names the sample and switches the lane's hourly
+        # monitor on; health hands the canary's verdict the lane like any other.
+        work = self.work("unit-price")
+        (work / "equality.json").write_text(json.dumps({"passed": True}))
+        result, calls = self.run_operator("unit-price", "monitor-sample", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (self.etc / "unit-price-serving-monitor.env").read_text(),
+            f"FOUNDATION_PLATFORM_UNIT_PRICE_BY_PNU_SERVING_MONITOR_SAMPLE_PATH={work}/equality.json\n",
+        )
+        self.assertIn({"tool": "systemctl", "args": ["enable", "--now", "foundation-by-pnu-serving-monitor@unit-price.timer"]},
+                      calls)
+        self.log.unlink()
+        result, calls = self.run_operator("unit-price", "health", VERSION, OLD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [{"tool": "health", "args": ["unit-price", VERSION, OLD]}])
+        # Still not the object lanes' steps.
+        result, calls = self.run_operator("unit-price", "gold-rebuild")
+        self.assertEqual(result.returncode, 64, result.stderr)
+
+
+class MonitorReasons(unittest.TestCase):
+    def test_each_lanes_monitor_reason_names_its_own_timer_instance_and_documents(self):
+        # A copied reason told the operator the wrong timer and an object comparison a pack-only
+        # lane (root ADR-0190) never makes.
+        lanes = {"parcel": CONTRACT["parcel_by_pnu_gateway"], "building": CONTRACT["building_by_pnu_gateway"],
+                 **CONTRACT.get("by_pnu_lanes", {})}
+        for lane, block in lanes.items():
+            with self.subTest(lane=lane):
+                reason = block["section_packs"]["monitor"]["reason"]
+                self.assertIn(f"instance {lane}", reason)
+                if block.get("pack_only"):
+                    self.assertNotIn("compared with the object documents", reason)
 
 
 if __name__ == "__main__":

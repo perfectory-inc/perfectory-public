@@ -29,10 +29,9 @@
       "wrangler_config": "wrangler.unit-price.jsonc",
       "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
       "smoke": {
-        "kind": "http",
-        "path": "/unit-prices/by-pnu/_capabilities",
-        "status": 200,
-        "reason": "a pack-only lane (root ADR-0190) answers its capabilities before its first publish, while every PNU is still a 503: until the operator's cut-over its serving monitor has nothing to read. The cut-over makes this smoke kind by-pnu"
+        "kind": "by-pnu",
+        "lane": "unit-price",
+        "reason": "a pack-only lane (root ADR-0190) is held to its serving monitor once it is cut over, like the parcel and building lanes. Before its first publish every PNU is a 503 and the monitor has nothing to read, so while the lane's monitor file (runtime-secrets group unit-price-serving-monitor, written by the operator's monitor-sample step of the cut-over) does not exist its smoke is the capabilities read alone"
       }
     },
     {

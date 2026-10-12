@@ -43,6 +43,13 @@
         "parity_sample_keys": 20000,
         "reason": "Root ADR-0180, as for the building panel. A monthly vintage changes the prices of few units, so its PNUs are recomputed and merged; a new reference date a year changes most priced PNUs and runs the full rebuild, which is then the cheaper commit."
       },
+      "max_price_history_shrink_fraction": 0.001,
+      "max_price_history_shrink_reason": "A price vintage keeps every reference date it ever published (root ADR-0185), so a unit's price history only grows; a unit loses records only when its register is retired, a few at a time. On 2026-10-11 a vintage loaded in part made a Gold in which 47,153 units had lost about 65% of their records (not served only because that day's bake failed). The producer refuses, before it writes, a Gold in which more than 0.1% of the current Gold's units keep fewer records or none.",
+      "pins_from": {
+        "gold_table": "gold.building_panel",
+        "inputs": ["silver.building_register_titles", "silver.building_register_units"],
+        "reason": "Root ADR-0190. A unit's price is served under the PNU its building document carries it, so both documents must place each unit from the same register snapshots: a unit relinked to another title between two separate pins would be under one PNU in the building document and another in the price document. The rebuild pins these inputs to the snapshots the current building Gold was built from (it runs after the building panel in `all`), never to their heads."
+      },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
   }

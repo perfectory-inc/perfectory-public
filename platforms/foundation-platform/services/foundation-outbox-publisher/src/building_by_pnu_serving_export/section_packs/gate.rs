@@ -316,7 +316,16 @@ impl LatencyEvidence {
         #[allow(clippy::cast_precision_loss)]
         let enough_answered =
             self.answered as f64 >= self.sample_size as f64 * slo.availability_min;
+        // A pack-only lane is timed against another lane's documents (root ADR-0190), so its own
+        // p95 is also held to the contract's absolute bound.
+        let within_absolute = crate::by_pnu_gateway_contract::ByPnuLane::from_unit(&self.lane)
+            .and_then(crate::by_pnu_gateway_contract::ByPnuLane::pack_lane)
+            .is_none_or(|pack| {
+                self.pack_ms.p95 <= pack.latency_p95_max_ms
+                    && (self.warm_answered == 0 || self.pack_warm_ms.p95 <= pack.latency_p95_max_ms)
+            });
         Ok(self.sample_size >= u64::try_from(gate.latency_sample_size)?
+            && within_absolute
             && self.mismatched == 0
             && enough_answered
             && self.cold_reads_from_r2(&self.cold_read_paths, slo.cold_reads_not_from_r2_max_share)
