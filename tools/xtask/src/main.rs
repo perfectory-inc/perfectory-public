@@ -1187,9 +1187,132 @@ fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
         ],
     ));
 
-    for command in verify_test_commands(area) {
-        log.absorb(cargo_reporting(&dir, &command));
+    // The Rust tests run under cargo-nextest: one process per test, as many at once as the
+    // machine has cores, where `cargo test` ran each test binary after the last (root ADR-0205).
+    // nextest does not run doctests, so each selection also runs `cargo test --doc`.
+    let Some(nextest) = nextest_dir(log) else {
+        return;
+    };
+    for selection in verify_test_commands(area) {
+        let [tests, doctests] = nextest_commands(&selection);
+        let args: Vec<&str> = tests.iter().map(String::as_str).collect();
+        let mut cargo = cargo_command(&dir, &args);
+        cargo.env("PATH", path_with(&nextest));
+        log.absorb(run_reporting(&mut cargo));
+        let args: Vec<&str> = doctests.iter().map(String::as_str).collect();
+        log.absorb(doctests_reporting(&mut cargo_command(&dir, &args)));
     }
+}
+
+/// Runs `cargo test --doc`; a selection without a library has no doctests, which cargo reports
+/// as an error (`no library targets found`). That one answer means "nothing to run" — the tests
+/// themselves already ran under nextest — and every other failure is a failure.
+fn doctests_reporting(command: &mut Command) -> Result<(), String> {
+    let rendered = format!("{command:?}");
+    let output = command
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprint!("{stderr}");
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    if output.status.success() || no_doctest_targets(&stderr) {
+        return Ok(());
+    }
+    Err(format!("({}) {rendered}", output.status))
+}
+
+fn no_doctest_targets(stderr: &str) -> bool {
+    let errors: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("error"))
+        .collect();
+    !errors.is_empty()
+        && errors
+            .iter()
+            .all(|line| line.starts_with("error: no library targets found in package"))
+}
+
+/// The two runs one `cargo test` selection becomes: nextest for the test targets, then the
+/// doctests nextest cannot run. Same packages, features and exclusions in both.
+fn nextest_commands(selection: &[&str]) -> [Vec<String>; 2] {
+    let rest = selection
+        .strip_prefix(&["test"])
+        .unwrap_or(selection)
+        .iter()
+        .map(|arg| (*arg).to_owned());
+    let nextest = ["nextest", "run", "--no-fail-fast"]
+        .map(str::to_owned)
+        .into_iter();
+    let doc = ["test", "--doc"].map(str::to_owned).into_iter();
+    [
+        nextest.chain(rest.clone()).collect(),
+        doc.chain(rest).collect(),
+    ]
+}
+
+fn path_with(directory: &Path) -> std::ffi::OsString {
+    let mut paths = vec![directory.to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(paths).unwrap_or_default()
+}
+
+/// The directory holding the pinned `cargo-nextest`, fetched on first use (root ADR-0205).
+///
+/// The version and checksums live in `tools/cargo-nextest.env`; the one pinned fetcher
+/// (`scripts/ci/fetch_pinned.py`, root ADR-0197) downloads and verifies the archive, so CI
+/// restores it from its cache and a laptop fetches it once. Any failure is a recorded failure:
+/// the tests did not run, which is never a pass.
+fn nextest_dir(log: &mut FailureLog) -> Option<PathBuf> {
+    let root = repo_root();
+    let pins = std::fs::read_to_string(root.join("tools/cargo-nextest.env")).unwrap_or_default();
+    let Some(version) = pins
+        .lines()
+        .find_map(|line| line.strip_prefix("CARGO_NEXTEST_VERSION="))
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+    else {
+        log.record("tools/cargo-nextest.env does not pin CARGO_NEXTEST_VERSION".to_owned());
+        return None;
+    };
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let dir = PathBuf::from(home)
+        .join(".cache/perfectory/bin")
+        .join(format!("cargo-nextest-{version}"));
+    let binary = dir.join(if cfg!(windows) {
+        "cargo-nextest.exe"
+    } else {
+        "cargo-nextest"
+    });
+    if binary.is_file() {
+        return Some(dir);
+    }
+    let member = binary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("cargo-nextest");
+    let fetched = run_reporting(
+        Command::new("python3")
+            .current_dir(&root)
+            .args([
+                "scripts/ci/fetch_pinned.py",
+                "tool",
+                "cargo-nextest",
+                "--member",
+                member,
+            ])
+            .arg("--output")
+            .arg(&binary),
+    );
+    if let Err(message) = fetched {
+        log.record(format!(
+            "could not install the pinned cargo-nextest: {message}"
+        ));
+        return None;
+    }
+    Some(dir)
 }
 
 fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
@@ -1978,6 +2101,45 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// Every `cargo test` selection verify makes runs twice, under nextest and as doctests, with
+    /// the same packages, features and exclusions (root ADR-0205). Dropping the doctest half, or
+    /// letting the two halves select differently, fails here.
+    #[test]
+    fn every_test_selection_runs_under_nextest_and_as_doctests() {
+        let mut checked = 0;
+        for area in AREAS {
+            for selection in verify_test_commands(area) {
+                let [nextest, doc] = nextest_commands(&selection);
+                assert_eq!(nextest[..3], ["nextest", "run", "--no-fail-fast"]);
+                assert_eq!(doc[..2], ["test", "--doc"]);
+                assert_eq!(nextest[3..], doc[2..], "both halves select the same tests");
+                assert_eq!(
+                    doc[2..],
+                    selection[1..],
+                    "the selection is carried unchanged"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= AREAS.len());
+    }
+
+    /// Only cargo's "no library" answer excuses a failed doctest run; a failing doctest, or that
+    /// answer mixed with any other error, still fails (root ADR-0205).
+    #[test]
+    fn only_a_missing_library_excuses_the_doctest_run() {
+        assert!(no_doctest_targets(
+            "error: no library targets found in package `xtask`\n"
+        ));
+        assert!(!no_doctest_targets(""));
+        assert!(!no_doctest_targets(
+            "error: doctest failed, to rerun pass `--doc`\n"
+        ));
+        assert!(!no_doctest_targets(
+            "error: no library targets found in package `a`\nerror: could not compile `b`\n"
+        ));
     }
 
     /// `--part` selects one half and nothing else parses (root ADR-0199).
