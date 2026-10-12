@@ -2,7 +2,14 @@ import { z } from "zod";
 import { env } from "@/lib/env";
 
 // Published foundation-contracts building_panel / UnitResponse wire shapes (root ADR-0100).
-const PnuSchema = z.string().regex(/^[0-9]{10}[1289][0-9]{8}$/);
+export const PnuSchema = z.string().regex(/^[0-9]{10}[1289][0-9]{8}$/);
+export const OfficialPriceHistorySchema = z.array(
+  z.object({
+    base_date: z.string().regex(/^[0-9]{8}$/),
+    price_won: z.number().int().nonnegative(),
+  }),
+);
+export type OfficialPriceHistory = z.infer<typeof OfficialPriceHistorySchema>;
 export const EdgeUnitSchema = z.object({
   id: z.string().uuid(),
   parcel_id: z.string().uuid(),
@@ -14,12 +21,9 @@ export const EdgeUnitSchema = z.object({
   exclusive_area_m2: z.number().nonnegative().nullable(),
   usage_name: z.string(),
   structure_name: z.string(),
-  official_price_history: z.array(
-    z.object({
-      base_date: z.string().regex(/^[0-9]{8}$/),
-      price_won: z.number().int().nonnegative(),
-    }),
-  ),
+  // Only a v2 document embeds a unit's prices; they are served on their own now (`unit-price-edge.ts`,
+  // root ADR-0190), and these are drawn only while that lane does not answer.
+  official_price_history: OfficialPriceHistorySchema.optional(),
 });
 export const EdgeFloorSchema = z.object({
   floor_row_id: z.string(),
@@ -29,7 +33,11 @@ export const EdgeFloorSchema = z.object({
   floor_display_ko: z.string().nullable(),
 });
 export const EdgeBuildingProfileSchema = z.object({
-  schema_version: z.literal("foundation-platform.building_by_pnu_profile.v2"),
+  // v3 is v2 without the unit prices (root ADR-0190); both are read until v2 is no longer served.
+  schema_version: z.enum([
+    "foundation-platform.building_by_pnu_profile.v2",
+    "foundation-platform.building_by_pnu_profile.v3",
+  ]),
   pnu: PnuSchema,
   source: z.object({
     table: z.literal("gold.building_panel"),

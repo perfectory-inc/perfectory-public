@@ -262,6 +262,7 @@
           "hide": "호실 접기",
           "officialPriceHistory": "기준일별 공시가격",
           "priceWon": "{value} 원",
+          "priceError": "공시가격을 불러오지 못했어요",
           "none": "등록된 호실이 없어요",
           "more": "더 보기",
           "loading": "호실을 불러오는 중…",

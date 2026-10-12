@@ -67,19 +67,20 @@ const document = () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("building edge document mappings", () => {
-  it("rejects annual or malformed reference dates and negative assessments", () => {
-    const value = unit("00000000-0000-8000-8000-000000000002", buildingId);
-    for (const price of [
-      { base_year: 2010, price_won: 36000000 },
-      { base_date: "2010-01-01", price_won: 36000000 },
-      { base_date: "20100101", price_won: -1 },
-    ]) {
-      expect(EdgeUnitSchema.safeParse({ ...value, official_price_history: [price] }).success).toBe(
-        false,
-      );
-    }
+  it("reads a v2 document with embedded prices and a v3 document without them", () => {
+    const { official_price_history: _embedded, ...withoutPrices } = unit(
+      "00000000-0000-8000-8000-000000000002",
+      buildingId,
+    );
+    expect(EdgeUnitSchema.safeParse(withoutPrices).success).toBe(true);
+    const v3 = {
+      ...document(),
+      schema_version: "foundation-platform.building_by_pnu_profile.v3",
+      unlinked_units: [withoutPrices],
+    };
+    expect(EdgeBuildingProfileSchema.safeParse(v3).success).toBe(true);
   });
-  it("preserves absent facts, nested floors, unit prices and unlinked units without mutation", () => {
+  it("preserves absent facts, nested floors and unlinked units without mutation", () => {
     const profile = EdgeBuildingProfileSchema.parse(document());
     const before = structuredClone(profile);
     const buildings = toBuildingsResponse(profile);
@@ -90,10 +91,6 @@ describe("building edge document mappings", () => {
       total_area_m2: null,
       approved_at: null,
     });
-    expect(buildings.buildings[0]?.units[0]?.official_price_history).toEqual([
-      { base_date: "20100601", price_won: 35000000 },
-      { base_date: "20100101", price_won: 36000000 },
-    ]);
     expect(buildings.unlinked_units).toEqual(profile.unlinked_units);
     const floors = toFloorsResponse(profile).buildings[0];
     expect(floors).toMatchObject({ above_ground: null, below_ground: 0, has_rooftop: false });
