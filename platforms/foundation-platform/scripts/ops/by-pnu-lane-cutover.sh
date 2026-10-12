@@ -17,8 +17,12 @@
 #              scheduled unit's definition; a Gold whose inputs did not move is "nothing to do"
 #   parity     the producer's check against the bundle Gold, when the rebuild contract declares one
 #              for the table (`pins_from.parity_argument`): a full rebuild refuses, before it
-#              writes, a kind that differs from the bundle on any PNU (ADR-0193 §6-2). A table
-#              without one is reported `not-declared`, never `passed`.
+#              writes, a kind that differs from the bundle on any PNU (ADR-0193 §6-2). An
+#              incremental commit does not run it, so this step passes only when this run's `gold`
+#              committed the table by a full rebuild (its `gold-kind <table> mode=full` line and its
+#              `committed <table>` line in the operator's Gold log); an incremental commit or
+#              "nothing to do" stops the run, since the head served would be one no full parity
+#              checked. A table without one is reported `not-declared`, never `passed`.
 #   bake, equality, latency, publish, monitor-sample
 #              the operator's steps of that name for <generation>
 #
@@ -50,6 +54,8 @@ PLATFORM_ROOT="$(cd "${here}/../.." && pwd -P)"
 OPERATOR="${here}/by-pnu-pack-operator.sh"
 BAKE_ROOT="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"
+# by-pnu-pack-operator.sh's GOLD_LOG: its gold-rebuild unit's output.
+GOLD_LOG="${BAKE_ROOT}/gold-rebuild/logs/gold-rebuild.log"
 # The FOUNDATION_CUTOVER_* overrides exist for the tests; the operator's sudo grant resets them.
 POLL_SECONDS="${FOUNDATION_CUTOVER_POLL_SECONDS:-60}"
 SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-45}"
@@ -176,7 +182,7 @@ if [[ -n "${DRY_RUN}" ]]; then
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table})" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
-                  || what="enforced by the producer's ${parity} during gold" ;;
+                  || what="passes only if gold commits ${table} by a full rebuild, whose ${parity} checks every PNU" ;;
         *) what="by-pnu-pack-operator.sh ${lane} ${step} ${GENERATION}" ;;
       esac
       verdict="$(window_verdict "${BUDGET[${step}]}")"
@@ -215,7 +221,7 @@ log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLA
 ((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
 for entry in "${PLAN[@]}"; do
   read -r lane table unit parity preview path base base_path monitor <<<"${entry}"
-  lane_started="$(now)"
+  lane_started="$(now)" gold_output=""
   for step in "${STEPS[@]}"; do
     [[ "${step}" == gold || "${step}" == bake ]] && wait_for_spark "${lane}" "${step}"
     verdict="$(window_verdict "${BUDGET[${step}]}")"
@@ -236,12 +242,21 @@ for entry in "${PLAN[@]}"; do
           log "${lane} parity: not-declared (${table} has no pins_from.parity_argument)"
           continue
         fi
-        reason="every full rebuild of ${table} checks each PNU against the bundle Gold (${parity}) before it commits"
+        grep -qE "^gold-kind ${table} mode=full " <<<"${gold_output}" && ! grep -q "dry_run=yes" <<<"${gold_output}" \
+          && grep -qF "committed ${table}:" <<<"${gold_output}" \
+          || fail "${lane}" "${step}" 0 "this run's gold did not commit ${table} by a full rebuild ($(grep -E "^gold-kind ${table} |nothing to do|recorded the new pins" <<<"${gold_output}" | tail -1 || true)), so no full parity with the bundle (${parity}) checked the head it would serve; run a full rebuild of ${table} first"
+        reason="this run's full rebuild of ${table} checked each PNU against the bundle Gold (${parity}) before it committed"
         ;;
       gold)
+        # What this run appends to the operator's Gold log (by-pnu-pack-operator.sh GOLD_LOG) is the
+        # rebuild's own account: its `gold-kind` line and whether it committed.
+        offset="$(stat -c %s "${GOLD_LOG}" 2>/dev/null || echo 0)"
         # The exit status is read first: the duration's command substitution would reset $?.
         FOUNDATION_OPERATOR_WAIT=1 "${OPERATOR}" "${lane}" gold-rebuild || { rc=$?
-          fail "${lane}" "${step}" "$(($(now) - started))" "gold-panel-rebuild.sh ${unit} failed (exit ${rc}); see the operator's gold-rebuild log"; }
+          fail "${lane}" "${step}" "$(($(now) - started))" "gold-panel-rebuild.sh ${unit} failed (exit ${rc}); see ${GOLD_LOG}"; }
+        gold_output="$(tail -c +"$((offset + 1))" "${GOLD_LOG}" 2>/dev/null || true)"
+        reason="$(grep -E "^gold-kind ${table} " <<<"${gold_output}" | tail -1 || true)"
+        reason="${reason:-$(grep -E "nothing to do|committed ${table}:|recorded the new pins" <<<"${gold_output}" | tail -1 || true)}"
         ;;
       *)
         FOUNDATION_OPERATOR_WAIT=1 "${OPERATOR}" "${lane}" "${step}" "${GENERATION}" || { rc=$?

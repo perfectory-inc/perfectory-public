@@ -137,6 +137,59 @@ class LaneCutover(OperatorHarness):
         self.assertIn("every lane is cut over already", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
 
+    def test_a_declared_parity_passes_only_on_a_full_rebuild_committed_in_this_run(self):
+        # An incremental commit skips the producer's parity with the bundle (ADR-0193 §6-2), so a
+        # head it made was never checked on every PNU: the cut-over must not serve it.
+        contract_path = self.release / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        table = CONTRACT["by_pnu_lanes"][LANE]["gold_table"]
+        contract["tables"][table].setdefault("pins_from", {})["parity_argument"] = "--parity-panel-snapshot-id"
+        contract_path.write_text(json.dumps(contract), encoding="utf-8")
+        self.gates_ready()
+        committed = f"gold-panel-rebuild {LANE}: committed {table}: 5 rows (floor none) in 9s by a full rebuild\n"
+        for kind, output, passes in (
+            ("full", f"gold-kind {table} mode=full seconds=9 rows=5 changed_keys=-\n{committed}", True),
+            ("incremental", f"gold-kind {table} mode=incremental seconds=9 rows=5 changed_keys=2\n"
+                            + committed.replace("full", "incremental"), False),
+            ("nothing", f"gold-panel-rebuild {LANE}: nothing to do: no Silver input of {table} changed rows\n", False),
+            ("dry run", f"gold-kind {table} mode=full seconds=9 rows=5 changed_keys=- dry_run=yes\n", False),
+        ):
+            with self.subTest(kind=kind):
+                for old in [self.log, *(self.bake / "cutover").glob("*.jsonl")] if (self.bake / "cutover").exists() else [self.log]:
+                    if old.exists():
+                        old.unlink()
+                result, calls = self.runner(LANE, "1", FAKE_GOLD_OUTPUT=output)
+                steps = {step["step"]: step for step in self.evidence()}
+                if passes:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(steps["parity"]["outcome"], "passed")
+                    self.assertIn("mode=full seconds=9", steps["gold"]["reason"])
+                else:
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(steps["parity"]["outcome"], "failed")
+                    self.assertNotIn("bake", steps)
+                    self.assertFalse([c for c in calls if c["tool"] == "systemd-run" and "pack-bake" in " ".join(c["args"])])
+                (self.etc / f"{LANE}-serving-monitor.env").unlink(missing_ok=True)
+
+    def test_gold_rebuild_of_one_table_is_any_unit_of_the_rebuild_contract(self):
+        # The zoning kind's first full build is run and timed outside the scheduled job (ADR-0193 §7).
+        contract = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
+                              .read_text(encoding="utf-8"))
+        unit = list(contract["tables"].values())[0]["unit"]
+        result, calls = self.run_operator("gold", "rebuild", unit)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
+        self.log.unlink()
+        for args in (("gold", "rebuild"), ("gold", "rebuild", "all"), ("gold", "rebuild", unit, "x"),
+                     ("gold", "rebuild", "../x"), ("gold", "bake", "1")):
+            with self.subTest(args=args):
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertEqual(calls, [])
+        result, calls = self.run_operator("gold", "rebuild", unit, active=["foundation-by-pnu-serving-bake"])
+        self.assertEqual(result.returncode, 75, result.stderr)
+
     def test_the_first_failing_step_stops_the_run_with_its_reason(self):
         self.gates_ready()
         result, calls = self.runner(LANE, "1", FAKE_FAIL="pack-equality")

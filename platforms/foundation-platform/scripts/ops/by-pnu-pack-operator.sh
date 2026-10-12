@@ -12,6 +12,7 @@
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
+#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
@@ -24,6 +25,10 @@
 # nothing. `lanes` is every lane not cut over yet. The steps it calls wait for their unit
 # (FOUNDATION_OPERATOR_WAIT, which sudo's env_reset removes from a granted run: only the root
 # runner sets it).
+#
+# `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
+# input moved: a table's first full build is run and timed outside the scheduled job this way (root
+# ADR-0193 §7), so it does not first meet the job's time bound.
 #
 # `raon` drives the RAON large-file lane's supervised runs (root ADR-0170, runbook
 # provider-acquisition-fargate.md, first supervised run): `build` and `plan` run
@@ -61,7 +66,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | <lane|lanes> cutover <generation> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -75,8 +80,9 @@ LANE="${1:-}" ACTION="${2:-}"
 # and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
 # then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`.
 [[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
-  || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || refuse "${USAGE}"
-if [[ "${LANE}" == lanes ]]; then
+  || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
+  || refuse "${USAGE}"
+if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
   GATEWAY_BLOCK=""
 elif is_pack_lane "${LANE}"; then
   [[ " bake equality latency publish status monitor-sample health gold-rebuild cutover " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample, health, gold-rebuild or cutover"
@@ -265,6 +271,17 @@ if [[ "${ACTION}" == cutover ]]; then
     "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1"
 fi
 
+TABLE_UNIT=""
+if [[ "${LANE}" == gold ]]; then
+  (($# == 1)) || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json"
+  mapfile -t table_units < <(python3 -I -c 'import json, sys; print("\n".join(t["unit"] for t in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))' \
+    "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
+  printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
+  TABLE_UNIT="$1"
+  shift
+  ACTION=gold-rebuild
+fi
+
 if [[ "${ACTION}" == gold-rebuild ]]; then
   (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds the panel Gold tables, and its reason is fixed"
   refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}"
@@ -308,7 +325,9 @@ PY
   props=()
   for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
-  if is_pack_lane "${LANE}"; then
+  if [[ -n "${TABLE_UNIT}" ]]; then
+    command=("${unit[0]}" "${TABLE_UNIT}")
+  elif is_pack_lane "${LANE}"; then
     # The lane's own Gold, by the rebuild contract's unit for its table (root ADR-0193 §3).
     table_unit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["tables"][sys.argv[2]]["unit"])' \
       "${RELEASE}/infra/lakehouse/contracts/gold-panel-rebuild.contract.json" "$(contract "${GATEWAY_BLOCK}.gold_table")")" \

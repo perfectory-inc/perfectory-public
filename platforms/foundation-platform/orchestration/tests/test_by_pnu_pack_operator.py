@@ -23,12 +23,17 @@ RELEASE_ID = "c" * 40
 VERSION = "33333333-3333-4333-8333-333333333333"
 OLD = "44444444-4444-4444-8444-444444444444"
 
-# A unit whose name holds a FAKE_FAIL entry (comma separated) fails, as a --wait run reports it.
+# A unit whose name holds a FAKE_FAIL entry (comma separated) fails, as a --wait run reports it. The
+# Gold rebuild's unit writes FAKE_GOLD_OUTPUT to its output file.
 FAKE_SYSTEMD_RUN = r'''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"tool": "systemd-run", "args": sys.argv[1:]}) + "\n")
 unit = next((arg for arg in sys.argv[1:] if arg.startswith("--unit=")), "")
+if "gold-panel-rebuild" in unit and os.environ.get("FAKE_GOLD_OUTPUT"):
+    output = next(arg for arg in sys.argv[1:] if arg.startswith("StandardOutput=append:"))
+    with open(output.split(":", 1)[1], "a") as out:
+        out.write(os.environ["FAKE_GOLD_OUTPUT"])
 if any(part and part in unit for part in os.environ.get("FAKE_FAIL", "").split(",")):
     sys.exit(3)
 '''
