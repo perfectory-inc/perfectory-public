@@ -687,10 +687,9 @@ bash scripts/guard/repository-identity-policy-self-test.sh
 bash scripts/guard/legal-publication-self-test.sh
 bash scripts/guard/third-party-artifact-policy-self-test.sh
 
+# actions-cache-controls, billing-budgets, publication-authority and public-root-publisher
+# self-tests are run once, from the monorepo-guard.sh list (guard-registry.sh refuses a second caller).
 bash scripts/guard/cargo-verify-isolation-self-test.sh
-bash scripts/guard/actions-cache-controls-self-test.sh
-bash scripts/guard/billing-budgets-self-test.sh
-bash scripts/guard/publication-authority-self-test.sh
 bash scripts/guard/public-tree-snapshot-self-test.sh
 bash scripts/guard/frontend-test-isolation-self-test.sh
 bash scripts/guard/safe-git-transport-self-test.sh
@@ -698,7 +697,6 @@ bash scripts/guard/repository-identity-capture-self-test.sh
 
 python3 scripts/guard/check-public-root-publisher.py \
   scripts/github/publish-public-root.sh
-bash scripts/guard/public-root-publisher-self-test.sh
 
 if ! grep -Eq '^GITLEAKS_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' tools/gitleaks.env \
   || [ "$(grep -Ec '^GITLEAKS_VERSION=' tools/gitleaks.env)" -ne 1 ] \

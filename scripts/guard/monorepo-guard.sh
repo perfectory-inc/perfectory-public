@@ -81,7 +81,9 @@ for g in hook-isolation-self-test \
          judgment-position-exit-codes-self-test judgment-position-exit-codes \
          publication-authority-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \
-         import-private-feature-diff-self-test; do
+         import-private-feature-diff-self-test \
+         intelligence-no-vector-provider-self-test intelligence-no-vector-provider \
+         guard-registry-self-test guard-registry; do
   bash "$dir/$g.sh" || rc=1
 done
 exit "$rc"

@@ -101,8 +101,7 @@ cp -- "$root/.gitattributes" "$guard_repo/.gitattributes"
 for stub in \
   check-tracked-blob-sizes.sh \
   public-fixture-safety.sh \
-  public-doc-boundary.sh \
-  check-workflow-policy.sh; do
+  public-doc-boundary.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$guard_repo/scripts/guard/$stub"
 done
 printf '#!/usr/bin/env python3\nraise SystemExit(0)\n' \

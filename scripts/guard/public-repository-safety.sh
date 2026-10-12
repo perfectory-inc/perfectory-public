@@ -370,9 +370,7 @@ done < <(
     -- '*.md' 2>/dev/null || true
 )
 
-bash scripts/guard/check-workflow-policy.sh \
-  .github/workflows tools/github/main-ruleset.json tools/github/selected-actions.json \
-  || rc=1
+# The workflow policy itself (check-workflow-policy.sh) runs once, in public-github-policy.sh.
 forbidden_tool_actions="$(while IFS= read -r workflow; do
   [ -n "$workflow" ] || continue
   grep -niE "uses:[[:space:]]*['\"]?(lycheeverse/lychee-action|fsfe/reuse-action)@" "$workflow" \
