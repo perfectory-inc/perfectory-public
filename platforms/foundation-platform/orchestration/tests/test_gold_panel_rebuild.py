@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,12 @@ sys.path.insert(0, str(ORCHESTRATION / "dags"))
 import job_specs  # noqa: E402
 
 PLATFORM = job_specs.PLATFORM_ROOT
+sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/jobs"))
+import by_pnu_kinds  # noqa: E402
+
+# The kind tables `all` rebuilds after the panels, one per kind line (root ADR-0193).
+KIND_TABLES = [kind.gold_table for kind in by_pnu_kinds.kinds().values()]
+KIND_PLANS = ["gold_rebuild.py"] * len(KIND_TABLES)
 RELEASE_ID = "e" * 40
 INVOCATION = "c" * 32
 
@@ -68,8 +75,9 @@ if job == "gold_rebuild.py":
             pinned = {**pinned, "head": "91", "snapshots": [*pinned["snapshots"], {
                 "snapshot_id": "91", "parent_id": pinned["head"], "committed_at": "2026-01-21T00:00:00Z",
                 "operation": "overwrite", "summary": summary}]}
-        # The fixtures name their inputs silver.a and silver.b: the pinned one is silver.a.
-        entry = {**entry, "pins_from": {**follows, "inputs": ["silver.a"]}}
+        # The fixtures name their inputs silver.a and silver.b: the pinned one is silver.a, or every one
+        # for a kind table, which checks parity with its host panel (root ADR-0193 §6-2).
+        entry = {**entry, "pins_from": {**follows, "inputs": "all" if follows["inputs"] == "all" else ["silver.a"]}}
     try:
         decision = gold_rebuild.plan(name, entry, inputs, fixture["gold"], fixture["silver"],
                                      unconditional=parsed.unconditional_reason, time_fallback=parsed.time_fallback,
@@ -86,8 +94,9 @@ if job == "unit_official_price.py":
         sys.exit("Error: the unit price join failed")
     host(flag("--summary-output")).write_text(json.dumps({"vintage": "209909", "appended": unit_price.get("appended", False)}))
     sys.exit(0)
-name = {"parcel_panel_silver_to_gold.py": "gold.parcel_panel", "building_panel_silver_to_gold.py": "gold.building_panel",
-        "unit_price_panel_silver_to_gold.py": "gold.unit_price_panel"}[job]
+contract = os.environ.get("FAKE_CONTRACT") or jobs_dir.parent.parent / "contracts/gold-panel-rebuild.contract.json"
+name, = [n for n, t in gold_rebuild.load_contract(pathlib.Path(contract))["tables"].items()
+         if t["producer"] + ".py" == job and t.get("lane") in (None, flag("--lane"))]
 fixture = catalog[name]
 if fixture.get("crash"):
     sys.exit("Error: the producer crashed")
@@ -141,9 +150,13 @@ class GoldPanelRebuild(unittest.TestCase):
         for name in ("gold-panel-rebuild.sh", "admitted-writer-runtime.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
-        (release / "infra/lakehouse/contracts").mkdir(parents=True)
+        # The script reads the table list through the release's planner, which reads the kind lines.
+        for part in ("infra/lakehouse/contracts", "infra/lakehouse/spark/jobs"):
+            shutil.copytree(PLATFORM / part, release / part, ignore=shutil.ignore_patterns("__pycache__"))
+        (release / "config").mkdir()
+        (release / "config/r2-connections.contract.json").write_bytes(
+            (PLATFORM / "config/r2-connections.contract.json").read_bytes())
         contract = "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
-        (release / contract).write_bytes((PLATFORM / contract).read_bytes())
         self.contract = release / contract
         (release / "orchestration").mkdir()
         self.jobs = release / "orchestration/jobs.v1.json"
@@ -175,8 +188,10 @@ class GoldPanelRebuild(unittest.TestCase):
 
     def rebuild(self, parcel, building, *args, unit_price=None, unit_price_panel=None, extra=None):
         # The unit price panel (root ADR-0190) has nothing to do unless a test says otherwise.
+        # So has every kind table (root ADR-0193), which follows its host panel's pins.
         self.catalog.write_text(json.dumps({"gold.parcel_panel": parcel, "gold.building_panel": building,
                                             "gold.unit_price_panel": unit_price_panel or table_fixture(False),
+                                            **{name: table_fixture(False) for name in KIND_TABLES},
                                             "unit_price": unit_price or {}, **(extra or {})}))
         result = subprocess.run(["bash", str(self.script), *args], env=self.env,
                                 capture_output=True, text=True, timeout=120)
@@ -288,6 +303,32 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertNotIn("commits", catalog["gold.parcel_panel"])
         self.assertIn("committed gold.building_panel: 1005 rows (floor 990)", result.stdout)
         # One table committed: the run changed its outputs and starts the bake (root ADR-0171).
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+
+    def test_kinds_rebuilds_every_kind_table_and_only_those(self):
+        # Root ADR-0193 §9: the kind job's own run; `all` (the panel job) leaves the kinds to it.
+        result, calls, _ = self.rebuild(table_fixture(False), table_fixture(False), "kinds")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        planned = [call["args"][call["args"].index("--gold-table") + 1] for call in calls if call["job"] == "gold_rebuild.py"]
+        self.assertEqual(planned, KIND_TABLES)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+
+    def test_a_kind_follows_its_host_panel_and_checks_parity_with_the_snapshot_it_committed(self):
+        # Root ADR-0193 §3, §6-2: the kind runs on the pins of the panel the panel job committed, and the
+        # one producer, told the kind's lane, checks it against that panel snapshot.
+        self.assertIn("gold.parcel_zoning", KIND_TABLES)
+        committed = {**table_fixture(True), "commits": [{"rows": 1004, "pins": {"silver.a": "12", "silver.b": "21"}}]}
+        zoning = {**table_fixture(True), "shares_silver": True}
+        result, calls, catalog = self.rebuild(committed, table_fixture(False), "kinds",
+                                              extra={"gold.parcel_zoning": zoning})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call["job"] for call in self.producer_calls(calls)], ["by_pnu_kind_silver_to_gold.py"])
+        args = self.producer_calls(calls)[0]["args"]
+        self.assertEqual(args[args.index("--lane") + 1], "parcel-zoning")
+        self.assertEqual(args[args.index("--parity-panel-snapshot-id") + 1], "91")
+        self.assertEqual(catalog["gold.parcel_zoning"]["commits"][0]["pins"], {"silver.a": "12", "silver.b": "21"})
+        # The line root ADR-0193 §7 measures each table against, and the outcome that starts the bake.
+        self.assertRegex(result.stdout, r"(?m)^gold-kind gold\.parcel_zoning mode=full seconds=\d+ rows=1000 changed_keys=-$")
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
 
     def test_a_pin_the_silver_no_longer_keeps_is_a_full_rebuild_with_its_reason(self):
@@ -483,12 +524,50 @@ class Registration(unittest.TestCase):
                    if job["id"] == "gold_panel_rebuild")
         self.assertEqual(set(job["pipeline_graph_edges"]), expected)
 
+    def test_every_kind_line_is_wired_into_the_data_map_and_both_jobs(self):
+        # Root ADR-0193 §9: a kind line is the only hand-written list. What it needs beyond the line is
+        # named here, and a missing piece fails with the line's name and the piece.
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        jobs = {job["id"]: job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]}
+        nodes = {node["id"]: node for node in graph["nodes"]}
+        edges = {edge["id"]: edge for edge in graph["edges"]}
+        node_id = lambda table: table.replace(".", "-").replace("_", "-")  # noqa: E731
+        missing = []
+        for lane, kind in by_pnu_kinds.kinds().items():
+            gold, surface = node_id(kind.gold_table), f"{lane}-by-pnu-section-packs"
+            fed, served = f"{node_id(kind.host_panel)}-to-{gold}", f"{gold}-to-{surface}"
+            wanted = [(gold in nodes and nodes[gold].get("table_name") == kind.gold_table, f"graph node {gold}"),
+                      (surface in nodes, f"graph node {surface}"),
+                      (fed in edges, f"graph edge {fed}"), (served in edges, f"graph edge {served}"),
+                      (fed in jobs["gold_kind_rebuild"]["pipeline_graph_edges"], f"gold_kind_rebuild carries {fed}"),
+                      (served in jobs["by_pnu_serving_bake"]["pipeline_graph_edges"], f"by_pnu_serving_bake carries {served}")]
+            missing += [f"{lane}: {what}" for ok, what in wanted if not ok]
+        self.assertEqual(missing, [])
+        kind_golds = {node_id(kind.gold_table) for kind in by_pnu_kinds.kinds().values()}
+        # The kind job carries exactly the edges into the kind tables, and is started by the panels.
+        self.assertEqual(set(jobs["gold_kind_rebuild"]["pipeline_graph_edges"]),
+                         {edge["id"] for edge in graph["edges"] if edge["to"] in kind_golds})
+
+    def test_the_kind_job_runs_the_kinds_after_the_panels_in_the_spark_pool(self):
+        job = next(job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
+                   if job["id"] == "gold_kind_rebuild")
+        self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
+        unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
+        self.assertIn("gold-panel-rebuild.sh kinds", unit)
+        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh cleanup$")
+        self.assertIn("TimeoutStartSec=160m", unit)
+        # It shares the panel rebuild's state directory, where the one-rebuild-at-a-time lock lives.
+        self.assertIn("StateDirectory=foundation-gold-panel-rebuild", unit)
+
     def test_every_lane_serves_a_gold_this_job_rebuilds_and_no_two_lanes_share_one(self):
         # A lane names its Gold once (r2-connections.contract.json by_pnu_lanes, root ADR-0193 §3);
         # this job's contract is where that table gets built.
+        # A kind line's Gold is derived from its name (root ADR-0193 §9), and so is its rebuild entry.
+        import gold_rebuild
         lanes = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
-        contract = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json").read_text(encoding="utf-8"))
-        served = [lane["gold_table"] for lane in lanes.values()]
+        contract = gold_rebuild.load_contract()
+        kinds = by_pnu_kinds.kinds()
+        served = [kinds[name].gold_table if name in kinds else lane["gold_table"] for name, lane in lanes.items()]
         self.assertTrue(served)
         self.assertEqual(sorted(set(served) - set(contract["tables"])), [])
         self.assertEqual(len(served), len(set(served)))

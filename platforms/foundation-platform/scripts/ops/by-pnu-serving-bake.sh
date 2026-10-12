@@ -92,8 +92,9 @@ case "${UNIT}" in
       # A lane whose documents follow another's (contract documents_follow_lane, root ADR-0190) is
       # not baked in a run where that lane failed: it would serve units where the served documents
       # of the other do not place them yet. The failed lane fails the run already.
-      follows="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {}).get(sys.argv[2], {}).get("documents_follow_lane", ""))' \
-        "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${lane}" 2>/dev/null || true)"
+      # A kind line follows its host lane unless it names another (root ADR-0193 §9; by_pnu_kinds.py).
+      follows=""
+      [[ "${lane}" == building ]] || follows="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${lane}" documents_follow_lane)"
       if [[ -n "${follows}" && "${failed}" == *" ${follows} "* ]]; then
         echo "by-pnu-serving-bake ${lane}: skipped: the ${follows} lane it follows failed in this run; it is baked with it on the next run"
         continue

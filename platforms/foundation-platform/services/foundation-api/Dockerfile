@@ -7,6 +7,8 @@ COPY Cargo.toml Cargo.lock /workspace/
 COPY crates /workspace/crates
 COPY services /workspace/services
 COPY migrations /workspace/migrations
+# lakehouse-domain derives each by-PNU data kind's Gold table from its line here (root ADR-0193 §9).
+COPY config/r2-connections.contract.json /workspace/config/r2-connections.contract.json
 RUN cargo build --locked --release -p foundation-api \
     --bin foundation-api --bin foundation-migrate
 

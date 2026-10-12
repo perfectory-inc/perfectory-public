@@ -426,12 +426,35 @@
       "enabled": true
     },
     {
+      "id": "gold_kind_rebuild",
+      "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
+      "systemd_service": "foundation-gold-kind-rebuild.service",
+      "systemd_timer": null,
+      "schedule": "15 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-panel-to-gold-parcel-zoning",
+        "gold-parcel-panel-to-gold-parcel-price",
+        "gold-parcel-panel-to-gold-parcel-characteristics",
+        "gold-parcel-panel-to-gold-parcel-forest-ledger",
+        "gold-parcel-panel-to-gold-parcel-transfer-history",
+        "gold-parcel-panel-to-gold-parcel-land-rights"
+      ],
+      "enabled": true
+    },
+    {
       "id": "by_pnu_serving_bake",
       "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel (config/r2-connections.contract.json by_pnu_lanes, root ADR-0190), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
       "capabilities": [
         "building_section_pack_patches",
         "parcel_section_pack_patches",
-        "unit_price_section_pack_patches"
+        "unit_price_section_pack_patches",
+        "by_pnu_kind_section_pack_patches"
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
@@ -448,7 +471,13 @@
         "gold-building-panel-to-building-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-section-packs",
         "gold-parcel-panel-to-parcel-by-pnu-section-packs",
-        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs"
+        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs",
+        "gold-parcel-zoning-to-parcel-zoning-by-pnu-section-packs",
+        "gold-parcel-price-to-parcel-price-by-pnu-section-packs",
+        "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
+        "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
+        "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true
     }
@@ -461,10 +490,6 @@
     {
       "surface": "parcel-tiles",
       "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
-    },
-    {
-      "surface": "parcel-zoning-by-pnu-section-packs",
-      "reason": "Planned (root ADR-0193 §6-3): the zoning lane gets its contract entry, bake and pack-only first-publish gate after gold.parcel_zoning has passed parity with the parcel panel; its bake joins by_pnu_serving_bake then."
     }
   ]
 }

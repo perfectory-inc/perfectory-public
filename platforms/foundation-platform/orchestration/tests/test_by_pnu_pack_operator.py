@@ -108,6 +108,9 @@ class OperatorHarness(unittest.TestCase):
         # What the operator reads from the release: its contracts, its secrets tool, its admission.
         for part in ("config", "scripts/deploy", "infra/systemd", "infra/lakehouse/contracts", "orchestration"):
             shutil.copytree(PLATFORM / part, release / part)
+        # The lanes' derived fields and the rebuild's tables (root ADR-0193 §9) are read through these.
+        shutil.copytree(PLATFORM / "infra/lakehouse/spark/jobs", release / "infra/lakehouse/spark/jobs",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
         for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",
@@ -404,6 +407,36 @@ class PackOperator(OperatorHarness):
         # The earlier evidence is kept, never overwritten.
         self.assertEqual(len(list(work.glob("latency-*.json"))), 1)
 
+    def test_a_kind_lane_is_probed_through_its_hosts_preview(self):
+        # Root ADR-0193 §4: a lane written as a host and a kind has no Worker of its own; its host's
+        # preview serves its unpublished generation under its own path.
+        work = self.work("parcel-zoning")
+        (work / "equality.json").write_text(json.dumps({"passed": True}))
+        result, calls = self.run_operator("parcel-zoning", "latency", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, _ = self.unit(calls)
+        self.assertEqual(args[-1], "probe-parcel-zoning-by-pnu-section-pack-latency")
+        preview = CONTRACT["parcel_by_pnu_gateway"]["section_packs"]["preview_worker"]["public_hostname"]
+        self.assertEqual(env["FOUNDATION_PLATFORM_PARCEL_ZONING_BY_PNU_SERVING_PACK_PREVIEW_BASE_URL"], f"https://{preview}")
+
+    def test_every_kind_lanes_monitor_sample_is_a_line_of_the_kinds_one_file(self):
+        # Root ADR-0193: a kind line needs no secrets group of its own; each monitor-sample replaces
+        # its lane's line and keeps the others'.
+        shared = self.etc / "by-pnu-kind-serving-monitor.env"
+        for lane in ("parcel-zoning", "parcel-price", "parcel-zoning"):
+            work = self.work(lane)
+            (work / "equality.json").write_text(json.dumps({"passed": True}))
+            result, calls = self.run_operator(lane, "monitor-sample", "1")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn({"tool": "systemctl", "args": ["enable", "--now", f"foundation-by-pnu-serving-monitor@{lane}.timer"]},
+                          calls)
+            self.log.unlink()
+        self.assertEqual(sorted(shared.read_text().splitlines()), [
+            f"FOUNDATION_PLATFORM_PARCEL_PRICE_BY_PNU_SERVING_MONITOR_SAMPLE_PATH={self.work('parcel-price')}/equality.json",
+            f"FOUNDATION_PLATFORM_PARCEL_ZONING_BY_PNU_SERVING_MONITOR_SAMPLE_PATH={self.work('parcel-zoning')}/equality.json",
+        ])
+        self.assertFalse((self.etc / "parcel-zoning-serving-monitor.env").exists())
+
     def test_publish_needs_gate_ga_passed_and_gate_na_measured_and_pins_the_bake_snapshot(self):
         work = self.work()
         (work / "equality.json").write_text(json.dumps({"passed": False}))
@@ -496,6 +529,8 @@ class MonitorReasons(unittest.TestCase):
         lanes = {"parcel": CONTRACT["parcel_by_pnu_gateway"], "building": CONTRACT["building_by_pnu_gateway"],
                  **CONTRACT.get("by_pnu_lanes", {})}
         for lane, block in lanes.items():
+            if "host" in block:
+                continue  # Its monitor block is its host's (root ADR-0193 §4); the host's case covers it.
             with self.subTest(lane=lane):
                 reason = block["section_packs"]["monitor"]["reason"]
                 self.assertIn(f"instance {lane}", reason)

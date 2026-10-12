@@ -114,7 +114,9 @@
      - 필지 쪽: 다른 필지 종류 다섯은 `silver.parcel_boundaries`·`silver.parcel_lineage` 를 `gold.parcel_zoning` 이
        만들어진 스냅숏에 고정한다. 한 PNU 가 어떤 레인에서는 퇴역, 다른 레인에서는 살아 있는 일이 없게 한다.
      - 이행 중에는 기준이 아직 묶음이다: 표제부가 옮겨지기 전의 `gold.building_units` 는 `gold.building_panel` 에,
-       `gold.parcel_zoning` 은 `gold.parcel_panel` 에 고정한다. 기준 종류가 옮겨지는 PR 이 고정 대상을 바꾼다(지금
+       `gold.parcel_zoning` 은 `gold.parcel_panel` 에 고정한다. 묶음이 기준인 동안 종류 표는 묶음의 한 섹션이므로
+       **입력 전부**를 묶음의 핀에 고정하고, 전량 재생성마다 그 묶음 스냅숏과 모든 PNU 에서 대등성을 검사한다
+       (`pins_from.parity_argument`, 6-2 의 검사가 한 번이 아니라 매 전량 실행이 된다). 기준 종류가 옮겨지는 PR 이 고정 대상을 바꾼다(지금
        `gold.unit_price_panel` 이 `gold.building_panel` 에 고정된 것도 표제부 PR 이 `gold.building_titles` 로 바꾼다).
    - **레인의 Gold 표는 한 곳에만 적는다.** `by_pnu_lanes.<lane>.gold_table` 이 정본이고, 재생성 계약은 표 이름으로
      자기 항목(생산자·한도)을 연다. 두 계약 사이의 참조는 검사 하나가 지킨다: 모든 레인의 `gold_table` 은 재생성
@@ -128,14 +130,16 @@
      `building_by_pnu_gateway`), `kind`, `gold_table`, `documents_follow_lane`, 관문 기준(`latency_baseline_lane`,
      `latency_p95_max_ms`)과 각 이유. 나머지는 아래 규칙으로 만든다. ADR-0190 의 레인 항목은 이 값들(Worker 설정·경로·
      뿌리·호스트)을 통째로 손으로 담는다. 레인이 열 개면 같은 값 열 벌이고, 손으로 적은 경로는 규칙과 어긋날 수 있다.
-     규칙을 읽는 코드는 이 ADR 의 구현 첫 단계(ADR-0190 병합 뒤)이고, 그 전까지 이 항은 결정일 뿐이다.
+     규칙은 발행기(`by_pnu_gateway_contract.rs` `resolve_lane_entry`)와 Worker(`lane.ts` `resolveLane`)가 각자
+     적용하고, 계약의 `by_pnu_lane_rule.test_vectors` 가 둘을 같은 답에 묶는다(묶음 조각 해시의 시험 벡터와 같은 방식).
+     호스트가 있는 레인 항목에 규칙이 만드는 칸을 손으로 적으면 계약 읽기가 거부한다.
 
      | 값 | 규칙 | `parcel-zoning` 의 값 |
      |---|---|---|
      | 공개 호스트 | `<host>.public_hostname` | `catalog.perfectory.io` |
      | 요청 경로 | `<host>.request_path.prefix` 끝의 `by-pnu/` 앞에 `{kind}/` | `/parcels/zoning/by-pnu/` |
      | 묶음 뿌리 | `<host>.section_packs.root` 끝의 `packs` 앞에 `{kind}/` | `serving/parcels/zoning/packs` |
-     | manifest·세대·패치 | 묶음 뿌리 아래, 레인마다 따로 | `serving/parcels/zoning/packs/manifest.json` |
+     | manifest·객체 키 | `<host>.object_key` 의 `by-pnu` 앞에 `{kind}/`(ADR-0190 레인과 같은 배치: manifest 는 객체 뿌리, 묶음은 그 옆) | `serving/parcels/zoning/by-pnu/manifest.json` |
      | 문서 스키마 | `foundation-platform.<레인 키의 - 를 _ 로>_by_pnu.v1` | `foundation-platform.parcel_zoning_by_pnu.v1` |
      | Worker 설정(배치·CPU·CORS·캐시·카나리아·감시·바인딩) | `<host>` 의 값 | 필지 호스트의 값 |
 
@@ -210,6 +214,27 @@
 8. **비용 원칙.** 새 레인의 R2 쓰기는 동 묶음뿐이다(전량 세대 = 묶음 수 + 조각 색인 + manifest). 패치는 바뀐 동만.
    안 바뀐 종류는 쓰기 0. 돈이 드는 대량 작업(전량 굽기·관문 읽기)은 운영자가 금액을 보고 승인한 뒤에 돈다. 금액은
    공개 저장소에 적지 않는다.
+9. **종류 = 계약 한 줄(소유자 지시 2026-10-13).** 종류를 하나씩 손으로 옮기지 않는다. 종류의 유일한 목록은
+   `r2-connections.contract.json` `by_pnu_lanes` 의 줄이고, 줄은 넷만 적는다: `host`, `kind`, 호스트 패널의
+   `section` 이름, 그 섹션의 내용 열(`columns`, `*_json` 이 먼저, 건수는 `<이름>:long`). 나머지는 모두 유도한다.
+   이 항이 2·3·4항의 "손으로 적는 값"을 대신한다.
+
+   | 무엇 | 어디서 유도 |
+   |---|---|
+   | Gold 표 `gold.<레인의 - 를 _>`, 열(`pnu`, 내용 열, 필지 종류는 `attached_via`, 지문·계보) | lakehouse-domain `by_pnu_kind.rs` → 계약 산출물 → ODCS |
+   | 재생성 항목(생산자 실행·한도·증분·호스트 패널 고정과 대등성, 측정 안 된 입력은 호스트 패널 것) | `gold-panel-rebuild.contract.json` `kind_tables` 틀 하나, `gold_rebuild.load_contract` |
+   | 실행 | 패널 작업(`gold_panel_rebuild`)이 아니라 종류 작업(`gold_kind_rebuild`, `gold-panel-rebuild.sh kinds`) 하나가 종류를 차례로 돈다. 패널 Gold 가 커밋되면 시작되고(데이터 지도의 패널→종류 연결선), 같은 잠금을 써서 패널 재생성과 겹치지 않는다. 시간 안에 못 끝낸 종류는 지금 Gold 를 유지하고 다음 실행에서 이어진다 |
+   | 생산자 | `by_pnu_kind_silver_to_gold.py --lane <레인>` 하나가 호스트 패널의 `SECTIONS` 표에서 그 섹션 함수를 그대로 부른다 |
+   | 레인 경로·문서 스키마·기준 레인(호스트)·지연 상한·따르는 레인(호스트) | 4항 규칙, `by_pnu_lane_rule.latency_p95_max_ms` |
+   | 굽기 job capability | 종류 공통 `by_pnu_kind_section_pack_patches` 하나 |
+   | 감시 표본 경로 | 종류 공통 비밀 묶음 `by-pnu-kind-serving-monitor` 의 레인별 한 줄 |
+
+   계약 줄 밖에서 종류마다 손으로 적는 것은 데이터 지도와 작업 목록의 연결이다: 지도에 Gold 노드·묶음 노드와
+   패널→종류·종류→묶음 연결선 넷, `jobs.v1.json` 의 종류 작업·굽기 작업에 그 두 연결선(지도 예제·작업 의존 파일·
+   ODCS·한국어 지도는 생성물). 콘솔과 API 가 이 목록을 그대로 읽으므로 생성하지 않고, 시험 하나
+   (`test_every_kind_line_is_wired_into_the_data_map_and_both_jobs`)가 줄마다 빠진 것을 이름으로 거부한다.
+   종류의 지도 입력은 Silver 가 아니라 호스트 패널이다: 종류는 패널의 핀에 고정되고 패널과 대조되므로, 패널이
+   바뀌어야 종류가 바뀐다.
 
 ## Consequences
 

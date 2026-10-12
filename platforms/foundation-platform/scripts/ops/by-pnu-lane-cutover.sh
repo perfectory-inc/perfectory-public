@@ -7,7 +7,8 @@
 # Started only by `by-pnu-pack-operator.sh <lane|lanes> cutover <generation>` (as root, in its own
 # transient unit) or, with --dry-run, run by it in the caller's terminal. `lanes` is every lane of
 # the contract that is not cut over yet, in contract order; a lane is cut over once its monitor
-# file (runtime-secrets group <lane>-serving-monitor) exists, which only `monitor-sample` writes.
+# file (runtime-secrets group <lane>-serving-monitor, or the kinds' one group, root ADR-0193 §9)
+# names its sample, which only `monitor-sample` writes.
 #
 # For each lane, in order, each step only after the one before passed:
 #
@@ -80,7 +81,11 @@ def load(path):
     with open(os.path.join(root, path), encoding="utf-8") as handle:
         return json.load(handle)
 r2 = load("config/r2-connections.contract.json")
-rebuild = load("infra/lakehouse/contracts/gold-panel-rebuild.contract.json")["tables"]
+# Every table the rebuild builds and every lane's fields, a kind line's derived (root ADR-0193 §9).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(root, "infra/lakehouse/spark/jobs"))
+import by_pnu_kinds, gold_rebuild  # noqa: E402
+rebuild = gold_rebuild.load_contract()["tables"]
 groups = {group["name"]: group["path"] for group in load("config/runtime-secrets.contract.json")["groups"]}
 jobs = load("orchestration/jobs.v1.json")["jobs"]
 lanes = r2.get("by_pnu_lanes", {})
@@ -106,13 +111,16 @@ else:
     sys.exit(f"{target!r} is not a by_pnu_lanes lane of the contract ({', '.join(lanes)}) or `lanes`")
 done = []
 for lane in chosen:
-    entry = lanes[lane]
-    follows = entry.get("documents_follow_lane")
+    entry = by_pnu_kinds.lane_fields(lane)
+    follows = entry["documents_follow_lane"]
     if follows in lanes and follows in chosen and chosen.index(follows) > chosen.index(lane):
         sys.exit(f"{lane} follows {follows}, which the contract lists after it")
-    monitor = os.path.join(etc, os.path.basename(groups[f"{lane}-serving-monitor"]))
-    if target == "lanes" and os.path.exists(monitor):
-        continue  # cut over already
+    monitor = os.path.join(etc, os.path.basename(groups[entry["monitor_group"]]))
+    # Cut over already: its monitor file names its sample (the kinds share one file, a line each).
+    sample = f"FOUNDATION_PLATFORM_{lane.replace('-', '_').upper()}_BY_PNU_SERVING_MONITOR_SAMPLE_PATH="
+    if target == "lanes" and os.path.exists(monitor) and any(
+            line.startswith(sample) for line in open(monitor, encoding="utf-8")):
+        continue
     table = rebuild.get(entry["gold_table"])
     if table is None:
         sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json")

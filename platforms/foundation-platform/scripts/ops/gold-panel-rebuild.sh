@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # The scheduled panel Gold rebuild (root ADR-0139, ADR-0122).
 #
-#   gold-panel-rebuild.sh <a table's unit>|all [--dry-run] [--unconditional <reason>]
+#   gold-panel-rebuild.sh <a table's unit>|all|kinds [--dry-run] [--unconditional <reason>]
 #   gold-panel-rebuild.sh cleanup        (the unit's ExecStopPost)
 #
 # A table's unit (parcel, building, unit-price, ...) is its `unit` in
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. `all` (the registered job) rebuilds
 # every table of that contract in its order (gold.parcel_panel, gold.building_panel,
-# gold.unit_price_panel; root ADR-0190). One Spark run at a time: each takes the whole compose
+# gold.unit_price_panel; root ADR-0190). `kinds` (the registered kind job, foundation-gold-kind-
+# rebuild) rebuilds the Gold table of every by-PNU data kind line instead (root ADR-0193 §9): each
+# kind is pinned to its host panel's inputs, so it runs after the panel job committed. One Spark run at a time: each takes the whole compose
 # `spark` cap (root ADR-0138). A failed table does not stop the others; `all` fails if any did.
 # One run of a table:
 #
@@ -66,15 +68,28 @@ while (($#)); do
     *) echo "gold-panel-rebuild: expected --dry-run or --unconditional <reason>, got '$1'" >&2; exit 64 ;;
   esac
 done
-# The tables' units in the contract's order, from the contract this script ships with: a table the
-# contract gains is rebuilt by `all` without an edit here.
-mapfile -t UNITS < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json" <<'PY'
-import json, sys
-print("\n".join(table["unit"] for table in json.load(open(sys.argv[1], encoding="utf-8"))["tables"].values()))
+# The tables' units in the contract's order, from the contract this script ships with (`all`), and
+# the table of every by-PNU data kind (`kinds`; root ADR-0193, gold_rebuild.load_contract): a table
+# the contract gains, or a kind line the R2 connection contract gains, is rebuilt without an edit here.
+mapfile -t TABLES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import gold_rebuild
+print("\n".join(("kind " if "lane" in table else "panel ") + table["unit"]
+                for table in gold_rebuild.load_contract()["tables"].values()))
 PY
 )
-if [[ "${UNIT}" != all && ( -z "${UNIT}" || " ${UNITS[*]-} " != *" ${UNIT} "* ) ]]; then
-  echo "gold-panel-rebuild: expected one of ${UNITS[*]-}, all or cleanup, got '${UNIT}'" >&2
+PANEL_UNITS=() KIND_UNITS=()
+for table in ${TABLES[@]+"${TABLES[@]}"}; do
+  case "${table}" in
+    "panel "*) PANEL_UNITS+=("${table#panel }") ;;
+    "kind "*) KIND_UNITS+=("${table#kind }") ;;
+  esac
+done
+UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"} ${KIND_UNITS[@]+"${KIND_UNITS[@]}"})
+if [[ "${UNIT}" != all && "${UNIT}" != kinds && ( -z "${UNIT}" || " ${UNITS[*]-} " != *" ${UNIT} "* ) ]]; then
+  echo "gold-panel-rebuild: expected one of ${UNITS[*]-}, all, kinds or cleanup, got '${UNIT}'" >&2
   exit 64
 fi
 # A run outside systemd (a supervised manual run) names its own project; ExecStopPost is not there
@@ -100,8 +115,9 @@ if [[ -z "${GOLD_PANEL_REBUILD_LOCK_HELD:-}" ]]; then
   fi
   export GOLD_PANEL_REBUILD_LOCK_HELD=1
 fi
-if [[ "${UNIT}" == all ]]; then
+if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   status=0
+  if [[ "${UNIT}" == all ]]; then RUN_UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"}); else RUN_UNITS=(${KIND_UNITS[@]+"${KIND_UNITS[@]}"}); fi
   # Each table that commits a snapshot names itself here; the job's last line says whether any did,
   # which is what starts the by-PNU bake (root ADR-0171).
   GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
@@ -109,7 +125,7 @@ if [[ "${UNIT}" == all ]]; then
   # reads them does not start the national join again (step 0).
   GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED="$(mktemp)"
   export GOLD_PANEL_REBUILD_COMMITTED GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED
-  for unit in ${UNITS[@]+"${UNITS[@]}"}; do
+  for unit in ${RUN_UNITS[@]+"${RUN_UNITS[@]}"}; do
     [[ -n "${unit}" ]] || continue
     "${BASH_SOURCE[0]}" "${unit}" ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
   done
@@ -128,9 +144,12 @@ CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/gold-panel-rebuild.contract.
 JOBS="${RELEASE_ROOT}/orchestration/jobs.v1.json"
 log() { printf 'gold-panel-rebuild %s: %s\n' "${UNIT}" "$*"; }
 
-read -r gold_table producer master driver_memory < <(python3 -I - "${CONTRACT}" "${UNIT}" <<'PY'
-import json, sys
-contract, unit = json.load(open(sys.argv[1])), sys.argv[2]
+read -r gold_table producer master driver_memory < <(python3 -I - "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${UNIT}" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import gold_rebuild
+contract, unit = gold_rebuild.load_contract(), sys.argv[2]
 (name, entry), = [(n, t) for n, t in contract["tables"].items() if t["unit"] == unit]
 print(name, entry["producer"], entry["spark"]["master"], entry["spark"]["driver_memory"])
 PY
@@ -179,11 +198,14 @@ fi
 # 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a
 # missing or unreadable job list counts as enabled.
 plan_options=()
-if python3 -I - "${JOBS}" <<'PY'
+# The job that rebuilds this table: the panel job, or the kind job for a data kind (root ADR-0193).
+job_id=gold_panel_rebuild
+[[ " ${KIND_UNITS[*]-} " != *" ${UNIT} "* ]] || job_id=gold_kind_rebuild
+if python3 -I - "${JOBS}" "${job_id}" <<'PY'
 import json, sys
 try:
     jobs = json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]
-    enabled = next(job for job in jobs if job["id"] == "gold_panel_rebuild")["enabled"] is not False
+    enabled = next(job for job in jobs if job["id"] == sys.argv[2])["enabled"] is not False
 except (OSError, ValueError, KeyError, StopIteration):
     enabled = True
 sys.exit(0 if enabled else 1)
@@ -256,14 +278,18 @@ if ! spark "${producer}.py" --input-mode iceberg --write-mode iceberg \
   log "FAILED: ${producer} refused or crashed; nothing was committed (log ${work}/${producer}.py.log)"
   exit 1
 fi
-read -r rows built changed_rows < <(python3 -I - "${work}/summary.json" <<'PY'
+read -r rows built changed_rows changed_keys < <(python3 -I - "${work}/summary.json" <<'PY'
 import json, sys
 summary = json.load(open(sys.argv[1]))
 rebuild = summary.get("rebuild") or {}
 # An incremental run whose recomputed PNUs all came out unchanged commits only the new pins.
-print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes")
+print(summary["row_count"], rebuild.get("mode", "full"), "no" if rebuild.get("merged") is False else "yes",
+      (rebuild.get("counts") or {}).get("affected_pnus", "-"))
 PY
 )
+# The line root ADR-0193 §7 measures each Gold against (seconds and rows of a full build, changed keys
+# of an incremental one).
+echo "gold-kind ${gold_table} mode=${built} seconds=$((SECONDS - started)) rows=${rows} changed_keys=${changed_keys}${VALIDATE[0]:+ dry_run=yes}"
 if ((${#VALIDATE[@]})); then
   log "dry run passed: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; nothing was committed"
 elif [[ "${changed_rows}" == no ]]; then
