@@ -236,25 +236,38 @@ fn set_null_value_count(column: &mut ColumnStatistics, value: &AvroValue) {
     };
 }
 
-/// Decodes one Parquet data file into contract-shaped rows.
+/// Decodes one Parquet data file into contract-shaped rows, handing each to `visit` as it decodes.
+///
+/// A row `visit` does not keep is dropped before the next one decodes: what a scan holds is what
+/// it keeps plus one record batch, never the whole file. A `gold.building_panel` data file of
+/// 900 thousand rows decoded whole took a 47 thousand row patch past its 14G cap six times on
+/// 2026-10-11. `visit` answers whether to go on; the decoding stops at the first `false`.
+/// Returns the number of rows decoded.
 pub(crate) fn decode_rows(
     contract: &LakehouseTableContract,
     parquet_bytes: Vec<u8>,
-) -> anyhow::Result<Vec<JsonMap<String, JsonValue>>> {
+    mut visit: impl FnMut(JsonMap<String, JsonValue>) -> bool,
+) -> anyhow::Result<u64> {
     let reader = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
         .context("failed to open Iceberg Parquet data file")?
         .build()
         .context("failed to build the Iceberg Parquet reader")?;
 
-    let mut rows = Vec::new();
+    let mut decoded: u64 = 0;
     for batch in reader {
         let batch = batch.context("failed to read an Iceberg Parquet record batch")?;
         assert_batch_matches_contract(contract, &batch)?;
         for index in 0..batch.num_rows() {
-            rows.push(decode_row(contract, &batch, index)?);
+            let row = decode_row(contract, &batch, index)?;
+            decoded = decoded
+                .checked_add(1)
+                .context("decoded row count overflow")?;
+            if !visit(row) {
+                return Ok(decoded);
+            }
         }
     }
-    Ok(rows)
+    Ok(decoded)
 }
 
 fn assert_batch_matches_contract(
