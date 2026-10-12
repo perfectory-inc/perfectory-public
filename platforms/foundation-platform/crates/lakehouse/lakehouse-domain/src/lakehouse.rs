@@ -3240,7 +3240,6 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR,
     GOLD_PARCEL_PANEL,
-    crate::GOLD_PARCEL_ZONING,
     GOLD_BUILDING_PANEL,
     crate::GOLD_UNIT_PRICE_PANEL,
     GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
@@ -3257,10 +3256,18 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_LINEAGE_REVIEW_QUEUE,
 ];
 
-/// Returns the industrial complex lakehouse `PoC` table contracts in publish order.
+/// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold
+/// table of every by-PNU data kind the R2 connection contract names (root ADR-0193).
 #[must_use]
-pub const fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContract] {
-    INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS
+pub fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContract] {
+    static ALL: std::sync::OnceLock<Vec<LakehouseTableContract>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| {
+        [
+            INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS,
+            crate::by_pnu_kind_tables(),
+        ]
+        .concat()
+    })
 }
 
 /// Finds an industrial complex lakehouse contract by fully qualified table name.
@@ -3268,7 +3275,7 @@ pub const fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTabl
 pub fn industrial_complex_lakehouse_contract_by_table_name(
     table_name: &str,
 ) -> Option<&'static LakehouseTableContract> {
-    INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS
+    industrial_complex_lakehouse_contracts()
         .iter()
         .find(|contract| contract.table_name == table_name)
 }

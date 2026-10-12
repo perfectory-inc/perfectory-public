@@ -47,8 +47,10 @@ class SnapshotIds(unittest.TestCase):
         import json
         lanes = json.loads(delta.R2_CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_lanes"]
         self.assertTrue(lanes)
+        import by_pnu_kinds
+        kinds = by_pnu_kinds.kinds()
         for name, lane in lanes.items():
-            self.assertEqual(delta.GOLD_TABLES[name], lane["gold_table"])
+            self.assertEqual(delta.GOLD_TABLES[name], kinds[name].gold_table if name in kinds else lane["gold_table"])
             self.assertEqual(delta.parse_args([
                 "--unit", name, "--current-snapshot-id", "202", "--max-delta-fraction", "0.5",
                 "--upsert-output", "u", "--delete-output", "d", "--summary-output", "s.json",

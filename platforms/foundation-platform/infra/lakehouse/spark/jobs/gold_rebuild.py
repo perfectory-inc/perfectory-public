@@ -59,11 +59,33 @@ class PlanError(ValueError):
     pass
 
 
-def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
+def kind_tables(template: dict[str, Any], kinds: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """One table entry per by-PNU data kind (root ADR-0193), from the contract's `kind_tables`."""
+    tables = {}
+    for lane, kind in kinds.items():
+        pin = template["pins_from_host_panel"]
+        tables[kind.gold_table] = {
+            "unit": lane, "lane": lane, "producer": template["producer"], "producer_arguments": ["--lane", lane],
+            **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "incremental", "spark",
+                                        "unmeasured_inputs") if k in template},
+            "pins_from": {"gold_table": kind.host_panel, "inputs": "all", "parity_argument": pin["parity_argument"],
+                          "reason": pin["reason"]},
+        }
+    return tables
+
+
+def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = None) -> dict[str, Any]:
     contract = json.loads(path.read_text(encoding="utf-8"))
     tables = contract.get("tables")
     if not isinstance(tables, dict) or not tables:
         raise PlanError("gold rebuild contract names no tables")
+    if "kind_tables" in contract:
+        import by_pnu_kinds
+        derived = kind_tables(contract["kind_tables"], by_pnu_kinds.kinds() if kinds is None else kinds)
+        clash = sorted(set(derived) & set(tables))
+        if clash:
+            raise PlanError(f"{clash} are kind tables: their line in the R2 connection contract is their entry")
+        tables = contract["tables"] = {**tables, **derived}
     for name, table in tables.items():
         fraction = table.get("max_row_loss_fraction")
         if type(fraction) not in (int, float) or not 0 <= fraction < 1:
@@ -73,8 +95,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         if not isinstance(table.get("producer"), str):
             raise PlanError(f"{name}: names no producer")
         args = table.get("producer_arguments", [])
-        if not (isinstance(args, list) and all(isinstance(a, str) and a.startswith("--") for a in args)):
-            raise PlanError(f"{name}: producer_arguments must be a list of flags")
+        # Flags and their values; the rebuild script splits them on whitespace.
+        if not (isinstance(args, list) and all(isinstance(a, str) and a and not any(c.isspace() for c in a)
+                                               for a in args) and (not args or args[0].startswith("--"))):
+            raise PlanError(f"{name}: producer_arguments must be a list of flags and their values")
         unmeasured = table.get("unmeasured_inputs", {})
         if not (isinstance(unmeasured, dict)
                 and all(isinstance(why, str) and why.strip() for why in unmeasured.values())):
@@ -97,18 +121,25 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         if follows is not None:
             inputs = follows.get("inputs")
             if (follows.get("gold_table") not in tables or follows.get("gold_table") == name
-                    or not (isinstance(inputs, list) and inputs and all(isinstance(i, str) for i in inputs))
+                    or not (inputs == "all" or isinstance(inputs, list) and inputs
+                            and all(isinstance(i, str) for i in inputs))
                     or not str(follows.get("reason", "")).strip()):
                 raise PlanError(f"{name}: pins_from names another table of this contract, the inputs it "
                                 "pins and its reason")
+            parity = follows.get("parity_argument")
+            if parity is not None and not (isinstance(parity, str) and parity.startswith("--")):
+                raise PlanError(f"{name}: pins_from.parity_argument must be a producer flag")
     return contract
 
 
-def producer_inputs(module: Any) -> tuple[tuple[str, ...], dict[str, str], str]:
+def producer_inputs(module: Any, entry: dict[str, Any] | None = None) -> tuple[tuple[str, ...], dict[str, str], str]:
     """(required inputs, optional input -> flag the producer takes without it, anchor input).
 
-    The lists are the producer's own constants (ADR-0130: the producer owns its input list).
+    The lists are the producer's own constants (ADR-0130: the producer owns its input list); a kind
+    table's are its section's (`lane_inputs`).
     """
+    if entry is not None and "lane" in entry:
+        return module.lane_inputs(entry["lane"])[:3]
     optional = {module.LINEAGE_SOURCE: "--no-carry-lineage"} if hasattr(module, "LINEAGE_SOURCE") else {}
     anchor = getattr(module, "PARCEL_SOURCE", None) or module.TITLE_SOURCE
     return tuple(module.ALL_SOURCES), optional, anchor
@@ -177,8 +208,10 @@ def recorded_pins(gold_snapshots: list[dict[str, Any]], gold_head: str) -> dict[
     return None
 
 
-def producer_whole_table_inputs(module: Any) -> tuple[str, ...]:
+def producer_whole_table_inputs(module: Any, entry: dict[str, Any] | None = None) -> tuple[str, ...]:
     """Inputs whose change the producer's incremental rebuild does not map to PNUs (ADR-0180)."""
+    if entry is not None and "lane" in entry:
+        return module.lane_inputs(entry["lane"])[3]
     return tuple(getattr(module, "WHOLE_TABLE_INPUTS", ()))
 
 
@@ -243,6 +276,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     `measuring`: a dry run, which may read an input the contract lists as unmeasured.
     `pinned_gold`: the state of the table the contract's `pins_from` names, like `gold`: the inputs
     it lists are pinned to the snapshots that table's current Gold was built from, not to their heads.
+    With `pins_from.parity_argument` every input must be pinned so, and the producer gets that flag with
+    the followed table's head snapshot, against which it checks its rows before it writes.
     """
     if unconditional is not None and not unconditional.strip():
         raise PlanError(f"{table}: an unconditional rebuild needs its reason")
@@ -267,12 +302,20 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         if followed is None:
             raise PlanError(f"{table}: its {follows['inputs']} are pinned to what {follows['gold_table']} was "
                             "built from, and that table records no source pins")
-        for name in follows["inputs"]:
+        for name in present if follows["inputs"] == "all" else follows["inputs"]:
             if name not in pins or name not in followed:
                 raise PlanError(f"{table}: {name} is pinned to {follows['gold_table']}, but it is not an input "
                                 "of both producers")
             pins[name] = followed[name]
     flags = [flag for name, flag in optional.items() if silver.get(name) is None]
+    if follows is not None and follows.get("parity_argument"):
+        # Root ADR-0193 §6-2: the producer checks its rows against the followed table's, which is only
+        # a check when every input it reads is pinned where that table's were.
+        unpinned = [] if follows["inputs"] == "all" else sorted(set(present) - set(follows["inputs"]))
+        if unpinned:
+            raise PlanError(f"{table}: checks parity with {follows['gold_table']}, but {unpinned} are not "
+                            "pinned to what that table was built from")
+        flags += [follows["parity_argument"], pinned_gold["head"]]
     reasons: list[str] = [f"unconditional rebuild: {unconditional.strip()}"] if unconditional else []
     previous = None
     if gold is None or gold.get("head") is None:
@@ -417,7 +460,7 @@ def main(argv=None) -> int:
     if entry is None:
         raise PlanError(f"{args.gold_table} is not in the gold rebuild contract")
     producer = importlib.import_module(entry["producer"])
-    inputs = producer_inputs(producer)
+    inputs = producer_inputs(producer, entry)
 
     from pyspark.sql import SparkSession, functions as F
     from lakehouse_engine import apply_catalog_settings
@@ -442,7 +485,7 @@ def main(argv=None) -> int:
         decision = plan(args.gold_table, entry, inputs, gold, silver,
                         unconditional=args.unconditional_reason, time_fallback=args.time_fallback,
                         measuring=args.measuring,
-                        whole_table_inputs=producer_whole_table_inputs(producer), pinned_gold=pinned_gold)
+                        whole_table_inputs=producer_whole_table_inputs(producer, entry), pinned_gold=pinned_gold)
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):

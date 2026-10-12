@@ -13,7 +13,7 @@ import {
   type ReadTrace,
   type Resolved,
 } from "./packs";
-import { cacheOrigin, lanePacks, packOnly, policy, UNIT } from "./lane";
+import { cacheOrigin, laneOfPath, lanePacks, OWN, policy, type ServedLane } from "./lane";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
@@ -34,8 +34,11 @@ const pnuPattern = new RegExp(`^(?:${policy.object_key.pnu_pattern})$`);
 /// every manifest to is the fixed `manifest_patch_ceiling`.
 const PNU_PREFIX_LENGTHS = { min: 1, max: 19 } as const;
 // A synthetic cache identity for the parsed manifest: the manifest's own R2 key is not a public
-// URL of this Worker, and caching under a request URL would let a client shape the cache.
-const manifestCacheUrl = `${cacheOrigin}/serving-manifest`;
+// URL of this Worker, and caching under a request URL would let a client shape the cache. Each
+// lane the Worker serves has its own (root ADR-0193 §4); its own lane keeps the key it had.
+function manifestCacheUrl(lane: ServedLane): string {
+  return lane === OWN ? `${cacheOrigin}/serving-manifest` : `${cacheOrigin}/serving-manifest/${lane.name}`;
+}
 
 interface Env {
   [binding: string]: string | Pick<R2Bucket, "get"> | Pick<WorkerVersionMetadata, "id">;
@@ -67,15 +70,15 @@ interface CanonicalRequest {
 
 const previewPattern = new RegExp(`^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})$`);
 
-function canonicalRequest(url: URL): CanonicalRequest | null {
+function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | null {
   // The exact schema query separates v2 browser/edge caches from year-only documents; the preview
   // query names one unpublished pack generation (the cut-over gate's latency probe).
   const preview = url.search.match(previewPattern);
   // A lane may accept a query that names a document variant for browser and edge caches
   // (contract `request_path.accepted_queries`, the building lane's `schema=2`).
-  const accepted = (policy.request_path.accepted_queries as readonly string[]).some((query) => url.search === `?${query}`);
+  const accepted = lane.acceptedQueries.some((query) => url.search === `?${query}`);
   if (url.search !== "" && !accepted && preview === null) return null;
-  const prefix = policy.request_path.prefix;
+  const prefix = lane.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
   if (!pnuPattern.test(candidate)) return null;
@@ -150,17 +153,17 @@ function isGeneration(value: unknown): value is number {
 /// 404, but a manifest that cannot be read or does not validate means the whole lane is not
 /// serving, and that must surface as 503 rather than as millions of spurious 404s. A v1
 /// manifest is a base with no patches.
-function parseManifest(raw: unknown): ServingPlan | null {
+function parseManifest(raw: unknown, lane: ServedLane = OWN): ServingPlan | null {
   if (typeof raw !== "object" || raw === null) return null;
   const manifest = raw as Record<string, unknown>;
-  if (manifest.unit !== UNIT) return null;
+  if (manifest.unit !== lane.unit) return null;
   if (manifest.schema_version === 1) {
     if (!isGeneration(manifest.current_generation)) return null;
     return {
       base: manifest.current_generation,
       prefixLength: 0,
       patches: [],
-      fingerprint: `v${manifest.current_generation}`,
+      fingerprint: `${lane.cacheScope}v${manifest.current_generation}`,
     };
   }
   if (manifest.schema_version !== 2 || !isGeneration(manifest.base_generation)) return null;
@@ -195,11 +198,11 @@ function parseManifest(raw: unknown): ServingPlan | null {
     base: manifest.base_generation,
     prefixLength,
     patches,
-    fingerprint: newest === undefined ? `v${manifest.base_generation}` : `v${manifest.base_generation}p${newest.generation}`,
+    fingerprint: `${lane.cacheScope}${newest === undefined ? `v${manifest.base_generation}` : `v${manifest.base_generation}p${newest.generation}`}`,
   };
   if (manifest.section_packs === undefined) return plan;
   // A block this Worker cannot trust is an outage, never a silent fall back to objects.
-  const packs = parseSectionPacks(manifest.section_packs, patchPolicy.manifest_patch_ceiling);
+  const packs = parseSectionPacks(manifest.section_packs, patchPolicy.manifest_patch_ceiling, lane);
   if (packs === null) return null;
   return { ...plan, packs, fingerprint: `${plan.fingerprint}-${packs.fingerprint}` };
 }
@@ -207,18 +210,19 @@ function parseManifest(raw: unknown): ServingPlan | null {
 async function resolvePlan(
   bucket: Pick<R2Bucket, "get">,
   ctx: ExecutionContext,
+  lane: ServedLane,
 ): Promise<ServingPlan | null> {
-  const cached = await caches.default.match(manifestCacheUrl);
+  const cached = await caches.default.match(manifestCacheUrl(lane));
   if (cached !== undefined) {
-    const plan = parseManifest(await cached.json().catch(() => null));
+    const plan = parseManifest(await cached.json().catch(() => null), lane);
     if (plan !== null) return plan;
   }
-  const object = await bucket.get(policy.object_key.manifest_object);
+  const object = await bucket.get(lane.manifestObject);
   if (object === null || !("body" in object)) return null;
   const text = await object.text();
   let plan: ServingPlan | null = null;
   try {
-    plan = parseManifest(JSON.parse(text));
+    plan = parseManifest(JSON.parse(text), lane);
   } catch {
     plan = null;
   }
@@ -229,7 +233,7 @@ async function resolvePlan(
       "Content-Type": policy.content_type,
     },
   });
-  ctx.waitUntil(caches.default.put(manifestCacheUrl, response));
+  ctx.waitUntil(caches.default.put(manifestCacheUrl(lane), response));
   return plan;
 }
 
@@ -443,9 +447,9 @@ function acceptsGzip(request: Request): boolean {
   return gzip !== undefined && gzip > 0;
 }
 
-function capabilities(): Response {
+function capabilities(lane: ServedLane): Response {
   return new Response(
-    `${JSON.stringify({ unit: UNIT, manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS })}\n`,
+    `${JSON.stringify({ unit: lane.unit, manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS })}\n`,
     {
       headers: {
         "Cache-Control": "no-store",
@@ -485,14 +489,13 @@ async function answerByPnu(
 ): Promise<Response> {
   const started = Date.now();
   const url = new URL(request.url);
-  if (
-    url.pathname === policy.request_path.capabilities &&
-    url.search === "" &&
-    ["GET", "HEAD"].includes(request.method)
-  ) {
-    return capabilities();
+  // One Worker serves its own lane and the lanes derived from its block (root ADR-0193 §4).
+  const lane = laneOfPath(url.pathname);
+  if (lane === null) return new Response(null, { status: 404 });
+  if (url.pathname === lane.capabilities && url.search === "" && ["GET", "HEAD"].includes(request.method)) {
+    return capabilities(lane);
   }
-  const canonical = canonicalRequest(url);
+  const canonical = canonicalRequest(url, lane);
   if (canonical === null) return new Response(null, { status: 404 });
   const { pnu, previewGeneration } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
@@ -534,7 +537,7 @@ async function answerByPnu(
     return new Response(null, { status: 204, headers });
   }
 
-  const plan = await resolvePlan(bucket, ctx).catch(() => null);
+  const plan = await resolvePlan(bucket, ctx, lane).catch(() => null);
   if (plan === null) {
     return withCors(
       new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
@@ -548,14 +551,14 @@ async function answerByPnu(
   // A version whose serving binding is off answers from objects while the manifest already names
   // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
   // A pack-only lane (root ADR-0190) has no objects to roll back to: it serves packs regardless.
-  const servesPacks = packOnly || env[lanePacks.serving_binding] !== "off";
+  const servesPacks = lane.packOnly || env[lanePacks.serving_binding] !== "off";
   let packs = servesPacks ? plan.packs : undefined;
   let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
   // A preview version says how it answered (`Server-Timing`); the live route does not.
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null) {
     if (timing !== null) {
-      packs = previewPlan(previewGeneration, workerVersion(env));
+      packs = previewPlan(previewGeneration, workerVersion(env), lane);
       fingerprint = packs.fingerprint;
     } else if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
@@ -565,7 +568,7 @@ async function answerByPnu(
     // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
     return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
   }
-  if (packOnly) {
+  if (lane.packOnly) {
     // A manifest without packs cannot be this lane's: an outage, never an object read.
     return withCors(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), origin, allowed);
   }

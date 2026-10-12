@@ -78,7 +78,9 @@ is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" ACTION="${2:-}"
 # A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish, status,
 # and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
-# then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`.
+# then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`,
+# or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
+# preview serve it by path.
 [[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
   || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
   || refuse "${USAGE}"
@@ -86,7 +88,7 @@ if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
   GATEWAY_BLOCK=""
 elif is_pack_lane "${LANE}"; then
   [[ " bake equality latency publish status monitor-sample health gold-rebuild cutover " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample, health, gold-rebuild or cutover"
-  GATEWAY_BLOCK="by_pnu_lanes.${LANE}"
+  GATEWAY_BLOCK="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["by_pnu_lanes"][sys.argv[2]].get("host") or "by_pnu_lanes." + sys.argv[2])'     "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${LANE}")"
 else
   GATEWAY_BLOCK="${LANE}_by_pnu_gateway"
 fi
@@ -379,11 +381,16 @@ case "${ACTION}" in
     # hourly monitor is switched on (already on for a lane cut over before): for a pack-only lane this
     # step right after its first publish is what starts the watching, and the Worker autodeploy smoke
     # runs the monitor from the moment this file exists (root ADR-0190).
+    # A data kind lane (root ADR-0193) has no group of its own: every kind's line is in the kinds' one
+    # file, and this step replaces its own line there.
     [[ -s "${WORK}/equality.json" ]] || refuse "${WORK}/equality.json does not exist; run equality first" 65
-    file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2] + "-serving-monitor"))' \
-      "${RELEASE}/config/runtime-secrets.contract.json" "${LANE}")"
+    group="${LANE}-serving-monitor"
+    [[ "${GATEWAY_BLOCK}" == "${LANE}_by_pnu_gateway" || "${GATEWAY_BLOCK}" == by_pnu_lanes.* ]] || group=by-pnu-kind-serving-monitor
+    file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2]))' \
+      "${RELEASE}/config/runtime-secrets.contract.json" "${group}")"
     file="${ETC}/$(basename "${file}")"
-    printf '%s_MONITOR_SAMPLE_PATH=%s\n' "${P}" "${WORK}/equality.json" |
+    { [[ ! -f "${file}" ]] || grep -v "^${P}_MONITOR_SAMPLE_PATH=" "${file}" || true
+      printf '%s_MONITOR_SAMPLE_PATH=%s\n' "${P}" "${WORK}/equality.json"; } |
       install -m 0640 -o "${ROOT_OWNER}" -g "${SERVICE_GROUP}" /dev/stdin "${file}"
     log "${file} names ${WORK}/equality.json"
     systemctl enable --now "foundation-by-pnu-serving-monitor@${LANE}.timer"

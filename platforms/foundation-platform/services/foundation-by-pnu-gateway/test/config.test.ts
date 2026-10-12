@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -79,6 +79,18 @@ describe("generated Wrangler configuration", () => {
       binding: gateway.version_metadata_binding,
     });
     expect(config.vars).toBeUndefined();
+  });
+
+  it("renders one Worker per host: a lane written as a host and a kind has none of its own", async () => {
+    // Root ADR-0193 §4: its host's Worker serves it by path (src/lane.ts LANES). The renderer's
+    // --check (config:check) refuses a missing file for every lane it renders.
+    const rendered = (await readdir(new URL("..", import.meta.url))).filter((name) => /^wrangler\..+\.jsonc$/.test(name));
+    const derived = Object.entries(connectionContract.by_pnu_lanes as Record<string, { host?: string }>)
+      .filter(([, entry]) => entry.host !== undefined)
+      .map(([lane]) => `wrangler.${lane}.jsonc`);
+    expect(derived).toContain("wrangler.parcel-zoning.jsonc");
+    expect(rendered.filter((name) => derived.includes(name))).toEqual([]);
+    expect(rendered).toEqual(expect.arrayContaining(["wrangler.building.jsonc", "wrangler.parcel.jsonc"]));
   });
 
   it("manifest and objects live under one serving root the binding can reach", () => {

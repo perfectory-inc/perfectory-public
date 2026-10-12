@@ -55,9 +55,10 @@ import hashlib
 import json
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
@@ -790,14 +791,40 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
     )
 
 
-SECTION_VIA_COLUMNS: dict[str, str] = {
-    "zonings": "zonings_via",
-    "price": "price_via",
-    "characteristics": "characteristics_via",
-    "forest_ledger": "forest_ledger_via",
-    "transfer_history": "transfer_history_via",
-    "land_rights": "land_rights_via",
-}
+@dataclass(frozen=True)
+class Section:
+    """One section of the panel: the Silver inputs it reads besides the parcels, and its build.
+
+    `build(frames, spark, args, counters)` returns `pnu` and the section's content columns, one
+    row per PNU that has the section. The panel joins every section onto the served parcels; a
+    by-PNU data kind (root ADR-0193, `by_pnu_kind_silver_to_gold.py`) is one section on its own.
+    """
+
+    name: str
+    inputs: tuple[str, ...]
+    build: Callable[[dict[str, DataFrame], SparkSession, argparse.Namespace, dict[str, int]], DataFrame]
+
+    @property
+    def via_column(self) -> str:
+        return f"{self.name}_via"
+
+
+SECTIONS: tuple[Section, ...] = (
+    Section("zonings", (ZONING_SOURCE, ZONE_CODE_SOURCE), lambda frames, spark, args, counters: build_zonings(
+        frames[ZONING_SOURCE], resolve_zoning_anchors(frames[ZONE_CODE_SOURCE]), spark, counters)),
+    Section("price", (PRICE_SOURCE,), lambda frames, spark, args, counters: build_price(
+        frames[PRICE_SOURCE], counters)),
+    Section("characteristics", (CHARACTERISTIC_SOURCE,), lambda frames, spark, args, counters: build_characteristics(
+        frames[CHARACTERISTIC_SOURCE], args.allow_intra_snapshot_duplicates, counters)),
+    Section("forest_ledger", (FOREST_SOURCE,), lambda frames, spark, args, counters: build_forest_ledger(
+        frames[FOREST_SOURCE], args.allow_intra_snapshot_duplicates, counters)),
+    Section("transfer_history", (TRANSFER_SOURCE,), lambda frames, spark, args, counters: build_transfer_history(
+        frames[TRANSFER_SOURCE])),
+    Section("land_rights", (LAND_RIGHT_SOURCE,), lambda frames, spark, args, counters: build_land_rights(
+        frames[LAND_RIGHT_SOURCE])),
+)
+SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
+SECTION_VIA_COLUMNS: dict[str, str] = {section.name: section.via_column for section in SECTIONS}
 
 
 def read_carry_candidates(
@@ -1263,9 +1290,10 @@ def build_spark_session(args: argparse.Namespace) -> SparkSession:
 
 def read_inputs(
     spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int],
-    source_snapshots: dict[str, str] | None = None,
+    source_snapshots: dict[str, str] | None = None, sections: tuple[Section, ...] = SECTIONS,
 ) -> tuple[dict[str, DataFrame], DataFrame | None]:
-    """Every input at `pins` reduced to BUILD_COLUMNS, and the lineage's carry candidates.
+    """The parcels and `sections`' inputs at `pins` reduced to BUILD_COLUMNS, and the lineage's
+    carry candidates.
 
     `source_snapshots`, when given, collects each input's single batch id (the build's refusal of
     multi-vintage input). The incremental rebuild reads its comparison snapshot without it.
@@ -1273,11 +1301,14 @@ def read_inputs(
 
     frames = {PARCEL_SOURCE: read_served_parcels(spark, args, pins)}
     candidates = read_carry_candidates(spark, args, counters, pins)
+    inputs = {name for section in sections for name in section.inputs}
     for name in ATTRIBUTE_SOURCES:
-        frames[name] = with_lineage_sources(
-            read_source(spark, args, name, pins), args.region_prefix, candidates
-        )
-    frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
+        if name in inputs:
+            frames[name] = with_lineage_sources(
+                read_source(spark, args, name, pins), args.region_prefix, candidates
+            )
+    if ZONE_CODE_SOURCE in inputs:
+        frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
     if source_snapshots is not None:
         for name, frame in frames.items():
             source_snapshots[name] = assert_single_snapshot(frame, name)
@@ -1290,19 +1321,9 @@ def build_panel(
 ) -> DataFrame:
     """The Gold rows of `frames` — every input row (full) or the changed PNUs' rows (ADR-0180)."""
 
-    anchors = resolve_zoning_anchors(frames[ZONE_CODE_SOURCE])
-    duplicates = args.allow_intra_snapshot_duplicates
-    built = {
-        "zonings": build_zonings(frames[ZONING_SOURCE], anchors, spark, counters),
-        "price": build_price(frames[PRICE_SOURCE], counters),
-        "characteristics": build_characteristics(frames[CHARACTERISTIC_SOURCE], duplicates, counters),
-        "forest_ledger": build_forest_ledger(frames[FOREST_SOURCE], duplicates, counters),
-        "transfer_history": build_transfer_history(frames[TRANSFER_SOURCE]),
-        "land_rights": build_land_rights(frames[LAND_RIGHT_SOURCE]),
-    }
     sections = {
-        name: carry_section(frame, SECTION_VIA_COLUMNS[name], candidates)
-        for name, frame in built.items()
+        section.name: carry_section(section.build(frames, spark, args, counters), section.via_column, candidates)
+        for section in SECTIONS
     }
     return build_gold_panel_frame(
         frames[PARCEL_SOURCE], sections, source_snapshot_id, args.published_at_utc
@@ -1350,10 +1371,12 @@ def restrict_inputs(
                                           .select(F.col("source_pnu").alias("pnu"))])
     restricted = {
         PARCEL_SOURCE: incremental.rows_matching_any(frames[PARCEL_SOURCE], [("pnu", keys, "pnu", False)]),
-        ZONE_CODE_SOURCE: frames[ZONE_CODE_SOURCE],
     }
+    if ZONE_CODE_SOURCE in frames:
+        restricted[ZONE_CODE_SOURCE] = frames[ZONE_CODE_SOURCE]
     for name in ATTRIBUTE_SOURCES:
-        restricted[name] = incremental.rows_matching_any(frames[name], [("pnu", sources, "pnu", False)])
+        if name in frames:
+            restricted[name] = incremental.rows_matching_any(frames[name], [("pnu", sources, "pnu", False)])
     return restricted
 
 

@@ -1,9 +1,10 @@
 //! The served document of a pack-only lane (root ADR-0190): its Gold panel row, rendered by rule.
 //!
-//! A pack-only lane's Gold is one row per PNU whose content columns are all `*_json` (checked when
-//! the contract is read). The document is the lane's document schema, the PNU, the Gold snapshot
-//! it was read from, then each content column under its name without `_json`, in the Gold
-//! contract's column order:
+//! A pack-only lane's Gold is one row per PNU with at least one `*_json` content column (checked
+//! when the contract is read). The document is the lane's document schema, the PNU, the Gold
+//! snapshot it was read from, then each content column in the Gold contract's column order: a
+//! `*_json` column's JSON under its name without `_json`, any other column's value as it is under
+//! its own name (a kind's `attached_via` path or a count, root ADR-0193 §2):
 //!
 //! `{"schema_version":…,"pnu":…,"source":{"table":…,"iceberg_snapshot_id":…},"units":[…]}`
 //!
@@ -30,7 +31,7 @@ pub(crate) fn fields(lane: &PackLane) -> Vec<(&'static str, &'static str)> {
         .iter()
         .map(|column| column.name)
         .filter(|name| !PACK_LANE_NON_CONTENT_COLUMNS.contains(name))
-        .filter_map(|name| name.strip_suffix("_json").map(|field| (field, name)))
+        .map(|name| (name.strip_suffix("_json").unwrap_or(name), name))
         .collect()
 }
 
@@ -65,12 +66,21 @@ pub(crate) fn render(
         },
     )?;
     for (field, column) in fields(lane) {
-        let text = row
-            .get(column)
-            .and_then(JsonValue::as_str)
-            .with_context(|| format!("{pnu}: {column} is absent or not text"))?;
-        let value: JsonValue =
-            serde_json::from_str(text).with_context(|| format!("{pnu}: {column} is not JSON"))?;
+        let value = if column.ends_with("_json") {
+            let text = row
+                .get(column)
+                .and_then(JsonValue::as_str)
+                .with_context(|| format!("{pnu}: {column} is absent or not text"))?;
+            serde_json::from_str(text).with_context(|| format!("{pnu}: {column} is not JSON"))?
+        } else {
+            match row.get(column) {
+                None | Some(JsonValue::Null) => JsonValue::Null,
+                Some(
+                    value @ (JsonValue::String(_) | JsonValue::Number(_) | JsonValue::Bool(_)),
+                ) => value.clone(),
+                Some(_) => anyhow::bail!("{pnu}: {column} is not a scalar"),
+            }
+        };
         document.push(b',');
         serde_json::to_writer(&mut document, field)?;
         document.push(b':');
@@ -158,6 +168,48 @@ mod tests {
         )?;
         assert_eq!(bytes, again);
         check(lane, &bytes)
+    }
+
+    #[test]
+    fn a_parcel_kind_carries_its_lineage_path_as_text_or_null() -> anyhow::Result<()> {
+        // Root ADR-0193 §2: a column that is not `*_json` (the lineage path) goes out as its value.
+        let lane = ByPnuLane::named("parcel-zoning")?
+            .and_then(ByPnuLane::pack_lane)
+            .context("the contract names the zoning lane")?;
+        assert_eq!(
+            fields(lane),
+            vec![
+                ("zonings", "zonings_json"),
+                ("attached_via", "attached_via")
+            ]
+        );
+        let mut row = row("[]");
+        row.remove("units_json");
+        row.insert("zonings_json".to_owned(), r#"[{"code":"x"}]"#.into());
+        for (via, expected) in [
+            (JsonValue::Null, "null"),
+            (
+                "9999900000100000001>split".into(),
+                r#""9999900000100000001>split""#,
+            ),
+        ] {
+            row.insert("attached_via".to_owned(), via);
+            let (_, bytes) = render(lane, "gold.parcel_zoning", "1", &row)?;
+            let text = String::from_utf8(bytes.clone())?;
+            assert!(
+                text.ends_with(&format!(
+                    r#""zonings":[{{"code":"x"}}],"attached_via":{expected}}}"#
+                )),
+                "{text}"
+            );
+            check(lane, &bytes)?;
+        }
+        row.insert(
+            "attached_via".to_owned(),
+            serde_json::json!(["not", "a", "scalar"]),
+        );
+        assert!(render(lane, "gold.parcel_zoning", "1", &row).is_err());
+        Ok(())
     }
 
     #[test]

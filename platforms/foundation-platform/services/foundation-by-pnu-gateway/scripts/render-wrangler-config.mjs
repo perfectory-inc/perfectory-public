@@ -4,13 +4,16 @@ import { fileURLToPath } from "node:url";
 /// One source, one Wrangler config per by-PNU lane (root ADR-0160): `wrangler.building.jsonc`,
 /// `wrangler.parcel.jsonc` and one per pack-only lane of the contract's `by_pnu_lanes` (root
 /// ADR-0190), each the lane's gateway block and a `define` that fixes the lane the bundle serves
-/// (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`.
+/// (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`. A lane written as a host and a kind
+/// (root ADR-0193 §4) has no Worker of its own: its host's Worker serves it by path.
 const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
 
 export const LANES = [
   "building",
   "parcel",
-  ...Object.keys(JSON.parse(await readFile(contractUrl, "utf8")).by_pnu_lanes ?? {}),
+  ...Object.entries(JSON.parse(await readFile(contractUrl, "utf8")).by_pnu_lanes ?? {})
+    .filter(([, entry]) => entry.host === undefined)
+    .map(([lane]) => lane),
 ];
 
 export function outputUrl(lane) {

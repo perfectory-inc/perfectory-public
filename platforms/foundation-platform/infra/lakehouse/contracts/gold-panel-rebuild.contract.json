@@ -52,5 +52,25 @@
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
+  },
+  "kind_tables": {
+    "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+    "purpose": "The rebuild of every by-PNU data kind (a config/r2-connections.contract.json by_pnu_lanes line that names a host, infra/lakehouse/spark/jobs/by_pnu_kinds.py). gold_rebuild.load_contract adds one table per kind line after the tables above, in the contract's lane order: gold.<lane with - as _>, unit <lane>, this producer run with --lane <lane>, these bounds, and every input pinned to the host panel's current Gold with a parity check against it. A kind is therefore rebuilt, checked and baked from its line alone.",
+    "producer": "by_pnu_kind_silver_to_gold",
+    "max_row_loss_fraction": 0.01,
+    "max_row_loss_reason": "One row per PNU that has the kind's section, a subset of its host panel's rows. A monthly vintage moves those PNUs by far less than 1%; losing more means an input lost a region or a join broke, which must not reach the bake.",
+    "unmeasured_inputs": {
+      "silver.parcel_lineage": "As for gold.parcel_panel: no run carrying the lineage was measured, and a kind's inputs are pinned to its host panel's, which has none."
+    },
+    "incremental": {
+      "max_changed_key_fraction": 0.3,
+      "parity_sample_keys": 20000,
+      "reason": "Root ADR-0180, as for the host panels. A vintage reaches the PNUs its rows name; an input the host panel reads whole (its WHOLE_TABLE_INPUTS) rebuilds the kinds that read it whole."
+    },
+    "pins_from_host_panel": {
+      "parity_argument": "--parity-panel-snapshot-id",
+      "reason": "Root ADR-0193 §3 and §6-2. While the host panel is what the web reads, a kind is that panel's section: every input is pinned to the snapshots the current panel was built from, so a PNU is never alive in one lane and retired in another, and every full rebuild checks the kind against the panel on every PNU before it writes. The kinds run after the tables above, so a kind's first build (a full one) cannot hold the panels past the job's timeout. When a host panel retires, this pin goes with it."
+    },
+    "spark": {"master": "local[8,8]", "driver_memory": "16g"}
   }
 }

@@ -392,7 +392,7 @@
     },
     {
       "id": "gold_panel_rebuild",
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price_panel (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price_panel (root ADR-0190), then the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193; each pinned to its host panel's inputs and checked against it on every PNU while the panel is the reference), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "schedule": "45 8 * * *",
@@ -421,7 +421,26 @@
         "silver-land-forest-ledger-to-gold-parcel-panel",
         "silver-land-transfer-history-to-gold-parcel-panel",
         "silver-land-right-registration-to-gold-parcel-panel",
-        "silver-parcel-lineage-to-gold-parcel-panel"
+        "silver-parcel-lineage-to-gold-parcel-panel",
+        "silver-parcel-boundaries-to-gold-parcel-zoning",
+        "silver-land-use-plan-to-gold-parcel-zoning",
+        "silver-land-use-zone-code-to-gold-parcel-zoning",
+        "silver-parcel-lineage-to-gold-parcel-zoning",
+        "silver-parcel-boundaries-to-gold-parcel-price",
+        "silver-land-individual-price-to-gold-parcel-price",
+        "silver-parcel-lineage-to-gold-parcel-price",
+        "silver-parcel-boundaries-to-gold-parcel-characteristics",
+        "silver-land-characteristic-to-gold-parcel-characteristics",
+        "silver-parcel-lineage-to-gold-parcel-characteristics",
+        "silver-parcel-boundaries-to-gold-parcel-forest-ledger",
+        "silver-land-forest-ledger-to-gold-parcel-forest-ledger",
+        "silver-parcel-lineage-to-gold-parcel-forest-ledger",
+        "silver-parcel-boundaries-to-gold-parcel-transfer-history",
+        "silver-land-transfer-history-to-gold-parcel-transfer-history",
+        "silver-parcel-lineage-to-gold-parcel-transfer-history",
+        "silver-parcel-boundaries-to-gold-parcel-land-rights",
+        "silver-land-right-registration-to-gold-parcel-land-rights",
+        "silver-parcel-lineage-to-gold-parcel-land-rights"
       ],
       "enabled": true
     },
@@ -431,7 +450,8 @@
       "capabilities": [
         "building_section_pack_patches",
         "parcel_section_pack_patches",
-        "unit_price_section_pack_patches"
+        "unit_price_section_pack_patches",
+        "by_pnu_kind_section_pack_patches"
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
@@ -448,7 +468,13 @@
         "gold-building-panel-to-building-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-section-packs",
         "gold-parcel-panel-to-parcel-by-pnu-section-packs",
-        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs"
+        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs",
+        "gold-parcel-zoning-to-parcel-zoning-by-pnu-section-packs",
+        "gold-parcel-price-to-parcel-price-by-pnu-section-packs",
+        "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
+        "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
+        "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true
     }
@@ -461,10 +487,6 @@
     {
       "surface": "parcel-tiles",
       "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
-    },
-    {
-      "surface": "parcel-zoning-by-pnu-section-packs",
-      "reason": "Planned (root ADR-0193 §6-3): the zoning lane gets its contract entry, bake and pack-only first-publish gate after gold.parcel_zoning has passed parity with the parcel panel; its bake joins by_pnu_serving_bake then."
     }
   ]
 }
