@@ -360,6 +360,60 @@ fn neighbours(lineage: &JsonValue) -> Vec<DataCatalogEntity> {
 mod tests {
     use super::*;
 
+    /// Every GraphQL document this module and `operations` send, read from their source so a new
+    /// one is checked without being listed: each `const ...: &str = "query...";`.
+    fn graphql_documents() -> Vec<(String, String)> {
+        let sources = [
+            include_str!("data_catalog.rs"),
+            include_str!("data_catalog/operations.rs"),
+        ];
+        let mut found = Vec::new();
+        for source in sources {
+            for chunk in source.split("\nconst ").skip(1) {
+                let Some((name, rest)) = chunk.split_once(": &str = \"") else {
+                    continue;
+                };
+                let Some((body, _)) = rest.split_once("\";\n") else {
+                    continue;
+                };
+                if body.starts_with("query") || body.starts_with("fragment") {
+                    found.push((name.to_owned(), body.replace("\\\"", "\"")));
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn every_graphql_document_closes_what_it_opens() {
+        // 2026-10-09 to 10-12 the flows query lacked one `}`: DataHub refused it, and every job
+        // read as "runs could not be read" in production while the fake catalog never parsed it.
+        let documents = graphql_documents();
+        assert!(documents.len() >= 4, "found only {documents:?}");
+        for (name, body) in documents {
+            let mut open = Vec::new();
+            for character in body.chars() {
+                match character {
+                    '{' | '(' | '[' => open.push(character),
+                    '}' | ')' | ']' => {
+                        let expected = match character {
+                            '}' => '{',
+                            ')' => '(',
+                            _ => '[',
+                        };
+                        assert_eq!(
+                            open.pop(),
+                            Some(expected),
+                            "{name} closes {character} it never opened"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            assert!(open.is_empty(), "{name} leaves {open:?} open");
+        }
+    }
+
     #[test]
     fn a_dataset_prefers_the_edited_description_and_falls_back_to_the_urn_for_a_name() {
         let value = json!({

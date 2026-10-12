@@ -390,7 +390,7 @@ const FLOWS_QUERY: &str = "query($start: Int!, $count: Int!, $children: Int!, $r
       jobs: relationships(input: { types: [\"IsPartOf\"], direction: INCOMING, start: 0, count: $children }) {
         relationships { entity { ... on DataJob { urn
           runs(start: 0, count: $runs) { runs { urn
-            state(limit: 20) { status timestampMillis result { resultType nativeResultType } } } } } } } } } } } }";
+            state(limit: 20) { status timestampMillis result { resultType nativeResultType } } } } } } } } } } } } }";
 
 const CONTRACTS_QUERY: &str = "query($start: Int!, $count: Int!) {
   searchAcrossEntities(input: { types: [DATASET], query: \"*\", start: $start, count: $count,
