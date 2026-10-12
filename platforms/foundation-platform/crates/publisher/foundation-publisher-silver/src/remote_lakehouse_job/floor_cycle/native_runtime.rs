@@ -1,10 +1,10 @@
 //! Deployment addresses change between host and Docker; credentials have one source.
 use std::path::PathBuf;
 
-use anyhow::{ensure, Context};
-use foundation_outbox_publisher::building_register_floor_silver_export::{
+use crate::building_register_floor_silver_export::{
     HistoryWitness, HISTORY_CONTAINER_PATH, HISTORY_PATH_ENV, HISTORY_SHA256_ENV,
 };
+use anyhow::{ensure, Context};
 use reqwest::Url;
 
 use super::LocalExecution;
@@ -110,7 +110,7 @@ mod tests {
         let root = tempfile::tempdir()?;
         let root = root.path().canonicalize()?;
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json",
+            "../../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json",
         );
         let path = root.join("history $literal.json");
         std::fs::copy(fixture, &path)?;

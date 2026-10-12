@@ -6,4 +6,4 @@
 
 /// `infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json`, as compiled in.
 pub const CONTRACT_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json");
+    include_str!("../../../../infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json");

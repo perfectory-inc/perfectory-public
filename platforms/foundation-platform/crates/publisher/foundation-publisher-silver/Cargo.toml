@@ -1,0 +1,55 @@
+[package]
+name = "foundation-publisher-silver"
+version = "0.1.0"
+description = "The outbox-publisher Silver lane: HUB register and VWorld land Silver handoff exports, the remote lakehouse job runner and the source contracts they read (root ADR-0200)."
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["bundled-duckdb"]
+bundled-duckdb = ["duckdb/bundled"]
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+collection-application = { workspace = true }
+collection-domain = { workspace = true }
+collection-infrastructure = { workspace = true }
+duckdb = { workspace = true }
+encoding_rs = { workspace = true }
+flate2 = { workspace = true }
+foundation-normalization-domain = { workspace = true }
+foundation-outbox = { workspace = true }
+foundation-shapefile = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+lakehouse-application = { workspace = true }
+lakehouse-domain = { workspace = true }
+lakehouse-infrastructure = { workspace = true }
+outbound-http-infrastructure = { workspace = true }
+parquet = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "v7"] }
+zip = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
+
+[dev-dependencies]
+shapefile = { workspace = true }

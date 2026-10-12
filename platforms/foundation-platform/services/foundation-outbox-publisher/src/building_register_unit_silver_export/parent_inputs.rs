@@ -1,6 +1,6 @@
 use super::*;
 use crate::hub_provider_release::{ProviderMonth, ProviderRelease};
-use foundation_outbox_publisher::sigungu_crosswalk::hub_sido_tally;
+use foundation_publisher_silver::sigungu_crosswalk::hub_sido_tally;
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
     parse_building_register_unit_source_row_from_hub_bulk_text_line_via, BuildingRegisterBasisIndex,

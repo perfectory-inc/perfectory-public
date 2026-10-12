@@ -16,7 +16,9 @@ mod floor_source;
 mod invocation_cleanup;
 mod scalar;
 mod silver_refresh;
+
 use scalar::build_silver_scalar_remote_script;
+pub use silver_refresh::export_commands as silver_refresh_export_commands;
 
 const SUMMARY_BEGIN_MARKER: &str = "__FOUNDATION_PLATFORM_SPARK_SUMMARY_BEGIN__";
 const SUMMARY_END_MARKER: &str = "__FOUNDATION_PLATFORM_SPARK_SUMMARY_END__";

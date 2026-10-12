@@ -89,51 +89,51 @@ impl Lane {
         match self {
             Self::Titles => (
                 "hub-building-register-title-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-title-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/hub-building-register-title-source-objects.json"),
             ),
             Self::Units => (
                 "hub-building-register-unit-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-unit-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/hub-building-register-unit-source-objects.json"),
             ),
             Self::UnitAreas => (
                 "hub-building-register-unit-area-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/hub-building-register-unit-area-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/hub-building-register-unit-area-source-objects.json"),
             ),
             Self::ApartmentPrice => (
                 "hub-building-register-apartment-price-source-objects.json",
-                foundation_outbox_publisher::building_register_apartment_price_silver_export::CONTRACT_JSON,
+                crate::building_register_apartment_price_silver_export::CONTRACT_JSON,
             ),
             Self::ExclusiveUnit => (
                 "hub-building-register-exclusive-unit-source-objects.json",
-                foundation_outbox_publisher::building_register_exclusive_unit_silver_export::CONTRACT_JSON,
+                crate::building_register_exclusive_unit_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-characteristic-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-characteristic-source-objects.json"),
             ),
             Self::LandForestLedger => (
                 "vworld-land-forest-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-forest-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-forest-source-objects.json"),
             ),
             Self::LandIndividualPrice => (
                 "vworld-land-individual-price-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-individual-price-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-individual-price-source-objects.json"),
             ),
             Self::LandRightRegistration => (
                 "vworld-land-right-registration-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-right-registration-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-right-registration-source-objects.json"),
             ),
             Self::LandTransferHistory => (
                 "vworld-land-transfer-history-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-transfer-history-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-transfer-history-source-objects.json"),
             ),
             Self::LandUsePlan => (
                 "vworld-land-use-plan-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-use-plan-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-plan-source-objects.json"),
             ),
             Self::LandUseZoneCode => (
                 "vworld-land-use-zone-code-source-objects.json",
-                include_str!("../../../../../infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json"),
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json"),
             ),
         }
     }

@@ -40,6 +40,15 @@ use execute::{Runtime, SparkLoad};
 use lane::{Lane, LaneContract};
 use release::Release;
 
+/// The publisher command every lane's contract names as its export. The executable owns the
+/// command parser, so it checks that each one is a command the release can start (root ADR-0200).
+pub fn export_commands() -> anyhow::Result<Vec<String>> {
+    Lane::ALL
+        .into_iter()
+        .map(|lane| Ok(lane.contract()?.export))
+        .collect()
+}
+
 const LANE_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_LANE";
 const STATE_ROOT_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT";
 /// `silver-refresh.sh <lane> --plan`: decide, report, and do nothing else.
@@ -85,8 +94,7 @@ pub(super) async fn run() -> anyhow::Result<()> {
         println!(
             "silver-refresh lane={} skipped_incomplete_release={}",
             lane.id(),
-            foundation_outbox_publisher::hub_provider_release::ProviderMonth::containing(*month)
-                .vintage()
+            crate::hub_provider_release::ProviderMonth::containing(*month).vintage()
         );
     }
     let catalog = lakehouse_catalog()?;
@@ -365,11 +373,9 @@ pub(super) fn part_month(prefix: &str, key: &str) -> Option<String> {
         .strip_prefix('/')?
         .split('/')
         .next()?;
-    foundation_outbox_publisher::hub_provider_release::ProviderMonth::of_file(&format!(
-        "{stem}.zip"
-    ))
-    .ok()
-    .map(|month| month.vintage())
+    crate::hub_provider_release::ProviderMonth::of_file(&format!("{stem}.zip"))
+        .ok()
+        .map(|month| month.vintage())
 }
 
 /// A part lane: its release is in the table when every part of its manifest is recorded.

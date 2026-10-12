@@ -13,10 +13,9 @@ workspace = true
 
 [features]
 default = ["bundled-duckdb"]
-bundled-duckdb = ["duckdb/bundled"]
+bundled-duckdb = ["foundation-publisher-silver/bundled-duckdb"]
 
 [dependencies]
-duckdb = { workspace = true }
 tempfile = { workspace = true }
 anyhow = { workspace = true }
 apache-avro = { workspace = true }
@@ -43,6 +42,7 @@ lakehouse-infrastructure = { workspace = true }
 foundation-normalization-domain = { workspace = true }
 foundation-normalization-application = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
+foundation-publisher-silver = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true }
 parquet = { workspace = true }

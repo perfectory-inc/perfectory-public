@@ -78,12 +78,12 @@ pub(super) fn retained_outcome(
         (
             "floor",
             &source.floor,
-            foundation_outbox_publisher::building_register_source_role::SourceRole::Floor.slug(),
+            crate::building_register_source_role::SourceRole::Floor.slug(),
         ),
         (
             "title",
             &source.title,
-            foundation_outbox_publisher::building_register_source_role::SourceRole::Title.slug(),
+            crate::building_register_source_role::SourceRole::Title.slug(),
         ),
     ] {
         ensure!(
@@ -96,7 +96,10 @@ pub(super) fn retained_outcome(
         value.get("derivation") == Some(&serde_json::json!(source.derivation)),
         "retained FLOOR derivation differs"
     );
-    let identity = foundation_outbox_publisher::building_register_floor_silver_export::source_identity_from_semantic(inputs.clone(), &source.history)?;
+    let identity = crate::building_register_floor_silver_export::source_identity_from_semantic(
+        inputs.clone(),
+        &source.history,
+    )?;
     ensure!(
         value["source_snapshot_id"] == identity,
         "retained FLOOR content identity differs"

@@ -12,7 +12,7 @@ mod parquet_row_writer;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
+use foundation_publisher_silver::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
     building_register_unit_area_silver_row_to_jsonl,

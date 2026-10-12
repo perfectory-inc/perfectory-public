@@ -5,9 +5,9 @@
 //! its pair the same way (`latest_complete_bronze_month_candidates`, root ADR-0128).
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::hub_provider_release::{ProviderMonth, ProviderRelease};
 use anyhow::{bail, ensure, Context};
 use chrono::NaiveDate;
-use foundation_outbox_publisher::hub_provider_release::{ProviderMonth, ProviderRelease};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 

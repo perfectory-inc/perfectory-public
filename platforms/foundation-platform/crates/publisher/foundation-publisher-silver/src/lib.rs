@@ -1,4 +1,5 @@
-//! Focused reusable command modules for the Foundation outbox-publisher executable.
+//! The outbox-publisher Silver lane (root ADR-0200): HUB register and `VWorld` land Silver handoff
+//! exports, the remote lakehouse job runner that drives them, and the source contracts they read.
 
 /// Shared transport plumbing for Silver handoff exporters.
 pub mod silver_handoff_io;
@@ -52,3 +53,48 @@ pub mod serving_scratch;
 
 /// Shared FLOOR producer and native resource contract support.
 pub mod lakehouse_engine_contract;
+
+/// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
+/// keeps the executable's lint posture (root ADR-0200 §4).
+#[allow(
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::result_large_err,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    missing_docs
+)]
+#[cfg_attr(
+    test,
+    allow(
+        clippy::err_expect,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unwrap_used
+    )
+)]
+pub mod remote_lakehouse_job;
+
+/// `VWorld` land Silver handoff exports. It lived in the executable and keeps its lint posture.
+#[allow(
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::result_large_err,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    missing_docs
+)]
+#[cfg_attr(
+    test,
+    allow(
+        clippy::err_expect,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unwrap_used
+    )
+)]
+pub mod land_use_silver_export;

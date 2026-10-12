@@ -16,7 +16,7 @@ use anyhow::{anyhow, bail, ensure, Context};
 use serde::{Deserialize, Serialize};
 
 const CONTRACT_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/lakehouse-engine.contract.json");
+    include_str!("../../../../infra/lakehouse/contracts/lakehouse-engine.contract.json");
 const CONTRACT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Deserialize)]

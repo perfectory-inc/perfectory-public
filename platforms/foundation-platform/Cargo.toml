@@ -24,6 +24,7 @@ members = [
     "crates/foundation-outbox",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
+    "crates/publisher/foundation-publisher-silver",
 ]
 
 [workspace.package]
@@ -155,6 +156,7 @@ catalog-domain          = { path = "crates/catalog/catalog-domain" }
 catalog-application             = { path = "crates/catalog/catalog-application" }
 catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }
 outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
+foundation-publisher-silver = { path = "crates/publisher/foundation-publisher-silver" }
 foundation-shapefile = { path = "crates/technical/foundation-shapefile" }
 foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }

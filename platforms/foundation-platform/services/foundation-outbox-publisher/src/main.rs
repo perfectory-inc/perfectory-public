@@ -56,13 +56,13 @@ mod building_hub_bronze_catalog_recovery;
 mod building_hub_bulk_collection_plan;
 mod building_hub_bulk_ingest;
 mod building_link_evidence;
-use foundation_outbox_publisher::building_register_floor_silver_export;
+use foundation_publisher_silver::building_register_floor_silver_export;
 mod building_register_ingest;
 mod building_register_local_bronze_proof;
 mod building_register_page_count_batch;
 mod building_register_page_count_plan_writer;
 mod building_register_smoke;
-use foundation_outbox_publisher::hub_provider_release;
+use foundation_publisher_silver::hub_provider_release;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
@@ -93,12 +93,12 @@ mod industrial_complex_silver_export;
 mod ingestion_run_recovery;
 #[cfg(test)]
 mod test_crosswalk;
-use foundation_outbox_publisher::lakehouse_engine_contract;
+use foundation_publisher_silver::lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
 mod lakehouse_snapshot_scan;
-mod land_use_silver_export;
+use foundation_publisher_silver::land_use_silver_export;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
@@ -206,7 +206,7 @@ mod r2_inventory_audit;
 mod r2_layout;
 mod real_transaction_ingest;
 mod regional_data_serving_load_check;
-mod remote_lakehouse_job;
+use foundation_publisher_silver::remote_lakehouse_job;
 mod rt_molit_real_transaction_export_collection_plan;
 mod rt_molit_real_transaction_export_ingest;
 mod runtime_environment;
@@ -523,16 +523,16 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { vworld_cadastral_silver_export::run() })
         }
         Command::ExportVWorldCadastralShapefileSilverHandoff => {
-            Box::pin(foundation_outbox_publisher::vworld_cadastral_shapefile_silver_export::run())
+            Box::pin(foundation_publisher_silver::vworld_cadastral_shapefile_silver_export::run())
         }
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
         }
         Command::ExportBuildingRegisterExclusiveUnitSilverHandoff => Box::pin(
-            foundation_outbox_publisher::building_register_exclusive_unit_silver_export::run(),
+            foundation_publisher_silver::building_register_exclusive_unit_silver_export::run(),
         ),
         Command::ExportBuildingRegisterApartmentPriceSilverHandoff => Box::pin(
-            foundation_outbox_publisher::building_register_apartment_price_silver_export::run(),
+            foundation_publisher_silver::building_register_apartment_price_silver_export::run(),
         ),
         Command::ExportLandUsePlanSilverHandoff => Box::pin(land_use_silver_export::run_plan()),
         Command::ExportLandUseZoneCodeSilverHandoff => {
