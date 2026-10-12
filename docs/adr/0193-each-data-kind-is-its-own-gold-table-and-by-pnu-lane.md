@@ -111,6 +111,9 @@
    - 경로: 필지 종류는 `catalog.perfectory.io/parcels/{kind}/by-pnu/{pnu}`, 건물 종류는
      `buildings.perfectory.io/buildings/{kind}/by-pnu/{pnu}`. 기존 `/parcels/by-pnu`·`/buildings/by-pnu` 는 퇴역까지 그대로.
      호스트마다 Worker 빌드 하나가 계약의 레인을 경로로 고른다(레인마다 Worker 를 늘리지 않는다).
+   - 이행: ADR-0190 의 `unit-price` 레인은 자기 호스트(`unit-prices.perfectory.io`, Worker 하나)로 먼저 나간다. 이
+     결정의 첫 건물 종류가 `buildings.perfectory.io` 에 경로 선택을 들일 때 `unit-price` 도
+     `/buildings/unit-price/by-pnu/{pnu}` 로 옮기고, 웹이 옮긴 뒤 한 달 서빙하고 그 호스트와 Worker 를 내린다.
    - 묶음 뿌리: `serving/parcels/{kind}/packs`, `serving/buildings/{kind}/packs`. 레인마다 자기 manifest·세대·패치.
    - 응답: 문서는 오늘과 같은 `Cache-Control: public, max-age=3600`, ETag, gzip 그대로 전달. **없음(404 absent) 도 같은
      세대 지문으로 캐시한다.** 묶음 색인이 그 동에 그 PNU 가 없음을 증명하므로 없음은 그 세대의 사실이다. 드문 종류
