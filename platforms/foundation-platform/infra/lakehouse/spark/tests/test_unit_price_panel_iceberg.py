@@ -176,7 +176,7 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         pins1 = {job.TITLE_SOURCE: self.put(job.TITLE_SOURCE, titles), job.UNIT_SOURCE: self.put(job.UNIT_SOURCE, units),
                  job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(two_dates, "batch-1"))}
         self.run_job(pins1, "unit_price_panel_shrink", "2099-03-01T00:00:00Z")
-        table = "proof.gold.unit_price_shrink"
+        table = "proof.gold.unit_price_panel_shrink"
         head = self.spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0]
         before = self.rows("unit_price_panel_shrink")
         # A vintage loaded in part: half the units lost their older reference date.
