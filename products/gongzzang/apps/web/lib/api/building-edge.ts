@@ -17,6 +17,8 @@ export const EdgeUnitSchema = z.object({
   building_name: z.string(),
   dong_name: z.string(),
   ho_name: z.string(),
+  // The unit number the data normalized from the source's 호명칭 (units lane); null when it has none.
+  ho_number: z.number().int().nullish(),
   // The source's floor kind and number (the kind lanes, ADR-0193 §9); the screen writes the floor
   // from them (`unit-floor.ts`). A bundle document has only the server-formatted `floor_label`.
   floor_kind: z.string().nullish(),

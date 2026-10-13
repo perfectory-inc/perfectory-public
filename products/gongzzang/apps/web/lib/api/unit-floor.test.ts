@@ -50,6 +50,15 @@ describe("unit floor — composed from the data's values", () => {
     expect(unitFloorRank({ floor_label: "지하1층" })).toBe(unitFloorRank({ floor_label: "3층" }));
   });
 
+  it("orders units by the data's unit number when it gives one", () => {
+    const units = [
+      { ho_name: "B-2", ho_number: 2 },
+      { ho_name: "A-10", ho_number: 10 },
+      { ho_name: "C-1", ho_number: 1 },
+    ];
+    expect(units.sort(compareHoName).map((u) => u.ho_name)).toEqual(["C-1", "B-2", "A-10"]);
+  });
+
   it("orders unit names as read, without parsing them", () => {
     const names = ["1001호", "B01호", "101호", "102호"].map((ho_name) => ({ ho_name }));
     expect(names.sort(compareHoName).map((u) => u.ho_name)).toEqual([

@@ -57,6 +57,12 @@ export function unitFloorRank(unit: UnitFloor): number {
 }
 
 const hoCollator = new Intl.Collator("ko", { numeric: true });
-/** Unit names in reading order (101호 before 1001호), compared as given — never parsed. */
-export const compareHoName = (a: Pick<BuildingUnit, "ho_name">, b: Pick<BuildingUnit, "ho_name">) =>
-  hoCollator.compare(a.ho_name, b.ho_name);
+type Ho = Pick<BuildingUnit, "ho_name" | "ho_number">;
+/**
+ * Units in number order: by the data's `ho_number` when both have one, else by the names as read
+ * (101호 before 1001호) — a name is compared as given, never parsed.
+ */
+export const compareHoName = (a: Ho, b: Ho) =>
+  a.ho_number != null && b.ho_number != null && a.ho_number !== b.ho_number
+    ? a.ho_number - b.ho_number
+    : hoCollator.compare(a.ho_name, b.ho_name);
