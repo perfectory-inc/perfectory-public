@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 022
+# A command that stops this script under `set -e` says where, before the exit. Without it a failed
+# assignment such as `x="$(… 2>/dev/null | …)"` ended the deploy with status 1 and no line at all
+# (2026-10-13: `timers` after scheduler-access-ok, with the Airflow DAGs left paused). `-E` carries
+# the trap into functions and command substitutions; it reports, it does not change the exit.
+trap 'printf "foundation-release.sh: line %s: \`%s\` exited %s\n" "${LINENO}" "${BASH_COMMAND}" "$?" >&2' ERR
 
 # Independent root-owned control checkout, not code taken from the candidate archive (root
 # ADR-0134 §1). No environment override: a caller cannot appoint the verifier that admits it.
@@ -37,6 +42,7 @@ usage:
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh rollback
   foundation-release.sh prune
+  foundation-release.sh host-retention
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh operator-access <account>
   foundation-release.sh status
@@ -1129,10 +1135,21 @@ migrate_runtime() {
 # once, in the repository, and a deploy cannot leave an older copy behind. Scratch is cleaned
 # right away rather than at the OS's next daily tmpfiles run, and journald is restarted only when
 # its drop-in changed.
+# The drop-ins' digest, also when there are none yet: the first deploy finds the directory empty,
+# and `cat <dir>/*.conf` then fails, which under pipefail stopped `timers` (2026-10-13).
+journald_dropins_digest() {
+  local -a dropins=()
+  local file
+  for file in /etc/systemd/journald.conf.d/*.conf; do
+    [[ -f "${file}" ]] && dropins+=("${file}")
+  done
+  if ((${#dropins[@]})); then cat -- "${dropins[@]}"; fi | sha256sum
+}
+
 install_host_retention() {
   local host="${release_root}/current/infra/host" file journald_before journald_after
   install -d -o root -g root -m 0755 /etc/tmpfiles.d /etc/systemd/journald.conf.d
-  journald_before="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  journald_before="$(journald_dropins_digest)"
   for file in "${host}"/tmpfiles.d/*.conf; do
     install -o root -g root -m 0644 -t /etc/tmpfiles.d "${file}"
     systemd-tmpfiles --clean "/etc/tmpfiles.d/${file##*/}"
@@ -1140,7 +1157,7 @@ install_host_retention() {
   for file in "${host}"/journald.conf.d/*.conf; do
     install -o root -g root -m 0644 -t /etc/systemd/journald.conf.d "${file}"
   done
-  journald_after="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  journald_after="$(journald_dropins_digest)"
   [[ "${journald_before}" == "${journald_after}" ]] || systemctl restart systemd-journald
 }
 
@@ -1372,6 +1389,13 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   prune)
     [[ "$#" == 1 ]] || usage
     prune_releases
+    ;;
+  host-retention)
+    # The host-retention part of `timers` on its own: re-applies what ages out on the host from
+    # the current release (root ADR-0198), and is what the rehearsal drives.
+    [[ "$#" == 1 ]] || usage
+    assert_current_release
+    install_host_retention
     ;;
   deployer-access)
     [[ "$#" == 2 || "$#" == 3 ]] || usage
