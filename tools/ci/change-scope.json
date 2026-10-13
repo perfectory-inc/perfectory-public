@@ -68,6 +68,7 @@
         "scripts/tiles/vector-tile-manifest.local.json",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
