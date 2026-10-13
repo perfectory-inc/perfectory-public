@@ -9,9 +9,9 @@
 #   2. 짝     — 기록된 짝·스튜어드 짝 → 날짜·이름 규칙 → (켜졌으면) 지번 겹침 → 상위 단위 묶기로 짝을 맞춰
 #               reference.legal_dong_code_change 하나에만 쌓고(ADR-0145), 그 표의 시군구 view 인 투영 파일과
 #               스튜어드 목록을 바꾼다. 1 이 성공하고 2 가 실패하면 투영이 표지보다 낡아 내보내기가 거부한다.
-#               지번 겹침은 폐지된 동마다 그 날짜를 감싸는 필지 판 둘(원천 계약 vworld-parcel-source-objects.json
-#               의 판 중 폐지 전에 뽑은 마지막 것과 뒤에 뽑은 첫 것)로 돈다. 계약에 그 판이 없거나 표에 적재되지
-#               않았으면 그 동은 판단 대기로 남고, 필요한 판을 이름으로 말한다(ADR-0148).
+#               지번 겹침은 폐지된 동마다 그 날짜를 감싸는 필지 판 둘(Bronze 장부가 가진 판 중 폐지 전에 뽑은
+#               마지막 것과 뒤에 뽑은 첫 것, 발행기 vworld-parcel-editions; ADR-0224)로 돈다. 장부에 그 판이 없거나
+#               표에 적재되지 않았으면 그 동은 판단 대기로 남고, 필요한 판을 이름으로 말한다(ADR-0148).
 #               필지 번호 공식 이력(필지고유번호변동연혁, VWorld 30527)은 silver.parcel_number_change_history 가
 #               행을 가졌을 때(그 넘김을 하나라도 적재했을 때) 읽는다: 짝 맞추기 기간의 공식 짝이 지번 단계보다
 #               먼저 정하고, 둘이 다르게 정하면 아무것도 쓰지 않고 멈춘다(ADR-0150). 표가 비었으면 그 단계는 꺼져
@@ -55,8 +55,12 @@ legal_dong_pair() {
   if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
     official=(--official-history-table silver.parcel_number_change_history)
   fi
+  # 판을 감싸는 날짜는 장부의 판에서 읽는다(root ADR-0224): 원천 계약은 규칙만 갖는다.
+  mkdir -p "${out}"
+  VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
+    "${PUBLISHER_BIN}" vworld-parcel-editions > "${out}/parcel-editions.json" 2>> "${run_log}"
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+    --table-source-record-id "${table_key}" --jibun-evidence editions --parcel-editions "${cout}/parcel-editions.json" ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"

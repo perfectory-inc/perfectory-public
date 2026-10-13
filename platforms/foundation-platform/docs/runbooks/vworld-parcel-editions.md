@@ -2,45 +2,47 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-05
+last_reviewed: 2026-10-14
 ---
 
 # VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재 런북
 
 [루트 ADR-0148](../../../../docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md) 의 운영 절차다.
-VWorld 연속지적도(MK/30563)는 판(provider edition, `YYYYMM`)마다 전국을 다시 낸다. 판은 원천 계약에 하나씩
-적고, `silver.parcel_boundaries` 에 판마다 제 `source_snapshot_id` 로 나란히 쌓는다. 지도와 카탈로그는 계약의
+VWorld 연속지적도(MK/30563)는 판(provider edition, `YYYYMM`)마다 전국을 다시 낸다. 어느 객체가 어느 판인지는
+Bronze 장부와 그 옆 ZIP 안 이름이 말하고(루트 ADR-0224), `silver.parcel_boundaries` 에 판마다 제
+`source_snapshot_id` 로 나란히 쌓는다. 지도와 카탈로그는 계약의
 `served_edition` 하나만 읽는다. 법정동 짝 맞추기의 지번 단계(ADR-0144 §3.2)는 폐지된 동마다 그 날짜를 감싸는 판
 둘을 읽는다.
 
 | 무엇 | 정본 |
 | --- | --- |
-| 판과 그 객체·추출일·핸드오프 자리, 지도가 쓰는 판 | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` (`editions`, `served_edition`) |
-| 판에서 파생되는 것(`source_snapshot_id`, `valid_from_utc`, 핸드오프 키, 짝 맞추기의 판 쌍) | `infra/lakehouse/spark/jobs/vworld_parcel_editions.py` (셸은 이 명령으로만 계약을 읽는다) |
+| 판을 읽는 규칙(안 이름 형식, 앞 판 대비 한계, 핸드오프 자리 규칙), 지도가 쓰는 판과 그 시도 | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` (`member_name`, `new_edition_bounds`, `handoff_prefix`, `served_edition`, `served_edition_sido`) |
+| 판과 그 객체·추출일 | Bronze 장부(`catalog.bronze_object` + `catalog.bronze_object_member`) → 발행기 `vworld-parcel-editions` (JSON 한 줄; `crates/publisher/foundation-publisher-silver/src/vworld_parcel_source_contract.rs`) |
+| 판에서 파생되는 것(`source_snapshot_id`, `valid_from_utc`, 핸드오프 키, 짝 맞추기의 판 쌍) | `infra/lakehouse/spark/jobs/vworld_parcel_editions.py` (`--editions` 로 위 JSON 을 읽는다. 셸은 이 명령으로만 판을 읽는다) |
 | 매일 확인·수집 작업 | `orchestration/jobs.v1.json` 의 `vworld_parcel_edition` (default_pool, Spark 없음) → `infra/systemd/foundation-vworld-parcel-edition.service` → `scripts/ops/vworld-parcel-edition-collect.sh` |
-| ZIP 측정 | `infra/lakehouse/spark/jobs/vworld_parcel_edition_members.py` (`tools/technology-versions.contract.json` 이 고정한 GDAL 이미지) |
-| 작업 기록 | `/var/lib/foundation-platform/vworld-parcel-edition/journal.log`, 실행마다 `runs/<시각>/`, 제안 `proposed/<판>.json` |
+| ZIP 측정 | `scripts/ops/bronze-object-members.sh` (기본 목록에 `vworldkr__parcel`; 매일 수집 뒤와 이 작업 안에서) |
+| 작업 기록 | `/var/lib/foundation-platform/vworld-parcel-edition/journal.log`, 실행마다 `runs/<시각>/` (장부의 판 `editions.json`) |
 | 변환·적재 | `scripts/load/vworld-parcel-handoff-export.sh`, `scripts/load/lakehouse-batch-load.sh` (둘 다 `VWORLD_PARCEL_EDITION` 하나만 받는다) |
 
 ## 1. 끝에서 끝까지
 
 ```text
 vworld_parcel_edition (04:40, default_pool)
-  1. 확인   plan → inventory (필지 데이터셋 하나) → provider-edition
-            계약이 가진 판이면 journal 에 "provider=<판> held" 를 남기고 끝(0)
+  1. 확인   ZIP 측정(이미 잰 것은 건너뜀) → 장부의 판(vworld-parcel-editions) → plan → inventory → provider-edition
+            장부가 가진 판이면 journal 에 "provider=<판> held" 를 남기고 끝(0)
   2. 수집   새 판이면 그 판에서 바로 내려받는 파일 전부 → Bronze (ingest-vworld-dataset-files)
             제공자 갱신일이 같은 파일은 다시 받지 않는다(같은 파일 번호를 판마다 다시 쓰므로 번호로 가리지 않는다)
-  3. 측정   ZIP 마다 중앙 디렉터리를 범위 요청으로 읽어 계약 항목을 만든다 → proposed/<판>.json
-  4. 끝     3 으로 끝난다 = "계약에 넣을 판이 있다". 작업이 슬랙에 "new edition waiting for contract
-            entry" 를 직접 보낸다. 재시도하지 않는다(jobs.v1.json retries 0)
+  3. 측정   받은 ZIP 의 안 이름을 장부 옆에 쌓는다(bronze-object-members.sh vworldkr__parcel). 장부가 그 판을
+            완전한 판으로 읽지 못하면(앞 판보다 덜 덮음) 실패
+  4. 끝     3 으로 끝난다 = "적재할 판이 있다". 작업이 슬랙에 "new edition waiting for Silver load" 를 직접
+            보낸다. 재시도하지 않는다(jobs.v1.json retries 0)
 사람
-  5. PR     proposed/<판>.json 을 계약의 editions 에 넣는다(아래 3 절). 병합·배포
-  6. 적재   그 릴리스에서 변환 → Silver 적재 (아래 4 절)
-  7. 짝     다음 lineage_stewardship 이 그 판을 짝 맞추기의 지번 근거로 읽는다(판 쌍은 계약이 정한다)
+  5. 적재   변환 → Silver 적재 (아래 4 절). 계약 PR 은 없다(루트 ADR-0224)
+  6. 짝     다음 lineage_stewardship 이 그 판을 짝 맞추기의 지번 근거로 읽는다(판 쌍은 장부의 판에서 정한다)
 ```
 
-Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)에 들어간 뒤에만 적재할 수 있고, spark 풀은
-새 작업을 받을 자리가 없다(ADR-0138 의 굶주림 한도, 2026-10-04 실측 1,200/1,200 분).
+Silver 적재가 작업 안에 없는 이유: spark 풀은 새 작업을 받을 자리가 없다(ADR-0138 의 굶주림 한도, 2026-10-04 실측
+1,200/1,200 분).
 
 ## 2. 켜기
 
@@ -55,43 +57,45 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
    journalctl -u foundation-vworld-parcel-edition.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
    ```
 
-   계약이 제공자의 최신 판을 이미 가지면 `provider=<판> held` 한 줄이고 종료 코드는 0 이다. 2026-10-05 에 같은
+   장부가 제공자의 최신 판을 이미 가지면 `provider=<판> held` 한 줄이고 종료 코드는 0 이다. 2026-10-05 에 같은
    단계를 손으로 돌린 결과: 계획 `ready`, 목록 276 파일, `202609 held`.
 3. 별도 PR 에서 `vworld_parcel_edition` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지우고 `enabled_since` 를 적는다(ADR-0122 §4, 루트 ADR-0239).
 
-## 3. 새 판을 계약에 넣기
+## 3. 장부가 판을 읽는 규칙
 
-`proposed/<판>.json` 은 `{"<판>": {…}}` 하나다. 계약의 `editions` 에 그 항목을 그대로 넣는 PR 을 낸다. 손으로
-고치지 않는다. 측정이 만든 항목은 계약과 합쳐 검사를 통과한 것이다(`vworld_parcel_editions.py propose`):
+계약에 판을 넣는 PR 은 없다(루트 ADR-0224, 2026-10 까지는 판마다 272 객체를 손으로 넣었다). 발행기
+`vworld-parcel-editions` 가 장부에서 판을 만든다:
 
-- 객체마다 그 판의 shapefile 이 정확히 하나 있다(`LSMD_CONT_LDREG_<코드>_<판>.shp`)
-- 다른 판의 객체·파일 이름과 겹치지 않는다
-- 시도 객체가 있는 곳에는 시군구 객체가 있다(시도 벌은 싣지 않고, 큰 시도 파일 여섯은 RAON 전용이라 받지 않는다)
-- 판마다 핸드오프 자리가 다르다(`…/edition=<판>`)
-- 앞 판보다 덜 덮지 않는다(계약의 `new_edition_bounds`): 시군구 객체가 덮는 시도는 합병일 때만 바뀌고(한 시도가
-  빠지면 다른 시도가 나타나야 하고, 다른 시도 코드는 모두 3 개까지), 시군구 수는 앞 판의 5% 안에서만 다르다.
-  목록이 반쯤 바뀐 날에 받은 판은 `a partial collection, not a new edition` 으로 거부되고 작업은 3 이 아닌 값으로
-  끝난다. 다음 날 다시 돈다
-- `extracted_on` 은 모든 멤버의 날짜 범위다. 한 파일의 멤버가 변경일에 걸치면 그 판은 그 변경의 뒤 판이 아니다
+- 객체의 ZIP 안 이름 중 정확히 하나가 계약의 `member_name`(`LSMD_CONT_LDREG_<코드>_<판>.shp`)에 맞으면 그 판의 객체다.
+  코드가 두 자리면 시도, 다섯 자리면 시군구다
+- 아직 안 잰 객체가 하나라도 있으면 거부하고 측정 명령을 이름 짓는다(`bronze-object-members.sh vworldkr__parcel`)
+- 같은 판·같은 지역 객체가 둘이면 제공자 갱신일이 늦은 것, 같으면 거부한다
+- 시도 객체가 있는 곳에는 시군구 객체가 있어야 하고, 앞 판보다 덜 덮으면 안 된다(계약의 `new_edition_bounds`): 시군구
+  객체가 덮는 시도는 합병일 때만 바뀌고(한 시도가 빠지면 다른 시도가 나타나야 하고, 다른 시도 코드는 모두 3 개까지),
+  시군구 수는 앞 판의 5% 안에서만 다르다. 어긋나는 판은 반쯤 받은 것으로 보고 건너뛴다(stderr 의 `skipped`)
+- `extracted_on` 은 판의 모든 멤버 날짜 범위다. 한 파일의 멤버가 변경일에 걸치면 그 판은 그 변경의 뒤 판이 아니다
+- 핸드오프 자리는 `handoff_prefix/edition=<판>` 이다. 그 규칙 전에 적재한 202606 만 `handoff_prefix_legacy` 다
+- 지도가 쓰는 판(`served_edition`)이 장부에 없거나, 그 시군구 객체가 덮는 시도가 `served_edition_sido` 와 다르면 거부한다
 
 판을 이미 가진 날에 제공자가 같은 기준월로 파일을 다시 올렸으면(갱신일이 판의 `extracted_on.latest` 뒤) journal 에
-`WARNING provider re-uploaded N file(s) of held edition <판>` 이 남는다. 막지 않는다: 계약은 앞 업로드를 말하므로,
-다시 받아 측정할지는 사람이 정한다.
+`WARNING provider re-uploaded N file(s) of held edition <판>` 이 남는다. 막지 않는다: 다시 받을지는 사람이 정한다.
 
-`served_edition` 은 이 PR 에서 바꾸지 않는다. 지도를 새 판으로 옮기는 것은 굽기·검증을 거치는 별도 결정이다.
+`served_edition`(과 `served_edition_sido`)은 계약에 남은 사람의 결정이다. 지도를 새 판으로 옮기는 것은 굽기·검증을
+거치는 별도 결정이다.
 
 ## 4. Silver 적재 (판 하나)
 
-계약에 판이 들어간 릴리스가 `current` 인 ai-server 에서 돌린다. 두 단계 모두 같은 판 하나만 받는다. 계보 값
-(`source_snapshot_id`, `valid_from_utc`)과 핸드오프 자리는 계약이 정하고, 손으로 넘기면 거부된다.
+ai-server 에서 돌린다. 두 단계 모두 같은 판 하나만 받는다. 판의 객체는 장부가, 계보 값(`source_snapshot_id`,
+`valid_from_utc`)과 핸드오프 자리는 계약의 규칙이 정하고, 손으로 넘기면 거부된다. 두 스크립트는 장부를 읽으려고
+`DATABASE_URL` 을 쓴다: 없으면 `scripts/ops/database-url.sh` 로 만든다(`FOUNDATION_ADMIN_PASSWORD`, recovery.env).
 
 ### 202609 (2026-10 첫 실행)
 
 ```bash
 # 0) 자격증명: 값을 찍지 않고 환경으로만. parcel-publication.env 하나가 카탈로그 넷, R2 버킷·끝점,
-#    읽기 키(적재)와 쓰기 키(변환)를 다 갖는다. 다른 수동 적재와 같은 방식으로 이름만 골라 읽는다.
+#    읽기 키(적재)와 쓰기 키(변환)를 다 갖는다. 장부(Foundation DB)를 읽는 비밀번호는 recovery.env 에 있다. 이름만 골라 읽는다.
 docker run --rm -v /etc/foundation-platform:/t:ro alpine sh -c \
-  'grep -E "^FOUNDATION_PLATFORM_(LAKEHOUSE_(CATALOG_URI|WAREHOUSE|CATALOG_TOKEN|CATALOG_PROVIDER)|R2_LAKEHOUSE_(BUCKET|ENDPOINT|READER_ACCESS_KEY_ID|READER_SECRET_ACCESS_KEY|WRITER_ACCESS_KEY_ID|WRITER_SECRET_ACCESS_KEY))=" /t/parcel-publication.env' > ~/.parcel-202609.env
+  'grep -E "^FOUNDATION_PLATFORM_(LAKEHOUSE_(CATALOG_URI|WAREHOUSE|CATALOG_TOKEN|CATALOG_PROVIDER)|R2_LAKEHOUSE_(BUCKET|ENDPOINT|READER_ACCESS_KEY_ID|READER_SECRET_ACCESS_KEY|WRITER_ACCESS_KEY_ID|WRITER_SECRET_ACCESS_KEY))=" /t/parcel-publication.env; grep -E "^FOUNDATION_ADMIN_PASSWORD=" /t/recovery.env' > ~/.parcel-202609.env
 set -a; . ~/.parcel-202609.env; set +a; rm -f ~/.parcel-202609.env
 export FOUNDATION_PLATFORM_RELEASE_DIR=/opt/foundation-platform/current
 export FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/$(basename "$(readlink -f /opt/foundation-platform/current)")/foundation-outbox-publisher
@@ -138,14 +142,15 @@ FROM r2.silver.parcel_boundaries GROUP BY 1;
 ## 5. 짝 맞추기의 판 쌍
 
 `lineage_stewardship` 의 0a 단계(`scripts/ops/legal-dong-code-load.sh`)가 `--jibun-evidence editions` 로 돈다. 폐지된
-동마다 계약에서 폐지일 전에 다 뽑힌 마지막 판과 뒤에 다 뽑힌 첫 판을 고른다(`vworld_parcel_editions.bracketing`).
+동마다 장부의 판(`--parcel-editions`) 중 폐지일 전에 다 뽑힌 마지막 판과 뒤에 다 뽑힌 첫 판을 고른다
+(`vworld_parcel_editions.bracketing`).
 추출일이 폐지일에 걸친 판은 어느 쪽도 아니다.
 
 | 목록의 `jibun` | 뜻 | 할 일 |
 | --- | --- | --- |
-| `needs a parcel edition extracted before <날>; the source contract holds none` | 그 날보다 앞선 판이 없다 | 그 전 판을 구한다(6 절). 없으면 판단 대기로 남는다 |
+| `needs a parcel edition extracted before <날>; the source contract holds none` | 장부에 그 날보다 앞선 판이 없다 | 그 전 판을 구한다(6 절). 없으면 판단 대기로 남는다 |
 | `needs a parcel edition extracted after <날>; …` | 그 날 뒤의 판이 아직 없다 | 다음 판을 기다린다(이 작업이 받는다) |
-| `needs parcel edition <판> (vworldkr__parcel-<판>), which is not loaded into the parcel table` | 계약에는 있고 표에 없다 | 4 절의 적재 |
+| `needs parcel edition <판> (vworldkr__parcel-<판>), which is not loaded into the parcel table` | 장부에는 있고 표에 없다 | 4 절의 적재 |
 | `N codes below wait: …` | 시군구·시도 아래 동이 기다린다 | 위와 같다 |
 
 2026-10-05 의 대기 코드: 인천 83(2026-07-01) → 202606·202609 적재 후 정해진다. 경기 219(2026-01-02, 01-31, 03-01)와

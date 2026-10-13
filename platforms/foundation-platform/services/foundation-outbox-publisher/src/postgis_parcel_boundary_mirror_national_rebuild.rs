@@ -53,7 +53,17 @@ pub async fn run_from_contract() -> anyhow::Result<()> {
             contract_path.display()
         )
     })?;
-    let objects = handoff_objects_from_source_contract(&contract_json)?;
+    // The served edition only (root ADR-0148), its objects the Bronze ledger's (root ADR-0224).
+    let mut ledger = PgConnection::connect(config.database_url.as_str())
+        .await
+        .context("failed to connect to DATABASE_URL to read the parcel editions")?;
+    let served = foundation_publisher_silver::vworld_parcel_source_contract::served_edition_view_from_ledger(
+        &mut ledger,
+        &contract_json,
+    )
+    .await?;
+    drop(ledger);
+    let objects = handoff_objects_from_served_edition(&served)?;
     let expected_row_count = config
         .expected_row_count
         .context("contract rebuild requires an expected row count")?;
@@ -606,20 +616,15 @@ async fn load_handoff_object(
     })
 }
 
-/// Reads the ADR-0067 parcel source contract and derives the national handoff object set.
+/// Derives the national handoff object set from the served edition (root ADR-0067, ADR-0148).
 ///
-/// The contract is the one list of what the national parcel source is (root ADR-0067); the
-/// handoff keys are derived from it rather than listed a second time, and only the sigungu
-/// granularity loads (loading both bands doubles every parcel).
-pub fn handoff_objects_from_source_contract(
-    contract_json: &str,
+/// `contract` is the served edition in the reader shape
+/// (`vworld_parcel_source_contract::served_edition_view`): the mirror is the map's parcels, and
+/// every other edition is evidence, not the national set. Only the sigungu granularity loads
+/// (loading both bands doubles every parcel).
+pub fn handoff_objects_from_served_edition(
+    contract: &JsonValue,
 ) -> anyhow::Result<Vec<HandoffObject>> {
-    // The served edition only (root ADR-0148): the mirror is the map's parcels, and every other
-    // edition the contract holds is evidence, not the national set.
-    let contract: JsonValue =
-        foundation_publisher_silver::vworld_parcel_source_contract::served_edition_view(
-            contract_json,
-        )?;
     let handoff_prefix = contract
         .get("handoff_prefix")
         .and_then(JsonValue::as_str)
@@ -1052,27 +1057,16 @@ mod tests {
         assert_eq!(quality.geometry_repair_strategy, GEOMETRY_REPAIR_STRATEGY);
     }
 
-    fn contract_fixture(sigungu_count: u64, objects: &str) -> String {
-        format!(
+    fn contract_fixture(sigungu_count: u64, objects: &str) -> Result<JsonValue, serde_json::Error> {
+        serde_json::from_str(&format!(
             r#"{{
-                "schema_version": 2,
                 "load_granularity": "sigungu",
                 "handoff_suffix": ".jsonl.gz",
-                "served_edition": "209912",
-                "editions": {{
-                    "209912": {{
-                        "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel",
-                        "objects": [{objects}]
-                    }},
-                    "209901": {{
-                        "granularity_counts": {{"sido": 0, "sigungu": 1}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=209901",
-                        "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20991231DS99991-7.zip", "granularity": "sigungu"}}]
-                    }}
-                }}
+                "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
+                "handoff_prefix": "silver-handoff/vworldkr__parcel",
+                "objects": [{objects}]
             }}"#
-        )
+        ))
     }
 
     #[test]
@@ -1082,8 +1076,8 @@ mod tests {
             r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"},
                {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-2.zip", "granularity": "sigungu"},
                {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-9.zip", "granularity": "sido"}"#,
-        );
-        let objects = handoff_objects_from_source_contract(&contract)?;
+        )?;
+        let objects = handoff_objects_from_served_edition(&contract)?;
         assert_eq!(objects.len(), 2);
         assert_eq!(
             objects[0].object_key,
@@ -1098,8 +1092,9 @@ mod tests {
         let contract = contract_fixture(
             3,
             r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"}"#,
-        );
-        let error = handoff_objects_from_source_contract(&contract)
+        )
+        .unwrap_or_default();
+        let error = handoff_objects_from_served_edition(&contract)
             .err()
             .map(|error| error.to_string())
             .unwrap_or_default();
@@ -1111,11 +1106,9 @@ mod tests {
 
     #[test]
     fn a_contract_that_loads_both_bands_is_refused() {
-        let contract = contract_fixture(1, r#""#).replace(
-            r#""load_granularity": "sigungu""#,
-            r#""load_granularity": "sido""#,
-        );
-        let error = handoff_objects_from_source_contract(&contract)
+        let mut contract = contract_fixture(1, r#""#).unwrap_or_default();
+        contract["load_granularity"] = "sido".into();
+        let error = handoff_objects_from_served_edition(&contract)
             .err()
             .map(|error| error.to_string())
             .unwrap_or_default();

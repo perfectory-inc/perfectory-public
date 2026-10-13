@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import sys
 from datetime import date, datetime, timezone
@@ -474,6 +475,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--recorded-changes", help="With --validate-only: a JSON list of recorded change rows.")
     parser.add_argument("--jibun-evidence", choices=("off", "editions"), default="off",
                         help="editions: read each change across the parcel editions bracketing it (the source contract).")
+    parser.add_argument("--parcel-editions", metavar="FILE",
+                        help="The parcel editions the Bronze ledger holds (`foundation-outbox-publisher "
+                             "vworld-parcel-editions`, root ADR-0224); --jibun-evidence editions reads their dates.")
     parser.add_argument("--edition-pnus", action="append", default=[], metavar="EDITION=FILE",
                         help="With --validate-only: PNU<TAB>지목<TAB>area m² per line of that edition, standing in for the parcel table.")
     parser.add_argument("--official-history-table",
@@ -510,6 +514,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.edition_pnu_files and not (args.validate_only and args.table_html and args.jibun_evidence == "editions"):
         parser.error("--edition-pnus stands in for the parcel table: it needs --validate-only, --table-html and "
                      "--jibun-evidence editions")
+    if args.jibun_evidence == "editions" and not (args.parcel_editions or os.environ.get(editions.EDITIONS_ENV)):
+        parser.error("--jibun-evidence editions reads the parcel editions of the Bronze ledger: pass --parcel-editions")
     date.fromisoformat(args.snapshot_date)
     if (args.table_html or args.recorded_changes) and not args.validate_only:
         parser.error("--table-html and --recorded-changes stand in for the lakehouse: they need --validate-only")
@@ -612,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc).replace(microsecond=0)
     contract = cg.load_source_contract()
     floor = contract["pairing"]["floor_date"]
-    parcel_source = editions.load()
+    parcel_source = editions.load(editions_path=args.parcel_editions)
     cadastral = cadastral_sido(parcel_source)
     run_id = pairing_run_id(args.table_source_record_id, now)
     decisions = _read_decisions(args.steward_decisions)

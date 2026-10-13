@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform VWorld cadastral parcel editions: check the provider's edition daily, collect a new one into Bronze and propose its source-contract entry; exit 3 means an edition awaits the contract (ADR-0148)
+Description=Foundation Platform VWorld cadastral parcel editions: check the provider's edition daily against the Bronze ledger, collect a new one into Bronze and measure it; exit 3 means a collected edition awaits its Silver load (ADR-0148, ADR-0224)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

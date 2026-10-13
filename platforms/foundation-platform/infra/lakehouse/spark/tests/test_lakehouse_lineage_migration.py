@@ -8,9 +8,13 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SPARK_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK_DIR / "jobs"))
@@ -21,22 +25,53 @@ from lakehouse_lineage_migration import (  # noqa: E402
     plan_migration,
     refuse_values_sql_cannot_carry,
 )
+import vworld_parcel_editions  # noqa: E402
+
+# The ledger's editions must hold the contract's served edition; the rest is synthetic.
+SERVED = vworld_parcel_editions.served(vworld_parcel_editions.load())
+
+
+def ledger_editions(*names: str) -> dict:
+    """Synthetic editions as the publisher's `vworld-parcel-editions` writes them (root ADR-0224)."""
+
+    return {"editions": {name: {
+        "provider_base_month": f"{name[:4]}-{name[4:]}",
+        "extracted_on": {"earliest": f"{name[:4]}-{name[4:]}-10", "latest": f"{name[:4]}-{name[4:]}-10"},
+        "handoff_prefix": f"silver-handoff/synthetic/edition={name}",
+        "granularity_counts": {"sido": 1, "sigungu": 1},
+        "objects": [{"object_key": f"bronze/source=vworldkr__parcel/{name}-{code}.zip", "bytes": 1,
+                     "dataset_name": f"LSMD_CONT_LDREG_{code}_{name}", "region_code": code,
+                     "granularity": "sido" if len(code) == 2 else "sigungu"} for code in ("97", "97110")],
+    } for name in names}}
 
 
 class MappingTest(unittest.TestCase):
-    def test_the_mapping_comes_from_the_source_contract(self) -> None:
-        """접두사를 붙이는 게 아니라 실제 객체 목록에서 찾는다.
+    def mapping(self, document: dict | None) -> dict[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "editions.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if k != "VWORLD_PARCEL_EDITIONS"}
+            if document is not None:
+                env["VWORLD_PARCEL_EDITIONS"] = str(path)
+            with mock.patch.dict(os.environ, env, clear=True):
+                return canonical_by_bare_name()
+
+    def test_the_mapping_comes_from_the_ledgers_objects(self) -> None:
+        """접두사를 붙이는 게 아니라 실제 객체 목록(장부의 판, root ADR-0224)에서 찾는다.
 
         접두사를 지어 붙이면 그 접두사가 틀린 날 아무도 모른다. 두 표기가 생긴 것도 각자
         값을 만든 탓이다.
         """
-        mapping = canonical_by_bare_name()
+        mapping = self.mapping(ledger_editions(SERVED, "209909"))
 
-        self.assertGreater(len(mapping), 250)
-        for bare, full in list(mapping.items())[:5]:
+        self.assertEqual(len(mapping), 4)
+        for bare, full in mapping.items():
             with self.subTest(bare=bare):
                 self.assertTrue(full.endswith("/" + bare))
                 self.assertTrue(full.startswith("bronze/source="))
+        # 심은 위반: 장부 없이 돌면 목록을 지어내지 않고 거부한다.
+        with self.assertRaisesRegex(ValueError, "Bronze ledger"):
+            self.mapping(None)
 
     def test_every_bare_name_resolves_to_exactly_one_object(self) -> None:
         """한 이름이 두 객체를 가리키면 그것은 사상이 아니다.
@@ -44,9 +79,12 @@ class MappingTest(unittest.TestCase):
         2026-09-01 실측: 272개 객체 전부에서 파일 이름이 겹치는 경우가 없다. 이 검사는
         그것이 계속 참이게 한다 — 겹치는 순간 이관이 엉뚱한 객체를 가리키게 된다.
         """
-        mapping = canonical_by_bare_name()
-
+        mapping = self.mapping(ledger_editions(SERVED))
         self.assertEqual(len(set(mapping.values())), len(mapping))
+        planted = ledger_editions(SERVED, "209909")
+        planted["editions"]["209909"]["objects"][1]["object_key"] = f"bronze/source=other/{SERVED}-97110.zip"
+        with self.assertRaisesRegex(ValueError, "named by editions"):
+            self.mapping(planted)
 
 
 class PlanTest(unittest.TestCase):

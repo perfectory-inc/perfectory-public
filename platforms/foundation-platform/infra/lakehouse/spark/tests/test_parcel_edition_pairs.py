@@ -1,5 +1,7 @@
-"""Parcel editions in the source contract, and the 지번 step reading each change across its own
-pair of them (root ADR-0144 §3.2, §4; ADR-0148), on synthetic data.
+"""Parcel editions as the Bronze ledger hands them to the source contract's rules, and the 지번 step
+reading each change across its own pair of them (root ADR-0144 §3.2, §4; ADR-0148, ADR-0224), on
+synthetic data. Which objects make an edition, and when one is partial, is decided where the ledger
+is read (`vworld_parcel_source_contract.rs`) and tested there.
 
 The codes are the synthetic 시도 97–98 and the editions are dated 2099, so nothing here is a real
 place or a real release. Every refusal is proven by planting what it refuses: an object named by
@@ -51,9 +53,19 @@ def edition_entry(name: str, extracted: str, latest: str | None = None) -> dict:
 def contract(*names: str, served: str | None = None) -> dict:
     dates = {"209902": "2099-02-10", "209906": "2099-06-10", "209910": "2099-10-10"}
     held = {name: edition_entry(name, dates[name]) for name in names}
-    return {"schema_version": 2, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
-            "served_edition": served or names[0], "handoff_suffix": ".jsonl.gz", "editions": held,
+    return {"schema_version": 3, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
+            "served_edition": served or names[0], "served_edition_sido": ["97", "98"],
+            "handoff_suffix": ".jsonl.gz", "editions": held,
             "new_edition_bounds": {"max_sido_set_difference": 3, "max_sigungu_count_change_share": 0.05}}
+
+
+def write_source(tmp: Path, source: dict) -> tuple[Path, Path]:
+    """The contract (rules only) and the ledger's editions document, as the publisher writes it."""
+
+    rules = {key: value for key, value in source.items() if key != "editions"}
+    (tmp / "contract.json").write_text(json.dumps(rules), encoding="utf-8")
+    (tmp / "editions.json").write_text(json.dumps({"editions": source["editions"]}), encoding="utf-8")
+    return tmp / "contract.json", tmp / "editions.json"
 
 
 def two_changes():
@@ -104,16 +116,17 @@ def pair_with(source: dict, *loaded: str):
 
 
 class EditionContractTest(unittest.TestCase):
-    def test_the_real_contract_holds_its_editions(self):
+    def test_the_real_contract_answers_ids_alone_and_objects_only_from_the_ledger(self):
         real = editions.load()
-        self.assertIn(editions.served(real), editions.names(real))
-        for name in editions.names(real):
-            self.assertEqual(editions.edition_of_snapshot_id(real, editions.snapshot_id(real, name)), name)
-            self.assertTrue(editions.load_objects(real, name))
-        # The served edition decides the cadastral 시도, not the union of every edition held.
-        served = editions.edition(real, editions.served(real))
-        self.assertEqual(editions.cadastral_sido(real),
-                         sorted({o["region_code"][:2] for o in served["objects"] if o["granularity"] == "sido"}))
+        served = editions.served(real)
+        self.assertEqual(editions.edition_of_snapshot_id(real, editions.snapshot_id(real, served)), served)
+        # The served edition decides the cadastral 시도, as the contract states them.
+        self.assertEqual(editions.cadastral_sido(real), sorted(real["served_edition_sido"]))
+        # 심은 위반: 장부 없이 객체를 물으면 지어내지 않고 거부한다.
+        with self.assertRaisesRegex(editions.EditionError, "Bronze ledger"):
+            editions.load_objects(real, served)
+        with self.assertRaisesRegex(editions.EditionError, "Bronze ledger"):
+            editions.bracketing(real, "20990101")
 
     def test_an_edition_loads_under_one_id_and_one_validity(self):
         source = contract("209906")
@@ -162,17 +175,20 @@ class EditionContractTest(unittest.TestCase):
 
     def test_the_command_line_answers_from_the_contract_and_refuses_an_unknown_edition(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "c.json"
-            path.write_text(json.dumps(contract("209902", "209906")), encoding="utf-8")
+            path, held = write_source(Path(tmp), contract("209902", "209906"))
             with mock.patch("sys.stdout") as out:
-                self.assertEqual(editions.main(["handoff-keys", "--edition", "209906", "--contract", str(path)]), 0)
+                self.assertEqual(editions.main(["handoff-keys", "--edition", "209906", "--contract", str(path),
+                                                "--editions", str(held)]), 0)
             printed = "".join(call.args[0] for call in out.write.call_args_list)
             self.assertEqual(printed.split(), [
                 "silver-handoff/synthetic/edition=209906/209906-97110.jsonl.gz",
                 "silver-handoff/synthetic/edition=209906/209906-98110.jsonl.gz"])
             with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
-                self.assertEqual(editions.main(["snapshot-id", "--edition", "209910", "--contract", str(path)]), 2)
+                self.assertEqual(editions.main(["snapshot-id", "--edition", "209910", "--contract", str(path),
+                                                "--editions", str(held)]), 2)
                 self.assertEqual(editions.main(["snapshot-id", "--contract", str(path)]), 2)
+                # 심은 위반: 장부의 판 없이 객체를 물으면 거부한다.
+                self.assertEqual(editions.main(["handoff-keys", "--edition", "209906", "--contract", str(path)]), 2)
 
 
 def inventory(*files: tuple[str, str, str]) -> dict:
@@ -183,14 +199,8 @@ def inventory(*files: tuple[str, str, str]) -> dict:
          "download_kind": kind} for n, (name, base, kind) in enumerate(files, 1)]}]}
 
 
-def measured(name: str, code: str, day: str = "2099-10-14", first: str | None = None) -> dict:
-    return {"object_key": f"bronze/source=vworldkr__parcel/{name}-{code}-new.zip", "bytes": 7,
-            "members": [f"LSMD_CONT_LDREG_{code}_{name}.{ext}" for ext in ("dbf", "prj", "shp", "shx")],
-            "member_dates": sorted({first or day, day})}
-
-
 class ANewProviderEditionTest(unittest.TestCase):
-    """The daily check, collection and proposal of scripts/ops/vworld-parcel-edition-collect.sh."""
+    """The daily check and collection of scripts/ops/vworld-parcel-edition-collect.sh."""
 
     LISTED = inventory(("a.zip", "2099-10", "single_resource_file"), ("b.zip", "2099-10", "single_resource_file"),
                        ("big-province.zip", "2099-10", "selection_archive"),
@@ -214,65 +224,6 @@ class ANewProviderEditionTest(unittest.TestCase):
         self.assertEqual([f["provider_file_name"] for f in cut["jobs"][0]["files"]], ["a.zip", "b.zip"])
         with self.assertRaisesRegex(editions.EditionError, "no file of edition 209912"):
             editions.select_inventory(self.LISTED, "209912")
-
-    def test_a_proposal_is_the_contract_entry_or_nothing(self):
-        source = contract("209902", "209906")
-        rows = [measured("209910", "97"), measured("209910", "97110", "2099-10-13"), measured("209910", "98110")]
-        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
-        self.assertEqual(entry["granularity_counts"], {"sido": 1, "sigungu": 2})
-        self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-13", "latest": "2099-10-14"})
-        self.assertEqual([o["region_code"] for o in entry["objects"]], ["97", "97110", "98110"])
-        # 심은 위반: 다른 판의 파일, 시군구 없는 시도, 이미 다른 판이 가진 객체.
-        planted = {
-            "not one shapefile of edition 209910": rows + [measured("209906", "99110")],
-            "every province needs its districts": [measured("209910", "97"), measured("209910", "98"), measured("209910", "97110")],
-            "named by editions": rows + [{**measured("209910", "97120"),
-                                          "object_key": source["editions"]["209906"]["objects"][0]["object_key"]}],
-        }
-        for message, bad in planted.items():
-            with self.subTest(message), self.assertRaisesRegex(editions.EditionError, message):
-                editions.propose(source, "209910", bad, "silver-handoff/synthetic/edition=209910")
-
-    def test_a_half_updated_listing_is_refused_as_a_partial_edition(self):
-        # 심은 결함: 제공자 목록이 반쯤 바뀐 날. 98 의 시군구는 아직 옛 판이라 새 판에는 97 만 있다.
-        # 계약 검사만으로는 통과한다(시도 객체 없는 판은 형식상 옳다). 앞 판과 비교해 거부한다.
-        source = contract("209902", "209906")
-        half = [measured("209910", "97110")]
-        merged = copy.deepcopy(source)
-        merged["editions"]["209910"] = edition_entry("209910", "2099-10-14")
-        merged["editions"]["209910"]["objects"] = [o for o in merged["editions"]["209910"]["objects"] if o["region_code"] == "97110"]
-        merged["editions"]["209910"]["granularity_counts"] = {"sido": 0, "sigungu": 1}
-        editions.validate(merged)  # the contract alone would take it
-        with self.assertRaisesRegex(editions.EditionError, "partial collection"):
-            editions.propose(source, "209910", half, "silver-handoff/synthetic/edition=209910")
-
-    def test_the_bound_counts_districts_and_lets_a_merger_through(self):
-        def districts(*codes):
-            return [{"region_code": code, "granularity": "sigungu"} for code in codes]
-
-        source = contract("209906")
-        source["editions"]["209906"]["objects"] = districts(*(f"97{n:03d}" for n in range(110, 150)), "98110")
-        # 시도 합병: 98 이 떠나고 99 가 나타났다. 시군구 수는 그대로다.
-        editions.check_not_partial(source, "209910", districts(*(f"97{n:03d}" for n in range(110, 150)), "99110"))
-        planted = {
-            "a district count off by half": districts(*(f"97{n:03d}" for n in range(110, 130)), "98110"),
-            "a province gone with nothing new": districts(*(f"97{n:03d}" for n in range(110, 151))),
-            "too many provinces changed": districts(*(f"97{n:03d}" for n in range(110, 147)), "91110", "92110", "93110", "94110"),
-        }
-        for what, objects in planted.items():
-            with self.subTest(what), self.assertRaisesRegex(editions.EditionError, "partial collection"):
-                editions.check_not_partial(source, "209910", objects)
-        with self.assertRaisesRegex(editions.EditionError, "new_edition_bounds"):
-            editions.check_not_partial({k: v for k, v in source.items() if k != "new_edition_bounds"}, "209910", [])
-
-    def test_a_file_whose_members_straddle_a_change_is_not_wholly_after_it(self):
-        # 심은 함정: 한 파일의 멤버가 10-12 와 10-14 에 걸쳐 쓰였다. 10-13 의 변경 뒤에 다 뽑힌 판이 아니다.
-        source = contract("209902", "209906")
-        rows = [measured("209910", "97"), measured("209910", "97110", first="2099-10-12"), measured("209910", "98110")]
-        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
-        self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-12", "latest": "2099-10-14"})
-        source["editions"]["209910"] = entry
-        self.assertEqual(editions.bracketing(source, "20991013"), ("209906", None))
 
     def test_a_re_upload_inside_a_held_edition_is_reported(self):
         source = contract("209906", "209910")  # 209910 extracted through 2099-10-10
@@ -299,44 +250,42 @@ AREA = Path(__file__).resolve().parents[4]
 COLLECT_SCRIPT = AREA / "scripts" / "ops" / "vworld-parcel-edition-collect.sh"
 
 
-def measurement_keys(script: str) -> set[str]:
-    """The variables the measurement container's AWS_* credentials are taken from."""
-
-    block = script[script.index("GDAL_IMAGE="):script.index("vworld_parcel_edition_members.py <")]
-    return set(re.findall(r'AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)="\$\{(FOUNDATION_PLATFORM_[A-Z0-9_]+)', block))
-
-
-def awaiting_contract_notice(script: str) -> str:
+def awaiting_load_notice(script: str) -> str:
     """What the exit-3 path tells Slack before it exits: the `message=` it hands `notify_slack`."""
 
-    tail = script[script.index("# 4. 끝."):script.index('exit "${AWAITING_CONTRACT}"')]
+    tail = script[script.index("# 4. 끝."):script.index('exit "${AWAITING_LOAD}"')]
     if 'notify_slack "${message}"' not in tail:
         return ""
     return re.search(r'^message="([^"\n]*)', tail, re.MULTILINE).group(1)
 
 
 class TheEditionJobTest(unittest.TestCase):
-    """The scheduled job's own promises: an edition awaiting the contract is reported as that and
-    not retried, and the measurement only reads."""
+    """The scheduled job's own promises: a collected edition awaiting its Silver load is reported as
+    that and not retried, editions are read from the ledger, and the measurement only reads."""
 
-    def test_an_edition_awaiting_the_contract_is_not_retried(self):
+    def test_an_edition_awaiting_its_load_is_not_retried(self):
         jobs = json.loads((AREA / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
         job = next(job for job in jobs if job["id"] == "vworld_parcel_edition")
         # Airflow retries a failed run `retries` times, 1 when absent (orchestration/dags/job_specs.py).
-        self.assertEqual(job.get("retries", 1), 0, "a retry downloads and proposes the same edition again")
+        self.assertEqual(job.get("retries", 1), 0, "a retry only checks the same edition again")
 
-    def test_exit_3_says_a_new_edition_waits_for_its_contract_entry(self):
+    def test_exit_3_says_a_new_edition_waits_for_its_silver_load(self):
         script = COLLECT_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("new edition waiting for contract entry", awaiting_contract_notice(script))
+        self.assertIn("new edition waiting for Silver load", awaiting_load_notice(script))
         # 심은 회귀: 알림을 빼면 남는 것은 Airflow 의 일반 "실패" 뿐이다.
-        self.assertEqual(awaiting_contract_notice(script.replace('notify_slack "${message}"', ":")), "")
+        self.assertEqual(awaiting_load_notice(script.replace('notify_slack "${message}"', ":")), "")
 
-    def test_the_measurement_container_gets_the_reader_key_only(self):
+    def test_editions_come_from_the_ledger_measured_with_the_read_only_command(self):
         script = COLLECT_SCRIPT.read_text(encoding="utf-8")
-        self.assertEqual(measurement_keys(script), {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-                                                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"})
-        # 심은 회귀: 쓰기 키를 넘기던 이전 모양은 이 검사가 잡는다.
-        self.assertTrue(all("WRITER" in key for key in measurement_keys(script.replace("_READER_", "_WRITER_"))))
+        code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+        self.assertIn('"${MEMBERS}" vworldkr__parcel', code)
+        self.assertIn("vworld-parcel-editions", code)
+        self.assertIn('--editions "${work}/editions.json"', code)
+        # 손 측정·제안·계약 PR 의 길은 없다(root ADR-0224).
+        for retired in ("propose", "proposed/", "vworld_parcel_edition_members.py", "docker run"):
+            self.assertNotIn(retired, code)
+        members = (AREA / "scripts" / "ops" / "bronze-object-members.sh").read_text(encoding="utf-8")
+        self.assertIn("unset FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", members)
 
 
 class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):
@@ -433,8 +382,8 @@ class ParcelReadersDefaultToTheServedEditionTest(unittest.TestCase):
         import importlib  # noqa: PLC0415
 
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "c.json"
-            path.write_text(json.dumps(contract("209902", "209906", served="209906")), encoding="utf-8")
+            # The Spark readers run on the contract alone: ids and the served edition need no ledger.
+            path, _ = write_source(Path(tmp), contract("209902", "209906", served="209906"))
             with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(path)}):
                 for name, (flag, attr, rest, earlier) in self.READERS.items():
                     job = importlib.import_module(name)
@@ -459,7 +408,7 @@ class ParcelReadersDefaultToTheServedEditionTest(unittest.TestCase):
 
 class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
     def run_job(self, tmp: Path, source: dict, files: dict[str, str]) -> dict:
-        (tmp / "contract.json").write_text(json.dumps(source), encoding="utf-8")
+        contract_path, held = write_source(tmp, source)
         (tmp / "table.html").write_text(table_html([
             row("9700000000", "합성시", parent="0000000000", created="20000101"),
             row("9711000000", "합성시 가구", parent="9700000000", created="20000101"),
@@ -471,13 +420,13 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
             row("9811010300", "합성도 나구 새병동", parent="9811000000", created=AUTUMN),
         ]), encoding="utf-8")
         argv = ["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only",
-                "--table-html", str(tmp / "table.html"), "--jibun-evidence", "editions",
+                "--table-html", str(tmp / "table.html"), "--jibun-evidence", "editions", "--parcel-editions", str(held),
                 "--summary-output", str(tmp / "summary.json"), "--review-output", str(tmp / "review.json")]
         for name in files:
             (tmp / f"{name}.txt").write_text("".join("\t".join(map(str, land(p))) + "\n" for p in PARCELS[name]),
                                              encoding="utf-8")
             argv += ["--edition-pnus", f"{name}={tmp / f'{name}.txt'}"]
-        with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(tmp / "contract.json")}), mock.patch("sys.stdout"):
+        with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(contract_path)}), mock.patch("sys.stdout"):
             self.assertEqual(pairs_job.main(argv), 0)
         return {"summary": json.loads((tmp / "summary.json").read_text(encoding="utf-8")),
                 "review": json.loads((tmp / "review.json").read_text(encoding="utf-8"))["review"],
@@ -534,11 +483,12 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
     def test_validate_only_reads_the_lakehouse_when_given_no_local_table(self):
         # 운영 미리 보기(legal-dong-code-validate.sh): 표 파일 없이 --validate-only 는 레이크하우스를 읽고 쓰지 않는다.
         lake = pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only",
-                                     "--jibun-evidence", "editions"])
+                                     "--jibun-evidence", "editions", "--parcel-editions", "e.json"])
         self.assertTrue(lake.validate_only and lake.table_html is None)
         self.assertEqual(lake.change_table, "legal_dong_code_change", "no smoke-suffix check: nothing is written")
         for local_only in (["--table-html", "t"], ["--recorded-changes", "r"],
-                           ["--validate-only", "--jibun-evidence", "editions", "--edition-pnus", "209902=x"]):
+                           ["--validate-only", "--jibun-evidence", "editions", "--edition-pnus", "209902=x"],
+                           ["--validate-only", "--jibun-evidence", "editions"]):
             with self.subTest(local_only), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k",
                                       "--allow-non-smoke-write", *local_only])

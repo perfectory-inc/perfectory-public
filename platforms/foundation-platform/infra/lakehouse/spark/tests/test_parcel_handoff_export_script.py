@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT / "infra" / "lakehouse" / "spark" / "jobs"))
+import vworld_parcel_editions as editions  # noqa: E402
 SCRIPT = ROOT / "scripts" / "load" / "vworld-parcel-handoff-export.sh"
 CONTRACT = ROOT / "infra" / "lakehouse" / "contracts" / "vworld-parcel-source-objects.json"
 
@@ -22,44 +26,33 @@ CONTRACT = ROOT / "infra" / "lakehouse" / "contracts" / "vworld-parcel-source-ob
 class SourceObjectContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
-        self.editions = self.contract["editions"]
 
-    def objects(self):
-        return [obj for edition in self.editions.values() for obj in edition["objects"]]
-
-    def test_the_country_is_covered_twice_and_only_one_covering_is_loaded(self) -> None:
+    def test_only_one_covering_is_loaded(self) -> None:
         """원천에 전국이 판마다 두 벌 있고, 한 벌만 실어야 한다.
 
         둘 다 실으면 모든 필지가 두 번 들어간다. 재실행 안전장치는 **객체** 단위라 이것을
-        막지 못한다 — 두 벌은 서로 다른 객체이고, 같은 땅을 담고 있을 뿐이다. 2026-06 판은
-        시도 17·시군구 255 였다(2026-07 개편 전).
+        막지 못한다 — 두 벌은 서로 다른 객체이고, 같은 땅을 담고 있을 뿐이다. 어느 객체가 어느
+        벌인지는 장부 옆 ZIP 안 이름이 말한다(`member_name`, root ADR-0224).
         """
         self.assertEqual(self.contract["load_granularity"], "sigungu")
-        self.assertEqual(self.editions["202606"]["granularity_counts"], {"sido": 17, "sigungu": 255})
-        for name, edition in self.editions.items():
-            with self.subTest(edition=name):
-                held = {g: sum(1 for o in edition["objects"] if o["granularity"] == g) for g in ("sido", "sigungu")}
-                self.assertEqual(edition["granularity_counts"], held)
+        self.assertIn("(?P<region>", self.contract["member_name"])
+        self.assertIn("(?P<edition>", self.contract["member_name"])
 
-    def test_the_two_coverings_are_of_the_same_country(self) -> None:
-        """판마다 시군구 코드의 앞 두 자리 집합이 시도 코드 집합과 같아야 한다.
+    def test_the_contract_lists_no_edition_and_no_object(self) -> None:
+        """판마다 272 객체를 손으로 적던 목록(160 KB, 판마다 PR)은 장부가 대신한다 (root ADR-0224).
 
-        이것이 "두 벌"의 근거다. 다르면 두 데이터셋이지 두 벌이 아니며, 그때는 하나만
-        싣는 선택이 데이터를 버리는 것이 된다.
+        목록이 돌아오면 장부와 계약이 같은 사실을 둘이 들고, 어긋나는 날 어느 쪽이 맞는지
+        아무도 모른다. 읽는 쪽이 그런 계약을 거부하는지도 본다.
         """
-        for name, edition in self.editions.items():
-            sido = {o["region_code"] for o in edition["objects"] if o["granularity"] == "sido"}
-            sigungu = {o["region_code"][:2] for o in edition["objects"] if o["granularity"] == "sigungu"}
-            with self.subTest(edition=name):
-                self.assertEqual(sido, sigungu)
-
-    def test_every_object_is_classified_and_of_its_edition(self) -> None:
-        """알갱이를 모르는 객체, 다른 판의 파일을 담은 객체가 있으면 그것은 조용히 빠지거나 섞인다."""
-        unknown = [o for o in self.objects() if o["granularity"] not in ("sido", "sigungu")]
-        self.assertEqual(unknown, [], "분류되지 않은 원천 객체가 있다")
-        for name, edition in self.editions.items():
-            stray = [o["object_key"] for o in edition["objects"] if not o["dataset_name"].endswith(f"_{name}")]
-            self.assertEqual(stray, [], f"판 {name} 에 다른 판의 파일이 있다")
+        text = CONTRACT.read_text(encoding="utf-8")
+        for key in ("\"editions\"", "\"objects\"", "\"object_key\""):
+            self.assertNotIn(key, text)
+        planted = dict(self.contract, editions={"209906": {"objects": []}})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "contract.json"
+            path.write_text(json.dumps(planted), encoding="utf-8")
+            with self.assertRaisesRegex(editions.EditionError, "holds `editions`"):
+                editions.load(path)
 
     def test_the_handoff_suffix_lives_here_and_says_it_is_compressed(self) -> None:
         """변환기와 적재기가 같은 이름을 만들어야 한다.
@@ -73,13 +66,6 @@ class SourceObjectContractTest(unittest.TestCase):
         self.assertTrue(suffix.startswith(".jsonl"), suffix)
         self.assertTrue(suffix.endswith(".gz"), "압축하지 않으면 전송량이 그대로다")
         self.assertTrue(self.contract["handoff_suffix_reason"].strip())
-
-    def test_each_object_key_appears_once(self) -> None:
-        """같은 객체가 두 줄(또는 두 판)이면 한 번은 변환되고 한 번은 건너뛴 것처럼 보인다."""
-        keys = [o["object_key"] for o in self.objects()]
-
-        self.assertEqual(len(keys), len(set(keys)))
-
 
 class ExportScriptTest(unittest.TestCase):
     def setUp(self) -> None:

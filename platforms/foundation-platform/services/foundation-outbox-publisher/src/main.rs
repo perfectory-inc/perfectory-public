@@ -130,6 +130,7 @@ mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
 use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
+mod vworld_parcel_editions;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_artifact_export;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_artifact_build;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_streaming_rebuild;
@@ -282,6 +283,7 @@ enum Command {
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
+    VworldParcelEditions,
     ClearStagingNamespace,
     ExportLineageStewardFold,
     RecordLineageStewardFolds,
@@ -613,6 +615,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
+        Command::VworldParcelEditions => Box::pin(vworld_parcel_editions::run()),
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
@@ -1212,6 +1215,7 @@ where
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
+        Some("vworld-parcel-editions") => Ok(Command::VworldParcelEditions),
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),

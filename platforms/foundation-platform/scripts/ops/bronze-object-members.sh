@@ -32,7 +32,7 @@ set -euo pipefail
 log() { printf '%s bronze-object-members: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
 
-DEFAULT_SOURCES='vworldkr__land*,hubgokr__*'
+DEFAULT_SOURCES='vworldkr__land*,vworldkr__parcel,hubgokr__*'
 
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"

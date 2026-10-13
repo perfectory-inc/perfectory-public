@@ -10,6 +10,7 @@
 # docs/runbooks/legal-dong-code-changes.md 의 "운영 데이터로 미리 보기".
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 
 STATE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
@@ -41,6 +42,14 @@ if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
   decisions=(--steward-decisions "${container_work}/steward")
 fi
 
+# 판을 감싸는 날짜는 장부의 판에서 읽는다(root ADR-0224), 정기 실행과 같다.
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(foundation_database_url)"
+fi
+DATABASE_URL="${DATABASE_URL}" \
+VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
+  "${PUBLISHER_BIN}" vworld-parcel-editions > "${work}/parcel-editions.json"
+
 docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
@@ -51,7 +60,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   spark spark-submit --master 'local[4]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py --validate-only \
   --snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}" --jibun-evidence editions \
-  ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+  --parcel-editions "${container_work}/parcel-editions.json" ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
   --projection-output "${container_work}/projection.json" --review-output "${container_work}/steward-review.json" \
   --summary-output "${container_work}/summary.json" > "${work}/run.log" 2>&1
 
