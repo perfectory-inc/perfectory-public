@@ -117,7 +117,7 @@ pub(super) async fn scheduled_jobs(
 }
 
 /// Every scheduled job with its runs and problems, from the kept read of the three stores.
-async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
+pub(super) async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
     let (list, dependencies) = read_registry()?;
     let facts = facts::current(Arc::clone(&list), Arc::clone(&dependencies)).await;
     let now = Utc::now();

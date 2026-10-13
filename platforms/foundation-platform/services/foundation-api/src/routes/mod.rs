@@ -656,22 +656,22 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
     let http_requests = state.http_request_metrics();
     let http_durations = state.http_duration_metrics();
     let overload_rejections = state.overload_rejection_metrics();
-    (
-        [(header::CONTENT_TYPE, PROMETHEUS_TEXT_CONTENT_TYPE)],
-        metrics_body(
-            database_ready,
-            schema_ready,
-            &database_pool,
-            MetricsBodyInput {
-                http_requests: &http_requests,
-                http_durations: &http_durations,
-                overload_rejections: &overload_rejections,
-                lakehouse_batch_runs: &lakehouse_batch_runs,
-                ingestion_runs: &ingestion_runs,
-                outbox_queues: &outbox_queues,
-            },
-        ),
-    )
+    let mut body = metrics_body(
+        database_ready,
+        schema_ready,
+        &database_pool,
+        MetricsBodyInput {
+            http_requests: &http_requests,
+            http_durations: &http_durations,
+            overload_rejections: &overload_rejections,
+            lakehouse_batch_runs: &lakehouse_batch_runs,
+            ingestion_runs: &ingestion_runs,
+            outbox_queues: &outbox_queues,
+        },
+    );
+    // The operations map's problems, for Alertmanager to tell Slack (root ADR-0195).
+    body.push_str(&data_catalog::scheduled_job_problem_metrics().await);
+    ([(header::CONTENT_TYPE, PROMETHEUS_TEXT_CONTENT_TYPE)], body)
 }
 
 #[derive(Clone, Copy)]

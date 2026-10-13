@@ -1109,6 +1109,12 @@ migrate_runtime() {
   # asking for the api alone leaves its own loopback listeners down, which surfaced on the
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
+  # Prometheus and Alertmanager bind their rule and route files through `current`, and Docker
+  # resolves that link when it creates a container: a release that changes an alert rule or a
+  # route is otherwise never read (the compose service itself did not change, so `up` keeps the
+  # old container on the old release's files). Their data and the notification log live in
+  # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
+  "${runtime}" up -d --wait --force-recreate prometheus alertmanager
   verify_runtime_schema
   migrate_lakehouse
 }

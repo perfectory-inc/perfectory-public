@@ -22,6 +22,7 @@ last_reviewed: 2026-07-29
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
+- [데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인](./operations-map.md)
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { ScheduledJobStatus } from "../api/client";
-import { HealthLine } from "./FlowPage";
+import { focusTarget, HealthLine } from "./FlowPage";
 
 const failing: ScheduledJobStatus = {
   job_id: "load",
@@ -43,5 +43,26 @@ describe("the top line", () => {
 
   it("says all is fine from a live region", () => {
     expect(line([])).toMatch(/<p[^>]*role="status"[^>]*>.*전체 정상<\/p>/);
+  });
+});
+
+describe("a link into the map", () => {
+  const known = new Set(["shown-table", "hidden-table"]);
+  const shown = new Set(["shown-table"]);
+
+  it("opens a shown dataset as it is", () => {
+    expect(focusTarget({ kind: "dataset", id: "shown-table" }, shown, known)).toEqual({
+      selection: { kind: "dataset", id: "shown-table" },
+      everything: false,
+    });
+  });
+
+  it("shows every connection for a dataset the plain view hides", () => {
+    expect(focusTarget({ kind: "dataset", id: "hidden-table" }, shown, known)?.everything).toBe(true);
+  });
+
+  it("opens a job's panel, and nothing for a dataset the map does not have", () => {
+    expect(focusTarget({ kind: "job", id: "gold_synthetic" }, shown, known)?.selection).toEqual({ kind: "job", id: "gold_synthetic" });
+    expect(focusTarget({ kind: "dataset", id: "gone" }, shown, known)).toBeNull();
   });
 });
