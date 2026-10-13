@@ -12,5 +12,5 @@ pub mod policy;
 pub mod role;
 
 pub use permission::Permission;
-pub use policy::{evaluate_policy, PolicyDecision, PolicyInput};
+pub use policy::{evaluate_policy, PolicyDecision, PolicyInput, StaffRoleGrant, STAFF_ROLE_GRANTS};
 pub use role::{RoleCode, RoleGrant};

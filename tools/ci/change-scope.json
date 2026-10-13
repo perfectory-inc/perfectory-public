@@ -23,6 +23,7 @@
     "identity-ci.yml": {
       "paths": [
         "platforms/identity-platform/**",
+        "platforms/foundation-platform/config/identity-route-policies.contract.json",
         "tools/xtask/**",
         ".cargo/config.toml",
         "rust-toolchain.toml"

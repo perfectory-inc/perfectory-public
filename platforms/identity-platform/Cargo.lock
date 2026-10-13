@@ -90,6 +90,7 @@ dependencies = [
  "identity-contracts",
  "identity-shared-kernel",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
