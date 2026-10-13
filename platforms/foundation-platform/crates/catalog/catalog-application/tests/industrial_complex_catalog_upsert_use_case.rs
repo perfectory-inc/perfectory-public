@@ -12,10 +12,9 @@ use catalog_application::{
     UpsertIndustrialComplexCatalogRowsInput,
 };
 use catalog_domain::{
-    CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind, Parcel, ParcelKind,
-    VectorTileManifest,
+    CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind, VectorTileManifest,
 };
-use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -98,16 +97,6 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
         _request_id: Option<String>,
     ) -> Result<IndustrialComplex, CatalogError> {
         Err(unexpected_call("archive_complex"))
-    }
-
-    async fn update_parcel_kind(
-        &self,
-        _id: ParcelId,
-        _expected_version: i64,
-        _new_kind: ParcelKind,
-        _applied_by: StaffId,
-    ) -> Result<Parcel, CatalogError> {
-        Err(unexpected_call("update_parcel_kind"))
     }
 
     async fn rollback_vector_tile_manifest(

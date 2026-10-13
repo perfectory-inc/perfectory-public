@@ -8,13 +8,12 @@ use std::collections::BTreeMap;
 use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult};
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, Building, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
-    ComplexAnchorSummary, ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset,
-    IndustrialComplex, IndustrialComplexDevelopmentStage, IndustrialComplexKind,
-    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, IndustryGroup, IndustryGroupMember,
-    MarkerAnchorAlgorithm, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer, RuntimeTileLineage,
-    RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer, UnitOfficialPriceRow,
+    Blueprint, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind, ComplexMutation,
+    ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
+    IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
+    MarkerTileRequest, ParcelIndustryAssignment, RequestFingerprint, RequestFingerprintBuilder,
+    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
     VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
@@ -22,7 +21,6 @@ use foundation_shared_kernel::ids::{
     ComplexId, LakehouseComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
     VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
 };
-use foundation_shared_kernel::pnu::Pnu;
 use uuid::Uuid;
 
 /// Whether this deployment may publish the v2 runtime manifest.
@@ -722,42 +720,6 @@ pub trait CatalogRepository: Send + Sync {
         lakehouse_complex_id: LakehouseComplexId,
     ) -> Result<Option<IndustrialComplex>, CatalogError>;
 
-    /// Summarizes active PNU marker anchors for one industrial complex.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails or stored anchor data is invalid.
-    async fn find_complex_anchor_summary(
-        &self,
-        complex_id: ComplexId,
-    ) -> Result<Option<ComplexAnchorSummary>, CatalogError>;
-
-    /// Finds a parcel by id.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_parcel_by_id(&self, id: ParcelId) -> Result<Option<Parcel>, CatalogError>;
-
-    /// Finds a parcel by PNU.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_parcel_by_pnu(&self, pnu: &Pnu) -> Result<Option<Parcel>, CatalogError>;
-
-    /// Lists buildings on one parcel identified by PNU.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_buildings_by_pnu(&self, pnu: &Pnu) -> Result<Vec<Building>, CatalogError>;
-
-    /// Lists reference-date unit assessments from the selected complete source batch.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn list_unit_official_prices_by_pnu(
-        &self,
-        pnu: &Pnu,
-    ) -> Result<Vec<UnitOfficialPriceRow>, CatalogError>;
-
     /// Lists notices attached to one industrial complex.
     ///
     /// # Errors
@@ -904,24 +866,6 @@ pub trait CatalogUnitOfWork: Send + Sync {
         reason: Option<String>,
         request_id: Option<String>,
     ) -> Result<IndustrialComplex, CatalogError>;
-
-    /// Updates a parcel kind, writes the edit ledger row, and emits a race-free parcel kind
-    /// changed event — all in one transaction.
-    ///
-    /// The ledger row is not optional bookkeeping. ADR-0006 rebuilds the serving projection from a
-    /// snapshot plus the edit ledger, so an edit that lands in the row without landing in the
-    /// ledger is an edit a rebuild loses (ADR-0023).
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when the parcel is missing, the expected version is stale,
-    /// the new kind is invalid for the transition, or persistence fails.
-    async fn update_parcel_kind(
-        &self,
-        id: ParcelId,
-        expected_version: i64,
-        new_kind: ParcelKind,
-        applied_by: StaffId,
-    ) -> Result<Parcel, CatalogError>;
 
     /// Switches the active vector tile manifest pointer to an existing immutable version.
     ///

@@ -138,11 +138,6 @@ export const API_PROXY_CLIENT_OPERATIONS = {
     targetPath: "me/bookmarks",
     methods: ["GET"],
   },
-  parcelRead: {
-    sourcePolicyId: "gongzzang.api_proxy.parcel_read",
-    targetPath: "api/parcels/:pnu",
-    methods: ["GET"],
-  },
   complexesCollectionRead: {
     sourcePolicyId: "gongzzang.api_proxy.complexes_collection_read",
     targetPath: "api/complexes",
@@ -401,12 +396,6 @@ export const apiProxyClient = {
   myBookmarks: {
     get: (options?: ApiProxyRequestOptions) => api.get("me/bookmarks", options),
     getJson: <T>(options?: ApiProxyRequestOptions) => api.get("me/bookmarks", options).json<T>(),
-  },
-  parcelRead: {
-    get: (params: { readonly pnu: string }, options?: ApiProxyRequestOptions) =>
-      api.get(`api/parcels/${encodePathParam(params.pnu)}`, options),
-    getJson: <T>(params: { readonly pnu: string }, options?: ApiProxyRequestOptions) =>
-      api.get(`api/parcels/${encodePathParam(params.pnu)}`, options).json<T>(),
   },
   complexesCollectionRead: {
     get: (options?: ApiProxyRequestOptions) => api.get("api/complexes", options),

@@ -251,25 +251,6 @@ async fn async_main() -> Result<(), StartupError> {
             auth_layer,
         ));
 
-    let parcels_state = routes::parcels::ParcelsState {
-        parcel_lookup: listings_state.parcel_lookup.clone(),
-    };
-    let parcels_router: Router<()> = Router::new()
-        .route("/api/parcels/{pnu}", get(routes::parcels::get_parcel))
-        .with_state(parcels_state)
-        .layer(middleware::from_fn_with_state(
-            backend_authorization_state.clone(),
-            enforce_backend_roles,
-        ))
-        .layer(middleware::from_fn_with_state(
-            backend_rate_limit_state.clone(),
-            enforce_backend_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth_state.clone(),
-            auth_layer,
-        ));
-
     let complexes_state = routes::complexes::ComplexesState {
         reader: build_complex_reader(is_production)?,
     };
@@ -424,7 +405,6 @@ async fn async_main() -> Result<(), StartupError> {
         .merge(listing_marker_tombstones_router)
         .merge(listing_marker_deltas_router)
         .merge(listings_router)
-        .merge(parcels_router)
         .merge(complexes_router)
         .merge(bookmarks_router)
         .merge(admin_router)

@@ -129,21 +129,3 @@ fn administrative_boundary_docs_define_revisioned_merge_and_static_promotion() {
         );
     }
 }
-
-#[test]
-fn repository_reads_resolve_pnu_through_temporal_compatibility_views() {
-    let repository = read_repo_text(
-        "platforms/foundation-platform/crates/catalog/catalog-infrastructure/src/sqlx_repository.rs",
-    );
-
-    for phrase in [
-        "catalog.parcel_identifier_lookup",
-        "catalog.parcel_current_identifier",
-        "identifier_value",
-    ] {
-        assert!(
-            repository.contains(phrase),
-            "repository must resolve PNU through {phrase:?}"
-        );
-    }
-}

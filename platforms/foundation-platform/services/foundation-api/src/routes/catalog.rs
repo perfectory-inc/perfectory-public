@@ -1,5 +1,4 @@
 //! Catalog HTTP handler.
-pub mod building_units;
 /// `GET /catalog/v1/complexes` — the paged, filtered industrial-complex collection.
 pub mod complex_search;
 pub mod map_edits;
@@ -22,25 +21,24 @@ use catalog_application::{
     rebuild_parcel_marker_anchors::RebuildParcelMarkerAnchorsInput,
     register_complex::RegisterIndustrialComplexInput,
     rollback_vector_tile_manifest::RollbackVectorTileManifestInput,
-    update_complex::UpdateIndustrialComplexInput, update_parcel_kind::UpdateParcelKindInput,
+    update_complex::UpdateIndustrialComplexInput,
 };
 use catalog_domain::{
-    ActiveTileSource, Blueprint, CatalogError, ComplexAnchorSummary, ComplexNotice,
-    DigitalTwinAsset, FileAsset, IndustrialComplex, IndustrialComplexKind, IndustryGroup,
-    IndustryGroupMember, MarkerTileRequest, Parcel, ParcelIndustryAssignment, ParcelKind,
-    SpatialLayer, VectorTileArtifact, VectorTileManifest, VectorTileRuntimeManifest,
+    ActiveTileSource, Blueprint, CatalogError, ComplexNotice, DigitalTwinAsset, FileAsset,
+    IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
+    MarkerTileRequest, ParcelIndustryAssignment, SpatialLayer, VectorTileArtifact,
+    VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_contracts::catalog::{
-    ArchiveComplexRequest, BlueprintResponse, ComplexAnchorSummaryResponse, ComplexNoticeResponse,
-    DigitalTwinAssetResponse, FileAssetResponse, IndustrialComplexGoldPointerResponse,
-    IndustrialComplexResponse, IndustryGroupMemberResponse, IndustryGroupResponse,
-    MarkerTileContractResponse, ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelResponse, PromoteFileAssetRequest,
-    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
-    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
-    UpdateComplexRequest, UpdateParcelKindRequest, VectorTileArtifactResponse,
-    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
-    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    ArchiveComplexRequest, BlueprintResponse, ComplexNoticeResponse, DigitalTwinAssetResponse,
+    FileAssetResponse, IndustrialComplexGoldPointerResponse, IndustrialComplexResponse,
+    IndustryGroupMemberResponse, IndustryGroupResponse, MarkerTileContractResponse,
+    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
+    ParcelMarkerAnchorRebuildResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
+    PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
+    RollbackVectorTileManifestRequest, SpatialLayerResponse, UpdateComplexRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
@@ -190,26 +188,6 @@ pub async fn get_complex_by_lakehouse_id(
 }
 
 #[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/{id}/anchor-summary",
-    operation_id = "getComplexAnchorSummary",
-    params(("id" = Uuid, Path, description = "Industrial complex id")),
-    responses((status = 200, body = ComplexAnchorSummaryResponse))
-)]
-pub async fn get_complex_anchor_summary(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<ComplexAnchorSummaryResponse>, ApiError> {
-    let summary = state
-        .catalog_repo
-        .find_complex_anchor_summary(ComplexId::new(id))
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("complex anchor summary {id}")))?;
-
-    Ok(Json(complex_anchor_summary_response(&summary)))
-}
-
-#[utoipa::path(
     patch,
     path = "/catalog/v1/complexes/{id}",
     operation_id = "updateComplex",
@@ -274,28 +252,6 @@ pub async fn archive_complex(
         .await?;
 
     Ok(Json(industrial_complex_response(archived, gold_pointer)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/parcels/{id}",
-    operation_id = "getParcel",
-    params(("id" = Uuid, Path, description = "Parcel id")),
-    responses((status = 200, body = ParcelResponse), (status = 404, description = "Parcel not found")),
-    security(("bearerAuth" = []))
-)]
-pub async fn get_parcel(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
-) -> Result<Json<ParcelResponse>, ApiError> {
-    let parcel = state
-        .catalog_repo
-        .find_parcel_by_id(ParcelId::new(id))
-        .await?
-        .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
-
-    Ok(Json(parcel_response(&parcel)))
 }
 
 #[utoipa::path(
@@ -757,36 +713,6 @@ pub async fn promote_vector_tile_manifest(
     Ok(Json(vector_tile_manifest_response(manifest)))
 }
 
-#[utoipa::path(
-    patch,
-    path = "/catalog/v1/parcels/{id}/kind",
-    operation_id = "updateParcelKind",
-    params(("id" = Uuid, Path, description = "Parcel id")),
-    request_body = UpdateParcelKindRequest,
-    responses((status = 200, body = ParcelResponse)),
-    security(("bearerAuth" = []))
-)]
-pub async fn update_parcel_kind(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-    Extension(principal): Extension<AuthorizedPrincipal>,
-    Json(body): Json<UpdateParcelKindRequest>,
-) -> Result<Json<ParcelResponse>, ApiError> {
-    let new_kind =
-        ParcelKind::from_wire(&body.new_kind).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    let updated = state
-        .update_parcel_kind
-        .execute(UpdateParcelKindInput {
-            parcel_id: ParcelId::new(id),
-            expected_version: body.if_match_version,
-            new_kind,
-            applied_by: StaffId::new(principal.principal_id),
-        })
-        .await?;
-
-    Ok(Json(parcel_response(&updated)))
-}
-
 fn industrial_complex_response(
     complex: IndustrialComplex,
     gold_pointer: Option<IndustrialComplexGoldPointer>,
@@ -863,31 +789,6 @@ fn industrial_complex_gold_pointer_response(
         profile_row_count: pointer.profile_row_count,
         profile_checksum_sha256: pointer.profile_checksum_sha256,
         published_at: pointer.published_at,
-    }
-}
-
-fn complex_anchor_summary_response(summary: &ComplexAnchorSummary) -> ComplexAnchorSummaryResponse {
-    ComplexAnchorSummaryResponse {
-        complex_id: summary.complex_id.as_uuid(),
-        position_source: summary.position_source.to_owned(),
-        center_lng: summary.center_lng,
-        center_lat: summary.center_lat,
-        min_lng: summary.min_lng,
-        min_lat: summary.min_lat,
-        max_lng: summary.max_lng,
-        max_lat: summary.max_lat,
-        anchor_count: summary.anchor_count,
-    }
-}
-
-fn parcel_response(parcel: &Parcel) -> ParcelResponse {
-    ParcelResponse {
-        id: parcel.id.as_uuid(),
-        pnu: parcel.pnu.as_str().to_owned(),
-        kind: parcel.kind.map(|kind| kind.wire_name().to_owned()),
-        area_m2: parcel.area_m2,
-        version: parcel.version,
-        updated_at: parcel.updated_at,
     }
 }
 

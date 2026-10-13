@@ -591,10 +591,6 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
-                        test: "complex_anchor_summary_reads",
-                    },
-                    LaneTarget::Test {
-                        package: "catalog-infrastructure",
                         test: "industrial_complex_search",
                     },
                     LaneTarget::Test {
@@ -608,10 +604,6 @@ const AREAS: &[Area] = &[
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "parcel_complex_membership",
-                    },
-                    LaneTarget::Test {
-                        package: "catalog-infrastructure",
-                        test: "parcel_edit_ledger",
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
