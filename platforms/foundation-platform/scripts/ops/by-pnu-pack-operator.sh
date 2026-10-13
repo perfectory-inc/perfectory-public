@@ -408,7 +408,9 @@ case "${ACTION}" in
     file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2]))' \
       "${RELEASE}/config/runtime-secrets.contract.json" "${group}")"
     file="${ETC}/$(basename "${file}")"
-    { [[ ! -f "${file}" ]] || grep -v "^${P}_MONITOR_SAMPLE_PATH=" "${file}" || true
+    # Read the other lanes' lines before install truncates the file: a grep piped into it raced it.
+    kept="$([[ ! -f "${file}" ]] || grep -v "^${P}_MONITOR_SAMPLE_PATH=" "${file}" || true)"
+    { [[ -z "${kept}" ]] || printf '%s\n' "${kept}"
       printf '%s_MONITOR_SAMPLE_PATH=%s\n' "${P}" "${WORK}/equality.json"; } |
       install -m 0640 -o "${ROOT_OWNER}" -g "${SERVICE_GROUP}" /dev/stdin "${file}"
     log "${file} names ${WORK}/equality.json"
