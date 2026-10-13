@@ -129,27 +129,27 @@ mod tests {
 
     #[test]
     fn a_prefix_no_file_can_hold_is_not_a_shard() {
-        // Rows under 1 and 9 only: 2..8 hold nothing and are never baked.
+        // Every row lies under 99999 (the reserved region): 1..8 hold nothing and are never baked.
         let files = [
-            file("1000000000000000000", "1999999999999999999", 10),
-            file("9999900000000000000", "9999999999999999999", 5),
+            file("9999910000000000000", "9999919999999999999", 10),
+            file("9999950000000000000", "9999959999999999999", 5),
         ];
         let plan = plan_prefix_shards(&files, "pnu", 100);
-        assert_eq!(prefixes(&plan), ["1", "9"]);
-        assert_eq!(plan[0].estimated_rows, 10);
+        assert_eq!(prefixes(&plan), ["9"]);
+        assert_eq!(plan[0].estimated_rows, 15);
     }
 
     #[test]
     fn a_prefix_over_the_cap_is_split_only_where_its_files_lie() {
-        // Prefix 99 holds 300 rows in three files under 9991, 9993 and 9995: three shards, not
-        // ten children of every level down.
+        // 300 rows in three files under 999991, 999993 and 999995: three shards, not ten children
+        // of every level down.
         let files = [
-            file("9991000000000000000", "9991999999999999999", 100),
-            file("9993000000000000000", "9993999999999999999", 100),
-            file("9995000000000000000", "9995999999999999999", 100),
+            file("9999910000000000000", "9999919999999999999", 100),
+            file("9999930000000000000", "9999939999999999999", 100),
+            file("9999950000000000000", "9999959999999999999", 100),
         ];
         let plan = plan_prefix_shards(&files, "pnu", 150);
-        assert_eq!(prefixes(&plan), ["9991", "9993", "9995"]);
+        assert_eq!(prefixes(&plan), ["999991", "999993", "999995"]);
         assert!(plan.iter().all(|shard| shard.estimated_rows <= 150));
         // Every row is in exactly one shard.
         assert_eq!(
