@@ -124,7 +124,7 @@ enum ResourceAction {
     Deny,
 }
 
-/// Foundation's private wire types are checked against Identity's published OpenAPI document, the
+/// Foundation's private wire types are checked against Identity's published `OpenAPI` document, the
 /// one definition of the policy decision exchange (root ADR-0214).
 #[cfg(test)]
 mod tests {
