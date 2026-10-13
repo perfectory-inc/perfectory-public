@@ -8,9 +8,20 @@
 #     submits with. Neither is restated here.
 # The tests here are the files that skip without that runtime: their skip reason says what they
 # require ("requires pyspark", "requires the pinned Spark/Iceberg runtime"), so a new one joins by
-# saying so. Each file runs in its own interpreter: the pure-logic tests beside them install a
-# stand-in `pyspark` module, which would shadow the real one in a shared process. A test that still
-# skips for want of a runtime fails the run: a lane whose tests quietly skip proves nothing.
+# saying so. foundation-spark-runtime-files.sh runs them, each file in its own interpreter, several
+# at once. A test that still skips for want of a runtime fails the run: a lane whose tests quietly
+# skip proves nothing.
+#
+# Speed (measured in this script's log, "durations, slowest first"): the Iceberg artifacts are
+# resolved once, before the files start, and the files then load the resolved jars, so concurrent
+# JVMs never share an Ivy resolution. Spark settings stay each session's own: a shared default
+# (fewer shuffle partitions, say) would change what a test exercises. Each test JVM compiles with C1
+# only, collects with the serial collector and sizes its pools for two CPUs: the files are short
+# and run side by side, so C2 compiler and parallel GC threads only take CPU from the other file.
+# Measured 2026-10-13 on ubuntu-24.04 (4 CPUs), one commit, four configurations side by side:
+# 2 files at a time 534s; with these JVM options 357s at 2, 418s at 3, 420s at 4 at a time
+# (those four also defaulted shuffle partitions to 2, dropped since; serial on main: 488s-774s).
+# None of the options changes what a query computes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
@@ -47,23 +58,25 @@ trap cleanup EXIT
 mkdir -p "$work/state" "$work/ivy"
 chmod 0777 "$work/state" "$work/ivy"
 # Read-only source; Ivy, Spark's scratch and the tests' temporary tables live in the container's /tmp.
+SECONDS=0
+compose pull --quiet spark
+echo "foundation-spark-runtime: image ready in ${SECONDS}s"
 status=0
 compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-platform" \
   -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -e RUN_SPARK_TESTS=1 -e RUN_ICEBERG_TESTS=1 \
-  -e "PYSPARK_SUBMIT_ARGS=--packages $packages --conf spark.jars.ivy=/tmp/ivy --conf spark.ui.enabled=false pyspark-shell" \
+  -e SPARK_RUNTIME_JOBS -e "SPARK_RUNTIME_PACKAGES=$packages" \
   --entrypoint /bin/bash spark -c '
     set -euo pipefail
     py4j=(/opt/spark/python/lib/py4j-*-src.zip)
     export PYTHONPATH="/opt/spark/python:${py4j[0]}"
-    cd "$0"
-    mapfile -t files < <(grep -l -E "skip(Unless|If)\(.*\"requires (pyspark|the pinned)" test_*.py)
-    ((${#files[@]})) || { echo "no runtime-gated test file found" >&2; exit 1; }
-    failed=0
-    for file in "${files[@]}"; do
-      echo "== ${file}"
-      python3 -m unittest -v "${file%.py}" || failed=1
-    done
-    exit "${failed}"' "$TESTS" >"$log" 2>&1 || status=$?
+    defaults="--conf spark.ui.enabled=false"
+    defaults+=" --driver-java-options \"-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -XX:ActiveProcessorCount=2\""
+    # Resolve the Iceberg artifacts once; the files then load the jars instead of each resolving.
+    PYSPARK_SUBMIT_ARGS="--packages $SPARK_RUNTIME_PACKAGES --conf spark.jars.ivy=/tmp/ivy $defaults pyspark-shell" \
+      python3 -c "from pyspark.sql import SparkSession; SparkSession.builder.master(\"local[1]\").getOrCreate().stop()"
+    jars="$(printf "%s," /tmp/ivy/jars/*.jar)"
+    export PYSPARK_SUBMIT_ARGS="--jars ${jars%,} $defaults pyspark-shell"
+    bash /repo/scripts/verify/foundation-spark-runtime-files.sh "$0"' "$TESTS" >"$log" 2>&1 || status=$?
 cat "$log"
 if ((status)); then
   echo "foundation-spark-runtime: FAILED (exit $status)" >&2
