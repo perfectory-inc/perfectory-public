@@ -2,6 +2,7 @@
 //!
 //! | command                                          | does                                    |
 //! |--------------------------------------------------|-----------------------------------------|
+//! | `plan-building-by-pnu-pack-shards`               | a bake's shards, from the manifests     |
 //! | `export-building-by-pnu-section-packs`           | Gold → packs, a base or a patch         |
 //! | `verify-building-by-pnu-section-pack-equality`   | gate (가): every PNU, packs = objects    |
 //! | `probe-building-by-pnu-section-pack-latency`     | gate (나): cold first read, live vs pack |
@@ -41,6 +42,7 @@ mod tests;
 /// What a section pack command does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackCommandKind {
+    PlanShards,
     Export,
     VerifyEquality,
     ProbeLatency,
@@ -63,7 +65,8 @@ impl PackCommand {
     /// The command a name spells, if it is one of these, for any lane: the parcel and building
     /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0190).
     pub fn parse(name: &str) -> Option<Self> {
-        const KINDS: [(&str, &str, PackCommandKind); 8] = [
+        const KINDS: [(&str, &str, PackCommandKind); 9] = [
+            ("plan-", "-by-pnu-pack-shards", PackCommandKind::PlanShards),
             ("export-", "-by-pnu-section-packs", PackCommandKind::Export),
             (
                 "verify-",
@@ -111,6 +114,7 @@ impl PackCommand {
     pub async fn run(self) -> anyhow::Result<()> {
         let lane = self.lane;
         match self.kind {
+            PackCommandKind::PlanShards => bake::plan_shards(lane).await,
             PackCommandKind::Export => bake::run(lane).await,
             PackCommandKind::VerifyEquality => equality::run(lane).await,
             PackCommandKind::ProbeLatency => latency::run(lane).await,

@@ -261,6 +261,59 @@ pub struct PackEntry {
     pub outcome: String,
 }
 
+/// Prints the shards a generation bake of the lane's current Gold snapshot runs, planned from its
+/// manifests (`lakehouse_snapshot_scan::shard_plan`), to `<lane>_PACK_SHARD_PLAN_PATH`: one JSON
+/// object with the snapshot it pins,
+/// the snapshot's record count, the export's row cap, and each shard's prefix and the most rows
+/// the manifests allow it. `by-pnu-pack-bake.sh` starts from it.
+///
+/// # Errors
+/// Returns an error when the catalog or a manifest cannot be read.
+pub async fn plan_shards(lane: ByPnuLane) -> anyhow::Result<()> {
+    let table = sections::gold_table(lane).table_name;
+    let catalog = IcebergRestCatalog::new(
+        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+    )?;
+    let snapshot = catalog
+        .load_current_snapshot_manifest_list(table)
+        .await?
+        .with_context(|| format!("{table} has no current snapshot to plan"))?;
+    let lakehouse = LakehouseObjectReader::from_env()?;
+    let max_rows = u64::try_from(MAX_ROWS_PER_RUN)?;
+    let (shards, records) = crate::lakehouse_snapshot_scan::plan_snapshot_shards(
+        &lakehouse, &snapshot, "pnu", max_rows,
+    )
+    .await?;
+    let plan = serde_json::json!({
+        "table": table,
+        "gold_iceberg_snapshot_id": snapshot.snapshot_id.to_string(),
+        "manifest_record_count": records,
+        "max_rows_per_run": max_rows,
+        "shards": shards
+            .iter()
+            .map(|shard| serde_json::json!({"prefix": shard.prefix, "estimated_rows": shard.estimated_rows}))
+            .collect::<Vec<_>>(),
+    });
+    let path = optional_env(&lane.env("PACK_SHARD_PLAN_PATH"))?
+        .with_context(|| format!("{} is required", lane.env("PACK_SHARD_PLAN_PATH")))?;
+    std::fs::write(
+        &path,
+        format!(
+            "{plan}
+"
+        ),
+    )
+    .with_context(|| format!("failed to write the shard plan {path}"))?;
+    tracing::info!(
+        table,
+        shards = shards.len(),
+        records,
+        lane = lane.unit(),
+        "planned the bake's shards from the manifests"
+    );
+    Ok(())
+}
+
 /// Runs the export.
 ///
 /// # Errors
