@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import copy
+import io
 import re
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import foundation_ci_scope as scope
 
@@ -82,6 +85,52 @@ class FoundationCiScopeTest(unittest.TestCase):
             scope.selected_gates(event_name="push", base="0" * 40, head="deadbeef"),
             set(scope.GATES),
         )
+
+    def test_a_pull_request_leaves_the_boundary_slice_to_the_merge_queue(self) -> None:
+        boundary = ["scripts/tiles/boundary-slice-proof.sh"]
+        for event_name in ("merge_group", "push"):
+            with self.subTest(event_name=event_name):
+                self.assertIn(
+                    "boundary-slice",
+                    scope.selected_gates(event_name=event_name, base="a" * 40, head="b" * 40, paths=boundary),
+                )
+        self.assertNotIn(
+            "boundary-slice",
+            scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=boundary),
+        )
+        # Only the deferred gate moves: the rest of a pull request's selection is unchanged.
+        everything = scope.selected_gates(
+            event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]
+        )
+        self.assertEqual(everything, set(scope.GATES) - scope.MERGE_QUEUE_ONLY)
+        self.assertEqual(scope.MERGE_QUEUE_ONLY, {"boundary-slice"})
+
+    def run_selector(self, event_name: str, paths: set[str]) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            github_env = Path(temporary) / "env"
+            with mock.patch.object(scope, "git_changed_paths", return_value=paths), \
+                    redirect_stdout(io.StringIO()) as out:
+                scope.main([
+                    "--gate", "boundary-slice", "--event-name", event_name,
+                    "--base", "a" * 40, "--head", "b" * 40, "--github-env", str(github_env),
+                ])
+            return out.getvalue(), github_env.read_text(encoding="utf-8")
+
+    def test_a_deferred_slice_warns_on_the_pull_request_and_only_then(self) -> None:
+        boundary = {"scripts/tiles/boundary-slice-proof.sh"}
+        out, env = self.run_selector("pull_request", boundary)
+        self.assertIn("::warning title=boundary-slice deferred to the merge queue::", out)
+        self.assertIn("FOUNDATION_CI_GATE_SELECTED=false", env)
+        self.assertIn('"deferred_to_merge_queue": ["boundary-slice"]', out)
+
+        out, env = self.run_selector("merge_group", boundary)
+        self.assertNotIn("::warning", out)
+        self.assertIn("FOUNDATION_CI_GATE_SELECTED=true", env)
+
+        # Inputs unaffected: nothing was deferred, so there is nothing to warn about.
+        out, env = self.run_selector("pull_request", {"products/gongzzang/README.md"})
+        self.assertNotIn("::warning", out)
+        self.assertIn('"deferred_to_merge_queue": []', out)
 
     def test_removing_a_required_route_is_detected(self) -> None:
         mutations = (
@@ -175,13 +224,13 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_still_aggregates_exactly_eight_jobs(self) -> None:
+    def test_required_foundation_aggregates_exactly_nine_jobs(self) -> None:
         self.assertIn(
-            "needs: [rust-quality, static-release-toolchain-windows, supply-chain, "
+            "needs: [rust-quality, suites, static-release-toolchain-windows, supply-chain, "
             "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
             self.workflow,
         )
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 8)
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 9)
 
     def test_each_heavy_job_uses_the_scope_selector_and_success_guard(self) -> None:
         for gate in scope.GATES:

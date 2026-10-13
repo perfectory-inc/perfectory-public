@@ -25,6 +25,12 @@ GATES = (
     "static-release-toolchain-windows",
 )
 
+# Gates a pull request leaves to the merge queue (root ADR-0199). The boundary slice compiles the
+# publisher cold inside a container and took 15 of a pull request's 21 minutes on 2026-10-12; the
+# merge group, a push to main and a manual run still select it by path exactly as before, so
+# nothing reaches main without it. A pull request only waits less for its first verdict.
+MERGE_QUEUE_ONLY = frozenset({"boundary-slice"})
+
 # Changes to dependency locks or the path-selection mechanism itself have an
 # unbounded blast radius. Running every gate is the safe default.
 RUN_ALL_RULE = {
@@ -235,6 +241,27 @@ def git_changed_paths(repository: Path, base: str, head: str) -> set[str]:
     }
 
 
+def path_selected_gates(
+    *,
+    event_name: str,
+    base: str,
+    head: str,
+    repository: Path | None = None,
+    paths: Iterable[str] | None = None,
+) -> set[str]:
+    """The gates the changed paths call for, before any is left to the merge queue."""
+    validate_rules()
+    if event_name == "workflow_dispatch" or not base or not head or set(base) == {"0"}:
+        return set(GATES)
+    changed = set(paths) if paths is not None else git_changed_paths(repository or Path.cwd(), base, head)
+    return classify_paths(changed)
+
+
+def deferred_gates(event_name: str, path_selected: set[str]) -> set[str]:
+    """The path-selected gates a pull request leaves to the merge queue (root ADR-0199)."""
+    return path_selected & MERGE_QUEUE_ONLY if event_name == "pull_request" else set()
+
+
 def selected_gates(
     *,
     event_name: str,
@@ -243,11 +270,19 @@ def selected_gates(
     repository: Path | None = None,
     paths: Iterable[str] | None = None,
 ) -> set[str]:
-    validate_rules()
-    if event_name == "workflow_dispatch" or not base or not head or set(base) == {"0"}:
-        return set(GATES)
-    changed = set(paths) if paths is not None else git_changed_paths(repository or Path.cwd(), base, head)
-    return classify_paths(changed)
+    by_path = path_selected_gates(
+        event_name=event_name, base=base, head=head, repository=repository, paths=paths
+    )
+    return by_path - deferred_gates(event_name, by_path)
+
+
+def deferral_warning(gate: str) -> str:
+    """A workflow annotation, so the pull request page says the gate did not run here."""
+    return (
+        f"::warning title={gate} deferred to the merge queue::This pull request changes inputs of "
+        f"{gate}, which pull requests leave to the merge queue (root ADR-0199). It has not run on "
+        "this pull request; the merge group runs it before anything reaches main."
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -264,13 +299,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     fallback_reason = None
+    deferred: set[str] = set()
     try:
-        selected = selected_gates(
+        by_path = path_selected_gates(
             event_name=args.event_name,
             base=args.base,
             head=args.head,
             repository=args.repository,
         )
+        deferred = deferred_gates(args.event_name, by_path)
+        selected = by_path - deferred
     except (OSError, subprocess.CalledProcessError) as error:
         # A cost optimization must never turn an uncomparable change into a
         # silent pass. Run all gates when the comparison cannot be established.
@@ -278,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
         fallback_reason = f"git comparison unavailable: {error}"
 
     gate_selected = args.gate in selected
+    if args.gate in deferred:
+        print(deferral_warning(args.gate))
     with args.github_env.open("a", encoding="utf-8", newline="\n") as github_env:
         github_env.write(f"FOUNDATION_CI_GATE_SELECTED={str(gate_selected).lower()}\n")
 
@@ -287,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 "gate": args.gate,
                 "selected": gate_selected,
                 "selected_gates": sorted(selected),
+                "deferred_to_merge_queue": sorted(deferred),
                 "fallback_reason": fallback_reason,
             },
             ensure_ascii=False,

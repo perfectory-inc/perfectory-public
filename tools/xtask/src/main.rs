@@ -971,16 +971,26 @@ fn main() {
             // area was verified, and under `verify all` the first failing area hid every area after
             // it — the same rule-1 defect one level up from the stages inside `verify`.
             let mut log = FailureLog::default();
-            repository_guard(&mut log);
+            let part = verify_part(
+                args.get(2).map(String::as_str),
+                args.get(3).map(String::as_str),
+            )
+            .unwrap_or_else(|| {
+                fail_usage("usage: cargo xtask verify <area|all> [--part cargo|suites]")
+            });
+            // The repository guard runs once per gate: with the whole verify, or with its cargo part.
+            if part != VerifyPart::Suites {
+                repository_guard(&mut log);
+            }
             match args.get(1).map(String::as_str) {
                 Some("all") => {
                     for area in AREAS {
                         eprintln!("\n=== xtask verify {} ===", area.slug);
-                        verify(area, &mut log);
+                        verify(area, part, &mut log);
                     }
                 }
                 Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
-                    Some(area) => verify(area, &mut log),
+                    Some(area) => verify(area, part, &mut log),
                     None => fail_usage(&format!(
                         "unknown area '{name}'. known: {}, all",
                         AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
@@ -1091,10 +1101,77 @@ fn container_image(root: &Path, key: &str) -> String {
 }
 
 /// Canonical verification for one area — the single policy (ADR-0004).
-fn verify(area: &Area, log: &mut FailureLog) {
+/// Which half of `verify` to run (root ADR-0199).
+///
+/// Run whole, the Python/Node suites share the machine with cargo. On a 4-vCPU CI runner that is
+/// the CPU cargo needs: measured, the suites beside cargo stretched the test build from 143 to
+/// 209 s and the verify step stayed at about 12 minutes. CI therefore runs the two halves as two
+/// jobs on two runners; locally `verify <area>` still runs everything as one command (ADR-0004).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum VerifyPart {
+    Whole,
+    Cargo,
+    Suites,
+}
+
+fn verify_part(flag: Option<&str>, value: Option<&str>) -> Option<VerifyPart> {
+    match (flag, value) {
+        (None, None) => Some(VerifyPart::Whole),
+        (Some("--part"), Some("cargo")) => Some(VerifyPart::Cargo),
+        (Some("--part"), Some("suites")) => Some(VerifyPart::Suites),
+        _ => None,
+    }
+}
+
+fn verify(area: &Area, part: VerifyPart, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
+    match part {
+        VerifyPart::Cargo => return verify_cargo(area, &dir, log),
+        VerifyPart::Suites => return verify_python_and_node(area, &dir, log),
+        VerifyPart::Whole => {}
+    }
 
+    // The Python and Node suites build nothing cargo builds and read nothing it writes, so they run
+    // on their own thread beside fmt, clippy and the Rust tests rather than after them (root
+    // ADR-0199). Measured on Foundation CI (2026-10-12): cargo took about 7 minutes and the suites
+    // behind it 6.5 more, one after the other. Each suite still prints its output as one block and
+    // every failure from either side is in the one log the run is judged by.
+    run_beside(
+        log,
+        &format!("{} python/node verification", area.slug),
+        |log| verify_cargo(area, &dir, log),
+        |log| verify_python_and_node(area, &dir, log),
+    );
+}
+
+/// Runs `side` on its own thread while `main` runs on this one, and puts both sides' failures in
+/// `log`. A side that panics is itself a failure, never a silent pass.
+fn run_beside(
+    log: &mut FailureLog,
+    side_name: &str,
+    main: impl FnOnce(&mut FailureLog),
+    side: impl FnOnce(&mut FailureLog) + Send,
+) {
+    let joined = std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            let mut side_log = FailureLog::default();
+            side(&mut side_log);
+            side_log
+        });
+        main(log);
+        handle.join()
+    });
+    match joined {
+        Ok(side_log) => log.failures.extend(side_log.failures),
+        Err(_) => log.record(format!(
+            "{side_name} thread panicked; its suites did not report"
+        )),
+    }
+}
+
+fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
+    let dir = dir.to_path_buf();
     log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
     log.absorb(cargo_reporting(
         &dir,
@@ -1113,7 +1190,10 @@ fn verify(area: &Area, log: &mut FailureLog) {
     for command in verify_test_commands(area) {
         log.absorb(cargo_reporting(&dir, &command));
     }
+}
 
+fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
+    let dir = dir.to_path_buf();
     // A covers root that points at nothing is a claim no one can honour. The
     // shell guard proves every discovered file is claimed; it cannot prove a
     // claim still resolves, so a directory rename would leave the declaration
@@ -1137,7 +1217,7 @@ fn verify(area: &Area, log: &mut FailureLog) {
     for (suite, plan) in area.python_tests.iter().zip(python_test_plans(area, &dir)) {
         // A suite that could not run cannot also be judged on its count; recording both would
         // report one failure twice and inflate the total the summary prints.
-        let Some(output) = log.absorb(python_capturing_output(&plan)) else {
+        let Some(output) = python_suite_output(&plan, log) else {
             continue;
         };
         if executed_python_test_count(&output) == 0 {
@@ -1225,10 +1305,110 @@ fn executed_python_test_count(output: &str) -> usize {
 /// verification image. The verdict would depend on where the command ran, which
 /// is the local/CI split ADR-0004 exists to remove.
 fn python_capturing_output(plan: &PythonCommandPlan) -> Result<String, String> {
+    python_capturing_output_with(plan, plan.args)
+}
+
+/// How many test modules of one suite run at once (root ADR-0199).
+const PYTHON_MODULE_WORKERS: usize = 4;
+
+/// Runs one Python suite and returns everything it printed, or records why it failed.
+///
+/// A `unittest discover -s <root> -p <prefix>*<suffix>` suite whose root holds no package is
+/// split into one process per test module, run [`PYTHON_MODULE_WORKERS`] at a time: on
+/// Foundation CI `orchestration/tests` alone took 277 s as one process, a long tail of tests
+/// that mostly wait on subprocesses (root ADR-0199). The modules are exactly the files discover
+/// would load — it does not descend into a directory without `__init__.py` — and a root that has
+/// a package keeps the single process. Every failing module is recorded, and the summed
+/// `Ran N tests` still decides the zero-tests check.
+fn python_suite_output(plan: &PythonCommandPlan, log: &mut FailureLog) -> Option<String> {
+    let Some(modules) = python_discover_modules(plan) else {
+        return log.absorb(python_capturing_output(plan));
+    };
+    let queue = std::sync::Mutex::new(modules.into_iter());
+    let results = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..PYTHON_MODULE_WORKERS {
+            scope.spawn(|| loop {
+                let next = queue
+                    .lock()
+                    .map(|mut modules| modules.next())
+                    .ok()
+                    .flatten();
+                let Some(args) = next else { break };
+                let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+                let result = python_capturing_output_with(plan, &borrowed);
+                if let Ok(mut results) = results.lock() {
+                    results.push(result);
+                }
+            });
+        }
+    });
+    let mut combined = String::new();
+    let mut failed = false;
+    for result in results.into_inner().unwrap_or_default() {
+        match result {
+            Ok(output) => combined.push_str(&output),
+            Err(message) => {
+                log.record(message);
+                failed = true;
+            }
+        }
+    }
+    (!failed).then_some(combined)
+}
+
+/// The per-module argument lists for a splittable discover suite, or `None` to run it whole.
+fn python_discover_modules(plan: &PythonCommandPlan) -> Option<Vec<Vec<String>>> {
+    let [m, unittest, discover, s, root, p, pattern] = plan.args else {
+        return None;
+    };
+    if (*m, *unittest, *discover, *s, *p) != ("-m", "unittest", "discover", "-s", "-p") {
+        return None;
+    }
+    let (prefix, suffix) = pattern.split_once('*')?;
+    if suffix.contains('*') {
+        return None;
+    }
+    let mut modules = Vec::new();
+    for entry in std::fs::read_dir(plan.current_dir.join(root)).ok()? {
+        let path = entry.ok()?.path();
+        if path.is_dir() {
+            if path.join("__init__.py").is_file() {
+                return None;
+            }
+            continue;
+        }
+        let name = path.file_name()?.to_str()?.to_owned();
+        if name.starts_with(prefix) && name.ends_with(suffix) && name.len() >= pattern.len() - 1 {
+            modules.push(name);
+        }
+    }
+    modules.sort();
+    Some(
+        modules
+            .into_iter()
+            .map(|module| {
+                [
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    root,
+                    "-p",
+                    module.as_str(),
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            })
+            .collect(),
+    )
+}
+
+fn python_capturing_output_with(plan: &PythonCommandPlan, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("python3");
     command
         .current_dir(&plan.current_dir)
-        .args(plan.args)
+        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     if let Some(python_path) = plan.python_path {
@@ -1798,6 +1978,157 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// `--part` selects one half and nothing else parses (root ADR-0199).
+    #[test]
+    fn verify_parts_parse_strictly() {
+        assert_eq!(verify_part(None, None), Some(VerifyPart::Whole));
+        assert_eq!(
+            verify_part(Some("--part"), Some("cargo")),
+            Some(VerifyPart::Cargo)
+        );
+        assert_eq!(
+            verify_part(Some("--part"), Some("suites")),
+            Some(VerifyPart::Suites)
+        );
+        assert_eq!(verify_part(Some("--part"), None), None);
+        assert_eq!(verify_part(Some("--part"), Some("python")), None);
+        assert_eq!(verify_part(Some("--fast"), None), None);
+    }
+
+    /// A workflow that runs one half of an area's verify runs the other half too, or the half it
+    /// left out would stop running in CI while every check stayed green (root ADR-0199).
+    #[test]
+    fn every_workflow_that_splits_verify_runs_both_halves() {
+        let workflows = repo_root().join(".github/workflows");
+        let mut split = 0;
+        for entry in std::fs::read_dir(&workflows).expect("workflow directory") {
+            let path = entry.expect("workflow entry").path();
+            let text = std::fs::read_to_string(&path).expect("workflow text");
+            assert_eq!(
+                unpaired_verify_parts(&text),
+                Vec::<String>::new(),
+                "{}",
+                path.display()
+            );
+            split += text.matches("--part ").count();
+        }
+        assert!(
+            split > 0,
+            "no workflow splits verify; the pairing check would see nothing"
+        );
+        assert_eq!(
+            unpaired_verify_parts("run: cargo xtask verify foundation --part cargo\n"),
+            ["foundation --part suites"]
+        );
+    }
+
+    fn unpaired_verify_parts(workflow: &str) -> Vec<String> {
+        let mut missing = Vec::new();
+        for line in workflow.lines() {
+            let Some(rest) = line.split("cargo xtask verify ").nth(1) else {
+                continue;
+            };
+            let mut words = rest.split_whitespace();
+            let (Some(area), Some("--part"), Some(part)) =
+                (words.next(), words.next(), words.next())
+            else {
+                continue;
+            };
+            let other = if part == "cargo" { "suites" } else { "cargo" };
+            let wanted = format!("{area} --part {other}");
+            if !workflow.contains(&format!("cargo xtask verify {wanted}")) {
+                missing.push(wanted);
+            }
+        }
+        missing
+    }
+
+    /// A discover suite splits into exactly the modules discover itself would load (root
+    /// ADR-0199): matching files at the root only, not helpers, not a plain subdirectory; a root
+    /// with a package, or any other command shape, stays one process.
+    #[test]
+    fn a_discover_suite_splits_into_the_modules_discover_would_load() {
+        let root = std::env::temp_dir().join(format!("xtask-split-{}", std::process::id()));
+        let tests = root.join("tests");
+        std::fs::create_dir_all(tests.join("fixtures")).expect("fixture dirs");
+        for name in [
+            "test_b.py",
+            "test_a.py",
+            "helper.py",
+            "fixtures/test_inner.py",
+        ] {
+            std::fs::write(tests.join(name), "").expect("fixture file");
+        }
+        let plan = |args: &'static [&'static str]| PythonCommandPlan {
+            current_dir: root.clone(),
+            python_path: None,
+            args,
+        };
+        let discover = plan(&[
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py",
+        ]);
+        let modules = python_discover_modules(&discover).expect("splittable");
+        let patterns: Vec<&str> = modules.iter().map(|args| args[6].as_str()).collect();
+        assert_eq!(patterns, ["test_a.py", "test_b.py"]);
+        assert!(modules.iter().all(|args| args[..6] == discover.args[..6]));
+
+        assert!(python_discover_modules(&plan(&["-m", "pytest", "tests", "-q"])).is_none());
+        std::fs::write(tests.join("fixtures/__init__.py"), "").expect("package marker");
+        assert!(
+            python_discover_modules(&discover).is_none(),
+            "a package keeps one process"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The Python/Node side runs while cargo runs, not after it (root ADR-0199). Each side waits
+    /// for a signal only the other sends, so running them one after the other times out instead
+    /// of passing; both sides' failures, and a panicking side, all land in the one log.
+    #[test]
+    fn the_side_suites_run_beside_cargo_and_report_into_one_log() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (to_main, from_side) = mpsc::channel();
+        let (to_side, from_main) = mpsc::channel();
+        let mut log = FailureLog::default();
+        run_beside(
+            &mut log,
+            "side",
+            |log| {
+                to_side.send(()).ok();
+                if from_side.recv_timeout(Duration::from_secs(10)).is_err() {
+                    log.failures
+                        .push("main never heard from the side".to_owned());
+                }
+                log.failures.push("main failure".to_owned());
+            },
+            move |log| {
+                to_main.send(()).ok();
+                if from_main.recv_timeout(Duration::from_secs(10)).is_err() {
+                    log.failures.push("side never heard from main".to_owned());
+                }
+                log.failures.push("side failure".to_owned());
+            },
+        );
+        assert_eq!(log.failures, ["main failure", "side failure"]);
+
+        let mut log = FailureLog::default();
+        run_beside(
+            &mut log,
+            "python/node",
+            |_| {},
+            |_| panic!("suite runner crashed"),
+        );
+        assert_eq!(log.failures.len(), 1);
+        assert!(log.failures[0].contains("python/node thread panicked"));
     }
 
     /// An authoritative gate reports every failure, not the first one (ADR-0012 rule 1).

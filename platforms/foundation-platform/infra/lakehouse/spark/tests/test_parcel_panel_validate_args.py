@@ -21,6 +21,10 @@ from unittest import mock
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
 
+# The job imports PySpark at module scope; this fixture stubs it where PySpark is absent. Each
+# module installs it itself: run alone (xtask runs modules in parallel, root ADR-0199) nothing
+# earlier in the process has.
+import test_industrial_complex_gold_schema_evolution  # noqa: E402,F401  Import-only PySpark stub.
 import parcel_panel_silver_to_gold as job  # noqa: E402
 from lakehouse_engine import required_catalog_env  # noqa: E402
 
