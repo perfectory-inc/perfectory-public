@@ -180,7 +180,6 @@ fn sample_staff() -> Staff {
         zitadel_subject: "zitadel-subject".to_owned(),
         email: "staff@example.test".to_owned(),
         display_name: "Staff".to_owned(),
-        primary_role_code: "MASTER_ADMIN".to_owned(),
         created_at: now,
         updated_at: now,
         version: 1,
