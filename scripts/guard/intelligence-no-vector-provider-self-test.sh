@@ -3,7 +3,7 @@
 # 통과만 본 검사는 검사가 아니다.
 set -euo pipefail
 
-GUARD="$(dirname "$0")/intelligence-no-vector-provider.sh"
+GUARD="$(cd "$(dirname "$0")" && pwd)/intelligence-no-vector-provider.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -40,7 +40,9 @@ if ! bash "$GUARD" "$WORK/clean" >/dev/null; then
   exit 1
 fi
 
-for case in dirty dev-dirty; do
+mkdir -p "$WORK/empty"
+
+for case in dirty dev-dirty empty; do
   set +e
   bash "$GUARD" "$WORK/$case" >/dev/null 2>&1
   status=$?
@@ -51,4 +53,10 @@ for case in dirty dev-dirty; do
   fi
 done
 
-echo "SELF-TEST OK: guard accepts a mention in prose and rejects pinned dependencies"
+# 인자 없이 다른 디렉터리에서 실행해도 저장소의 Intelligence 매니페스트를 읽는다.
+if ! (cd "$WORK" && bash "$GUARD") | grep -Eq 'manifests=[1-9]'; then
+  echo "SELF-TEST FAIL: guard did not read the repository manifests from another directory" >&2
+  exit 1
+fi
+
+echo "OK intelligence-no-vector-provider-self-test"

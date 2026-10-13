@@ -660,49 +660,18 @@ require(publisher.count(publisher_prepare) == 1
 
 public_policy = Path("scripts/guard/public-github-policy.sh").read_text(encoding="utf-8")
 runtime_policy = public_policy.split("\nPY\n", 1)[1]
-require("bash scripts/github/validate-legal-publication.sh --allow-unconfirmed"
-        in runtime_policy
-        and "bash scripts/github/validate-public-repository-identity.sh --allow-unset"
-        in runtime_policy
-        and "bash scripts/guard/legal-publication-self-test.sh" in runtime_policy
-        and "bash scripts/guard/third-party-artifact-policy-self-test.sh"
-        in runtime_policy
-        and "bash scripts/guard/repository-identity-policy-self-test.sh"
-        in runtime_policy
-        and "python3 scripts/guard/check-repository-identity-prepare.py"
-        in runtime_policy
-        and "python3 scripts/guard/check-legal-publication-prepare.py"
-        in runtime_policy
+# The runner starts the identity and legal wrappers before its loop (asserted above),
+# and the loop's self-tests run each prepare checker on the real prepare script.
+# This guard starts neither again (scripts/guard/each-guard-runs-once.py).
+prepare_check = 'python3 "$prepare_checker" scripts/github/prepare-public-root.sh'
+require(prepare_check in Path("scripts/guard/legal-publication-self-test.sh").read_text(
+            encoding="utf-8")
+        and prepare_check in Path(
+            "scripts/guard/repository-identity-policy-self-test.sh").read_text(encoding="utf-8")
         and "github-policy-json.py validate-legal-identity" not in runtime_policy
         and "github-policy-json.py validate-repository-identity" not in runtime_policy,
         "local policy lint must use and test the canonical identity wrappers")
 PY
-
-bash scripts/github/validate-public-repository-identity.sh --allow-unset
-# This guard is also used for private/local development, so it performs the
-# explicit provisional structural lint. The monorepo entrypoint selects strict
-# validation when GitHub identifies the canonical public repository.
-bash scripts/github/validate-legal-publication.sh --allow-unconfirmed
-python3 scripts/guard/check-repository-identity-prepare.py \
-  scripts/github/prepare-public-root.sh
-python3 scripts/guard/check-legal-publication-prepare.py \
-  scripts/github/prepare-public-root.sh
-bash scripts/guard/repository-identity-policy-self-test.sh
-bash scripts/guard/legal-publication-self-test.sh
-bash scripts/guard/third-party-artifact-policy-self-test.sh
-
-bash scripts/guard/cargo-verify-isolation-self-test.sh
-bash scripts/guard/actions-cache-controls-self-test.sh
-bash scripts/guard/billing-budgets-self-test.sh
-bash scripts/guard/publication-authority-self-test.sh
-bash scripts/guard/public-tree-snapshot-self-test.sh
-bash scripts/guard/frontend-test-isolation-self-test.sh
-bash scripts/guard/safe-git-transport-self-test.sh
-bash scripts/guard/repository-identity-capture-self-test.sh
-
-python3 scripts/guard/check-public-root-publisher.py \
-  scripts/github/publish-public-root.sh
-bash scripts/guard/public-root-publisher-self-test.sh
 
 if ! grep -Eq '^GITLEAKS_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' tools/gitleaks.env \
   || [ "$(grep -Ec '^GITLEAKS_VERSION=' tools/gitleaks.env)" -ne 1 ] \

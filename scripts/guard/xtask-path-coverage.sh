@@ -15,14 +15,20 @@
 # `-- --ignored` to gongzzang's feature-gated suite, which selects zero tests
 # while cargo exits 0. A lane job that does not watch tools/xtask would not
 # rerun on the fix any more than on the break.
+#
+# The filter entry itself is what must be present. Every xtask workflow also names
+# tools/xtask in its Rust cache `workspaces:`, so a check for the bare string anywhere
+# in the file passed with the filter entry deleted; only a `- "tools/xtask/**"` list
+# item counts (xtask-path-coverage-self-test.sh plants exactly that deletion).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+workflows_dir="${1:-.github/workflows}"
 rc=0
-for wf in .github/workflows/*.yml; do
+for wf in "$workflows_dir"/*.yml; do
   [ -e "$wf" ] || continue
   grep -qE 'cargo[[:space:]]+xtask[[:space:]]+(verify|integration)' "$wf" || continue # not an xtask workflow
   grep -qE '^[[:space:]]*paths:' "$wf" || continue                                    # no path filter -> always runs -> covered
-  if ! grep -qE 'tools/xtask' "$wf"; then
+  if ! grep -qE "^[[:space:]]*-[[:space:]]*[\"']?tools/xtask/\*\*[\"']?[[:space:]]*$" "$wf"; then
     echo "FAIL xtask-path-coverage: $wf runs 'cargo xtask verify|integration' behind a paths filter but does not watch tools/xtask/** — an xtask change would not retrigger it (ADR-0004, ADR-0010)." >&2
     rc=1
   fi

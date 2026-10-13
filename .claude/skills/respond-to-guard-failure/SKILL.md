@@ -49,17 +49,20 @@ before "fixing" anything.
   `foundation-outbox-publisher`), update all dependents and any docs/commands
   that name the old crate.
 
-### 5. no-stale-sibling-paths
+### 5. public-repository-safety: sibling or workstation paths
 
-- Failing means: a LIVE doc/config/code file references pre-merge sibling
-  paths (`../<area>-platform` sibling-repo forms, `Desktop/<old-repo>`
-  absolute paths). Observed: gongzzang AGENTS.md routed agents to a `../`
-  sibling foundation-platform path, which no longer exists.
+- Failing means: a tracked file references pre-merge sibling paths
+  (`../<area>-platform` sibling-repo forms) or a workstation absolute path
+  (a drive letter followed by a Users or Desktop folder). This used to be the separate
+  `no-stale-sibling-paths` guard; the same patterns now live in
+  `public-repository-safety.sh` (`external_sibling_bindings`,
+  `workstation_bindings`), which scans every tracked file. Observed: gongzzang
+  AGENTS.md routed agents to a `../` sibling foundation-platform path, which no
+  longer exists.
 - Fix: rewrite to monorepo paths (`products/gongzzang`,
   `platforms/<area>-platform`; from inside an area use
-  `../../platforms/...`). Archive/history paths (`docs/superpowers/**`,
-  `*/docs/adr/*`, `*/docs/migration/*`, `*/docs/research/*`) are excluded by
-  the guard — do not "fix" history that the guard doesn't flag.
+  `../../platforms/...`). There is no history exclusion: private history is not
+  tracked in the public tree.
 
 ### 6. health-route-conformance
 
