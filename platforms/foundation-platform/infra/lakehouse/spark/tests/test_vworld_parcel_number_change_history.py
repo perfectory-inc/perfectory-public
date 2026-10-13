@@ -51,9 +51,11 @@ def text(*rows, header=HEADER):
 
 
 def zipped(body, member=MEMBER):
+    # A name alone stamps the member with the current time (2 s resolution), so two calls a moment
+    # apart gave different bytes and a different sha256 Bronze key; a fixed stamp keeps them equal.
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr(member, body.encode("utf-8"))
+        archive.writestr(zipfile.ZipInfo(member, date_time=(2099, 1, 1, 0, 0, 0)), body.encode("utf-8"))
     return buffer.getvalue()
 
 
