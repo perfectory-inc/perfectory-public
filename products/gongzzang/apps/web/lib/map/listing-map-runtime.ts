@@ -17,7 +17,10 @@ import {
   mapEditOverlayFillLayerId,
   registerMapEditOverlayLayers,
 } from "@/lib/map/map-edit-overlay";
-import { ALL_ACTIVE_MARKER_FILTER_HASH } from "@/lib/map/marker-tile-contract";
+import {
+  ALL_ACTIVE_MARKER_FILTER_HASH,
+  LISTING_MARKER_ID_PROPERTY,
+} from "@/lib/map/marker-tile-contract";
 import {
   buildListingMarkerSourceRegistrations,
   buildParcelAnchorMarkerLayerRegistrations,
@@ -493,10 +496,10 @@ async function setupListingMarkerTileLayers(
     if (typeof mb.on === "function") {
       const onListingMarkerClick = (e: unknown) => {
         const evt = e as {
-          features?: Array<{ properties?: { id?: string; detail_ref?: string } }>;
+          features?: Array<{ properties?: Record<string, unknown> }>;
         };
         const props = evt.features?.[0]?.properties;
-        const listingId = props?.detail_ref ?? props?.id;
+        const listingId = props?.detail_ref ?? props?.[LISTING_MARKER_ID_PROPERTY];
         if (typeof listingId === "string" && listingId.length > 0) {
           onListingClick(listingId);
         }
