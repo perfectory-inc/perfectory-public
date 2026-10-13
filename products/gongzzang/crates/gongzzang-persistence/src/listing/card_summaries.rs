@@ -6,7 +6,7 @@ use shared_kernel::pnu::Pnu;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 
-use super::rows::{parse_listing_type, parse_transaction_type};
+use super::rows::parse_db_enum;
 
 pub(super) async fn find_card_summaries(
     pool: &PgPool,
@@ -126,8 +126,8 @@ fn row_to_card_summary(row: &PgRow) -> Result<(ListingCardSummary, u64), RepoErr
     let card = ListingCardSummary {
         id,
         title: get(row, "title")?,
-        listing_type: parse_listing_type(&lt_str)?,
-        transaction_type: parse_transaction_type(&tt_str)?,
+        listing_type: parse_db_enum(&lt_str, "listing_type")?,
+        transaction_type: parse_db_enum(&tt_str, "transaction_type")?,
         price: money(get(row, "price_krw")?, "price_krw")?,
         deposit: deposit_opt.map(|v| money(v, "deposit_krw")).transpose()?,
         monthly_rent: rent_opt.map(|v| money(v, "monthly_rent_krw")).transpose()?,
