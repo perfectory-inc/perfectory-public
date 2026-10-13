@@ -5,6 +5,10 @@ ONE_SHOT_TIMEOUT_SECONDS="${ONE_SHOT_TIMEOUT_SECONDS:-45}"
 COMPOSE_COMMAND_TIMEOUT_SECONDS="${COMPOSE_COMMAND_TIMEOUT_SECONDS:-600}"
 POSTCONDITION_TIMEOUT_SECONDS="${POSTCONDITION_TIMEOUT_SECONDS:-20}"
 READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-90}"
+# The migrator must apply every migration the area ships: the expected count is the
+# migrations directory, never a number written here.
+MIGRATIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../migrations" && pwd)"
+expected_migration_count="$(find "${MIGRATIONS_DIR}" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
 
 compose_args=()
 while [[ $# -gt 0 && "$1" != "--" ]]; do
@@ -90,7 +94,7 @@ postcondition() {
       database_bool "
         SELECT to_regnamespace('identity') IS NOT NULL
           AND to_regclass('identity.staff') IS NOT NULL
-          AND (SELECT count(*) FROM public._sqlx_migrations WHERE success) = 1;"
+          AND (SELECT count(*) FROM public._sqlx_migrations WHERE success) = ${expected_migration_count};"
       ;;
     identity-runtime-grants)
       database_bool "
