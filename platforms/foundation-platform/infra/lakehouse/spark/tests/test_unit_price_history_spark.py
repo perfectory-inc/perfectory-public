@@ -102,8 +102,11 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             counters = {}
             panel = self.price_panel.build_gold_frame(frames, "synthetic-source-a", "2099-01-01T00:00:00Z", counters)
             rows = [r.asDict() for r in panel.collect()]
-            self.assertEqual([r["pnu"] for r in rows], [self.pnu])
-            units = {unit["id"]: unit["official_price_history"] for unit in json.loads(rows[0]["units_json"])}
+            # One row per building of the PNU and one for its unlinked units (root ADR-0204).
+            self.assertEqual({r["pnu"] for r in rows}, {self.pnu})
+            self.assertEqual(len(rows), 2)
+            units = {unit["id"]: unit["official_price_history"]
+                     for r in rows for unit in json.loads(r["units_json"])}
             self.assertEqual(units, {
                 linked: [{"base_date": "20100601", "price_won": 35000000},
                          {"base_date": "20100101", "price_won": 36000000}],
