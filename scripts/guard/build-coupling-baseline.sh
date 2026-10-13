@@ -246,7 +246,11 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # 126 -> 127: root ADR-0193 §9 derives each by-PNU data kind's Gold table contract in lakehouse-domain
 # from its line in r2-connections.contract.json (`by_pnu_kind.rs`), so a kind is that one line and
 # never a hand-written table contract beside it. The publisher already embeds the same file.
-COMPILE_TIME_READ_BASELINE="${3:-127}"
+# 127 -> 130: root ADR-0214 holds the policy names Foundation routes ask Identity for to one file:
+# foundation-api's route-policy test reads config/identity-route-policies.contract.json, its Identity
+# client test reads Identity's published OpenAPI, and Identity's authorization-domain test reads the
+# same contract, once each from CARGO_MANIFEST_DIR. They replace three unchecked hand copies.
+COMPILE_TIME_READ_BASELINE="${3:-130}"
 
 cd "$repo_root"
 

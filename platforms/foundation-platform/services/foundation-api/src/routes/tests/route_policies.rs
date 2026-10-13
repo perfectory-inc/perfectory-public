@@ -32,8 +32,12 @@ fn from_routes() -> BTreeSet<Policy> {
         .collect()
 }
 
+fn read_crate_file(relative: &str) -> Result<String, std::io::Error> {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(relative))
+}
+
 fn from_contract() -> Result<BTreeSet<Policy>, Box<dyn Error>> {
-    let raw = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(CONTRACT))?;
+    let raw = read_crate_file(CONTRACT)?;
     let document: serde_json::Value = serde_json::from_str(&raw)?;
     assert_eq!(document["schema_version"], SCHEMA_VERSION);
     let policies = document["policies"]
@@ -77,8 +81,7 @@ fn the_contract_lists_exactly_the_policies_the_routes_ask_for() -> Result<(), Bo
 
 #[test]
 fn every_route_policy_constant_is_in_the_list() -> Result<(), Box<dyn Error>> {
-    let source =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(ROUTES_SOURCE))?;
+    let source = read_crate_file(ROUTES_SOURCE)?;
     let declared = source
         .matches(": IdentityRoutePolicy = IdentityRoutePolicy {")
         .count();
