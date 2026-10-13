@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "purpose": "Version pins the repository enforces from one file (root ADR-0097, ADR-0118 §5). manifest_exact_pins: JS manifests must state exactly these values (technology-version guard). container_images: every pinned container image, repository:tag -> digest; every reference in a tracked file must match and every entry must be used (scripts/catalog/sync-container-images.py --check, --write rewrites references after a digest change). Other documents point here instead of restating them.",
+  "purpose": "Version pins the repository enforces from one file (root ADR-0097, ADR-0118 §5). manifest_exact_pins: JS manifests must state exactly these values (technology-version guard). container_images: every pinned container image, repository:tag -> digest; every reference in a tracked file must match and every entry must be used (scripts/catalog/sync-container-images.py --check, --write rewrites references after a digest change). rust_toolchain: the Rust compiler pin; the root rust-toolchain.toml channel, every Cargo.toml literal rust-version (workspace roots only; members inherit with rust-version.workspace = true) and every Dockerfile rust: base tag must equal it (technology-version guard). Other documents point here instead of restating them.",
+  "rust_toolchain": "1.96.0",
   "manifest_exact_pins": {
     "node": "24.20.0",
     "pnpm": "9.12.0",
