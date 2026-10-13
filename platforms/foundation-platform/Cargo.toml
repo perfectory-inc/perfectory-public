@@ -24,6 +24,7 @@ members = [
     "crates/foundation-outbox",
     "crates/publisher/foundation-publisher-core",
     "crates/publisher/foundation-publisher-by-pnu",
+    "crates/publisher/foundation-publisher-parcel-anchor",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
     "crates/publisher/foundation-publisher-silver",
@@ -164,6 +165,7 @@ foundation-disposable-database = { path = "crates/technical/foundation-disposabl
 foundation-outbox       = { path = "crates/foundation-outbox" }
 foundation-publisher-core   = { path = "crates/publisher/foundation-publisher-core" }
 foundation-publisher-by-pnu = { path = "crates/publisher/foundation-publisher-by-pnu" }
+foundation-publisher-parcel-anchor = { path = "crates/publisher/foundation-publisher-parcel-anchor" }
 
 [profile.release]
 lto = "thin"
