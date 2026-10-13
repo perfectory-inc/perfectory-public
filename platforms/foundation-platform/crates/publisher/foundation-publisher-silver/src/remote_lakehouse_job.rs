@@ -13,7 +13,10 @@ use uuid::Uuid;
 mod floor_cycle;
 mod floor_history;
 mod floor_source;
-pub(crate) mod invocation_cleanup;
+mod invocation_cleanup;
+/// The labels a job's Compose project cleanup lists by; a tool container that carries them is removed
+/// with the job's Spark container (`lakehouse_tile_bake`).
+pub use invocation_cleanup::{ONEOFF_LABEL, PROJECT_LABEL};
 mod scalar;
 mod silver_refresh;
 

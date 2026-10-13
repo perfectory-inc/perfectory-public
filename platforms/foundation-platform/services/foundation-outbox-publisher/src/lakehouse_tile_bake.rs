@@ -837,7 +837,7 @@ pub(crate) fn run_args(work: &Path, image: &Image, project: Option<&str>) -> Vec
         image.memory_limit.clone().into(),
     ];
     if let Some(project) = project {
-        use crate::remote_lakehouse_job::invocation_cleanup::{ONEOFF_LABEL, PROJECT_LABEL};
+        use foundation_publisher_silver::remote_lakehouse_job::{ONEOFF_LABEL, PROJECT_LABEL};
         args.extend([
             "--label".into(),
             format!("{PROJECT_LABEL}={project}").into(),
