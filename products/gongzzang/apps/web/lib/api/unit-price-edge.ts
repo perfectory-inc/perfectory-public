@@ -19,7 +19,7 @@ export const UnitPriceDocumentSchema = z.object({
   pnu: PnuSchema,
   building_id: BuildingIdSchema,
   source: z.object({
-    table: z.literal("gold.unit_price_panel"),
+    table: z.literal("gold.unit_price"),
     iceberg_snapshot_id: z.string().min(1),
   }),
   units: z.array(

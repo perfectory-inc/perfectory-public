@@ -23,7 +23,7 @@ const document = (building_id = buildingId) => ({
   schema_version: "foundation-platform.unit_price_by_pnu.v1",
   pnu,
   building_id,
-  source: { table: "gold.unit_price_panel", iceberg_snapshot_id: "999990000000000001" },
+  source: { table: "gold.unit_price", iceberg_snapshot_id: "999990000000000001" },
   units: [
     {
       id: unitId,
