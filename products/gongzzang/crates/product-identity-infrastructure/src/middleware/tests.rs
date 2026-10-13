@@ -25,7 +25,6 @@ struct RepoState {
     users_by_sub: HashMap<String, User>,
     fail_save: bool,
     save_calls: usize,
-    link_calls: usize,
 }
 
 #[derive(Clone, Default)]
@@ -48,10 +47,6 @@ impl FakeUserRepo {
 
     fn save_calls(&self) -> usize {
         self.state.lock().expect("repo state lock").save_calls
-    }
-
-    fn link_calls(&self) -> usize {
-        self.state.lock().expect("repo state lock").link_calls
     }
 }
 
@@ -99,15 +94,6 @@ impl UserRepository for FakeUserRepo {
             .users_by_sub
             .insert(user.zitadel_sub.clone(), user.clone());
         drop(state);
-        Ok(())
-    }
-
-    async fn link_zitadel_account(
-        &self,
-        _user_id: &Id<UserMarker>,
-        _zitadel_sub: &str,
-    ) -> Result<(), RepoError> {
-        self.state.lock().expect("repo state lock").link_calls += 1;
         Ok(())
     }
 }
@@ -237,7 +223,7 @@ async fn auth_layer_injects_existing_user() {
 }
 
 #[tokio::test]
-async fn auth_layer_provisions_new_user_and_links_account() {
+async fn auth_layer_provisions_new_user() {
     let repo = FakeUserRepo::default();
 
     let (status, body) = call_app(state(repo.clone()), Some("Bearer DEV.new-sub")).await;
@@ -245,7 +231,6 @@ async fn auth_layer_provisions_new_user_and_links_account() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, "new-sub");
     assert_eq!(repo.save_calls(), 1);
-    assert_eq!(repo.link_calls(), 1);
 }
 
 #[tokio::test]
@@ -335,7 +320,6 @@ async fn provision_new_user_refetches_existing_user_after_save_race() {
 
     assert_eq!(resolved.zitadel_sub, "race-sub");
     assert_eq!(repo.save_calls(), 1);
-    assert_eq!(repo.link_calls(), 0);
 }
 
 #[tokio::test]

@@ -32,6 +32,7 @@ erDiagram
     user ||--o{ business_verification_queue : submits
     user ||--o{ listing_report : reports
     user ||--o{ admin_action : performs
+    user ||--|{ external_account : signs_in_with
 
     listing ||--o{ listing_photo : has
     listing ||--o{ bookmark_listing : bookmarked_by
@@ -44,11 +45,16 @@ erDiagram
 
     user {
         char_30 id PK
-        varchar zitadel_sub UK
         varchar email UK
         varchar_12 business_number
         text_array roles
         timestamptz deleted_at
+    }
+    external_account {
+        char_30 id PK
+        char_30 user_id FK
+        varchar provider
+        varchar external_id "UK with provider; zitadel = sole subject (ADR-0225)"
     }
     listing {
         char_30 id PK

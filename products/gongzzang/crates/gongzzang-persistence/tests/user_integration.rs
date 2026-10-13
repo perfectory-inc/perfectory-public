@@ -137,6 +137,53 @@ async fn duplicate_zitadel_sub_returns_conflict() {
     assert!(matches!(err, RepoError::Conflict));
 }
 
+/// 루트 ADR-0225: Zitadel subject 의 유일한 출처는 `external_account` — `save` 가 새 사용자와
+/// 같은 트랜잭션에서 한 행을 쓰고, 갱신 `save` 는 행을 늘리지 않아요.
+#[tokio::test]
+async fn save_links_exactly_one_zitadel_external_account() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let repo = PgUserRepository::new(pool.clone());
+
+    let mut user = make_user("zsub-link", "link@example.com");
+    repo.save(&user, test_ctx()).await.expect("insert");
+    user.display_name = "Renamed".to_owned();
+    repo.save(&user, test_ctx()).await.expect("update");
+
+    let linked: Vec<(String, String)> =
+        sqlx::query_as("select provider, external_id from external_account where user_id = $1")
+            .bind(user.id.as_str())
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(linked, vec![("zitadel".to_owned(), "zsub-link".to_owned())]);
+}
+
+/// 다른 사용자가 이미 가진 subject 로 새 사용자를 저장하면 `user` 행도 남지 않아요 —
+/// link 가 별도 쓰기(경고 후 계속)였다면 주인 없는 사용자 행이 남아요.
+#[tokio::test]
+async fn failed_zitadel_link_leaves_no_user_row() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let repo = PgUserRepository::new(pool.clone());
+
+    let owner = make_user("zsub-taken", "owner@example.com");
+    repo.save(&owner, test_ctx()).await.expect("owner");
+    let intruder = make_user("zsub-taken", "intruder@example.com");
+    let err = repo.save(&intruder, test_ctx()).await.unwrap_err();
+    assert!(matches!(err, RepoError::Conflict));
+
+    let rows: (i64,) = sqlx::query_as(r#"select count(*) from "user" where id = $1"#)
+        .bind(intruder.id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.0, 0,
+        "user insert must roll back with its external_account link"
+    );
+}
+
 #[tokio::test]
 async fn occ_version_mismatch_returns_conflict() {
     let pool = setup_test_pool().await;
@@ -281,6 +328,7 @@ async fn save_user_with_metadata_writes_to_after_state() {
         after_state["__metadata__"],
         serde_json::json!({"zitadel_sub": "zsub-meta-1"})
     );
-    assert_eq!(after_state["zitadel_sub"], "zsub-meta-1");
+    // ADR-0225: the subject is not a `user` column any more; first sign-in carries it in metadata.
+    assert!(after_state.get("zitadel_sub").is_none());
     assert_eq!(after_state["email"], "meta1@example.com");
 }

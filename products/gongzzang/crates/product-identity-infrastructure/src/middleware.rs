@@ -128,9 +128,8 @@ async fn resolve_or_create_user(state: &AuthState, claims: &Claims) -> Result<Us
     Ok(user)
 }
 
-/// 존재하지 않는 sub 에 대해 `User` 를 생성·저장하고 `external_account` 를 link.
-// first-sign-in 흐름 특성상 race retry + best-effort side-effects 로 복잡도 불가피.
-#[allow(clippy::cognitive_complexity)]
+/// 존재하지 않는 sub 에 대해 `User` 를 생성·저장해요. `save` 가 `external_account` link 를
+/// 같은 트랜잭션에서 기록해요 (루트 ADR-0225).
 async fn provision_new_user(state: &AuthState, claims: &Claims) -> Result<User, AuthError> {
     // 자동 생성
     let email_str = claims.effective_email().ok_or_else(|| {
@@ -164,15 +163,6 @@ async fn provision_new_user(state: &AuthState, claims: &Claims) -> Result<User, 
             .await
             .map_err(|e| AuthError::UserProvisioningFailed(e.to_string()))?
             .ok_or_else(|| AuthError::UserProvisioningFailed(save_err.to_string()));
-    }
-
-    // SP6-i: first sign-in 시 external_account('zitadel') 행 삽입. best-effort.
-    if let Err(e) = state
-        .user_repo
-        .link_zitadel_account(&user.id, &claims.sub)
-        .await
-    {
-        tracing::warn!(error = %e, user_id = %user.id, "external_account zitadel insert failed (best-effort)");
     }
 
     Ok(user)
