@@ -133,7 +133,8 @@ mod tests {
     use std::error::Error;
     use std::path::Path;
 
-    const IDENTITY_OPENAPI: &str = "../../../identity-platform/docs/openapi/identity.v1.json";
+    const IDENTITY_OPENAPI: &str =
+        "../../../../platforms/identity-platform/docs/openapi/identity.v1.json";
 
     fn schema(name: &str) -> Result<serde_json::Value, Box<dyn Error>> {
         let raw =
