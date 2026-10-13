@@ -446,6 +446,12 @@ pub fn stop_gold_panel_rebuild() -> anyhow::Result<()> {
     invocation_cleanup::run(invocation_cleanup::Job::GoldPanelRebuild)
 }
 
+/// `ExecStopPost` of foundation-parcel-tile-bake.service: remove the Spark container a timed-out
+/// or killed bake left behind (root ADR-0133 §7).
+pub fn stop_parcel_tile_bake() -> anyhow::Result<()> {
+    invocation_cleanup::run(invocation_cleanup::Job::ParcelTileBake)
+}
+
 pub async fn run_floor_cycle() -> anyhow::Result<()> {
     floor_cycle::run().await
 }

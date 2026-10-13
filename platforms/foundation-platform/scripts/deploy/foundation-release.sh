@@ -1373,6 +1373,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
     # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
+    # The national parcel tile bake's work: the matching verdict, the served handoff, Spark's spill
+    # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
+    # ADR-0194 5). Its unit names this path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
     install_host_retention
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \

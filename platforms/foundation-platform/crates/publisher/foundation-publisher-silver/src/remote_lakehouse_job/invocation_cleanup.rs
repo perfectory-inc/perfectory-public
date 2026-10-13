@@ -24,6 +24,8 @@ pub(super) enum Job {
     GoldPanelRebuild,
     /// `silver-refresh.sh`: the publisher passes `-p` with this prefix (root ADR-0169).
     SilverRefresh,
+    /// `parcel-tile-bake.sh`, which passes `-p` with the same prefix (root ADR-0133 §7).
+    ParcelTileBake,
 }
 
 impl Job {
@@ -32,6 +34,7 @@ impl Job {
             Self::Floor => "foundation-floor",
             Self::GoldPanelRebuild => "foundation-gold-rebuild",
             Self::SilverRefresh => "foundation-silver-refresh",
+            Self::ParcelTileBake => "foundation-parcel-tile-bake",
         }
     }
 }
@@ -209,6 +212,10 @@ mod tests {
         assert_eq!(
             project_id(Job::GoldPanelRebuild, &mut |_| Some(id.clone()))?,
             format!("foundation-gold-rebuild-{id}")
+        );
+        assert_eq!(
+            project_id(Job::ParcelTileBake, &mut |_| Some(id.clone()))?,
+            format!("foundation-parcel-tile-bake-{id}")
         );
         for invalid in ["", "../other", "ABCDEF", &"A".repeat(32), &"a".repeat(33)] {
             assert!(project_id(Job::Floor, &mut |_| Some(invalid.into())).is_err());
