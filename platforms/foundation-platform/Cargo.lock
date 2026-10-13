@@ -2040,6 +2040,7 @@ dependencies = [
  "flate2",
  "foundation-normalization-domain",
  "foundation-outbox",
+ "foundation-publisher-core",
  "foundation-shapefile",
  "foundation-shared-kernel",
  "lakehouse-application",

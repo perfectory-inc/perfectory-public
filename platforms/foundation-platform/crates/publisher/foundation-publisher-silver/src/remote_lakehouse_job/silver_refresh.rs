@@ -135,7 +135,12 @@ async fn refresh_land(
     for refused in &candidates.refused {
         println!("silver-refresh lane={lane} refused_object={refused}");
     }
-    let release = land::select(rule, &candidates.found)?;
+    let catalog = lakehouse_catalog()?;
+    let sido = match rule.completeness {
+        land::Completeness::Sido => Some(land::read_sido_calendar(&catalog).await?),
+        land::Completeness::National => None,
+    };
+    let release = land::select(rule, &candidates.found, sido.as_ref())?;
     for skipped in &release.skipped_incomplete {
         println!("silver-refresh lane={lane} skipped_incomplete_release={skipped}");
     }
@@ -146,7 +151,6 @@ async fn refresh_land(
         );
     }
     let identity = release.source_snapshot_id(rule)?;
-    let catalog = lakehouse_catalog()?;
     let ingested = catalog
         .load_ingested_batch_objects(&contract.table)
         .await?
