@@ -36,9 +36,7 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE
     catalog.publication_revision,
     catalog.parcel_publication_source_evidence,
     serving_postgis.parcel_boundary_mirror_rebuild_run,
-    serving_postgis.parcel_boundary_mirror,
-    serving_postgis.spatial_projection_load,
-    serving_postgis.parcel_boundary_publication
+    serving_postgis.spatial_projection_load
     FROM foundation_api;
 GRANT EXECUTE ON FUNCTION catalog.publish_parcel_identifier(uuid, text, date, uuid, uuid, text, uuid)
     TO foundation_api;
