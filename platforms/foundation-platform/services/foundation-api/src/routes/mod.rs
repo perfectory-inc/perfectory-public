@@ -430,6 +430,7 @@ const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
 /// Every Identity policy a Foundation route asks for. The same list, as data, is
 /// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
 /// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
+#[cfg(test)]
 const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
     STAFF_CATALOG_WRITE,
     SERVICE_CATALOG_READ,
