@@ -108,6 +108,8 @@ RULES = {
         "exact": [
             "platforms/foundation-platform/compose.lakehouse.yml",
             "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+            "scripts/ci/test_foundation_spark_runtime_files.py",
+            "scripts/verify/foundation-spark-runtime-files.sh",
             "scripts/verify/foundation-spark-runtime.sh",
         ],
         "prefixes": [
@@ -154,6 +156,7 @@ REQUIRED_WITNESSES = {
     },
     "spark-runtime": {
         "runner": "scripts/verify/foundation-spark-runtime.sh",
+        "file runner": "scripts/verify/foundation-spark-runtime-files.sh",
         "image": "platforms/foundation-platform/compose.lakehouse.yml",
         "engine versions": "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
         "Iceberg commit test": "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_rebuild_iceberg.py",
