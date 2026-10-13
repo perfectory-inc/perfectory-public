@@ -446,6 +446,10 @@ class PackOperator(OperatorHarness):
         secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         analytics = next(g["path"] for g in secrets["groups"] if g["name"] == "cloudflare-analytics")
         self.assertIn(f"EnvironmentFile={analytics}", props)
+        # A pack-only lane's probe reads its unpublished packs back from R2 (root ADR-0190): the
+        # lakehouse R2 settings too, or it stops on a missing account id (2026-10-13).
+        lakehouse = next(g["path"] for g in secrets["groups"] if g["name"] == "source-sweep")
+        self.assertIn(f"EnvironmentFile={lakehouse}", props)
         # The earlier evidence is kept, never overwritten.
         self.assertEqual(len(list(work.glob("latency-*.json"))), 1)
 
