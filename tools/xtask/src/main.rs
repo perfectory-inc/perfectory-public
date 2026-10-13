@@ -1222,8 +1222,11 @@ fn doctests_reporting(command: &mut Command) -> Result<(), String> {
     Err(format!("({}) {rendered}", output.status))
 }
 
+/// CI sets `CARGO_TERM_COLOR=always`, so cargo wraps `error` in colour codes even into a pipe;
+/// the excuse is read from the text without them.
 fn no_doctest_targets(stderr: &str) -> bool {
-    let errors: Vec<&str> = stderr
+    let plain = without_ansi_colour(stderr);
+    let errors: Vec<&str> = plain
         .lines()
         .filter(|line| line.starts_with("error"))
         .collect();
@@ -1231,6 +1234,24 @@ fn no_doctest_targets(stderr: &str) -> bool {
         && errors
             .iter()
             .all(|line| line.starts_with("error: no library targets found in package"))
+}
+
+/// `text` without ANSI SGR sequences (`ESC [ … m`), the only escapes cargo's colour writes.
+fn without_ansi_colour(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            for inner in chars.by_ref() {
+                if inner == 'm' {
+                    break;
+                }
+            }
+        } else {
+            plain.push(character);
+        }
+    }
+    plain
 }
 
 /// The two runs one `cargo test` selection becomes: nextest for the test targets, then the
@@ -2139,6 +2160,13 @@ mod tests {
         ));
         assert!(!no_doctest_targets(
             "error: no library targets found in package `a`\nerror: could not compile `b`\n"
+        ));
+        // What CI prints under CARGO_TERM_COLOR=always (the required/repository failure).
+        assert!(no_doctest_targets(
+            "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m:\u{1b}[0m no library targets found in package `xtask`\n"
+        ));
+        assert!(!no_doctest_targets(
+            "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m:\u{1b}[0m doctest failed\n"
         ));
     }
 
