@@ -352,6 +352,24 @@ const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
     action: "propose",
 };
 
+/// Every Identity policy a Foundation route asks for. The same list, as data, is
+/// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
+/// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
+#[cfg(test)]
+const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
+    STAFF_CATALOG_WRITE,
+    SERVICE_CATALOG_READ,
+    STAFF_LAKEHOUSE_BATCH_AUDIT,
+    STAFF_SPATIAL_MANIFEST_ADMIN,
+    STAFF_SPATIAL_ANCHOR_REBUILD,
+    STAFF_SPATIAL_MAP_EDIT,
+    SERVICE_LAKEHOUSE_WRITE,
+    STAFF_METADATA_READ,
+    STAFF_LINEAGE_REVIEW,
+    STAFF_LINEAGE_ADJUDICATE,
+    SERVICE_NORMALIZATION_PROPOSE,
+];
+
 #[derive(Clone)]
 struct IdentityRouteAuthorizationState {
     app_state: Arc<AppState>,
