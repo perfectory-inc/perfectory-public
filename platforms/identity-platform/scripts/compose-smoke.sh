@@ -108,10 +108,14 @@ postcondition() {
           AND NOT has_table_privilege('identity_provisioner', 'identity.service_principal', 'DELETE')
           AND NOT has_table_privilege('identity_provisioner', 'identity.service_principal', 'TRUNCATE')
           AND has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'SELECT')
-          AND has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'INSERT')
-          AND has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'DELETE')
-          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'UPDATE')
-          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'TRUNCATE')
+          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant', 'DELETE')
+          AND has_table_privilege('identity_provisioner', 'identity.service_capability_grant_record', 'SELECT')
+          AND has_table_privilege('identity_provisioner', 'identity.service_capability_grant_record', 'INSERT')
+          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant_record', 'DELETE')
+          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant_record', 'UPDATE')
+          AND NOT has_table_privilege('identity_provisioner', 'identity.service_capability_grant_record', 'TRUNCATE')
+          AND has_table_privilege('identity_provisioner', 'identity.outbox_event', 'INSERT')
+          AND NOT has_table_privilege('identity_provisioner', 'identity.outbox_event', 'UPDATE')
           AND NOT has_table_privilege('identity_provisioner', 'identity.staff', 'SELECT')
           AND NOT has_table_privilege('identity_provisioner', 'identity.staff', 'INSERT')
           AND NOT has_table_privilege('identity_provisioner', 'identity.staff', 'UPDATE')
@@ -121,6 +125,8 @@ postcondition() {
       database_bool "
         SELECT (SELECT count(*) FROM identity.service_principal) = 4
           AND (SELECT count(*) FROM identity.service_capability_grant) = 4
+          AND (SELECT count(*) FROM identity.outbox_event
+               WHERE type = 'identity.service_principal.capability_granted.v1') >= 4
           AND NOT EXISTS (
             SELECT 1
             FROM identity.service_principal AS principal
@@ -208,14 +214,15 @@ verify_provisioner_acl() {
     SELECT count(*) = 4 FROM identity.service_principal;
     BEGIN;
     UPDATE identity.service_principal SET display_name = display_name WHERE false;
-    DELETE FROM identity.service_capability_grant WHERE false;
+    SELECT count(*) FROM identity.service_capability_grant;
     ROLLBACK;" >/dev/null
 
   local statement
   for statement in \
     "SELECT count(*) FROM identity.staff" \
     "DELETE FROM identity.service_principal WHERE false" \
-    "UPDATE identity.service_capability_grant SET capability = capability WHERE false" \
+    "DELETE FROM identity.service_capability_grant_record WHERE false" \
+    "UPDATE identity.service_capability_grant_record SET capability = capability WHERE false" \
     "CREATE TABLE identity.forbidden_probe(id integer)"; do
     if provisioner_psql "${statement}" >/dev/null 2>&1; then
       printf 'compose_smoke=FAIL service=identity-workload-provisioner reason=forbidden_sql_succeeded\n' >&2

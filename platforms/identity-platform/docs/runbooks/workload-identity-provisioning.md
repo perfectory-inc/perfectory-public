@@ -18,7 +18,7 @@ Identity Platform만 워크로드 주체 ID·권한 부여와 환경별 서명�
 |---|---|---|
 | Principal ID, display name, exact capabilities | `config/workload-principal-policy.v1.json` | Compiled into the reviewed provisioner binary |
 | ZITADEL subject for one environment | Secret-managed binding document | Read-only file mounted into the one-shot job |
-| Provisioned state | `identity.service_principal` and `identity.service_capability_grant` | Written in one PostgreSQL transaction |
+| Provisioned state | `identity.service_principal` and the append-only `identity.service_capability_grant_record` (current grants = view `identity.service_capability_grant`) | Written in one PostgreSQL transaction with one outbox event per grant change (root ADR-0212) |
 | Contract parser and reconciliation behavior | `tools/identity-service-provisioner` | Versioned Rust code and tests |
 
 예시 바인딩 문서는 의도적으로 잘못된 자리표시자를 포함하므로 환경을 프로비저닝할 수 없다. 실제
@@ -34,8 +34,10 @@ ZITADEL subject를 커밋하거나 바인딩 파일에 권한을 복제하지 �
 프로비저너 역할의 데이터베이스 권한은 다음뿐이다.
 
 - `SELECT`, `INSERT`, and `UPDATE` on `identity.service_principal`;
-- `SELECT`, `INSERT`, and `DELETE` on `identity.service_capability_grant`;
-- no staff, session, outbox, schema-create, database-create, or role-management access.
+- `SELECT` on the view `identity.service_capability_grant`;
+- `SELECT` and `INSERT` on `identity.service_capability_grant_record` (no `UPDATE`/`DELETE`; a trigger also refuses them);
+- `INSERT` on `identity.outbox_event` (`identity.service_principal.capability_granted.v1`/`capability_revoked.v1`);
+- no staff, session, schema-create, database-create, or role-management access.
 
 ## 배포 순서
 
