@@ -448,3 +448,71 @@ async fn revise_after_rejection_returns_to_draft_with_audit() {
     .unwrap();
     assert_eq!(revise_audit.len(), 1);
 }
+
+/// 적용된 마이그레이션의 단일 열 `CHECK (col IN (...))` 값 목록.
+async fn check_values(pool: &sqlx::PgPool, table: &str, column: &str) -> Vec<String> {
+    let defs: Vec<String> = sqlx::query_scalar(
+        "select pg_get_constraintdef(c.oid) \
+         from pg_constraint c \
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1] \
+         where c.conrelid = $1::regclass and c.contype = 'c' \
+           and cardinality(c.conkey) = 1 and a.attname = $2",
+    )
+    .bind(table)
+    .bind(column)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        defs.len(),
+        1,
+        "{table}.{column}: expected one CHECK, got {defs:?}"
+    );
+    // `'a'::character varying, 'b'::...` — 따옴표 사이(홀수 조각)가 값이에요.
+    let mut values: Vec<String> = defs[0]
+        .split('\'')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+    values.sort();
+    values
+}
+
+fn sorted(values: impl IntoIterator<Item = &'static str>) -> Vec<String> {
+    let mut v: Vec<String> = values.into_iter().map(str::to_owned).collect();
+    v.sort();
+    v
+}
+
+/// Rust enum `ALL` 이 정본이에요. 한쪽에만 값을 더하면 여기서 실패해요.
+#[tokio::test]
+async fn db_check_constraints_match_shared_kernel_enums() {
+    use shared_kernel::contact_visibility::ContactVisibility;
+
+    let pool = setup_test_pool().await;
+    let listing_types = sorted(ListingType::ALL.map(ListingType::as_str));
+    let transaction_types = sorted(TransactionType::ALL.map(TransactionType::as_str));
+    let statuses = sorted(ListingStatus::ALL.map(ListingStatus::as_str));
+    let visibilities = sorted(ContactVisibility::ALL.map(ContactVisibility::as_str));
+
+    for (table, column, expected) in [
+        ("listing", "listing_type", &listing_types),
+        ("listing", "transaction_type", &transaction_types),
+        ("listing", "status", &statuses),
+        ("listing", "contact_visibility", &visibilities),
+        ("listing_marker_projection", "listing_type", &listing_types),
+        (
+            "listing_marker_projection",
+            "transaction_type",
+            &transaction_types,
+        ),
+        ("listing_marker_projection", "listing_status", &statuses),
+    ] {
+        assert_eq!(
+            &check_values(&pool, table, column).await,
+            expected,
+            "{table}.{column} CHECK drifted from the shared-kernel enum"
+        );
+    }
+}
