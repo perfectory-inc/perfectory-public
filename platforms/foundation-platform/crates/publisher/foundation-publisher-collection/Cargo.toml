@@ -1,0 +1,46 @@
+[package]
+name = "foundation-publisher-collection"
+version = "0.1.0"
+description = "The outbox-publisher national collection lane: Bronze collection from public providers, plans, ledgers, ingest, rate control and Bronze catalog recovery (root ADR-0200)."
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+collection-application = { workspace = true }
+collection-domain = { workspace = true }
+collection-infrastructure = { workspace = true }
+encoding_rs = { workspace = true }
+flate2 = { workspace = true }
+foundation-outbox = { workspace = true }
+foundation-publisher-core = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+futures-util = { workspace = true }
+http-body = { workspace = true }
+lakehouse-application = { workspace = true }
+lakehouse-domain = { workspace = true }
+outbound-http-infrastructure = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "v7"] }
+zip = { workspace = true }
+
+[dev-dependencies]
+foundation-disposable-database = { workspace = true }
+foundation-publisher-core = { workspace = true, features = ["test-fixtures"] }
+wiremock = { workspace = true }
