@@ -344,6 +344,32 @@ class PackOperator(OperatorHarness):
         self.assertIn("building/lane.lock", result.stderr)
         self.assertEqual(calls, [])
 
+    def test_kind_sizes_runs_the_read_only_measurement_as_the_service_never_beside_a_rebuild_or_bake(self):
+        # Root ADR-0193 §6-1: the measure job's only way onto the host is this step.
+        result, calls = self.run_operator("parcel", "kind-sizes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, props = self.unit(calls)
+        self.assertIn("--unit=foundation-parcel-kind-sizes", args)
+        self.assertIn("--no-block", args)
+        self.assertTrue(args[-2].endswith("/scripts/ops/by-pnu-kind-sizes.sh"), args)
+        self.assertEqual(args[-1], "parcel")
+        self.assertTrue(any(prop.startswith("User=") for prop in props), props)
+        secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
+        catalog = next(g["path"] for g in secrets["groups"] if g["name"] == "map-edit-fold")
+        self.assertIn(f"EnvironmentFile={catalog}", props)
+        self.assertEqual(env, {})
+        for active in (["foundation-gold-panel-rebuild.service"], ["foundation-by-pnu-serving-bake.service"],
+                       ["foundation-parcel-kind-sizes.service"]):
+            with self.subTest(active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("parcel", "kind-sizes", active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(calls, [])
+        for args in (("parcel", "kind-sizes", "1"), ("unit-price", "kind-sizes")):
+            with self.subTest(args=args):
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+
     def test_gold_rebuild_is_the_scheduled_unit_with_a_fixed_unconditional_reason(self):
         result, calls = self.run_operator("building", "gold-rebuild")
         self.assertEqual(result.returncode, 0, result.stderr)

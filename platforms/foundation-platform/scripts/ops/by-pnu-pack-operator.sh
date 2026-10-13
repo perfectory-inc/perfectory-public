@@ -13,6 +13,7 @@
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
+#   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
@@ -66,7 +67,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -253,6 +254,21 @@ PY
       ;;
     *) refuse "${USAGE}" ;;
   esac
+fi
+
+if [[ "${ACTION}" == kind-sizes ]]; then
+  # Root ADR-0193 §6-1: what each data kind of the lane's panel weighs as its own lane. Read-only,
+  # in the small Spark, never beside a Gold rebuild or a bake (the host's memory budget).
+  (($# == 0)) || refuse "kind-sizes takes nothing after it"
+  [[ "${LANE}" == parcel || "${LANE}" == building ]] || refuse "kind-sizes measures the parcel or the building panel"
+  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "foundation-${LANE}-kind-sizes"
+  refuse_while_baking
+  read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
+  install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/kind-sizes"
+  log "starting foundation-${LANE}-kind-sizes (read-only); its summary path is the last line of ${BAKE_ROOT}/kind-sizes/${LANE}.log"
+  exec "${SYSTEMD_RUN}" --no-block --collect --unit="foundation-${LANE}-kind-sizes" -p User="${SERVICE_OWNER}" \
+    -p Group="${SERVICE_GROUP}" "${props[@]}" -p StandardOutput=append:"${BAKE_ROOT}/kind-sizes/${LANE}.log" \
+    -p StandardError=append:"${BAKE_ROOT}/kind-sizes/${LANE}.log" "${RELEASE}/scripts/ops/by-pnu-kind-sizes.sh" "${LANE}"
 fi
 
 if [[ "${ACTION}" == cutover ]]; then
