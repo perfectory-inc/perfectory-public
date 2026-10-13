@@ -11,13 +11,14 @@ use foundation_outbox::R2ObjectStorage;
 use lakehouse_application::ports::LakehouseCatalog;
 use lakehouse_infrastructure::IcebergRestCatalog;
 use serde::Serialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::json;
 use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
 use crate::parcel_boundary_handoff::{
-    parse_stage_row, push_copy_csv_row, read_execution_evidence, validate_object_key,
-    validate_source_snapshot_id, ExecutionEvidence, HandoffObject, SOURCE_SRID,
+    handoff_objects_from_source_contract, parse_stage_row, push_copy_csv_row,
+    read_execution_evidence, validate_source_snapshot_id, ExecutionEvidence, HandoffObject,
+    SOURCE_SRID,
 };
 use crate::parcel_publication_contract::{
     ParcelPublicationQuality, GEOMETRY_REPAIR_STRATEGY, PARCEL_LOGICAL_TABLE,
@@ -606,87 +607,6 @@ async fn load_handoff_object(
     })
 }
 
-/// Reads the ADR-0067 parcel source contract and derives the national handoff object set.
-///
-/// The contract is the one list of what the national parcel source is (root ADR-0067); the
-/// handoff keys are derived from it rather than listed a second time, and only the sigungu
-/// granularity loads (loading both bands doubles every parcel).
-pub fn handoff_objects_from_source_contract(
-    contract_json: &str,
-) -> anyhow::Result<Vec<HandoffObject>> {
-    // The served edition only (root ADR-0148): the mirror is the map's parcels, and every other
-    // edition the contract holds is evidence, not the national set.
-    let contract: JsonValue =
-        foundation_publisher_silver::vworld_parcel_source_contract::served_edition_view(
-            contract_json,
-        )?;
-    let handoff_prefix = contract
-        .get("handoff_prefix")
-        .and_then(JsonValue::as_str)
-        .context("parcel source contract must name handoff_prefix")?;
-    let handoff_suffix = contract
-        .get("handoff_suffix")
-        .and_then(JsonValue::as_str)
-        .context("parcel source contract must name handoff_suffix")?;
-    let expected_sigungu = contract
-        .get("granularity_counts")
-        .and_then(|counts| counts.get("sigungu"))
-        .and_then(JsonValue::as_u64)
-        .context("parcel source contract must count its sigungu objects")?;
-    let load_granularity = contract
-        .get("load_granularity")
-        .and_then(JsonValue::as_str)
-        .context("parcel source contract must declare load_granularity")?;
-    if load_granularity != "sigungu" {
-        bail!("parcel source contract load_granularity must be sigungu (root ADR-0067)");
-    }
-    let objects = contract
-        .get("objects")
-        .and_then(JsonValue::as_array)
-        .context("parcel source contract must list objects")?;
-
-    let mut handoff = Vec::new();
-    for entry in objects {
-        let granularity = entry
-            .get("granularity")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default();
-        if granularity != "sigungu" {
-            continue;
-        }
-        let object_key = entry
-            .get("object_key")
-            .and_then(JsonValue::as_str)
-            .context("parcel source contract object entry must name object_key")?;
-        let file_name = object_key
-            .rsplit('/')
-            .next()
-            .context("parcel source contract object_key has no file name")?;
-        let stem = file_name
-            .strip_suffix(".zip")
-            .with_context(|| format!("parcel source object {object_key} is not a .zip"))?;
-        let handoff_key = format!("{handoff_prefix}/{stem}{handoff_suffix}");
-        validate_object_key(handoff_key.as_str())?;
-        handoff.push(HandoffObject {
-            shard_id: stem.to_owned(),
-            object_key: handoff_key,
-            row_count: None,
-        });
-    }
-
-    let sigungu_count = u64::try_from(handoff.len()).context("sigungu object count overflow")?;
-    if sigungu_count != expected_sigungu {
-        bail!(
-            "parcel source contract names {expected_sigungu} sigungu objects but {sigungu_count} \
-             were derived; a partial set cannot claim the national scope"
-        );
-    }
-    if handoff.is_empty() {
-        bail!("parcel source contract derived no handoff objects");
-    }
-    Ok(handoff)
-}
-
 async fn copy_object_to_stage(
     conn: &mut PgConnection,
     object: &HandoffObject,
@@ -1050,79 +970,6 @@ mod tests {
         assert_eq!(quality.expected_row_count, evidence.expected_row_count);
         assert_eq!(quality.loaded_row_count, validation.loaded_rows);
         assert_eq!(quality.geometry_repair_strategy, GEOMETRY_REPAIR_STRATEGY);
-    }
-
-    fn contract_fixture(sigungu_count: u64, objects: &str) -> String {
-        format!(
-            r#"{{
-                "schema_version": 2,
-                "load_granularity": "sigungu",
-                "handoff_suffix": ".jsonl.gz",
-                "served_edition": "209912",
-                "editions": {{
-                    "209912": {{
-                        "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel",
-                        "objects": [{objects}]
-                    }},
-                    "209901": {{
-                        "granularity_counts": {{"sido": 0, "sigungu": 1}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=209901",
-                        "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20991231DS99991-7.zip", "granularity": "sigungu"}}]
-                    }}
-                }}
-            }}"#
-        )
-    }
-
-    #[test]
-    fn the_contract_derives_the_complete_sigungu_handoff_set_and_nothing_else() -> TestResult {
-        let contract = contract_fixture(
-            2,
-            r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"},
-               {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-2.zip", "granularity": "sigungu"},
-               {"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-9.zip", "granularity": "sido"}"#,
-        );
-        let objects = handoff_objects_from_source_contract(&contract)?;
-        assert_eq!(objects.len(), 2);
-        assert_eq!(
-            objects[0].object_key,
-            "silver-handoff/vworldkr__parcel/20991231DS99990-1.jsonl.gz"
-        );
-        assert_eq!(objects[0].row_count, None);
-        Ok(())
-    }
-
-    #[test]
-    fn a_partial_sigungu_set_cannot_claim_the_national_scope() {
-        let contract = contract_fixture(
-            3,
-            r#"{"object_key": "bronze/source=vworldkr__parcel/20991231DS99990-1.zip", "granularity": "sigungu"}"#,
-        );
-        let error = handoff_objects_from_source_contract(&contract)
-            .err()
-            .map(|error| error.to_string())
-            .unwrap_or_default();
-        assert!(
-            error.contains("partial set cannot claim the national scope"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn a_contract_that_loads_both_bands_is_refused() {
-        let contract = contract_fixture(1, r#""#).replace(
-            r#""load_granularity": "sigungu""#,
-            r#""load_granularity": "sido""#,
-        );
-        let error = handoff_objects_from_source_contract(&contract)
-            .err()
-            .map(|error| error.to_string())
-            .unwrap_or_default();
-        assert!(
-            error.contains("load_granularity must be sigungu"),
-            "{error}"
-        );
     }
 
     #[tokio::test]

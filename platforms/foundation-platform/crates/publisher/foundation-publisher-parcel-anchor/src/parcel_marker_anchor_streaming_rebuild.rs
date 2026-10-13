@@ -14,7 +14,7 @@ use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
 use crate::parcel_boundary_handoff::{
-    parse_stage_row, push_copy_csv_row, read_execution_evidence, validate_source_snapshot_id,
+    parse_stage_row, push_copy_csv_row, read_handoff_objects, validate_source_snapshot_id,
     ExecutionEvidence, HandoffObject,
 };
 
@@ -33,7 +33,8 @@ const DEFAULT_MAX_BOUNDED_ROW_COUNT: u64 = 1_000_000;
 /// Runs the streaming national parcel marker anchor rebuild.
 pub async fn run() -> anyhow::Result<()> {
     let config = StreamingAnchorConfig::from_env()?;
-    let evidence = read_execution_evidence(&config.execution_evidence_path)?;
+    let evidence =
+        read_handoff_objects(&config.execution_evidence_path, config.expected_row_count)?;
     let generation_run_id = Uuid::now_v7();
     let storage = R2ObjectStorage::from_env()
         .context("failed to configure R2 for streaming anchor rebuild")?;
