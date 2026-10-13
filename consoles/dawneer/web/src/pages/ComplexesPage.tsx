@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import type { Complex, ComplexFilter, DawneerClient } from "../api/client";
+import type { Complex, ComplexFilter, ComplexSort, DawneerClient, DevelopmentStage } from "../api/client";
 import {
   COMPLEX_KIND_LABEL,
   DEVELOPMENT_STAGE_LABEL,
@@ -9,6 +9,7 @@ import {
   label,
   LOT_SALES_LABEL,
   SIDO_LABEL,
+  SORT_LABEL,
   sourceWord,
 } from "../lib/catalogLabels";
 
@@ -75,12 +76,13 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
 export function ComplexesPage({ client }: { client: DawneerClient }) {
   const [q, setQ] = useState("");
   const [sidoCode, setSidoCode] = useState("");
-  const [developmentStage, setDevelopmentStage] = useState("");
-  const [sort, setSort] = useState<NonNullable<ComplexFilter["sort"]>>("name_asc");
+  const [developmentStage, setDevelopmentStage] = useState<DevelopmentStage | "">("");
+  const [sort, setSort] = useState<ComplexSort>("name_asc");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const filter: ComplexFilter = { q: q.trim(), sidoCode, developmentStage, sort, page, size: PAGE_SIZE };
+  const developmentStages = developmentStage ? [developmentStage] : [];
+  const filter: ComplexFilter = { q: q.trim(), sidoCode, developmentStages, sort, page, size: PAGE_SIZE };
   const list = useQuery({ queryKey: ["complexes", filter], queryFn: () => client.listComplexes(filter) });
   const reset = () => setPage(0);
   const select = "rounded border border-slate-300 bg-white px-2 py-1";
@@ -124,7 +126,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
             className={select}
             value={developmentStage}
             onChange={(e) => {
-              setDevelopmentStage(e.target.value);
+              setDevelopmentStage(e.target.value as DevelopmentStage | "");
               reset();
             }}
           >
@@ -142,13 +144,15 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
             className={select}
             value={sort}
             onChange={(e) => {
-              setSort(e.target.value as NonNullable<ComplexFilter["sort"]>);
+              setSort(e.target.value as ComplexSort);
               reset();
             }}
           >
-            <option value="name_asc">이름순</option>
-            <option value="area_desc">면적 큰 순</option>
-            <option value="official_complex_code_asc">단지코드순</option>
+            {Object.entries(SORT_LABEL).map(([code, name]) => (
+              <option key={code} value={code}>
+                {name}
+              </option>
+            ))}
           </select>
         </label>
       </div>

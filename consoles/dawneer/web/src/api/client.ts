@@ -19,6 +19,10 @@ export type TileManifest = CatalogSchemas["VectorTileRuntimeManifestResponse"];
 export type TileUnit = CatalogSchemas["VectorTilePublicationUnitResponse"];
 export type Complex = CatalogSchemas["IndustrialComplexResponse"];
 export type ComplexPage = CatalogSchemas["IndustrialComplexListResponse"];
+export type ComplexKind = CatalogSchemas["IndustrialComplexKindCode"];
+export type DevelopmentStage = CatalogSchemas["IndustrialComplexDevelopmentStageCode"];
+export type LotSalesStatus = CatalogSchemas["IndustrialComplexLotSalesStatusCode"];
+export type ComplexSort = CatalogSchemas["ComplexSearchSortCode"];
 
 type DataCatalogSchemas = DataCatalogComponents["schemas"];
 export type CatalogEntity = DataCatalogSchemas["DataCatalogEntity"];
@@ -74,11 +78,11 @@ export interface PipelineGraph {
 export interface ComplexFilter {
   q?: string;
   sidoCode?: string;
-  /** Development stage codes, comma-separated (root ADR-0121). */
-  developmentStage?: string;
+  /** Development stages to keep (root ADR-0121); none keeps every stage. */
+  developmentStages?: DevelopmentStage[];
   page?: number;
   size?: number;
-  sort?: "name_asc" | "area_desc" | "official_complex_code_asc";
+  sort?: ComplexSort;
 }
 
 export interface SessionInfo {
@@ -202,7 +206,7 @@ export class DawneerClient {
     const query = new URLSearchParams();
     if (filter.q) query.set("q", filter.q);
     if (filter.sidoCode) query.set("sido_code", filter.sidoCode);
-    if (filter.developmentStage) query.set("development_stage", filter.developmentStage);
+    if (filter.developmentStages?.length) query.set("development_stage", filter.developmentStages.join(","));
     if (filter.sort) query.set("sort", filter.sort);
     query.set("page", String(filter.page ?? 0));
     query.set("size", String(filter.size ?? 50));

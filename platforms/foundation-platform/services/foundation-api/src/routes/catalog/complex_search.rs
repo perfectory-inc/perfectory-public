@@ -15,8 +15,13 @@ use catalog_application::complex_search::{
     ComplexSearchQueryError, ComplexSearchSort, ComplexSearchText, SidoCodeFilter,
 };
 use catalog_application::ports::CatalogRepository;
-use foundation_contracts::catalog::IndustrialComplexListResponse;
+use foundation_contracts::catalog::{
+    wire_code_schema, IndustrialComplexDevelopmentStageCode, IndustrialComplexListResponse,
+};
 use serde::Deserialize;
+use utoipa::openapi::schema::Schema;
+use utoipa::openapi::RefOr;
+use utoipa::{PartialSchema, ToSchema};
 
 use super::super::ApiError;
 use super::industrial_complex_list_response;
@@ -89,6 +94,20 @@ impl ListComplexesQuery {
     }
 }
 
+/// Wire codes of [`ComplexSearchSort`], for the published `sort` parameter.
+pub struct ComplexSearchSortCode;
+
+impl PartialSchema for ComplexSearchSortCode {
+    fn schema() -> RefOr<Schema> {
+        wire_code_schema(
+            "Order of the complex list; `name_asc` is the default.",
+            ComplexSearchSort::ALL.map(ComplexSearchSort::wire_name),
+        )
+    }
+}
+
+impl ToSchema for ComplexSearchSortCode {}
+
 #[utoipa::path(
     get,
     path = "/catalog/v1/complexes",
@@ -101,10 +120,10 @@ impl ListComplexesQuery {
         ("q" = Option<String>, Query, description = "Substring of the complex name or official complex code"),
         ("sido_code" = Option<String>, Query, description = "Two-digit province code", min_length = 2, max_length = 2, pattern = "^[0-9]{2}$"),
         ("status" = Option<String>, Query, deprecated, description = "Deprecated (root ADR-0121): comma-separated development lifecycle filter: planned, developing, operating, changed, abolished, unknown. Use development_stage."),
-        ("development_stage" = Option<String>, Query, description = "Comma-separated development stage filter: site_completed (조성완료), site_in_progress (조성중), preparing (준비중), compensating (보상중)"),
+        ("development_stage" = Option<Vec<IndustrialComplexDevelopmentStageCode>>, Query, style = Form, explode = false, description = "Comma-separated development stage filter: site_completed (조성완료), site_in_progress (조성중), preparing (준비중), compensating (보상중)"),
         ("page" = Option<u32>, Query, description = "Zero-indexed page number (default 0)"),
         ("size" = Option<u32>, Query, description = "Page size (default 20, maximum 100)", minimum = 1, maximum = 100),
-        ("sort" = Option<String>, Query, description = "name_asc (default) | area_desc | official_complex_code_asc")
+        ("sort" = Option<ComplexSearchSortCode>, Query, description = "Row order (default `name_asc`)")
     ),
     responses(
         (status = 200, body = IndustrialComplexListResponse),

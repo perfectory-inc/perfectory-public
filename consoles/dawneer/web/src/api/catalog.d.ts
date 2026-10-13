@@ -692,6 +692,11 @@ export interface components {
              */
             version: number;
         };
+        /**
+         * @description Order of the complex list; `name_asc` is the default.
+         * @enum {string}
+         */
+        ComplexSearchSortCode: "name_asc" | "area_desc" | "official_complex_code_asc";
         /** @description Digital twin asset metadata assigned below an industrial complex. */
         DigitalTwinAssetResponse: {
             /** @description Asset kind. Wire values: `model_3d`, `tileset_3d`, `point_cloud`, `panorama`, `other`. */
@@ -772,6 +777,11 @@ export interface components {
             status: string;
             version: string;
         };
+        /**
+         * @description Development stage code, one per word the source states (root ADR-0121).
+         * @enum {string}
+         */
+        IndustrialComplexDevelopmentStageCode: "site_completed" | "site_in_progress" | "preparing" | "compensating";
         /** @description Thin pointer to R2/Iceberg Gold industrial-complex data. */
         IndustrialComplexGoldPointerResponse: {
             /** @description Active Gold artifact version. */
@@ -812,6 +822,11 @@ export interface components {
             spatial_locator_object_key?: string | null;
         };
         /**
+         * @description Industrial complex kind code.
+         * @enum {string}
+         */
+        IndustrialComplexKindCode: "national" | "general" | "agricultural" | "urban_high_tech";
+        /**
          * @description One page of canonical industrial complexes.
          *
          *     An envelope rather than a bare array because a page without its collection size is unreadable:
@@ -839,6 +854,11 @@ export interface components {
              */
             total: number;
         };
+        /**
+         * @description Lot sales status code.
+         * @enum {string}
+         */
+        IndustrialComplexLotSalesStatusCode: "planned" | "in_progress" | "completed";
         /** @description Canonical industrial complex response owned by foundation-platform Catalog. */
         IndustrialComplexResponse: {
             /**
@@ -907,14 +927,7 @@ export interface components {
             development_progress_percent?: string | null;
             /** @description Stated purpose the complex was developed for, in the source's own words. */
             development_purpose_raw?: string | null;
-            /**
-             * @description How far site formation has got, one value per word the source states (root ADR-0121).
-             *
-             *     Wire values: `site_completed` (조성완료), `site_in_progress` (조성중), `preparing` (준비중),
-             *     `compensating` (보상중). `null` when the complex has no source row or was loaded before
-             *     the column existed.
-             */
-            development_stage?: string | null;
+            development_stage?: null | components["schemas"]["IndustrialComplexDevelopmentStageCode"];
             gold_pointer?: null | components["schemas"]["IndustrialComplexGoldPointerResponse"];
             /**
              * Format: uuid
@@ -924,7 +937,7 @@ export interface components {
             /** @description Industry types the complex set out to attract, in the source's own words. */
             invited_industries_raw?: string | null;
             /** @description Industrial complex kind as a public wire value. */
-            kind: string;
+            kind: components["schemas"]["IndustrialComplexKindCode"];
             /**
              * @description The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
              *
@@ -942,13 +955,7 @@ export interface components {
              *     object needs this value, not `id`. `null` for a complex registered through this API.
              */
             lakehouse_complex_id?: string | null;
-            /**
-             * @description How far the complex has got in selling or leasing its lots.
-             *
-             *     Wire values: `planned`, `in_progress`, `completed`. Independent of `status`, which is about
-             *     building the complex: a complex can be `operating` with lots still on sale.
-             */
-            lot_sales_status?: string | null;
+            lot_sales_status?: null | components["schemas"]["IndustrialComplexLotSalesStatusCode"];
             /** @description The source's own words for `lot_sales_status` (for example `분양계획`). */
             lot_sales_status_raw?: string | null;
             /** @description Organization that manages the complex. */
@@ -1477,7 +1484,7 @@ export interface components {
              */
             area_m2: number;
             /** @description Industrial complex kind. Wire values: `national`, `general`, `agricultural`, `urban_high_tech`. */
-            kind: string;
+            kind: components["schemas"]["IndustrialComplexKindCode"];
             /** @description Human-readable industrial complex name. */
             name: string;
             /** @description Source-side official industrial-complex code. */
@@ -1961,13 +1968,13 @@ export interface operations {
                  */
                 status?: string;
                 /** @description Comma-separated development stage filter: site_completed (조성완료), site_in_progress (조성중), preparing (준비중), compensating (보상중) */
-                development_stage?: string;
+                development_stage?: components["schemas"]["IndustrialComplexDevelopmentStageCode"][];
                 /** @description Zero-indexed page number (default 0) */
                 page?: number;
                 /** @description Page size (default 20, maximum 100) */
                 size?: number;
-                /** @description name_asc (default) | area_desc | official_complex_code_asc */
-                sort?: string;
+                /** @description Row order (default `name_asc`) */
+                sort?: components["schemas"]["ComplexSearchSortCode"];
             };
             header?: never;
             path?: never;

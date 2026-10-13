@@ -22,6 +22,14 @@ pub enum IndustrialComplexKind {
 }
 
 impl IndustrialComplexKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::National,
+        Self::General,
+        Self::Agricultural,
+        Self::UrbanHighTech,
+    ];
+
     /// Returns the stable wire value used by DB rows, outbox payloads, and HTTP DTOs.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -38,13 +46,10 @@ impl IndustrialComplexKind {
     /// # Errors
     /// Returns `ParseIndustrialComplexKindError::Unknown` for unsupported wire values.
     pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexKindError> {
-        match raw {
-            "national" => Ok(Self::National),
-            "general" => Ok(Self::General),
-            "agricultural" => Ok(Self::Agricultural),
-            "urban_high_tech" => Ok(Self::UrbanHighTech),
-            other => Err(ParseIndustrialComplexKindError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexKindError::Unknown(raw.to_owned()))
     }
 }
 
@@ -143,6 +148,9 @@ pub enum IndustrialComplexLotSalesStatus {
 }
 
 impl IndustrialComplexLotSalesStatus {
+    /// Every lot-sales status, in source order.
+    pub const ALL: [Self; 3] = [Self::Planned, Self::InProgress, Self::Completed];
+
     /// Returns the stable wire value used by DB rows, lakehouse columns, and HTTP DTOs.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -158,14 +166,10 @@ impl IndustrialComplexLotSalesStatus {
     /// # Errors
     /// Returns `ParseIndustrialComplexLotSalesStatusError::Unknown` for unsupported wire values.
     pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexLotSalesStatusError> {
-        match raw {
-            "planned" => Ok(Self::Planned),
-            "in_progress" => Ok(Self::InProgress),
-            "completed" => Ok(Self::Completed),
-            other => Err(ParseIndustrialComplexLotSalesStatusError::Unknown(
-                other.to_owned(),
-            )),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|status| status.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexLotSalesStatusError::Unknown(raw.to_owned()))
     }
 }
 

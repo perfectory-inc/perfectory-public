@@ -183,18 +183,19 @@ pub enum ComplexSearchSort {
 }
 
 impl ComplexSearchSort {
+    /// Every order the route serves, default first.
+    pub const ALL: [Self; 3] = [Self::Name, Self::AreaDesc, Self::OfficialCode];
+
     /// Parses the stable wire value used by the HTTP query parameter.
     ///
     /// # Errors
     ///
     /// Returns [`ComplexSearchQueryError::UnknownSort`] for an unsupported value.
     pub fn from_wire(raw: &str) -> Result<Self, ComplexSearchQueryError> {
-        match raw {
-            "name_asc" => Ok(Self::Name),
-            "area_desc" => Ok(Self::AreaDesc),
-            "official_complex_code_asc" => Ok(Self::OfficialCode),
-            other => Err(ComplexSearchQueryError::UnknownSort(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|sort| sort.wire_name() == raw)
+            .ok_or_else(|| ComplexSearchQueryError::UnknownSort(raw.to_owned()))
     }
 
     /// The stable wire value.

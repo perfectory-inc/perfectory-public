@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use catalog_domain::{
+    IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     ALL_ACTIVE_MARKER_FILTER_HASH, PARCEL_ANCHOR_MARKER_TILE_LAYER,
     PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
@@ -14,8 +15,69 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::openapi::schema::{ObjectBuilder, Schema, Type};
+use utoipa::openapi::RefOr;
+use utoipa::{PartialSchema, ToSchema};
 use uuid::Uuid;
+
+/// A string schema whose `enum` is a domain enum's wire values, read from the enum itself.
+///
+/// The fields stay `String` on the wire; only the published document names the closed set, so a
+/// generated client gets a union type instead of hand-copying the codes (root ADR-0116).
+#[must_use]
+pub fn wire_code_schema(
+    description: &str,
+    codes: impl IntoIterator<Item = &'static str>,
+) -> RefOr<Schema> {
+    ObjectBuilder::new()
+        .schema_type(Type::String)
+        .description(Some(description))
+        .enum_values(Some(codes))
+        .into()
+}
+
+/// Wire codes of [`IndustrialComplexKind`].
+pub struct IndustrialComplexKindCode;
+
+impl PartialSchema for IndustrialComplexKindCode {
+    fn schema() -> RefOr<Schema> {
+        wire_code_schema(
+            "Industrial complex kind code.",
+            IndustrialComplexKind::ALL.map(IndustrialComplexKind::wire_name),
+        )
+    }
+}
+
+impl ToSchema for IndustrialComplexKindCode {}
+
+/// Wire codes of [`IndustrialComplexDevelopmentStage`] (root ADR-0121).
+pub struct IndustrialComplexDevelopmentStageCode;
+
+impl PartialSchema for IndustrialComplexDevelopmentStageCode {
+    fn schema() -> RefOr<Schema> {
+        wire_code_schema(
+            "Development stage code, one per word the source states (root ADR-0121).",
+            IndustrialComplexDevelopmentStage::ALL
+                .map(IndustrialComplexDevelopmentStage::wire_name),
+        )
+    }
+}
+
+impl ToSchema for IndustrialComplexDevelopmentStageCode {}
+
+/// Wire codes of [`IndustrialComplexLotSalesStatus`].
+pub struct IndustrialComplexLotSalesStatusCode;
+
+impl PartialSchema for IndustrialComplexLotSalesStatusCode {
+    fn schema() -> RefOr<Schema> {
+        wire_code_schema(
+            "Lot sales status code.",
+            IndustrialComplexLotSalesStatus::ALL.map(IndustrialComplexLotSalesStatus::wire_name),
+        )
+    }
+}
+
+impl ToSchema for IndustrialComplexLotSalesStatusCode {}
 
 /// Request body for registering an industrial complex.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -25,6 +87,7 @@ pub struct RegisterComplexRequest {
     /// Human-readable industrial complex name.
     pub name: String,
     /// Industrial complex kind. Wire values: `national`, `general`, `agricultural`, `urban_high_tech`.
+    #[schema(value_type = IndustrialComplexKindCode)]
     pub kind: String,
     /// primary legal-dong code shared by parcels that belong to the complex, when one is known.
     pub primary_bjdong_code: Option<String>,
@@ -68,6 +131,7 @@ pub struct IndustrialComplexResponse {
     /// Human-readable industrial complex name.
     pub name: String,
     /// Industrial complex kind as a public wire value.
+    #[schema(value_type = IndustrialComplexKindCode)]
     pub kind: String,
     /// primary legal-dong code shared by parcels that belong to the complex.
     ///
@@ -91,6 +155,7 @@ pub struct IndustrialComplexResponse {
     /// Wire values: `site_completed` (조성완료), `site_in_progress` (조성중), `preparing` (준비중),
     /// `compensating` (보상중). `null` when the complex has no source row or was loaded before
     /// the column existed.
+    #[schema(value_type = Option<IndustrialComplexDevelopmentStageCode>)]
     pub development_stage: Option<String>,
     /// The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
     ///
@@ -131,6 +196,7 @@ pub struct IndustrialComplexResponse {
     ///
     /// Wire values: `planned`, `in_progress`, `completed`. Independent of `status`, which is about
     /// building the complex: a complex can be `operating` with lots still on sale.
+    #[schema(value_type = Option<IndustrialComplexLotSalesStatusCode>)]
     pub lot_sales_status: Option<String>,
     /// The source's own words for `lot_sales_status` (for example `분양계획`).
     pub lot_sales_status_raw: Option<String>,
