@@ -1,6 +1,22 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildListingMarkerLayerFilter } from "@/lib/map/listing-marker-filter";
+import { LISTING_MARKER_ID_PROPERTY } from "@/lib/map/marker-tile-contract";
+
+// The tile writers alias the marker id to this Rust constant; the web must read the same name.
+const rustMarkerIdProperty = readFileSync(
+  resolve(__dirname, "../../../../crates/listing-domain/src/repository/marker_tile.rs"),
+  "utf8",
+).match(/pub const LISTING_MARKER_ID_PROPERTY: &str = "([^"]+)";/)?.[1];
+
+describe("listing marker id property", () => {
+  it("is the name the Rust tile writers emit", () => {
+    expect(rustMarkerIdProperty).toBeDefined();
+    expect(LISTING_MARKER_ID_PROPERTY).toBe(rustMarkerIdProperty);
+  });
+});
 
 describe("buildListingMarkerLayerFilter", () => {
   it("returns an all expression when fast filters are empty", () => {

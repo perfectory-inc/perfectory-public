@@ -2,13 +2,14 @@ use gongzzang_persistence::listing::PgListingRepository;
 use listing_domain::repository::{
     ListingMarkerFilter, ListingMarkerFilterSpec, ListingMarkerMaskEncoding,
     ListingMarkerMaskQuery, ListingMarkerOverlayTileQuery, ListingRepository,
+    LISTING_MARKER_ID_PROPERTY,
 };
 use shared_kernel::listing_type::ListingType;
 use shared_kernel::transaction_type::TransactionType;
 
 use super::{
-    activate_listing, lock_marker_tile_tests, make_listing, seed_anchor, seed_owner,
-    setup_test_pool, truncate_all,
+    activate_listing, lock_marker_tile_tests, make_listing, mvt_property_keys, seed_anchor,
+    seed_owner, setup_test_pool, truncate_all,
 };
 
 #[tokio::test]
@@ -200,6 +201,7 @@ async fn listing_marker_deltas_returns_recent_public_features_for_loaded_tile() 
     assert!(!deltas.bytes.is_empty());
     assert_eq!(deltas.layer_name, "listing_delta");
     assert_eq!(deltas.feature_count, 1);
+    assert!(mvt_property_keys(&deltas.bytes).contains(&LISTING_MARKER_ID_PROPERTY.to_owned()));
     assert_eq!(deltas.projection_version, Some(1));
     assert_eq!(
         deltas.anchor_snapshot_id.as_deref(),
