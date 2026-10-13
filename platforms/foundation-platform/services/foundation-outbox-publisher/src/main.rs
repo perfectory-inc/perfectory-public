@@ -46,32 +46,29 @@ mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
 mod boundary_static_release_publish;
 mod bounded_live_ingestion_gate_check;
-mod bronze_catalog_recovery_evidence;
-mod bronze_catalog_recovery_execute;
-mod bronze_catalog_recovery_manifest;
-mod bronze_object_members;
-mod bronze_object_storage;
-mod bronze_schema_profile;
+use foundation_publisher_collection::bronze_catalog_recovery_execute;
+use foundation_publisher_collection::bronze_catalog_recovery_manifest;
+use foundation_publisher_collection::bronze_object_members;
+use foundation_publisher_collection::bronze_object_storage;
+use foundation_publisher_collection::bronze_schema_profile;
 mod building_hub_bronze_catalog_recovery;
-mod building_hub_bulk_collection_plan;
-mod building_hub_bulk_ingest;
+use foundation_publisher_collection::building_hub_bulk_collection_plan;
+use foundation_publisher_collection::building_hub_bulk_ingest;
+use foundation_publisher_collection::building_register_ingest;
 use foundation_publisher_core::building_link_evidence;
 use foundation_publisher_silver::building_register_floor_silver_export;
-mod building_register_ingest;
 mod building_register_local_bronze_proof;
-mod building_register_page_count_batch;
-mod building_register_page_count_plan_writer;
+use foundation_publisher_collection::building_register_page_count_batch;
+use foundation_publisher_collection::building_register_page_count_plan_writer;
 mod building_register_smoke;
 use foundation_publisher_silver::hub_provider_release;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
-mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
 mod code_go_kr_legal_dong_collect;
-mod collection_job_requeue;
-mod content_spool;
+use foundation_publisher_collection::collection_job_requeue;
 mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
@@ -90,7 +87,7 @@ mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
-mod ingestion_run_recovery;
+use foundation_publisher_collection::ingestion_run_recovery;
 #[cfg(test)]
 mod test_crosswalk;
 use foundation_publisher_silver::lakehouse_engine_contract;
@@ -102,29 +99,10 @@ use foundation_publisher_silver::land_use_silver_export;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
-#[cfg(test)]
-pub(crate) mod test_support {
-    use std::sync::OnceLock;
-
-    use tokio::sync::{Mutex, MutexGuard};
-
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// The platform's migrations, embedded once for every test that stands up a disposable
-    /// database: each embedding site is a compile-time file read the build-coupling guard counts.
-    pub(crate) static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
-
-    /// Serializes synchronous tests that mutate process-global environment variables.
-    pub(crate) fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(())).blocking_lock()
-    }
-
-    /// Serializes asynchronous tests that mutate process-global environment variables.
-    pub(crate) async fn async_env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
-    }
-}
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
+#[cfg(test)]
+#[cfg(test)]
+use foundation_publisher_core::test_support;
 mod building_catalog_projection_load;
 mod building_unit_building_link_load;
 mod building_unit_catalog_projection_load;
@@ -139,21 +117,19 @@ mod lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
-mod national_bronze_object_manifest;
-mod national_data_collection_async;
-mod national_data_collection_coverage_ledger_check;
-mod national_data_collection_ledger_execute;
-mod national_data_collection_ledger_resume;
-mod national_data_collection_plan_compile;
-mod national_data_collection_rollout_approval_check;
-mod national_data_collection_run;
-mod national_data_collection_scope_writer;
-mod national_data_collection_shard_manifest_writer;
-mod national_page_count_plan_writer;
+use foundation_publisher_collection::national_bronze_object_manifest;
+use foundation_publisher_collection::national_data_collection_async;
+use foundation_publisher_collection::national_data_collection_coverage_ledger_check;
+use foundation_publisher_collection::national_data_collection_ledger_execute;
+use foundation_publisher_collection::national_data_collection_ledger_resume;
+use foundation_publisher_collection::national_data_collection_plan_compile;
+use foundation_publisher_collection::national_data_collection_rollout_approval_check;
+use foundation_publisher_collection::national_data_collection_run;
+use foundation_publisher_collection::national_data_collection_scope_writer;
+use foundation_publisher_collection::national_data_collection_shard_manifest_writer;
+use foundation_publisher_collection::national_page_count_plan_writer;
 mod official_administrative_boundary_source_snapshot;
-mod page_collector;
-mod page_count_plan_contract;
-mod pagination_guard;
+use foundation_publisher_collection::page_collector;
 mod parcel_boundary_handoff;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
@@ -172,18 +148,14 @@ mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
-mod provider_acquisition_import;
-mod provider_acquisition_plan;
-mod provider_file_bronze_catalog_recovery;
-mod provider_lane;
-mod provider_rate_limiter;
-mod provider_request_spacing;
-mod public_api_metric_writer;
-mod public_data_bronze_lane_orchestrator;
-mod public_data_bronze_lane_registry;
+use foundation_publisher_collection::provider_acquisition_import;
+use foundation_publisher_collection::provider_acquisition_plan;
+use foundation_publisher_collection::provider_file_bronze_catalog_recovery;
+use foundation_publisher_collection::provider_request_spacing;
+use foundation_publisher_collection::public_api_metric_writer;
+use foundation_publisher_collection::public_data_bronze_lane_orchestrator;
+use foundation_publisher_collection::public_provider_rate_controller;
 use foundation_publisher_core::public_data_control_support;
-mod public_provider_rate_controller;
-mod public_provider_rate_policy;
 mod publish_lakehouse_lineage_event;
 mod r2_billing_export_collect;
 mod r2_billing_usage_metrics;
@@ -191,16 +163,16 @@ mod r2_bronze_key_cleanup_candidates;
 mod r2_bronze_key_migration;
 mod r2_bronze_key_migration_plan;
 mod r2_cleanup_verify;
-mod r2_command_support;
+use foundation_publisher_core::r2_command_support;
 mod r2_delete_candidates;
 mod r2_inventory_audit;
+use foundation_publisher_collection::real_transaction_ingest;
 use foundation_publisher_core::r2_layout;
-mod real_transaction_ingest;
 mod regional_data_serving_load_check;
+use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
+use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
+use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
-mod rt_molit_real_transaction_export_collection_plan;
-mod rt_molit_real_transaction_export_ingest;
-mod runtime_environment;
 mod serving_source_lineage_register;
 mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
@@ -214,18 +186,17 @@ mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod unit_official_price_projection_load;
 mod vector_tile_runtime_promote;
-mod vworld_bronze_catalog_recovery;
-mod vworld_cadastral_ingest;
-mod vworld_cadastral_silver_export;
-mod vworld_cadastral_silver_shard_export;
-mod vworld_cadastral_smoke;
-mod vworld_credentials;
-mod vworld_dataset_collection_plan;
-mod vworld_dataset_file_ingest;
-mod vworld_dataset_file_inventory;
-mod vworld_land_register_ingest;
-mod vworld_ned_attribute_ingest;
-mod vworld_page_count_batch;
+use foundation_publisher_collection::vworld_bronze_catalog_recovery;
+use foundation_publisher_collection::vworld_cadastral_ingest;
+use foundation_publisher_collection::vworld_cadastral_silver_export;
+use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
+use foundation_publisher_collection::vworld_cadastral_smoke;
+use foundation_publisher_collection::vworld_dataset_collection_plan;
+use foundation_publisher_collection::vworld_dataset_file_ingest;
+use foundation_publisher_collection::vworld_dataset_file_inventory;
+use foundation_publisher_collection::vworld_land_register_ingest;
+use foundation_publisher_collection::vworld_ned_attribute_ingest;
+use foundation_publisher_collection::vworld_page_count_batch;
 
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 

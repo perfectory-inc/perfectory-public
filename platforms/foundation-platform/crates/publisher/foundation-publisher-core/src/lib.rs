@@ -29,9 +29,14 @@
 
 pub mod building_link_evidence;
 pub mod by_pnu_gateway_contract;
+pub mod free_space;
 pub mod handoff_manifest_support;
 pub mod industrial_complex_gold_profile_store;
 pub mod lakehouse_snapshot_scan;
 pub mod profile_gateway_contract;
 pub mod public_data_control_support;
+pub mod r2_command_support;
 pub mod r2_layout;
+pub mod runtime_environment;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod test_support;
