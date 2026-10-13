@@ -21,7 +21,7 @@ import json
 import os
 from typing import Any
 
-from pyspark.sql import DataFrame, SparkSession, functions as F
+from pyspark.sql import DataFrame, SparkSession, functions as F, types as T
 
 from gold_rebuild import assert_minimum_row_count
 import by_pnu_kinds
@@ -205,10 +205,27 @@ def panel_section(spec: KindSpec, panel_rows: DataFrame, entries: dict[str, Any]
                                 for c in spec.kind.columns]).where(present(spec))
 
 
+def without_fields(data_type, names):
+    """`data_type` with the struct fields `names` removed at every depth."""
+    if isinstance(data_type, T.StructType):
+        return T.StructType([T.StructField(f.name, without_fields(f.dataType, names), f.nullable)
+                             for f in data_type.fields if f.name not in names])
+    if isinstance(data_type, T.ArrayType):
+        return T.ArrayType(without_fields(data_type.elementType, names), data_type.containsNull)
+    return data_type
+
+
 def parity_mismatches(spec: KindSpec, gold: DataFrame, panel_rows: DataFrame,
                       entries: dict[str, Any] | None = None) -> DataFrame:
-    """PNUs whose section here differs from the panel's (root ADR-0193 §6-2)."""
+    """PNUs whose section here differs from the panel's (root ADR-0193 §6-2), on the fields both carry."""
     compared = [c for c in spec.content_columns if c != "pnu"]
+    ignores = getattr(spec.section, "parity_ignores", ())
+    if entries is not None and ignores:
+        entries = {name: without_fields(entry, set(ignores)) for name, entry in entries.items()}
+        # Read back through the same types, so both sides drop the same fields.
+        gold = gold.select("pnu", *[
+            F.to_json(F.from_json(c, T.ArrayType(entries[c.removesuffix("_json")]), building.JSON_OPTIONS),
+                      building.JSON_OPTIONS).alias(c) if c.endswith("_json") else F.col(c) for c in compared])
     expected = panel_section(spec, panel_rows, entries).select(
         "pnu", *[F.col(c).alias(f"expected_{c}") for c in compared])
     joined = gold.select("pnu", *compared).join(expected, "pnu", "full_outer")

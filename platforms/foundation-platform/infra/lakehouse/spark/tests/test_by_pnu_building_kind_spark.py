@@ -99,6 +99,19 @@ class BuildingKindSparkTest(unittest.TestCase):
         self.assertEqual(json.loads(rows["building-units"][B].unlinked_units_json)[0]["register_pk"], "UNIT-2")
         self.assertEqual(json.loads(rows["building-units"][B].units_json), [])
 
+    def test_a_kind_carries_the_sources_values_not_a_screens_words(self):
+        # Root ADR-0193: the web writes "지하 1층"/"옥탑" and joins the rooftop usages; a kind does not.
+        rows = {lane: {r.pnu: r for r in self.build(lane)[2].collect()} for lane in self.lanes}
+        titles = json.loads(rows["building-titles"][A].buildings_json)
+        self.assertEqual(titles[0]["rooftop_usage"], ["물탱크"])
+        floors = json.loads(rows["building-floors"][A].floors_json)[0]["floors"]
+        self.assertTrue(all("floor_display_ko" not in f and "floor_kind" in f for f in floors))
+        unit = json.loads(rows["building-units"][A].units_json)[0]["units"][0]
+        self.assertNotIn("floor_label", unit)
+        self.assertEqual(set(unit) & {"floor_kind", "floor_number"}, {"floor_kind", "floor_number"})
+        unlinked = json.loads(rows["building-units"][B].unlinked_units_json)[0]
+        self.assertNotIn("floor_label", unlinked)
+
     def test_parity_refuses_a_drifted_panel(self):
         for lane in self.lanes:
             with self.subTest(lane=lane):
