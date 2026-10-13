@@ -52,18 +52,7 @@ async fn provisioning_is_idempotent_exact_and_transactional(
     assert!(grant_state(&pool, principal_id).await?.is_empty());
     assert_eq!(ledger(&pool, principal_id).await?, (2, 2, 2, 2));
 
-    // The ledger refuses rewriting history, whoever asks.
-    for statement in [
-        "UPDATE identity.service_capability_grant_record SET change = 'granted' \
-         WHERE service_principal_id = $1",
-        "DELETE FROM identity.service_capability_grant_record WHERE service_principal_id = $1",
-    ] {
-        assert!(sqlx::query(statement)
-            .bind(principal_id)
-            .execute(&pool)
-            .await
-            .is_err());
-    }
+    assert_ledger_refuses_rewrites(&pool, principal_id).await;
 
     let occupied_id = Uuid::new_v4();
     let occupied_subject = format!("occupied-{occupied_id}");
@@ -149,6 +138,20 @@ async fn grant_state(
     .bind(principal_id)
     .fetch_all(pool)
     .await
+}
+
+/// The ledger refuses rewriting history, whoever asks.
+async fn assert_ledger_refuses_rewrites(pool: &sqlx::PgPool, principal_id: Uuid) {
+    for statement in [
+        "UPDATE identity.service_capability_grant_record SET change = 'granted'          WHERE service_principal_id = $1",
+        "DELETE FROM identity.service_capability_grant_record WHERE service_principal_id = $1",
+    ] {
+        assert!(sqlx::query(statement)
+            .bind(principal_id)
+            .execute(pool)
+            .await
+            .is_err());
+    }
 }
 
 /// (granted records, revoked records, granted events, revoked events) for one principal.
