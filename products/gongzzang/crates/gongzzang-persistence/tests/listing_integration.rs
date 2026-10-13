@@ -513,6 +513,7 @@ async fn db_check_constraints_match_shared_kernel_enums() {
             "{table}.{column} CHECK drifted from the shared-kernel enum"
         );
     }
+}
 
 /// Root ADR-0223: a parcel copy on a listing names the Foundation contract and snapshot it
 /// came from, and the database refuses a copy that does not.
