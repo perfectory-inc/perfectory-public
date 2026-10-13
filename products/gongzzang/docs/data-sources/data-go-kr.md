@@ -43,7 +43,6 @@ Foundation Platform 소유:
 
 Gongzzang 소유:
 
-- `/api/buildings` route 형태
 - 매물 의미
 - 매물 marker 제공
 

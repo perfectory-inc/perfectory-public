@@ -18,7 +18,6 @@ mod photo_upload;
 
 mod backend_authorization;
 mod backend_rate_limit;
-mod building_reader;
 mod complex_reader;
 mod listing_marker_policy;
 mod listing_marker_serving;
@@ -29,10 +28,7 @@ mod routes {
     pub mod admin_listings;
     pub mod auth_event;
     pub mod bookmarks;
-    pub mod building_units;
-    pub mod buildings;
     pub mod complexes;
-    pub mod floors;
     pub mod foundation_events;
     pub mod health;
     pub mod listing_marker_common;

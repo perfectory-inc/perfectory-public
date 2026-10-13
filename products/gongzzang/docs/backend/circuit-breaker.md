@@ -149,7 +149,6 @@ ADR 승인 archive/lineage 계약이 필요하다.
 따라야 할 현재 예시:
 
 - `services/gongzzang-api/src/foundation_parcel_lookup.rs`
-- `services/gongzzang-api/src/building_reader.rs`
 - `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
 
 이 어댑터는 Foundation Platform 호출을 서비스 소유 경계 뒤에 두고 `reqwest::Client`, `Breaker`,

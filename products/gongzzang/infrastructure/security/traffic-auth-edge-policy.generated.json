@@ -504,54 +504,6 @@
         "window_seconds": 60,
         "problem_type": "proxy/too-many-requests"
       }
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.buildings_read",
-      "edge_path": "/api/proxy/api/buildings",
-      "target_path": "api/buildings",
-      "target_path_kind": "exact",
-      "methods": ["GET"],
-      "exposure_class": "authenticated_user",
-      "required_roles": [],
-      "rate": {
-        "key_strategy": "session_sub",
-        "key_prefix": "api-proxy:authenticated-read",
-        "limit": 240,
-        "window_seconds": 60,
-        "problem_type": "proxy/too-many-requests"
-      }
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.building_units_read",
-      "edge_path": "/api/proxy/api/buildings/:building_id/units",
-      "target_path": "api/buildings/:building_id/units",
-      "target_path_kind": "template",
-      "methods": ["GET"],
-      "exposure_class": "authenticated_user",
-      "required_roles": [],
-      "rate": {
-        "key_strategy": "session_sub",
-        "key_prefix": "api-proxy:authenticated-read",
-        "limit": 240,
-        "window_seconds": 60,
-        "problem_type": "proxy/too-many-requests"
-      }
-    },
-    {
-      "source_policy_id": "gongzzang.api_proxy.floors_read",
-      "edge_path": "/api/proxy/api/floors",
-      "target_path": "api/floors",
-      "target_path_kind": "exact",
-      "methods": ["GET"],
-      "exposure_class": "authenticated_user",
-      "required_roles": [],
-      "rate": {
-        "key_strategy": "session_sub",
-        "key_prefix": "api-proxy:authenticated-read",
-        "limit": 240,
-        "window_seconds": 60,
-        "problem_type": "proxy/too-many-requests"
-      }
     }
   ],
   "service_to_service_rules": [

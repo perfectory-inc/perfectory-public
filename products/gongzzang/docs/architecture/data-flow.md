@@ -75,7 +75,6 @@ Gongzzang은 V-World나 data.go.kr Catalog API를 직접 호출하지 않는다.
 Current approved adapters:
 
 - `services/gongzzang-api/src/foundation_parcel_lookup.rs`
-- `services/gongzzang-api/src/building_reader.rs`
 
 Current supporting policies:
 
