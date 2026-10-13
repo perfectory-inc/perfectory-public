@@ -54,8 +54,7 @@ const BASELINE_JSON: &str =
     include_str!("../../../../infra/lakehouse/contracts/sigungu-crosswalk-baseline.json");
 const HUB_FEED_JSON: &str =
     include_str!("../../../../infra/lakehouse/contracts/hub-register-feed.contract.json");
-const PARCEL_SOURCE_JSON: &str =
-    include_str!("../../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
+use crate::vworld_parcel_source_contract::CONTRACT_JSON as PARCEL_SOURCE_JSON;
 const BASELINE_FILE: &str = "sigungu-crosswalk-baseline.json";
 const HUB_FEED_FILE: &str = "hub-register-feed.contract.json";
 

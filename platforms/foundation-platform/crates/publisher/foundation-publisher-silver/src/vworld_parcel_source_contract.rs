@@ -25,6 +25,9 @@ use sqlx::{PgConnection, Row};
 
 /// The contract version this module reads.
 pub const SCHEMA_VERSION: u64 = 3;
+/// The contract as built in, for the readers that cannot open a file (the 시군구 crosswalk).
+pub const CONTRACT_JSON: &str =
+    include_str!("../../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
 /// A read bound: the parcel source holds a few hundred objects per edition, a handful of members each.
 const MAX_MEMBER_ROWS: i64 = 200_000;
 /// The command that measures what the ledger holds and nobody has read yet (root ADR-0169 §1).

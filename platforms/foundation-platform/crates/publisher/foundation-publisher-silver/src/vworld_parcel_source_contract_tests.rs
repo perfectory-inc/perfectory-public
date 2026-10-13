@@ -1,7 +1,6 @@
 use super::*;
 
-const REAL: &str =
-    include_str!("../../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
+const REAL: &str = CONTRACT_JSON;
 
 const CONTRACT: &str = r#"{
     "schema_version": 3, "source": "bronze/source=fixture__parcel", "load_granularity": "sigungu",
