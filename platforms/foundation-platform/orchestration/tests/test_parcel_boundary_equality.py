@@ -31,7 +31,7 @@ spec.loader.exec_module(equality)
 RUN = "01a06e42-0000-7000-8000-000000000001"
 LOAD = "3d24bbff-0000-4000-8000-000000000002"
 ARGS = ["--source-snapshot-id", "vworldkr__parcel-202606", "--served-snapshot", "4772",
-        "--mirror-run-id", RUN, "--publication-load-id", LOAD]
+        "--mirror-run-id", RUN, "--publication-load-id", LOAD, "--prefix-length", "7"]
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ def sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def fingerprint_rows(parcels, prefix_length=2):
+def fingerprint_rows(parcels, prefix_length=7):
     """What the SQL returns: one CSV line per region with the ten fingerprint fields."""
     regions = {}
     for p in parcels:
@@ -71,12 +71,12 @@ def fingerprint_rows(parcels, prefix_length=2):
 
 
 def lake_parcel(pnu, n):
-    wkb = bytes([n, int(pnu[:2])]) * 9
-    return Parcel(pnu, hashlib.sha256(wkb).hexdigest(), 1e-8 * n, 127.0 + n * 1e-3, 37.0 + n * 1e-3, wkb)
+    wkb = bytes([n, int(pnu[5:7])]) * 9
+    return Parcel(pnu, hashlib.sha256(wkb).hexdigest(), 1e-8 * n, 10.0 + n * 1e-3, 20.0 + n * 1e-3, wkb)
 
 
-# Fictional PNUs (999 is no real 시군구 code): two regions, five parcels each.
-LAKE = [lake_parcel(f"{region}99900101100010{n:03d}", n) for region in ("11", "26") for n in range(1, 6)]
+# The repository-reserved 99999 PNUs, coordinates outside Korea: two regions, five parcels each.
+LAKE = [lake_parcel(f"99999{region}010110001{n:03d}", n) for region in ("11", "26") for n in range(1, 6)]
 
 
 def postgis(parcels, noise=1e-13):
@@ -121,30 +121,30 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
         again = [replace(p, checksum=sha(p.checksum)) for p in postgis(LAKE)]
         code, report = run(sides(mirror=again, publication=again))
         self.assertEqual(code, 0, report)
-        self.assertEqual(report["source_bytes_differ_between_engines"], ["11", "26"])
+        self.assertEqual(report["source_bytes_differ_between_engines"], ["9999911", "9999926"])
 
     def test_a_reshaped_parcel_in_the_mirror_names_its_region(self):
         mirror = changed(postgis(LAKE), 7, area=LAKE[7].area * 1.01)
         code, report = run(sides(mirror=mirror))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["26"])
+        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["9999926"])
 
     def test_a_moved_parcel_differs_even_with_its_area(self):
         served = changed(LAKE, 2, x=LAKE[2].x + 1e-5)
         code, report = run(sides(served=served))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["11"])
+        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["9999911"])
 
     def test_a_parcel_missing_from_one_side_differs(self):
         code, report = run(sides(publication=postgis(LAKE[1:])))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_parcels"]], ["11"])
+        self.assertEqual([d["region"] for d in report["differing_parcels"]], ["9999911"])
 
     def test_a_region_only_one_side_holds_differs(self):
-        extra = lake_parcel("4799900101100010001", 9)
+        extra = lake_parcel("9999947010110001001", 9)
         code, report = run(sides(served=LAKE + [extra]))
         self.assertEqual(code, 1)
-        self.assertEqual(report["differing_parcels"][0]["region"], "47")
+        self.assertEqual(report["differing_parcels"][0]["region"], "9999947")
         self.assertIsNone(report["differing_parcels"][0]["sides"]["silver"])
 
     def test_a_pnu_held_twice_fails_even_when_every_side_agrees(self):
@@ -157,14 +157,14 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
         served = changed(LAKE, 0, checksum=sha("other"), wkb=b"other")
         code, report = run(sides(served=served))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["source_bytes_split_within_an_engine"]], ["11"])
+        self.assertEqual([d["region"] for d in report["source_bytes_split_within_an_engine"]], ["9999911"])
 
     def test_a_checksum_that_does_not_name_the_bytes_fails(self):
         both = changed(LAKE, 0, wkb=LAKE[0].wkb + b"!")
         code, report = run(sides(silver=both, served=both))
         self.assertEqual(code, 1)
         self.assertEqual({(m["region"], m["side"]) for m in report["checksum_mismatches"]},
-                         {("11", "silver"), ("11", "served")})
+                         {("9999911", "silver"), ("9999911", "served")})
 
     def test_an_unreadable_side_exits_2(self):
         def broken(engine, _sql):
@@ -176,8 +176,8 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
         self.assertFalse(json.loads(out.getvalue())["equal"])
 
     def test_the_region_limits_every_side_and_refuses_anything_but_digits(self):
-        queries = equality.side_queries(equality.parse_args(ARGS + ["--region", "11"]))
-        self.assertTrue(all("pnu LIKE '11%'" in sql for _, sql in queries.values()))
+        queries = equality.side_queries(equality.parse_args(ARGS + ["--region", "9999911"]))
+        self.assertTrue(all("pnu LIKE '9999911%'" in sql for _, sql in queries.values()))
         with self.assertRaises(ValueError):
             equality.side_queries(equality.parse_args(ARGS + ["--region", "11' OR '1'='1"]))
 
@@ -200,9 +200,9 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
 
     def test_a_malformed_engine_row_is_refused(self):
         with self.assertRaises(ValueError):
-            equality.parse_rows("11,1,1,1,1\n")
-        row = "11,1,1,1,1,1,1,0,1.0,2.0,3.0\n"
-        self.assertEqual(equality.parse_rows(row)["11"].centroid_y, 3.0)
+            equality.parse_rows("9999911,1,1,1,1\n")
+        row = "9999911,1,1,1,1,1,1,0,1.0,2.0,3.0\n"
+        self.assertEqual(equality.parse_rows(row)["9999911"].centroid_y, 3.0)
         with self.assertRaises(ValueError):
             equality.parse_rows(row + row)
 
