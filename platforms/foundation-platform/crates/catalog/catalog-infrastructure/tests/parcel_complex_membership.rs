@@ -686,7 +686,11 @@ async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> 
         .execute(&pool)
         .await?;
 
-        let refused = migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION)
+        // Unlocked: sqlx returns on a failed migration without releasing its session advisory lock,
+        // which would leave the approved run below, on another session, waiting forever.
+        let mut gated = migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION);
+        gated.set_locking(false);
+        let refused = gated
             .run(&pool)
             .await
             .expect_err("a populated copy must not be dropped without approval");
@@ -708,9 +712,7 @@ async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> 
         .execute(&pool)
         .await?;
         let approved = PgPool::connect_with((*pool.connect_options()).clone()).await?;
-        migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION)
-            .run(&approved)
-            .await?;
+        gated.run(&approved).await?;
         let gone = sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NULL")
             .fetch_one(&approved)
             .await?;
