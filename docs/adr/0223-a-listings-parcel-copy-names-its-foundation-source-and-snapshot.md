@@ -1,6 +1,6 @@
 # ADR 0223: 매물에 복사한 필지 값은 Foundation 계약과 스냅샷을 함께 적는다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-14
 - Related: [ADR-0096](./0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md) (필지 문서는 Gold 스냅샷의 순수 함수), [ADR-0109](./0109-gongzzang-reads-parcel-and-building-detail-from-the-r2-edge.md) (공짱은 필지 상세를 R2 엣지에서 읽는다), GZ-ADR-0016 (매물 행에 필지 값 복사)
 
