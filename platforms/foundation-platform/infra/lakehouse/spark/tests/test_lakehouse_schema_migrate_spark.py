@@ -170,7 +170,8 @@ class MigrationSpark(unittest.TestCase):
     def test_a_retired_kind_column_is_dropped_and_the_rows_keep_their_values(self):
         # gold.parcel_land_rights as production holds it: the deploy drops land_right_total (root ADR-0193 §9).
         name = "gold.parcel_land_rights"
-        contract = dict(load_lakehouse_contract(name), partition_spec=[], sort_order=[])
+        # Range distributed by pnu: the sort order stays, so the run also sets the write order.
+        contract = dict(load_lakehouse_contract(name), partition_spec=[])
         table = self.table(name, "pnu STRING, land_rights_json STRING, land_right_total BIGINT, attached_via STRING, "
                                  "row_digest STRING, source_snapshot_id STRING, published_at_utc STRING")
         self.spark.sql(f"INSERT INTO {table} VALUES ('p', '[1]', 1, NULL, 'd', 's', 't')")
