@@ -11,6 +11,9 @@ last_reviewed: 2026-07-29
 
 ## 1. 로컬 개발 환경
 
+> 아래 `infra/zitadel/` 은 identity-platform 의 Zitadel 구성으로 옮긴 뒤 지울 예정이다 —
+> 순서와 남은 결정은 [루트 ADR-0228](../../../../docs/adr/0228-one-zitadel-setup-in-identity-platform-and-one-gongzzang-infrastructure-folder.md).
+
 ```bash
 # 1. 커밋되지 않는 로컬 자격증명 생성 (매번 새 개발 스택에 새 값 사용)
 umask 077
