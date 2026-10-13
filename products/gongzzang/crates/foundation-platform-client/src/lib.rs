@@ -11,9 +11,10 @@ pub use catalog::{
     CatalogComplexListQuery, CatalogIndustrialComplexGoldPointer,
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
     CatalogParcelCharacteristic, CatalogParcelEdgeClient, CatalogParcelForestLedger,
-    CatalogParcelLandRight, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelTransferEvent,
-    CatalogParcelZoning, FoundationCatalogClient, FoundationCatalogClientConfigError,
-    FoundationCatalogClientRequestError, FoundationCatalogHttpError,
+    CatalogParcelLandRight, CatalogParcelPrice, CatalogParcelResponse, CatalogParcelSource,
+    CatalogParcelTransferEvent, CatalogParcelZoning, FoundationCatalogClient,
+    FoundationCatalogClientConfigError, FoundationCatalogClientRequestError,
+    FoundationCatalogHttpError,
 };
 
 /// Parses and validates a Foundation Platform endpoint URL.

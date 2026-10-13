@@ -131,4 +131,16 @@ pub struct ParcelInfo {
     pub land_rights: Vec<ParcelLandRight>,
     /// Total registered land-right rows, independent of the page bound (root ADR-0093).
     pub land_right_total: u64,
+    /// Foundation contract and data snapshot this answer came from; `None` when the
+    /// document names neither, and then nothing may copy its values (root ADR-0223).
+    pub source: Option<ParcelSource>,
+}
+
+/// Which Foundation contract and data snapshot a parcel answer came from (root ADR-0223).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParcelSource {
+    /// Foundation document contract, e.g. `foundation-platform.parcel_by_pnu_profile.v1`.
+    pub contract: String,
+    /// Iceberg snapshot of the Gold table the document was baked from: the data's as-of.
+    pub snapshot_id: String,
 }
