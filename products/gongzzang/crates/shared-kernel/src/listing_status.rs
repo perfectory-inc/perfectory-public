@@ -41,12 +41,13 @@ pub enum ListingStatusError {
 
 impl ListingStatus {
     /// 모든 값, 선언 순서. `FromStr` 와 `DB` `CHECK` 동등성 테스트가 이 목록을 읽어요.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Draft,
         Self::PendingReview,
         Self::Active,
         Self::Sold,
         Self::Expired,
+        Self::Rejected,
     ];
 
     /// 정규화된 `snake_case` 문자열 반환 (`DB varchar(20)` 매핑).
