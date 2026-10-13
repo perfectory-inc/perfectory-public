@@ -46,6 +46,7 @@ for g in hook-isolation-self-test \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \
          tracked-blob-sizes-self-test public-repository-safety \
+         tracked-paths-are-portable-self-test tracked-paths-are-portable \
          container-runtime-policy-self-test container-runtime-policy \
          every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          runtime-secrets-contract-self-test runtime-secrets-contract \
