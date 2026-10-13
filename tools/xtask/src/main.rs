@@ -2359,6 +2359,41 @@ mod tests {
         }
     }
 
+    /// Live lanes stay on `cargo test`, one process at a time per target, while `verify` moved to
+    /// nextest (root ADR-0205). Their suites share one database and serialize on an in-process
+    /// `TEST_LOCK`; nextest runs each test in its own process, where that lock serializes nothing.
+    /// `lane_target_verdict` also reads libtest's summary, which nextest does not print.
+    #[test]
+    fn every_live_lane_runs_as_one_serial_cargo_test_process() {
+        let mut checked = 0;
+        for area in AREAS {
+            for lane in area.live_lanes {
+                for command in lane_commands(lane) {
+                    assert_eq!(
+                        command[0], "test",
+                        "{} lane {}: {command:?}",
+                        area.slug, lane.name
+                    );
+                    assert!(
+                        !command.iter().any(|arg| arg == "nextest"),
+                        "{} lane {}: {command:?}",
+                        area.slug,
+                        lane.name
+                    );
+                    assert_eq!(
+                        command.last().map(String::as_str),
+                        Some("--test-threads=1"),
+                        "{} lane {}: {command:?}",
+                        area.slug,
+                        lane.name
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no lane command was checked");
+    }
+
     /// A feature-gated lane needs the OPPOSITE flags of an `#[ignore]` lane, and
     /// getting it wrong is silent.
     ///
