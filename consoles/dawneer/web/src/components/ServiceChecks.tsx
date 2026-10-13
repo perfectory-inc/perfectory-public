@@ -1,4 +1,4 @@
-// 서비스 점검 tab (root ADR-0207): the host's hourly check of how Korea reaches the live hostnames,
+// 서비스 점검 tab (root ADR-0209): the host's hourly check of how Korea reaches the live hostnames,
 // and the weekly pull request CI time against its one budget.
 import { useQuery } from "@tanstack/react-query";
 

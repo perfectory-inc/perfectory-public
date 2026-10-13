@@ -1,4 +1,4 @@
-"""The host's service checks (root ADR-0207): what scripts/ops/service-checks.py measures and writes.
+"""The host's service checks (root ADR-0209): what scripts/ops/service-checks.py measures and writes.
 
 The hostnames come from the gateways' contract, the CI trend from root ADR-0203's own script, and
 the file it writes has exactly the shape foundation-api reads (the example both sides test with).

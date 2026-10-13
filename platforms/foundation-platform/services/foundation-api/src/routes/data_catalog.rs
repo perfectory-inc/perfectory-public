@@ -45,7 +45,7 @@ const MAX_NEIGHBOURS: u32 = 200;
     info(
         title = "Foundation Platform staff data catalog API",
         version = "1.0.0",
-        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0207)."
+        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0209)."
     ),
     paths(
         search,

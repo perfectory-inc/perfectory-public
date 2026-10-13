@@ -348,7 +348,7 @@ export interface components {
              */
             reference_colo?: string | null;
         };
-        /** @description One live hostname as the host in Korea reaches it (root ADR-0207). */
+        /** @description One live hostname as the host in Korea reaches it (root ADR-0209). */
         EdgeHostCheck: {
             /** @description The Cloudflare data centre most answers came from (`ICN` is Seoul). */
             colo?: string | null;
@@ -600,7 +600,7 @@ export interface components {
              */
             scheduler_error?: string | null;
         };
-        /** @description The host's service checks (root ADR-0207): the edge path from Korea and the CI time trend. */
+        /** @description The host's service checks (root ADR-0209): the edge path from Korea and the CI time trend. */
         ServiceChecks: {
             /**
              * Format: date-time

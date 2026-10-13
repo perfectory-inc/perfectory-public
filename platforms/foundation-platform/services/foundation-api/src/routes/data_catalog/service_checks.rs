@@ -1,4 +1,4 @@
-//! The host's service checks (root ADR-0207): how the live hostnames are reached from Korea and the
+//! The host's service checks (root ADR-0209): how the live hostnames are reached from Korea and the
 //! weekly pull request CI time, as `infra/systemd/foundation-service-checks.service` last wrote
 //! them. Foundation only reads the file; a missing or unreadable one is said in `error`, not a 500,
 //! so the operations map shows why the panel is empty.

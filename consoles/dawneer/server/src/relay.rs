@@ -73,7 +73,7 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("quality-checks")]),
     // A dataset's Iceberg snapshots and what read them (root ADR-0195).
     (Method::GET, &[Literal("dataset-snapshots")]),
-    // How Korea reaches the live hostnames and how long pull request CI takes (root ADR-0207).
+    // How Korea reaches the live hostnames and how long pull request CI takes (root ADR-0209).
     (Method::GET, &[Literal("service-checks")]),
 ];
 

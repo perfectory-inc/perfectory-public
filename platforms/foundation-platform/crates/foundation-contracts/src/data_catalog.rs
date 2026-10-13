@@ -229,7 +229,7 @@ pub struct DatasetSnapshots {
     pub error: Option<String>,
 }
 
-/// One live hostname as the host in Korea reaches it (root ADR-0207).
+/// One live hostname as the host in Korea reaches it (root ADR-0209).
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct EdgeHostCheck {
     /// The hostname, from the gateways' contract.
@@ -294,7 +294,7 @@ pub struct CiTimeTrend {
     pub error: Option<String>,
 }
 
-/// The host's service checks (root ADR-0207): the edge path from Korea and the CI time trend.
+/// The host's service checks (root ADR-0209): the edge path from Korea and the CI time trend.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct ServiceChecks {
     /// When the host last ran them.

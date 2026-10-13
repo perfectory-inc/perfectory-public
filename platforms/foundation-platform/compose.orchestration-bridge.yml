@@ -4,7 +4,7 @@
 # own screens for staff. foundation-api reaches the scheduler's API on the identity network both
 # join (`airflow-apiserver`). The sign-in, the catalog token and the screen addresses live in the
 # uncommitted operations-map.env (config/runtime-secrets.contract.json); without it the map still
-# answers, saying which store it could not read. The host's service checks (root ADR-0207,
+# answers, saying which store it could not read. The host's service checks (root ADR-0209,
 # infra/systemd/foundation-service-checks.service) write one file that foundation-api serves as is.
 services:
   foundation-api:

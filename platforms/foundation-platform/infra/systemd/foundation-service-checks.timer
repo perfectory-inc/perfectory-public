@@ -1,5 +1,5 @@
 [Unit]
-Description=Run the service checks every hour (root ADR-0207)
+Description=Run the service checks every hour (root ADR-0209)
 
 [Timer]
 # A host check, not a data job: like the serving monitor it stays a systemd timer (root ADR-0118 §1).

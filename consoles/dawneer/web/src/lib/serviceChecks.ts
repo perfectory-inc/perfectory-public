@@ -1,4 +1,4 @@
-// 서비스 점검 (root ADR-0207): how Korea reaches the live hostnames and how long pull request CI
+// 서비스 점검 (root ADR-0209): how Korea reaches the live hostnames and how long pull request CI
 // takes, as the host's hourly check wrote them. Plain sentences for the tab under the graph.
 import type { CiWeek, EdgeHostCheck } from "../api/client";
 

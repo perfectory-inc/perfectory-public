@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The operations map's two service checks (root ADR-0207), written to one JSON file:
+"""The operations map's two service checks (root ADR-0209), written to one JSON file:
 
 - edge: how Korean visitors reach the live catalog, buildings and tiles hostnames. Every live
   hostname of those three gateways in config/r2-connections.contract.json (the public hostname and

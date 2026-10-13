@@ -233,7 +233,7 @@ export class DawneerClient {
     return this.call(`dataset-snapshots?${new URLSearchParams({ node_id: nodeId }).toString()}`, {}, "data-catalog");
   }
 
-  /** How Korea reaches the live hostnames and the weekly pull request CI time (root ADR-0207). */
+  /** How Korea reaches the live hostnames and the weekly pull request CI time (root ADR-0209). */
   serviceChecks(): Promise<ServiceChecks> {
     return this.call("service-checks", {}, "data-catalog");
   }
