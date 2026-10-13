@@ -1,8 +1,10 @@
 // Korean words for the Catalog API's codes and numbers. The codes are the contract; these are
-// only how the screen says them.
+// only how the screen says them. Each table is keyed by the code type generated from Foundation's
+// OpenAPI document, so a code Foundation adds or drops fails `tsc` until its word is written here.
+import type { ComplexKind, ComplexSort, DevelopmentStage, LotSalesStatus } from "../api/client";
 
 // The source's own words (`lrstt_ty`), one to one.
-export const COMPLEX_KIND_LABEL: Record<string, string> = {
+export const COMPLEX_KIND_LABEL: Record<ComplexKind, string> = {
   national: "국가",
   general: "일반",
   urban_high_tech: "도시첨단",
@@ -11,7 +13,7 @@ export const COMPLEX_KIND_LABEL: Record<string, string> = {
 
 // The development stage codes (root ADR-0121) with the source word each one names. Shown only for
 // rows loaded before the platform carried the word itself (`status_raw`).
-export const DEVELOPMENT_STAGE_LABEL: Record<string, string> = {
+export const DEVELOPMENT_STAGE_LABEL: Record<DevelopmentStage, string> = {
   site_completed: "조성완료",
   site_in_progress: "조성중",
   preparing: "준비중",
@@ -19,10 +21,16 @@ export const DEVELOPMENT_STAGE_LABEL: Record<string, string> = {
 };
 
 // The source's own words (`lttot_sttus_nm`), one to one.
-export const LOT_SALES_LABEL: Record<string, string> = {
+export const LOT_SALES_LABEL: Record<LotSalesStatus, string> = {
   planned: "분양계획",
   in_progress: "분양중",
   completed: "분양완료",
+};
+
+export const SORT_LABEL: Record<ComplexSort, string> = {
+  name_asc: "이름순",
+  area_desc: "면적 큰 순",
+  official_complex_code_asc: "단지코드순",
 };
 
 export const TILE_UNIT_LABEL: Record<string, string> = {
