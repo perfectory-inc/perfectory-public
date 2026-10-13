@@ -62,14 +62,14 @@ use crate::static_release_url::public_tiles_base_url;
 use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 #[path = "pmtiles_feature_ids.rs"]
-pub(crate) mod pmtiles_feature_ids;
+pub mod pmtiles_feature_ids;
 #[path = "tile_equivalence.rs"]
-pub(crate) mod tile_equivalence;
+pub mod tile_equivalence;
 
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
-const CONTRACT_JSON: &str = include_str!("../../../config/tile-bake-containers.contract.json");
+const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
 const SERVED_SUMMARY_V1: &str = "foundation-platform.polygon_served_gold.v1";
 const SERVED_SUMMARY_V2: &str = "foundation-platform.polygon_served_gold.v2";
 /// The Silver CRSs a served snapshot may arrive in; GDAL reprojects either to EPSG:4326.
@@ -84,9 +84,9 @@ const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 /// `config/tile-bake-containers.contract.json`: the pinned images, their memory caps, and how much
 /// free work disk a bake needs.
 #[derive(Debug, Deserialize)]
-pub(crate) struct BakeContract {
+pub struct BakeContract {
     images: ImageSet,
-    pub(crate) work_disk: WorkDisk,
+    pub work_disk: WorkDisk,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,25 +96,25 @@ struct ImageSet {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct Image {
+pub struct Image {
     image: String,
     #[serde(default)]
     version_banner: Option<String>,
     /// Passed as both `--memory` and `--memory-swap`, so the container cannot swap past it either.
-    pub(crate) memory_limit: String,
+    pub memory_limit: String,
 }
 
 /// Free space the work root must have before a bake starts: the larger of a floor and a multiple
 /// of the handoff's bytes (the GDAL CSV, the GeoJSON sequence, tippecanoe's temporary files and the
 /// archive all live there at once).
 #[derive(Debug, Deserialize)]
-pub(crate) struct WorkDisk {
-    pub(crate) min_free_bytes: u64,
-    pub(crate) min_free_bytes_per_handoff_byte: u64,
+pub struct WorkDisk {
+    pub min_free_bytes: u64,
+    pub min_free_bytes_per_handoff_byte: u64,
 }
 
 impl BakeContract {
-    pub(crate) fn parse(text: &str) -> anyhow::Result<Self> {
+    pub fn parse(text: &str) -> anyhow::Result<Self> {
         let contract: Self = serde_json::from_str(text).context("tile-bake container contract")?;
         for (name, image) in [
             ("gdal", &contract.images.gdal),
@@ -137,7 +137,7 @@ impl BakeContract {
     /// Runs the tippecanoe image the admitted release built (root ADR-0134 §3): the release
     /// build records its image ID in `build.json` and the job passes it here, in place of the
     /// contract's hand-built tag. The version banner check still runs against it.
-    pub(crate) fn with_release_tippecanoe(mut self, image: Option<String>) -> anyhow::Result<Self> {
+    pub fn with_release_tippecanoe(mut self, image: Option<String>) -> anyhow::Result<Self> {
         if let Some(image) = image {
             ensure!(
                 image.strip_prefix("sha256:").is_some_and(|digest| digest.len() == 64
@@ -160,31 +160,31 @@ fn memory_limit_is_a_size(limit: &str) -> bool {
 
 /// One part of a `v2` handoff, as the served-Gold job recorded it.
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct HandoffPart {
-    pub(crate) path: String,
-    pub(crate) rows: usize,
-    pub(crate) sha256: String,
+pub struct HandoffPart {
+    pub path: String,
+    pub rows: usize,
+    pub sha256: String,
 }
 
 /// What the served-Gold job recorded about the state it wrote.
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct ServedSummary {
+pub struct ServedSummary {
     schema_version: String,
-    pub(crate) unit: String,
-    pub(crate) feature_id_property: String,
-    pub(crate) geometry_srid: i32,
-    pub(crate) canonical_iceberg_snapshot_id: String,
-    pub(crate) edits_through_change_seq: u64,
-    pub(crate) served_row_count: usize,
+    pub unit: String,
+    pub feature_id_property: String,
+    pub geometry_srid: i32,
+    pub canonical_iceberg_snapshot_id: String,
+    pub edits_through_change_seq: u64,
+    pub served_row_count: usize,
     status: String,
     #[serde(default)]
-    pub(crate) source_snapshot_id: Option<String>,
+    pub source_snapshot_id: Option<String>,
     #[serde(default)]
-    pub(crate) handoff_parts: Option<Vec<HandoffPart>>,
+    pub handoff_parts: Option<Vec<HandoffPart>>,
 }
 
 impl ServedSummary {
-    pub(crate) fn validate(&self, unit: &str) -> anyhow::Result<()> {
+    pub fn validate(&self, unit: &str) -> anyhow::Result<()> {
         ensure!(self.status == "ready", "served summary is not ready");
         ensure!(
             self.unit == unit,
@@ -214,7 +214,7 @@ impl ServedSummary {
     /// The Silver snapshot this bake binds (ADR-0133 §5): only a v2 summary binds one. A v1 summary
     /// may still carry `source_snapshot_id` as an extra field (the admin served-Gold job writes it),
     /// and that must never turn a v1 bake into a Silver-bound one.
-    pub(crate) fn bound_silver_snapshot(&self) -> Option<&str> {
+    pub fn bound_silver_snapshot(&self) -> Option<&str> {
         if self.schema_version == SERVED_SUMMARY_V2 {
             self.source_snapshot_id.as_deref()
         } else {
@@ -272,15 +272,15 @@ impl ServedSummary {
 
 /// One served row, as the tile bake reads it: the feature id, the tile properties, the geometry.
 #[derive(Debug, Deserialize)]
-pub(crate) struct ServedRow {
-    pub(crate) feature_id: String,
-    pub(crate) properties: std::collections::BTreeMap<String, String>,
-    pub(crate) geometry_wkb_hex: String,
-    pub(crate) geometry_srid: i32,
+pub struct ServedRow {
+    pub feature_id: String,
+    pub properties: std::collections::BTreeMap<String, String>,
+    pub geometry_wkb_hex: String,
+    pub geometry_srid: i32,
 }
 
 /// The fixed-size stand-in for a feature id: the first 16 bytes of its SHA-256.
-pub(crate) fn id_hash(id: &str) -> u128 {
+pub fn id_hash(id: &str) -> u128 {
     let digest = Sha256::digest(id.as_bytes());
     let mut first = [0_u8; 16];
     first.copy_from_slice(&digest[..16]);
@@ -289,13 +289,13 @@ pub(crate) fn id_hash(id: &str) -> u128 {
 
 /// Every served feature id, as sorted distinct hashes: 16 bytes per feature.
 #[derive(Debug)]
-pub(crate) struct ServedIds {
+pub struct ServedIds {
     sorted: Vec<u128>,
 }
 
 impl ServedIds {
     /// Sorts the hashes; returns the first repeated one if a feature id was served twice.
-    pub(crate) fn from_hashes(mut hashes: Vec<u128>) -> Result<Self, u128> {
+    pub fn from_hashes(mut hashes: Vec<u128>) -> Result<Self, u128> {
         hashes.sort_unstable();
         if let Some(pair) = hashes.windows(2).find(|pair| pair[0] == pair[1]) {
             return Err(pair[0]);
@@ -312,7 +312,7 @@ impl ServedIds {
     }
 
     /// Evidence: the SHA-256 of the sorted id hashes.
-    pub(crate) fn digest(&self) -> String {
+    pub fn digest(&self) -> String {
         let mut hasher = Sha256::new();
         for hash in &self.sorted {
             hasher.update(hash.to_be_bytes());
@@ -394,7 +394,7 @@ fn for_each_handoff_line(
 }
 
 /// The bytes the handoff occupies, which sizes the work disk it needs.
-pub(crate) fn handoff_bytes(summary: &ServedSummary, handoff: &Path) -> anyhow::Result<u64> {
+pub fn handoff_bytes(summary: &ServedSummary, handoff: &Path) -> anyhow::Result<u64> {
     let size = |path: &Path| {
         std::fs::metadata(path)
             .map(|meta| meta.len())
@@ -411,11 +411,11 @@ pub(crate) fn handoff_bytes(summary: &ServedSummary, handoff: &Path) -> anyhow::
 
 /// The served handoff, validated and turned into the GDAL input.
 #[derive(Debug)]
-pub(crate) struct PreparedHandoff<W> {
-    pub(crate) csv: W,
+pub struct PreparedHandoff<W> {
+    pub csv: W,
     /// The tile properties: the feature id first, then every row property.
-    pub(crate) columns: Vec<String>,
-    pub(crate) ids: ServedIds,
+    pub columns: Vec<String>,
+    pub ids: ServedIds,
 }
 
 fn csv_field(value: &str) -> String {
@@ -425,7 +425,7 @@ fn csv_field(value: &str) -> String {
 /// Streams the handoff once into `csv` — one CSV row per feature: id, properties, hex WKB —
 /// refusing repeats, a CRS or a property set that differs between rows, a part whose bytes or
 /// count differ from the summary, and a total the summary did not promise.
-pub(crate) fn prepare_handoff<W: Write>(
+pub fn prepare_handoff<W: Write>(
     summary: &ServedSummary,
     handoff: &Path,
     mut csv: W,
@@ -526,17 +526,17 @@ fn ids_with_hashes(
 
 /// The layer the active release serves, which the new archive must reproduce.
 #[derive(Debug, Clone)]
-pub(crate) struct ServedLayer {
-    pub(crate) source_layer: String,
-    pub(crate) feature_id_property: String,
-    pub(crate) tile_min_zoom: u8,
-    pub(crate) tile_max_zoom: u8,
-    pub(crate) properties: Vec<String>,
+pub struct ServedLayer {
+    pub source_layer: String,
+    pub feature_id_property: String,
+    pub tile_min_zoom: u8,
+    pub tile_max_zoom: u8,
+    pub properties: Vec<String>,
 }
 
 /// Checks a PMTiles v3 header: MVT tiles over exactly the layer's zoom range, in compressions the
 /// gate can read.
-pub(crate) fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow::Result<()> {
+pub fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow::Result<()> {
     use pmtiles_feature_ids::{Header, COMPRESSION_GZIP, COMPRESSION_NONE, TILE_TYPE_MVT};
     let header = Header::parse(header)?;
     ensure!(
@@ -566,7 +566,7 @@ pub(crate) fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow
 /// The gate: the archive's header matches the layer, and its maxzoom tiles carry exactly the
 /// served ids — none missing, none extra. A feature appears in every maxzoom tile it touches, so
 /// presence is a bit per served id. Returns the evidence digest of the id set.
-pub(crate) fn gate_archive(
+pub fn gate_archive(
     archive: &Path,
     layer: &ServedLayer,
     columns: &[String],
@@ -627,11 +627,7 @@ pub(crate) fn gate_archive(
 }
 
 /// Refuses a work disk with less free space than the contract asks for this handoff.
-pub(crate) fn ensure_work_disk(
-    free: u64,
-    handoff_bytes: u64,
-    disk: &WorkDisk,
-) -> anyhow::Result<()> {
+pub fn ensure_work_disk(free: u64, handoff_bytes: u64, disk: &WorkDisk) -> anyhow::Result<()> {
     let needed = handoff_bytes
         .saturating_mul(disk.min_free_bytes_per_handoff_byte)
         .max(disk.min_free_bytes);
@@ -642,7 +638,7 @@ pub(crate) fn ensure_work_disk(
     Ok(())
 }
 
-pub(crate) use foundation_publisher_core::free_space::free_bytes;
+pub use foundation_publisher_core::free_space::free_bytes;
 
 struct Config {
     unit_key: String,
@@ -799,7 +795,7 @@ async fn docker(
 
 /// `docker run` for one pinned tool: no network, the contract's memory cap with no swap beyond
 /// it, the work directory at `/w`.
-pub(crate) fn run_args(work: &Path, image: &Image) -> Vec<OsString> {
+pub fn run_args(work: &Path, image: &Image) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "run".into(),
         "--rm".into(),
@@ -828,7 +824,7 @@ pub(crate) fn run_args(work: &Path, image: &Image) -> Vec<OsString> {
 /// tippecanoe's arguments after the image: the flags measured on the Seoul pilot (root ADR-0133),
 /// plus `-t` so its temporary files stay on the work disk and `-P` because the GeoJSON sequence
 /// has one feature per line.
-pub(crate) fn tippecanoe_args(layer: &ServedLayer, columns: &[String]) -> Vec<OsString> {
+pub fn tippecanoe_args(layer: &ServedLayer, columns: &[String]) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         "-o".to_owned(),
         "/w/unit.pmtiles".to_owned(),

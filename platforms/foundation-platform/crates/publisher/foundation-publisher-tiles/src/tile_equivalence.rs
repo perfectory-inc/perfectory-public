@@ -37,28 +37,28 @@ use serde_json::Value;
 
 use super::pmtiles_feature_ids::{tile_id, tile_zxy, zoom_range, Archive};
 
-pub(crate) const SAMPLE_CONTRACT_JSON: &str =
-    include_str!("../../../config/tile-equivalence.contract.json");
+pub const SAMPLE_CONTRACT_JSON: &str =
+    include_str!("../../../../config/tile-equivalence.contract.json");
 
 /// `config/tile-equivalence.contract.json`.
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct SampleContract {
-    pub(crate) zooms: Vec<u8>,
-    pub(crate) densest_tiles: usize,
-    pub(crate) random_tiles: usize,
-    pub(crate) random_seed: u64,
-    pub(crate) corner_inset_percent: u32,
-    pub(crate) example_ids: usize,
+pub struct SampleContract {
+    pub zooms: Vec<u8>,
+    pub densest_tiles: usize,
+    pub random_tiles: usize,
+    pub random_seed: u64,
+    pub corner_inset_percent: u32,
+    pub example_ids: usize,
     /// ADR-0135 §2: the largest area, in square tile units, of an inside extra counted as tiny.
-    pub(crate) tiny_max_area_tile_units: f64,
+    pub tiny_max_area_tile_units: f64,
     /// ADR-0135 §2: the largest share of the sampled active ids that additions may reach.
-    pub(crate) additions_max_ratio: f64,
+    pub additions_max_ratio: f64,
     #[serde(default)]
-    pub(crate) region_id_prefix_chars: BTreeMap<String, usize>,
+    pub region_id_prefix_chars: BTreeMap<String, usize>,
 }
 
 impl SampleContract {
-    pub(crate) fn parse(text: &str) -> anyhow::Result<Self> {
+    pub fn parse(text: &str) -> anyhow::Result<Self> {
         let contract: Self = serde_json::from_str(text).context("tile equivalence contract")?;
         ensure!(
             !contract.zooms.is_empty()
@@ -113,25 +113,25 @@ impl SplitMix {
 
 /// A region's extent in maxzoom tile coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Extent {
-    pub(crate) min: (u32, u32),
-    pub(crate) max: (u32, u32),
+pub struct Extent {
+    pub min: (u32, u32),
+    pub max: (u32, u32),
 }
 
 /// Collects, during the id gate's walk of the new archive's maxzoom tiles, each region's extent and
 /// a seeded reservoir of tiles.
-pub(crate) struct SampleCollector {
+pub struct SampleCollector {
     prefix_chars: Option<usize>,
     capacity: usize,
     rng: SplitMix,
     seen: u64,
-    pub(crate) reservoir: Vec<u64>,
-    pub(crate) regions: BTreeMap<String, Extent>,
+    pub reservoir: Vec<u64>,
+    pub regions: BTreeMap<String, Extent>,
     current: Option<(u64, u32, u32)>,
 }
 
 impl SampleCollector {
-    pub(crate) fn new(contract: &SampleContract, unit: &str) -> Self {
+    pub fn new(contract: &SampleContract, unit: &str) -> Self {
         Self {
             prefix_chars: contract.region_id_prefix_chars.get(unit).copied(),
             capacity: contract.random_tiles,
@@ -143,7 +143,7 @@ impl SampleCollector {
         }
     }
 
-    pub(crate) fn observe(&mut self, tile: u64, id: &str) -> anyhow::Result<()> {
+    pub fn observe(&mut self, tile: u64, id: &str) -> anyhow::Result<()> {
         let (x, y) = match self.current {
             Some((current, x, y)) if current == tile => (x, y),
             _ => {
@@ -181,7 +181,7 @@ impl SampleCollector {
 
 /// The `limit` maxzoom tiles with the longest directory entries — the most bytes — read from the
 /// directory alone.
-pub(crate) fn densest_tiles<R: Read + Seek>(
+pub fn densest_tiles<R: Read + Seek>(
     archive: &mut Archive<R>,
     zoom: u8,
     limit: usize,
@@ -200,7 +200,7 @@ pub(crate) fn densest_tiles<R: Read + Seek>(
 }
 
 /// The tile ids to compare, each with why it was chosen (`region:<key>`, `densest`, `random`).
-pub(crate) fn sample_tiles(
+pub fn sample_tiles(
     contract: &SampleContract,
     zooms: (u8, u8),
     regions: &BTreeMap<String, Extent>,
@@ -256,50 +256,50 @@ pub(crate) fn sample_tiles(
 
 /// MVT with what the comparison reads: geometry stays undecoded bytes until a feature needs it.
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Tile {
+pub struct Tile {
     #[prost(message, repeated, tag = "3")]
-    pub(crate) layers: Vec<Layer>,
+    pub layers: Vec<Layer>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Layer {
+pub struct Layer {
     #[prost(string, tag = "1")]
-    pub(crate) name: String,
+    pub name: String,
     #[prost(message, repeated, tag = "2")]
-    pub(crate) features: Vec<Feature>,
+    pub features: Vec<Feature>,
     #[prost(string, repeated, tag = "3")]
-    pub(crate) keys: Vec<String>,
+    pub keys: Vec<String>,
     #[prost(message, repeated, tag = "4")]
-    pub(crate) values: Vec<TileValue>,
+    pub values: Vec<TileValue>,
     #[prost(uint32, optional, tag = "5")]
-    pub(crate) extent: Option<u32>,
+    pub extent: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Feature {
+pub struct Feature {
     #[prost(uint32, repeated, tag = "2")]
-    pub(crate) tags: Vec<u32>,
+    pub tags: Vec<u32>,
     /// The packed command stream, kept as bytes; decoded only for an extra feature.
     #[prost(bytes = "vec", tag = "4")]
-    pub(crate) geometry: Vec<u8>,
+    pub geometry: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct TileValue {
+pub struct TileValue {
     #[prost(string, optional, tag = "1")]
-    pub(crate) string_value: Option<String>,
+    pub string_value: Option<String>,
     #[prost(float, optional, tag = "2")]
-    pub(crate) float_value: Option<f32>,
+    pub float_value: Option<f32>,
     #[prost(double, optional, tag = "3")]
-    pub(crate) double_value: Option<f64>,
+    pub double_value: Option<f64>,
     #[prost(int64, optional, tag = "4")]
-    pub(crate) int_value: Option<i64>,
+    pub int_value: Option<i64>,
     #[prost(uint64, optional, tag = "5")]
-    pub(crate) uint_value: Option<u64>,
+    pub uint_value: Option<u64>,
     #[prost(sint64, optional, tag = "6")]
-    pub(crate) sint_value: Option<i64>,
+    pub sint_value: Option<i64>,
     #[prost(bool, optional, tag = "7")]
-    pub(crate) bool_value: Option<bool>,
+    pub bool_value: Option<bool>,
 }
 
 impl TileValue {
@@ -375,7 +375,7 @@ fn features_by_id(
 }
 
 /// The rings of an MVT command stream, in tile units: each `MoveTo` starts one.
-pub(crate) fn geometry_rings(packed: &[u8]) -> anyhow::Result<Vec<Vec<(i64, i64)>>> {
+pub fn geometry_rings(packed: &[u8]) -> anyhow::Result<Vec<Vec<(i64, i64)>>> {
     let mut words = Vec::new();
     let mut at = 0;
     while at < packed.len() {
@@ -427,7 +427,7 @@ pub(crate) fn geometry_rings(packed: &[u8]) -> anyhow::Result<Vec<Vec<(i64, i64)
 }
 
 /// The vertices of an MVT command stream, in tile units.
-pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> {
+pub fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> {
     Ok(geometry_rings(packed)?.into_iter().flatten().collect())
 }
 
@@ -435,7 +435,7 @@ pub(crate) fn geometry_points(packed: &[u8]) -> anyhow::Result<Vec<(i64, i64)>> 
 /// `0..extent` square (ADR-0135 §2: tiny is decided by area, not span — a long thin sliver has a
 /// large span and almost no area). Each ring is clipped to the square (Sutherland–Hodgman, exact
 /// for a convex clip) and the signed areas are summed, so holes subtract.
-pub(crate) fn area_inside(rings: &[Vec<(i64, i64)>], extent: i64) -> f64 {
+pub fn area_inside(rings: &[Vec<(i64, i64)>], extent: i64) -> f64 {
     #[allow(clippy::cast_precision_loss)]
     let to_float = |(x, y): (i64, i64)| (x as f64, y as f64);
     #[allow(clippy::cast_precision_loss)]
@@ -500,9 +500,9 @@ const fn zigzag(value: u64) -> i64 {
 
 /// A count with its first examples.
 #[derive(Debug, Default, Clone, Serialize)]
-pub(crate) struct Tally {
-    pub(crate) count: u64,
-    pub(crate) examples: Vec<String>,
+pub struct Tally {
+    pub count: u64,
+    pub examples: Vec<String>,
 }
 
 impl Tally {
@@ -516,11 +516,11 @@ impl Tally {
 
 /// A count with its first examples, split by zoom and by region.
 #[derive(Debug, Default, Clone, Serialize)]
-pub(crate) struct Breakdown {
-    pub(crate) count: u64,
-    pub(crate) examples: Vec<String>,
-    pub(crate) by_zoom: BTreeMap<u8, u64>,
-    pub(crate) by_region: BTreeMap<String, u64>,
+pub struct Breakdown {
+    pub count: u64,
+    pub examples: Vec<String>,
+    pub by_zoom: BTreeMap<u8, u64>,
+    pub by_region: BTreeMap<String, u64>,
 }
 
 impl Breakdown {
@@ -538,46 +538,46 @@ impl Breakdown {
 
 /// The ids only the new tile has that lie inside the tile, by what explains them.
 #[derive(Debug, Default, Clone, Serialize)]
-pub(crate) struct ExtraInside {
+pub struct ExtraInside {
     /// Its part inside the tile has an area of at most `tiny_max_area_tile_units`: the old oven's
     /// `ST_AsMVTGeom` drops such geometry. Allowed (ADR-0135 §2).
-    pub(crate) tiny: Breakdown,
+    pub tiny: Breakdown,
     /// The active archive's maxzoom tile at the feature's position does not have the id either: the
     /// active release does not carry the feature at all. Allowed up to `additions_max_ratio` of the
     /// sampled active ids (ADR-0135 §2).
-    pub(crate) addition: Breakdown,
+    pub addition: Breakdown,
     /// Neither. Must be none (ADR-0135 §2).
-    pub(crate) unexplained: Breakdown,
+    pub unexplained: Breakdown,
 }
 
 /// Sampled and passed tiles of one region.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
-pub(crate) struct RegionTally {
-    pub(crate) sampled: u64,
-    pub(crate) passed: u64,
+pub struct RegionTally {
+    pub sampled: u64,
+    pub passed: u64,
 }
 
 /// The comparison's outcome. Examples are `id@z/x/y`.
 #[derive(Debug, Default, Clone, Serialize)]
-pub(crate) struct Equivalence {
-    pub(crate) tiles: u64,
-    pub(crate) tiles_passed: u64,
+pub struct Equivalence {
+    pub tiles: u64,
+    pub tiles_passed: u64,
     /// Features in the sampled active tiles, the base the other counts are a share of.
-    pub(crate) active_ids: u64,
-    pub(crate) missing: Tally,
-    pub(crate) extra_inside: ExtraInside,
-    pub(crate) changed: Tally,
-    pub(crate) type_changed: Tally,
-    pub(crate) extra_in_buffer: u64,
-    pub(crate) regions: BTreeMap<String, RegionTally>,
+    pub active_ids: u64,
+    pub missing: Tally,
+    pub extra_inside: ExtraInside,
+    pub changed: Tally,
+    pub type_changed: Tally,
+    pub extra_in_buffer: u64,
+    pub regions: BTreeMap<String, RegionTally>,
     /// The contract bounds this outcome was judged by, kept with it as evidence.
-    pub(crate) tiny_max_area_tile_units: f64,
-    pub(crate) additions_max_ratio: f64,
+    pub tiny_max_area_tile_units: f64,
+    pub additions_max_ratio: f64,
 }
 
 impl Equivalence {
     /// The share of the sampled active ids that additions reached.
-    pub(crate) fn additions_ratio(&self) -> f64 {
+    pub fn additions_ratio(&self) -> f64 {
         #[allow(clippy::cast_precision_loss)]
         let (additions, active) = (
             self.extra_inside.addition.count as f64,
@@ -596,7 +596,7 @@ impl Equivalence {
 
     /// ADR-0135 §1–2: nothing missing, nothing changed, nothing unexplained, and additions no more
     /// than their contract share. Buffer and tiny extras are allowed and only counted.
-    pub(crate) fn passed(&self) -> bool {
+    pub fn passed(&self) -> bool {
         self.missing.count == 0
             && self.changed.count == 0
             && self.extra_inside.unexplained.count == 0
@@ -605,7 +605,7 @@ impl Equivalence {
 
     /// The refusal, short enough for a build's failure reason: every count, and the ids of what
     /// nothing explains. The whole evidence is written next to the work directory.
-    pub(crate) fn refusal(&self) -> Value {
+    pub fn refusal(&self) -> Value {
         let ids = |examples: &[String]| -> Vec<String> {
             examples
                 .iter()
@@ -639,13 +639,13 @@ impl Equivalence {
 
 /// How the comparison reads tiles.
 #[derive(Debug, Clone)]
-pub(crate) struct Compare<'a> {
-    pub(crate) layer: &'a str,
-    pub(crate) id_property: &'a str,
-    pub(crate) max_zoom: u8,
-    pub(crate) tiny_max_area_tile_units: f64,
-    pub(crate) region_chars: Option<usize>,
-    pub(crate) limit: usize,
+pub struct Compare<'a> {
+    pub layer: &'a str,
+    pub id_property: &'a str,
+    pub max_zoom: u8,
+    pub tiny_max_area_tile_units: f64,
+    pub region_chars: Option<usize>,
+    pub limit: usize,
 }
 
 impl Compare<'_> {
@@ -656,7 +656,7 @@ impl Compare<'_> {
 }
 
 /// The ids of a tile's layer, for the addition check's lookup of active maxzoom tiles.
-pub(crate) fn tile_ids(
+pub fn tile_ids(
     bytes: Option<&[u8]>,
     layer: &str,
     id_property: &str,
@@ -691,7 +691,7 @@ fn maxzoom_tile_under(
 
 /// Compares one tile of each archive, adding to `outcome`. `active_maxzoom` returns the ids of the
 /// active archive's maxzoom tile with the given id. Returns whether the tile passed.
-pub(crate) fn compare_tile(
+pub fn compare_tile(
     active: Option<&[u8]>,
     new: Option<&[u8]>,
     compare: &Compare<'_>,
@@ -779,7 +779,7 @@ pub(crate) fn compare_tile(
 
 /// Decodes every sample tile from both archives and compares them. `regions` are the region keys
 /// the collector saw, so a region no sample reached reports zero rather than nothing.
-pub(crate) fn compare_archives<A: Read + Seek, B: Read + Seek>(
+pub fn compare_archives<A: Read + Seek, B: Read + Seek>(
     active: &mut Archive<A>,
     new: &mut Archive<B>,
     samples: &BTreeMap<u64, BTreeSet<String>>,
@@ -827,7 +827,7 @@ pub(crate) fn compare_archives<A: Read + Seek, B: Read + Seek>(
 
 /// Where the active release came from, which decides whether the gate runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActiveOrigin {
+pub enum ActiveOrigin {
     /// Baked by a lakehouse bake: the maxzoom id gate already compares like with like.
     LakehouseBake,
     /// Built any other way (PostGIS through `martin-cp` today): the first lakehouse bake is compared.
@@ -835,7 +835,7 @@ pub(crate) enum ActiveOrigin {
 }
 
 /// The evidence for an active release the gate does not compare.
-pub(crate) fn skipped(origin: ActiveOrigin) -> Option<Value> {
+pub fn skipped(origin: ActiveOrigin) -> Option<Value> {
     (origin == ActiveOrigin::LakehouseBake).then(|| {
         serde_json::json!({
             "skipped": "the active release is a lakehouse_bake; the maxzoom id gate compares it"
@@ -845,7 +845,7 @@ pub(crate) fn skipped(origin: ActiveOrigin) -> Option<Value> {
 
 /// Runs the whole gate over an active and a new archive: densest tiles from the active directory,
 /// the samples, the comparison. Returns the outcome; the caller refuses when it did not pass.
-pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
+pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
     active: A,
     new: B,
     contract: &SampleContract,
@@ -884,7 +884,7 @@ pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
 
 /// The gate's verdict: the evidence when it passed, a refusal naming the counts when it did not.
 /// `evidence_file` names where the caller kept the whole evidence.
-pub(crate) fn verdict(outcome: &Equivalence, evidence_file: &str) -> anyhow::Result<Value> {
+pub fn verdict(outcome: &Equivalence, evidence_file: &str) -> anyhow::Result<Value> {
     let evidence = serde_json::to_value(outcome)?;
     if !outcome.passed() {
         tracing::error!(evidence = %evidence, "first-release equivalence refused the bake");

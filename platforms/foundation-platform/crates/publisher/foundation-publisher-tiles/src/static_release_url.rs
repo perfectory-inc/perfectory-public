@@ -7,7 +7,7 @@ use anyhow::{ensure, Context as _};
 /// so it must be an address a browser outside this host can reach. Platform ADR-0004 requires the
 /// publish gate to refuse plain HTTP, loopback included; the first national bake recorded
 /// `http://127.0.0.1:3111` because nothing did.
-pub(crate) fn public_tiles_base_url(raw: &str) -> anyhow::Result<String> {
+pub fn public_tiles_base_url(raw: &str) -> anyhow::Result<String> {
     let value = base_url(raw)?;
     let url = reqwest::Url::parse(&value).context("not a URL")?;
     ensure!(url.scheme() == "https", "must use https");
@@ -62,7 +62,7 @@ fn internal_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-pub(crate) fn base_url(raw: &str) -> anyhow::Result<String> {
+pub fn base_url(raw: &str) -> anyhow::Result<String> {
     let value = raw.trim_end_matches('/');
     ensure!(
         value.starts_with("http://") || value.starts_with("https://"),
@@ -72,7 +72,7 @@ pub(crate) fn base_url(raw: &str) -> anyhow::Result<String> {
 }
 
 /// Keep local/CI proofs usable while checking production static selections at the final gate.
-pub(crate) fn guard_static_promotion_url(source_kind: &str, template: &str) -> anyhow::Result<()> {
+pub fn guard_static_promotion_url(source_kind: &str, template: &str) -> anyhow::Result<()> {
     if source_kind != "static_pmtiles" {
         return Ok(());
     }

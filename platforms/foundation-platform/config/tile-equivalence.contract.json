@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "The tiles a lakehouse bake compares with the active archive before it may replace a release that was not itself baked from the lakehouse (root ADR-0133 §4). Read by bake-lakehouse-tiles; the comparison rule is in services/foundation-outbox-publisher/src/tile_equivalence.rs.",
+  "purpose": "The tiles a lakehouse bake compares with the active archive before it may replace a release that was not itself baked from the lakehouse (root ADR-0133 §4). Read by bake-lakehouse-tiles; the comparison rule is in crates/publisher/foundation-publisher-tiles/src/tile_equivalence.rs.",
   "zooms": [14, 15, 16],
   "densest_tiles": 20,
   "random_tiles": 40,
