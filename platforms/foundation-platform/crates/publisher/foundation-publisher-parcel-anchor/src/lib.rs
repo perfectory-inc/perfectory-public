@@ -23,9 +23,10 @@
 
 //! The outbox-publisher parcel marker anchor lane (root ADR-0200).
 //!
-//! Anchor artifact export, the anchor PBF artifact build and its manifest promotion, the streaming
-//! anchor rebuild, and the parcel boundary handoff they read. The publisher executable parses the
-//! commands and calls `run` here; this crate depends on `foundation-publisher-core` and on no other
+//! Anchor artifact export, the anchor PBF artifact build, the streaming anchor rebuild, and the
+//! parcel boundary handoff they read. Promoting markers into the schema-v1 tile manifest was
+//! removed (root ADR-0225); markers move to v2 publication units instead. The publisher
+//! executable parses the commands and calls `run` here; this crate depends on `foundation-publisher-core` and on no other
 //! lane.
 
 // The shared modules keep their `crate::` paths in this lane.
@@ -34,5 +35,4 @@ use foundation_publisher_core::r2_layout;
 pub mod parcel_boundary_handoff;
 pub mod parcel_marker_anchor_artifact_export;
 pub mod parcel_marker_anchor_pbf_artifact_build;
-pub mod parcel_marker_anchor_pbf_manifest_promote;
 pub mod parcel_marker_anchor_streaming_rebuild;

@@ -1971,9 +1971,7 @@ name = "foundation-publisher-parcel-anchor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "catalog-application",
  "catalog-domain",
- "catalog-infrastructure",
  "chrono",
  "foundation-outbox",
  "foundation-publisher-core",
