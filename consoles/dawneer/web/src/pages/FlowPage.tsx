@@ -20,6 +20,7 @@ import {
   useScheduledJobs,
 } from "../components/OperationsTables";
 import { RunTimeline } from "../components/RunTimeline";
+import { ServiceChecks } from "../components/ServiceChecks";
 import {
   catalogUrnOf,
   contractOf,
@@ -159,6 +160,8 @@ export function FlowPage({ client, tab }: { client: DawneerClient; tab: FlowTab 
           <QualityChecks client={client} />
         ) : tab === "freshness" ? (
           <Freshness client={client} />
+        ) : tab === "service" ? (
+          <ServiceChecks client={client} />
         ) : (
           <CatalogSearch client={client} />
         )}

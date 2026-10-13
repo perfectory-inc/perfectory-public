@@ -1332,6 +1332,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
     install_host_retention
+    # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
+    # and their kept CI runs (root ADR-0207). Its unit names the path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
@@ -1343,6 +1346,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
       foundation-identity-restore-drill.timer
     # Like the backup, the root disk's retention is host infrastructure (root ADR-0198).
     systemctl enable --now foundation-host-retention.timer
+    # The operations map's service checks (root ADR-0207): a host check too.
+    systemctl enable --now foundation-service-checks.timer
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off

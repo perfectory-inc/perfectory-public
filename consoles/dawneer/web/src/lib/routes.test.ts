@@ -14,7 +14,7 @@ describe("routes", () => {
   it("keeps every capability of the two old pages reachable from the flow screen", () => {
     // 운영 현황: running now and the job list, quality checks, collection freshness;
     // 데이터 카탈로그: search and an entity's detail and lineage (opened from a search result).
-    expect(FLOW_TABS.map((tab) => tab.id)).toEqual(["timeline", "jobs", "quality", "freshness", "catalog"]);
+    expect(FLOW_TABS.map((tab) => tab.id)).toEqual(["timeline", "jobs", "quality", "freshness", "catalog", "service"]);
     for (const tab of FLOW_TABS) expect(resolveRoute(`/flow/${tab.id}`)).toEqual({ page: "flow", tab: tab.id });
     expect(resolveRoute("/flow/unknown")).toEqual({ page: "flow", tab: "timeline" });
   });

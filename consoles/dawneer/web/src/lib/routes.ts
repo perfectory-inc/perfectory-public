@@ -7,6 +7,7 @@ export const FLOW_TABS = [
   { id: "quality", label: "품질 검사" },
   { id: "freshness", label: "수집·적재 기록" },
   { id: "catalog", label: "데이터 찾기" },
+  { id: "service", label: "서비스 점검" },
 ] as const;
 export type FlowTab = (typeof FLOW_TABS)[number]["id"];
 

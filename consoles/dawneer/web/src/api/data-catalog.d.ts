@@ -89,6 +89,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/service-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The edge path from Korea to each live hostname and the CI time trend. */
+        get: operations["readServiceChecks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -97,6 +114,60 @@ export interface components {
         ApiErrorResponse: {
             /** @description Safe client-facing diagnostic. */
             error: string;
+        };
+        /** @description The weekly pull request CI wall-time trend against its one budget. */
+        CiTimeTrend: {
+            /**
+             * Format: date-time
+             * @description When it was last measured or tried.
+             */
+            attempted_at: string;
+            /**
+             * Format: double
+             * @description `tools/ci/ci-time-budget.contract.json` `pull_request_wall_minutes`.
+             */
+            budget_minutes?: number | null;
+            /** @description Why the last fetch failed; the weeks are the ones the kept days give. */
+            error?: string | null;
+            /**
+             * Format: int32
+             * @description Days of the trend's weeks whose runs are not fetched yet: those weeks are left out.
+             */
+            pending_days?: number | null;
+            /** @description Oldest first. */
+            weeks: components["schemas"]["CiWeek"][];
+        };
+        /** @description One full UTC week of pull request CI wall time (root ADR-0203). */
+        CiWeek: {
+            /**
+             * Format: int32
+             * @description Pull request attempts measured.
+             */
+            count: number;
+            /**
+             * Format: double
+             * @description Longest attempt, minutes.
+             */
+            max?: number | null;
+            /**
+             * Format: double
+             * @description Median attempt, minutes.
+             */
+            p50?: number | null;
+            /**
+             * Format: double
+             * @description 90th percentile attempt, minutes.
+             */
+            p90?: number | null;
+            /** @description Its Monday, `YYYY-MM-DD`. */
+            week_start: string;
+            /** @description The workflow with the longest median. */
+            worst_workflow?: string | null;
+            /**
+             * Format: double
+             * @description That workflow's median, minutes.
+             */
+            worst_workflow_p50?: number | null;
         };
         /** @description One entity as a list, a search result or a graph node shows it. */
         DataCatalogEntity: {
@@ -261,6 +332,50 @@ export interface components {
             snapshots: components["schemas"]["DatasetSnapshot"][];
             /** @description Its Iceberg table, when it is one. */
             table?: string | null;
+        };
+        /** @description How the live hostnames are reached from Korea. */
+        EdgeCheck: {
+            /**
+             * Format: date-time
+             * @description When it was measured.
+             */
+            checked_at: string;
+            /** @description Every live catalog, buildings and tiles hostname. */
+            hosts: components["schemas"]["EdgeHostCheck"][];
+            /**
+             * @description The data centre `cloudflare.com` itself answered from at the same time: where Korea should
+             *     enter.
+             */
+            reference_colo?: string | null;
+        };
+        /** @description One live hostname as the host in Korea reaches it (root ADR-0207). */
+        EdgeHostCheck: {
+            /** @description The Cloudflare data centre most answers came from (`ICN` is Seoul). */
+            colo?: string | null;
+            /** @description Why nothing could be measured, when nothing could. */
+            error?: string | null;
+            /**
+             * Format: int32
+             * @description Asks that failed.
+             */
+            failed_samples: number;
+            /** @description The hostname, from the gateways' contract. */
+            hostname: string;
+            /**
+             * Format: int64
+             * @description The median answer time of `/cdn-cgi/trace`, each on a new connection.
+             */
+            p50_ms?: number | null;
+            /**
+             * Format: int64
+             * @description The 95th percentile of the same.
+             */
+            p95_ms?: number | null;
+            /**
+             * Format: int32
+             * @description Answers measured.
+             */
+            samples: number;
         };
         /**
          * @description What a failed run's log says broke it.
@@ -484,6 +599,18 @@ export interface components {
              *     configured: a failed problem then has no cause.
              */
             scheduler_error?: string | null;
+        };
+        /** @description The host's service checks (root ADR-0207): the edge path from Korea and the CI time trend. */
+        ServiceChecks: {
+            /**
+             * Format: date-time
+             * @description When the host last ran them.
+             */
+            checked_at?: string | null;
+            ci?: null | components["schemas"]["CiTimeTrend"];
+            edge?: null | components["schemas"]["EdgeCheck"];
+            /** @description Why the checks' file could not be read, when it could not. */
+            error?: string | null;
         };
     };
     responses: never;
@@ -732,6 +859,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
+            };
+        };
+    };
+    readServiceChecks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceChecks"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
