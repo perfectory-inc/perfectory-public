@@ -1,12 +1,11 @@
 """The lakehouse-versus-PostGIS parcel boundary proof (scripts/ops/parcel-boundary-equality.py, root ADR-0194).
 
-The engines are replaced by a fake that fingerprints in-memory parcels the way both SQL dialects
-do: 28-bit slices of sha256(pnu) and of sha256(pnu ':' checksum) summed per region, plus the sums
-of each parcel's area and centroid. Every way the copies can differ — a missing or extra parcel,
-a moved or reshaped parcel, a PNU held twice, an engine that disagrees with itself on the source
-bytes, a checksum that does not name the lakehouse bytes — must turn the verdict false and the
-exit code non-zero. Source bytes that differ only between the engines (the same shapes encoded
-again) are reported and pass.
+The engines are replaced by a fake that answers each range query from in-memory parcels, in each
+dialect's CSV (Trino booleans `true`/`false`, PostgreSQL `t`), sorted by PNU. Every way the copies
+can differ — a missing, extra or doubled parcel, a reshaped, moved or swapped geometry, an engine
+that disagrees with itself on the source bytes, a checksum that does not name the lakehouse bytes,
+a side that holds nothing — must turn the verdict false and the exit code non-zero. Source bytes
+that differ only between the engines (the same shapes encoded again) are counted and pass.
 """
 
 import contextlib
@@ -15,6 +14,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import re
 import sys
 import unittest
 from dataclasses import dataclass, replace
@@ -31,57 +31,34 @@ spec.loader.exec_module(equality)
 RUN = "01a06e42-0000-7000-8000-000000000001"
 LOAD = "3d24bbff-0000-4000-8000-000000000002"
 ARGS = ["--source-snapshot-id", "vworldkr__parcel-202606", "--served-snapshot", "4772",
-        "--mirror-run-id", RUN, "--publication-load-id", LOAD, "--prefix-length", "7"]
+        "--mirror-run-id", RUN, "--publication-load-id", LOAD]
+TABLE_OF = {"r2.silver.parcel_boundaries": "silver", "r2.gold.parcel_boundary_served": "served",
+            "serving_postgis.parcel_boundary_mirror": "mirror",
+            "serving_postgis.parcel_boundary_publication": "publication"}
 
 
 @dataclass(frozen=True)
-class Parcel:
+class Row:
     pnu: str
     checksum: str
+    matches: bool
     area: float
     x: float
     y: float
-    wkb: bytes | None = None  # the lakehouse sides carry their bytes; PostGIS does not
 
 
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def fingerprint_rows(parcels, prefix_length=7):
-    """What the SQL returns: one CSV line per region with the ten fingerprint fields."""
-    regions = {}
-    for p in parcels:
-        r = regions.setdefault(p.pnu[:prefix_length], [0, set(), 0, 0, 0, 0, 0, 0.0, 0.0, 0.0])
-        key, source = sha(p.pnu), sha(f"{p.pnu}:{p.checksum}")
-        r[0] += 1
-        r[1].add(p.pnu)
-        r[2] += int(key[0:7], 16)
-        r[3] += int(key[7:14], 16)
-        r[4] += int(source[0:7], 16)
-        r[5] += int(source[7:14], 16)
-        r[6] += p.wkb is not None and hashlib.sha256(p.wkb).hexdigest() != p.checksum
-        r[7] += p.area
-        r[8] += p.x
-        r[9] += p.y
-    return "".join(
-        f"{name},{r[0]},{len(r[1])},{r[2]},{r[3]},{r[4]},{r[5]},{int(r[6])},{r[7]!r},{r[8]!r},{r[9]!r}\n"
-        for name, r in sorted(regions.items())
-    )
+# The repository-reserved 99999 PNUs and coordinates outside Korea: ten parcels.
+LAKE = [Row(f"99999110101100{n:05d}", sha(f"wkb-{n}"), True, 1e-8 * n, 10.0 + n * 1e-3, 20.0 + n * 1e-3)
+        for n in range(1, 11)]
 
 
-def lake_parcel(pnu, n):
-    wkb = bytes([n, int(pnu[5:7])]) * 9
-    return Parcel(pnu, hashlib.sha256(wkb).hexdigest(), 1e-8 * n, 10.0 + n * 1e-3, 20.0 + n * 1e-3, wkb)
-
-
-# The repository-reserved 99999 PNUs, coordinates outside Korea: two regions, five parcels each.
-LAKE = [lake_parcel(f"99999{region}010110001{n:03d}", n) for region in ("11", "26") for n in range(1, 6)]
-
-
-def postgis(parcels, noise=1e-13):
-    """PostGIS holds the same parcels without their bytes, reprojected (a tiny float difference)."""
-    return [replace(p, wkb=None, area=p.area * (1 + noise), x=p.x + noise, y=p.y - noise) for p in parcels]
+def postgis(rows, noise=1e-12):
+    """PostGIS holds the same parcels, reprojected and back: a tiny float difference."""
+    return [replace(r, area=r.area * (1 + noise), x=r.x + noise, y=r.y - noise) for r in rows]
 
 
 def sides(**override):
@@ -90,121 +67,143 @@ def sides(**override):
     return found
 
 
-def run(parcels_by_side, extra=()):
-    """Runs main() with each side's query answered from its parcels; returns (exit, report)."""
-    queries = equality.side_queries(equality.parse_args(ARGS + list(extra)))
-    by_sql = {sql: name for name, (_, sql) in queries.items()}
+def changed(rows, index, **fields):
+    return [replace(r, **fields) if i == index else r for i, r in enumerate(rows)]
 
-    def engine(_engine, sql):
-        return fingerprint_rows(parcels_by_side[by_sql[sql]])
+
+def run(rows_by_side, extra=()):
+    """Runs main() with every range query answered from rows_by_side; returns (exit, report)."""
+    def lines(engine, sql):
+        table = next(name for name in sorted(TABLE_OF, key=len, reverse=True) if name in sql)
+        low, high = re.search(r"pnu >= '(\d+)' AND pnu < '(\d+)'", sql).groups()
+        for r in sorted(rows_by_side[TABLE_OF[table]], key=lambda r: r.pnu):
+            if low <= r.pnu < high:
+                flag = ("true" if r.matches else "false") if engine == "trino" else "t"
+                yield f"{r.pnu},{r.checksum},{flag},{r.area!r},{r.x!r},{r.y!r}\n"
 
     out = io.StringIO()
-    with mock.patch.object(equality, "run_engine", engine), contextlib.redirect_stdout(out):
+    with mock.patch.object(equality, "engine_lines", lines), contextlib.redirect_stdout(out):
         code = equality.main(ARGS + list(extra))
     return code, json.loads(out.getvalue())
 
 
-def changed(parcels, index, **fields):
-    return [replace(p, **fields) if i == index else p for i, p in enumerate(parcels)]
+def failed(report, reason):
+    return [sample["pnu"] for sample in report["samples"].get(reason, [])]
 
 
 class ParcelBoundaryEqualityTest(unittest.TestCase):
     def test_the_same_parcels_and_shapes_are_equal(self):
         code, report = run(sides())
         self.assertEqual(code, 0, report)
-        self.assertTrue(report["equal"])
-        self.assertEqual(report["regions"], 2)
-        self.assertEqual({side["rows"] for side in report["totals"].values()}, {10})
-        self.assertEqual(report["source_bytes_differ_between_engines"], [])
+        self.assertEqual(report["rows"], {name: 10 for name in equality.SIDES})
+        self.assertEqual(report["source_bytes_differ_between_engines"], 0)
 
     def test_shapes_encoded_again_differ_only_in_source_bytes_and_pass(self):
-        again = [replace(p, checksum=sha(p.checksum)) for p in postgis(LAKE)]
+        again = [replace(r, checksum=sha(r.checksum)) for r in postgis(LAKE)]
         code, report = run(sides(mirror=again, publication=again))
         self.assertEqual(code, 0, report)
-        self.assertEqual(report["source_bytes_differ_between_engines"], ["9999911", "9999926"])
+        self.assertEqual(report["source_bytes_differ_between_engines"], 10)
 
-    def test_a_reshaped_parcel_in_the_mirror_names_its_region(self):
-        mirror = changed(postgis(LAKE), 7, area=LAKE[7].area * 1.01)
-        code, report = run(sides(mirror=mirror))
+    def test_a_reshaped_parcel_fails(self):
+        code, report = run(sides(mirror=changed(postgis(LAKE), 7, area=LAKE[7].area * 1.01)))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["9999926"])
+        self.assertEqual(failed(report, "shape"), [LAKE[7].pnu])
 
-    def test_a_moved_parcel_differs_even_with_its_area(self):
-        served = changed(LAKE, 2, x=LAKE[2].x + 1e-5)
-        code, report = run(sides(served=served))
+    def test_a_parcel_moved_far_fails_alone_among_many(self):
+        code, report = run(sides(served=changed(LAKE, 2, x=LAKE[2].x + 0.4)))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_shapes"]], ["9999911"])
+        self.assertEqual(failed(report, "shape"), [LAKE[2].pnu])
 
-    def test_a_parcel_missing_from_one_side_differs(self):
+    def test_two_swapped_geometries_fail_although_every_sum_is_kept(self):
+        a, b = LAKE[3], LAKE[4]
+        swapped = changed(changed(postgis(LAKE), 3, area=b.area, x=b.x, y=b.y), 4, area=a.area, x=a.x, y=a.y)
+        code, report = run(sides(publication=swapped))
+        self.assertEqual(code, 1)
+        self.assertEqual(failed(report, "shape"), [a.pnu, b.pnu])
+
+    def test_a_parcel_missing_from_one_side_fails(self):
         code, report = run(sides(publication=postgis(LAKE[1:])))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["differing_parcels"]], ["9999911"])
+        self.assertEqual(report["samples"]["missing"], [{"pnu": LAKE[0].pnu, "missing_from": ["publication"]}])
 
-    def test_a_region_only_one_side_holds_differs(self):
-        extra = lake_parcel("9999947010110001001", 9)
+    def test_a_parcel_only_one_side_holds_fails(self):
+        extra = Row("9999947010110001001", sha("x"), True, 1e-8, 10.5, 20.5)
         code, report = run(sides(served=LAKE + [extra]))
         self.assertEqual(code, 1)
-        self.assertEqual(report["differing_parcels"][0]["region"], "9999947")
-        self.assertIsNone(report["differing_parcels"][0]["sides"]["silver"])
+        self.assertEqual(report["samples"]["missing"][0]["missing_from"], ["silver", "mirror", "publication"])
 
-    def test_a_pnu_held_twice_fails_even_when_every_side_agrees(self):
-        doubled = {name: parcels + parcels[:1] for name, parcels in sides().items()}
-        code, report = run(doubled)
+    def test_a_pnu_held_twice_fails(self):
+        code, report = run(sides(silver=LAKE + LAKE[:1]))
         self.assertEqual(code, 1)
-        self.assertEqual({d["side"] for d in report["duplicated_pnus"]}, set(equality.SIDES))
+        self.assertEqual(report["samples"]["held_twice"], [{"pnu": LAKE[0].pnu, "sides": ["silver"]}])
 
     def test_an_engine_that_disagrees_with_itself_on_the_source_bytes_fails(self):
-        served = changed(LAKE, 0, checksum=sha("other"), wkb=b"other")
-        code, report = run(sides(served=served))
+        code, report = run(sides(served=changed(LAKE, 0, checksum=sha("other"))))
         self.assertEqual(code, 1)
-        self.assertEqual([d["region"] for d in report["source_bytes_split_within_an_engine"]], ["9999911"])
+        self.assertEqual(failed(report, "source_bytes_split_within_an_engine"), [LAKE[0].pnu])
 
     def test_a_checksum_that_does_not_name_the_bytes_fails(self):
-        both = changed(LAKE, 0, wkb=LAKE[0].wkb + b"!")
+        both = changed(LAKE, 0, matches=False)
         code, report = run(sides(silver=both, served=both))
         self.assertEqual(code, 1)
-        self.assertEqual({(m["region"], m["side"]) for m in report["checksum_mismatches"]},
-                         {("9999911", "silver"), ("9999911", "served")})
+        self.assertEqual(report["samples"]["checksum_not_the_bytes"], [{"pnu": LAKE[0].pnu, "sides": ["silver", "served"]}])
+
+    def test_sides_that_hold_nothing_are_not_equal(self):
+        # A wrong snapshot or load id reads no rows on every side; that is not a proof.
+        code, report = run({name: [] for name in equality.SIDES})
+        self.assertEqual(code, 1)
+        self.assertEqual(report["failures"]["empty_side"]["total"], 4)
+
+    def test_one_empty_side_fails(self):
+        code, report = run(sides(mirror=[]))
+        self.assertEqual(code, 1)
+        self.assertIn("mirror", report["failures"]["empty_side"]["by_region"])
+        self.assertEqual(report["failures"]["missing"]["total"], 10)
 
     def test_an_unreadable_side_exits_2(self):
         def broken(engine, _sql):
             raise LookupError(f"{engine}: down")
+            yield  # pragma: no cover
 
         out = io.StringIO()
-        with mock.patch.object(equality, "run_engine", broken), contextlib.redirect_stdout(out):
+        with mock.patch.object(equality, "engine_lines", broken), contextlib.redirect_stdout(out):
             self.assertEqual(equality.main(ARGS), 2)
         self.assertFalse(json.loads(out.getvalue())["equal"])
 
-    def test_the_region_limits_every_side_and_refuses_anything_but_digits(self):
-        queries = equality.side_queries(equality.parse_args(ARGS + ["--region", "9999911"]))
-        self.assertTrue(all("pnu LIKE '9999911%'" in sql for _, sql in queries.values()))
-        with self.assertRaises(ValueError):
-            equality.side_queries(equality.parse_args(ARGS + ["--region", "11' OR '1'='1"]))
+    def test_the_ranges_cover_every_pnu_and_a_region_reads_only_itself(self):
+        national = equality.ranges(None)
+        self.assertEqual(national[0][0], "00")
+        self.assertTrue(all(a[1] == b[0] for a, b in zip(national, national[1:])))
+        self.assertTrue("9" * 19 < national[-1][1])
+        self.assertEqual(equality.ranges("9999911"), [("9999911", "9999912")])
+        code, report = run(sides(), extra=["--region", "9999911"])
+        self.assertEqual((code, report["rows"]["silver"]), (0, 10))
 
-    def test_each_side_reads_its_own_copy_in_one_crs(self):
-        queries = equality.side_queries(equality.parse_args(ARGS))
+    def test_each_side_reads_its_own_copy_by_range_in_one_crs(self):
+        queries = equality.side_queries(equality.parse_args(ARGS), "11", "12")
         self.assertIn("source_snapshot_id = 'vworldkr__parcel-202606'", queries["silver"][1])
         self.assertIn("FOR VERSION AS OF 4772", queries["served"][1])
         self.assertIn(f"rebuild_run_id = '{RUN}'", queries["mirror"][1])
         self.assertIn(f"projection_load_id = '{LOAD}'", queries["publication"][1])
+        self.assertTrue(all("pnu >= '11' AND pnu < '12'" in sql and "ORDER BY pnu" in sql for _, sql in queries.values()))
         self.assertTrue(all("ST_Transform(geom, 4326)" in queries[name][1] for name in ("mirror", "publication")))
-        self.assertEqual({engine for engine, _ in queries.values()}, {"trino", "postgres"})
 
-    def test_ids_that_are_not_ids_are_refused(self):
+    def test_arguments_that_are_not_ids_are_refused(self):
         for flag, bad in (("--mirror-run-id", "x'; DROP TABLE t; --"), ("--served-snapshot", "0"),
                           ("--source-snapshot-id", "a b")):
             argv = list(ARGS)
             argv[argv.index(flag) + 1] = bad
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 equality.parse_args(argv)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            equality.parse_args(ARGS + ["--region", "11' OR '1'='1"])
 
     def test_a_malformed_engine_row_is_refused(self):
         with self.assertRaises(ValueError):
-            equality.parse_rows("9999911,1,1,1,1\n")
-        row = "9999911,1,1,1,1,1,1,0,1.0,2.0,3.0\n"
-        self.assertEqual(equality.parse_rows(row)["9999911"].centroid_y, 3.0)
+            equality.parse_line("9999911010110000001,abc,true,1.0\n")
         with self.assertRaises(ValueError):
-            equality.parse_rows(row + row)
+            equality.parse_line("12345,abc,true,1.0,2.0,3.0\n")
+        self.assertTrue(equality.parse_line("9999911010110000001,abc,t,1.0,2.0,3.0\n").bytes_match)
 
 
 if __name__ == "__main__":
