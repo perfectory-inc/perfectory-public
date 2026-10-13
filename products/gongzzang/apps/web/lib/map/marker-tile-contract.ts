@@ -16,6 +16,8 @@ export type MarkerTileSource = {
 
 export type BuildListingMarkerTileSourceInput = {
   filterHash: string;
+  /** Server projection version for `filterHash`; part of the tile URL so a new version is a new cache key. */
+  projectionVersion: number | null;
   minzoom: number;
   maxzoom: number;
   origin?: string;
@@ -60,7 +62,7 @@ export function buildListingMarkerTileSource(
       `${resolveSameOrigin(input.origin)}${LISTING_MARKER_TILE_ENDPOINT_TEMPLATE.replaceAll(
         "{hash}",
         encodeURIComponent(input.filterHash),
-      )}`,
+      )}${input.projectionVersion === null ? "" : `&projection_version=${assertVersion(input.projectionVersion)}`}`,
     ],
     minzoom: input.minzoom,
     maxzoom: input.maxzoom,
@@ -141,10 +143,14 @@ function assertTileCoordinate(z: number, x: number, y: number): void {
 
 function buildBaseVersionQuery(baseVersion: number | null): string {
   if (baseVersion === null) return "";
-  if (!Number.isInteger(baseVersion) || baseVersion < 0) {
-    throw new Error("marker tile baseVersion must be a non-negative integer");
+  return `?base_version=${assertVersion(baseVersion)}`;
+}
+
+function assertVersion(version: number): number {
+  if (!Number.isInteger(version) || version < 0) {
+    throw new Error("marker tile version must be a non-negative integer");
   }
-  return `?base_version=${encodeURIComponent(String(baseVersion))}`;
+  return version;
 }
 
 function stripTrailingSlash(value: string): string {
