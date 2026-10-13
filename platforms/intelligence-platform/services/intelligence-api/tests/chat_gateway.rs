@@ -61,6 +61,7 @@ async fn chat_gateway_allows_browser_cors_preflight_for_open_webui_direct_connec
         required: false,
         shared_token: None,
         principal: None,
+        identity_policy: None,
         allowed_origins: vec!["http://localhost:3000".into()],
     });
     let response = app(state)
@@ -93,6 +94,7 @@ async fn chat_gateway_refuses_cors_preflight_from_unlisted_origin() {
         required: false,
         shared_token: None,
         principal: None,
+        identity_policy: None,
         allowed_origins: vec!["http://localhost:3000".into()],
     });
     let response = app(state)

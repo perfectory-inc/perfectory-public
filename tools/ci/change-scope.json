@@ -17,7 +17,9 @@
         "platforms/intelligence-platform/**",
         "tools/xtask/**",
         ".cargo/config.toml",
-        "rust-toolchain.toml"
+        "rust-toolchain.toml",
+        "platforms/identity-platform/docs/openapi/identity.v1.json",
+        "platforms/identity-platform/config/workload-principal-policy.v1.json"
       ]
     },
     "identity-ci.yml": {

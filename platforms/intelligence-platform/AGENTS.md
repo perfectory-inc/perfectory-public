@@ -36,7 +36,7 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
 - **한국어 출력 정책**: `/v1/chat/completions`가 ko-KR 답변 정책 주입 + 출력 검증 + 1회
   repair를 수행한다. `gemma-ko` 류 숨은 모델 별칭에 의존 금지 — 한국어 동작은
   정책/검증기/repair 흐름 소관.
-- **fail-closed env 원칙**: non-loopback 바인드는 shared-token 인증 없이 기동 거부;
+- **fail-closed env 원칙**: non-loopback 바인드는 `identity` 모드(호출자·권한은 Identity 정책 결정, 루트 ADR-0216) 없이 기동 거부, shared-token 은 loopback 전용;
   Foundation base URL 설정 시 workload 토큰 파일 필수(부재 시 fail-fast); drain worker는
   in-memory outbox 거부; 미구성 생성/제출 엔드포인트는 501. 이 게이트를 완화하지 말 것.
 - 워크스페이스 린트 `unwrap_used`·`expect_used` = deny, `unsafe_code` = forbid (`Cargo.toml`).
