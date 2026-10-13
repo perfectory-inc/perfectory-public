@@ -17,14 +17,9 @@ import {
   mapEditOverlayFillLayerId,
   registerMapEditOverlayLayers,
 } from "@/lib/map/map-edit-overlay";
-import {
-  LISTING_MARKER_RENDER_MAX_ZOOM,
-  LISTING_MARKER_RENDER_MIN_ZOOM,
-} from "@/lib/map/map-zoom-policy";
 import { ALL_ACTIVE_MARKER_FILTER_HASH } from "@/lib/map/marker-tile-contract";
 import {
-  buildListingMarkerDeltaLayerRegistration,
-  buildListingMarkerLayerRegistration,
+  buildListingMarkerSourceRegistrations,
   buildParcelAnchorMarkerLayerRegistrations,
   LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
@@ -479,18 +474,13 @@ async function setupListingMarkerTileLayers(
   }
 
   try {
-    const registration = buildListingMarkerLayerRegistration({
+    // The server state arrives later and is applied by retargetListingMarkerSources.
+    const registrations = buildListingMarkerSourceRegistrations({
       filterHash: ALL_ACTIVE_MARKER_FILTER_HASH,
-      minzoom: LISTING_MARKER_RENDER_MIN_ZOOM,
-      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
-    });
-    const deltaRegistration = buildListingMarkerDeltaLayerRegistration({
-      baseVersion: null,
-      minzoom: 0,
-      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
+      projectionVersion: undefined,
     });
 
-    for (const markerRegistration of [registration, deltaRegistration]) {
+    for (const markerRegistration of registrations) {
       if (!mb.getSource?.(markerRegistration.sourceId)) {
         mb.addSource(markerRegistration.sourceId, markerRegistration.source);
       }

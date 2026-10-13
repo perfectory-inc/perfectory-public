@@ -1,5 +1,9 @@
 import { LISTING_TYPE_COLOR_FALLBACK, MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
 import {
+  LISTING_MARKER_RENDER_MAX_ZOOM,
+  LISTING_MARKER_RENDER_MIN_ZOOM,
+} from "@/lib/map/map-zoom-policy";
+import {
   buildListingMarkerDeltaTileSource,
   buildListingMarkerTileSource,
   LISTING_MARKER_DELTA_TILE_LAYER,
@@ -100,6 +104,7 @@ export type BuildParcelAnchorMarkerLayerRegistrationInput = {
 
 export type BuildListingMarkerLayerRegistrationInput = {
   filterHash: string;
+  projectionVersion: number | null;
   minzoom: number;
   maxzoom: number;
   origin?: string;
@@ -245,4 +250,53 @@ export function buildListingMarkerDeltaLayerRegistration(
       },
     ],
   };
+}
+
+export type ListingMarkerSourceState = {
+  filterHash: string;
+  projectionVersion: number | undefined;
+};
+
+/** Registers both listing marker sources at one server state (the initial one before the server answers). */
+export function buildListingMarkerSourceRegistrations(
+  state: ListingMarkerSourceState,
+  origin?: string,
+): [ListingMarkerLayerRegistration, ListingMarkerDeltaLayerRegistration] {
+  const version = state.projectionVersion ?? null;
+  return [
+    buildListingMarkerLayerRegistration({
+      filterHash: state.filterHash,
+      projectionVersion: version,
+      minzoom: LISTING_MARKER_RENDER_MIN_ZOOM,
+      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
+      origin,
+    }),
+    buildListingMarkerDeltaLayerRegistration({
+      baseVersion: version,
+      minzoom: 0,
+      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
+      origin,
+    }),
+  ];
+}
+
+/**
+ * Points the live listing marker sources at a newer server state: base tiles carry its filter hash
+ * and projection version (a new browser cache key), deltas are asked for changes after it.
+ */
+export function retargetListingMarkerSources(
+  mapbox: { getSource?: (id: string) => unknown },
+  state: ListingMarkerSourceState,
+  origin?: string,
+): void {
+  for (const registration of buildListingMarkerSourceRegistrations(state, origin)) {
+    const source = mapbox.getSource?.(registration.sourceId) as
+      | { setTiles?: (tiles: string[]) => void }
+      | undefined;
+    if (!source) continue; // never registered: the setup failure is already logged
+    if (!source.setTiles) {
+      throw new Error(`listing marker source cannot be retargeted: ${registration.sourceId}`);
+    }
+    source.setTiles(registration.source.tiles);
+  }
 }
