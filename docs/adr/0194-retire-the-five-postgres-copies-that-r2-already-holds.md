@@ -160,3 +160,6 @@ Airflow DAG와 systemd 유닛 가운데 두 표를 부르는 것은 없다. 나�
 - 2026-10-13 (§3 이행 기록): gongzzang-api에서 지운 중계는 `/api/buildings`, `/api/buildings/{id}/units`에 더해
   `/api/floors`도 있다. 같은 foundation-api 읽기를 중계했고 웹은 R2 엣지에서 층을 읽는다(PR #438).
   웹 `preview-floors/page.tsx` 각주의 출처는 `building-edge (R2)`로 고쳤다(PR #442).
+- 2026-10-14 (§3 추가): gongzzang-api `GET /api/parcels/{pnu}`도 지운다. 패널 묶음용 필지 조회 경로였으나 웹은 이미
+  필지 상세를 R2 엣지에서 읽고(ADR-0109) 이 경로를 부르지 않는다. 생성되는 프록시·정책 항목도 함께 지운다.
+  매물 등록이 쓰는 필지 조회 포트(`parcel_lookup`)는 남는다.

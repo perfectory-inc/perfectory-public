@@ -458,22 +458,6 @@
       }
     },
     {
-      "source_policy_id": "gongzzang.api_proxy.parcel_read",
-      "edge_path": "/api/proxy/api/parcels/:pnu",
-      "target_path": "api/parcels/:pnu",
-      "target_path_kind": "template",
-      "methods": ["GET"],
-      "exposure_class": "authenticated_user",
-      "required_roles": [],
-      "rate": {
-        "key_strategy": "session_sub",
-        "key_prefix": "api-proxy:authenticated-read",
-        "limit": 240,
-        "window_seconds": 60,
-        "problem_type": "proxy/too-many-requests"
-      }
-    },
-    {
       "source_policy_id": "gongzzang.api_proxy.complexes_collection_read",
       "edge_path": "/api/proxy/api/complexes",
       "target_path": "api/complexes",

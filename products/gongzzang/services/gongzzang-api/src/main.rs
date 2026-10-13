@@ -41,7 +41,6 @@ mod routes {
     pub mod listings;
     pub mod metrics;
     pub mod notifications;
-    pub mod parcels;
     pub mod users;
 }
 
