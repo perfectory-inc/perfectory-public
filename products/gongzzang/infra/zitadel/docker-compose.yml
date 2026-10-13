@@ -1,4 +1,5 @@
-# Dev-only docker-compose. Production 은 SP6-iam-infra 가 Pulumi 화.
+# Dev-only. 운영 신원의 Zitadel 은 platforms/identity-platform/infra/zitadel 이며, 이 파일은
+# 그쪽으로 옮긴 뒤 지운다(루트 ADR-0228 §4). 새 소비자를 여기에 붙이지 말 것.
 # Ports 18443 (zitadel), 15433 (postgres) 은 Windows Hyper-V exclusion 회피용.
 # Linux/macOS 사용자는 표준 8443/5433 으로 변경 가능 (단 .env.local + init-zitadel.sh
 # 의 ZITADEL_HOST 도 일관 변경 필요).
