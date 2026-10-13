@@ -385,6 +385,22 @@ class PackOperator(OperatorHarness):
         self.assertIn("foundation-gold-panel-rebuild.service: inactive", result.stdout)
         self.assertIn("foundation-by-pnu-serving-bake.service: inactive", result.stdout)
 
+    def test_the_equality_gate_is_told_its_generation_by_the_action(self):
+        # 2026-10-13: the first parcel kind lane's gate (가) stopped with "PACK_GENERATION is
+        # required"; the earlier lanes had it from an environment file a new lane does not have.
+        for lane, generation in (("parcel", "2"), ("parcel-zoning", "1")):
+            with self.subTest(lane=lane):
+                if self.log.exists():
+                    self.log.unlink()
+                work = self.work(lane, int(generation))
+                result, calls = self.run_operator(lane, "equality", generation)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args, env, _ = self.unit(calls)
+                prefix = "FOUNDATION_PLATFORM_" + lane.replace("-", "_").upper() + "_BY_PNU_SERVING_"
+                self.assertEqual(env[prefix + "PACK_GENERATION"], generation)
+                self.assertEqual(env[prefix + "PACK_SUMMARY_DIR"], f"{work}/summaries")
+                self.assertEqual(args[-1], f"verify-{lane}-by-pnu-section-pack-equality")
+
     def test_the_latency_gate_runs_the_release_publisher_against_the_lane_preview(self):
         work = self.work()
         (work / "equality.json").write_text(json.dumps({"passed": True}))

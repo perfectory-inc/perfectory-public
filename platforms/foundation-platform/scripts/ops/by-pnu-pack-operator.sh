@@ -431,7 +431,9 @@ case "${ACTION}" in
   equality)
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
     # The gate writes the generation's parts index too (root ADR-0163), to the lane's R2 output.
-    env=("${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_PACK_SUMMARY_DIR=${WORK}/summaries"
+    # The generation is this action's, never an environment file's: a lane's first cut-over
+    # (2026-10-13, the parcel kind lanes) has no file naming it, and the gate refuses without it.
+    env=("${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_PACK_GENERATION=${GENERATION}" "${P}_PACK_SUMMARY_DIR=${WORK}/summaries"
       "${P}_PACK_EQUALITY_EVIDENCE_PATH=${WORK}/equality.json")
     command="verify-${LANE}-by-pnu-section-pack-equality"
     ;;
