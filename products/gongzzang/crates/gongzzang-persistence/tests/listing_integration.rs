@@ -6,6 +6,8 @@
 #![cfg(feature = "integration")]
 
 mod common;
+#[path = "listing_integration/status_price_history.rs"]
+mod status_price_history;
 
 use std::sync::Arc;
 
