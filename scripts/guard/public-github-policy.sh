@@ -641,9 +641,10 @@ require('legal_gate="$root/scripts/guard/legal-publication-ci.sh"'
         in monorepo_guard
         and 'bash "$repository_identity_gate"' in monorepo_guard
         and 'bash "$legal_gate"' in monorepo_guard
-        and "legal-publication-self-test" in monorepo_guard
-        and "third-party-artifact-policy-self-test" in monorepo_guard
-        and "repository-identity-policy-self-test" in monorepo_guard
+        and {"legal-publication-self-test", "third-party-artifact-policy-self-test",
+             "repository-identity-policy-self-test"}
+        <= {entry["name"] for entry in json.loads(
+            Path("tools/ci/change-scope.json").read_text(encoding="utf-8"))["guards"]["run"]}
         and "--allow-unconfirmed" not in monorepo_guard
         and "--allow-unset" not in monorepo_guard
         and monorepo_guard.index('bash "$repository_identity_gate"')
