@@ -198,11 +198,10 @@ async fn karapace_client_looks_up_an_owner_registered_schema_without_registering
         timeout_seconds: 5,
     })
     .unwrap();
-    let schema_str = include_str!("../../../../schemas/intelligence.dead-letter.v1.avsc");
     let subject = schema_subject_for_topic(DEAD_LETTER_TOPIC);
 
     let schema_id = client
-        .lookup_avro_schema(&subject, schema_str)
+        .lookup_avro_schema(&subject, r#"{"type":"string"}"#)
         .await
         .unwrap();
 
