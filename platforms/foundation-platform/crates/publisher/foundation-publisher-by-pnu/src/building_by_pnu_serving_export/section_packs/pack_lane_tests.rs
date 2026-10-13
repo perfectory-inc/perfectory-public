@@ -119,6 +119,7 @@ fn a_contract_lane_has_every_command_and_its_names_by_rule() -> anyhow::Result<(
         "gold.unit_price_panel"
     );
     for name in [
+        "plan-unit-price-by-pnu-pack-shards",
         "export-unit-price-by-pnu-section-packs",
         "verify-unit-price-by-pnu-section-pack-equality",
         "probe-unit-price-by-pnu-section-pack-latency",

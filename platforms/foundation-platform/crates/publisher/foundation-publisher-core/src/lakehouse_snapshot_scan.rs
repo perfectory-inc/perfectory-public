@@ -8,6 +8,7 @@
 pub mod iceberg_scan;
 #[cfg(test)]
 mod pruning_tests;
+pub mod shard_plan;
 
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -181,6 +182,28 @@ pub async fn scan_snapshot_inventory(
         data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
         total_bytes,
     })
+}
+
+/// The shards of a by-PNU bake of `snapshot`, planned from its manifests alone (no data file is
+/// opened), and the snapshot's whole record count: see [`shard_plan`].
+///
+/// # Errors
+/// Returns an error when the manifest list or a manifest cannot be read.
+pub async fn plan_snapshot_shards(
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+    column: &str,
+    max_rows: u64,
+) -> anyhow::Result<(Vec<shard_plan::PlannedShard>, u64)> {
+    let data_files = snapshot_data_files(lakehouse, snapshot).await?;
+    let records = data_files
+        .iter()
+        .try_fold(0_u64, |sum, file| sum.checked_add(file.record_count))
+        .context("manifest record count overflow")?;
+    Ok((
+        shard_plan::plan_prefix_shards(&data_files, column, max_rows),
+        records,
+    ))
 }
 
 /// Decodes every live row of one Iceberg snapshot into contract-shaped JSON objects.
