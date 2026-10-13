@@ -96,6 +96,7 @@ export async function setupMapboxRuntime(
     let activeRuntimeManifest = runtimeManifest;
     const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
       initialManifest: runtimeManifest,
+      intervalMs: (latest) => latest.refresh_after_seconds * 1_000,
       startImmediately: false,
       fetchManifest: async (signal, previous, etag) => {
         const result = await fetchVectorTileRuntimeManifest(fetch, undefined, {
