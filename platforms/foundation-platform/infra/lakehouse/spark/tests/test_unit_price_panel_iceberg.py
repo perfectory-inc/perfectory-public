@@ -4,7 +4,8 @@ The producer runs its own `run` against Silver tables made from the lakehouse co
 full, then a new price vintage (one price corrected, a reference date added, a unit's prices
 gone) and a unit relinked to another building, merged incrementally and rebuilt in full into a
 second table. Both must hold the same rows; PNUs the change did not reach keep their bytes; each
-unit sits under the PNU its building document carries it. PNUs are synthetic (`99999…`).
+unit sits under the PNU its building document carries it, in the row of its building (root
+ADR-0204). PNUs are synthetic (`99999…`).
 """
 import json
 import os
@@ -84,8 +85,21 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         return json.loads((work / "summary.json").read_text(encoding="utf-8"))
 
     def rows(self, table):
-        return {r.pnu: (json.loads(r.units_json), r.row_digest, r.published_at_utc)
+        """(pnu, building_id) -> (units, row_digest, published_at_utc)."""
+        return {(r.pnu, r.building_id): (json.loads(r.units_json), r.row_digest, r.published_at_utc)
                 for r in self.spark.table(f"proof.gold.{table}").collect()}
+
+    @staticmethod
+    def at(rows, key):
+        """The one row of PNU `key`."""
+        (value,) = [v for (p, _), v in rows.items() if p == key]
+        return value
+
+    def building_id(self, register_pk):
+        import building_panel_silver_to_gold as panel
+        from pyspark.sql import functions as F
+
+        return self.spark.range(1).select(panel.canonical_id("building", F.lit(register_pk))).first()[0]
 
     def test_an_incremental_vintage_equals_the_full_rebuild(self):
         import building_panel_silver_to_gold as panel
@@ -114,9 +128,10 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         self.assertEqual(first["quality_metrics"]["unplaced_price_unit_count"], 1)
         before = self.rows("unit_price_panel")
         # Only priced units' PNUs; U2 under its building's PNU, the orphan under its own.
-        self.assertEqual(sorted(before), sorted([pnu(i) for i in range(1, 21) if i % 4] + [pnu(25)]))
-        self.assertEqual(before[pnu(2)][0], [{"id": before[pnu(2)][0][0]["id"],
-                                              "official_price_history": [{"base_date": "20240101", "price_won": 200}]}])
+        self.assertEqual(sorted(before), sorted([(pnu(i), self.building_id(f"T{i}")) for i in range(1, 21) if i % 4] +
+                                                [(pnu(25), job.UNLINKED_BUILDING_ID)]))
+        self.assertEqual(self.at(before, pnu(2))[0], [{"id": self.at(before, pnu(2))[0][0]["id"],
+                                                       "official_price_history": [{"base_date": "20240101", "price_won": 200}]}])
 
         # The next vintage: U1 corrected, U3 gains a reference date, U5's prices gone; U6 relinked to T8.
         v2 = [row for row in v1 if row[0] != "U5"]
@@ -132,13 +147,14 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         full = self.run_job(pins2, "unit_price_panel_full", "2099-02-02T00:00:00Z")
         after, rebuilt = self.rows("unit_price_panel"), self.rows("unit_price_panel_full")
         self.assertEqual({k: v[:2] for k, v in after.items()}, {k: v[:2] for k, v in rebuilt.items()})
-        self.assertNotIn(pnu(5), after)
-        self.assertNotIn(pnu(6), after)
-        self.assertEqual(len(after[pnu(8)][0]), 1, "U6 joined T8's PNU; U8 itself is unpriced")
-        self.assertEqual(after[pnu(3)][0][0]["official_price_history"],
+        served = {p for p, _ in after}
+        self.assertNotIn(pnu(5), served)
+        self.assertNotIn(pnu(6), served)
+        self.assertEqual(len(self.at(after, pnu(8))[0]), 1, "U6 joined T8's PNU; U8 itself is unpriced")
+        self.assertEqual(self.at(after, pnu(3))[0][0]["official_price_history"],
                          [{"base_date": "20250101", "price_won": 330}, {"base_date": "20240101", "price_won": 300}])
         reached = {pnu(1), pnu(3), pnu(5), pnu(6), pnu(8)}
-        for key in set(before) - reached:
+        for key in {k for k in before if k[0] not in reached}:
             self.assertEqual(after[key], before[key], f"{key} was not reached but its row changed")
         self.assertIsNotNone(panel.unit_placement)
 
@@ -187,7 +203,44 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         pins3 = {**pins1, job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices(grown, "batch-3"))}
         summary = self.run_job(pins3, "unit_price_panel_shrink", "2099-03-03T00:00:00Z", previous=pins1)
         self.assertEqual(summary["quality_metrics"]["price_history_shrunk_unit_count"], 0)
-        self.assertEqual(len(self.rows("unit_price_panel_shrink")[pnu(101)][0][0]["official_price_history"]), 3)
+        self.assertEqual(len(self.at(self.rows("unit_price_panel_shrink"), pnu(101))[0][0]["official_price_history"]), 3)
+
+    def test_a_pnu_has_a_row_per_building_and_one_for_its_unlinked_units(self):
+        import unit_price_panel_silver_to_gold as job
+
+        titles = [{"mgm_bldrgst_pk": k, "pnu": pnu(200), "source_snapshot_id": "titles-v1"} for k in ("Ta", "Tb")]
+        titles += [{"mgm_bldrgst_pk": f"T{i}", "pnu": pnu(200 + i), "source_snapshot_id": "titles-v1"} for i in range(1, 5)]
+        evidence = {"building_link_method": "parent_key", "building_link_source_record_id": "synthetic#line=1",
+                    "building_link_input_sha256": "a" * 64, "source_snapshot_id": "units-v1"}
+        linked = [("Ua1", "Ta"), ("Ua2", "Ta"), ("Ub1", "Tb")] + [(f"U{i}", f"T{i}") for i in range(1, 5)]
+        units = [{"mgm_bldrgst_pk": k, "pnu": pnu(200), "building_mgm_bldrgst_pk": b, "unit_row_id": k.lower(),
+                  **evidence} for k, b in linked]
+        units.append({"mgm_bldrgst_pk": "U-free", "pnu": pnu(200), "unit_row_id": "u-free",
+                      "building_link_method": "unresolved", "source_snapshot_id": "units-v1"})
+        prices = [{"mgm_bldrgst_pk": u["mgm_bldrgst_pk"], "pnu": pnu(200), "dong_name": "", "ho_name": "",
+                   "base_date": "20240101", "price_won": 10 + n, "sido": "99", "source_snapshot_id": "batch-1",
+                   "source_record_id": f"batch-1/{n}"} for n, u in enumerate(units)]
+        pins1 = {job.TITLE_SOURCE: self.put(job.TITLE_SOURCE, titles), job.UNIT_SOURCE: self.put(job.UNIT_SOURCE, units),
+                 job.PRICE_SOURCE: self.put(job.PRICE_SOURCE, prices)}
+        self.run_job(pins1, "unit_price_by_building", "2099-04-01T00:00:00Z")
+        before = self.rows("unit_price_by_building")
+        ta, tb = self.building_id("Ta"), self.building_id("Tb")
+        self.assertEqual(sorted(b for p, b in before if p == pnu(200)), sorted([ta, tb, job.UNLINKED_BUILDING_ID]))
+        self.assertEqual([len(before[(pnu(200), b)][0]) for b in (ta, tb, job.UNLINKED_BUILDING_ID)], [2, 1, 1])
+
+        # Ub1 moves to Ta: Tb carries no priced unit any more and its row must go.
+        units[2] = {**units[2], "building_mgm_bldrgst_pk": "Ta"}
+        pins2 = {**pins1, job.UNIT_SOURCE: self.put(job.UNIT_SOURCE, units)}
+        merged = self.run_job(pins2, "unit_price_by_building", "2099-04-02T00:00:00Z", previous=pins1)
+        self.assertEqual(merged["rebuild"]["mode"], "incremental")
+        self.assertEqual(merged["rebuild"]["counts"]["deleted_pnus"], 1, "the (pnu, Tb) row")
+        self.run_job(pins2, "unit_price_by_building_full", "2099-04-03T00:00:00Z")
+        after, rebuilt = self.rows("unit_price_by_building"), self.rows("unit_price_by_building_full")
+        self.assertEqual({k: v[:2] for k, v in after.items()}, {k: v[:2] for k, v in rebuilt.items()})
+        self.assertNotIn((pnu(200), tb), after)
+        self.assertEqual(len(after[(pnu(200), ta)][0]), 3)
+        self.assertEqual(after[(pnu(200), job.UNLINKED_BUILDING_ID)], before[(pnu(200), job.UNLINKED_BUILDING_ID)],
+                         "a row the change did not reach keeps its bytes")
 
 
 if __name__ == "__main__":
