@@ -14,12 +14,13 @@
 #
 # Speed (measured in this script's log, "durations, slowest first"): the Iceberg artifacts are
 # resolved once, before the files start, and the files then load the resolved jars, so concurrent
-# JVMs never share an Ivy resolution. Every session defaults to two shuffle partitions, the size
-# of its local[2] master; a session that sets its own keeps it. Each test JVM compiles with C1
+# JVMs never share an Ivy resolution. Spark settings stay each session's own: a shared default
+# (fewer shuffle partitions, say) would change what a test exercises. Each test JVM compiles with C1
 # only, collects with the serial collector and sizes its pools for two CPUs: the files are short
 # and run side by side, so C2 compiler and parallel GC threads only take CPU from the other file.
 # Measured 2026-10-13 on ubuntu-24.04 (4 CPUs), one commit, four configurations side by side:
-# 2 files at a time 534s; with these JVM options 357s at 2, 418s at 3, 420s at 4 at a time.
+# 2 files at a time 534s; with these JVM options 357s at 2, 418s at 3, 420s at 4 at a time
+# (those four also defaulted shuffle partitions to 2, dropped since; serial on main: 488s-774s).
 # None of the options changes what a query computes.
 set -euo pipefail
 
@@ -68,7 +69,7 @@ compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-pl
     set -euo pipefail
     py4j=(/opt/spark/python/lib/py4j-*-src.zip)
     export PYTHONPATH="/opt/spark/python:${py4j[0]}"
-    defaults="--conf spark.ui.enabled=false --conf spark.sql.shuffle.partitions=2"
+    defaults="--conf spark.ui.enabled=false"
     defaults+=" --driver-java-options \"-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -XX:ActiveProcessorCount=2\""
     # Resolve the Iceberg artifacts once; the files then load the jars instead of each resolving.
     PYSPARK_SUBMIT_ARGS="--packages $SPARK_RUNTIME_PACKAGES --conf spark.jars.ivy=/tmp/ivy $defaults pyspark-shell" \
