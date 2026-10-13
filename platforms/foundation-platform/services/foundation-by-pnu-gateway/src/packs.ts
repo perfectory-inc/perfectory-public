@@ -5,7 +5,7 @@ import { cacheOrigin, lanePacks, OWN, type ServedLane } from "./lane";
 /// body, or one per part of a large dong (ADR-0163). Each lane has one section, `documents`, whose
 /// entry for a PNU is its served document as one gzip member; the Worker answers with that member as it is
 /// (`Content-Encoding: gzip`), without decompressing or parsing it. The byte layout and the
-/// resolution order are the publisher's (`foundation-outbox-publisher/src/by_pnu_pack.rs`,
+/// resolution order are the publisher's (`foundation-publisher-by-pnu/src/by_pnu_pack.rs`,
 /// `.../section_packs/{read,sections}.rs`); the golden packs in `test/fixtures/section-packs/` hold
 /// both sides to the same bytes.
 

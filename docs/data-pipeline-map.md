@@ -381,17 +381,17 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 카탈로그 변경 전달 → 공짱 이벤트 수신기 | `publish-outbox-once` |
 | 카탈로그 변경 전달 → 다우니어 이벤트 수신기 | `publish-outbox-once` |
 | 브이월드 공간·토지 파일 → 산업단지 기본 정보 | `build-industrial-complex-address-resolution`<br>`export-industrial-complex-bronze-raw-jsonl`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` |
-| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export.rs` |
-| 필지 by-PNU 제공용 패널 → 필지 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 용도지역 판정 by-PNU 표 → 필지 용도지역 판정 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 개별공시지가 by-PNU 표 → 필지 개별공시지가 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 토지특성 by-PNU 표 → 필지 토지특성 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 임야대장 by-PNU 표 → 필지 임야대장 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 토지이동이력 by-PNU 표 → 필지 토지이동이력 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 대지권 by-PNU 표 → 필지 대지권 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 호 공시가격 by-PNU 패널 → 호 공시가격 by-PNU 묶음 파일 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/building_by_pnu_serving_export/section_packs/bake.rs` |
-| 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_by_pnu_serving_export.rs` |
+| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 서빙 문서 | `export-building-by-pnu-serving`<br>`platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export.rs` |
+| 필지 by-PNU 제공용 패널 → 필지 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 용도지역 판정 by-PNU 표 → 필지 용도지역 판정 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 개별공시지가 by-PNU 표 → 필지 개별공시지가 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 토지특성 by-PNU 표 → 필지 토지특성 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 임야대장 by-PNU 표 → 필지 임야대장 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 토지이동이력 by-PNU 표 → 필지 토지이동이력 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 대지권 by-PNU 표 → 필지 대지권 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 건물·층·호 by-PNU 제공용 패널 → 건물 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 호 공시가격 by-PNU 패널 → 호 공시가격 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export.rs` |
 | 지도 편집 저장소 → 지도 편집 원장 | `export-map-edit-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
