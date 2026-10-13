@@ -19,6 +19,9 @@ migration chain은 과거 Foundation 소유 table을 만들지 않는다.
 
 이 이름의 table을 향후 migration에서 다시 만들면 소유권 경계를 조용히 되살리는 것이므로 금지한다.
 
+사용자의 Zitadel subject 는 `user` 열이 아니라 `external_account(provider = 'zitadel')` 한 곳에만 있다
+([루트 ADR-0225](../../../../docs/adr/0225-gongzzang-zitadel-subject-lives-only-in-external-account.md)).
+
 ## 현재 RDS 모델
 
 ```mermaid
