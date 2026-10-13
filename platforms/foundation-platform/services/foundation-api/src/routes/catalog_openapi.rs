@@ -3,7 +3,9 @@
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexAnchorSummaryResponse,
     ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
-    IndustrialComplexGoldPointerResponse, IndustrialComplexListResponse, IndustrialComplexResponse,
+    IndustrialComplexDevelopmentStageValue, IndustrialComplexGoldPointerResponse,
+    IndustrialComplexKindValue, IndustrialComplexListResponse,
+    IndustrialComplexLotSalesStatusValue, IndustrialComplexResponse, IndustrialComplexStatusValue,
     IndustryGroupMemberResponse, IndustryGroupResponse, ManufacturerResponse, MapEditRequest,
     MapEditResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
     ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelLandRightResponse,
@@ -69,6 +71,11 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::update_parcel_kind
     ),
     components(schemas(
+        // The industrial-complex value lists, so a consumer generates them from this document.
+        IndustrialComplexKindValue,
+        IndustrialComplexStatusValue,
+        IndustrialComplexDevelopmentStageValue,
+        IndustrialComplexLotSalesStatusValue,
         ArchiveComplexRequest,
         BlueprintResponse,
         BuildingResponse,
