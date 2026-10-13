@@ -38,7 +38,7 @@ pub trait UserRepository: Send + Sync {
     /// 저장 (insert or update). Optimistic lock 충돌 시 [`RepoError::Conflict`].
     ///
     /// 새 사용자면 `zitadel_sub` 의 `external_account` link 도 같은 트랜잭션에서 기록해요 —
-    /// 둘 중 하나라도 실패하면 아무것도 남지 않아요 (루트 ADR-0225).
+    /// 둘 중 하나라도 실패하면 아무것도 남지 않아요 (루트 ADR-0232).
     ///
     /// `ctx` 의 `actor_id` / `action` / `metadata` / `events` 가 같은 트랜잭션
     /// 안에서 `audit_log` 와 `outbox_event` 로 자동 기록돼요 (SP5-iv 의

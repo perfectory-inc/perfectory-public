@@ -1,4 +1,4 @@
-# ADR 0225: 공짱 사용자의 Zitadel subject 는 `external_account` 한 곳에만 산다
+# ADR 0232: 공짱 사용자의 Zitadel subject 는 `external_account` 한 곳에만 산다
 
 - Status: Proposed
 - Date: 2026-10-14

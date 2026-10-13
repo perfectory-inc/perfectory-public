@@ -1,4 +1,4 @@
--- Root ADR-0225: the Zitadel subject lives only in external_account (provider = 'zitadel').
+-- Root ADR-0232: the Zitadel subject lives only in external_account (provider = 'zitadel').
 -- "user".zitadel_sub was a second copy whose write could fail on its own; it is dropped.
 
 -- One Zitadel subject per user (lookups by user id must return a single subject).

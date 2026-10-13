@@ -48,7 +48,7 @@ impl PgUserRepository {
 }
 
 /// 모든 `user` 조회의 `select ... from` — Zitadel subject 는 `external_account` 가 유일한
-/// 출처 (루트 ADR-0225). 뒤에 `where` 절만 붙여 써요.
+/// 출처 (루트 ADR-0232). 뒤에 `where` 절만 붙여 써요.
 const SELECT_USER: &str = r#"select u.id, ea.external_id as zitadel_sub, u.email, u.phone_kr_hash,
     u.display_name, u.user_kind, u.business_number, u.business_verified_at,
     u.broker_license_number, u.broker_verified_at, u.roles, u.nice_verified_at,
@@ -253,7 +253,7 @@ impl UserRepository for PgUserRepository {
     /// SP5-iv 패턴 (SP5-iii 의 `PgAdminActionRepository.insert` 와 동일):
     /// 1. `pool.begin()` 으로 트랜잭션 시작
     /// 2. `user` UPSERT (`OCC` — `version` 일치 시 `version + 1`), 새 사용자면
-    ///    `external_account('zitadel')` INSERT — subject 의 유일한 출처 (루트 ADR-0225)
+    ///    `external_account('zitadel')` INSERT — subject 의 유일한 출처 (루트 ADR-0232)
     /// 3. `audit_log` INSERT (`resource_kind = 'user'`)
     /// 4. `ctx.events` 마다 `outbox_event` INSERT (`aggregate_kind = 'user'`)
     /// 5. `tx.commit()` — 어느 단계 실패든 자동 rollback (`tx` `Drop`)
@@ -343,7 +343,7 @@ impl UserRepository for PgUserRepository {
             return Err(RepoError::Conflict);
         }
 
-        // 1b. 새 사용자면 Zitadel subject 를 같은 tx 로 link (루트 ADR-0225 — 유일한 출처).
+        // 1b. 새 사용자면 Zitadel subject 를 같은 tx 로 link (루트 ADR-0232 — 유일한 출처).
         // 다른 사용자가 이미 가진 subject 면 UNIQUE 위반 → Conflict, user INSERT 도 rollback.
         if before_state.is_none() {
             let ext_id = Id::<ExternalAccountMarker>::new();

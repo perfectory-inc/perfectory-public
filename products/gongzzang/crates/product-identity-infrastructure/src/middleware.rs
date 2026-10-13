@@ -129,7 +129,7 @@ async fn resolve_or_create_user(state: &AuthState, claims: &Claims) -> Result<Us
 }
 
 /// 존재하지 않는 sub 에 대해 `User` 를 생성·저장해요. `save` 가 `external_account` link 를
-/// 같은 트랜잭션에서 기록해요 (루트 ADR-0225).
+/// 같은 트랜잭션에서 기록해요 (루트 ADR-0232).
 async fn provision_new_user(state: &AuthState, claims: &Claims) -> Result<User, AuthError> {
     // 자동 생성
     let email_str = claims.effective_email().ok_or_else(|| {

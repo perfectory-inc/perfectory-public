@@ -137,7 +137,7 @@ async fn duplicate_zitadel_sub_returns_conflict() {
     assert!(matches!(err, RepoError::Conflict));
 }
 
-/// 루트 ADR-0225: Zitadel subject 의 유일한 출처는 `external_account` — `save` 가 새 사용자와
+/// 루트 ADR-0232: Zitadel subject 의 유일한 출처는 `external_account` — `save` 가 새 사용자와
 /// 같은 트랜잭션에서 한 행을 쓰고, 갱신 `save` 는 행을 늘리지 않아요.
 #[tokio::test]
 async fn save_links_exactly_one_zitadel_external_account() {
@@ -328,7 +328,7 @@ async fn save_user_with_metadata_writes_to_after_state() {
         after_state["__metadata__"],
         serde_json::json!({"zitadel_sub": "zsub-meta-1"})
     );
-    // ADR-0225: the subject is not a `user` column any more; first sign-in carries it in metadata.
+    // ADR-0232: the subject is not a `user` column any more; first sign-in carries it in metadata.
     assert!(after_state.get("zitadel_sub").is_none());
     assert_eq!(after_state["email"], "meta1@example.com");
 }
