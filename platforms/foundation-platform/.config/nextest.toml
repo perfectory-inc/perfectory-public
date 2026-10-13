@@ -1,0 +1,16 @@
+# cargo-nextest settings for the Foundation workspace (`cargo xtask verify foundation` runs its Rust
+# tests under nextest, root ADR-0205).
+#
+# A test that runs past its limit is killed and fails by name. Before this, one floor-export test
+# spent 89 s of a 106 s test binary, unseen, hashing the test binary with an unoptimized `sha2`
+# (root ADR-0206). Every other Foundation test finishes in seconds, so the limit is far above the
+# honest ones and far below that regression.
+[profile.default]
+slow-timeout = { period = "20s", terminate-after = 3 }
+
+# The release-installer rehearsal (`scripts/deploy/foundation-release-test.sh`, about 37 s on a
+# 4-core host) starts about 385 Python processes; it is the one test that needs more. Its limit is
+# its own, so it cannot raise the limit of anything else.
+[[profile.default.overrides]]
+filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
+slow-timeout = { period = "30s", terminate-after = 4 }

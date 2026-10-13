@@ -176,3 +176,10 @@ debug = true
 # and native C++ assertions remain enabled (root ADR-0004).
 [profile.dev.package."*"]
 debug = 1
+
+# SHA-256 is the one dependency the tests spend real time in: the floor export hashes its own
+# executable as producer evidence, and in a test that executable is the test binary. Unoptimized,
+# `sha2` hashed 6 MB/s and one floor test spent 89 s in it; optimized, the same 80 MB take 0.33 s
+# (root ADR-0206). Assertions and debug info are unchanged.
+[profile.dev.package.sha2]
+opt-level = 3
