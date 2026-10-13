@@ -24,7 +24,9 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
 - **C0-C1**(인바운드 인증·admission control·durable outbox) 구현 완료. **C2** 이벤트 백본은
   코드(Kafka/Karapace 어댑터, Avro 스키마, `foundation_knowledge_consumer`)가 있으나
   **선택적이며 prod 발행 미배선**: submission-requested 토픽을 발행하는 프로덕션 코드 없음,
-  Foundation 측 knowledge.source 프로듀서 부재(기본 토픽은 fixture 상수).
+  Foundation 측 knowledge.source 프로듀서 부재. 그 토픽의 값 스키마는 Foundation이 소유한다
+  (`platforms/foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc`) —
+  이 영역은 `include_str!`로 읽고 레지스트리에서 조회만 하며, 스키마를 고치거나 등록하지 않는다.
   C2를 "가동 중"으로 서술하지 말 것. `/metrics` 분리 리스너는 C3로 연기.
 - knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),
   `KnowledgeIndexPort`, `tenant:scaffold` 전용 CLI 2종. HTTP route 없음.

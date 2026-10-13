@@ -30,35 +30,11 @@ impl FoundationKnowledgeEventError {
     }
 }
 
-pub fn foundation_knowledge_source_upserted_fixture_schema_str() -> &'static str {
-    r#"
-{
-  "type": "record",
-  "namespace": "kr.perfectory.foundation.events.fixture",
-  "name": "FoundationKnowledgeSourceUpsertedV1",
-  "doc": "Fixture-only contract for intelligence-platform C2-B development. Production enablement requires Foundation Platform approval of topic and schema.",
-  "fields": [
-    { "name": "event_id", "type": "string" },
-    { "name": "tenant_id", "type": "string" },
-    { "name": "product_id", "type": "string" },
-    { "name": "source_id", "type": "string" },
-    { "name": "source_kind", "type": "string" },
-    { "name": "source_uri", "type": "string" },
-    { "name": "content_uri", "type": ["null", "string"], "default": null },
-    { "name": "content_checksum_sha256", "type": ["null", "string"], "default": null },
-    {
-      "name": "occurred_at",
-      "type": { "type": "long", "logicalType": "timestamp-millis" }
-    },
-    {
-      "name": "metadata",
-      "type": { "type": "map", "values": "string" },
-      "default": {}
-    }
-  ]
-}
-"#
-}
+/// The value schema Foundation owns and registers for the knowledge-source topic. Intelligence
+/// only reads it; it is never edited or registered from this side.
+pub const FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_SCHEMA: &str = include_str!(
+    "../../../../../foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc"
+);
 
 impl FoundationKnowledgeSourceUpsertedEvent {
     pub fn to_avro_value(&self) -> AvroValue {
