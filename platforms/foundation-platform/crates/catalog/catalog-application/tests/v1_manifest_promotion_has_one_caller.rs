@@ -32,7 +32,8 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 
 #[test]
 fn only_the_v1_http_route_constructs_the_v1_manifest_promotion() -> TestResult {
-    let area = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    // Read at run time, which cargo also sets, so the scan adds no compile-time file dependency.
+    let area = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join("../../..");
     let mut files = Vec::new();
     for root in ["crates", "services"] {
         rust_files(&area.join(root), &mut files)?;
