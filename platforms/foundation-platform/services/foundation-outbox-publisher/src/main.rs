@@ -162,7 +162,6 @@ use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
 mod parcel_catalog_projection_load;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_artifact_export;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_artifact_build;
-use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_manifest_promote;
 use foundation_publisher_parcel_anchor::parcel_marker_anchor_streaming_rebuild;
 mod parcel_projection_digest;
 mod parcel_publication_contract;
@@ -377,8 +376,6 @@ enum Command {
     VerifyParcelByPnuServingRebase,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
-    PromoteParcelMarkerAnchorRuntimeManifest,
-    PromoteParcelMarkerAnchorPbfManifest,
     RebuildParcelMarkerAnchors,
     RebuildParcelMarkerAnchorsStreaming,
     RebuildPostgisParcelBoundaryMirror,
@@ -438,7 +435,6 @@ const fn command_requires_expanded_stack(command: Command) -> bool {
         Command::ExportParcelMarkerAnchorArtifacts
             | Command::BuildParcelMarkerAnchorPbfArtifacts
             | Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
-            | Command::PromoteParcelMarkerAnchorRuntimeManifest
     )
 }
 
@@ -761,12 +757,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishLakehouseLineageEvent => Box::pin(publish_lakehouse_lineage_event::run()),
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
         Command::R2BillingUsageMetrics => Box::pin(async { r2_billing_usage_metrics::run() }),
-        Command::PromoteParcelMarkerAnchorPbfManifest => {
-            Box::pin(parcel_marker_anchor_pbf_manifest_promote::run())
-        }
-        Command::PromoteParcelMarkerAnchorRuntimeManifest => {
-            Box::pin(parcel_marker_anchor_pbf_manifest_promote::run_runtime())
-        }
         Command::RebuildParcelMarkerAnchors => Box::pin(run_parcel_marker_anchor_rebuild()),
         Command::RebuildParcelMarkerAnchorsStreaming => {
             Box::pin(parcel_marker_anchor_streaming_rebuild::run())
@@ -1443,12 +1433,6 @@ where
         Some("publish-lakehouse-lineage-event") => Ok(Command::PublishLakehouseLineageEvent),
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),
         Some("r2-billing-usage-metrics") => Ok(Command::R2BillingUsageMetrics),
-        Some("promote-parcel-marker-anchor-pbf-manifest") => {
-            Ok(Command::PromoteParcelMarkerAnchorPbfManifest)
-        }
-        Some("promote-parcel-marker-anchor-runtime-manifest") => {
-            Ok(Command::PromoteParcelMarkerAnchorRuntimeManifest)
-        }
         Some("rebuild-parcel-marker-anchors") => Ok(Command::RebuildParcelMarkerAnchors),
         Some("rebuild-parcel-marker-anchors-streaming") => {
             Ok(Command::RebuildParcelMarkerAnchorsStreaming)

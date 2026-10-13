@@ -954,14 +954,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             Command::BuildParcelMarkerAnchorAggregatePbfArtifacts,
         ),
         (
-            "promote-parcel-marker-anchor-pbf-manifest",
-            Command::PromoteParcelMarkerAnchorPbfManifest,
-        ),
-        (
-            "promote-parcel-marker-anchor-runtime-manifest",
-            Command::PromoteParcelMarkerAnchorRuntimeManifest,
-        ),
-        (
             "export-vworld-cadastral-silver-handoff",
             Command::ExportVWorldCadastralSilverHandoff,
         ),
@@ -1151,9 +1143,6 @@ fn artifact_batch_commands_run_with_expanded_stack() {
     ));
     assert!(command_requires_expanded_stack(
         Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
-    ));
-    assert!(command_requires_expanded_stack(
-        Command::PromoteParcelMarkerAnchorRuntimeManifest
     ));
 }
 
