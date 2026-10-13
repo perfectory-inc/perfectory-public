@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Build gold.unit_price_panel: one row per building of a PNU with its units' official price
-histories (root ADR-0190, ADR-0204).
+"""Build gold.unit_price_panel: one row per PNU with its units' official price histories (root ADR-0190).
 
 A unit's price history is a time series on its own cadence (a monthly vintage, a new reference
 date a year). Its record of truth stays long and append-only in `silver.unit_official_price`; this
@@ -8,12 +7,9 @@ Gold is its by-PNU serving projection, apart from `gold.building_panel` so that 
 never touches a building row or a building pack, and a building change never re-encodes prices.
 
 A unit is placed under the PNU whose building document carries it, by the building panel's own
-`unit_placement`, so the web joins the two documents by unit id. A row is one building of that PNU
-(`building_id`, the title's catalog id `unit_placement` gives the unit); units linked to no building
-share the nil UUID row of the PNU they are placed under. Only (PNU, building) pairs with at least
-one priced unit have a row. The incremental rebuild (root ADR-0180) recomputes every row of the
-PNUs whose units or prices changed between two Silver snapshots and merges them by (pnu,
-building_id); the full rebuild builds every PNU.
+`unit_placement`, so the web joins the two documents by unit id. Only PNUs with at least one
+priced unit have a row. The incremental rebuild (root ADR-0180) recomputes the PNUs whose units or
+prices changed between two Silver snapshots and merges them; the full rebuild builds every PNU.
 """
 from __future__ import annotations
 
@@ -52,9 +48,6 @@ BUILD_COLUMNS = {name: panel.BUILD_COLUMNS[name] for name in ALL_SOURCES}
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # Each unit's price records, as `units_json` holds them: enough to count them.
 UNIT_HISTORY_SCHEMA = "array<struct<id:string,official_price_history:array<struct<base_date:string>>>>"
-# A Gold row's identity (root ADR-0204); the units no building carries share the nil UUID.
-ROW_KEY = (incremental.KEY, "building_id")
-UNLINKED_BUILDING_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def parse_args(argv=None):
@@ -136,13 +129,12 @@ def build_gold_frame(frames, source_snapshot_id, published_at_utc, counters):
     titles = titles.withColumn("id", panel.canonical_id("building", F.col("mgm_bldrgst_pk")))
     placed = panel.unit_placement(units, titles).select(
         "mgm_bldrgst_pk", F.col("serving_pnu").alias("pnu"),
-        F.coalesce("building_id", F.lit(UNLINKED_BUILDING_ID)).alias("building_id"),
         panel.canonical_id("building_unit", F.col("mgm_bldrgst_pk")).alias("id"))
     # A price whose register names no unit has nowhere to be served; counted, as the panel does.
     counters["unplaced_price_unit_count"] = histories.join(placed, "mgm_bldrgst_pk", "left_anti").count()
     priced = placed.join(histories, "mgm_bldrgst_pk")
-    grouped = panel.sorted_objects(priced, list(ROW_KEY), ["id", "official_price_history"], "units")
-    gold = grouped.select(*ROW_KEY, F.to_json("units", panel.JSON_OPTIONS).alias("units_json"),
+    grouped = panel.sorted_objects(priced, ["pnu"], ["id", "official_price_history"], "units")
+    gold = grouped.select("pnu", F.to_json("units", panel.JSON_OPTIONS).alias("units_json"),
                           F.lit(source_snapshot_id).alias("source_snapshot_id"),
                           F.lit(published_at_utc).alias("published_at_utc"))
     return gold.withColumn("row_digest", row_digest_column()).select(*GOLD_COLUMNS)
@@ -156,7 +148,7 @@ def row_digest_column():
 def validate_gold_frame(gold, expected_count):
     if tuple(gold.columns) != GOLD_COLUMNS:
         raise ValueError("Gold columns disagree with the lakehouse contract")
-    panel.assert_unique(gold, list(ROW_KEY), GOLD_CONTRACT_NAME)
+    panel.assert_unique(gold, ["pnu"], GOLD_CONTRACT_NAME)
     checks = [F.count(F.lit(1)).alias("row_count")]
     checks += [F.sum(F.when(F.col(c).isNull(), 1).otherwise(0)).alias(c + "__null_count") for c in REQUIRED_GOLD_COLUMNS]
     checks += [F.sum(F.when(~F.col("pnu").rlike(panel.PNU_PATTERN), 1).otherwise(0)).alias("invalid_pnu_count"),
@@ -194,9 +186,8 @@ def shrink_verdict(shrunk: int, units: int, max_fraction: float) -> str | None:
 def assert_price_histories_kept(spark, target_table, outcome, max_fraction):
     """Refuses, before anything is written, a Gold that shrinks the current one's price histories.
 
-    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted
-    (pnu, building) rows (a row the merge does not touch keeps its units). A unit missing from them
-    counts as shrunk.
+    Compared are the rows the commit writes: the whole Gold, or the merge's upserted and deleted PNUs
+    (a PNU the merge does not touch keeps its row). A unit missing from them counts as shrunk.
     """
     if not spark.catalog.tableExists(target_table.replace("`", "")):
         return {}
@@ -205,7 +196,7 @@ def assert_price_histories_kept(spark, target_table, outcome, max_fraction):
         before, after = current, outcome.gold
     else:
         source = outcome.merge["source"]
-        before = current.join(source.select(*ROW_KEY), list(ROW_KEY), "left_semi")
+        before = current.join(source.select(incremental.KEY), incremental.KEY, "left_semi")
         after = source.where(~F.col(incremental.DELETE_FLAG))
     later = history_lengths(after).withColumnRenamed("records", "later")
     shrunk_units = (history_lengths(before).join(later, "id", "left")
@@ -277,7 +268,7 @@ def run(spark, args, pins):
             read_inputs(spark, args, previous), frames, changed,
             panel.appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
         append_inputs={name: panel.iceberg_table(args, name) for name in ALL_SOURCES},
-        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS, row_key=ROW_KEY,
+        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,
                                          validate_gold_frame, assert_minimum_row_count)

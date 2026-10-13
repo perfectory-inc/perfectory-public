@@ -275,9 +275,6 @@ class Lane:
     gold_columns: tuple[str, ...]
     whole_table_inputs: tuple[str, ...] = ()
     append_inputs: dict[str, str] = field(default_factory=dict)
-    # A Gold row's identity. A PNU stays the unit of change: every row of an affected PNU is
-    # recomputed, and its rows the rebuild no longer makes are deleted (root ADR-0204).
-    row_key: tuple[str, ...] = (KEY,)
 
 
 @dataclass
@@ -305,7 +302,7 @@ class Outcome:
             return
         started = time.monotonic()
         self.merged = merge_into_gold(spark, table, self.merge["source"],
-                                      {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}, self.merge["row_key"])
+                                      {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)})
         phase_done("merge", started)
 
     def disposition(self, args: Any) -> str:
@@ -360,7 +357,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
             plan = plan_merge(spark, build=lane.build, restrict=lane.restrict, new=frames, affected=affected,
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
-                              seed=pins_seed(pins), started=started, row_key=lane.row_key)
+                              seed=pins_seed(pins), started=started)
             try:
                 _, metrics = lane.validate(plan["recomputed"])
                 if args.expected_count is not None and plan["row_count"] != args.expected_count:
@@ -429,12 +426,11 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
                max_fraction: float, sample_keys: int, seed: str,
-               started: float | None = None, row_key: tuple[str, ...] = (KEY,)) -> dict[str, Any]:
+               started: float | None = None) -> dict[str, Any]:
     """Recompute the affected PNUs and a parity sample; return the merge source and its counts.
 
     Raises IncrementalRefusal when the change set is too large or the parity sample disagrees.
-    `current_gold` is the Gold table at its current snapshot; `affected` a frame of `pnu`. Rows
-    are merged by `row_key`; `gold_rows` counts rows, the change bound and the sample count PNUs.
+    `current_gold` is the Gold table at its current snapshot; `affected` a frame of `pnu`.
 
     Each stage is materialized (`Stages`) before the next reads it: the build reads its inputs
     several times over, and an input restricted by key frames that are themselves joins of two
@@ -449,7 +445,7 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                              current_gold=current_gold, gold_rows=gold_rows,
                              content_columns=content_columns, max_fraction=max_fraction,
                              sample_keys=sample_keys, seed=seed, F=F,
-                             started=time.monotonic() if started is None else started, row_key=row_key)
+                             started=time.monotonic() if started is None else started)
     except BaseException:
         stages.remove()
         raise
@@ -458,21 +454,16 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
 def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
                   restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                   affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
-                  max_fraction: float, sample_keys: int, seed: str, F: Any, started: float,
-                  row_key: tuple[str, ...] = (KEY,)) -> dict[str, Any]:
-    if row_key[0] != KEY:
-        raise ValueError(f"a Gold row key starts with {KEY}, got {row_key}")
+                  max_fraction: float, sample_keys: int, seed: str, F: Any, started: float) -> dict[str, Any]:
     affected = stages.materialize("affected", affected.select(KEY).distinct())
     affected_count = affected.count()
     started = phase_done("affected", started)
-    pnus = current_gold.select(KEY) if row_key == (KEY,) else current_gold.select(KEY).distinct()
-    gold_pnus = gold_rows if row_key == (KEY,) else pnus.count()
-    verdict = change_fraction_verdict(affected_count, gold_pnus, max_fraction)
+    verdict = change_fraction_verdict(affected_count, gold_rows, max_fraction)
     if verdict:
         raise IncrementalRefusal(verdict)
     hashed = F.conv(F.substring(F.sha2(F.concat(F.col(KEY), F.lit("\x1f" + seed)), 256), 1, 8), 16, 10)
-    sample = stages.materialize("sample", pnus.join(affected, KEY, "left_anti")
-                                .where(hashed.cast("long") < sample_threshold(sample_keys, gold_pnus)))
+    sample = stages.materialize("sample", current_gold.select(KEY).join(affected, KEY, "left_anti")
+                                .where(hashed.cast("long") < sample_threshold(sample_keys, gold_rows)))
     sample_count = sample.count()
     keys = stages.materialize("keys", affected.unionByName(sample).distinct())
     restricted = {name: stages.materialize(f"input-{index}", frame)
@@ -496,20 +487,17 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
             "what the build makes of its pinned inputs")
 
     recomputed = built.join(affected, KEY, "left_semi")
-    key = list(row_key)
-    current = current_gold.select(*key, F.col("row_digest").alias("_current_digest"))
-    upserts = (recomputed.join(current, key, "left")
+    current = current_gold.select(KEY, F.col("row_digest").alias("_current_digest"))
+    upserts = (recomputed.join(current, KEY, "left")
                .where(~F.col("row_digest").eqNullSafe(F.col("_current_digest"))))
     inserted = upserts.where(F.col("_current_digest").isNull()).count()
     updated = upserts.where(F.col("_current_digest").isNotNull()).count()
-    # Every current row of an affected PNU the rebuild no longer makes, e.g. a building whose
-    # units all moved away (root ADR-0204).
-    deletes = (current_gold.select(*key).join(affected, KEY, "left_semi")
-               .join(recomputed.select(*key), key, "left_anti"))
+    deletes = (current_gold.select(KEY).join(affected, KEY, "left_semi")
+               .join(recomputed.select(KEY), KEY, "left_anti"))
     deleted = deletes.count()
     gold_columns = list(current_gold.columns)
     source = upserts.select(*gold_columns).withColumn(DELETE_FLAG, F.lit(False)).unionByName(
-        deletes.select(*[F.col(c) if c in row_key else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
+        deletes.select(*[F.col(KEY) if c == KEY else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
                          for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True)))
     source = stages.materialize("source", source)
     return {
@@ -524,7 +512,6 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
             "unchanged_recomputed_pnus": affected_count - inserted - updated - deleted,
         },
         "row_count": gold_rows + inserted - deleted,
-        "row_key": row_key,
         "persisted": [],
         "stages": stages,
     }
@@ -576,13 +563,12 @@ class JavaCallable:
         implements = ["java.util.concurrent.Callable"]
 
 
-def merge_sql(table: str, columns: list[str], row_key: tuple[str, ...] = (KEY,)) -> str:
+def merge_sql(table: str, columns: list[str]) -> str:
     update = ", ".join(f"t.`{c}` = s.`{c}`" for c in columns)
     names = ", ".join(f"`{c}`" for c in columns)
     values = ", ".join(f"s.`{c}`" for c in columns)
-    match = " AND ".join(f"t.`{c}` = s.`{c}`" for c in row_key)
     return (
-        f"MERGE INTO {table} t USING {MERGE_SOURCE_VIEW} s ON {match} "
+        f"MERGE INTO {table} t USING {MERGE_SOURCE_VIEW} s ON t.`{KEY}` = s.`{KEY}` "
         f"WHEN MATCHED AND s.`{DELETE_FLAG}` THEN DELETE "
         f"WHEN MATCHED AND NOT s.`{DELETE_FLAG}` AND NOT (t.`row_digest` <=> s.`row_digest`) "
         f"THEN UPDATE SET {update} "
@@ -590,10 +576,8 @@ def merge_sql(table: str, columns: list[str], row_key: tuple[str, ...] = (KEY,))
     )
 
 
-def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, str],
-                    row_key: tuple[str, ...] = (KEY,)) -> bool:
-    """Merge `source` into `table` by `row_key` in one snapshot carrying `properties`. False when
-    it was empty.
+def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, str]) -> bool:
+    """Merge `source` into `table` in one snapshot carrying `properties`. False when it was empty.
 
     An empty change set still commits, as an empty append with the same properties, so the Gold
     records that it reflects the new Silver pins and the next plan starts from them.
@@ -609,7 +593,7 @@ def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, s
     columns = [c for c in source.columns if c != DELETE_FLAG]
     source.createOrReplaceTempView(MERGE_SOURCE_VIEW)
     try:
-        with_commit_properties(spark, properties, lambda: spark.sql(merge_sql(table, columns, row_key)))
+        with_commit_properties(spark, properties, lambda: spark.sql(merge_sql(table, columns)))
     finally:
         spark.catalog.dropTempView(MERGE_SOURCE_VIEW)
     return True

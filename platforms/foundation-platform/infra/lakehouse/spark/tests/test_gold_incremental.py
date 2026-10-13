@@ -129,10 +129,6 @@ class ProducerDecisions(unittest.TestCase):
         self.assertIn(f"WHEN NOT MATCHED AND NOT s.`{incremental.DELETE_FLAG}` THEN INSERT", sql)
         self.assertNotIn(incremental.DELETE_FLAG, sql.split("INSERT", 1)[1].split("VALUES")[0])
 
-    def test_the_merge_matches_a_row_by_its_whole_key(self):
-        sql = incremental.merge_sql("`c`.`gold`.`t`", ["pnu", "building_id", "body"], ("pnu", "building_id"))
-        self.assertIn("ON t.`pnu` = s.`pnu` AND t.`building_id` = s.`building_id` WHEN", sql)
-
     def test_an_input_is_appended_only_when_every_snapshot_since_the_pin_appends(self):
         chain = {11: (None, "append"), 12: (11, "append"), 13: (12, "append"), 14: (13, "overwrite"),
                  15: (14, "append"), 21: (11, "delete")}
