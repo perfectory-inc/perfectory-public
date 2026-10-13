@@ -12,9 +12,11 @@ read:
 
 Every side streams one line per parcel — PNU, source checksum, whether that checksum names the
 row's bytes, area and centroid in EPSG:4326 (planar, degrees; PostGIS reprojects its EPSG:5179
-geometry back) — sorted by PNU, one 시도 range at a time (`pnu >= '11' AND pnu < '12'`, which the
-PostGIS tables' (run, pnu) keys serve without a full scan). The streams are merged by PNU, and for
-every parcel:
+geometry back) — sorted by PNU. Trino reads one 시도 range after the other (`pnu >= '11' AND
+pnu < '12'`); a PostgreSQL side is one sequential scan sorted on the data disk's temporary space
+(a range per 시도 would walk the (run, pnu) key into random heap reads: measured 80 s for one
+시군구 of 49,080 parcels). With --region every side reads that one range. The streams are merged by
+PNU, and for every parcel:
 
 1. **It is on every side, once.** A PNU missing from a side, or held twice by one, fails.
 2. **Its shape is the same on every side.** Area within `AREA_TOLERANCE` of itself and centroid
@@ -36,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import itertools
 import json
 import os
 import re
@@ -222,6 +225,17 @@ def merge(verdict: Verdict, streams: dict[str, Iterator[Parcel]]) -> None:
         verdict.parcel(current, held)
 
 
+def side_stream(args: argparse.Namespace, name: str) -> Iterator[Parcel]:
+    """One side's parcels in PNU order: one range for a region or a PostgreSQL side, else the
+    시도 ranges one after the other."""
+    if args.region is not None or ENGINE_OF[name] == "postgres":
+        low, high = ranges(args.region)[0] if args.region is not None else ("00", "9" * 20)
+        return stream(*side_queries(args, low, high)[name])
+    return itertools.chain.from_iterable(
+        stream(*side_queries(args, low, high)[name]) for low, high in ranges(None)
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source-snapshot-id", required=True, help="silver.parcel_boundaries source_snapshot_id")
@@ -251,9 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     verdict = Verdict(args.sides)
     started = time.monotonic()
     try:
-        for low, high in ranges(args.region):
-            queries = side_queries(args, low, high)
-            merge(verdict, {name: stream(*queries[name]) for name in args.sides})
+        merge(verdict, {name: side_stream(args, name) for name in args.sides})
     except (LookupError, ValueError) as error:
         print(json.dumps({"equal": False, "unreadable": str(error)}))
         return 2

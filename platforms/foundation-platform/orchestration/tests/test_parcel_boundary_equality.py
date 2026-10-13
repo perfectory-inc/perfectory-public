@@ -179,6 +179,21 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
         code, report = run(sides(), extra=["--region", "9999911"])
         self.assertEqual((code, report["rows"]["silver"]), (0, 10))
 
+    def test_postgis_is_read_in_one_sorted_scan_and_the_lakehouse_by_range(self):
+        asked = []
+        real = equality.side_queries
+
+        def recording(args, low, high):
+            asked.append((low, high))
+            return real(args, low, high)
+
+        with mock.patch.object(equality, "side_queries", recording):
+            code, _ = run(sides())
+        self.assertEqual(code, 0)
+        # Two PostgreSQL sides ask the whole range once; two Trino sides ask each 시도 range.
+        self.assertEqual(asked.count(("00", "9" * 20)), 2)
+        self.assertEqual(len(asked), 2 + 2 * len(equality.ranges(None)))
+
     def test_each_side_reads_its_own_copy_by_range_in_one_crs(self):
         queries = equality.side_queries(equality.parse_args(ARGS), "11", "12")
         self.assertIn("source_snapshot_id = 'vworldkr__parcel-202606'", queries["silver"][1])
