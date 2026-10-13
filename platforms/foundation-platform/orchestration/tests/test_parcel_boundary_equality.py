@@ -179,6 +179,13 @@ class ParcelBoundaryEqualityTest(unittest.TestCase):
         code, report = run(sides(), extra=["--region", "9999911"])
         self.assertEqual((code, report["rows"]["silver"]), (0, 10))
 
+    def test_the_spooled_sides_are_removed_afterwards(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as work:
+            code, report = run(sides(), extra=["--work-dir", work])
+            self.assertEqual((code, report["rows"]["mirror"]), (0, 10))
+            self.assertEqual(list(pathlib.Path(work).iterdir()), [])
+
     def test_postgis_is_read_in_one_sorted_scan_and_the_lakehouse_by_range(self):
         asked = []
         real = equality.side_queries

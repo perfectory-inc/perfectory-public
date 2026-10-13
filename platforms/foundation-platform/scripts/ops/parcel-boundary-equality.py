@@ -15,7 +15,9 @@ row's bytes, area and centroid in EPSG:4326 (planar, degrees; PostGIS reprojects
 geometry back) — sorted by PNU. Trino reads one 시도 range after the other (`pnu >= '11' AND
 pnu < '12'`); a PostgreSQL side is one sequential scan sorted on the data disk's temporary space
 (a range per 시도 would walk the (run, pnu) key into random heap reads: measured 80 s for one
-시군구 of 49,080 parcels). With --region every side reads that one range. The streams are merged by
+시군구 of 49,080 parcels). With --region every side reads that one range. Every side is first spooled to a file under
+--work-dir, all four at once (a PostgreSQL side sends nothing until its sort is done, and a Trino
+query whose client stops reading is abandoned by the server); the files are then merged by
 PNU, and for every parcel:
 
 1. **It is on every side, once.** A PNU missing from a side, or held twice by one, fails.
@@ -38,12 +40,14 @@ from __future__ import annotations
 
 import argparse
 import heapq
-import itertools
 import json
 import os
 import re
 import subprocess
+import shutil
 import sys
+import tempfile
+import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -148,12 +152,6 @@ def engine_lines(engine: str, sql: str) -> Iterator[str]:
             raise LookupError(f"{engine}: {error.strip()[-500:]}")
 
 
-def stream(engine: str, sql: str) -> Iterator[Parcel]:
-    for line in engine_lines(engine, sql):
-        if line.strip():
-            yield parse_line(line)
-
-
 class Verdict:
     def __init__(self, sides: list[str]):
         self.sides = sides
@@ -225,15 +223,49 @@ def merge(verdict: Verdict, streams: dict[str, Iterator[Parcel]]) -> None:
         verdict.parcel(current, held)
 
 
-def side_stream(args: argparse.Namespace, name: str) -> Iterator[Parcel]:
-    """One side's parcels in PNU order: one range for a region or a PostgreSQL side, else the
+def side_plan(args: argparse.Namespace, name: str) -> list[tuple[str, str]]:
+    """One side's queries in PNU order: one range for a region or a PostgreSQL side, else the
     시도 ranges one after the other."""
     if args.region is not None or ENGINE_OF[name] == "postgres":
         low, high = ranges(args.region)[0] if args.region is not None else ("00", "9" * 20)
-        return stream(*side_queries(args, low, high)[name])
-    return itertools.chain.from_iterable(
-        stream(*side_queries(args, low, high)[name]) for low, high in ranges(None)
-    )
+        return [side_queries(args, low, high)[name]]
+    return [side_queries(args, low, high)[name] for low, high in ranges(None)]
+
+
+def spool(plan: list[tuple[str, str]], path: str) -> None:
+    """Writes one side's rows to `path` as fast as its engine sends them."""
+    with open(path, "w", encoding="utf-8") as out:
+        for engine, sql in plan:
+            for line in engine_lines(engine, sql):
+                out.write(line)
+
+
+def spooled(path: str) -> Iterator[Parcel]:
+    with open(path, encoding="utf-8") as rows:
+        for line in rows:
+            if line.strip():
+                yield parse_line(line)
+
+
+def spool_all(args: argparse.Namespace, work: str) -> dict[str, str]:
+    """Every side's file, written side by side; the first failure is raised after all stop."""
+    paths = {name: os.path.join(work, f"{name}.csv") for name in args.sides}
+    errors: list[BaseException] = []
+
+    def one(name):
+        try:
+            spool(side_plan(args, name), paths[name])
+        except (LookupError, ValueError, OSError) as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=one, args=(name,)) for name in args.sides]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise LookupError(str(errors[0]))
+    return paths
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -244,6 +276,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--publication-load-id", required=True, help="the publication's projection_load_id")
     parser.add_argument("--region", help="only PNUs starting with these digits (a sample region)")
     parser.add_argument("--sides", default=",".join(SIDES), help="comma-separated subset of " + ",".join(SIDES))
+    parser.add_argument("--work-dir", help="where the sides are spooled (about 1.2 GB per 10M parcels per side); "
+                        "a temporary directory under it is removed afterwards. On the data host: /data, never the root disk.")
     args = parser.parse_args(argv)
     if not SNAPSHOT_ID.match(args.source_snapshot_id):
         raise SystemExit("--source-snapshot-id is not a plain snapshot id")
@@ -264,11 +298,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     verdict = Verdict(args.sides)
     started = time.monotonic()
+    work = tempfile.mkdtemp(prefix="parcel-boundary-equality-", dir=args.work_dir)
     try:
-        merge(verdict, {name: side_stream(args, name) for name in args.sides})
+        paths = spool_all(args, work)
+        spooled_seconds = round(time.monotonic() - started, 1)
+        merge(verdict, {name: spooled(path) for name, path in paths.items()})
     except (LookupError, ValueError) as error:
         print(json.dumps({"equal": False, "unreadable": str(error)}))
         return 2
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     report = verdict.report()
     report.update({
         "region": args.region or "national",
@@ -278,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         "mirror_run_id": args.mirror_run_id,
         "publication_load_id": args.publication_load_id,
         "seconds": round(time.monotonic() - started, 1),
+        "spool_seconds": spooled_seconds,
     })
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["equal"] else 1
