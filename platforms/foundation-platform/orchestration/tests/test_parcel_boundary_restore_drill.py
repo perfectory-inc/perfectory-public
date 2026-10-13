@@ -25,7 +25,7 @@ printf '%s\n' "$*" >> "${FAKE_LOG}"
 case "$1" in
   inspect)
     case "$*" in
-      *Config.Image*) echo "postgres-image@sha256:0" ;;
+      *Config.Image*) echo "${FAKE_IMAGE:-foundation-postgres-recovery:local}" ;;
       *Mounts*) echo "/opt/fake/pgbackrest.conf" ;;
       *Config.Env*) printf 'PGBACKREST_REPO1_S3_KEY=synthetic\nPOSTGRES_USER=admin\n' ;;
     esac ;;
@@ -114,6 +114,15 @@ class RestoreDrillTest(unittest.TestCase):
         done, _, _, _ = self.drill(restored_load="39861510")
         self.assertEqual(done.returncode, 1)
         self.assertFalse(json.loads(done.stdout.strip().splitlines()[-1])["equal"])
+
+    def test_a_production_running_another_image_is_refused_before_any_restore(self):
+        os.environ["FAKE_IMAGE"] = "postgres:17"
+        try:
+            done, calls, _, _ = self.drill()
+        finally:
+            del os.environ["FAKE_IMAGE"]
+        self.assertEqual(done.returncode, 65)
+        self.assertNotIn(" restore", calls)
 
     def test_a_work_directory_off_the_data_disk_is_refused(self):
         done, calls, _, _ = self.drill(work="/tmp/restore-drill")
