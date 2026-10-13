@@ -561,7 +561,7 @@ async fn parcel_copy_records_its_foundation_source_and_an_unsourced_copy_is_refu
             .expect_err("a parcel copy without its snapshot must be refused");
     let code = unsourced
         .as_database_error()
-        .and_then(|error| error.code())
+        .and_then(sqlx::error::DatabaseError::code)
         .map(std::borrow::Cow::into_owned);
     assert_eq!(code.as_deref(), Some("23514"), "check_violation expected");
 }
