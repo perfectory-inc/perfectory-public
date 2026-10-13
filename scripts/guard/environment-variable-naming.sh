@@ -170,14 +170,14 @@ for relative in [
             fail(f"{relative} must not declare deprecated alias {alias}")
 
 adapter_paths = {
-    "platforms/foundation-platform/services/foundation-outbox-publisher/src/vworld_credentials.rs",
+    "platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_credentials.rs",
     "platforms/foundation-platform/services/foundation-provider-acquisition-worker/src/foundation_provider_acquisition/vworld_credentials.py",
 }
 direct_name_allowed_paths = {
     "platforms/foundation-platform/config/environment-variable-naming.contract.json",
     "scripts/guard/environment-variable-naming-self-test.sh",
 }
-rust_adapter = "platforms/foundation-platform/services/foundation-outbox-publisher/src/vworld_credentials.rs"
+rust_adapter = "platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_credentials.rs"
 python_adapter = "platforms/foundation-platform/services/foundation-provider-acquisition-worker/src/foundation_provider_acquisition/vworld_credentials.py"
 for relative in adapter_paths:
     path = root / relative

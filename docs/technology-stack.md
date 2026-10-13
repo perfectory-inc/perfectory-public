@@ -178,7 +178,7 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
   순서로 한다. Compose에 임의의 두 번째 버전을 추가하지 않는다.
 - Foundation의 환경/bucket policy는
   [`ADR 0029`](../platforms/foundation-platform/docs/adr/0029-runtime-environment-backend-separation.md)와
-  [`runtime_environment.rs`](../platforms/foundation-platform/services/foundation-outbox-publisher/src/runtime_environment.rs)가 소유한다.
+  [`runtime_environment.rs`](../platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/runtime_environment.rs)가 소유한다.
 
 ## 근거 파일
 
