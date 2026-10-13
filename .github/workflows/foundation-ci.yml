@@ -88,11 +88,16 @@ jobs:
           workspaces: |
             platforms/foundation-platform
             tools/xtask
+          # The entries saved before ADR-0210 hold no dependency builds (the stash took
+          # them) and a key is never overwritten, so this cache starts under a new name.
+          key: dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # rust-cache keeps dependencies only; this keeps the workspace crates main
       # last built, so a pull request recompiles only what it changed (ADR-0201).
       # One stash per UTC day: cache keys are immutable and the workflow token
       # cannot delete entries, so the day bounds how many the 10 GB cap holds.
+      # A lockfile change falls back to the newest stash of the same toolchain:
+      # cargo still decides what is fresh, so a stale unit only rebuilds (ADR-0210).
       - name: Name workspace build day
         id: workspace-build-day
         run: echo "day=$(date -u +%Y-%m-%d)" >>"$GITHUB_OUTPUT"
@@ -101,8 +106,10 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ runner.temp }}/workspace-build
-          key: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-${{ steps.workspace-build-day.outputs.day }}
-          restore-keys: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-
+          key: foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-${{ steps.workspace-build-day.outputs.day }}
+          restore-keys: |
+            foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('platforms/foundation-platform/Cargo.lock', 'tools/xtask/Cargo.lock') }}-
+            foundation-workspace-build-rust-quality-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-
       - name: Reuse unchanged workspace crates
         working-directory: ${{ github.workspace }}
         env:
@@ -111,9 +118,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/test_workspace_build_cache.py
-          python3 scripts/ci/workspace_build_cache.py snapshot \
-            --target platforms/foundation-platform/target --target tools/xtask/target \
-            --out "$RUNNER_TEMP/rust-cache-artifacts.txt"
           python3 scripts/ci/workspace_build_cache.py restore \
             --stash "$RUNNER_TEMP/workspace-build" --matched-key "$MATCHED_KEY"
           # Workspace crates keep file:line backtraces but not full debug info:
@@ -175,7 +179,7 @@ jobs:
         run: |
           python3 scripts/ci/workspace_build_cache.py stash \
             --target platforms/foundation-platform/target --target tools/xtask/target \
-            --snapshot "$RUNNER_TEMP/rust-cache-artifacts.txt" --stash "$RUNNER_TEMP/workspace-build"
+            --stash "$RUNNER_TEMP/workspace-build"
       - name: Save workspace build
         if: ${{ github.ref == 'refs/heads/main' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
