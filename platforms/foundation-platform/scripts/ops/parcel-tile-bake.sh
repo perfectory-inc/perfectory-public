@@ -27,9 +27,10 @@
 #
 # The last line is `foundation-job-outcome changed` after a promotion, `unchanged` otherwise.
 #
-# Spark runs in the Compose project foundation-parcel-tile-bake-<INVOCATION_ID>; the unit's
-# ExecStopPost (`cleanup`) removes that project's one-off containers after a timeout (root
-# ADR-0128), as it does for the panel Gold rebuild.
+# Spark runs in the Compose project foundation-parcel-tile-bake-<INVOCATION_ID>, and the oven's
+# GDAL and tippecanoe containers carry that project's one-off labels (CONTAINER_PROJECT): a timeout
+# kills the publisher, not the tool it started. The unit's ExecStopPost (`cleanup`) removes every
+# one-off container of the project (root ADR-0128), as it does for the panel Gold rebuild.
 set -euo pipefail
 
 if [[ "${1:-}" == cleanup ]]; then
@@ -157,6 +158,7 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_SERVED_HANDOFF="${work}/served" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_SERVED_SUMMARY="${work}/served-summary.json" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_MATCHING_VERDICT="${work}/matching-verdict.json" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_WORK_ROOT="${work_root}/bake" \
+FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONTAINER_PROJECT="foundation-parcel-tile-bake-${INVOCATION_ID}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_BUILD_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-build" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-promote" \
   "${PUBLISHER_BIN}" bake-lakehouse-tiles >>"${run_log}" 2>&1

@@ -13,7 +13,7 @@ use uuid::Uuid;
 mod floor_cycle;
 mod floor_history;
 mod floor_source;
-mod invocation_cleanup;
+pub(crate) mod invocation_cleanup;
 mod scalar;
 mod silver_refresh;
 

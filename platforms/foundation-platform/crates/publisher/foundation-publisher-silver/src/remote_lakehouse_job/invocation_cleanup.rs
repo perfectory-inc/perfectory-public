@@ -14,6 +14,10 @@ use std::{
 use anyhow::{ensure, Context};
 
 const MAX_LIST_BYTES: u64 = 4096;
+/// The label key Compose names a container's project with; the cleanup lists by it.
+pub(crate) const PROJECT_LABEL: &str = "com.docker.compose.project";
+/// The label Compose puts on a `run` container; the cleanup removes only those.
+pub(crate) const ONEOFF_LABEL: &str = "com.docker.compose.oneoff=True";
 
 /// A registered job whose Spark runs in a per-invocation Compose project.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,9 +93,9 @@ fn list(docker: &Path, project: &str) -> anyhow::Result<Vec<String>> {
             "--quiet",
             "--no-trunc",
             "--filter",
-            &format!("label=com.docker.compose.project={project}"),
+            &format!("label={PROJECT_LABEL}={project}"),
             "--filter",
-            "label=com.docker.compose.oneoff=True",
+            &format!("label={ONEOFF_LABEL}"),
         ],
     )
 }
