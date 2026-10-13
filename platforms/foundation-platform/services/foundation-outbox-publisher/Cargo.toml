@@ -62,6 +62,7 @@ sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
 foundation-outbox = { workspace = true }
 foundation-publisher-by-pnu = { workspace = true }
 foundation-publisher-core = { workspace = true }
+foundation-publisher-parcel-anchor = { workspace = true }
 outbound-http-infrastructure = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "v7"] }
 zip = { workspace = true }

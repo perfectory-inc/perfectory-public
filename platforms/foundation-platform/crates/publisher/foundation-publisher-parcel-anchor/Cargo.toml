@@ -1,0 +1,30 @@
+[package]
+name = "foundation-publisher-parcel-anchor"
+version = "0.1.0"
+description = "The outbox-publisher parcel marker anchor lane: anchor artifact export, PBF artifact build and manifest promotion, streaming rebuild, parcel boundary handoff (root ADR-0200)."
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+catalog-application = { workspace = true }
+catalog-domain = { workspace = true }
+catalog-infrastructure = { workspace = true }
+chrono = { workspace = true }
+foundation-outbox = { workspace = true }
+foundation-publisher-core = { workspace = true }
+foundation-shared-kernel = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "v7"] }

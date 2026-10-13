@@ -1878,6 +1878,7 @@ dependencies = [
  "foundation-outbox",
  "foundation-publisher-by-pnu",
  "foundation-publisher-core",
+ "foundation-publisher-parcel-anchor",
  "foundation-publisher-silver",
  "foundation-shapefile",
  "foundation-shared-kernel",
@@ -1959,6 +1960,28 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "foundation-publisher-parcel-anchor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "catalog-application",
+ "catalog-domain",
+ "catalog-infrastructure",
+ "chrono",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tokio",
  "tracing",

@@ -8,12 +8,12 @@ use serde::Deserialize;
 use serde_json::json;
 
 /// Source geometry SRID of the Silver handoff rows.
-pub(crate) const SOURCE_SRID: i32 = 4326;
+pub const SOURCE_SRID: i32 = 4326;
 const EXECUTION_SCHEMA_VERSION: &str =
     "foundation-platform.silver_gold_national_promotion_execution.v1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct HandoffObject {
+pub struct HandoffObject {
     /// Silver handoff shard id from the execution evidence.
     pub shard_id: String,
     /// R2 object key containing the shard JSONL handoff.
@@ -27,7 +27,7 @@ pub(crate) struct HandoffObject {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ExecutionEvidence {
+pub struct ExecutionEvidence {
     /// Number of selected handoff objects.
     pub object_count: u64,
     /// Expected total row count across all handoff objects.
@@ -89,7 +89,7 @@ struct SilverHandoffRow {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct StageRow {
+pub struct StageRow {
     /// Canonical 19-digit parcel number.
     pub pnu: String,
     /// Source row identity for the parcel boundary.
@@ -103,7 +103,7 @@ pub(crate) struct StageRow {
 }
 
 /// Reads and validates the national Silver handoff execution evidence.
-pub(crate) fn read_execution_evidence(path: &Path) -> anyhow::Result<ExecutionEvidence> {
+pub fn read_execution_evidence(path: &Path) -> anyhow::Result<ExecutionEvidence> {
     let bytes = fs::read(path)
         .with_context(|| format!("failed to read execution evidence {}", path.display()))?;
     let raw: RawExecutionEvidence = serde_json::from_slice(strip_utf8_bom(&bytes))
@@ -171,7 +171,7 @@ fn execution_evidence_from_raw(raw: RawExecutionEvidence) -> anyhow::Result<Exec
 }
 
 /// Parses one Silver handoff JSONL row into the COPY stage representation.
-pub(crate) fn parse_stage_row(
+pub fn parse_stage_row(
     line: &[u8],
     source_object_key: &str,
     line_number: u64,
@@ -244,7 +244,7 @@ fn validate_silver_handoff_row(row: &SilverHandoffRow, line_number: u64) -> anyh
 }
 
 /// Appends one tab-delimited CSV row accepted by `PostgreSQL` `COPY`.
-pub(crate) fn push_copy_csv_row(buffer: &mut Vec<u8>, row: &StageRow, source_object_key: &str) {
+pub fn push_copy_csv_row(buffer: &mut Vec<u8>, row: &StageRow, source_object_key: &str) {
     push_copy_csv_field(buffer, Some(row.pnu.as_str()));
     buffer.push(b'\t');
     push_copy_csv_field(buffer, Some(row.boundary_id.as_str()));
@@ -276,7 +276,7 @@ fn push_copy_csv_field(buffer: &mut Vec<u8>, value: Option<&str>) {
 }
 
 /// Validates the namespaced source snapshot id lineage shape.
-pub(crate) fn validate_source_snapshot_id(value: &str) -> anyhow::Result<()> {
+pub fn validate_source_snapshot_id(value: &str) -> anyhow::Result<()> {
     if value.trim() != value || value.len() < 3 || value.len() > 256 {
         bail!("source snapshot id length or padding is invalid");
     }
@@ -298,7 +298,7 @@ pub(crate) fn validate_source_snapshot_id(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn validate_object_key(value: &str) -> anyhow::Result<()> {
+pub fn validate_object_key(value: &str) -> anyhow::Result<()> {
     if value.trim() != value || value.is_empty() {
         bail!("object key must not be empty or padded");
     }
