@@ -40,7 +40,7 @@ const HELP: &str = concat!(
 
 /// The series of one read of the operations map. When the runs could not be read, the map does not
 /// know the problems, so it reports that and no problem series.
-pub(crate) async fn problem_metrics() -> String {
+pub(in crate::routes) async fn problem_metrics() -> String {
     // The map's read is kept and refreshed in the background, so this is instant after the first
     // read; the first one reads three stores. A scrape must never wait on them: an unanswered
     // /metrics would page as the API being down.
@@ -104,7 +104,7 @@ fn node_of(job: &ScheduledJobStatus, problem: &ScheduledJobProblem) -> Option<St
     }
 }
 
-fn kind(problem: &ScheduledJobProblem) -> &'static str {
+const fn kind(problem: &ScheduledJobProblem) -> &'static str {
     match problem {
         ScheduledJobProblem::Failed { .. } => "failed",
         ScheduledJobProblem::Blocked { .. } => "blocked",
@@ -153,7 +153,7 @@ fn sentence(problem: &ScheduledJobProblem) -> String {
     }
 }
 
-fn cause_word(cause: FailureCause) -> &'static str {
+const fn cause_word(cause: FailureCause) -> &'static str {
     match cause {
         FailureCause::OutOfMemory => "메모리 부족",
         FailureCause::TimedOut => "시간 초과",

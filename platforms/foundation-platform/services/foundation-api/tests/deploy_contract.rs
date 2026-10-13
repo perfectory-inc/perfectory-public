@@ -347,7 +347,7 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
     // Docker resolves `current` when it creates a container, so a changed rule is read only by a
     // recreated Prometheus.
     let release = read_area_file("scripts/deploy/foundation-release.sh")?;
-    assert!(release.contains("up -d --wait --no-deps --force-recreate prometheus alertmanager"));
+    assert!(release.contains("up -d --wait --force-recreate prometheus alertmanager"));
     Ok(())
 }
 

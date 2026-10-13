@@ -1114,7 +1114,7 @@ migrate_runtime() {
   # route is otherwise never read (the compose service itself did not change, so `up` keeps the
   # old container on the old release's files). Their data and the notification log live in
   # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
-  "${runtime}" up -d --wait --no-deps --force-recreate prometheus alertmanager
+  "${runtime}" up -d --wait --force-recreate prometheus alertmanager
   verify_runtime_schema
   migrate_lakehouse
 }
