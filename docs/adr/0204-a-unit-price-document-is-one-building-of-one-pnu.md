@@ -18,7 +18,7 @@
 
 | 측정 (2026-10-12, 판 202609) | 값 |
 |---|---:|
-| `gold.unit_price_panel` 행(= PNU) | 47,164 |
+| 옛 `gold.unit_price_panel` 행(= PNU) | 47,164 |
 | 원문 JSON 256 KiB 초과 PNU | 12,200 (26%) |
 | 가장 큰 PNU 문서: 원문 / gzip / 호 수 | 7,122,808 B / 596,238 B / 7,374 |
 | 호 하나의 gzip 크기(위 문서에서) | 약 81 B |
@@ -36,7 +36,7 @@
    `building_id`, 표제부 카탈로그 id, UUID 36자)다. 건물에 연결되지 않은 호(`building_id` NULL, 자기 PNU 에 놓임)는 nil
    UUID `00000000-0000-0000-0000-000000000000` 하나의 문서로 모인다. 그래서 웹이 건물 문서에서 보는 건물마다, 그리고
    미연결 호 묶음마다 문서가 하나다.
-2. **Gold `gold.unit_price_panel` 의 grain 은 `(pnu, building_id)` 한 행이다.** `building_id` 는 NULL 이 아니다(위 nil
+2. **Gold 는 새 표 `gold.unit_price` 이고 grain 은 `(pnu, building_id)` 한 행이다.** 운영의 `gold.unit_price_panel`(PNU 당 한 행, 행 있음)에 필수 열을 더하는 것은 배포 이주가 backfill 로 표현할 수 없는 grain 변경이라(2026-10-13 그렇게 병합해 모든 배포가 멈췄다) 표 이름을 바꾼다. 새 표는 그 적재가 만들고, 옛 표는 어떤 계약에도 없어 이주가 건드리지 않으며 별도로 퇴역한다. `building_id` 는 NULL 이 아니다(위 nil
    UUID). 호의 배치(`unit_placement`, ADR-0190 의 `pins_from`)·가격 이력·품질 관문은 그대로이고, 고유성 검사와 정렬이
    `(pnu, building_id)` 가 된다. 증분(ADR-0180)의 영향 단위는 여전히 PNU 다: 영향 PNU 의 행을 전부 다시 만든다.
 3. **요청 경로는 `/unit-prices/by-pnu/<pnu>/<building_id>` 다.** 계약 `by_pnu_lanes.unit-price` 가 문서 키의 모양을
