@@ -32,7 +32,8 @@ on:
       # `area-ci-input-coverage` derives this requirement from the sources.
       - "docs/architecture/**"
       - ".github/workflows/foundation-ci.yml"
-      - ".github/workflows/gongzzang-frontend.yml"
+      # The tile-contract guard reads the frontend workflow's inputs here (root ADR-0202).
+      - "tools/ci/change-scope.json"
       # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
       # toolchain pin change how THIS area is verified, so they must retrigger it.
       # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
@@ -48,7 +49,7 @@ defaults:
 
 concurrency:
   group: foundation-platform-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

@@ -392,8 +392,10 @@ while IFS= read -r workflow; do
     || fail "$workflow must cancel superseded runs through top-level concurrency"
   grep -Eq '^  group:[[:space:]]*[^[:space:]]' "$workflow" \
     || fail "$workflow concurrency group is missing"
-  grep -Eq '^  cancel-in-progress:[[:space:]]*true([[:space:]]|$)' "$workflow" \
-    || fail "$workflow must set concurrency.cancel-in-progress=true"
+  # A new push supersedes a pull request's run; a main push or a merge-queue run
+  # is never cancelled by the next one, or main goes unverified (root ADR-0202).
+  grep -Fxq "  cancel-in-progress: \${{ github.event_name == 'pull_request' }}" "$workflow" \
+    || fail "$workflow must set concurrency.cancel-in-progress to \${{ github.event_name == 'pull_request' }}"
 
   missing_timeouts="$(awk -v file="$workflow" '
     function flush_job() {

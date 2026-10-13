@@ -398,8 +398,14 @@ for workflow in "${workflows[@]}"; do
       }
     }
     in_steps && in_step && /^          [A-Z][A-Z0-9_]*:[[:space:]]*/ {
-      env_child_count[job]++
       mapping=$0
+      # A scoped workflow (root ADR-0202) hands its scope answer to the result
+      # check; that one exact mapping is admitted beside the result mappings.
+      if (mapping ~ /^          CHANGE_SCOPE_RUN:[[:space:]]*\$\{\{[[:space:]]*needs\.scope\.outputs\.affected[[:space:]]*\}\}[[:space:]]*$/) {
+        scope_env_count[job]++
+        next
+      }
+      env_child_count[job]++
       if (mapping ~ /^          REQUIRED_RESULT_[A-Z0-9_]+:[[:space:]]*\$\{\{[[:space:]]*needs\.[A-Za-z0-9_-]+\.result[[:space:]]*\}\}[[:space:]]*$/) {
         env_name=mapping; sub(/^          /, "", env_name); sub(/:.*/, "", env_name)
         need_id=mapping
@@ -486,6 +492,9 @@ for workflow in "${workflows[@]}"; do
             || result_mapping_count[required_job] != job_count - 1 \
             || env_child_count[required_job] != job_count - 1) {
             fail("terminal result mappings must cover every non-terminal job exactly once")
+          }
+          if (scope_env_count[required_job] != (seen_job["scope"] ? 1 : 0)) {
+            fail("terminal step must pass CHANGE_SCOPE_RUN exactly when a scope job exists")
           }
         }
       }

@@ -572,7 +572,12 @@ fn http_evidence_redacts_url_secrets_and_failure_cleanup_removes_unverified_arti
 #[test]
 fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
     let foundation_ci = read(".github/workflows/foundation-ci.yml");
-    let gongzzang_frontend_ci = read(".github/workflows/gongzzang-frontend.yml");
+    // Area workflows take their inputs from the change-scope contract (root ADR-0202).
+    let change_scope: serde_json::Value =
+        serde_json::from_str(&read("tools/ci/change-scope.json")).expect("parse change scope");
+    let frontend_inputs = change_scope["workflows"]["gongzzang-frontend.yml"]["paths"]
+        .as_array()
+        .expect("gongzzang-frontend.yml is a scoped workflow");
 
     assert_eq!(
         foundation_ci.matches("- \"scripts/tiles/**\"").count(),
@@ -588,7 +593,7 @@ fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
     );
     assert_eq!(
         foundation_ci
-            .matches("- \".github/workflows/gongzzang-frontend.yml\"")
+            .matches("- \"tools/ci/change-scope.json\"")
             .count(),
         1,
         "Foundation CI must rerun the cross-workflow tile-contract guard when Gongzzang CI routing changes"
@@ -603,12 +608,11 @@ fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
         ],
         "Foundation executable-toolchain preflight",
     );
-    assert_eq!(
-        gongzzang_frontend_ci
-            .matches("- \"scripts/tiles/vector-tile-manifest.local.json\"")
-            .count(),
-        1,
-        "Gongzzang frontend CI must watch the root manifest consumed by its Vitest contract"
+    assert!(
+        frontend_inputs
+            .iter()
+            .any(|glob| glob == "scripts/tiles/vector-tile-manifest.local.json"),
+        "Gongzzang frontend CI must take the root manifest consumed by its Vitest contract as an input"
     );
 }
 

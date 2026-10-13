@@ -1,0 +1,130 @@
+{
+  "$comment": "Which changed paths make each pull-request workflow do its work (root ADR-0202). The ONE place an area's inputs are written: workflows carry no `paths:` filter. A scoped workflow always starts and its required/* context always reports; its `scope` job runs scripts/ci/change_scope.py, and an untouched area finishes green in seconds. Implicit inputs, never listed here: the workflow file itself, every repository file the workflow names (scripts, contracts), and the selector and this file (those two run everything). Every repository file an area's sources name in quotes must be an input (checked). The merge queue, a manual run and a schedule always run everything. `unscoped` workflows always run in full, each with the reason and the paths it owns; a changed path that no scoped input and no owner claims runs every scoped workflow.",
+  "workflows": {
+    "dawneer-ci.yml": {
+      "paths": [
+        "consoles/dawneer/**",
+        "platforms/foundation-platform/docs/openapi/lineage-review.v1.json",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "platforms/foundation-platform/docs/openapi/catalog.v1.json",
+        "platforms/foundation-platform/docs/openapi/data-catalog.v1.json"
+      ]
+    },
+    "intelligence-ci.yml": {
+      "paths": [
+        "platforms/intelligence-platform/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "identity-ci.yml": {
+      "paths": [
+        "platforms/identity-platform/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml"
+      ]
+    },
+    "gongzzang-ci.yml": {
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        ".github/workflows/gongzzang-*.yml"
+      ]
+    },
+    "gongzzang-db-migrations.yml": {
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        ".github/workflows/gongzzang-*.yml"
+      ]
+    },
+    "gongzzang-frontend.yml": {
+      "paths": [
+        "products/gongzzang/apps/web/**",
+        "products/gongzzang/packages/ui/**",
+        "products/gongzzang/packages/api-types/**",
+        "products/gongzzang/pnpm-workspace.yaml",
+        "products/gongzzang/turbo.json",
+        "products/gongzzang/package.json",
+        "products/gongzzang/pnpm-lock.yaml",
+        "products/gongzzang/biome.json",
+        "products/gongzzang/**/*.md",
+        "products/gongzzang/.markdownlint.json",
+        "products/gongzzang/.markdownlint-cli2.jsonc",
+        "products/gongzzang/.markdownlintignore",
+        "products/gongzzang/.npmrc",
+        "scripts/tiles/vector-tile-manifest.local.json",
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        ".github/workflows/gongzzang-*.yml",
+        "tools/xtask/**"
+      ]
+    },
+    "gongzzang-sqlx-prepare.yml": {
+      "paths": [
+        "products/gongzzang/**",
+        "rust-toolchain.toml",
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        ".github/workflows/gongzzang-*.yml",
+        "tools/xtask/**"
+      ]
+    },
+    "gongzzang-walking-skeleton.yml": {
+      "paths": [
+        "products/gongzzang/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        ".github/workflows/gongzzang-*.yml"
+      ]
+    }
+  },
+  "unscoped": {
+    "docs.yml": {
+      "reason": "A link fix in one area can break a link in another, and the generated documents read every area; the whole job takes about two minutes.",
+      "owns": [
+        "docs/**",
+        "**/*.md",
+        "lychee.toml"
+      ]
+    },
+    "secret-scan.yml": {
+      "reason": "A secret can arrive in any path; scanning every change is the point of the check.",
+      "owns": [
+        ".gitleaks.toml"
+      ]
+    },
+    "monorepo-guard.yml": {
+      "reason": "Repository-wide invariants (layout, versions, workflow policy, supply chain) read every area.",
+      "owns": [
+        "scripts/guard/**",
+        "scripts/github/**",
+        "tools/github/**",
+        "lefthook.yml",
+        "REUSE.toml",
+        "LICENSES/**"
+      ]
+    },
+    "foundation-ci.yml": {
+      "reason": "Selects its own heavy gates per job with scripts/ci/foundation_ci_scope.py; adopting this area scope there is a separate change to jobs another change is reshaping.",
+      "owns": [
+        "platforms/foundation-platform/**"
+      ]
+    }
+  }
+}

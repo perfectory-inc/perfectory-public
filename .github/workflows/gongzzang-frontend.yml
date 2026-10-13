@@ -5,22 +5,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "products/gongzzang/apps/web/**"
-      - "products/gongzzang/packages/ui/**"
-      - "products/gongzzang/packages/api-types/**"
-      - "products/gongzzang/pnpm-workspace.yaml"
-      - "products/gongzzang/turbo.json"
-      - "products/gongzzang/package.json"
-      - "products/gongzzang/pnpm-lock.yaml"
-      - "products/gongzzang/biome.json"
-      - "products/gongzzang/**/*.md"
-      - "products/gongzzang/.markdownlint.json"
-      - "products/gongzzang/.markdownlint-cli2.jsonc"
-      - "products/gongzzang/.markdownlintignore"
-      - "products/gongzzang/.npmrc"
-      - "scripts/tiles/vector-tile-manifest.local.json"
-      - ".github/workflows/gongzzang-frontend.yml"
   pull_request:
     branches: [main]
   merge_group:
@@ -32,13 +16,38 @@ defaults:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Root ADR-0202: whether this workflow's area changed (tools/ci/change-scope.json).
+  # An untouched area skips every job below and required/* still reports success.
+  scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.select.outputs.affected }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select
+        id: select
+        working-directory: .
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: python3 scripts/ci/change_scope.py select --workflow gongzzang-frontend.yml
+
   frontend:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: lint / typecheck / unit / e2e / a11y / bundle
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -159,7 +168,7 @@ jobs:
   required:
     name: required/gongzzang-frontend
     if: ${{ always() }}
-    needs: [frontend]
+    needs: [scope, frontend]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -168,6 +177,8 @@ jobs:
           persist-credentials: false
       - name: Require the frontend gate
         env:
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
+          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_FRONTEND: ${{ needs.frontend.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh
