@@ -167,6 +167,21 @@ class MigrationSpark(unittest.TestCase):
                 self.assertEqual(persisted.where(F.col(column) != getattr(build, function)()).count(), 0)
                 self.assertEqual(migrate.inspect_table(self.spark, table, contract, name)["backfill"], [])
 
+    def test_a_retired_kind_column_is_dropped_and_the_rows_keep_their_values(self):
+        # gold.parcel_land_rights as production holds it: the deploy drops land_right_total (root ADR-0193 §9).
+        name = "gold.parcel_land_rights"
+        contract = dict(load_lakehouse_contract(name), partition_spec=[], sort_order=[])
+        table = self.table(name, "pnu STRING, land_rights_json STRING, land_right_total BIGINT, attached_via STRING, "
+                                 "row_digest STRING, source_snapshot_id STRING, published_at_utc STRING")
+        self.spark.sql(f"INSERT INTO {table} VALUES ('p', '[1]', 1, NULL, 'd', 's', 't')")
+        plan = migrate.inspect_table(self.spark, table, contract, name)
+        self.assertEqual(plan["drop"], ["land_right_total"])
+        result = migrate.apply_table(self.spark, "proof", name, contract, plan)
+        self.assertEqual(result["dropped"], ["land_right_total"])
+        self.assertEqual(self.spark.table(table).columns, list(column_names(contract)))
+        self.assertEqual(tuple(self.spark.table(table).first()), ("p", "[1]", None, "d", "s", "t"))
+        self.assertNotIn("drop", migrate.inspect_table(self.spark, table, contract, name))
+
     @patch.object(migrate, "load_known_drift", return_value=migration_fixtures.TemporaryExtraColumns.fixture())
     def test_retained_extras_survive_reorder_addition_and_backfill(self, _registry):
         from pyspark.sql import functions as F

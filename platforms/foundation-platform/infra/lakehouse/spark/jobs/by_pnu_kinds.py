@@ -26,7 +26,8 @@ class Kind:
     section: str
     # Content column names in the Gold's order (a `<name>:long` spec names `<name>`).
     columns: tuple[str, ...]
-    # Columns the kind's Gold once carried and no longer does: the producer drops them from the live table.
+    # Columns the kind's Gold once carried and no longer does: the deploy's lakehouse migration
+    # (lakehouse_schema_migrate) drops them from the live table.
     retired_columns: tuple[str, ...] = ()
 
     @property

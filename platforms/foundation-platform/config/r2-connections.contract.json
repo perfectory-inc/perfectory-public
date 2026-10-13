@@ -504,7 +504,7 @@
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
     "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json"],
       "retired_columns": ["land_right_total"],
-      "retired_columns_reason": "the kind carries the whole list (root ADR-0193 §5): a count beside a page was the old API's page shape, and the list's length is the count. The producer drops the column from the live table (Iceberg metadata only, earlier snapshots keep it)"},
+      "retired_columns_reason": "the kind carries the whole list (root ADR-0193 §5): a count beside a page was the old API's page shape, and the list's length is the count. The deploy's lakehouse migration drops the column from the live table (Iceberg metadata only, earlier snapshots keep it)"},
     "building-titles": {"host": "building_by_pnu_gateway", "kind": "titles", "section": "titles", "columns": ["buildings_json"]},
     "building-floors": {"host": "building_by_pnu_gateway", "kind": "floors", "section": "floors", "documents_follow_lane": "building-titles", "columns": ["floors_json"]},
     "building-units": {"host": "building_by_pnu_gateway", "kind": "units", "section": "units", "documents_follow_lane": "building-titles", "columns": ["units_json", "unlinked_units_json"]},

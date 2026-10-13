@@ -256,18 +256,6 @@ def entry_types(spec: KindSpec, frames, counters) -> dict[str, Any] | None:
     return {field.name: field.dataType.elementType for field in schema.fields if field.name != "pnu"}
 
 
-def drop_retired_columns(spark, table: str, retired: tuple[str, ...]) -> tuple[str, ...]:
-    """Drop the kind line's retired columns the live table still carries (Iceberg metadata only: the
-    table's earlier snapshots keep them). The contract check that follows refuses any other column."""
-    if not retired or not spark.catalog.tableExists(table.replace("`", "")):
-        return ()
-    present_columns = set(spark.table(table).columns)
-    dropped = tuple(column for column in retired if column in present_columns)
-    for column in dropped:
-        spark.sql(f"ALTER TABLE {table} DROP COLUMN `{column}`")
-    return dropped
-
-
 def assert_parity(spark, args, spec: KindSpec, gold: DataFrame, frames) -> dict[str, int]:
     if args.parity_panel_snapshot_id is None:
         return {}
@@ -360,7 +348,6 @@ def run(spark, args, spec: KindSpec, pins) -> int:
             else:
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
-                drop_retired_columns(spark, table, spec.kind.retired_columns)
                 added = ensure_contract_table(spark, table, spec.contract)
                 if not spec.parcel:
                     building.apply_gold_read_properties(spark, table)  # a table this run created

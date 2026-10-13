@@ -59,31 +59,6 @@ class RetiredColumnsTest(unittest.TestCase):
                             encoding="utf-8")
             self.assertEqual(by_pnu_kinds.kinds(path)["parcel-x"].retired_columns, ("price_total",))
 
-    def test_only_retired_columns_the_live_table_still_has_are_dropped(self):
-        try:
-            import by_pnu_kind_silver_to_gold as job
-        except ImportError:
-            self.skipTest("the producer imports pyspark")
-
-        class Spark:
-            def __init__(self, exists, columns):
-                self.statements, self.columns = [], columns
-                self.catalog = type("Catalog", (), {"tableExists": lambda _self, _name: exists})()
-
-            def table(self, _name):
-                return type("Table", (), {"columns": self.columns})()
-
-            def sql(self, statement):
-                self.statements.append(statement)
-
-        spark = Spark(True, ["pnu", "land_rights_json", "land_right_total"])
-        self.assertEqual(job.drop_retired_columns(spark, "`r2`.gold.t", ("land_right_total", "gone")),
-                         ("land_right_total",))
-        self.assertEqual(spark.statements, ["ALTER TABLE `r2`.gold.t DROP COLUMN `land_right_total`"])
-        absent = Spark(False, [])
-        self.assertEqual(job.drop_retired_columns(absent, "`r2`.gold.t", ("land_right_total",)), ())
-        self.assertEqual(absent.statements, [])
-
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class ParcelKindSparkTest(unittest.TestCase):
