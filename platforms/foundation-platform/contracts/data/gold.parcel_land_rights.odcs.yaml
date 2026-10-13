@@ -29,10 +29,6 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "land_right_total"
-        physicalType: "long"
-        logicalType: "integer"
-        required: false
       - name: "attached_via"
         physicalType: "string"
         logicalType: "string"

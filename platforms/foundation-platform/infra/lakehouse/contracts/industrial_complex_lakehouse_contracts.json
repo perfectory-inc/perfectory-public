@@ -2411,11 +2411,6 @@
           "required": true
         },
         {
-          "name": "land_right_total",
-          "logical_type": "long",
-          "required": false
-        },
-        {
           "name": "attached_via",
           "logical_type": "string",
           "required": false

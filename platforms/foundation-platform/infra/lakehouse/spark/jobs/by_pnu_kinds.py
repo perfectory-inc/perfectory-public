@@ -26,6 +26,8 @@ class Kind:
     section: str
     # Content column names in the Gold's order (a `<name>:long` spec names `<name>`).
     columns: tuple[str, ...]
+    # Columns the kind's Gold once carried and no longer does: the producer drops them from the live table.
+    retired_columns: tuple[str, ...] = ()
 
     @property
     def gold_table(self) -> str:
@@ -45,8 +47,11 @@ def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
             continue
         if entry["host"] not in HOST_PANELS or not entry.get("section") or not entry.get("columns"):
             raise ValueError(f"by_pnu_lanes.{lane} is a kind line without a known host, a section or its columns")
+        retired = tuple(entry.get("retired_columns", ()))
+        if retired and not entry.get("retired_columns_reason"):
+            raise ValueError(f"by_pnu_lanes.{lane}.retired_columns needs a retired_columns_reason")
         found[lane] = Kind(lane, entry["host"], entry["section"],
-                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]))
+                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), retired)
     return found
 
 

@@ -78,7 +78,7 @@
    | `parcel-characteristics` | parcel | `characteristics` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
    | `parcel-forest-ledger` | parcel | `forest-ledger` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
    | `parcel-transfer-history` | parcel | `transfer-history` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
-   | `parcel-land-rights` | parcel | `land-rights` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
+   | `parcel-land-rights` | parcel | `land-rights` | `gold.parcel_land_rights` | `land_rights`(전체 목록) | 대지권이 있는 PNU |
    | `building-titles` | building | `titles` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
    | `building-floors` | building | `floors` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
    | `building-units` | building | `units` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
@@ -234,6 +234,14 @@
      원천 칸만, 표제부의 `rooftop_usage` 는 " · " 로 이은 문자열 대신 문자열 목록을 싣는다. 묶음 패널은 퇴역까지 지금
      문서 그대로다. 그래서 그 칸들은 대등성 검사에서 양쪽 모두 뺀다(섹션의 `parity_ignores`); 나머지 칸은 그대로
      모든 PNU 에서 같아야 한다.
+   - **대지권은 전체 목록이다.** 묶음 패널의 앞 200 행 + `land_right_total` 은 옛 API 한 페이지의 모양이다. 종류는
+     정렬된 목록 전부를 싣고 페이지는 읽는 쪽이 나눈다. 실측(2026-10-14): 대지권 있는 PNU 422,592, 200 행 초과
+     30,461, 최대 10,134 행 = 원문 약 2.2 MB, gzip 약 48 KB 로 문서 상한(256 KiB)의 1/5 이라 키를 좁히지 않는다.
+     묶음 패널은 퇴역까지 페이지와 개수 그대로다(같은 정렬 목록을 패널은 자르고 종류는 통째로 쓴다); 대등성은
+     섹션의 `as_panel` 이 종류의 목록을 패널의 페이지·개수로 바꿔 모든 PNU 에서 비교한다.
+   - **종류 줄이 열을 내릴 때(`retired_columns` + 이유).** 이미 운영에 있는 종류 표에서 열을 빼면 계약 검사가 모르는
+     열을 거부한다. 줄의 `retired_columns` 에 적힌 열은 생산자가 쓰기 전에 표에서 `DROP COLUMN` 한다(Iceberg
+     메타데이터만, 이전 스냅숏은 그 열을 지닌다). 손 DDL 없이 다음 실행이 한다; 그 밖의 모르는 열은 여전히 거부한다.
 
 ## Consequences
 

@@ -160,6 +160,9 @@ def section_frame(spark, args, spec: KindSpec, frames, candidates, counters) -> 
     """`pnu` and the kind's content columns as the Gold holds them, one row per PNU that has them."""
     if spec.parcel:
         built = spec.section.build(frames, spark, args, counters)
+        # A section may hand a list over whole (an array): the kind serves it as its `*_json` column.
+        built = built.select("pnu", *[F.col(c) if c in built.columns else F.to_json(c.removesuffix("_json")).alias(c)
+                                      for c in spec.kind.columns])
         carried = parcel.carry_section(built, "attached_via", candidates)
         parcels = frames[parcel.PARCEL_SOURCE].select("pnu").distinct()
         return parcels.join(carried, "pnu").where(present(spec))
@@ -193,12 +196,18 @@ def validate_gold_frame(spec: KindSpec, gold, expected_count):
     return metrics["row_count"], metrics
 
 
+def panel_columns(spec: KindSpec) -> tuple[str, ...]:
+    """The host panel's columns a parcel kind is checked against: the kind's, or the panel's own where
+    it serves the section in another shape (a page of a whole list)."""
+    return spec.section.panel_columns or spec.kind.columns
+
+
 def panel_section(spec: KindSpec, panel_rows: DataFrame, entries: dict[str, Any] | None = None) -> DataFrame:
     """The host panel's rows in the kind's shape: `pnu`, each content column and (parcel) the section's
     lineage path, only where the panel has the section."""
     if spec.parcel:
         return panel_rows.select(
-            "pnu", *spec.kind.columns,
+            "pnu", *panel_columns(spec),
             F.get_json_object("attached_via_json", f"$.{spec.section.name}").alias("attached_via")).where(present(spec))
     view = spec.section.panel_view(panel_rows, entries)
     return view.select("pnu", *[F.to_json(c.removesuffix("_json"), building.JSON_OPTIONS).alias(c)
@@ -219,6 +228,9 @@ def parity_mismatches(spec: KindSpec, gold: DataFrame, panel_rows: DataFrame,
                       entries: dict[str, Any] | None = None) -> DataFrame:
     """PNUs whose section here differs from the panel's (root ADR-0193 §6-2), on the fields both carry."""
     compared = [c for c in spec.content_columns if c != "pnu"]
+    if spec.parcel and spec.section.as_panel is not None:
+        gold = spec.section.as_panel(gold)
+        compared = [*panel_columns(spec), "attached_via"]
     ignores = getattr(spec.section, "parity_ignores", ())
     if entries is not None and ignores:
         entries = {name: without_fields(entry, set(ignores)) for name, entry in entries.items()}
@@ -244,10 +256,22 @@ def entry_types(spec: KindSpec, frames, counters) -> dict[str, Any] | None:
     return {field.name: field.dataType.elementType for field in schema.fields if field.name != "pnu"}
 
 
+def drop_retired_columns(spark, table: str, retired: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop the kind line's retired columns the live table still carries (Iceberg metadata only: the
+    table's earlier snapshots keep them). The contract check that follows refuses any other column."""
+    if not retired or not spark.catalog.tableExists(table.replace("`", "")):
+        return ()
+    present_columns = set(spark.table(table).columns)
+    dropped = tuple(column for column in retired if column in present_columns)
+    for column in dropped:
+        spark.sql(f"ALTER TABLE {table} DROP COLUMN `{column}`")
+    return dropped
+
+
 def assert_parity(spark, args, spec: KindSpec, gold: DataFrame, frames) -> dict[str, int]:
     if args.parity_panel_snapshot_id is None:
         return {}
-    columns = (*spec.kind.columns, "attached_via_json") if spec.parcel else ("buildings_json", "unlinked_units_json")
+    columns = (*panel_columns(spec), "attached_via_json") if spec.parcel else ("buildings_json", "unlinked_units_json")
     rows = spark.sql(f"SELECT pnu, {', '.join(columns)} FROM `{args.iceberg_catalog_name}`.{spec.kind.host_panel} "
                      f"VERSION AS OF {int(args.parity_panel_snapshot_id)}")
     rows = parcel.filtered_by_region(rows, args.region_prefix)
@@ -336,6 +360,7 @@ def run(spark, args, spec: KindSpec, pins) -> int:
             else:
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
+                drop_retired_columns(spark, table, spec.kind.retired_columns)
                 added = ensure_contract_table(spark, table, spec.contract)
                 if not spec.parcel:
                     building.apply_gold_read_properties(spark, table)  # a table this run created

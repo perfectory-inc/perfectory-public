@@ -158,7 +158,7 @@ struct R2ConnectionContract {
 pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gateway"];
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line.
-const DERIVED_LANE_HAND_FIELDS: [&str; 8] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 10] = [
     "decision",
     "host",
     "kind",
@@ -167,6 +167,8 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 8] = [
     "document_key_suffix",
     "documents_follow_lane",
     "documents_follow_lane_reason",
+    "retired_columns",
+    "retired_columns_reason",
 ];
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
