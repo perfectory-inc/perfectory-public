@@ -15,9 +15,10 @@ use serde_json::Value;
 
 fn repo_file(relative: &str) -> Value {
     // Runtime, not `env!`: cargo sets it for test runs too, and no compile-time read is added.
-    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../../../../..")
-        .join(relative);
+    // The crate sits five levels below the repository root; quoted paths stay full repo paths
+    // so the change-scope check sees exactly which files are read (root ADR-0202 §6).
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let path = manifest.ancestors().nth(5).unwrap().join(relative);
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
