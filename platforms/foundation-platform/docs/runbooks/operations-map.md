@@ -8,7 +8,7 @@ last_reviewed: 2026-10-13
 # 데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인 런북
 
 루트 [ADR-0195](../../../../docs/adr/0195-dawneer-shows-every-jobs-health-on-the-data-flow-map.md)
-(지도가 작업마다 다섯 신호를 계산)와 [ADR-0206](../../../../docs/adr/0206-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md)
+(지도가 작업마다 다섯 신호를 계산)와 [ADR-0208](../../../../docs/adr/0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md)
 (그 문제를 기존 Alertmanager 로 Slack 에 보냄)의 운영 절차다. 값은 여기에 적지 않는다. 이름과 경로만 적는다.
 
 ## 1. 서버에 만들 파일 하나 — `/etc/foundation-platform/operations-map.env`

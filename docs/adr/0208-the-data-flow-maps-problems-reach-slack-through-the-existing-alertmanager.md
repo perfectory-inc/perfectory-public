@@ -1,4 +1,4 @@
-# ADR 0206: 데이터 흐름 지도의 문제는 이미 있는 Alertmanager 로 Slack 에 간다
+# ADR 0208: 데이터 흐름 지도의 문제는 이미 있는 Alertmanager 로 Slack 에 간다
 
 - Status: Proposed
 - Date: 2026-10-13

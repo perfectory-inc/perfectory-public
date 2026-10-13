@@ -317,7 +317,7 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
     let rules = read_area_file("infra/observability/prometheus/foundation-api.rules.yml")?;
     assert!(rules.contains("foundation_api_up != 1 or absent(foundation_api_up)"));
 
-    // The operations map's problems reach Slack through this Alertmanager (root ADR-0206): the
+    // The operations map's problems reach Slack through this Alertmanager (root ADR-0208): the
     // rule holds a series through a restart, the route never repeats a problem that stays the
     // same, and a blocked job is quiet while the failure it waits on is announced.
     for required in [
