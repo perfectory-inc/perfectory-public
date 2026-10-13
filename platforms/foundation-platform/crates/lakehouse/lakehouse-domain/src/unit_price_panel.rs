@@ -1,5 +1,5 @@
-//! One row per building of a PNU with its units' official price histories, apart from the
-//! building panel (root ADR-0190, ADR-0204).
+//! One row per PNU with its units' official price histories, apart from the building panel
+//! (root ADR-0190).
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
     LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
@@ -8,11 +8,6 @@ use crate::lakehouse::{
 const COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "pnu",
-        logical_type: "string",
-        required: true,
-    },
-    LakehouseColumn {
-        name: "building_id",
         logical_type: "string",
         required: true,
     },
@@ -37,8 +32,7 @@ const COLUMNS: &[LakehouseColumn] = &[
         required: true,
     },
 ];
-/// Gold unit price panel: each priced unit under the PNU whose building document carries it, one
-/// row per building there (the nil UUID for units linked to no building).
+/// Gold unit price panel: each priced unit under the PNU whose building document carries it.
 pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract {
     table_name: "gold.unit_price_panel",
     layer: LakehouseLayer::Gold,
@@ -47,10 +41,10 @@ pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract
     current_row_predicate: None,
     columns: COLUMNS,
     partition_spec: &["source_snapshot_id"],
-    sort_order: &["pnu", "building_id"],
+    sort_order: &["pnu"],
     write_distribution: LakehouseWriteDistribution::Range,
     quality_gates: &[
-        "one row per (pnu, building_id)",
+        "one row per pnu",
         "pnu matches the cadastral grammar",
         "every row has a priced unit",
         "row_digest contains content only",
