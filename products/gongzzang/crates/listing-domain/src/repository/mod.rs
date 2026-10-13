@@ -180,13 +180,14 @@ pub trait ListingRepository: Send + Sync {
         viewer_user_id: &Id<UserMarker>,
     ) -> Result<Option<ListingDetail>, RepoError>;
 
-    /// Increment the listing view counter.
+    /// Append one view event for the listing. Views are counted by readers, never stored on
+    /// the aggregate, so recording one neither touches `version` nor `updated_at`.
     ///
     /// # Errors
     ///
     /// Returns [`RepoError::NotFound`] when the listing is absent and [`RepoError::Database`] when
     /// the backing repository fails.
-    async fn increment_view_count(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError>;
+    async fn record_view(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError>;
 
     /// Update PNU lookup denormalized fields on the listing row.
     ///

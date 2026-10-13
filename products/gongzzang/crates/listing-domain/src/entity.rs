@@ -44,10 +44,6 @@ pub struct Listing {
     pub status: ListingStatus,
     /// 연락처 공개 범위.
     pub contact_visibility: ContactVisibility,
-    /// 조회수 (`u64`, monotonic).
-    pub view_count: u64,
-    /// 북마크 수 (`u64`).
-    pub bookmark_count: u64,
     /// 생성 시각.
     pub created_at: DateTime<Utc>,
     /// 마지막 갱신 시각.
@@ -62,8 +58,7 @@ impl Listing {
     /// `Draft` 상태 새 매물 생성. `V003_01` cross-field invariant 강제.
     ///
     /// `created_at == updated_at == now`, `status = Draft`,
-    /// `contact_visibility = LoginRequired`, `view_count = 0`,
-    /// `bookmark_count = 0`, `expires_at = None`, `version = 1`.
+    /// `contact_visibility = LoginRequired`, `expires_at = None`, `version = 1`.
     ///
     /// # Errors
     ///
@@ -117,8 +112,6 @@ impl Listing {
             description,
             status: ListingStatus::Draft,
             contact_visibility: ContactVisibility::LoginRequired,
-            view_count: 0,
-            bookmark_count: 0,
             created_at: now,
             updated_at: now,
             expires_at: None,
@@ -200,39 +193,6 @@ impl Listing {
     /// 현재 상태가 `Active`가 아니면 [`ListingError::InvalidTransition`].
     pub const fn expire(&mut self, at: DateTime<Utc>) -> Result<(), ListingError> {
         self.transition_to(ListingStatus::Expired, at)
-    }
-
-    /// 조회수 증가 (`saturating_add`). `version`은 bump하지 *않아요* — 빈번한
-    /// 갱신이라 optimistic lock 충돌과 무관해요.
-    pub const fn increment_view_count(&mut self, at: DateTime<Utc>) {
-        self.view_count = self.view_count.saturating_add(1);
-        self.updated_at = at;
-    }
-
-    /// 북마크 수 증가 (`saturating_add`). `version` bump *안* 함.
-    ///
-    /// **Deprecated (SP6-iii)**: `Listing.bookmark_count` denormalized 필드는
-    /// 응답 시 JOIN COUNT 로 대체됨. 본 메서드는 호출자 0 (FU 70 schema 컬럼
-    /// 제거 후 함께 제거).
-    #[deprecated(
-        since = "0.2.0",
-        note = "FU 70: bookmark_count denormalization 제거. JOIN COUNT 응답으로 전환."
-    )]
-    pub const fn record_bookmark(&mut self, at: DateTime<Utc>) {
-        self.bookmark_count = self.bookmark_count.saturating_add(1);
-        self.updated_at = at;
-    }
-
-    /// 북마크 수 감소 (`saturating_sub`, `0` 이하면 `0` 유지). `version` bump *안* 함.
-    ///
-    /// **Deprecated (SP6-iii)**: `record_bookmark` 와 동일 사유.
-    #[deprecated(
-        since = "0.2.0",
-        note = "FU 70: bookmark_count denormalization 제거. JOIN COUNT 응답으로 전환."
-    )]
-    pub const fn release_bookmark(&mut self, at: DateTime<Utc>) {
-        self.bookmark_count = self.bookmark_count.saturating_sub(1);
-        self.updated_at = at;
     }
 
     /// 편집 가능한 필드 일괄 갱신 — `Draft` / `Rejected` 상태에서만 허용.

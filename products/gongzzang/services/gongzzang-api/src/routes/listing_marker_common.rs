@@ -196,7 +196,7 @@ mod tests {
             panic!("unused")
         }
 
-        async fn increment_view_count(&self, _id: &Id<ListingIdMarker>) -> Result<(), RepoError> {
+        async fn record_view(&self, _id: &Id<ListingIdMarker>) -> Result<(), RepoError> {
             panic!("unused")
         }
 

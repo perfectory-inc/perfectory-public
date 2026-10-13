@@ -48,7 +48,7 @@ pub(super) async fn find_card_summaries(
         WITH filtered AS (
             SELECT id, title, listing_type, transaction_type,
                    price_krw, deposit_krw, monthly_rent_krw, area_m2,
-                   view_count, created_at, owner_id
+                   created_at, owner_id
             FROM listing
             WHERE status = 'active'
               AND ($1::text[] IS NULL OR listing_type = ANY($1::text[]))
@@ -71,7 +71,7 @@ pub(super) async fn find_card_summaries(
             f.listing_type, f.transaction_type,
             f.price_krw, f.deposit_krw, f.monthly_rent_krw,
             f.area_m2::float8 AS area_m2,
-            f.view_count,
+            (SELECT COUNT(*) FROM listing_view_event v WHERE v.listing_id = f.id)::int8 AS view_count,
             COALESCE(bc.cnt, 0)::int8 AS bookmark_count,
             CASE WHEN ub.user_id IS NOT NULL THEN true ELSE false END AS is_bookmarked,
             f.created_at
@@ -133,7 +133,7 @@ fn row_to_card_summary(row: &PgRow) -> Result<(ListingCardSummary, u64), RepoErr
         monthly_rent: rent_opt.map(|v| money(v, "monthly_rent_krw")).transpose()?,
         area_m2: get(row, "area_m2")?,
         thumbnail_url: None,
-        view_count: row.try_get("view_count").unwrap_or(0_i64),
+        view_count: get(row, "view_count")?,
         bookmark_count: row.try_get("bookmark_count").unwrap_or(0_i64),
         is_bookmarked: row.try_get("is_bookmarked").unwrap_or(false),
         created_at: get(row, "created_at")?,
