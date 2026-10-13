@@ -6,7 +6,7 @@
 //! there is a single source. Dependency-free (std only).
 //!
 //! Usage (from the repository root):
-//!   cargo xtask verify <gongzzang|foundation|identity|intelligence|all>
+//!   cargo xtask verify <area|all>   # area slugs: tools/areas.contract.json, plus `tooling`
 //!   cargo xtask docs   # monorepo-wide lychee internal-link check (offline)
 
 use std::path::{Path, PathBuf};
@@ -2034,6 +2034,33 @@ fn fail_usage(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The area list has one home, `tools/areas.contract.json`; this table attaches verification
+    /// to it. An area added on one side only, or a dir that differs, fails here. `tooling` is the
+    /// verifier verifying itself, not an area.
+    #[test]
+    fn areas_match_the_registry() {
+        let text = std::fs::read_to_string(repo_root().join("tools/areas.contract.json")).unwrap();
+        let registry: Vec<(String, String)> = text
+            .lines()
+            .filter(|line| line.contains("\"slug\":"))
+            .map(|line| {
+                let field = |key: &str| {
+                    let fields: Vec<&str> = line.split('"').collect();
+                    let at = fields.iter().position(|f| *f == key).unwrap();
+                    fields[at + 2].to_owned()
+                };
+                (field("slug"), field("dir"))
+            })
+            .collect();
+        let table: Vec<(String, String)> = AREAS
+            .iter()
+            .filter(|area| area.slug != "tooling")
+            .map(|area| (area.slug.to_owned(), area.dir.to_owned()))
+            .collect();
+        assert!(!registry.is_empty(), "the registry lists no areas");
+        assert_eq!(table, registry);
+    }
 
     #[test]
     fn ci_job_without_the_shared_rust_setup_is_refused() {
