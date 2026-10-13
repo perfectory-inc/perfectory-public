@@ -109,8 +109,6 @@ async fn round_trip_listing_without_product_coordinate() {
     assert_eq!(fetched.listing_type, ListingType::Factory);
     assert_eq!(fetched.transaction_type, TransactionType::Sale);
     assert_eq!(fetched.status, ListingStatus::Draft);
-    assert_eq!(fetched.view_count, 0);
-    assert_eq!(fetched.bookmark_count, 0);
     assert_eq!(fetched.version, 1);
     assert_eq!(fetched.title.as_str(), listing.title.as_str());
     assert_eq!(fetched.description.as_str(), listing.description.as_str());
@@ -191,13 +189,11 @@ async fn update_bumps_version() {
     let mut listing = make_listing_sale(owner);
     repo.save(&listing, test_ctx()).await.unwrap();
 
-    listing.view_count = 5;
     listing.version = 2;
     repo.save(&listing, test_ctx()).await.unwrap();
 
     let fetched = repo.find(&listing.id).await.unwrap().unwrap();
     assert_eq!(fetched.version, 2);
-    assert_eq!(fetched.view_count, 5);
 }
 
 #[tokio::test]
