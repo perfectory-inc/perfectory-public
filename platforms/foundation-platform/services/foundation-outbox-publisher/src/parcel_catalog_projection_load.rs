@@ -40,7 +40,7 @@ const CONFIRM_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_CATALOG_PROJECTION_LOAD_CO
 const SOURCE_CONTRACT_ENV: &str = "VWORLD_PARCEL_SOURCE_CONTRACT";
 const HANDOFF_PREFIX_ENV: &str = "VWORLD_PARCEL_HANDOFF_PREFIX";
 const SOURCE_CONTRACT_SCHEMA_VERSION: u64 =
-    foundation_outbox_publisher::vworld_parcel_source_contract::SCHEMA_VERSION;
+    foundation_publisher_silver::vworld_parcel_source_contract::SCHEMA_VERSION;
 /// How many times one object is attempted before the run steps over it.
 ///
 /// The byte-range reads underneath already retry five times with backoff, so this is the
@@ -285,7 +285,7 @@ pub async fn run() -> anyhow::Result<()> {
     });
     // The served edition only (root ADR-0148): the catalog holds the map's parcels.
     let contract: SourceContract = serde_json::from_value(
-        foundation_outbox_publisher::vworld_parcel_source_contract::served_edition_view(
+        foundation_publisher_silver::vworld_parcel_source_contract::served_edition_view(
             &std::fs::read_to_string(&contract_path)
                 .with_context(|| format!("failed to read the source contract {contract_path}"))?,
         )?,

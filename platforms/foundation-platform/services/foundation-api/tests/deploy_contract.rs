@@ -385,7 +385,7 @@ fn lakehouse_runtime_user_contract_has_one_ssot() -> TestResult {
         ".env.example",
         ".env.local.example",
         "docs/runbooks/lakehouse-compute-engines.md",
-        "services/foundation-outbox-publisher/src/remote_lakehouse_job.rs",
+        "crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job.rs",
     ];
 
     for path in contract_files {

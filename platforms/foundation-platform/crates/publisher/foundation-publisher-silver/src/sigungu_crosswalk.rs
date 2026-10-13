@@ -51,11 +51,11 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 const BASELINE_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/sigungu-crosswalk-baseline.json");
+    include_str!("../../../../infra/lakehouse/contracts/sigungu-crosswalk-baseline.json");
 const HUB_FEED_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/hub-register-feed.contract.json");
+    include_str!("../../../../infra/lakehouse/contracts/hub-register-feed.contract.json");
 const PARCEL_SOURCE_JSON: &str =
-    include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
+    include_str!("../../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
 const BASELINE_FILE: &str = "sigungu-crosswalk-baseline.json";
 const HUB_FEED_FILE: &str = "hub-register-feed.contract.json";
 

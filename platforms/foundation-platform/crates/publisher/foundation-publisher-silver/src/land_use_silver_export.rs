@@ -32,7 +32,7 @@ use lakehouse_domain::{
 };
 use serde_json::json;
 
-use foundation_outbox_publisher::silver_handoff_io::{
+use crate::silver_handoff_io::{
     already_exported, one_of_path_or_key, open_sink, open_source, optional_env,
     refuse_existing_outputs, required_env, HandoffSink, InputSource, OutputSink, PathOrKey,
     SeekableSource, GZIP_LEVEL,
@@ -470,7 +470,7 @@ pub async fn run_price() -> anyhow::Result<()> {
 /// and whether a ZIP member is the one it converts. Read from the lanes above, so the caller keeps
 /// no second copy of them.
 #[derive(Clone, Copy)]
-pub(crate) struct ExportCommand {
+pub struct ExportCommand {
     pub env_prefix: &'static str,
     pub table: &'static str,
     member_matches: fn(&str) -> bool,
@@ -478,13 +478,13 @@ pub(crate) struct ExportCommand {
 
 impl ExportCommand {
     /// Whether the export would convert a ZIP member of this name.
-    pub(crate) fn converts_member(&self, name: &str) -> bool {
+    pub fn converts_member(&self, name: &str) -> bool {
         (self.member_matches)(name)
     }
 }
 
 /// The export behind a publisher command name, when it is one of this module's lanes.
-pub(crate) fn export_command(command: &str) -> Option<ExportCommand> {
+pub fn export_command(command: &str) -> Option<ExportCommand> {
     let lane: &'static Lane = match command {
         "export-land-use-plan-silver-handoff" => &PLAN_LANE,
         "export-land-use-zone-code-silver-handoff" => &ZONE_CODE_LANE,
@@ -1073,19 +1073,19 @@ fn write_summary_json(summary_path: &Path, summary: &serde_json::Value) -> anyho
 
 #[cfg(test)]
 #[path = "land_characteristic_csv_tests.rs"]
-pub(crate) mod characteristic_csv_tests;
+pub mod characteristic_csv_tests;
 
 #[cfg(test)]
 #[path = "land_forest_csv_tests.rs"]
-pub(crate) mod forest_csv_tests;
+pub mod forest_csv_tests;
 
 #[cfg(test)]
 #[path = "land_transfer_csv_tests.rs"]
-pub(crate) mod transfer_csv_tests;
+pub mod transfer_csv_tests;
 
 #[cfg(test)]
 #[path = "land_right_csv_tests.rs"]
-pub(crate) mod right_csv_tests;
+pub mod right_csv_tests;
 
 #[cfg(test)]
 mod tests {

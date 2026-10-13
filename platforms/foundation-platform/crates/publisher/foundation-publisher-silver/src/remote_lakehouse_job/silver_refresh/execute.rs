@@ -20,7 +20,7 @@ use super::{
     lane::{ExportKind, LaneContract, WriteMode},
     release::Release,
 };
-use foundation_outbox_publisher::silver_handoff_io::{open_source, InputSource};
+use crate::silver_handoff_io::{open_source, InputSource};
 
 /// What the unit and its script hand this command about the release it runs from.
 #[derive(Clone, Debug, Eq, PartialEq)]

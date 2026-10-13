@@ -1,8 +1,8 @@
 //! Explicit FLOOR inputs and retained execution time; Bronze authentication runs on the server.
 use super::{required_lookup, shell_quote};
+use crate::building_register_floor_silver_export::HistoryWitness;
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::building_register_floor_silver_export::HistoryWitness;
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,9 +24,7 @@ impl FloorSource {
             lookup,
             "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT",
         )?;
-        foundation_outbox_publisher::hub_provider_release::ProviderRelease::of_files([
-            &floor, &title,
-        ])?;
+        crate::hub_provider_release::ProviderRelease::of_files([&floor, &title])?;
         let time = required_lookup(
             lookup,
             "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC",

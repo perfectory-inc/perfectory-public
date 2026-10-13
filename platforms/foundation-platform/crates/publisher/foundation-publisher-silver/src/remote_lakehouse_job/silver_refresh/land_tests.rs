@@ -350,8 +350,6 @@ fn every_land_contract_is_a_land_lane_of_its_export() -> anyhow::Result<()> {
             rule.snapshot_label,
             rule.source.replace("__", "-").replace('_', "-")
         );
-        // The export is a publisher command the release can start.
-        assert!(crate::parse_command(["publisher", contract.export.as_str()]).is_ok());
     }
     Ok(())
 }

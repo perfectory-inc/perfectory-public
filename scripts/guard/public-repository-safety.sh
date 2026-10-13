@@ -189,7 +189,7 @@ fi
 
 raw_floor_building_ids="$(git grep -n -I -E '\"[0-9]{5,}-[0-9]{5,}\"' -- \
   'platforms/foundation-platform/crates/lakehouse/lakehouse-application/tests/building_register_floor_silver_rows.rs' \
-  'platforms/foundation-platform/services/foundation-outbox-publisher/src/building_register_floor_silver_export.rs' \
+  'platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_floor_silver_export.rs' \
   2>/dev/null | grep -Fv 'OPN2099' || true)"
 if [ -n "$raw_floor_building_ids" ]; then
   fail "numeric building identities are present in public floor fixtures; use an explicit SYNTHETIC identity:\n$raw_floor_building_ids"

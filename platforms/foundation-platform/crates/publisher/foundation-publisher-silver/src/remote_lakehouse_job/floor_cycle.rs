@@ -6,11 +6,9 @@ use std::{
     process::{Command, Stdio},
 };
 
+use crate::building_register_floor_silver_export::{select_inputs, FloorInputSelection};
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::building_register_floor_silver_export::{
-    select_inputs, FloorInputSelection,
-};
 
 use super::{floor_source::FloorSource, RemoteLakehouseJob, RemoteLakehouseJobConfig};
 

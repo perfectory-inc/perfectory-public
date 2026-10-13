@@ -486,10 +486,10 @@ pub(in crate::remote_lakehouse_job) fn export_side_by_side<T: Sync, R: Send>(
     };
     let mut done = vec![export(first)?];
     let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    let peak = foundation_outbox_publisher::process_memory::cgroup_peak_bytes();
-    let workers = foundation_outbox_publisher::process_memory::workers_that_fit(
+    let peak = crate::process_memory::cgroup_peak_bytes();
+    let workers = crate::process_memory::workers_that_fit(
         cores,
-        foundation_outbox_publisher::process_memory::available_bytes(),
+        crate::process_memory::available_bytes(),
         0,
         peak.unwrap_or(u64::MAX),
     )

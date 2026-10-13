@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use foundation_outbox_publisher::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
+use foundation_publisher_silver::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::building_register_title_silver_plan::{
     building_register_title_silver_row_to_jsonl, normalize_building_register_title_silver_rows,

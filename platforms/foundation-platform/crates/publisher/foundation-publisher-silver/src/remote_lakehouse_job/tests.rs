@@ -26,12 +26,11 @@ fn smoke_config() -> RemoteLakehouseJobConfig {
     }
 }
 
-fn history_fixture() -> anyhow::Result<
-    foundation_outbox_publisher::building_register_floor_silver_export::HistoryWitness,
-> {
-    foundation_outbox_publisher::building_register_floor_silver_export::HistoryWitness::load(
+fn history_fixture() -> anyhow::Result<crate::building_register_floor_silver_export::HistoryWitness>
+{
+    crate::building_register_floor_silver_export::HistoryWitness::load(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json")
+            .join("../../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json")
             .canonicalize()?,
         None,
     )
@@ -1137,7 +1136,7 @@ fn floor_native_invocation_enforces_the_embedded_execution_profile() -> anyhow::
         )));
     }
     assert!(script.contains("-f compose.lakehouse.yml -f compose.lakehouse-native.yml --profile lakehouse-control run --rm"));
-    let limits = include_str!("../../../../compose.lakehouse-native.yml");
+    let limits = include_str!("../../../../../compose.lakehouse-native.yml");
     for setting in ["mem_limit:", "memswap_limit:", "cpus:", "pids_limit:"] {
         assert!(limits.contains(setting));
     }
@@ -1384,7 +1383,10 @@ fn registered_retention_requires_its_commit_and_retained_time() -> anyhow::Resul
             serde_json::json!(name.strip_suffix(".zip").context("source name")?);
         inputs[role]["provider_month"] = serde_json::json!("2099-12-01");
     }
-    let identity = foundation_outbox_publisher::building_register_floor_silver_export::source_identity_from_semantic(inputs.clone(), &source.history)?;
+    let identity = crate::building_register_floor_silver_export::source_identity_from_semantic(
+        inputs.clone(),
+        &source.history,
+    )?;
     let value = serde_json::json!({
         "schema_version": "foundation-platform.floor-history-check.v1",
         "retention_kind": "registered_append",
@@ -1422,7 +1424,10 @@ fn registered_retention_requires_its_commit_and_retained_time() -> anyhow::Resul
     changed["inputs"]["floor"]["provider_file_id"] = serde_json::json!("OPN20991231OTHER");
     // Even an internally consistent receipt for another source cannot satisfy this request.
     changed["source_snapshot_id"] = serde_json::json!(
-        foundation_outbox_publisher::building_register_floor_silver_export::source_identity_from_semantic(changed["inputs"].clone(), &source.history)?
+        crate::building_register_floor_silver_export::source_identity_from_semantic(
+            changed["inputs"].clone(),
+            &source.history
+        )?
     );
     assert!(floor_history::retained_outcome(&changed.to_string(), source).is_err());
     Ok(())

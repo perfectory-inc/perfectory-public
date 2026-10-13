@@ -1184,3 +1184,17 @@ fn publish_building_by_pnu_serving_manifest_command_is_explicit() -> anyhow::Res
     );
     Ok(())
 }
+
+#[test]
+fn every_silver_refresh_lane_exports_through_a_publisher_command() -> anyhow::Result<()> {
+    let exports = crate::remote_lakehouse_job::silver_refresh_export_commands()?;
+    assert!(!exports.is_empty());
+    for export in exports {
+        // The export is a publisher command the release can start.
+        assert!(
+            parse_command(["publisher", export.as_str()]).is_ok(),
+            "{export} is not a publisher command"
+        );
+    }
+    Ok(())
+}

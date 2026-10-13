@@ -2,7 +2,7 @@
 //! fixture's pairs, loaded by the same code path and checks as a real one (root ADR-0143 §5,
 //! ADR-0145). The exports themselves refuse to run without a real projection.
 
-use foundation_outbox_publisher::sigungu_crosswalk::{
+use foundation_publisher_silver::sigungu_crosswalk::{
     baseline_fixture_json, hub_sigungu_crosswalk_from,
 };
 use foundation_shared_kernel::pnu::SigunguCrosswalk;

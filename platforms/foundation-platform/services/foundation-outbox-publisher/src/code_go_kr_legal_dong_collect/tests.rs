@@ -51,7 +51,7 @@ fn the_notice_board_is_not_a_source() -> anyhow::Result<()> {
     // ADR-0144: only downloaded data is a source. The contract names the full table and
     // nothing of the 코드변경안내 board, so no code path can be pointed at it again by configuration.
     let contract: serde_json::Value = serde_json::from_str(
-        foundation_outbox_publisher::code_go_kr_legal_dong_contract::CONTRACT_JSON,
+        foundation_publisher_silver::code_go_kr_legal_dong_contract::CONTRACT_JSON,
     )?;
     let endpoints = contract
         .as_object()
@@ -64,7 +64,7 @@ fn the_notice_board_is_not_a_source() -> anyhow::Result<()> {
         );
     }
     assert!(
-        !foundation_outbox_publisher::code_go_kr_legal_dong_contract::CONTRACT_JSON
+        !foundation_publisher_silver::code_go_kr_legal_dong_contract::CONTRACT_JSON
             .contains("bbsmng")
     );
     Ok(())
