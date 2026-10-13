@@ -50,10 +50,11 @@ class BuildingKindSparkTest(unittest.TestCase):
         ], "mgm_bldrgst_pk string,floor_row_id string,floor_kind string,floor_number int,floor_index int,"
            "floor_display_ko string")
         units = spark.createDataFrame([
-            (A, "UNIT-1", "TITLE-1", "가동", "가동", "101호", "101호", 1, "above_ground"),
-            (B, "UNIT-2", None, "", "", "201호", "201호", 2, "above_ground"),
+            (A, "UNIT-1", "TITLE-1", "가동", "가동", "101호", "101호", 1, "above_ground", 101),
+            (B, "UNIT-2", None, "", "", "201호", "201호", 2, "above_ground", None),
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
-           "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
+           "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string,"
+           "unit_number int")
         units = (units.withColumn("unit_row_id", F.concat(F.lit("row-"), F.col("mgm_bldrgst_pk")))
                  .withColumn("building_link_method", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(), F.lit("parent_key")))
                  .withColumn("building_link_source_record_id", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(),
@@ -109,6 +110,8 @@ class BuildingKindSparkTest(unittest.TestCase):
         unit = json.loads(rows["building-units"][A].units_json)[0]["units"][0]
         self.assertNotIn("floor_label", unit)
         self.assertEqual(set(unit) & {"floor_kind", "floor_number"}, {"floor_kind", "floor_number"})
+        # The source's normalized unit number, as a number; the web sorts by it (no parsing of ho_name).
+        self.assertEqual(unit["ho_number"], 101)
         unlinked = json.loads(rows["building-units"][B].unlinked_units_json)[0]
         self.assertNotIn("floor_label", unlinked)
 

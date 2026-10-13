@@ -45,6 +45,7 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
            "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
         cls.units = (cls.units.withColumn("unit_row_id", F.concat(F.lit("synthetic-row:"), F.col("mgm_bldrgst_pk")))
+                     .withColumn("unit_number", F.lit(None).cast("int"))
                      .withColumn("building_link_method", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(), F.lit("parent_key")).otherwise(F.lit("unresolved")))
                      .withColumn("building_link_source_record_id", F.lit("synthetic-basis#line=1"))
                      .withColumn("building_link_input_sha256", F.lit("a" * 64))
