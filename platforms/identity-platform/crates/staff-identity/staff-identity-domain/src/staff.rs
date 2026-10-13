@@ -15,8 +15,6 @@ pub struct Staff {
     pub email: String,
     /// Staff display name.
     pub display_name: String,
-    /// Primary role code used for default authorization.
-    pub primary_role_code: String,
     /// UTC timestamp when the staff account was created.
     pub created_at: DateTime<Utc>,
     /// UTC timestamp when the staff account was last updated.
