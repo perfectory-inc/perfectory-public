@@ -660,3 +660,63 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
     })
     .await
 }
+
+/// Version of the root ADR-0194 migration that drops the catalog parcel, building and unit copies.
+const CATALOG_COPY_DROP_MIGRATION_VERSION: i64 = 20_261_012_182_755;
+
+/// The drop refuses a database whose copies still hold rows until the owner's approval is recorded,
+/// and drops them once it is.
+///
+/// The server applies migrations by itself when main moves (root ADR-0159), so merging the drop
+/// must not be what deletes production rows. Both halves are asserted: a gate observed only
+/// refusing would pass a migration that can never run, and one observed only passing would pass a
+/// gate that is not there.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> TestResult {
+    run_in_disposable_database("catalog_copy_drop_gate", |pool| async move {
+        migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+             VALUES ($1, '9999900101100010001', 'factory', 1, 1)",
+        )
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await?;
+
+        let refused = migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION)
+            .run(&pool)
+            .await
+            .expect_err("a populated copy must not be dropped without approval");
+        assert!(format!("{refused:#}").contains("ADR-0194"), "{refused:#}");
+        let still_there =
+            sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NOT NULL")
+                .fetch_one(&pool)
+                .await?;
+        assert!(still_there, "a refused drop must leave the table in place");
+
+        // The operator's step, exactly as the migration's hint spells it. A database setting
+        // reaches only sessions opened after it, so the approved run takes a fresh pool.
+        let database: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&pool)
+            .await?;
+        sqlx::query(&format!(
+            "ALTER DATABASE \"{database}\" SET foundation.adr_0194_drop_approved = 'yes'"
+        ))
+        .execute(&pool)
+        .await?;
+        let approved = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION)
+            .run(&approved)
+            .await?;
+        let gone = sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NULL")
+            .fetch_one(&approved)
+            .await?;
+        approved.close().await;
+        assert!(gone, "an approved drop must remove the table");
+        Ok(())
+    })
+    .await
+}

@@ -3,6 +3,23 @@
 -- Every dependent is named, and the tables are dropped without CASCADE, so an object this file
 -- did not foresee stops the migration instead of disappearing with them.
 
+-- Approval gate (root ADR-0194 §6): the server applies migrations on its own when main moves, so
+-- merging this file must not be what deletes production data. Where the tables still hold rows,
+-- the drop waits for an operator to record the owner's approval on the database first:
+--     ALTER DATABASE foundation SET foundation.adr_0194_drop_approved = 'yes';
+-- A fresh or test database holds no rows in them and migrates without it.
+DO $gate$
+BEGIN
+    IF current_setting('foundation.adr_0194_drop_approved', true) IS DISTINCT FROM 'yes'
+       AND (EXISTS (SELECT 1 FROM catalog.parcel)
+            OR EXISTS (SELECT 1 FROM catalog.building)
+            OR EXISTS (SELECT 1 FROM catalog.building_unit)) THEN
+        RAISE EXCEPTION 'ADR-0194: catalog.parcel, building and building_unit still hold rows and the drop is not approved'
+            USING HINT = 'After the owner approves: ALTER DATABASE foundation SET foundation.adr_0194_drop_approved = ''yes''; then re-run migrations.';
+    END IF;
+END;
+$gate$;
+
 -- Foreign keys into the three tables. The referencing columns stay; the tables that hold them are
 -- empty in production, and serving_postgis.parcel_boundary_mirror.parcel_id is NULL on every row.
 ALTER TABLE catalog.digital_twin_asset
