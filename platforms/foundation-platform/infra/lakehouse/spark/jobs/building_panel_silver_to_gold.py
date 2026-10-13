@@ -252,6 +252,7 @@ def build_units(units, titles, areas):
         F.coalesce("dong_join_name", F.lit("")).alias("building_name"),
         F.coalesce("dong_name_raw", F.lit("")).alias("dong_name"),
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
+        "floor_kind", "floor_number",
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
     return projected
@@ -291,6 +292,12 @@ FLOOR_FIELDS = ["floor_row_id", "floor_kind", "floor_number", "floor_index", "fl
 UNIT_FIELDS = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk", "building_register_pk",
                "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name",
                "building_link_evidence", "unit_pnu"]
+# A data kind carries the source's values, never a screen's words (root ADR-0193): the panel's
+# Korean floor label, floor display text and joined rooftop usages stay in the panel until it retires,
+# and the web writes them from these.
+TITLE_KIND_FIELDS = TITLE_FIELDS
+FLOOR_KIND_FIELDS = [f for f in FLOOR_FIELDS if f != "floor_display_ko"]
+UNIT_KIND_FIELDS = [f for f in UNIT_FIELDS if f != "floor_label"] + ["floor_kind", "floor_number"]
 
 
 def title_rows(titles, units, floors, areas):
@@ -303,7 +310,8 @@ def title_rows(titles, units, floors, areas):
         "_building_pk", F.coalesce("_title_pk", "mgm_bldrgst_pk"))
     roof_areas = roof_areas.groupBy("_building_pk").agg(
         F.sum(F.col("area_m2").cast("decimal(38,6)")).cast("double").alias("rooftop_area_m2"),
-        F.concat_ws(" · ", F.sort_array(F.collect_set(text_or_null("usage_name_raw")))).alias("rooftop_usage"))
+        F.concat_ws(" · ", F.sort_array(F.collect_set(text_or_null("usage_name_raw")))).alias("rooftop_usage"),
+        F.sort_array(F.collect_set(text_or_null("usage_name_raw"))).alias("rooftop_usages"))
     buildings = titles.join(roof, "mgm_bldrgst_pk", "left")
     buildings = buildings.join(roof_areas, buildings.mgm_bldrgst_pk == roof_areas._building_pk, "left")
     return buildings.select("pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id",
@@ -312,28 +320,29 @@ def title_rows(titles, units, floors, areas):
         F.when(F.col("floor_area_m2") > 0, F.col("floor_area_m2")).alias("floor_area_m2"),
         F.col("ground_floor_count").alias("stories"), F.coalesce("basement_floor_count", F.lit(0)).alias("below_ground_floors"),
         (F.coalesce("_roof", F.lit(0)) == 1).alias("has_rooftop"), "rooftop_area_m2",
-        F.coalesce("rooftop_usage", F.lit("")).alias("rooftop_usage"), F.col("approval_year").alias("built_year"))
+        F.coalesce("rooftop_usage", F.lit("")).alias("rooftop_usage"), F.col("approval_year").alias("built_year"),
+        F.coalesce("rooftop_usages", F.array().cast("array<string>")).alias("rooftop_usages"))
 
 
-def floor_rows(titles, floors, counters):
+def floor_rows(titles, floors, counters, fields=FLOOR_FIELDS):
     """One row per building that has floors: its PNU, `register_pk`, `id` and its sorted `floors`."""
     counters["unlinked_floor_count"] = floors.join(titles.select("mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_anti").count()
-    nested = sorted_objects(floors, ["mgm_bldrgst_pk"], FLOOR_FIELDS, "floors")
+    nested = sorted_objects(floors, ["mgm_bldrgst_pk"], fields, "floors")
     return titles.join(nested, "mgm_bldrgst_pk").select(
         "pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id", "floors")
 
 
-def unit_rows(titles, units, areas, counters):
+def unit_rows(titles, units, areas, counters, fields=UNIT_FIELDS):
     """(one row per building that has units: its PNU, `register_pk`, `id` and its sorted `units`;
     one row per PNU with units no building of it carries: `unlinked_units`)."""
     projected = build_units(units, titles, areas)
     counters["unlinked_unit_count"] = projected.where(F.col("building_id").isNull()).count()
     nested = sorted_objects(projected.where(F.col("building_id").isNotNull()), ["_parent_pnu", "building_id"],
-                            UNIT_FIELDS, "units")
+                            fields, "units")
     linked = titles.select("pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id").join(
         nested, (F.col("pnu") == F.col("_parent_pnu")) & (F.col("id") == F.col("building_id"))).select(
         "pnu", "register_pk", "id", "units")
-    unlinked = sorted_objects(projected.where(F.col("building_id").isNull()), ["pnu"], UNIT_FIELDS, "unlinked_units")
+    unlinked = sorted_objects(projected.where(F.col("building_id").isNull()), ["pnu"], fields, "unlinked_units")
     return linked, unlinked
 
 
@@ -365,26 +374,30 @@ class Section:
     """One by-PNU data kind of this panel (root ADR-0193): `build(frames, counters)` returns `pnu` and
     the kind's content as arrays of structs, one row per PNU that has it, built from the same parts as
     the panel; `panel_view(panel_rows, entries)` is the panel's content in the kind's shape, for the
-    kind's parity check (`entries` names the struct type of each content array)."""
+    kind's parity check (`entries` names the struct type of each content array). `parity_ignores`
+    names the fields the kind carries as the source's values where the panel carries display text,
+    so the two cannot be equal there."""
 
     name: str
     build: Callable[[dict[str, DataFrame], dict[str, int]], DataFrame]
     panel_view: Callable[[DataFrame, dict[str, T.DataType]], DataFrame]
+    parity_ignores: tuple[str, ...] = ()
 
 
 def _titles(frames, counters):
     titles, units, floors, areas = checked_inputs(frames, counters)
-    return per_pnu(title_rows(titles, units, floors, areas), TITLE_FIELDS, "buildings")
+    rows = title_rows(titles, units, floors, areas).withColumn("rooftop_usage", F.col("rooftop_usages"))
+    return per_pnu(rows, TITLE_KIND_FIELDS, "buildings")
 
 
 def _floors(frames, counters):
     titles, _units, floors, _areas = checked_inputs(frames, counters, (TITLE_SOURCE, FLOOR_SOURCE))
-    return per_pnu(floor_rows(titles, floors, counters), ["register_pk", "id", "floors"], "floors")
+    return per_pnu(floor_rows(titles, floors, counters, FLOOR_KIND_FIELDS), ["register_pk", "id", "floors"], "floors")
 
 
 def _units(frames, counters):
     titles, units, _floors, areas = checked_inputs(frames, counters, (TITLE_SOURCE, UNIT_SOURCE, AREA_SOURCE))
-    linked, unlinked = unit_rows(titles, units, areas, counters)
+    linked, unlinked = unit_rows(titles, units, areas, counters, UNIT_KIND_FIELDS)
     grouped = per_pnu(linked, ["register_pk", "id", "units"], "units")
     return grouped.join(unlinked, "pnu", "full_outer").select(
         "pnu", F.coalesce("units", F.array().cast(grouped.schema["units"].dataType)).alias("units"),
@@ -421,9 +434,9 @@ def _units_view(rows, types):
 
 
 SECTIONS: tuple[Section, ...] = (
-    Section("titles", _titles, _titles_view),
+    Section("titles", _titles, _titles_view, ("rooftop_usage",)),
     Section("floors", _floors, _floors_view),
-    Section("units", _units, _units_view),
+    Section("units", _units, _units_view, ("floor_kind", "floor_number")),
 )
 SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
 
