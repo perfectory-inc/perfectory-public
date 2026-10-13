@@ -29,10 +29,13 @@ use utoipa::{IntoParams, Modify, OpenApi};
 use super::api_error::ApiError;
 use crate::state::AppState;
 
+mod alerts;
 mod facts;
 mod health;
 mod operations;
 mod snapshots;
+
+pub(crate) use alerts::problem_metrics as scheduled_job_problem_metrics;
 
 const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
 const MAX_PAGE: u32 = 50;
