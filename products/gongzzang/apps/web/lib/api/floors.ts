@@ -10,8 +10,8 @@ export const FloorBuildingSchema = z.object({
   has_rooftop: z.boolean(),
   // 옥탑 공용부 allocated area (㎡); omitted by the API when there is no rooftop.
   rooftop_area_m2: z.number().optional(),
-  // 옥탑 용도 (주용도 · 기타용도); empty when there is no rooftop.
-  rooftop_usage: z.string().default(""),
+  // 옥탑 용도, one per source usage; empty when there is no rooftop. The screen joins them.
+  rooftop_usages: z.array(z.string()),
   floors: z.array(EdgeFloorSchema),
 });
 
@@ -32,7 +32,10 @@ export function toFloorsResponse(profile: EdgeBuildingProfile): FloorsResponse {
       below_ground: building.below_ground_floors,
       has_rooftop: building.has_rooftop,
       rooftop_area_m2: building.rooftop_area_m2 ?? undefined,
-      rooftop_usage: building.rooftop_usage,
+      // A bundle document's one joined string is kept whole — never split back into usages.
+      rooftop_usages: Array.isArray(building.rooftop_usage)
+        ? building.rooftop_usage
+        : [building.rooftop_usage].filter((usage) => usage !== ""),
       floors: building.floors,
     })),
   };

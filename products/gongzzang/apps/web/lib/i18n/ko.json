@@ -276,7 +276,16 @@
         "aboveGround": "지상 {count}층",
         "belowGround": "지하 {count}층",
         "rooftop": "옥탑",
-        "none": "층 정보가 없어요"
+        "none": "층 정보가 없어요",
+        "unknownFloor": "층 정보 없음",
+        "unitFloor": {
+          "above_ground": "{number}층",
+          "basement": "지하 {number}층",
+          "rooftop": "옥탑",
+          "all_floors": "전층",
+          "multi_floor_lower": "{number}층",
+          "multi_floor_upper": "{number}층"
+        }
       },
       "listings": {
         "title": "이 필지의 매물 ({count})",

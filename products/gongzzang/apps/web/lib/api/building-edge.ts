@@ -17,7 +17,11 @@ export const EdgeUnitSchema = z.object({
   building_name: z.string(),
   dong_name: z.string(),
   ho_name: z.string(),
-  floor_label: z.string(),
+  // The source's floor kind and number (the kind lanes, ADR-0193 §9); the screen writes the floor
+  // from them (`unit-floor.ts`). A bundle document has only the server-formatted `floor_label`.
+  floor_kind: z.string().nullish(),
+  floor_number: z.number().int().nullish(),
+  floor_label: z.string().optional(),
   exclusive_area_m2: z.number().nonnegative().nullable(),
   usage_name: z.string(),
   structure_name: z.string(),
@@ -30,7 +34,6 @@ export const EdgeFloorSchema = z.object({
   floor_kind: z.string(),
   floor_number: z.number().int().nonnegative().nullable(),
   floor_index: z.number().int().nullable(),
-  floor_display_ko: z.string().nullable(),
 });
 export const EdgeBuildingProfileSchema = z.object({
   // v3 is v2 without the unit prices (root ADR-0190); both are read until v2 is no longer served.
@@ -55,7 +58,8 @@ export const EdgeBuildingProfileSchema = z.object({
       below_ground_floors: z.number().int().nonnegative(),
       has_rooftop: z.boolean(),
       rooftop_area_m2: z.number().nonnegative().nullish(),
-      rooftop_usage: z.string(),
+      // A list of the source's usages in a kind lane; one server-joined string in a bundle document.
+      rooftop_usage: z.union([z.array(z.string()), z.string()]),
       built_year: z.number().int().nullable(),
       floors: z.array(EdgeFloorSchema),
       units: z.array(EdgeUnitSchema),

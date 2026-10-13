@@ -5,16 +5,23 @@
 // it works WITHOUT client hydration. All data is real, reconciled from
 // 표제부 (층) + 전유부 (호) + 전유공용면적 (전용면적, matched by PNU+동+호명).
 // PNU는 표준 사투리(11번째 자리 1=일반/2=산) — ADR-0023 canonical.
+import { createTranslator } from "next-intl";
 import type { ReactNode } from "react";
 import { fetchBuildingProfile } from "@/lib/api/building-edge";
 import { type BuildingUnit, toBuildingUnitsResponse } from "@/lib/api/building-units";
 import { type FloorsResponse, toFloorsResponse } from "@/lib/api/floors";
+import { compareHoName, unitFloorRank, unitFloorText } from "@/lib/api/unit-floor";
 import koMessages from "@/lib/i18n/ko.json";
 import { PREVIEW_PARCELS } from "./preview-data";
 
 // Resolve the serving pointer at request time, never during a static site build.
 export const dynamic = "force-dynamic";
 const COPY = koMessages.previewFloors;
+const FLOORS = createTranslator({
+  locale: "ko",
+  messages: koMessages,
+  namespace: "panels.parcel.floors",
+});
 type Unit = BuildingUnit;
 
 type ParcelData = {
@@ -24,23 +31,8 @@ type ParcelData = {
   units: Unit[];
 };
 
-const hoLabel = (ho: string) => `${ho.replace(/호+$/u, "")}${COPY.unitSuffix}`;
 const fmtArea = (a?: number | null) =>
   a == null ? null : `${(Math.round(a * 100) / 100).toLocaleString("ko-KR")}㎡`;
-
-function lastNum(s: string): number {
-  const m = String(s).match(/\d+/g);
-  const last = m?.at(-1);
-  return last ? Number.parseInt(last, 10) : 0;
-}
-
-function floorRank(label: string): number {
-  if (!label) return 9999;
-  const b = label.match(/^지하\s*(\d+)/u);
-  if (b) return -Number.parseInt(b[1] ?? "0", 10);
-  const a = label.match(/(\d+)/u);
-  return a ? Number.parseInt(a[1] ?? "9999", 10) : 9999;
-}
 
 function dongList(units: Unit[]): string[] {
   const seen: string[] = [];
@@ -51,20 +43,16 @@ function dongList(units: Unit[]): string[] {
   return seen.sort();
 }
 
+/** Units grouped by floor, bottom to top, from the data's floor values (`unit-floor.ts`). */
 function floorGroups(units: Unit[]): { floor: string; units: Unit[] }[] {
   const map = new Map<string, Unit[]>();
-  for (const u of units) {
-    const key = u.floor_label.trim() || COPY.unknown;
+  for (const u of [...units].sort((a, b) => unitFloorRank(a) - unitFloorRank(b))) {
+    const key = unitFloorText(u, FLOORS) ?? COPY.unknown;
     const list = map.get(key);
     if (list) list.push(u);
     else map.set(key, [u]);
   }
-  return [...map.entries()]
-    .sort((a, b) => floorRank(a[0]) - floorRank(b[0]))
-    .map(([floor, us]) => ({
-      floor,
-      units: us.sort((a, b) => lastNum(a.ho_name) - lastNum(b.ho_name)),
-    }));
+  return [...map.entries()].map(([floor, us]) => ({ floor, units: us.sort(compareHoName) }));
 }
 
 function rooftopFact(b: FloorsResponse["buildings"][number]): { dd: string; note: string | null } {
@@ -73,7 +61,10 @@ function rooftopFact(b: FloorsResponse["buildings"][number]): { dd: string; note
     b.rooftop_area_m2 != null
       ? `${COPY.present} · ${b.rooftop_area_m2.toLocaleString("ko-KR")}㎡`
       : COPY.present;
-  const note = b.rooftop_usage ? COPY.rooftopUse.replace("{use}", b.rooftop_usage) : null;
+  const note =
+    b.rooftop_usages.length > 0
+      ? COPY.rooftopUse.replace("{use}", b.rooftop_usages.join(" · "))
+      : null;
   return { dd, note };
 }
 
@@ -148,7 +139,7 @@ function DongPanel({ parcel, dong }: { parcel: ParcelData; dong: string }) {
           <div className="pf-ho-grid">
             {g.units.map((u) => (
               <a key={u.id} id={`u-${u.id}`} href={`#u-${u.id}`} className="pf-ho">
-                <span className="pf-ho-n">{hoLabel(u.ho_name)}</span>
+                <span className="pf-ho-n">{u.ho_name}</span>
                 <span className={`pf-ho-a${u.exclusive_area_m2 == null ? " pf-noarea" : ""}`}>
                   {u.exclusive_area_m2 != null
                     ? COPY.exclusiveArea.replace("{area}", fmtArea(u.exclusive_area_m2) ?? "")

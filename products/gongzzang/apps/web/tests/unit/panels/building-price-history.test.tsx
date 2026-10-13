@@ -134,3 +134,13 @@ it("holds the price row while the prices are on their way", async () => {
   expect(held.getAttribute("aria-hidden")).toBe("true");
   expect(held.closest("details")).toBeNull();
 });
+
+it("writes a unit's floor from the data's floor kind and number, not a server label", async () => {
+  fetchUnitPrices.mockResolvedValue(new Map());
+  const { floor_label: _label, ...laneUnit } = unit;
+  renderCard({
+    buildings: [],
+    unlinked_units: [{ ...laneUnit, floor_kind: "basement", floor_number: 2 }],
+  });
+  expect(await screen.findByText(/지하 2층/)).toBeInTheDocument();
+});
