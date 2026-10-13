@@ -222,6 +222,28 @@ fn every_lane_parses_by_its_instance_name_and_its_contract_is_valid() -> anyhow:
     Ok(())
 }
 
+/// The job list starts `foundation-silver-refresh@<lane>.service`; this enum runs `<lane>`. A lane
+/// only one of them knows is a job the publisher refuses, or a lane nothing ever starts.
+#[test]
+fn the_lanes_are_the_silver_refresh_jobs_of_the_job_list() -> anyhow::Result<()> {
+    let jobs: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../../orchestration/jobs.v1.json"))?;
+    let scheduled: BTreeSet<&str> = jobs["jobs"]
+        .as_array()
+        .context("jobs.v1.json lists jobs")?
+        .iter()
+        .filter_map(|job| job["systemd_service"].as_str())
+        .filter_map(|service| service.strip_prefix("foundation-silver-refresh@"))
+        .map(|instance| instance.strip_suffix(".service").unwrap_or(instance))
+        .collect();
+    let known: BTreeSet<&str> = Lane::ALL.into_iter().map(Lane::id).collect();
+    assert_eq!(
+        scheduled, known,
+        "jobs.v1.json's silver refresh instances and Lane::ALL differ"
+    );
+    Ok(())
+}
+
 #[test]
 fn the_lane_contracts_say_how_each_lane_runs() -> anyhow::Result<()> {
     let units = Lane::Units.contract()?;

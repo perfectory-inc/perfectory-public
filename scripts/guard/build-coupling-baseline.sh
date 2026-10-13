@@ -246,7 +246,9 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # 126 -> 127: root ADR-0193 §9 derives each by-PNU data kind's Gold table contract in lakehouse-domain
 # from its line in r2-connections.contract.json (`by_pnu_kind.rs`), so a kind is that one line and
 # never a hand-written table contract beside it. The publisher already embeds the same file.
-COMPILE_TIME_READ_BASELINE="${3:-127}"
+# 127 -> 128: the Silver refresh's lane test embeds orchestration/jobs.v1.json so `Lane::ALL` and
+# the job list's `foundation-silver-refresh@<lane>` instances are held equal; nothing compared them.
+COMPILE_TIME_READ_BASELINE="${3:-128}"
 
 cd "$repo_root"
 
