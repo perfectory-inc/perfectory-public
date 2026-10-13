@@ -138,8 +138,7 @@ class MeasureSpark(unittest.TestCase):
         self.assertEqual(kinds["parcel-zoning"]["pnus"], 2)
         self.assertEqual(kinds["parcel-price"]["pnus"], 1)
         self.assertEqual(kinds["parcel-zoning"]["packs"], 1)
-        self.assertEqual(kinds["first-paint"]["pnus"], 2)
-        self.assertNotIn("packs", kinds["first-paint"])
+        self.assertNotIn("first-paint", kinds, "a screen's sum of kinds is the web's (ADR-0193 §5)")
         self.assertEqual(kinds["parcel-zoning"]["dongs"], 1)
         self.assertEqual(kinds["parcel-zoning"]["parted_dongs"], 0)
         with tempfile.TemporaryDirectory() as work:
