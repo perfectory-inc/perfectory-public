@@ -40,7 +40,7 @@ const COLUMNS: &[LakehouseColumn] = &[
 /// Gold unit price panel: each priced unit under the PNU whose building document carries it, one
 /// row per building there (the nil UUID for units linked to no building).
 pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract {
-    table_name: "gold.unit_price_panel",
+    table_name: "gold.unit_price",
     layer: LakehouseLayer::Gold,
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,

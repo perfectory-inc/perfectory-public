@@ -116,7 +116,7 @@ fn a_contract_lane_has_every_command_and_its_names_by_rule() -> anyhow::Result<(
     );
     assert_eq!(
         super::sections::gold_table(lane).table_name,
-        "gold.unit_price_panel"
+        "gold.unit_price"
     );
     for name in [
         "plan-unit-price-by-pnu-pack-shards",
@@ -171,7 +171,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         summary_path: dirs.work.join("unused.json"),
     };
     let provenance = PackProvenance {
-        table: "gold.unit_price_panel".to_owned(),
+        table: "gold.unit_price".to_owned(),
         iceberg_snapshot_id: SNAPSHOT.to_owned(),
         metadata_location: "s3://fixture/metadata.json".to_owned(),
         manifest_list_location: "s3://fixture/manifest.avro".to_owned(),
@@ -271,7 +271,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     let live = ServedManifest::parse(lane, &store.read_manifest().await?.0)?;
     assert_eq!(live.unit, "unit-price-by-pnu");
     assert_eq!((live.object_count, live.base_object_count), (0, 0));
-    assert_eq!(live.gold_table, "gold.unit_price_panel");
+    assert_eq!(live.gold_table, "gold.unit_price");
     assert!(live.section_packs.is_some());
 
     // Once cut over, the hourly monitor holds the live answers to the packs alone: the lane never

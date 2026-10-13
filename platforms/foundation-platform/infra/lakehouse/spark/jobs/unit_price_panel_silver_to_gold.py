@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build gold.unit_price_panel: one row per building of a PNU with its units' official price
+"""Build gold.unit_price: one row per building of a PNU with its units' official price
 histories (root ADR-0190, ADR-0204).
 
 A unit's price history is a time series on its own cadence (a monthly vintage, a new reference
@@ -37,7 +37,7 @@ import gold_incremental as incremental
 
 JOB_NAME = "unit_price_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = panel.RUN_SUMMARY_SCHEMA_VERSION
-GOLD_CONTRACT_NAME = "gold.unit_price_panel"
+GOLD_CONTRACT_NAME = "gold.unit_price"
 GOLD_CONTRACT = load_lakehouse_contract(GOLD_CONTRACT_NAME)
 GOLD_COLUMNS = column_names(GOLD_CONTRACT)
 REQUIRED_GOLD_COLUMNS = required_column_names(GOLD_CONTRACT)
@@ -68,7 +68,7 @@ def parse_args(argv=None):
     parser.add_argument("--iceberg-catalog-name", default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_CATALOG_NAME", "r2"))
     parser.add_argument("--source-iceberg-namespace", default="silver")
     parser.add_argument("--target-iceberg-namespace", default="gold")
-    parser.add_argument("--target-iceberg-table", default="unit_price_panel")
+    parser.add_argument("--target-iceberg-table", default="unit_price")
     parser.add_argument("--iceberg-write-mode", choices=("append", "overwrite"), default="overwrite")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     parser.add_argument("--iceberg-snapshot-id", required=True,
@@ -334,7 +334,7 @@ def build_lineage_event(args, summary: dict[str, Any]) -> dict[str, Any]:
     event = panel.build_lineage_event(args, summary)
     event.update({
         "job_name": JOB_NAME, "run_id": f"{JOB_NAME}:{summary['created_at_utc']}",
-        "output_dataset": {"qualified_name": GOLD_CONTRACT_NAME, "namespace": "gold", "table": "unit_price_panel",
+        "output_dataset": {"qualified_name": GOLD_CONTRACT_NAME, "namespace": "gold", "table": "unit_price",
                            "storage_format": args.write_mode},
         "additional_input_datasets": [{"qualified_name": n, "namespace": "silver", "table": n.split(".", 1)[1],
                                        "storage_format": args.input_mode} for n in ALL_SOURCES[1:]],

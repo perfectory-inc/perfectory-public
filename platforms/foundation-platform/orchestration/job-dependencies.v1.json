@@ -598,8 +598,8 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://gold.unit_price_panel",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
           "node_id": "gold-unit-price-panel",
           "title": "호 공시가격 by-PNU 패널",
           "kind": "gold_table",
@@ -1287,8 +1287,8 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://gold.unit_price_panel",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
           "node_id": "gold-unit-price-panel",
           "title": "호 공시가격 by-PNU 패널",
           "kind": "gold_table",
@@ -1509,8 +1509,8 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://gold.unit_price_panel",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price_panel,PROD)",
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
           "node_id": "gold-unit-price-panel",
           "title": "호 공시가격 by-PNU 패널",
           "kind": "gold_table",

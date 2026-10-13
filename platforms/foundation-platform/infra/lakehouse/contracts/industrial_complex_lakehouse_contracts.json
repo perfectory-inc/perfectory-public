@@ -3405,8 +3405,8 @@
         "unit": "derived"
       }
     },
-    "gold.unit_price_panel": {
-      "table_name": "gold.unit_price_panel",
+    "gold.unit_price": {
+      "table_name": "gold.unit_price",
       "physical_format": "Parquet",
       "serving_role": "Projection",
       "current_row_predicate": null,

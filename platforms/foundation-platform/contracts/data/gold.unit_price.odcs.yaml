@@ -2,7 +2,7 @@
 # pipeline graph (root ADR-0123). Do not edit: change the source and re-render.
 apiVersion: "v3.1.0"
 kind: "DataContract"
-id: "gold.unit_price_panel"
+id: "gold.unit_price"
 name: "호 공시가격 by-PNU 패널"
 version: "1.0.0"
 status: "active"
@@ -16,8 +16,8 @@ servers:
     type: "custom"
     catalog: "lakehouse"
 schema:
-  - name: "gold.unit_price_panel"
-    physicalName: "gold.unit_price_panel"
+  - name: "gold.unit_price"
+    physicalName: "gold.unit_price"
     logicalType: "object"
     physicalType: "table"
     properties:

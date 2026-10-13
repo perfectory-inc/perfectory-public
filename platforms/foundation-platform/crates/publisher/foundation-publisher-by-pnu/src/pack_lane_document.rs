@@ -153,28 +153,18 @@ mod tests {
         );
         let units =
             r#"[{"id":"u","official_price_history":[{"base_date":"20250101","price_won":7}]}]"#;
-        let (pnu, bytes) = render(
-            lane,
-            "gold.unit_price_panel",
-            "999990000000000001",
-            &row(units),
-        )?;
+        let (pnu, bytes) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         assert_eq!(pnu, "9999900000100000000");
         assert_eq!(
             String::from_utf8(bytes.clone())?,
             format!(
                 "{{\"schema_version\":\"{}\",\"pnu\":\"9999900000100000000\",\"source\":{{\"table\":\
-                 \"gold.unit_price_panel\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\
+                 \"gold.unit_price\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\
                  \"building_id\":\"00000000-0000-0000-0000-00000000000b\",\"units\":{units}}}",
                 lane.document_schema_version
             )
         );
-        let (_, again) = render(
-            lane,
-            "gold.unit_price_panel",
-            "999990000000000001",
-            &row(units),
-        )?;
+        let (_, again) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         assert_eq!(bytes, again);
         check(lane, &bytes)
     }

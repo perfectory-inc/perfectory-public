@@ -190,7 +190,7 @@ class GoldPanelRebuild(unittest.TestCase):
         # The unit price panel (root ADR-0190) has nothing to do unless a test says otherwise.
         # So has every kind table (root ADR-0193), which follows its host panel's pins.
         self.catalog.write_text(json.dumps({"gold.parcel_panel": parcel, "gold.building_panel": building,
-                                            "gold.unit_price_panel": unit_price_panel or table_fixture(False),
+                                            "gold.unit_price": unit_price_panel or table_fixture(False),
                                             **{name: table_fixture(False) for name in KIND_TABLES},
                                             "unit_price": unit_price or {}, **(extra or {})}))
         result = subprocess.run(["bash", str(self.script), *args], env=self.env,
@@ -242,13 +242,13 @@ class GoldPanelRebuild(unittest.TestCase):
                                               unit_price_panel=shared)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("nothing to do", result.stdout)
-        self.assertNotIn("commits", catalog["gold.unit_price_panel"])
+        self.assertNotIn("commits", catalog["gold.unit_price"])
         # ...and in `all`, rebuilt after the building panel, it takes the pins that one committed.
         self.log.unlink()
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(True), "all",
                                               unit_price_panel=shared)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual(catalog["gold.unit_price_panel"]["commits"][0]["pins"],
+        self.assertEqual(catalog["gold.unit_price"]["commits"][0]["pins"],
                          catalog["gold.building_panel"]["commits"][0]["pins"])
 
     def test_all_rebuilds_every_table_of_the_contract_in_its_order(self):

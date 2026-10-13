@@ -254,7 +254,7 @@ class PriceHistoryShrink(unittest.TestCase):
     vintage cost 47,153 units about 65% of theirs)."""
 
     def test_shrinking_more_units_than_the_contract_allows_is_refused_and_growth_is_not(self):
-        bound = rebuild.load_contract()["tables"]["gold.unit_price_panel"]["max_price_history_shrink_fraction"]
+        bound = rebuild.load_contract()["tables"]["gold.unit_price"]["max_price_history_shrink_fraction"]
         self.assertEqual(bound, 0.001)
         self.assertIsNone(prices.shrink_verdict(0, 1_000_000, bound), "a vintage that only adds records")
         self.assertIsNone(prices.shrink_verdict(1_000, 1_000_000, bound), "retired registers, a few at a time")
@@ -268,7 +268,7 @@ class PriceHistoryShrink(unittest.TestCase):
         for field, value in (("max_price_history_shrink_fraction", 1), ("max_price_history_shrink_fraction", "0.001"),
                              ("max_price_history_shrink_reason", "")):
             bad = json.loads(json.dumps(good))
-            bad["tables"]["gold.unit_price_panel"][field] = value
+            bad["tables"]["gold.unit_price"][field] = value
             with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "c.json"
                 path.write_text(json.dumps(bad), encoding="utf-8")
@@ -322,7 +322,7 @@ class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
         kinds = by_pnu_kinds.kinds()
-        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price_panel",
+        self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price",
                                                    *(kind.gold_table for kind in kinds.values())})
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
@@ -334,7 +334,7 @@ class Contract(unittest.TestCase):
             self.assertEqual(contract["tables"][kind.gold_table]["absent_inputs_accepted"], accepted)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
-        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices,
+        producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price": prices,
                      **{kind.gold_table: kinds_job for kind in kinds.values()}}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
@@ -350,7 +350,7 @@ class Contract(unittest.TestCase):
                 pinned = set(required) if follows["inputs"] == "all" else set(follows["inputs"])
                 self.assertLessEqual(pinned, set(required) & set(followed))
                 self.assertLess(list(contract["tables"]).index(follows["gold_table"]), list(contract["tables"]).index(name))
-        self.assertEqual(contract["tables"]["gold.unit_price_panel"]["pins_from"]["gold_table"], "gold.building_panel")
+        self.assertEqual(contract["tables"]["gold.unit_price"]["pins_from"]["gold_table"], "gold.building_panel")
         # While a panel is the reference, each kind is its section: every input pinned to it, checked on
         # every PNU (root ADR-0193 §3, §6-2), and its line is its whole entry: the producer run, its lane.
         self.assertGreaterEqual(len(kinds), 6)
