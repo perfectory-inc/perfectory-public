@@ -148,3 +148,106 @@ fn the_reader_refuses_a_corrupt_pack() -> anyhow::Result<()> {
     assert!(read_head(&state).is_err(), "an unknown entry state");
     Ok(())
 }
+
+/// A key of the wide format (root ADR-0204): the PNU, then a building id.
+fn wide(pnu: &str, building: char) -> String {
+    format!("{pnu}{}", building.to_string().repeat(36))
+}
+
+fn sample_wide_patch() -> anyhow::Result<Vec<u8>> {
+    let mut writer = PackWriter::new(identity(Some(2)))?;
+    writer.push_document(&wide(PNU_A, '0'), br#"{"units":[]}"#)?;
+    writer.push_document(&wide(PNU_A, 'a'), br#"{"units":[1]}"#)?;
+    writer.push_tombstone(&wide(PNU_B, 'b'))?;
+    writer.finish()
+}
+
+#[test]
+fn a_pack_of_wide_keys_is_format_two_and_reads_back_by_key() -> anyhow::Result<()> {
+    let policy = crate::by_pnu_gateway_contract::section_pack_policy()?;
+    let bytes = sample_wide_patch()?;
+    let pack = Pack::read(&bytes)?;
+    assert_eq!(pack.header.format_version, policy.wide_key_format_version);
+    assert_eq!(pack.header.key_length, Some(55));
+    assert_eq!(
+        u16::from_le_bytes([bytes[8], bytes[9]]),
+        policy.wide_key_format_version
+    );
+    let a = pack
+        .find(&wide(PNU_A, 'a'))
+        .context("A's second building is in the index")?;
+    assert_eq!(
+        pack.document(a)?.as_deref(),
+        Some(br#"{"units":[1]}"#.as_slice())
+    );
+    assert_eq!(
+        pack.find(&wide(PNU_B, 'b')).map(|entry| entry.state),
+        Some(EntryState::Tombstone)
+    );
+    assert!(
+        pack.find(PNU_A).is_none(),
+        "a PNU alone is not a key of this pack"
+    );
+    let head = read_prefix(&bytes)?.head_length();
+    assert_eq!(read_head(&bytes[..head])?.1, pack.entries);
+    // A pack of PNU keys is still format 1, without a key length: the served packs keep their bytes.
+    let narrow = Pack::read(&sample_patch()?)?;
+    assert_eq!(narrow.header.format_version, policy.format_version);
+    assert_eq!(narrow.header.key_length, None);
+    Ok(())
+}
+
+#[test]
+fn the_wide_format_bytes_are_pinned() -> anyhow::Result<()> {
+    assert_golden("format-wide-key.golden.pack", &sample_wide_patch()?)
+}
+
+#[test]
+fn a_wide_key_is_one_length_a_pnu_of_the_dong_and_no_slash() -> anyhow::Result<()> {
+    let mut writer = PackWriter::new(identity(None))?;
+    writer.push_document(&wide(PNU_A, 'a'), b"{}")?;
+    assert!(
+        writer.push_document(&format!("{PNU_B}x"), b"{}").is_err(),
+        "a key of another length"
+    );
+    assert!(
+        writer.push_document(PNU_B, b"{}").is_err(),
+        "a PNU key beside wide ones"
+    );
+    let mut writer = PackWriter::new(identity(None))?;
+    assert!(
+        writer.push_document(&format!("{PNU_A}a/b"), b"{}").is_err(),
+        "a slash"
+    );
+    assert!(
+        writer.push_document(&format!("{PNU_A}a b"), b"{}").is_err(),
+        "a space"
+    );
+    assert!(
+        writer
+            .push_document(&format!("{PNU_A}{}", "a".repeat(64)), b"{}")
+            .is_err(),
+        "longer than max_key_bytes"
+    );
+    assert!(
+        writer
+            .push_document(&wide("9999900001100000000", 'a'), b"{}")
+            .is_err(),
+        "another dong"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_reader_holds_the_version_and_the_key_length_together() -> anyhow::Result<()> {
+    let policy = crate::by_pnu_gateway_contract::section_pack_policy()?;
+    // A wide pack that claims format 1 would be read with 28-byte entries: refused.
+    let mut claims_one = sample_wide_patch()?;
+    claims_one[8..10].copy_from_slice(&policy.format_version.to_le_bytes());
+    assert!(Pack::read(&claims_one).is_err());
+    // A PNU pack that claims format 2 states no key length: refused.
+    let mut claims_two = sample_patch()?;
+    claims_two[8..10].copy_from_slice(&policy.wide_key_format_version.to_le_bytes());
+    assert!(Pack::read(&claims_two).is_err());
+    Ok(())
+}

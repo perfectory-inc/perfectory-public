@@ -492,6 +492,11 @@ pub(crate) struct ScheduledPackBake {
 pub(crate) struct SectionPackPolicy {
     pub(crate) magic: String,
     pub(crate) format_version: u16,
+    /// The format of a pack whose keys are longer than a PNU (root ADR-0204): its header states
+    /// `key_length`.
+    pub(crate) wide_key_format_version: u16,
+    /// The longest key a pack index holds.
+    pub(crate) max_key_bytes: usize,
     /// The `schema_version` of the manifest's `section_packs` block.
     pub(crate) manifest_section_packs_schema_version: u32,
     /// The block's `schema_version` when a section names a parts index (root ADR-0163).
@@ -721,6 +726,9 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
     let gate = &packs.cutover_gate;
     if packs.magic.len() != 8
         || packs.format_version == 0
+        || packs.wide_key_format_version == 0
+        || packs.wide_key_format_version == packs.format_version
+        || !(20..=255).contains(&packs.max_key_bytes)
         || packs.compression != "gzip"
         || !(1..=19).contains(&packs.unit_prefix_length)
         || packs.max_index_entries == 0

@@ -247,7 +247,12 @@ pub(crate) async fn drive(
     old_version: Option<&str>,
 ) -> anyhow::Result<Pinned> {
     let prefix = &lane.policy()?.request_path.prefix;
-    let url_of = |pnu: &str| format!("{base_url}{prefix}{pnu}");
+    let url_of = |pnu: &str| {
+        format!(
+            "{base_url}{prefix}{}",
+            crate::r2_layout::by_pnu_packs::request_path_of(pnu)
+        )
+    };
     let new_client = pinned_client(lane, new_version)?;
     let new = load::run(lane, &new_client, plan, sample, url_of, None);
     let (new, old) = match old_version {

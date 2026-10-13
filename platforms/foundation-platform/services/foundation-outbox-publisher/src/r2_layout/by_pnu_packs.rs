@@ -79,6 +79,25 @@ pub(crate) fn unit_of(pnu: &str) -> anyhow::Result<&str> {
     Ok(unit)
 }
 
+/// Digits of a PNU: the head of every pack key.
+const PNU_DIGITS: usize = 19;
+
+/// The PNU a pack key begins with: the key itself in a lane keyed by PNU, or its head in a lane
+/// whose key is a PNU and a suffix (root ADR-0204). Another lane read for the same PNU (gate
+/// (나)'s baseline) is read by this.
+pub(crate) fn pnu_of(key: &str) -> &str {
+    key.get(..PNU_DIGITS).unwrap_or(key)
+}
+
+/// The request path segment that names a pack key after the lane's prefix: the PNU alone, or
+/// `<pnu>/<suffix>` for a key with a suffix (root ADR-0204). The Worker parses the same shape.
+pub(crate) fn request_path_of(key: &str) -> String {
+    match key.get(PNU_DIGITS..) {
+        Some(suffix) if !suffix.is_empty() => format!("{}/{suffix}", pnu_of(key)),
+        _ => key.to_owned(),
+    }
+}
+
 /// The legal dong a unit belongs to (itself, or the dong a part is cut from).
 pub(crate) fn dong_of(unit: &str) -> &str {
     unit.split_once('-').map_or(unit, |(dong, _)| dong)
@@ -344,6 +363,21 @@ mod tests {
     use super::*;
 
     const UNIT: &str = "9999900000";
+
+    #[test]
+    fn a_key_with_a_suffix_is_requested_under_its_pnu_and_read_elsewhere_by_its_pnu() {
+        // Root ADR-0204: a unit-price key is the PNU and a building id.
+        let pnu = "9999900000100000000";
+        let key = format!("{pnu}00000000-0000-0000-0000-000000000000");
+        assert_eq!(
+            request_path_of(&key),
+            format!("{pnu}/00000000-0000-0000-0000-000000000000")
+        );
+        assert_eq!(pnu_of(&key), pnu);
+        // A PNU key is its own path: the parcel and building lanes' URLs do not move.
+        assert_eq!(request_path_of(pnu), pnu);
+        assert_eq!(pnu_of(pnu), pnu);
+    }
 
     #[test]
     fn a_pack_key_round_trips_and_names_the_contract_root() -> anyhow::Result<()> {
