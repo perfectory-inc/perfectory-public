@@ -58,8 +58,7 @@ intelligence-platform/
 - 현재 Open WebUI 개발 UI: `<model-runtime-host>:8080`
 - 현재 Ollama 모델 runtime: `<model-runtime-host>:11434`
 
-`INTELLIGENCE_API_BIND=0.0.0.0:8010`은 로컬 개발 중 Open WebUI를 정책 gateway에 붙이는 등
-일시적인 LAN 접근에만 사용한다. 단일 머신 개발의 기본값은 `127.0.0.1:8010`으로 유지한다.
+단일 머신 개발의 기본값은 `127.0.0.1:8010`이다. loopback 밖으로 열려면 Identity 모드가 필요하다(아래).
 
 ## 기업용 runtime C0-C1
 
@@ -68,13 +67,21 @@ intelligence-platform/
 
 ### 인바운드 인증(fail-closed)
 
-loopback이 아닌 주소에 bind하려면 인바운드 인증이 필수다. `INTELLIGENCE_API_BIND`가 non-loopback인데
-`INTELLIGENCE_INBOUND_AUTH_MODE`가 `shared-token`이 아니면 프로세스는 시작하지 않는다.
+loopback이 아닌 주소에 bind하려면 `INTELLIGENCE_INBOUND_AUTH_MODE=identity`가 필수다. 그 밖의 모드로
+non-loopback에 bind하면 프로세스는 시작하지 않는다([루트 ADR-0216](../../docs/adr/0216-intelligence-callers-are-identity-workloads-decided-by-identity.md)).
+
+- `identity`(운영): 호출자는 Identity 가 발급한 workload token 을 Bearer 로 보낸다. 보호 경로마다 필요한 동작을
+  Identity `POST /identity/v1/policy/decisions` 에 묻고, 허용된 principal 만 통과한다. 호출자가 누구인지와
+  무엇을 할 수 있는지는 Identity workload 정책(`platforms/identity-platform/config/workload-principal-policy.v1.json`)의
+  `intelligence.*` capability 만 정한다(예: `intelligence.normalization:submit`). Identity 가 거절하면 401, 불허는 403,
+  응답이 없거나 계약 밖이면 503 — 허용은 없다. tenant 범위는 그 principal 자신이다.
+- `shared-token`: loopback 전용 로컬 개발. 아래 `INTELLIGENCE_INBOUND_SERVICE_*` 로 고정 주체를 묶는다.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `INTELLIGENCE_API_BIND` | 아니오 | `127.0.0.1:8010` | 수신 주소. non-loopback이면 인증 필요 |
-| `INTELLIGENCE_INBOUND_AUTH_MODE` | 조건부 | `disabled` | non-loopback에서 `shared-token` 지정 |
+| `INTELLIGENCE_API_BIND` | 아니오 | `127.0.0.1:8010` | 수신 주소. non-loopback이면 `identity` 모드 필요 |
+| `INTELLIGENCE_INBOUND_AUTH_MODE` | 조건부 | `disabled` | `disabled`·`shared-token`(loopback 전용)·`identity` |
+| `INTELLIGENCE_IDENTITY_BASE_URL` | `identity`일 때 | — | Identity API base URL. HTTPS 필수(loopback 만 HTTP 허용) |
 | `INTELLIGENCE_INBOUND_SERVICE_TOKEN` | `shared-token`일 때 | — | 호출자가 보낼 Bearer token. 아래 workload identity에 묶임 |
 | `INTELLIGENCE_INBOUND_SERVICE_SUBJECT_ID` | `shared-token`일 때 | — | token이 대표하는 고정 서비스 주체. 요청 헤더로 바꿀 수 없음 |
 | `INTELLIGENCE_INBOUND_SERVICE_TENANT_ID` | `shared-token`일 때 | — | 고정 tenant 범위 |
@@ -84,12 +91,8 @@ loopback이 아닌 주소에 bind하려면 인바운드 인증이 필수다. `IN
 
 ```dotenv
 INTELLIGENCE_API_BIND=0.0.0.0:8010
-INTELLIGENCE_INBOUND_AUTH_MODE=shared-token
-INTELLIGENCE_INBOUND_SERVICE_TOKEN=replace-with-a-strong-random-secret
-INTELLIGENCE_INBOUND_SERVICE_SUBJECT_ID=service:intelligence-client
-INTELLIGENCE_INBOUND_SERVICE_TENANT_ID=tenant:production
-INTELLIGENCE_INBOUND_SERVICE_PRODUCT_ID=foundation-platform
-INTELLIGENCE_INBOUND_SERVICE_ACTIONS=submit_normalization_proposal
+INTELLIGENCE_INBOUND_AUTH_MODE=identity
+INTELLIGENCE_IDENTITY_BASE_URL=https://identity.example.com
 INTELLIGENCE_CORS_ALLOWED_ORIGINS=https://app.example.com
 ```
 
@@ -182,7 +185,7 @@ cargo run -p intelligence-worker --bin foundation_knowledge_consumer
 |----------|---------------|-----------|-------|
 | `GET /healthz` | 없음 | 제외 — 2초 timeout, 1 KiB 본문 | 프로세스 생존 확인. 실행 중이면 항상 200 |
 | `GET /readyz` | 없음 | 제외 — 2초 timeout, 1 KiB 본문 | 설정 기반 준비 상태. model gateway나 Foundation submitter가 없으면 503 |
-| `GET /metrics` | `shared-token`이면 bearer 필요 | 부하/동시성 제외 — 2초 timeout, 1 KiB 본문 | Prometheus 형식. LLM 지연 bucket에 30초·60초 포함 |
+| `GET /metrics` | `identity`면 `intelligence.metrics:read`, `shared-token`이면 그 bearer 필요 | 부하/동시성 제외 — 2초 timeout, 1 KiB 본문 | Prometheus 형식. LLM 지연 bucket에 30초·60초 포함 |
 
 `/metrics`는 부하 차단·동시성 계층 밖의 주 포트에서 제공하므로 포화 중에도 Prometheus scrape가
 동작한다. 별도 loopback listener로 옮기는 일은 C3로 미룬다.
@@ -205,7 +208,7 @@ cargo run -p intelligence-api
 
 - `GET /healthz`
 - `GET /readyz`
-- `GET /metrics` (bearer-authenticated in `shared-token` mode; see Observability)
+- `GET /metrics` (Identity-decided `intelligence.metrics:read` in `identity` mode, bearer in `shared-token` mode; see Observability)
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /intelligence/v1/normalization/validate-proposal`
@@ -252,7 +255,7 @@ Rust API는 시작할 때 읽어 bearer authorization header만 보낸다. 정�
 Configure these environment variables to enable AI proposal generation:
 
 ```dotenv
-INTELLIGENCE_API_BIND=0.0.0.0:8010
+INTELLIGENCE_API_BIND=127.0.0.1:8010
 INTELLIGENCE_INBOUND_AUTH_MODE=shared-token
 INTELLIGENCE_INBOUND_SERVICE_TOKEN=replace-with-a-strong-random-secret
 INTELLIGENCE_INBOUND_SERVICE_SUBJECT_ID=service:intelligence-client
@@ -272,7 +275,7 @@ MODEL_RUNTIME_REASONING_EFFORT=none
 로컬 예시 profile은 `config/local-ollama.env.example`에 있다.
 Load it through the deployment environment or secret/config mechanism; it is
 configuration data, not an executable production wrapper. Any
-non-loopback bind requires the two `INTELLIGENCE_INBOUND_*` auth variables; see
+non-loopback bind requires `INTELLIGENCE_INBOUND_AUTH_MODE=identity`; see
 the **Enterprise Runtime C0-C1** section for the full fail-closed guard rules.
 
 runtime은 OpenAI 호환 chat completions 형태를 사용한다. base URL은 Ollama·vLLM 또는 다른
