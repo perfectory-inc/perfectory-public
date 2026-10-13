@@ -145,7 +145,12 @@ export function parseSectionPacks(raw: unknown, patchCeiling: number, lane: Serv
 /// 10,000 cold reads of gate (b) were such copies; contract `cold_reads_not_from_r2_max_share`).
 /// A preview has no manifest block to name a parts index, so each section reads the one at the
 /// generation's conventional key, and a generation without one is unparted (root ADR-0163).
-export function previewPlan(generation: number, version: string | null, lane: ServedLane = OWN): PackPlan {
+export function previewPlan(
+  generation: number,
+  version: string | null,
+  lane: ServedLane = OWN,
+  run: string | null = null,
+): PackPlan {
   return {
     sections: lanePacks.sections.map((name) => ({
       name,
@@ -155,7 +160,9 @@ export function previewPlan(generation: number, version: string | null, lane: Se
     })),
     patches: [],
     unitLength: packPolicy.unit_prefix_length,
-    fingerprint: `${lane.cacheScope}${version === null ? `preview-g${generation}` : `preview-g${generation}-${version}`}`,
+    fingerprint: `${lane.cacheScope}${version === null ? `preview-g${generation}` : `preview-g${generation}-${version}`}${
+      run === null ? "" : `-r${run}`
+    }`,
     lane,
   };
 }

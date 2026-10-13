@@ -62,13 +62,19 @@ interface ServingPlan {
   packs?: PackPlan;
 }
 
-/// A canonical request: the PNU, and the unpublished pack generation a preview asks for.
+/// A canonical request: the PNU, and the unpublished pack generation a preview asks for, with the
+/// probe run it is read in (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate
+/// run's first read of a document is an R2 read on both sides (2026-10-13: a baseline answered from
+/// edge copies an earlier run left was timed against R2 reads).
 interface CanonicalRequest {
   pnu: string;
   previewGeneration: number | null;
+  previewRun: string | null;
 }
 
-const previewPattern = new RegExp(`^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})$`);
+const previewPattern = new RegExp(
+  `^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})(?:-r([0-9a-z]{1,16}))?$`,
+);
 
 function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | null {
   // The exact schema query separates v2 browser/edge caches from year-only documents; the preview
@@ -83,7 +89,11 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
   const candidate = url.pathname.slice(prefix.length);
   if (!pnuPattern.test(candidate)) return null;
   if (url.pathname !== `${prefix}${candidate}`) return null;
-  return { pnu: candidate, previewGeneration: preview === null ? null : Number(preview[1]) };
+  return {
+    pnu: candidate,
+    previewGeneration: preview === null ? null : Number(preview[1]),
+    previewRun: preview?.[2] ?? null,
+  };
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -497,7 +507,7 @@ async function answerByPnu(
   }
   const canonical = canonicalRequest(url, lane);
   if (canonical === null) return new Response(null, { status: 404 });
-  const { pnu, previewGeneration } = canonical;
+  const { pnu, previewGeneration, previewRun } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
       status: 405,
@@ -543,7 +553,7 @@ async function answerByPnu(
   // 2026-10-13 every zoning probe read answered 503 here, the manifest read failing first.
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null && timing !== null) {
-    const preview = previewPlan(previewGeneration, workerVersion(env), lane);
+    const preview = previewPlan(previewGeneration, workerVersion(env), lane, previewRun);
     return packResponse(request, bucket, ctx, preview, pnu, origin, allowed, timing);
   }
 
