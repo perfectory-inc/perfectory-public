@@ -37,8 +37,11 @@
    스냅샷과 같은가" 하나다. 공짱의 `now()` 를 as-of 로 쓰는 것은 금지 — 그래서 `parcel_lookup_at` 은 삭제한다.
 3. **출처 없는 복사본은 쓰지 않는다.** 엣지 문서가 `schema_version`·`source` 를 싣지 않으면 `ParcelInfo.source` 는
    `None` 이고, 매물 생성은 복사를 건너뛴다 (지목이 없을 때와 같은 분기). DB 도 `listing_parcel_copy_names_its_source_chk`
-   로 거부한다: 지목·용도지역이 있으면 계약과 스냅샷이 반드시 있다. `NOT VALID` — 이 결정 이전에 쓰인 행은 갱신이
-   다시 쓸 때까지 그대로 두고, 배포 마이그레이션이 기존 행 때문에 막히지 않는다.
+   로 거부한다: 지목·용도지역이 있으면 계약과 스냅샷이 반드시 있다. 이 결정 이전에 쓰인 출처 없는 복사본은
+   마이그레이션이 지목·용도지역을 비운 뒤 제약을 검증(VALIDATE)한다. `NOT VALID` 로 남겨 두면 안 된다:
+   Postgres 는 검증 안 된 CHECK 도 UPDATE 마다 검사하고, 매물 저장은 `INSERT .. ON CONFLICT DO UPDATE` 라서
+   그 매물은 수정·상태 변경·가격 변경이 전부 거부된다. 비워진 매물은 갱신이 다시 채울 때까지 카드 검색의
+   지목 필터에 걸리지 않는다. 운영 행 수는 조회하지 않았다 (출시 전, 이 작업은 AWS 접근 없음).
 4. **갱신은 이벤트로 한다.** Foundation 이 필지 엣지의 새 세대를 발행하면 그 사실을 기존 inbox
    (`foundation_platform_event_inbox`, scope `catalog`)로 보내고, 공짱은 `parcel_source_snapshot_id` 가 새 스냅샷과
    다른 매물만 다시 조회해 덮어쓴다. 오늘 Foundation 은 그런 이벤트를 내지 않는다 (발행되는 `catalog.*` 이벤트에

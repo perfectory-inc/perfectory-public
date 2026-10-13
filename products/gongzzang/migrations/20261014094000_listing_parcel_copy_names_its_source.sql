@@ -16,11 +16,19 @@ alter table listing
     add column parcel_source_snapshot_id text,
     drop column parcel_lookup_at;
 
--- NOT VALID: rows written before this migration keep their unsourced copy until the
--- refresh rewrites them; every write from here on must name its source.
+-- Copies written before this migration.
+-- They name no source, so they are cleared and the refresh refills them; until then card
+-- search does not match them by land use. Leaving them behind a NOT VALID check is not an
+-- option: Postgres checks it on every UPDATE, and listing save is an upsert, so those
+-- listings could never be edited again.
+update listing
+set parcel_land_use_type = null, parcel_zoning = null
+where (parcel_land_use_type is not null or parcel_zoning is not null)
+  and (parcel_source_contract is null or parcel_source_snapshot_id is null);
+
 alter table listing
     add constraint listing_parcel_copy_names_its_source_chk
     check (
         (parcel_land_use_type is null and parcel_zoning is null)
         or (parcel_source_contract is not null and parcel_source_snapshot_id is not null)
-    ) not valid;
+    );
