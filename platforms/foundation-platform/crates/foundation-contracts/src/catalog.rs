@@ -18,7 +18,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Declares the OpenAPI schema of a string field whose values are a domain enum's wire names.
+/// Declares the `OpenAPI` schema of a string field whose values are a domain enum's wire names.
 ///
 /// The field stays a `String` on the wire; only the published schema gains an `enum`, listed from
 /// the domain's own `ALL` — so a consumer can generate its value list from the contract instead of
