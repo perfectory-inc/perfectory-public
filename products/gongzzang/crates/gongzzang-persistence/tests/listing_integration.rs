@@ -6,6 +6,8 @@
 #![cfg(feature = "integration")]
 
 mod common;
+#[path = "listing_integration/status_price_history.rs"]
+mod status_price_history;
 
 use std::sync::Arc;
 
@@ -448,6 +450,3 @@ async fn revise_after_rejection_returns_to_draft_with_audit() {
     .unwrap();
     assert_eq!(revise_audit.len(), 1);
 }
-
-#[path = "listing_integration/status_price_history.rs"]
-mod status_price_history;
