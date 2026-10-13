@@ -40,7 +40,9 @@ report_warning() {
 }
 
 list_git_files() {
-  git ls-files -z --cached --others --exclude-standard -- "${extensions[@]}"
+  # A generated file is regenerated, never split by hand; its size belongs to its source.
+  git ls-files -z --cached --others --exclude-standard -- "${extensions[@]}" \
+    ':(exclude,glob)**/*.generated.ts'
 }
 
 list_find_files() {
@@ -62,6 +64,7 @@ list_find_files() {
     ! -path "./apps/web/public/pmtiles/*" \
     ! -path "*/.venv/*" \
     ! -path "*/var/*" \
+    ! -name "*.generated.ts" \
     -print0
 }
 
