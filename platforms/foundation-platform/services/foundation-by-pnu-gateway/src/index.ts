@@ -537,6 +537,16 @@ async function answerByPnu(
     return new Response(null, { status: 204, headers });
   }
 
+  // A preview version's read of an unpublished generation (the cut-over gate's probe, root
+  // ADR-0147 §6) is planned from the generation alone, never from the manifest: a pack-only lane
+  // (root ADR-0190, ADR-0193) has no manifest until its first publish, which that very gate opens.
+  // 2026-10-13 every zoning probe read answered 503 here, the manifest read failing first.
+  const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
+  if (previewGeneration !== null && timing !== null) {
+    const preview = previewPlan(previewGeneration, workerVersion(env), lane);
+    return packResponse(request, bucket, ctx, preview, pnu, origin, allowed, timing);
+  }
+
   const plan = await resolvePlan(bucket, ctx, lane).catch(() => null);
   if (plan === null) {
     return withCors(
@@ -554,13 +564,10 @@ async function answerByPnu(
   const servesPacks = lane.packOnly || env[lanePacks.serving_binding] !== "off";
   let packs = servesPacks ? plan.packs : undefined;
   let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
-  // A preview version says how it answered (`Server-Timing`); the live route does not.
-  const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
+  // A preview version says how it answered (`Server-Timing`); the live route does not, and serves a
+  // named generation only when the manifest already names it.
   if (previewGeneration !== null) {
-    if (timing !== null) {
-      packs = previewPlan(previewGeneration, workerVersion(env), lane);
-      fingerprint = packs.fingerprint;
-    } else if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
+    if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
     }
   }
