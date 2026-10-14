@@ -7,8 +7,7 @@ use anyhow::{ensure, Context};
 use catalog_domain::{
     building_id_for_register_pk, building_unit_id_for_register_pk, parcel_id_for_pnu,
 };
-use foundation_contracts::building_panel::BuildingPanelBuilding;
-use foundation_contracts::catalog::UnitResponse;
+use foundation_contracts::building_panel::{BuildingPanelBuilding, BuildingPanelUnit};
 use foundation_shared_kernel::pnu::Pnu;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -47,7 +46,7 @@ pub struct BuildingByPnuDocument {
     pub pnu: String,
     pub source: ServingSource,
     pub buildings: Vec<BuildingPanelBuilding>,
-    pub unlinked_units: Vec<UnitResponse>,
+    pub unlinked_units: Vec<BuildingPanelUnit>,
 }
 
 impl BuildingByPnuDocument {
@@ -160,8 +159,8 @@ pub(super) fn document_with_approvals(
     }
     let mut unlinked_units = Vec::new();
     for raw in raw_unlinked {
-        let unit: UnitResponse = serde_json::from_value(raw.clone())
-            .context("unlinked_units_json does not parse as UnitResponse")?;
+        let unit: BuildingPanelUnit = serde_json::from_value(raw.clone())
+            .context("unlinked_units_json does not parse as BuildingPanelUnit")?;
         validate_unit(
             &unit,
             &raw,
@@ -195,7 +194,7 @@ fn section(row: &JsonMap<String, JsonValue>, key: &str) -> anyhow::Result<Vec<Js
 }
 
 fn validate_unit(
-    unit: &UnitResponse,
+    unit: &BuildingPanelUnit,
     raw: &JsonValue,
     parcel_id: uuid::Uuid,
     building_id: Option<uuid::Uuid>,
@@ -254,15 +253,6 @@ fn validate_unit(
             .is_none_or(|a| a.is_finite() && a >= 0.0),
         "unit area is invalid"
     );
-    let mut dates = BTreeSet::new();
-    for price in &unit.official_price_history {
-        ensure!(
-            catalog_domain::unit_official_price::valid_base_date(&price.base_date)
-                && price.price_won >= 0
-                && dates.insert(&price.base_date),
-            "unit reference-date price is invalid or duplicated"
-        );
-    }
     Ok(())
 }
 
@@ -281,7 +271,7 @@ pub(super) mod tests {
             "id": building_unit_id_for_register_pk("UNIT-1"),
             "parcel_id": parcel_id_for_pnu(&Pnu::parse(PNU.to_owned())?).as_uuid(), "building_id": building_id,
             "building_name": "", "dong_name": "", "ho_name": "101", "floor_label": "1",
-            "exclusive_area_m2": null, "usage_name": "", "structure_name": "", "official_price_history": []}))
+            "exclusive_area_m2": null, "usage_name": "", "structure_name": ""}))
     }
 
     fn provenance() -> GoldSnapshotProvenance {
@@ -497,13 +487,10 @@ pub(super) mod tests {
             Some(1)
         );
         assert_eq!(document["unlinked_units"].as_array().map(Vec::len), Some(1));
-        assert_eq!(
-            document["buildings"][0]["units"][0]["official_price_history"],
-            json!([
-                {"base_date": "20100601", "price_won": 35_000_000},
-                {"base_date": "20100101", "price_won": 36_000_000}
-            ])
-        );
+        // The units' prices are served by the unit price lane (root ADR-0190).
+        assert!(document["buildings"][0]["units"][0]
+            .get("official_price_history")
+            .is_none());
         assert!(document["buildings"][0]["units"][0]
             .get("register_pk")
             .is_none());
@@ -544,24 +531,22 @@ pub(super) mod tests {
         Ok(())
     }
 
+    /// A Gold row written before the price split still holds each unit's history; the v3
+    /// document leaves it out, so a building bake of an older snapshot serves no prices either.
     #[test]
-    fn refuses_annual_malformed_negative_and_duplicate_reference_dates() -> anyhow::Result<()> {
-        for history in [
-            json!([{"base_year": 2010, "price_won": 36_000_000}]),
-            json!([{"base_date": "2010-01-01", "price_won": 36_000_000}]),
-            json!([{"base_date": "20100101", "price_won": -1}]),
-            json!([{"base_date": "20100101", "price_won": 36_000_000},
-                   {"base_date": "20100101", "price_won": 35_000_000}]),
-        ] {
-            let mut priced = unit(None)?;
-            priced["official_price_history"] = history;
-            let mut bad = row();
-            bad.insert(
-                "unlinked_units_json".to_owned(),
-                json!(serde_json::to_string(&vec![priced])?),
-            );
-            assert!(build(&provenance(), &bad).is_err());
-        }
+    fn a_unit_price_history_in_the_gold_row_is_not_served() -> anyhow::Result<()> {
+        let mut priced = unit(None)?;
+        priced["official_price_history"] = json!([{"base_date": "20100101", "price_won": 1}]);
+        let mut old = row();
+        old.insert(
+            "unlinked_units_json".to_owned(),
+            json!(serde_json::to_string(&vec![priced])?),
+        );
+        let body: JsonValue = serde_json::from_slice(&build(&provenance(), &old)?.body)?;
+        assert_eq!(body["schema_version"], BUILDING_DOCUMENT_SCHEMA_VERSION);
+        assert!(body["unlinked_units"][0]
+            .get("official_price_history")
+            .is_none());
         Ok(())
     }
 }

@@ -187,7 +187,12 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         import building_panel_silver_to_gold as job
 
         return {"titles": job.TITLE_SOURCE, "units": job.UNIT_SOURCE, "floors": job.FLOOR_SOURCE,
-                "areas": job.AREA_SOURCE, "prices": job.PRICE_SOURCE}
+                "areas": job.AREA_SOURCE}
+
+    def price_panel_tables(self):
+        import unit_price_panel_silver_to_gold as job
+
+        return {"titles": job.TITLE_SOURCE, "units": job.UNIT_SOURCE, "prices": job.PRICE_SOURCE}
 
     def test_building_incremental_merge_equals_the_full_rebuild(self):
         import building_panel_silver_to_gold as job
@@ -195,7 +200,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         names = self.building_tables()
         for name in names.values():
             self.create(name)
-        data = self.building_v1()
+        data = {key: rows for key, rows in self.building_v1().items() if key in names}
         pins1 = {names[k]: self.put(names[k], rows) for k, rows in data.items()}
         first = self.run_job(job, pins1, "building_panel", "2099-01-01T00:00:00Z")
         self.assertEqual(first["rebuild"]["mode"], "full")
@@ -214,12 +219,8 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
                                                    "building_mgm_bldrgst_pk": "T2", "unit_row_id": "u2"}]
         floors = [{**row, "floor_display_ko": "1F*"} if row["mgm_bldrgst_pk"] == "T4" else row for row in data["floors"]]
         areas = [{**row, "area_m2": 77.0} if row["mgm_bldrgst_pk"] == "U5" else row for row in data["areas"]]
-        prices = [row for row in data["prices"] if row["mgm_bldrgst_pk"] != "U1"] + [
-            {"mgm_bldrgst_pk": "U5", "pnu": pnu(5), "base_date": "20260101", "price_won": 7, "sido": "99",
-             "source_snapshot_id": "prices-v1"}]
         pins2 = {names["titles"]: self.put(names["titles"], titles), names["units"]: self.put(names["units"], units),
-                 names["floors"]: self.put(names["floors"], floors), names["areas"]: self.put(names["areas"], areas),
-                 names["prices"]: self.put(names["prices"], prices)}
+                 names["floors"]: self.put(names["floors"], floors), names["areas"]: self.put(names["areas"], areas)}
 
         merged = self.run_job(job, pins2, "building_panel", "2099-02-01T00:00:00Z", previous=pins1)
         self.assertEqual(merged["rebuild"]["mode"], "incremental", merged["rebuild"])
@@ -272,17 +273,20 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(self.content("building_panel", job), self.content("building_panel_full", job))
 
     def test_an_appended_price_batch_is_its_own_change_set(self):
-        """Root ADR-0189: appends are read as the change set, and a switched batch maps both batches."""
-        import building_panel_silver_to_gold as job
+        """Root ADR-0189: appends are read as the change set, and a switched batch maps both batches.
+        The unit prices are their own panel (root ADR-0190), which places units as the building one."""
+        import unit_price_panel_silver_to_gold as job
 
-        names = self.building_tables()
+        # The batches retire U1 and U11 on purpose; the shrink bound has its own test.
+        retire = ("--max-price-history-shrink-fraction", "1")
+        names = self.price_panel_tables()
         for name in names.values():
             self.create(name)
-        data = self.building_v1()
+        data = {key: rows for key, rows in self.building_v1().items() if key in names}
         batch_a, batch_b = "price:1|exclusive:2|vintage:202501", "price:3|exclusive:4|vintage:202601"
         prices_a = [{**row, "source_snapshot_id": batch_a} for row in data["prices"]]
         pins1 = {names[k]: self.put(names[k], prices_a if k == "prices" else rows) for k, rows in data.items()}
-        self.run_job(job, pins1, "building_append", "2099-01-01T00:00:00Z")
+        self.run_job(job, pins1, "building_append", "2099-01-01T00:00:00Z", extra=retire)
         price = names["prices"]
         phases = ("affected", "restrict", "build", "parity", "merge")
 
@@ -293,31 +297,33 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         prices_b.append({**prices_b[1], "base_date": "20260101", "price_won": 5})
         self.append(price, prices_b[:5])
         pins2 = {**pins1, price: self.append(price, prices_b[5:])}
-        switched = self.run_job(job, pins2, "building_append", "2099-02-01T00:00:00Z", previous=pins1)
+        # Every priced PNU is reached by a batch switch: allow the whole panel to merge.
+        switched = self.run_job(job, pins2, "building_append", "2099-02-01T00:00:00Z", previous=pins1,
+                                fraction=1.0, extra=retire)
         self.assertEqual(switched["rebuild"]["mode"], "incremental", switched["rebuild"])
         self.assertEqual(switched["rebuild"]["appended_inputs"], [price])
         # Both batches' units: every priced PNU, PNU 1 among them.
         self.assertEqual(switched["rebuild"]["counts"]["affected_pnus"], len(prices_a))
         for phase in phases:
             self.assertIn(f"gold-incremental-phase {phase} seconds=", self.log)
-        self.run_job(job, pins2, "building_append_full", "2099-02-01T00:00:00Z")
+        self.run_job(job, pins2, "building_append_full", "2099-02-01T00:00:00Z", extra=retire)
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
 
         # More rows of the batch already read: the change set is those rows, one unit's PNU.
         pins3 = {**pins2, price: self.append(price, [{**prices_b[4], "base_date": "20270101", "price_won": 9}])}
-        same = self.run_job(job, pins3, "building_append", "2099-03-01T00:00:00Z", previous=pins2)
+        same = self.run_job(job, pins3, "building_append", "2099-03-01T00:00:00Z", previous=pins2, extra=retire)
         self.assertEqual((same["rebuild"]["mode"], same["rebuild"]["appended_inputs"]), ("incremental", [price]))
         self.assertEqual(same["rebuild"]["counts"]["affected_pnus"], 1, same["rebuild"])
-        self.run_job(job, pins3, "building_append_full", "2099-03-01T00:00:00Z")
+        self.run_job(job, pins3, "building_append_full", "2099-03-01T00:00:00Z", extra=retire)
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
 
         # A delete in between: not an append span, so the two snapshots are compared as before.
         self.spark.sql(f"DELETE FROM proof.{price} WHERE mgm_bldrgst_pk = 'U11'")
         pins4 = {**pins3, price: self.head(f"proof.{price}")}
-        diffed = self.run_job(job, pins4, "building_append", "2099-04-01T00:00:00Z", previous=pins3)
+        diffed = self.run_job(job, pins4, "building_append", "2099-04-01T00:00:00Z", previous=pins3, extra=retire)
         self.assertEqual((diffed["rebuild"]["mode"], diffed["rebuild"]["appended_inputs"]), ("incremental", []))
         self.assertEqual(diffed["rebuild"]["counts"]["affected_pnus"], 1, diffed["rebuild"])
-        self.run_job(job, pins4, "building_append_full", "2099-04-01T00:00:00Z")
+        self.run_job(job, pins4, "building_append_full", "2099-04-01T00:00:00Z", extra=retire)
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
 
     # ---- parcel panel ------------------------------------------------------------------------

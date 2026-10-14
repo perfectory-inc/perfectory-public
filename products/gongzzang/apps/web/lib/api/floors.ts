@@ -1,6 +1,7 @@
 // apps/web/lib/api/floors.ts
 import { z } from "zod";
-import { type EdgeBuildingProfile, EdgeFloorSchema, fetchBuildingProfile } from "./building-edge";
+import { EdgeFloorSchema } from "./building-edge";
+import { type BuildingProfile, fetchBuildingProfile } from "./building-kinds";
 
 export const FloorBuildingSchema = z.object({
   id: z.string(),
@@ -23,7 +24,7 @@ export const FloorsResponseSchema = z.object({
 
 export type FloorsResponse = z.infer<typeof FloorsResponseSchema>;
 
-export function toFloorsResponse(profile: EdgeBuildingProfile): FloorsResponse {
+export function toFloorsResponse(profile: BuildingProfile): FloorsResponse {
   return {
     buildings: profile.buildings.map((building) => ({
       id: building.id,

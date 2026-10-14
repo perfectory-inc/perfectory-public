@@ -1,12 +1,13 @@
 //! Public baked building panel shapes (root ADR-0100).
-//! The Catalog runtime timestamp is intentionally absent; units reuse the canonical DTO.
-use crate::catalog::UnitResponse;
+//!
+//! The Catalog runtime timestamp is intentionally absent. A unit is the canonical DTO's fields
+//! without its price history, which the unit price lane serves on its own (root ADR-0190).
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Wire version of one baked building panel.
-pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v2";
+/// Wire version of one baked building panel. v3 is v2 without the units' price histories.
+pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v3";
 
 /// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -44,7 +45,37 @@ pub struct BuildingPanelBuilding {
     /// Current floor rows, including explicitly unresolved floor classifications.
     pub floors: Vec<BuildingPanelFloor>,
     /// Units whose register link resolves to this building.
-    pub units: Vec<UnitResponse>,
+    pub units: Vec<BuildingPanelUnit>,
+}
+
+/// A unit of a baked building panel, without its price history.
+///
+/// These are `catalog::UnitResponse`'s fields but `official_price_history`: the unit's
+/// reference-date prices are their own by-PNU document, joined by `id` (root ADR-0190).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct BuildingPanelUnit {
+    /// Stable foundation-platform identifier for the unit; the unit price document's key.
+    pub id: Uuid,
+    /// Parcel that owns this unit.
+    pub parcel_id: Uuid,
+    /// Building this unit hangs in. `null` when the register's own link was unresolved or the
+    /// building is absent from the catalog (ADR-0076 §4).
+    pub building_id: Option<Uuid>,
+    /// 건물명 (normalized building name, may be empty).
+    pub building_name: String,
+    /// 동명칭 — only real 동 numbers; empty otherwise.
+    pub dong_name: String,
+    /// 호명칭.
+    pub ho_name: String,
+    /// Floor label (지상/지하 + number), free text from source.
+    pub floor_label: String,
+    /// 전유면적 (exclusive area, m²), reconciled from 전유공용면적. `null` when unmatched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclusive_area_m2: Option<f64>,
+    /// 주용도명, reconciled from 전유공용면적. Empty when unmatched.
+    pub usage_name: String,
+    /// 구조명, reconciled from 전유공용면적. Empty when unmatched.
+    pub structure_name: String,
 }
 
 /// A current floor-register row; unknown classifications remain visible.

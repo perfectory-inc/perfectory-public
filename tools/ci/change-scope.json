@@ -40,6 +40,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -51,6 +52,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -73,6 +75,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -83,6 +86,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -95,6 +99,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     }
