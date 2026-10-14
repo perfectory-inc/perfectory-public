@@ -1233,6 +1233,25 @@ fi
 grep -q 'lakehouse-reader.env: missing' "${test_root}/secrets.log"
 mv "${reader_file}.away" "${reader_file}"
 printf 'verify-refuses-a-missing-environment-file=pass\n'
+# A file that holds a credential under its old name only gains the derived name, with the same
+# value and mode, before verify checks it (root ADR-0236); without that step verify refuses it.
+cp -p "${reader_file}" "${reader_file}.full"
+printf 'FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID=old-id\nFOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret\n' >"${reader_file}"
+mutate verify-without-rename 's/ rename --root / host --root /'
+if run_install_root "${test_root}/verify-without-rename.sh" verify >"${test_root}/secrets.log" 2>&1; then
+  printf 'verify passed a file without the derived credential names\n' >&2
+  exit 1
+fi
+grep -q 'does not hold FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID' "${test_root}/secrets.log"
+run_install_root "${release_script}" verify >"${test_root}/secrets.log" 2>&1 || { cat "${test_root}/secrets.log" >&2; exit 1; }
+grep -qx 'FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret' "${reader_file}"
+[[ "$(stat -c '%a' "${reader_file}")" == 600 ]]
+if grep -q 'old-secret' "${test_root}/secrets.log"; then
+  printf 'verify printed a credential value\n' >&2
+  exit 1
+fi
+mv "${reader_file}.full" "${reader_file}"
+printf 'verify-renames-credentials-before-checking=pass\n'
 # An install that does not seal what it moved into place cannot build it: the build's check wants an
 # immutable release (root ADR-0184).
 mutate install-without-seal '/^  "${admission}" seal "${target}"$/d'

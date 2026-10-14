@@ -12,6 +12,9 @@ checked against it:
                  sources) is supplied by a group the contract says it loads and which holds it;
                  no runbook or script hand-writes an `EnvironmentFile=/etc/foundation-platform/...`.
     render       rewrites the units' `EnvironmentFile=` lines from the contract.
+    rename       on the data host, as root, before host: a group file holding a token's old name
+                 (`renamed_from`) and not its derived one gains the derived name with the same value
+                 (root ADR-0236). Prints the files and names it changed, never a value.
     host         on the data host, as root: every group file a unit loads exists, is owned and
                  no more open than the contract says, and holds every name it declares. Prints
                  names, never values.
@@ -47,6 +50,9 @@ PYTHON_REQUIRED = re.compile(r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["'
 SOURCED = re.compile(r"""^\s*(?:source|\.)\s+"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"]+)\"""", re.MULTILINE)
 EXEC_SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py)")
 HAND_WRITTEN = re.compile(r"EnvironmentFile=-?/etc/foundation-platform/")
+# A Cloudflare token's name, and the values each kind of token gives (root ADR-0236).
+TOKEN_NAME = re.compile(r"^foundation-platform-[a-z0-9]+(?:-[a-z0-9]+)*-(?:reader|writer)-prod$")
+TOKEN_VALUES = {"api_token": ("TOKEN",), "r2_access_key": ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")}
 
 
 class ContractError(ValueError):
@@ -80,6 +86,8 @@ class Contract:
     groups: dict[str, Group]  # in load order
     systemd_supplied: frozenset[str]
     consumers: list[Consumer]
+    tokens: dict[str, list[str]] = field(default_factory=dict)  # Cloudflare token name -> its derived names
+    renamed: dict[str, str] = field(default_factory=dict)  # old name -> the derived name that replaces it
 
     def consumer(self, key: str) -> Consumer:
         for consumer in self.consumers:
@@ -94,15 +102,33 @@ class Contract:
         return [group for name, group in self.groups.items() if name in wanted]
 
 
-def _resolve_holds(area: Path, entries: Sequence[str]) -> frozenset[str]:
+def derived_names(token: str, gives: str) -> list[str]:
+    """The variable names a Cloudflare token's values go by (root ADR-0236): the token's name
+    without `-prod`, upper case, `-` as `_`, then the kind of value."""
+
+    if not TOKEN_NAME.match(token):
+        raise ContractError(f"cloudflare token {token!r} is not named foundation-platform-<store>-<reader|writer>-prod")
+    if gives not in TOKEN_VALUES:
+        raise ContractError(f"cloudflare token {token!r}: gives must be one of {sorted(TOKEN_VALUES)}")
+    stem = token.removesuffix("-prod").upper().replace("-", "_")
+    return [f"{stem}_{suffix}" for suffix in TOKEN_VALUES[gives]]
+
+
+def _resolve_holds(area: Path, entries: Sequence[str], tokens: Mapping[str, list[str]]) -> frozenset[str]:
     """Names a group holds. An entry `@<file>` reads the names of an env example file; an entry
     `@<file.json>#/<pointer>` reads a name or a list of names from a contract the code reads, so
-    a name lives where its reader takes it from, not here as well."""
+    a name lives where its reader takes it from, not here as well. An entry `@token:<name>` is
+    the names a recorded Cloudflare token's values go by."""
 
     names: set[str] = set()
     for entry in entries:
         if not entry.startswith("@"):
             names.add(entry)
+            continue
+        if entry.startswith("@token:"):
+            if entry[7:] not in tokens:
+                raise ContractError(f"holds reference {entry!r}: cloudflare_tokens records no such token")
+            names.update(tokens[entry[7:]])
             continue
         reference, _, pointer = entry[1:].partition("#")
         path = area / reference
@@ -127,6 +153,20 @@ def load(area: Path = AREA) -> Contract:
     raw = json.loads((area / CONTRACT).read_text(encoding="utf-8"))
     if raw.get("schema_version") != 1:
         raise ContractError("runtime-secrets contract: schema_version must be 1")
+    tokens: dict[str, list[str]] = {}
+    renamed: dict[str, str] = {}
+    for entry in raw.get("cloudflare_tokens", {}).get("tokens", []):
+        if entry["name"] in tokens:
+            raise ContractError(f"cloudflare token {entry['name']!r} is recorded twice")
+        derived = derived_names(entry["name"], entry["gives"])
+        tokens[entry["name"]] = derived
+        old_names = entry.get("renamed_from", [])
+        if old_names and len(old_names) != len(derived):
+            raise ContractError(f"cloudflare token {entry['name']!r}: renamed_from names one old name per value {derived}")
+        for old, new in zip(old_names, derived):
+            if not NAME.match(old) or old == new or old in renamed:
+                raise ContractError(f"cloudflare token {entry['name']!r}: {old!r} is not a distinct old name")
+            renamed[old] = new
     groups: dict[str, Group] = {}
     paths: set[str] = set()
     for entry in raw["groups"]:
@@ -141,7 +181,7 @@ def load(area: Path = AREA) -> Contract:
         if not release and not entry.get("optional") and not (entry.get("owner") and entry.get("group") and mode):
             raise ContractError(f"group {name!r}: owner, group and mode are required")
         groups[name] = Group(
-            name=name, path=entry["path"], holds=_resolve_holds(area, entry.get("holds", [])),
+            name=name, path=entry["path"], holds=_resolve_holds(area, entry.get("holds", []), tokens),
             owner=entry.get("owner"), group=entry.get("group"), mode=int(mode, 8) if mode else None,
             optional=bool(entry.get("optional")), release=release,
         )
@@ -166,7 +206,8 @@ def load(area: Path = AREA) -> Contract:
     keys = [consumer.key for consumer in consumers]
     if len(keys) != len(set(keys)):
         raise ContractError("a unit or run is declared twice")
-    return Contract(groups=groups, systemd_supplied=frozenset(raw.get("systemd_supplied", [])), consumers=consumers)
+    return Contract(groups=groups, systemd_supplied=frozenset(raw.get("systemd_supplied", [])), consumers=consumers,
+                    tokens=tokens, renamed=renamed)
 
 
 # --- what scripts require --------------------------------------------------------------------
@@ -267,6 +308,11 @@ def check(area: Path = AREA) -> list[str]:
         findings.append(f"{missing}: the unit is not in {CONTRACT}")
     for stale in sorted(declared_units - set(units)):
         findings.append(f"{stale}: the contract names a unit that does not exist")
+    for group in contract.groups.values():
+        for old in sorted(group.holds & set(contract.renamed)):
+            if contract.renamed[old] not in group.holds:
+                findings.append(f"group {group.name}: holds {old} but not {contract.renamed[old]}, the name it is renamed to "
+                                f"(root ADR-0236)")
     for consumer in contract.consumers:
         for name, group_name in sorted(consumer.needs.items()):
             group = contract.groups[group_name]
@@ -340,6 +386,48 @@ def _account(uid: int, kind: str) -> str:
         return str(uid)
 
 
+def rename(area: Path = AREA, root: Path = Path("/")) -> list[str]:
+    """Gives each group file the new name of every `renamed` variable it holds under the old name
+    only (root ADR-0236): `NEW=<the old line's value>` is appended to a copy with the file's owner
+    and mode, which then replaces it, so a reader never sees half a file. Names only."""
+
+    contract = load(area)
+    changed = []
+    for group in contract.groups.values():
+        path = root / group.path.lstrip("/")
+        if group.release or not path.is_file() or path.is_symlink():
+            continue
+        text = path.read_text(encoding="utf-8")
+        present = _names_in(path)
+        added = []
+        for old, new in contract.renamed.items():
+            if new not in group.holds or new in present or old not in present:
+                continue
+            # The last line is the one an environment file loader keeps.
+            value = re.findall(rf"^\s*(?:export\s+)?{old}=(.*)$", text, re.MULTILINE)[-1]
+            text += ("" if text.endswith("\n") or not text else "\n") + f"{new}={value}\n"
+            added.append(f"{old} -> {new}")
+        if not added:
+            continue
+        info = path.stat()
+        staged = path.with_name(f".{path.name}.rename")
+        staged.unlink(missing_ok=True)  # left by a run that died before its replace
+        descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IMODE(info.st_mode))
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if hasattr(os, "chown"):
+                os.chown(staged, info.st_uid, info.st_gid)
+            os.chmod(staged, stat.S_IMODE(info.st_mode))
+            os.replace(staged, path)
+        finally:
+            staged.unlink(missing_ok=True)
+        changed.extend(f"{group.path}: {entry}" for entry in added)
+    return changed
+
+
 def host(area: Path = AREA, root: Path = Path("/")) -> list[str]:
     """Findings for every group a unit loads. Names only."""
 
@@ -386,8 +474,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")
     sub.add_parser("render")
-    host_parser = sub.add_parser("host")
-    host_parser.add_argument("--root", type=Path, default=Path("/"), help="filesystem root the group paths are under")
+    for name in ("host", "rename"):
+        sub.add_parser(name).add_argument("--root", type=Path, default=Path("/"),
+                                          help="filesystem root the group paths are under")
     for name in ("properties", "names"):
         sub.add_parser(name).add_argument("consumer")
     args = parser.parse_args(argv)
@@ -402,6 +491,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "render":
             for unit in render(args.area):
                 print(f"rendered {unit}")
+            return 0
+        if args.command == "rename":
+            for entry in rename(args.area, args.root):
+                print(f"renamed {entry}")
             return 0
         if args.command == "host":
             findings = host(args.area, args.root)
