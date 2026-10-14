@@ -119,7 +119,7 @@ def gfs(keep_months: int = 12) -> dict:
 
 
 class MonthEndTagTest(unittest.TestCase):
-    """30일 + 달 끝 12개월 + 해 끝 영구 (ADR-0233). 달·해 끝은 그때 `main` 이 가리키던 스냅숏."""
+    """30일 + 달 끝 12개월 + 해 끝 영구 (ADR-0237). 달·해 끝은 그때 `main` 이 가리키던 스냅숏."""
 
     def test_each_finished_month_ends_on_its_last_current_snapshot(self) -> None:
         history = [(at(2026, 8, 3), 1), (at(2026, 8, 30), 2), (at(2026, 9, 10), 3)]

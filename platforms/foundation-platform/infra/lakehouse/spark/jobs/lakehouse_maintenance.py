@@ -176,7 +176,7 @@ def month_of_tag(name: str, name_format: str) -> tuple[int, int] | None:
 def retention_tags(
     history: list[tuple[datetime, int]], existing_refs: set[str], expiry: dict[str, Any], now: datetime
 ) -> tuple[list[tuple[str, int]], list[str]]:
-    """The tags to create and the month-end tags to drop: grandfather-father-son (root ADR-0233).
+    """The tags to create and the month-end tags to drop: grandfather-father-son (root ADR-0237).
 
     Every finished month inside the monthly window gets a month-end tag, and every finished year a
     year-end tag on December's month-end snapshot. A month-end tag older than `keep_months` is
@@ -222,7 +222,7 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
     Iceberg's `expire_snapshots` never removes a snapshot a live reference names: a branch, or a
     tag without `max-ref-age-ms`. The by-PNU publish tags the Gold snapshot each serving manifest
     reflects (`served-<lane>-...`, root ADR-0146 §2), so that snapshot outlives this call for as
-    long as the manifest serves it; the month-end and year-end tags (root ADR-0233) are kept the
+    long as the manifest serves it; the month-end and year-end tags (root ADR-0237) are kept the
     same way, until `run_snapshot_expiry` drops a month-end tag past its window. Nothing here may
     pass options that drop references.
     """

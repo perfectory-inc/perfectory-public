@@ -1,4 +1,4 @@
-"""A year-end snapshot is kept forever; a 13-month-old month-end tag is not (root ADR-0233).
+"""A year-end snapshot is kept forever; a 13-month-old month-end tag is not (root ADR-0237).
 
 Grandfather-father-son: 30 days of snapshots, the month end for 12 months, the year end forever. The
 maintenance job tags month and year ends, drops month-end tags past their window, then expires.

@@ -19,11 +19,11 @@
   "snapshot_expiry": {
     "retain_days": 30,
     "retain_last": 1,
-    "retain_reason": "Thirty days of rollback (the daily tier), decided by the owner on 2026-10-14 (root ADR-0233); it was seven. Iceberg keeps every superseded data file alive for as long as a snapshot references it, so the window is paid for in R2 bytes — measured before the change from each table's snapshot summaries. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window.",
+    "retain_reason": "Thirty days of rollback (the daily tier), decided by the owner on 2026-10-14 (root ADR-0237); it was seven. Iceberg keeps every superseded data file alive for as long as a snapshot references it, so the window is paid for in R2 bytes — measured before the change from each table's snapshot summaries. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window.",
     "month_end_tag": {
       "name_format": "monthly-%Y-%m",
       "keep_months": 12,
-      "reason": "Grandfather-father-son, decided by the owner on 2026-10-14 (root ADR-0233): the snapshot `main` pointed at when each month ended (UTC) is tagged and kept for the 12 months after. The maintenance job creates the tag before it expires anything and drops a month-end tag once the month it names is more than `keep_months` months back. Counted by the month the tag names, not by the snapshot's commit time, which is what Iceberg's `RETAIN` would count. No snapshot id is ever listed by hand; an existing tag is never moved."
+      "reason": "Grandfather-father-son, decided by the owner on 2026-10-14 (root ADR-0237): the snapshot `main` pointed at when each month ended (UTC) is tagged and kept for the 12 months after. The maintenance job creates the tag before it expires anything and drops a month-end tag once the month it names is more than `keep_months` months back. Counted by the month the tag names, not by the snapshot's commit time, which is what Iceberg's `RETAIN` would count. No snapshot id is ever listed by hand; an existing tag is never moved."
     },
     "year_end_tag": {
       "name_format": "yearly-%Y",
