@@ -40,13 +40,13 @@ FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER=r2_data_catalog
 
 `FOUNDATION_PLATFORM_AIRFLOW_API_URL` 은 넣지 않는다 — `compose.orchestration-bridge.yml` 이 정한다.
 
-**읽기 전용 카탈로그 토큰**: Cloudflare 계정 API 토큰 `foundation-platform-lakehouse-catalog-reader-prod`(변수 이름은 이 토큰 이름에서 만든다, 루트 ADR-0236), 권한 그룹은 **Workers R2 Data Catalog Read** 하나
+**읽기 전용 카탈로그 토큰**: Cloudflare 계정 API 토큰 `foundation-platform-lakehouse-catalog-reader-prod`(변수 이름은 이 토큰 이름에서 만든다, 루트 ADR-0247), 권한 그룹은 **Workers R2 Data Catalog Read** 하나
 (대시보드 → *Manage Account → API Tokens → Create Custom Token*). R2 토큰 화면만 쓸 수 있으면 **Admin Read only**.
 지도는 카탈로그의 `loadTable`(표 메타데이터)만 부르고 데이터 파일은 읽지도 쓰지도 않는다. Spark 쓰기 토큰을 재사용하지 않는다.
 만료·교체일은 토큰을 관리하는 곳에 적는다.
 
 만드는 순서. 파일은 손으로 편집하지 않는다 — `foundation-release.sh env-set` 이 계약의 `operations-map` 그룹이 담는
-이름만 받아 계약의 소유자·모드로 쓴다(루트 ADR-0236). 그룹이 담지 않는 이름(예: 쓰기 토큰)은 거부된다. 값은 출력되지
+이름만 받아 계약의 소유자·모드로 쓴다(루트 ADR-0247). 그룹이 담지 않는 이름(예: 쓰기 토큰)은 거부된다. 값은 출력되지
 않고, 셸 기록에도 남기지 않는다.
 
 ```bash

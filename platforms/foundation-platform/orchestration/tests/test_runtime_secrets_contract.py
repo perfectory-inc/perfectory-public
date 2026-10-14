@@ -279,7 +279,7 @@ class TheHost(unittest.TestCase):
         self.assertEqual(self.findings(), [])
 
     def test_set_refuses_a_name_the_group_does_not_hold(self):
-        """The operations map never gets a write credential (root ADR-0236)."""
+        """The operations map never gets a write credential (root ADR-0247)."""
         writer = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"
         with self.assertRaisesRegex(runtime_secrets.ContractError, writer):
             runtime_secrets.set_names(self.area, "operations-map", self.source(f"{writer}=planted-writer\n"), self.root)

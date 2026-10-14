@@ -14,7 +14,7 @@ checked against it:
     render       rewrites the units' `EnvironmentFile=` lines from the contract.
     set          on the data host, as root (foundation-release.sh env-set): writes the NAME=value
                  lines of a file into a group's file, refusing a name the group does not hold, with
-                 the contract's owner, group and mode (root ADR-0236). Prints names only.
+                 the contract's owner, group and mode (root ADR-0247). Prints names only.
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
                  (root ADR-0247). Prints the files and names it changed, never a value.
@@ -436,7 +436,7 @@ def _replace_atomically(path: Path, text: str, uid: int, gid: int, mode: int) ->
 
 
 def set_names(area: Path, group_name: str, source: Path, root: Path = Path("/")) -> list[str]:
-    """Writes each `NAME=value` line of `source` into the group's file (root ADR-0236): that name's
+    """Writes each `NAME=value` line of `source` into the group's file (root ADR-0247): that name's
     lines are replaced, every other line is kept, and the file ends up with the contract's owner,
     group and mode. A name the group does not hold is refused. Returns the names; never a value."""
 

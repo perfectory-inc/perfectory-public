@@ -1413,7 +1413,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     install_operator_access "$2"
     ;;
   env-set)
-    # A host environment file changes through the contract, not an editor (root ADR-0236): the
+    # A host environment file changes through the contract, not an editor (root ADR-0247): the
     # names must be ones the group holds, and the file keeps the contract's owner, group and mode.
     # Prints names, never values; the caller removes its source file.
     [[ "$#" == 3 ]] || usage
