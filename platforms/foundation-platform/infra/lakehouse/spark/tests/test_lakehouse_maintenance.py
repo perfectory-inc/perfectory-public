@@ -23,9 +23,11 @@ sys.path.insert(0, str(JOBS_DIR))
 from lakehouse_maintenance import (  # noqa: E402
     MINIMUM_ORPHAN_SAFETY_HOURS,
     create_tag_sql,
+    drop_tag_sql,
     load_maintenance_contract,
     month_end_snapshots,
-    month_end_tags_to_create,
+    month_of_tag,
+    retention_tags,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
@@ -39,7 +41,8 @@ def sound_contract() -> dict:
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
                        "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25},
         "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
-                            "month_end_tag": {"name_format": "monthly-%Y-%m"}},
+                            "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
+                            "year_end_tag": {"name_format": "yearly-%Y"}},
         "orphan_cleanup": {"safety_days": 3},
     }
 
@@ -110,8 +113,13 @@ def at(year: int, month: int, day: int, hour: int = 0) -> datetime:
     return datetime(year, month, day, hour, tzinfo=timezone.utc)
 
 
+def gfs(keep_months: int = 12) -> dict:
+    return {"month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": keep_months},
+            "year_end_tag": {"name_format": "yearly-%Y"}}
+
+
 class MonthEndTagTest(unittest.TestCase):
-    """월마다 한 스냅숏을 영구 보존한다 — 그 달이 끝날 때 `main` 이 가리키던 스냅숏 (ADR-0233)."""
+    """30일 + 달 끝 12개월 + 해 끝 영구 (ADR-0233). 달·해 끝은 그때 `main` 이 가리키던 스냅숏."""
 
     def test_each_finished_month_ends_on_its_last_current_snapshot(self) -> None:
         history = [(at(2026, 8, 3), 1), (at(2026, 8, 30), 2), (at(2026, 9, 10), 3)]
@@ -149,15 +157,67 @@ class MonthEndTagTest(unittest.TestCase):
         """이미 있는 태그는 다시 만들지 않는다. 옮기면 그 달의 상태가 바뀐다."""
         history = [(at(2026, 8, 3), 1), (at(2026, 9, 10), 3)]
 
+        create, _ = retention_tags(history, {"main", "monthly-2026-08"}, gfs(), at(2026, 10, 14))
+
+        self.assertEqual(create, [("monthly-2026-09", 3)])
+
+    def test_december_is_also_the_year_end(self) -> None:
+        history = [(at(2025, 12, 20), 5), (at(2026, 1, 5), 6)]
+
+        create, _ = retention_tags(history, {"main"}, gfs(), at(2026, 2, 3))
+
         self.assertEqual(
-            month_end_tags_to_create(
-                history, {"main", "monthly-2026-08"}, "monthly-%Y-%m", at(2026, 10, 14)
-            ),
-            [("monthly-2026-09", 3)],
+            create, [("monthly-2025-12", 5), ("yearly-2025", 5), ("monthly-2026-01", 6)]
         )
 
+    def test_a_month_end_tag_past_the_window_is_dropped_and_a_year_end_tag_is_not(self) -> None:
+        """12개월 창은 태그가 이름한 달로 센다: 13개월 전 달 끝 태그는 지우고, 해 끝 태그는 남긴다."""
+        refs = {"main", "monthly-2025-09", "monthly-2025-10", "yearly-2024", "served-parcel-x"}
+
+        _, drop = retention_tags([], refs, gfs(), at(2026, 10, 14))
+
+        self.assertEqual(drop, ["monthly-2025-09"])
+
+    def test_a_month_already_past_the_window_is_not_tagged(self) -> None:
+        """첫 실행이 오래된 history 를 만나도, 창 밖 달은 태그를 만들었다 지우지 않는다."""
+        history = [(at(2025, 8, 3), 1)]
+
+        create, _ = retention_tags(history, {"main"}, gfs(), at(2026, 10, 14))
+
+        self.assertNotIn("monthly-2025-08", [name for name, _ in create])
+        self.assertNotIn("monthly-2025-09", [name for name, _ in create])
+        self.assertIn(("monthly-2025-10", 1), create)
+        self.assertIn(("yearly-2025", 1), create)
+
+    def test_only_a_month_end_name_reads_as_a_month(self) -> None:
+        self.assertEqual(month_of_tag("monthly-2026-09", "monthly-%Y-%m"), (2026, 9))
+        self.assertIsNone(month_of_tag("yearly-2026", "monthly-%Y-%m"))
+        self.assertIsNone(month_of_tag("monthly-2026-9", "monthly-%Y-%m"))
+        self.assertIsNone(month_of_tag("served-parcel-by-pnu-20260101T000000Z-1", "monthly-%Y-%m"))
+
+    def test_a_tag_is_dropped_by_name(self) -> None:
+        self.assertEqual(
+            drop_tag_sql("r2", "silver.parcel_boundaries", "monthly-2025-09"),
+            "ALTER TABLE r2.silver.parcel_boundaries DROP TAG IF EXISTS `monthly-2025-09`",
+        )
+
+    def test_a_year_end_name_that_reads_as_a_month_is_refused(self) -> None:
+        """해 끝 이름이 달 끝 이름으로 읽히면 12개월 창이 영구 태그를 지운다."""
+        contract = sound_contract()
+        contract["snapshot_expiry"]["year_end_tag"]["name_format"] = "monthly-%Y-12"
+
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_an_empty_monthly_window_is_refused(self) -> None:
+        contract = sound_contract()
+        contract["snapshot_expiry"]["month_end_tag"]["keep_months"] = 0
+
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
     def test_a_tag_is_created_without_an_age_limit(self) -> None:
-        """`RETAIN` 을 붙이면 `max-ref-age-ms` 가 생기고, 만료가 그 태그를 지운다."""
+        """`RETAIN` 을 붙이면 `max-ref-age-ms` 가 생기고, 스냅숏 커밋 시각부터 세어 만료가 지운다."""
         sql = create_tag_sql("r2", "silver.parcel_boundaries", "monthly-2026-09", 42)
 
         self.assertIn("CREATE TAG IF NOT EXISTS `monthly-2026-09` AS OF VERSION 42", sql)

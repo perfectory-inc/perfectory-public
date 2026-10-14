@@ -74,11 +74,26 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
     if expiry["retain_days"] < 1:
         raise ValueError("snapshot_expiry.retain_days must leave at least a day of rollback")
 
-    name_format = expiry["month_end_tag"]["name_format"]
-    if "%Y" not in name_format or "%m" not in name_format:
+    monthly = expiry["month_end_tag"]
+    if "%Y" not in monthly["name_format"] or "%m" not in monthly["name_format"]:
         raise ValueError(
-            f"snapshot_expiry.month_end_tag.name_format={name_format!r} must contain %Y and %m: "
-            "a name two months share makes the second month's tag a no-op, and its snapshot expires"
+            f"snapshot_expiry.month_end_tag.name_format={monthly['name_format']!r} must contain %Y "
+            "and %m: a name two months share makes the second month's tag a no-op, and its "
+            "snapshot expires"
+        )
+    if monthly["keep_months"] < 1:
+        raise ValueError("snapshot_expiry.month_end_tag.keep_months must keep at least one month")
+
+    yearly = expiry["year_end_tag"]["name_format"]
+    if "%Y" not in yearly or "%m" in yearly:
+        raise ValueError(
+            f"snapshot_expiry.year_end_tag.name_format={yearly!r} must contain %Y and not %m: "
+            "one name per year"
+        )
+    if month_of_tag(month_start(2026, 12).strftime(yearly), monthly["name_format"]) is not None:
+        raise ValueError(
+            "a year-end tag name must not read as a month-end tag name: the monthly window would "
+            "drop the tag that is meant to be kept forever"
         )
 
 
@@ -142,24 +157,63 @@ def month_end_snapshots(
     return result
 
 
-def month_end_tags_to_create(
-    history: list[tuple[datetime, int]], existing_refs: set[str], name_format: str, now: datetime
-) -> list[tuple[str, int]]:
-    """Tags still missing for finished months. An existing tag is never moved or recreated."""
-    tags = []
+def months_ago(year: int, month: int, now: datetime) -> int:
+    """How many month boundaries lie between that month and the month `now` falls in."""
+    return (now.year * 12 + now.month) - (year * 12 + month)
+
+
+def month_of_tag(name: str, name_format: str) -> tuple[int, int] | None:
+    """The (year, month) a month-end tag names, or None for any other reference."""
+    try:
+        parsed = datetime.strptime(name, name_format)
+    except ValueError:
+        return None
+    if parsed.strftime(name_format) != name:
+        return None
+    return parsed.year, parsed.month
+
+
+def retention_tags(
+    history: list[tuple[datetime, int]], existing_refs: set[str], expiry: dict[str, Any], now: datetime
+) -> tuple[list[tuple[str, int]], list[str]]:
+    """The tags to create and the month-end tags to drop: grandfather-father-son (root ADR-0233).
+
+    Every finished month inside the monthly window gets a month-end tag, and every finished year a
+    year-end tag on December's month-end snapshot. A month-end tag older than `keep_months` is
+    dropped; a year-end tag never is. An existing tag is never moved or recreated.
+
+    The window is counted by the month the tag names, not by the age of its snapshot. Iceberg's own
+    `max-ref-age-ms` (`RETAIN`) counts from the snapshot's commit, so a table untouched since
+    January would lose its September tag the next January, four months in.
+    """
+    monthly = expiry["month_end_tag"]
+    yearly_format = expiry["year_end_tag"]["name_format"]
+    create = []
     for year, month, snapshot_id in month_end_snapshots(history, now):
-        name = month_start(year, month).strftime(name_format)
-        if name not in existing_refs:
-            tags.append((name, snapshot_id))
-    return tags
+        names = []
+        if months_ago(year, month, now) <= monthly["keep_months"]:
+            names.append(month_start(year, month).strftime(monthly["name_format"]))
+        if month == 12:
+            names.append(month_start(year, month).strftime(yearly_format))
+        create.extend((name, snapshot_id) for name in names if name not in existing_refs)
+    drop = []
+    for name in sorted(existing_refs):
+        named = month_of_tag(name, monthly["name_format"])
+        if named is not None and months_ago(*named, now) > monthly["keep_months"]:
+            drop.append(name)
+    return create, drop
 
 
 def create_tag_sql(catalog: str, table: str, name: str, snapshot_id: int) -> str:
-    """A tag with no `RETAIN` clause has no `max-ref-age-ms`, so expiry keeps its snapshot forever."""
+    """A tag with no `RETAIN` clause has no `max-ref-age-ms`: only this job's window removes it."""
     return (
         f"ALTER TABLE {catalog}.{table} CREATE TAG IF NOT EXISTS `{name}` "
         f"AS OF VERSION {snapshot_id}"
     )
+
+
+def drop_tag_sql(catalog: str, table: str, name: str) -> str:
+    return f"ALTER TABLE {catalog}.{table} DROP TAG IF EXISTS `{name}`"
 
 
 def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int) -> str:
@@ -168,8 +222,9 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
     Iceberg's `expire_snapshots` never removes a snapshot a live reference names: a branch, or a
     tag without `max-ref-age-ms`. The by-PNU publish tags the Gold snapshot each serving manifest
     reflects (`served-<lane>-...`, root ADR-0146 §2), so that snapshot outlives this call for as
-    long as the manifest serves it; the month-end tags (root ADR-0233) are kept the same way,
-    forever. Nothing here may pass options that drop references.
+    long as the manifest serves it; the month-end and year-end tags (root ADR-0233) are kept the
+    same way, until `run_snapshot_expiry` drops a month-end tag past its window. Nothing here may
+    pass options that drop references.
     """
     return (
         f"CALL {catalog}.system.expire_snapshots(table => '{table}', "
@@ -180,7 +235,7 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
 def run_snapshot_expiry(
     spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool
 ) -> None:
-    """Tag each finished month's last snapshot, then expire what is past the window.
+    """Tag month and year ends, drop month-end tags past their window, then expire.
 
     The tags come first and in the same run: a month-end snapshot is pinned before the expiry
     that would otherwise remove it, so a month is lost only if this job does not run at all for
@@ -198,18 +253,24 @@ def run_snapshot_expiry(
         int(row.snapshot_id)
         for row in spark.sql(f"SELECT snapshot_id FROM {qualified}.snapshots").collect()
     }
-    tags = month_end_tags_to_create(history, refs, expiry["month_end_tag"]["name_format"], now)
-    for name, snapshot_id in tags:
+    create, drop = retention_tags(history, refs, expiry, now)
+    for name, snapshot_id in create:
         if snapshot_id not in alive:
             # The month ended on a snapshot that is already gone; tagging another would record a
             # state the table was never in at that month's end.
-            print(f"maintenance-skip step=month_end_tag tag={name} reason=snapshot_expired", flush=True)
+            print(f"maintenance-skip step=retention_tag tag={name} reason=snapshot_expired", flush=True)
             continue
         if dry_run:
-            print(f"maintenance-would step=month_end_tag tag={name} snapshot={snapshot_id}", flush=True)
+            print(f"maintenance-would step=retention_tag tag={name} snapshot={snapshot_id}", flush=True)
         else:
             spark.sql(create_tag_sql(catalog, table, name, snapshot_id)).collect()
-            print(f"maintenance-done step=month_end_tag tag={name} snapshot={snapshot_id}", flush=True)
+            print(f"maintenance-done step=retention_tag tag={name} snapshot={snapshot_id}", flush=True)
+    for name in drop:
+        if dry_run:
+            print(f"maintenance-would step=drop_month_end_tag tag={name}", flush=True)
+        else:
+            spark.sql(drop_tag_sql(catalog, table, name)).collect()
+            print(f"maintenance-done step=drop_month_end_tag tag={name}", flush=True)
 
     cutoff = timestamp_before(expiry["retain_days"], now)
     if dry_run:

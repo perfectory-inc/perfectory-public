@@ -1,10 +1,10 @@
-"""A month-end snapshot outlives the 30-day window; an untagged older one does not (root ADR-0233).
+"""A year-end snapshot is kept forever; a 13-month-old month-end tag is not (root ADR-0233).
 
-The maintenance job tags the snapshot `main` pointed at when each month ended, then expires what is
-past the window. This proves, against the pinned Iceberg runtime and the job's own expiry step, the
-two facts the retention rule rests on: the tag the job creates keeps its snapshot past the window,
-and a snapshot no tag names is expired once it is older than the window. A real local Iceberg
-catalog; no R2.
+Grandfather-father-son: 30 days of snapshots, the month end for 12 months, the year end forever. The
+maintenance job tags month and year ends, drops month-end tags past their window, then expires.
+This proves both edges against the pinned Iceberg runtime and the job's own expiry step: the
+year-end tag keeps its snapshot long after the monthly window, and a snapshot only a month-end tag
+13 months back names loses the tag and is expired. A real local Iceberg catalog; no R2.
 
 The job takes `now` as an argument, so the clock is moved instead of the commits: every snapshot
 here is committed today, and the job is run as if months had passed.
@@ -20,14 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 import lakehouse_maintenance as maintenance  # noqa: E402
 
 TABLE = "silver.parcel_boundaries"
-
-
-def month_after(moment: datetime, months: int) -> datetime:
-    """The first instant of the month `months` after the one `moment` falls in (UTC)."""
-    year, month = moment.year, moment.month
-    for _ in range(months):
-        year, month = maintenance.next_month(year, month)
-    return maintenance.month_start(year, month)
 
 
 @unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
@@ -63,36 +55,52 @@ class MonthEndTagsIceberg(unittest.TestCase):
         rows = self.spark.sql(f"SELECT snapshot_id FROM proof.{TABLE}.refs WHERE name = '{name}'").collect()
         return str(rows[0].snapshot_id) if rows else None
 
-    def test_the_month_end_snapshot_survives_the_window_and_an_untagged_one_expires(self):
+    def test_a_year_end_tag_survives_and_a_13_month_old_month_end_tag_is_expired(self):
         expiry = maintenance.load_maintenance_contract()["snapshot_expiry"]
-        name_format = expiry["month_end_tag"]["name_format"]
+        monthly = expiry["month_end_tag"]["name_format"]
+        yearly = expiry["year_end_tag"]["name_format"]
         window = timedelta(days=expiry["retain_days"])
 
         self.spark.sql(f"CREATE TABLE proof.{TABLE} (pnu STRING, row_digest STRING) USING iceberg")
         self.spark.sql(f"INSERT INTO proof.{TABLE} VALUES ('9999900000100000001', 'a')")
-        untagged = self.head()
+        month_end_only = self.head()
         self.spark.sql(f"INSERT OVERWRITE proof.{TABLE} VALUES ('9999900000100000001', 'b')")
-        month_end = self.head()
+        year_end = self.head()
         committed = datetime.now(timezone.utc)
-        tag = maintenance.month_start(committed.year, committed.month).strftime(name_format)
+        year = committed.year
 
-        # The run just after this month ends tags `month_end`, before anything else is committed.
-        maintenance.run_snapshot_expiry(self.spark, "proof", TABLE, expiry, month_after(committed, 1), False)
-        self.assertEqual(self.tag(tag), month_end)
+        # The run just after this year ends tags `year_end` as every remaining month's end and as
+        # the year's end, before anything else is committed.
+        maintenance.run_snapshot_expiry(
+            self.spark, "proof", TABLE, expiry, maintenance.month_start(year + 1, 1), False)
+        year_tag = maintenance.month_start(year, 12).strftime(yearly)
+        self.assertEqual(self.tag(year_tag), year_end)
+        self.assertEqual(self.tag(maintenance.month_start(year, 12).strftime(monthly)), year_end)
 
         self.spark.sql(f"INSERT OVERWRITE proof.{TABLE} VALUES ('9999900000100000001', 'c')")
         current = self.head()
 
-        # A run months later: every snapshot is past the window by more than a day.
-        later = month_after(committed, 3)
+        # A run 14 months after that December. `month_end_only` is pinned by nothing but a
+        # month-end tag naming the month 13 months back, as an earlier run would have left it.
+        later = maintenance.month_start(year + 2, 2)
+        old_month_tag = maintenance.month_start(year + 1, 1).strftime(monthly)
+        self.assertEqual(maintenance.months_ago(year + 1, 1, later), 13)
+        self.assertGreater(maintenance.months_ago(year + 1, 1, later),
+                           expiry["month_end_tag"]["keep_months"])
+        self.spark.sql(f"ALTER TABLE proof.{TABLE} CREATE TAG `{old_month_tag}` AS OF VERSION {month_end_only}")
         self.assertGreaterEqual(later - committed, window + timedelta(days=1))
         maintenance.run_snapshot_expiry(self.spark, "proof", TABLE, expiry, later, False)
 
-        self.assertNotIn(untagged, self.snapshots(), "an untagged snapshot past the window survived")
-        self.assertEqual(self.snapshots(), {month_end, current},
-                         "expiry removed the month-end snapshot, or kept an untagged old one")
-        self.assertEqual(self.tag(tag), month_end, "a month-end tag was moved")
-        rows = self.spark.sql(f"SELECT row_digest FROM proof.{TABLE} VERSION AS OF {month_end}").collect()
+        self.assertIsNone(self.tag(old_month_tag), "a 13-month-old month-end tag was kept")
+        self.assertNotIn(month_end_only, self.snapshots(),
+                         "the snapshot only a 13-month-old month-end tag named survived")
+        self.assertEqual(self.tag(year_tag), year_end, "the year-end tag was dropped or moved")
+        self.assertEqual(self.snapshots(), {year_end, current},
+                         "expiry removed the year-end snapshot, or kept a snapshot nothing pins")
+        refs = {row.name for row in self.spark.sql(f"SELECT name FROM proof.{TABLE}.refs").collect()}
+        old_year = {maintenance.month_start(year, month).strftime(monthly) for month in range(1, 13)}
+        self.assertFalse(refs & old_year, "a month-end tag of the old year outlived the monthly window")
+        rows = self.spark.sql(f"SELECT row_digest FROM proof.{TABLE} VERSION AS OF {year_end}").collect()
         self.assertEqual([row.row_digest for row in rows], ["b"])
 
 
