@@ -94,6 +94,10 @@
       "parcel_registry": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "parcel_tile_bake": [
+        {"project": "foundation-platform-compute", "service": "spark"},
+        {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
+      ],
       "silver_refresh_building_register_titles": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_units": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_unit_areas": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],

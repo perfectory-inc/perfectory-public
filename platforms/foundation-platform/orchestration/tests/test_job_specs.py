@@ -643,8 +643,12 @@ class EveryBakedSurfaceHasAJob(unittest.TestCase):
                     {"surface": surface, "reason": reason}))
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn(expected, problems[0])
-        problems = self.problems(mutate_jobs=lambda jobs: jobs["serving_surfaces_without_a_job"][0].update(reason=""))
-        self.assertEqual(problems, ["exemption 'parcel-tiles' gives no reason"])
+        def unreasoned(jobs):
+            # Every baked surface has a job now; take the parcel tile bake's edge away to need one.
+            bake = next(job for job in jobs["jobs"] if job["id"] == "parcel_tile_bake")
+            bake["pipeline_graph_edges"].remove("gold-parcel-boundary-served-to-parcel-tiles")
+            jobs["serving_surfaces_without_a_job"].append({"surface": "parcel-tiles", "reason": ""})
+        self.assertEqual(self.problems(mutate_jobs=unreasoned), ["exemption 'parcel-tiles' gives no reason"])
 
 
 class EveryDatasetSaysHowItIsMade(unittest.TestCase):

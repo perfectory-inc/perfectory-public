@@ -51,6 +51,16 @@ fn silver_refresh_takes_its_lane_from_the_environment_not_an_argument() -> anyho
 }
 
 #[test]
+fn the_parcel_tile_bake_cleanup_takes_no_argument() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "stop-parcel-tile-bake"])?,
+        Command::StopParcelTileBake
+    );
+    assert!(parse_command(["publisher", "stop-parcel-tile-bake", "parcels"]).is_err());
+    Ok(())
+}
+
+#[test]
 fn floor_input_selection_command_accepts_no_arguments() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["publisher", "select-building-register-floor-inputs"])?,
