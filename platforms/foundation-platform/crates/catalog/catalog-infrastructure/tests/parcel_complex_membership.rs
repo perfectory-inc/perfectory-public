@@ -733,8 +733,8 @@ async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> 
 
 /// Version of the root ADR-0250 migration that gives an industrial complex one id.
 ///
-/// Its tests live here because this file already owns the crate's two-pass migrator; a fourth
-/// `sqlx::migrate!` site would cost the build-coupling budget for no extra assertion.
+/// Its tests live here because this file already owns the crate's two-pass migrator; another migrator
+/// site would cost the build-coupling budget for no extra assertion.
 const ONE_ID_MIGRATION_VERSION: i64 = 20_261_015_090_000;
 
 async fn insert_v7_complex(
