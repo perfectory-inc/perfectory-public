@@ -56,7 +56,7 @@ json.dump(contract, open(path, "w", encoding="utf-8"), indent=2)
 PY
 python3 "$area/scripts/deploy/runtime_secrets.py" --area "$area" render >/dev/null
 expect_fail "a unit without the reader key its script requires" \
-  "its ExecStart requires FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
+  "its ExecStart requires FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"
 
 fresh
 sed -i 's|^EnvironmentFile=/etc/foundation-platform/recovery.env$|&\nEnvironmentFile=/etc/foundation-platform/parcel-publication.env|' \

@@ -89,10 +89,10 @@ elif command == "ingest-vworld-dataset-files":
 elif command == "measure-bronze-object-members":
     # What the measuring step was handed (names and whether set, never values).
     seen = {name: name in env for name in (
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", "DATABASE_URL")}
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", "DATABASE_URL")}
     seen["sources"] = env.get("FOUNDATION_PLATFORM_BRONZE_MEMBER_SOURCES")
     json.dump(seen, open(os.path.join(state, "members-env.json"), "w"))
     members = scenario["members"]
@@ -339,7 +339,7 @@ class SweepCommand(unittest.TestCase):
 
     def test_a_missing_setting_stops_the_job_before_anything_happens(self):
         self.assertLessEqual(set(REQUIRED), set(NEEDS), "the script requires only what the contract gives the unit")
-        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", REQUIRED)
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID", REQUIRED)
         self.scenario(vworld={"evidence": vworld_evidence([])})
         logins = [VWORLD_LOGIN[role]["canonical"] for role in ("username", "password")]
         for name in [*REQUIRED, *logins]:
@@ -365,10 +365,10 @@ class SweepCommand(unittest.TestCase):
         self.assertEqual(calls.count("measure-bronze-object-members"), 1)
         self.assertLess(calls.index("raon-large-files.sh"), calls.index("measure-bronze-object-members"))
         seen = json.loads(self.read("members-env.json"))
-        self.assertTrue(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"])
-        self.assertTrue(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"])
-        self.assertFalse(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID"], "the writer pair is dropped")
-        self.assertFalse(seen["FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"])
+        self.assertTrue(seen["FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"])
+        self.assertTrue(seen["FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"])
+        self.assertFalse(seen["FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID"], "the writer pair is dropped")
+        self.assertFalse(seen["FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY"])
         self.assertTrue(seen["DATABASE_URL"])
         # The default source list lives once, in bronze-object-members.sh; the sweep passes none.
         members_script = (PLATFORM / "scripts/ops/bronze-object-members.sh").read_text(encoding="utf-8")
@@ -381,8 +381,8 @@ class SweepCommand(unittest.TestCase):
     def test_the_sweep_unit_loads_the_read_only_pair_for_the_members_step(self):
         members = PLATFORM / "scripts/ops/bronze-object-members.sh"
         self.assertLessEqual(runtime_secrets.script_requirements(members), set(NEEDS))
-        reader = {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-                  "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"}
+        reader = {"FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                  "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"}
         # Required by the sweep itself, so a missing reader file stops it before any lane runs.
         self.assertLessEqual(reader, set(REQUIRED))
         unit = (PLATFORM / "infra/systemd" / UNIT).read_text(encoding="utf-8")
@@ -433,7 +433,7 @@ class SweepCommand(unittest.TestCase):
                  for n in range(25)]
         files[0]["error_message"] = ("connect postgres://foundation_admin:planted-password@127.0.0.1/foundation "
                                      "refused\nsecond line\twith a tab " + "x" * 400)
-        files[1]["error_message"] = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret"
+        files[1]["error_message"] = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret"
         files[2]["error_message"] = None
         self.scenario(vworld={"rc": 1, "evidence": vworld_evidence([*files, vfile("99", "succeeded")])})
         result = self.run_job()

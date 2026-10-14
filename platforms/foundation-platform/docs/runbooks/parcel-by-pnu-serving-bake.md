@@ -331,7 +331,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 태그 확인(읽기 전용): 카탈로그 `loadTable` 응답의 `metadata.refs` 에 `served-parcel-by-pnu-…` 가 살아 있는 manifest 의
 `reflected_gold_snapshot_tag` 와 같은 이름으로 있어야 한다.
 
-**토큰.** 태그를 다는 것은 Iceberg 표 커밋이라 `FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN` 에 카탈로그 **쓰기** 권한이
+**토큰.** 태그를 다는 것은 Iceberg 표 커밋이라 `FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN` 에 카탈로그 **쓰기** 권한이
 있어야 한다. 굽기 단위는 이 값을 `map-edit-fold.env`(카탈로그와 R2 lakehouse writer)에서 받는다. 2026-10-04 기준 선언된
 범위는 어드민 범위(읽기·쓰기) 카탈로그 토큰이다([운영 준비 문서](../../../../docs/roadmap/production-readiness.md)의
 "운영 레이크하우스 자격증명" 절; 같은 변수로 Gold 재생성이 스냅숏을 커밋한다). 쓰기와 읽기 토큰을 나누게 되면 이 발행에는

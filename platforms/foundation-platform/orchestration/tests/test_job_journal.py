@@ -48,7 +48,7 @@ class TheHelper(unittest.TestCase):
         lines = [f"downloaded file {n}" for n in range(100)] + [
             "connect postgres://foundation_admin:planted-password@127.0.0.1:15434/foundation failed",
             "upstream refused bearer planted-token",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret",
             "foundation-job-outcome changed",
             "x" * 1000,
             "progress 10%\rprogress 100%",

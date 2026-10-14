@@ -1236,7 +1236,16 @@ printf 'verify-refuses-a-missing-environment-file=pass\n'
 # A file that holds a credential under its old name only gains the derived name, with the same
 # value and mode, before verify checks it (root ADR-0247); without that step verify refuses it.
 cp -p "${reader_file}" "${reader_file}.full"
-printf 'FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID=old-id\nFOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret\n' >"${reader_file}"
+# The old names come from the contract's renamed_from, so this test spells no retired name.
+python3 - "${repo_root}" "${reader_file}" <<'PY'
+import pathlib, sys
+area, reader = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+sys.path.insert(0, str(area / "scripts/deploy"))
+import runtime_secrets
+old = {new: name for name, new in runtime_secrets.load(area).renamed.items()}
+reader.write_text(f"{old['FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID']}=old-id\n"
+                  f"{old['FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY']}=old-secret\n", encoding="utf-8")
+PY
 mutate verify-without-rename 's/ rename --root / host --root /'
 if run_install_root "${test_root}/verify-without-rename.sh" verify >"${test_root}/secrets.log" 2>&1; then
   printf 'verify passed a file without the derived credential names\n' >&2

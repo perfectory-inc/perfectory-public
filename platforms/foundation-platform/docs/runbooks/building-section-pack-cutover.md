@@ -44,7 +44,7 @@ last_reviewed: 2026-10-05
 | `…_PACK_EQUALITY_EVIDENCE_PATH`, `…_PACK_LATENCY_EVIDENCE_PATH` | 관문·첫 발행 | 증거 파일. 관문 (나)는 (가)의 증거에서 표본을 읽는다 |
 | `…_PACK_PREVIEW_BASE_URL`, `…_PACK_LIVE_BASE_URL` | 관문 (나) | 미리보기, 비교할 객체 경로(기본은 미리보기 자신의 객체 경로 — 계약 `cutover_gate.comparison_reason`) |
 | `…_PACK_PROBE_CONCURRENCY` | 관문 (나) | 선택. 동시에 읽는 PNU 수. 없으면 계약의 `probe_concurrency` |
-| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면(파일이 아직 없으면) 탐침과 카나리아 판정이 시작 전에 파일과 변수 이름을 대며 거부한다 |
+| `FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID`, `FOUNDATION_PLATFORM_ANALYTICS_READER_TOKEN` | 관문 (나) | 앞머리 없음. 계약 `by_pnu_section_packs.cloudflare_analytics` 가 이름과 파일(`/etc/foundation-platform/cloudflare-analytics.env`, root 0600)을 정한다. Workers 분석(GraphQL)으로 미리보기 Worker 의 CPU 를 읽는다. 토큰 권한은 Account Analytics Read 하나. 없으면(파일이 아직 없으면) 탐침과 카나리아 판정이 시작 전에 파일과 변수 이름을 대며 거부한다 |
 | `…_CHANGE_SET_SUMMARY_PATH`, `…_UPSERT_LIST_PATH` | 발행(패치) | 변경 집합 잡의 결과 |
 | `…_INSPECT_PNU` | 확인 | PNU |
 
