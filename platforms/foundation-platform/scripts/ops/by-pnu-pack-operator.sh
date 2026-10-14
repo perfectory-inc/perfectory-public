@@ -15,6 +15,7 @@
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
+#   by-pnu-pack-operator.sh job start|status <disabled job id>
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
 #
@@ -43,6 +44,12 @@
 # supervised first run before the job is enabled; `status` shows the unit and the end of its journal.
 # The lanes are the jobs.v1.json jobs whose service is that template; nothing else is accepted.
 #
+# `job` is the same supervised first run for any other job that jobs.v1.json lists as off
+# (`enabled: false`, ADR-0122 §4): `start` starts its systemd service once, never while the
+# autodeploy runs, and a spark-pool job never beside the Gold rebuilds or a Silver lane; `status`
+# shows the unit and the end of its journal. An enabled job is Airflow's to start
+# (start-scheduled-job.sh), and a Silver lane takes `silver`.
+#
 # sudo grants this script, by its control-checkout path and nothing else, to the operator account
 # (`foundation-release.sh operator-access`, root ADR-0161): it is how a cut-over's gates, publish
 # and canary verdicts run without a password and without a root shell. So it takes no paths and no
@@ -67,7 +74,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -82,7 +89,7 @@ LANE="${1:-}" ACTION="${2:-}"
 # then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`,
 # or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
 # preview serve it by path.
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == job || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
   || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
   || refuse "${USAGE}"
 if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
@@ -251,6 +258,37 @@ PY
     status)
       systemctl status --no-pager --lines=0 "${SILVER_UNIT}" || true
       exec journalctl -u "${SILVER_UNIT}" --no-pager -o short-iso -n 40
+      ;;
+    *) refuse "${USAGE}" ;;
+  esac
+fi
+
+if [[ "${LANE}" == job ]]; then
+  JOB_ID="${1:-}"
+  (($# == 1)) || refuse "job ${ACTION} takes one job id"
+  # The job's service and pool, only when the release lists it as off and it is not a Silver lane.
+  read -r JOB_UNIT JOB_POOL < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
+import json, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    if job["id"] == sys.argv[2] and job["enabled"] is False             and not job["systemd_service"].startswith("foundation-silver-refresh@"):
+        print(job["systemd_service"], job["pool"])
+PY
+  ) || true
+  [[ -n "${JOB_UNIT:-}" ]] || refuse "${JOB_ID:-<none>} is not a job jobs.v1.json lists as off (an enabled job is Airflow's; a Silver lane takes 'silver')"
+  case "${ACTION}" in
+    start)
+      refuse_while_active "${JOB_UNIT}" foundation-autodeploy.service
+      if [[ "${JOB_POOL}" == spark ]]; then
+        refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
+        running="$(running_units 'foundation-silver-refresh@*.service')"
+        [[ -z "${running}" ]] || refuse "a Silver refresh lane is running" 75
+      fi
+      log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
+      exec systemctl start --no-block "${JOB_UNIT}"
+      ;;
+    status)
+      systemctl status --no-pager --lines=0 "${JOB_UNIT}" || true
+      exec journalctl -u "${JOB_UNIT}" --no-pager -o short-iso -n 40
       ;;
     *) refuse "${USAGE}" ;;
   esac
