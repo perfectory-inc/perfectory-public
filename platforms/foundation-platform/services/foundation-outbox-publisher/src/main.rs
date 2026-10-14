@@ -99,13 +99,13 @@ mod loopback_http;
 #[cfg(test)]
 mod main_tests;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
-#[cfg(test)]
-#[cfg(test)]
-use foundation_publisher_core::test_support;
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_by_pnu::by_pnu_serving_rebase;
 use foundation_publisher_by_pnu::by_pnu_serving_state;
 use foundation_publisher_core::by_pnu_gateway_contract;
+#[cfg(test)]
+#[cfg(test)]
+use foundation_publisher_core::test_support;
 mod handoff_object_support;
 mod lakehouse_bake_verdict;
 mod lakehouse_tile_bake;
