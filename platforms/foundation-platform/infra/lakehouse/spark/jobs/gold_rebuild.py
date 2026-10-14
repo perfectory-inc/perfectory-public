@@ -19,8 +19,10 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
 - An unconditional rebuild (`unconditional=<reason>`) rebuilds whatever the history says, under the
   same row floor; the supervised first run is one, so every Gold carries pins before the job is on.
 - An input the contract lists under `unmeasured_inputs` has not been part of a measured run: the
-  Spark size was not shown to hold with it. Once it exists the plan refuses, except for a dry run
-  (`measuring=True`), which is how it gets measured.
+  Spark size was not shown to hold with it. Once a required one exists the plan refuses; an optional
+  one is not read (the producer runs without it, as if absent, and the plan names it under
+  `unmeasured_inputs_unread`), so its appearance never stops a scheduled rebuild. A dry run
+  (`measuring=True`) reads it, which is how it gets measured.
 - An optional input (the parcel lineage) that does not exist is refused unless the contract names
   it under `absent_inputs_accepted` with its reason; the producer then runs without it and the plan
   says so. That entry is refused once the input exists, and an optional input with no rows is
@@ -306,21 +308,27 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     if missing:
         raise PlanError(f"{table}: required Silver inputs do not exist: {missing}")
     accepted = entry.get("absent_inputs_accepted", {})
+    # An optional input no run was measured with is not read by a real rebuild: the Gold is built
+    # without it, as if it were absent, and the plan says so. Only a dry run reads it, which is how
+    # it is measured. Its appearance therefore never refuses a scheduled rebuild.
+    held_back = {name: why for name, why in entry.get("unmeasured_inputs", {}).items()
+                 if name in optional and silver.get(name) is not None and not measuring}
     absent = [name for name in optional if silver.get(name) is None]
+    unread = [*absent, *held_back]
     unaccepted = [name for name in absent if name not in accepted]
     if unaccepted:
         raise PlanError(
             f"{table}: {unaccepted} do not exist, so the Gold would be built without them and every column "
             "they feed left empty; load them, or name each with its reason under absent_inputs_accepted "
             "(contracts/gold-panel-rebuild.contract.json)")
-    stale = sorted(name for name in accepted if silver.get(name) is not None)
+    stale = sorted(name for name in accepted if silver.get(name) is not None and name not in held_back)
     # A dry run measures the input that just appeared, before the entry can go (unmeasured_inputs).
     if stale and not measuring:
         raise PlanError(f"{table}: {stale} now exist; remove them from absent_inputs_accepted so the Gold reads them")
-    empty = [name for name in optional if silver.get(name) is not None and holds_no_rows(silver[name])]
+    empty = [name for name in optional if name not in unread and holds_no_rows(silver[name])]
     if empty:
         raise PlanError(f"{table}: {empty} exist but hold no rows; an empty input is refused like a missing one")
-    present = [*required, *(name for name in optional if silver.get(name) is not None)]
+    present = [*required, *(name for name in optional if name not in unread)]
     unmeasured = {name: why for name, why in entry.get("unmeasured_inputs", {}).items() if name in present}
     if unmeasured and not measuring:
         raise PlanError(
@@ -342,7 +350,7 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                 raise PlanError(f"{table}: {name} is pinned to {follows['gold_table']}, but it is not an input "
                                 "of both producers")
             pins[name] = followed[name]
-    flags = [flag for name, flag in optional.items() if silver.get(name) is None]
+    flags = [flag for name, flag in optional.items() if name in unread]
     if follows is not None and follows.get("parity_argument"):
         # Root ADR-0193 §6-2: the producer checks its rows against the followed table's, which is only
         # a check when every input it reads is pinned where that table's were.
@@ -400,6 +408,7 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         "producer_arguments": [*entry.get("producer_arguments", []), *flags],
         # Inputs built without, by the contract's leave; the run log says so on every run.
         "absent_inputs": {name: accepted[name] for name in absent},
+        "unmeasured_inputs_unread": held_back,
         "anchor_input": anchor,
         "source_snapshots": pins,
         "previous_gold_snapshot_id": None if gold is None else gold.get("head"),
@@ -531,7 +540,7 @@ def main(argv=None) -> int:
                               encoding="utf-8")
     print("gold-rebuild-plan " + json.dumps(
         {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count",
-                                  "mode", "mode_reasons", "absent_inputs")},
+                                  "mode", "mode_reasons", "absent_inputs", "unmeasured_inputs_unread")},
         ensure_ascii=False, sort_keys=True))
     return 0
 

@@ -130,22 +130,40 @@ class Plan(unittest.TestCase):
         defaults = rebuild.parse_args(["--gold-table", "gold.x", "--plan-output", "p", "--pins-output", "q"])
         self.assertEqual((defaults.unconditional_reason, defaults.time_fallback), (None, True))
 
-    def test_an_unmeasured_input_is_refused_once_it_exists_except_by_a_dry_run(self):
-        entry = {**ENTRY, "unmeasured_inputs": {"silver.lineage": "never measured"}}
+    def test_an_unmeasured_optional_input_is_not_read_until_a_dry_run_measures_it(self):
+        # Production on the day the lineage first appears: both entries still in the contract.
+        entry = {**ENTRY, "unmeasured_inputs": {"silver.lineage": "never measured"}, **ABSENT_LINEAGE}
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
-        absent = rebuild.plan("gold.x", {**entry, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}),
+        absent = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}),
                               {"silver.a": table(A1), "silver.lineage": None})
         self.assertEqual(absent["action"], "nothing_to_do")
         present = {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))}
         for unconditional in (None, "first supervised run"):
-            with self.subTest(unconditional=unconditional), \
-                    self.assertRaisesRegex(rebuild.PlanError, "silver.lineage.*never measured.*unmeasured_inputs"):
-                rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), present, unconditional=unconditional)
+            with self.subTest(unconditional=unconditional):
+                decision = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), present,
+                                        unconditional=unconditional)
+                # Built without it, as before it existed: no refusal, no rebuild for its appearance alone.
+                self.assertEqual(decision["producer_arguments"], ["--no-carry-lineage"])
+                self.assertEqual(decision["source_snapshots"], {"silver.a": "11"})
+                self.assertEqual(decision["unmeasured_inputs_unread"], {"silver.lineage": "never measured"})
+                self.assertEqual(decision["action"], "rebuild" if unconditional else "nothing_to_do")
+        # Even an empty table is not refused while it is not read.
+        empty = {**present, "silver.lineage": {"head": None, "snapshots": []}}
+        self.assertEqual(rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), empty)["action"],
+                         "nothing_to_do")
         measured = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}), present, measuring=True)
         self.assertEqual(measured["action"], "rebuild")
         self.assertEqual(measured["producer_arguments"], [])
+        self.assertEqual(measured["source_snapshots"], {"silver.a": "11", "silver.lineage": "31"})
+        self.assertEqual(measured["unmeasured_inputs_unread"], {})
         self.assertTrue(rebuild.parse_args(["--gold-table", "g", "--plan-output", "p", "--pins-output", "q",
                                             "--measuring"]).measuring)
+
+    def test_an_unmeasured_required_input_is_still_refused(self):
+        entry = {**ENTRY, "unmeasured_inputs": {"silver.b": "never measured"}}
+        with self.assertRaisesRegex(rebuild.PlanError, "silver.b.*never measured.*unmeasured_inputs"):
+            rebuild.plan("gold.x", entry, INPUTS, gold({"silver.a": "11", "silver.b": "21"}),
+                         {"silver.a": table(A1), "silver.b": table(B1)})
 
     def test_an_optional_input_is_pinned_when_it_exists_and_flagged_off_when_it_does_not(self):
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
