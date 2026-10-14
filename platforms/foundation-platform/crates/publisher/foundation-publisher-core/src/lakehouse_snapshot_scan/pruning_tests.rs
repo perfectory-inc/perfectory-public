@@ -273,7 +273,11 @@ async fn a_shard_skips_only_the_files_whose_bounds_exclude_its_prefix() -> anyho
     assert_eq!(scanned.skipped_data_file_count, 2);
     assert_eq!(scanned.skipped_record_count, 4);
     assert_eq!(scanned.read_record_count, 3);
-    assert_eq!(scanned.decoded_row_count, 3);
+    // The files read are decoded, or skipped a row group at a time where its statistics allow.
+    assert_eq!(
+        scanned.decoded_row_count + scanned.skipped_row_group_record_count,
+        3
+    );
     scanned.ensure_complete()?;
     Ok(())
 }
@@ -434,9 +438,17 @@ fn a_scan_that_does_not_account_for_every_row_is_refused() {
         skipped_record_count: 4,
         read_record_count: 6,
         decoded_row_count: 6,
+        skipped_row_group_record_count: 0,
         keep_limit_exceeded: false,
     };
     assert!(complete().ensure_complete().is_ok());
+    // Rows a row group's statistics excluded count as read, not lost (root ADR-0164).
+    let mut grouped = complete();
+    grouped.decoded_row_count = 2;
+    grouped.skipped_row_group_record_count = 4;
+    assert!(grouped.ensure_complete().is_ok());
+    grouped.skipped_row_group_record_count = 3;
+    assert!(grouped.ensure_complete().is_err());
     let mut short = complete();
     short.decoded_row_count = 5;
     assert!(short.ensure_complete().is_err());
@@ -484,5 +496,91 @@ fn decoding_hands_over_each_row_as_it_decodes_and_stops_when_told() -> anyhow::R
     assert_eq!((decoded, seen), (1, vec!["9999910100100010000".to_owned()]));
     // Read to the end, the broken row is refused, as before.
     assert!(super::iceberg_scan::decode_rows(&FIXTURE, bytes, |_| true).is_err());
+    Ok(())
+}
+
+/// A file in PNU order, `per_group` rows to a row group, its `label` empty.
+fn parquet_in_row_groups(pnus: &[&str], per_group: usize) -> anyhow::Result<Vec<u8>> {
+    let schema = Arc::new(ArrowSchema::new(vec![
+        Field::new("pnu", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, true),
+    ]));
+    let labels = pnus.iter().map(|_| None::<&str>).collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(StringArray::from(pnus.to_vec())) as ArrayRef,
+            Arc::new(StringArray::from(labels)) as ArrayRef,
+        ],
+    )?;
+    let properties = parquet::file::properties::WriterProperties::builder()
+        .set_max_row_group_row_count(Some(per_group))
+        .build();
+    let mut writer = ArrowWriter::try_new(Vec::new(), schema, Some(properties))?;
+    writer.write(&batch)?;
+    Ok(writer.into_inner()?)
+}
+
+#[test]
+fn a_row_group_whose_statistics_exclude_the_prefix_is_not_decoded() -> anyhow::Result<()> {
+    // Three row groups of two rows, in PNU order: only the middle one can hold 99999102.
+    let pnus = [
+        "9999910100100010000",
+        "9999910100100020000",
+        "9999910200100010000",
+        "9999910200100020000",
+        "9999910300100010000",
+        "9999910300100020000",
+    ];
+    let bytes = parquet_in_row_groups(&pnus, 2)?;
+    let mut seen = Vec::new();
+    let (decoded, skipped) = super::iceberg_scan::decode_rows_under(
+        &FIXTURE,
+        bytes.clone(),
+        Some(("pnu", "99999102")),
+        |row| {
+            seen.push(row["pnu"].as_str().unwrap_or_default().to_owned());
+            true
+        },
+    )?;
+    assert_eq!((decoded, skipped), (2, 4));
+    assert_eq!(seen, ["9999910200100010000", "9999910200100020000"]);
+    // A prefix no row group can exclude reads them all; no prefix reads them all.
+    let (decoded, skipped) = super::iceberg_scan::decode_rows_under(
+        &FIXTURE,
+        bytes.clone(),
+        Some(("pnu", "9999910")),
+        |_| true,
+    )?;
+    assert_eq!((decoded, skipped), (6, 0));
+    let (decoded, skipped) =
+        super::iceberg_scan::decode_rows_under(&FIXTURE, bytes, None, |_| true)?;
+    assert_eq!((decoded, skipped), (6, 0));
+    Ok(())
+}
+
+#[test]
+fn inside_a_row_group_only_the_rows_under_the_prefix_are_decoded() -> anyhow::Result<()> {
+    // One row group spans every PNU, so its statistics prove nothing; the row filter still hands
+    // over only the row under 99999102 and counts the rest as never decoded.
+    let pnus = [
+        "9999910100100010000",
+        "9999910100100020000",
+        "9999910200100010000",
+        "9999910300100010000",
+    ];
+    let bytes = parquet_in_row_groups(&pnus, 100)?;
+    let mut seen = Vec::new();
+    let (decoded, skipped) = super::iceberg_scan::decode_rows_under(
+        &FIXTURE,
+        bytes,
+        Some(("pnu", "99999102")),
+        |row| {
+            seen.push(row["pnu"].as_str().unwrap_or_default().to_owned());
+            true
+        },
+    )?;
+    assert_eq!((decoded, skipped), (1, 3));
+    assert_eq!(seen, ["9999910200100010000"]);
     Ok(())
 }

@@ -458,6 +458,8 @@
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
         "admin_boundary_release",
+        "parcel_registry",
+        "complex_boundary_release",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1366,6 +1368,66 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
           "node_id": "silver-administrative-boundaries",
           "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "parcel_registry",
+      "producers": [
+        "vworld_parcel_edition"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.parcel_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
+          "node_id": "silver-parcel-registry",
+          "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "complex_boundary_release",
+      "producers": [
+        "source_sweep"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.industrial_complexes",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.industrial_complexes,PROD)",
+          "node_id": "silver-industrial-complexes",
+          "title": "산업단지 기본 정보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "perfectory://source-vworld-dataset",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-vworld-dataset,PROD)",
+          "node_id": "source-vworld-dataset",
+          "title": "브이월드 공간·토지 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.industrial_complex_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.industrial_complex_boundaries,PROD)",
+          "node_id": "silver-industrial-complex-boundaries",
+          "title": "산업단지 경계",
           "kind": "silver_table",
           "surface_kind": null
         }

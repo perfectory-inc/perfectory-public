@@ -91,6 +91,7 @@
         {"project": "foundation-platform-compute", "service": "lakehouse-control"}
       ],
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "parcel_registry": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
@@ -107,6 +108,10 @@
       "silver_refresh_land_use_plan": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_use_zone_code": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "admin_boundary_release": [
+        {"project": "foundation-platform-compute", "service": "spark-small"},
+        {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
+      ],
+      "complex_boundary_release": [
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
       ],

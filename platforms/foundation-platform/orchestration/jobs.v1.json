@@ -465,8 +465,45 @@
         "silver-administrative-boundaries-to-gold-place-id-bridge",
         "silver-administrative-boundaries-to-gold-place-id-changelog"
       ],
+      "enabled": true,
+      "enabled_since": "2026-10-14T11:40:00Z"
+    },
+    {
+      "id": "parcel_registry",
+      "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
+      "systemd_service": "foundation-parcel-registry.service",
+      "systemd_timer": null,
+      "schedule": "10 10 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-silver-parcel-registry"
+      ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "complex_boundary_release",
+      "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-complex-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "50 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-industrial-complex-boundaries",
+        "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0240). Off until its first supervised run on the data host (runbook complex-boundary-release.md) has answered `unchanged reason=already_loaded` for the file Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "gold_kind_rebuild",
