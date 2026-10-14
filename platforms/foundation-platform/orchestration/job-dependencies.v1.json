@@ -1460,6 +1460,7 @@
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
+        "admin_boundary_release",
         "gold_kind_rebuild"
       ],
       "reads": [
