@@ -662,7 +662,7 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
 }
 
 /// Version of the root ADR-0194 migration that drops the catalog parcel, building and unit copies.
-const CATALOG_COPY_DROP_MIGRATION_VERSION: i64 = 20_261_012_182_755;
+const CATALOG_COPY_DROP_MIGRATION_VERSION: i64 = 20_261_014_021_000;
 
 /// The drop refuses a database whose copies still hold rows until the owner's approval is recorded,
 /// and drops them once it is.

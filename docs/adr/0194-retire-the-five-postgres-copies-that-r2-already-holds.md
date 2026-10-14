@@ -163,3 +163,16 @@ Airflow DAG와 systemd 유닛 가운데 두 표를 부르는 것은 없다. 나�
 - 2026-10-14 (§3 추가): gongzzang-api `GET /api/parcels/{pnu}`도 지운다. 패널 묶음용 필지 조회 경로였으나 웹은 이미
   필지 상세를 R2 엣지에서 읽고(ADR-0109) 이 경로를 부르지 않는다. 생성되는 프록시·정책 항목도 함께 지운다.
   매물 등록이 쓰는 필지 조회 포트(`parcel_lookup`)는 남는다.
+- 2026-10-14 (§6 복원 증거, catalog 세 표): 운영 pgBackRest 최신 세트 `20261011-022302F_20261013-022747D`
+  (복구 시작 2026-10-13 02:27:47 UTC)를 운영 컨테이너와 같은 이미지·같은 `pgbackrest.conf` 의 일회용 컨테이너로
+  ai-server `/data` 아래 새 폴더에 복원했다. 운영 데이터 디렉터리·볼륨·컨테이너는 건드리지 않았다.
+  - 옵션: `--type=immediate --target-action=promote --archive-mode=off`, 기동 `-c archive_mode=off -c listen_addresses=`.
+    옆 인스턴스가 운영 저장소에 WAL 을 쓰지 않게 하려는 것이다.
+  - 복원 130.1GB·파일 2,664개, 23분(01:27→01:50 UTC). 승격까지 11초.
+  - 행 수(복원본 = 운영 01:30 UTC): `catalog.parcel` 39,861,511 = 39,861,511, `catalog.building` 7,603,113 = 7,603,113,
+    `catalog.building_unit` 19,536,363 = 19,536,363. 2026-10-12 연습의 값과도 같다.
+  - 운영 `pg_stat_user_tables` 는 세 표 모두 `n_tup_ins`·`n_tup_upd`·`n_tup_del` 0. 운영 `count(*)` 는 병렬 작업자 없이
+    돌려 scan 이 표마다 1씩 늘었다(측정 뒤 building seq 7, parcel seq 7, building_unit idx 3).
+  - 끝난 뒤 컨테이너·복원 폴더·자격 증명 임시 파일을 지웠다.
+  - 같은 날 추적 로그(`--log-level-file=trace --log-subprocess`)로 `info`·`archive-get`·`restore` 가 저장소에 보내는
+    요청을 셌다: 모두 `GET` 이고 쓰기 요청은 0건이다. 복원에는 읽기 권한만 필요하다.
