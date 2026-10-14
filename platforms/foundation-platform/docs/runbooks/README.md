@@ -24,6 +24,7 @@ last_reviewed: 2026-07-29
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
 - [데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인](./operations-map.md)
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
+- [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 
 전체 목록은 [문서 색인 생성 안내](../../../../docs/README.md)에서 확인한다.
