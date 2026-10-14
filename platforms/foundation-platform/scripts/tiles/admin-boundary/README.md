@@ -28,6 +28,10 @@ SSOT 정비가 명명한 "수동 구간"의 종결. 순서와 소유가 전부 �
    — `silver.administrative_boundaries` 에 회차 스냅숏을 덧붙인다. 코드가 바뀐 동은 옛 동의 id 를 잇는다.
    "새 법정동코드 ← 옛 법정동코드"는 코드 변경표의 view 로 읽는다(루트 ADR-0145, 리→읍면 올림 포함).
    손으로 만드는 선행 코드 파일은 없다. 동 둘이 하나로 합쳐졌으면 필지 스냅숏에서 필지를 더 많이 가진 쪽이 id 를 잇는다.
+   그다음 `infra/lakehouse/spark/jobs/place_id_release_to_gold.py --unit admin --release-id admin-<UTC 시각> --previous-release-id <앞 release_id> --allow-non-smoke-write`
+   — 그 회차의 발행 ID 목록·ID↔코드 연결표·ID 변경 내역을 Gold 에 낸다(루트 ADR-0113 8항). 앞 `release_id` 는
+   `gold.place_id_registry` 의 `unit = 'admin'` 행에 있다(2026-09 회차: `admin-<YYYYMMDD>T<HHMMSS>Z` 꼴).
+   예약 작업이 없는 단계다: 회차가 올 때만 돈다(그래프 노드 `unscheduled: on_event`, 루트 ADR-0234).
 4. `scripts/ops/map-edit-fold.sh admin` 을 `FOUNDATION_MAP_EDIT_FOLD_FORCE=1` 로 — Gold 서빙본과 타일을 새로 굽는다.
 
 2026-09 회차 실측: 5,067개 동(7월과 같은 수), 16개 시도 파일(29·46 대신 12), 개편 동 703개 전부 옛 id 상속.
