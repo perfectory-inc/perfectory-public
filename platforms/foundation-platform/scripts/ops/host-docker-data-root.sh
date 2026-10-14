@@ -114,6 +114,12 @@ preflight() {
     75) log "check: registered jobs run: ${busy//$'\n'/ }"; failures=1 ;;
     *) log "check: release admission gave no answer (exit ${status}): ${busy}"; failures=1 ;;
   esac
+  # Operator units the job registry does not list (a pack bake, an unconditional Gold rebuild)
+  # are oneshot services too: none may be running either.
+  local units
+  units="$(systemctl list-units 'foundation-*.service' --state=active,activating,deactivating --no-legend --plain 2>/dev/null     | awk '{print $1}' | grep -v -x 'foundation-autodeploy.service' || true)"
+  if [[ -n "${units}" ]]; then log "check: foundation units run: ${units//$'
+'/ }"; failures=1; else log "check: no foundation unit runs"; fi
   local spark
   spark="$(spark_containers)"
   if [[ -n "${spark}" ]]; then log "check: Spark containers exist: ${spark//$'\n'/ }"; failures=1; else log "check: no Spark container"; fi
