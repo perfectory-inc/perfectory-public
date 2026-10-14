@@ -87,7 +87,7 @@ fn patch_dir(lane: ByPnuLane, patch: u64) -> anyhow::Result<String> {
 ///
 /// # Errors
 /// Returns an error when the key violates the lane's grammar.
-pub(crate) fn check_key(lane: ByPnuLane, key: &str) -> anyhow::Result<()> {
+pub fn check_key(lane: ByPnuLane, key: &str) -> anyhow::Result<()> {
     let Some(suffix) = lane.pack_lane().and_then(|lane| lane.key_suffix.as_ref()) else {
         return check_pnu(lane, key);
     };
