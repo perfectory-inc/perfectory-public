@@ -322,11 +322,17 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
     def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
-        self.refused(lambda jobs: bake(jobs).update(enabled=False, disabled_reason="  "))
-        self.refused(lambda jobs: bake(jobs).update(enabled=False))
+        self.refused(lambda jobs: switch_off(bake(jobs), disabled_reason="  "))
+        self.refused(lambda jobs: switch_off(bake(jobs)))
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+def switch_off(entry, **fields):
+    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239)."""
+    entry.pop("enabled_since", None)
+    entry.update(enabled=False, **fields)
 
 
 def job(jobs, job_id):
@@ -425,7 +431,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild"):
-                job(jobs, name).update(enabled=False, disabled_reason="planted")
+                switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
                                         "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
 
