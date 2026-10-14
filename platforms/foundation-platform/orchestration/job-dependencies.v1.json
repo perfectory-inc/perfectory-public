@@ -545,6 +545,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_lineage",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_lineage,PROD)",
+          "node_id": "gold-parcel-lineage",
+          "title": "필지 계보 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
@@ -1537,6 +1545,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_lineage",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_lineage,PROD)",
+          "node_id": "gold-parcel-lineage",
+          "title": "필지 계보 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_price",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
           "node_id": "gold-parcel-price",
@@ -1669,6 +1685,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_lineage",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_lineage,PROD)",
+          "node_id": "gold-parcel-lineage",
+          "title": "필지 계보 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1979,6 +2003,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_lineage",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_lineage,PROD)",
+          "node_id": "gold-parcel-lineage",
+          "title": "필지 계보 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
@@ -2073,6 +2105,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
           "node_id": "parcel-land-rights-by-pnu-section-packs",
           "title": "필지 대지권 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-lineage-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-lineage-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-lineage-by-pnu-section-packs",
+          "title": "필지 계보 by-PNU 섹션 묶음",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },
