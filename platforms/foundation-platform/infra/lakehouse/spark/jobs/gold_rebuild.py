@@ -314,7 +314,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
             "they feed left empty; load them, or name each with its reason under absent_inputs_accepted "
             "(contracts/gold-panel-rebuild.contract.json)")
     stale = sorted(name for name in accepted if silver.get(name) is not None)
-    if stale:
+    # A dry run measures the input that just appeared, before the entry can go (unmeasured_inputs).
+    if stale and not measuring:
         raise PlanError(f"{table}: {stale} now exist; remove them from absent_inputs_accepted so the Gold reads them")
     empty = [name for name in optional if silver.get(name) is not None and holds_no_rows(silver[name])]
     if empty:

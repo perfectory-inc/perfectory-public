@@ -168,6 +168,9 @@ class Plan(unittest.TestCase):
         appeared = {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))}
         with self.assertRaisesRegex(rebuild.PlanError, "silver.lineage.*now exist.*remove them"):
             rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}), appeared)
+        measured = rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}), appeared,
+                                measuring=True)
+        self.assertEqual((measured["action"], measured["absent_inputs"]), ("rebuild", {}))
 
     def test_an_optional_input_without_rows_is_refused_even_when_its_absence_is_accepted(self):
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
