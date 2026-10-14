@@ -58,8 +58,10 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
      기록 없는 Gold 를 거부한다 — 그 Gold 는 `--unconditional` 실행 한 번으로 기록을 갖게 한다(4절).
    - `--unconditional <이유>` 는 역사와 상관없이 다시 만든다. 이유는 계획의 `reasons` 와 로그에 남고, 행 하한과
      품질 검사는 그대로다.
-   - 계약의 `unmeasured_inputs` 에 적힌 입력(지금은 `silver.parcel_lineage`)이 카탈로그에 생기면 계획이 거부한다.
-     그 입력으로 잰 실행이 없어 20g 상한 안에 드는지 모르기 때문이다. `--dry-run` 만 그 입력을 읽을 수 있다(6절).
+   - 계약의 `unmeasured_inputs` 에 적힌 입력은 그 입력으로 잰 실행이 없어 20g 상한 안에 드는지 모른다. 선택 입력
+     (지금은 `silver.parcel_lineage`)은 카탈로그에 생겨도 정기 실행이 읽지 않는다 — 없을 때처럼
+     (`--no-carry-lineage`) 만들고 계획의 `unmeasured_inputs_unread` 에 남긴다. 그래서 그 표가 생겨도 Gold 갱신은
+     멈추지 않는다. `--dry-run` 만 그 입력을 읽는다(6절). 필수 입력이 그 목록에 있으면 계획이 거부한다.
    - 아무것도 바뀌지 않았으면 `nothing to do` 로 그 표를 끝낸다.
 2. **생산** — 모든 입력을 현재 판으로 고정해(`pins.json`) 생산자를 `--minimum-count` 와 함께 돌린다. 하한은 현재
    Gold 행 수 × (1 − `max_row_loss_fraction`) 의 올림이다. 생산자는 품질 검사(열·필수값·PNU·중복)와 하한을
@@ -99,7 +101,7 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 | `Gold quality gates failed` · `duplicate` | 생산자 품질 검사 거부, 커밋 없음 | 생산자 문서의 거부 사유대로. 필지 중복은 [parcel-by-pnu-serving-bake.md](./parcel-by-pnu-serving-bake.md) 1절 |
 | `required Silver inputs do not exist` · `no longer exist` | 입력 표가 없음 | 계획이 거부. 표를 되살리거나 생산자 입력을 바꾸는 결정이 먼저 |
 | `records no source pins` | 켜진 작업이 판 기록 없는 Gold 를 만남 | 감독 아래 `gold-panel-rebuild.sh <표> --unconditional "<이유>"` 한 번(4절 3단계와 같음) |
-| `no run was measured with them` | 계약의 `unmeasured_inputs` 입력이 생김 | 6절대로 `--dry-run` 을 재고, 상한 안이면 계약에서 그 항목을 지우는 배포 |
+| `no run was measured with them` | 계약의 `unmeasured_inputs` 에 필수 입력이 있음 | 6절대로 `--dry-run` 을 재고, 상한 안이면 계약에서 그 항목을 지우는 배포 |
 | `could not plan` | 카탈로그 읽기 실패 | 로그 `gold_rebuild.py.log` 확인 후 다음 날 실행이 다시 계획한다 |
 
 굽기와의 상호작용: 굽기가 여러 실행에 걸치는 동안(필지 전국 약 4일) Gold 가 새 스냅숏을 커밋하면 굽기는
@@ -144,7 +146,7 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 **측정하지 못한 것: 필지의 계보 이어붙이기.** 필지 생산자는 `silver.parcel_lineage` 가 있으면 번호가 바뀐 필지의
 속성을 계보로 이어 붙인다(조인 하나 더). 2026-10-03 측정 때도, 2026-10-04 다시 읽었을 때도 카탈로그에 그 표가
 없어서 `--no-carry-lineage` 로만 쟀다. 그 측정이 이미 익명 메모리 18.0GiB 로 상한 20g 에 가깝다. 그래서 계약의
-`gold.parcel_panel.unmeasured_inputs` 에 그 표를 적어 두었고, 표가 생기면 계획이 거부한다. 켜기 전(4절 2단계)이나
+`gold.parcel_panel.unmeasured_inputs` 에 그 표를 적어 두었고, 표가 생겨도 정기 실행은 읽지 않는다. 켜기 전(4절 2단계)이나
 표가 생긴 뒤에 `--dry-run` 으로 재고, 최대치가 상한 − 여유(약 2GiB)를 넘으면 ADR-0138 의 메모리 가드
 (`scripts/guard/every-container-has-a-memory-cap.sh`)를 통과하는 범위에서 compose `spark` 상한을 올리거나 driver 를
 줄이는 결정을 먼저 한 뒤 계약에서 그 항목을 지운다.
