@@ -34,7 +34,8 @@ const TitleSchema = z.object({
   below_ground_floors: z.number().int().nonnegative(),
   has_rooftop: z.boolean(),
   rooftop_area_m2: z.number().nonnegative().nullish(),
-  rooftop_usage: z.string(),
+  // The source's values as the bundle carries them (building-edge.ts).
+  rooftop_usage: z.union([z.array(z.string()), z.string()]),
   built_year: z.number().int().nullable(),
 });
 const PerBuilding = <T extends z.ZodTypeAny>(field: string, item: T) =>

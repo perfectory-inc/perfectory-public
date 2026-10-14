@@ -19,7 +19,7 @@ const zoning = BY_PNU_LANES["parcel-zoning"];
 const bundle = {
   schema_version: "foundation-platform.parcel_by_pnu_profile.v1",
   pnu: PNU,
-  zonings: [{ zone_code: "UQA121", zone_name: "residential" }],
+  zonings: [{ zone_code: "UQA121", zone_name: "주거지역" }],
   price: { price_per_m2: 1000, base_year: 2026, base_month: 1 },
   characteristics: { land_category: "x" },
 };
@@ -27,7 +27,7 @@ const zoningDocument = {
   schema_version: zoning.documentSchemaVersion,
   pnu: PNU,
   source: { table: zoning.goldTable, iceberg_snapshot_id: "1" },
-  zonings: [{ zone_code: "UQA410", zone_name: "industrial" }],
+  zonings: [{ zone_code: "UQA410", zone_name: "공업지역" }],
   attached_via: null,
 };
 const json = (body: unknown) => new Response(JSON.stringify(body));

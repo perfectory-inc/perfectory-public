@@ -19,7 +19,9 @@ function renderCard(data: ParcelInfo): void {
       {children}
     </NextIntlClientProvider>
   );
-  render(<ParcelSummaryCard entry={entry} data={data} />, { wrapper });
+  // The zone row as a lane that answered draws it (root ADR-0193 §5); the other rows are empty.
+  const states = { zonings: "ok", price: "empty", characteristics: "empty" } as const;
+  render(<ParcelSummaryCard entry={entry} data={{ info: data, states }} />, { wrapper });
 }
 
 describe("ParcelSummaryCard — zoning", () => {
