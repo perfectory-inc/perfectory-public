@@ -124,6 +124,20 @@ def latest_snapshot_row_count(loads: Sequence[tuple[date, datetime, str, int]]) 
     return max(loads, key=lambda load: (load[0], load[1], load[2]))[3]
 
 
+def newest_snapshot_codes(spark, table: str) -> tuple[str | None, dict[str, tuple[str, str]]]:
+    """The newest snapshot of `table` (qualified) as (its date, {region_cd: (full_name, status)}).
+
+    `(None, {})` when the table holds none. Every reader of "the official code list" goes through
+    this: the administrative matching gate and the boundary round merge.
+    """
+
+    newest = spark.sql(f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {table}").collect()[0]["d"]
+    if not newest:
+        return None, {}
+    rows = spark.sql(f"SELECT region_cd, full_name, status FROM {table} WHERE snapshot_date = DATE '{newest}'").collect()
+    return newest, {row["region_cd"]: (row["full_name"], row["status"]) for row in rows}
+
+
 def previous_code_go_kr_row_count(spark, table: str, snapshot_date: date) -> int | None:
     """Rows of the latest earlier code.go.kr snapshot in the table, or None when there is none."""
 

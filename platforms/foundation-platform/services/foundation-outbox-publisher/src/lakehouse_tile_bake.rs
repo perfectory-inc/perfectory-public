@@ -642,21 +642,7 @@ pub(crate) fn ensure_work_disk(
     Ok(())
 }
 
-/// The bytes an unprivileged writer may still use on the filesystem holding `path`.
-#[cfg(unix)]
-pub(crate) fn free_bytes(path: &Path) -> anyhow::Result<u64> {
-    let stat =
-        rustix::fs::statvfs(path).with_context(|| format!("free space of {}", path.display()))?;
-    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn free_bytes(path: &Path) -> anyhow::Result<u64> {
-    bail!(
-        "free space of {} can only be measured on the Linux bake host",
-        path.display()
-    )
-}
+pub(crate) use foundation_publisher_core::free_space::free_bytes;
 
 struct Config {
     unit_key: String,

@@ -34,14 +34,27 @@ impl PgUserRepository {
     pub const fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// 활성 사용자 하나를 `column = value` 로 조회. `column` 은 상수 리터럴만 받아요.
+    async fn find_one(&self, column: &'static str, value: &str) -> Result<Option<User>, RepoError> {
+        let sql = format!("{SELECT_USER} where {column} = $1 and u.deleted_at is null");
+        let row = sqlx::query(&sql)
+            .bind(value)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        row.as_ref().map(row_to_user).transpose()
+    }
 }
 
-/// `select` 절에서 모든 `user` 컬럼을 일관되게 가져오기 위한 상수.
-const ALL_USER_COLUMNS: &str = "id, zitadel_sub, email, phone_kr_hash, display_name, user_kind, \
-    business_number, business_verified_at, \
-    broker_license_number, broker_verified_at, \
-    roles, nice_verified_at, marketing_consent_at, \
-    created_at, updated_at, last_login_at, deleted_at, version";
+/// 모든 `user` 조회의 `select ... from` — Zitadel subject 는 `external_account` 가 유일한
+/// 출처 (루트 ADR-0232). 뒤에 `where` 절만 붙여 써요.
+const SELECT_USER: &str = r#"select u.id, ea.external_id as zitadel_sub, u.email, u.phone_kr_hash,
+    u.display_name, u.user_kind, u.business_number, u.business_verified_at,
+    u.broker_license_number, u.broker_verified_at, u.roles, u.nice_verified_at,
+    u.marketing_consent_at, u.created_at, u.updated_at, u.last_login_at, u.deleted_at, u.version
+    from "user" u
+    join external_account ea on ea.user_id = u.id and ea.provider = 'zitadel'"#;
 
 #[derive(Debug)]
 struct UserRow {
@@ -222,70 +235,25 @@ fn user_row_to_user(row: UserRow) -> Result<User, RepoError> {
 impl UserRepository for PgUserRepository {
     #[instrument(skip(self), fields(user_id = %id.as_str()))]
     async fn find_by_id(&self, id: &Id<UserMarker>) -> Result<Option<User>, RepoError> {
-        let row = sqlx::query_as!(
-            UserRow,
-            r#"
-            select
-                id,
-                zitadel_sub,
-                email,
-                phone_kr_hash,
-                display_name,
-                user_kind,
-                business_number,
-                business_verified_at,
-                broker_license_number,
-                broker_verified_at,
-                roles as "roles!: Vec<String>",
-                nice_verified_at,
-                marketing_consent_at,
-                created_at,
-                updated_at,
-                last_login_at,
-                deleted_at,
-                version
-            from "user"
-            where id = $1 and deleted_at is null
-            "#,
-            id.as_str()
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx_err)?;
-        row.map(user_row_to_user).transpose()
+        self.find_one("u.id", id.as_str()).await
     }
 
     #[instrument(skip(self))]
     async fn find_by_zitadel_sub(&self, sub: &str) -> Result<Option<User>, RepoError> {
-        let sql = format!(
-            r#"select {ALL_USER_COLUMNS} from "user" where zitadel_sub = $1 and deleted_at is null"#
-        );
-        let row = sqlx::query(&sql)
-            .bind(sub)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(map_sqlx_err)?;
-        row.as_ref().map(row_to_user).transpose()
+        self.find_one("ea.external_id", sub).await
     }
 
     #[instrument(skip(self, email))]
     async fn find_by_email(&self, email: &Email) -> Result<Option<User>, RepoError> {
-        let sql = format!(
-            r#"select {ALL_USER_COLUMNS} from "user" where email = $1 and deleted_at is null"#
-        );
-        let row = sqlx::query(&sql)
-            .bind(email.as_str())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(map_sqlx_err)?;
-        row.as_ref().map(row_to_user).transpose()
+        self.find_one("u.email", email.as_str()).await
     }
 
     /// 트랜잭션 안에서 `user` UPSERT + `audit_log` + `outbox_event` 를 함께 기록.
     ///
     /// SP5-iv 패턴 (SP5-iii 의 `PgAdminActionRepository.insert` 와 동일):
     /// 1. `pool.begin()` 으로 트랜잭션 시작
-    /// 2. `user` UPSERT (`OCC` — `version` 일치 시 `version + 1`)
+    /// 2. `user` UPSERT (`OCC` — `version` 일치 시 `version + 1`), 새 사용자면
+    ///    `external_account('zitadel')` INSERT — subject 의 유일한 출처 (루트 ADR-0232)
     /// 3. `audit_log` INSERT (`resource_kind = 'user'`)
     /// 4. `ctx.events` 마다 `outbox_event` INSERT (`aggregate_kind = 'user'`)
     /// 5. `tx.commit()` — 어느 단계 실패든 자동 rollback (`tx` `Drop`)
@@ -319,13 +287,13 @@ impl UserRepository for PgUserRepository {
         let result = sqlx::query(
             r#"
             insert into "user" (
-                id, zitadel_sub, email, phone_kr_hash, display_name, user_kind,
+                id, email, phone_kr_hash, display_name, user_kind,
                 business_number, business_verified_at,
                 broker_license_number, broker_verified_at,
                 roles, nice_verified_at, marketing_consent_at,
                 created_at, updated_at, last_login_at, deleted_at, version
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             on conflict (id) do update set
                 email = excluded.email,
                 phone_kr_hash = excluded.phone_kr_hash,
@@ -342,11 +310,10 @@ impl UserRepository for PgUserRepository {
                 last_login_at = excluded.last_login_at,
                 deleted_at = excluded.deleted_at,
                 version = "user".version + 1
-            where "user".version = $18
+            where "user".version = $17
             "#,
         )
         .bind(user.id.as_str())
-        .bind(&user.zitadel_sub)
         .bind(user.email.as_str())
         .bind(user.phone_kr_hash.as_ref())
         .bind(&user.display_name)
@@ -374,6 +341,24 @@ impl UserRepository for PgUserRepository {
         if result.rows_affected() == 0 {
             // ON CONFLICT path with version mismatch (no row updated). tx Drop → rollback.
             return Err(RepoError::Conflict);
+        }
+
+        // 1b. 새 사용자면 Zitadel subject 를 같은 tx 로 link (루트 ADR-0232 — 유일한 출처).
+        // 다른 사용자가 이미 가진 subject 면 UNIQUE 위반 → Conflict, user INSERT 도 rollback.
+        if before_state.is_none() {
+            let ext_id = Id::<ExternalAccountMarker>::new();
+            sqlx::query(
+                r"
+                insert into external_account (id, user_id, provider, external_id)
+                values ($1, $2, 'zitadel', $3)
+                ",
+            )
+            .bind(ext_id.as_str())
+            .bind(user.id.as_str())
+            .bind(&user.zitadel_sub)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_err)?;
         }
 
         // 2a. SP-Obs T4: after_state snapshot (UPSERT 후 저장된 row JSON).
@@ -435,30 +420,6 @@ impl UserRepository for PgUserRepository {
 
         // 4. commit — failure → tx Drop → rollback.
         tx.commit().await.map_err(map_sqlx_err)?;
-        Ok(())
-    }
-
-    /// `external_account` 에 `zitadel` 행 삽입. `ON CONFLICT DO NOTHING` — 멱등.
-    #[instrument(skip(self), fields(user_id = %user_id.as_str()))]
-    async fn link_zitadel_account(
-        &self,
-        user_id: &Id<UserMarker>,
-        zitadel_sub: &str,
-    ) -> Result<(), RepoError> {
-        let ext_id = Id::<ExternalAccountMarker>::new();
-        sqlx::query(
-            r"
-            INSERT INTO external_account (id, user_id, provider, external_id)
-            VALUES ($1, $2, 'zitadel', $3)
-            ON CONFLICT (provider, external_id) DO NOTHING
-            ",
-        )
-        .bind(ext_id.as_str())
-        .bind(user_id.as_str())
-        .bind(zitadel_sub)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_err)?;
         Ok(())
     }
 }

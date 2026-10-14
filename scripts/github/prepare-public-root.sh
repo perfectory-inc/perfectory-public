@@ -115,11 +115,12 @@ done
   CI=true bash scripts/ci/reuse-lint.sh
   CI=true bash scripts/ci/lychee-docs.sh
   bash scripts/ci/gitleaks-scan.sh tree .
-  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh products/gongzzang
-  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/foundation-platform
-  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/identity-platform
-  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/intelligence-platform
-  PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh consoles/dawneer
+  # Every area in the one registry, one object per line (scripts/guard/area-registry.sh).
+  areas="$(sed -n "s/.*\"dir\": \"\([^\"]*\)\".*/\1/p" tools/areas.contract.json)"
+  [ -n "$areas" ] || { echo "FAIL public-root-prepare: no areas in tools/areas.contract.json" >&2; exit 1; }
+  for area in $areas; do
+    PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh "$area"
+  done
   bash scripts/verify/frontend-test.sh
   bash scripts/ci/gitleaks-scan.sh all .
 ' _ "$public_clone"

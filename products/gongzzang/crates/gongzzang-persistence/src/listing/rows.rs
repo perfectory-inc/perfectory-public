@@ -18,14 +18,12 @@ pub(super) const LISTING_FULL_COLUMNS: &str =
     "id, owner_id, parcel_pnu, listing_type, transaction_type, \
     price_krw, deposit_krw, monthly_rent_krw, area_m2, \
     title, description, status, contact_visibility, \
-    view_count, bookmark_count, \
     created_at, updated_at, expires_at, version";
 
 pub(super) const LISTING_FULL_COLUMNS_WITH_L_ALIAS: &str =
     "l.id, l.owner_id, l.parcel_pnu, l.listing_type, \
     l.transaction_type, l.price_krw, l.deposit_krw, l.monthly_rent_krw, l.area_m2, \
     l.title, l.description, l.status, l.contact_visibility, \
-    l.view_count, l.bookmark_count, \
     l.created_at, l.updated_at, l.expires_at, l.version";
 
 pub(super) fn row_to_listing(row: &PgRow) -> Result<Listing, RepoError> {
@@ -46,8 +44,6 @@ struct ListingDbRow {
     description_str: String,
     status_str: String,
     contact_vis_str: String,
-    view_count_i64: i64,
-    bookmark_count_i64: i64,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     expires_at: Option<DateTime<Utc>>,
@@ -70,8 +66,6 @@ impl ListingDbRow {
             description_str: get(row, "description")?,
             status_str: get(row, "status")?,
             contact_vis_str: get(row, "contact_visibility")?,
-            view_count_i64: get(row, "view_count")?,
-            bookmark_count_i64: get(row, "bookmark_count")?,
             created_at: get(row, "created_at")?,
             updated_at: get(row, "updated_at")?,
             expires_at: get(row, "expires_at")?,
@@ -119,8 +113,6 @@ impl ListingDbRow {
             description,
             status,
             contact_visibility,
-            view_count: u64::try_from(self.view_count_i64).unwrap_or(0),
-            bookmark_count: u64::try_from(self.bookmark_count_i64).unwrap_or(0),
             created_at: self.created_at,
             updated_at: self.updated_at,
             expires_at: self.expires_at,

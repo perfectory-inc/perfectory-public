@@ -248,7 +248,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 공간 레이어·스키마 | `catalog.spatial_layer`<br>`catalog.schema_profile` |
 | 타일 산출물 | `catalog.vector_tile_artifact`<br>`catalog.vector_tile_artifact_source_file_asset` |
 | 타일 빌드·갱신 | `catalog.vector_tile_build_job`<br>`catalog.vector_tile_refresh_observation` |
-| 타일 릴리스 | `catalog.vector_tile_release`<br>`catalog.vector_tile_release_layer`<br>`catalog.vector_tile_publication_unit` |
+| 타일 릴리스 | `catalog.vector_tile_release`<br>`catalog.vector_tile_release_layer`<br>`catalog.vector_tile_release_source_file_asset`<br>`catalog.vector_tile_publication_unit` |
 | 타일 매니페스트 | `catalog.vector_tile_manifest`<br>`catalog.vector_tile_runtime_manifest`<br>`catalog.vector_tile_runtime_manifest_pointer`<br>`catalog.vector_tile_runtime_manifest_unit` |
 | 필지 경계 서빙 | `serving_postgis.parcel_boundary_mirror`<br>`serving_postgis.parcel_boundary_mirror_rebuild_run`<br>`serving_postgis.parcel_boundary_publication` |
 | 행정경계 서빙 | `serving_postgis.administrative_unit_boundary_publication` |

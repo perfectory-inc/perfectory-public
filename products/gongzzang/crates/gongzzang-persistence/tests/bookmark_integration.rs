@@ -142,6 +142,34 @@ async fn round_trip_listing_bookmark_with_audit() {
     assert_eq!(audit_count.0, 1);
 }
 
+/// 루트 ADR-0226: 산업단지 찜은 lakehouse complex id(UUIDv5)만 — Catalog id(UUIDv7)는 거부.
+#[tokio::test]
+async fn industrial_complex_bookmark_accepts_only_lakehouse_complex_id() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let user_id = seed_user(&pool, "zsub-bm-ic", "bm-ic@example.com").await;
+    let repo = PgBookmarkRepository::new(pool.clone());
+    let complex = |target_id: &str| {
+        BookmarkExternal::try_new(
+            Id::<BookmarkExternalMarker>::new(),
+            user_id.clone(),
+            BookmarkExternalKind::IndustrialComplex,
+            target_id,
+            None,
+            Utc::now(),
+        )
+        .expect("external bookmark")
+    };
+    let ctx = || MutationContext::new_user_action(user_id.clone(), "corr-bm-ic", "create");
+
+    repo.save_external_bookmark(&complex("00000000-0000-5000-8000-000000000001"), ctx())
+        .await
+        .expect("UUIDv5 lakehouse complex id is accepted");
+    repo.save_external_bookmark(&complex("00000000-0000-7000-8000-000000000001"), ctx())
+        .await
+        .expect_err("UUIDv7 Catalog id must be rejected");
+}
+
 #[tokio::test]
 async fn round_trip_external_bookmark_polymorphic() {
     let pool = setup_test_pool().await;
