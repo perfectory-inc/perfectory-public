@@ -1,4 +1,4 @@
-# ADR 0236: 자격 변수 이름은 Cloudflare 토큰 이름에서 기계적으로 만든다
+# ADR 0247: 자격 변수 이름은 Cloudflare 토큰 이름에서 기계적으로 만든다
 
 - Status: Accepted
 - Date: 2026-10-14

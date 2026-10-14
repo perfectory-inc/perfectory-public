@@ -14,7 +14,7 @@ checked against it:
     render       rewrites the units' `EnvironmentFile=` lines from the contract.
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
-                 (root ADR-0236). Prints the files and names it changed, never a value.
+                 (root ADR-0247). Prints the files and names it changed, never a value.
     host         on the data host, as root: every group file a unit loads exists, is owned and
                  no more open than the contract says, and holds every name it declares. Prints
                  names, never values.
@@ -50,7 +50,7 @@ PYTHON_REQUIRED = re.compile(r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["'
 SOURCED = re.compile(r"""^\s*(?:source|\.)\s+"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"]+)\"""", re.MULTILINE)
 EXEC_SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py)")
 HAND_WRITTEN = re.compile(r"EnvironmentFile=-?/etc/foundation-platform/")
-# A Cloudflare token's name, and the values each kind of token gives (root ADR-0236).
+# A Cloudflare token's name, and the values each kind of token gives (root ADR-0247).
 TOKEN_NAME = re.compile(r"^foundation-platform-[a-z0-9]+(?:-[a-z0-9]+)*-(?:reader|writer)-prod$")
 TOKEN_VALUES = {"api_token": ("TOKEN",), "r2_access_key": ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")}
 
@@ -103,7 +103,7 @@ class Contract:
 
 
 def derived_names(token: str, gives: str) -> list[str]:
-    """The variable names a Cloudflare token's values go by (root ADR-0236): the token's name
+    """The variable names a Cloudflare token's values go by (root ADR-0247): the token's name
     without `-prod`, upper case, `-` as `_`, then the kind of value."""
 
     if not TOKEN_NAME.match(token):
@@ -312,7 +312,7 @@ def check(area: Path = AREA) -> list[str]:
         for old in sorted(group.holds & set(contract.renamed)):
             if contract.renamed[old] not in group.holds:
                 findings.append(f"group {group.name}: holds {old} but not {contract.renamed[old]}, the name it is renamed to "
-                                f"(root ADR-0236)")
+                                f"(root ADR-0247)")
     for consumer in contract.consumers:
         for name, group_name in sorted(consumer.needs.items()):
             group = contract.groups[group_name]
@@ -388,7 +388,7 @@ def _account(uid: int, kind: str) -> str:
 
 def rename(area: Path = AREA, root: Path = Path("/")) -> list[str]:
     """Gives each group file the new name of every `renamed` variable it holds under the old name
-    only (root ADR-0236): `NEW=<the old line's value>` is appended to a copy with the file's owner
+    only (root ADR-0247): `NEW=<the old line's value>` is appended to a copy with the file's owner
     and mode, which then replaces it, so a reader never sees half a file. Names only."""
 
     contract = load(area)

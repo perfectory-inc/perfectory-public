@@ -1080,7 +1080,7 @@ verify_runtime_secrets() {
   # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
   # host, a fake host in foundation-release-test.sh.
   # First a renamed credential gains its derived name, with the value its old name has, in every
-  # file that holds it (root ADR-0236): the files change through the contract, never by hand.
+  # file that holds it (root ADR-0247): the files change through the contract, never by hand.
   python3 -I "${secrets}" --area "${release_root}/current" rename --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
     printf 'renaming credentials in the host environment files failed; see above (names only)\n' >&2
     exit 65

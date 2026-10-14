@@ -1234,7 +1234,7 @@ grep -q 'lakehouse-reader.env: missing' "${test_root}/secrets.log"
 mv "${reader_file}.away" "${reader_file}"
 printf 'verify-refuses-a-missing-environment-file=pass\n'
 # A file that holds a credential under its old name only gains the derived name, with the same
-# value and mode, before verify checks it (root ADR-0236); without that step verify refuses it.
+# value and mode, before verify checks it (root ADR-0247); without that step verify refuses it.
 cp -p "${reader_file}" "${reader_file}.full"
 printf 'FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID=old-id\nFOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret\n' >"${reader_file}"
 mutate verify-without-rename 's/ rename --root / host --root /'

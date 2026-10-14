@@ -50,7 +50,7 @@ class TheRepository(unittest.TestCase):
 
 
 class CloudflareTokens(unittest.TestCase):
-    """Root ADR-0236: a credential's variable names are derived from its token's name."""
+    """Root ADR-0247: a credential's variable names are derived from its token's name."""
 
     def test_the_names_are_derived_from_the_token_name(self):
         self.assertEqual(runtime_secrets.derived_names("foundation-platform-lakehouse-catalog-writer-prod", "api_token"),
