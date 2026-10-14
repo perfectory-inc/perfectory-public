@@ -670,7 +670,7 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
     def test_an_unknown_value_a_missing_runbook_or_a_wrong_node_is_refused(self):
         for node_id, change, expected in [
             ("silver-industrial-complexes", {"unscheduled": "sometimes"}, "not one of"),
-            ("silver-administrative-boundaries", {"runbook_ref": "no/such/runbook.md"}, "names no file"),
+            ("silver-industrial-complexes", {"runbook_ref": "no/such/runbook.md"}, "names no file"),
             ("gongzzang-panel", {"unscheduled": "on_event"}, "is not a lakehouse dataset"),
             ("silver-complex-parcel-memberships", {"unscheduled": "needs_job"}, "is not a lakehouse dataset"),
         ]:

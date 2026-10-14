@@ -2,20 +2,21 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-09-06
+last_reviewed: 2026-10-14
 ---
 
 # 행정경계 원천 변환 레인
 
-2026-09-05 첫 발행 때 ai-server 셸에서 손으로 돌던 단계의 저장소 사본이다 — 2026-09-06
-SSOT 정비가 명명한 "수동 구간"의 종결. 순서와 소유가 전부 여기 적혀 있으므로, 다음
-빈티지 발행은 이 디렉터리만 따라가면 된다.
+2026-09-05 첫 발행 때 ai-server 셸에서 손으로 돌던 단계의 저장소 사본이다. 2026-10-14 부터 아래 순서 전부를
+예약 작업 `admin_boundary_release`(`scripts/ops/admin-boundary-release.sh`, 루트 ADR-0236)가 돈다: 매일 수집이
+`boundary_emd` 를 받고, 작업이 새 회차를 알아보고 1–4 를 한다. 손으로 돌릴 일은 아래 "예약 작업"의 감독 실행뿐이다.
 
 ## 순서
 
 루트 ADR-0112(레이크하우스 굽기)·ADR-0113(개편에도 id 유지) 이후의 레인이다.
 
-1. `convert.sh` — R2 의 읍면동 shapefile ZIP 을 전부 GeoJSON 으로 변환(수집 회차가 섞여 있어도 된다).
+1. `convert.sh download` 로 R2 의 읍면동 shapefile ZIP 을 전부 받고(읽기 키), `rounds.py` 가 ZIP 안 레이어 이름
+   (`…_<시도>_<YYYYMM>`)에서 가장 새 회차를 고른다. `convert.sh convert <zip>…` 는 그 회차의 ZIP 만 GeoJSON 으로 바꾼다.
    함정 셋이 스크립트에 박제돼 있다: GEOS 없는 alpine GDAL 금지(-makevalid),
    busybox unzip 의 Zip64 실패(→ /vsizip), DBF 는 EUC-KR.
 2. `merge.py --round YYYYMM --out-dir <작업 폴더>/out` — 그 회차 파일만 병합한다. 레이크하우스 Spark 컨테이너에서
@@ -31,10 +32,32 @@ SSOT 정비가 명명한 "수동 구간"의 종결. 순서와 소유가 전부 �
    그다음 `infra/lakehouse/spark/jobs/place_id_release_to_gold.py --unit admin --release-id admin-<UTC 시각> --previous-release-id <앞 release_id> --allow-non-smoke-write`
    — 그 회차의 발행 ID 목록·ID↔코드 연결표·ID 변경 내역을 Gold 에 낸다(루트 ADR-0113 8항). 앞 `release_id` 는
    `gold.place_id_registry` 의 `unit = 'admin'` 행에 있다(2026-09 회차: `admin-<YYYYMMDD>T<HHMMSS>Z` 꼴).
-   예약 작업이 없는 단계다: 회차가 올 때만 돈다(그래프 노드 `unscheduled: on_event`, 루트 ADR-0234).
+   예약 작업은 `--previous-release-id` 없이 돈다: 스크립트가 Silver 의 모든 회차를 차례로 읽어 변경 내역을 만든다.
 4. `scripts/ops/map-edit-fold.sh admin` 을 `FOUNDATION_MAP_EDIT_FOLD_FORCE=1` 로 — Gold 서빙본과 타일을 새로 굽는다.
 
 2026-09 회차 실측: 5,067개 동(7월과 같은 수), 16개 시도 파일(29·46 대신 12), 개편 동 703개 전부 옛 id 상속.
+
+## 예약 작업
+
+`orchestration/jobs.v1.json` 의 `admin_boundary_release`(spark 3 자리, `started_by: inputs` — 매일 수집이 새 파일을 받은
+실행 뒤, 대체 09:30 UTC). 작업은 꺼진 채 등록됐다. 켜기 전 감독 실행 한 번(자동배포가 돌지 않을 때):
+
+```bash
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start admin_boundary_release
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job status admin_boundary_release
+```
+
+마지막 줄 `admin-boundary-release-outcome outcome=… reason=…` 과 `foundation-job-outcome …` 를 본다.
+
+| reason | 뜻 |
+| --- | --- |
+| `already_loaded round=<YYYYMM>` | Silver 가 그 회차를 이미 가졌다. 받은 ZIP·변환본은 지운다 |
+| `incomplete_round` | 공식 코드 목록의 시도 중 그 회차 파일이 없는 곳이 있다. 다음 날 다시 본다 |
+| `no_round` | 경계 레이어를 가진 ZIP 이 없다(수집 전) |
+| (changed) `round=… snapshot=… rows=…` | 덧붙이고, 발행 ID 를 내고, 타일을 다시 구웠다 |
+
+통과하면 `enabled: true` PR 을 낸다(ADR-0122 §4). 작업 폴더는
+`/var/lib/foundation-platform/map-edit-fold/lakehouse/admin-boundary-release/<시각>`, journal 은 그 위 `admin-boundary-release/journal.log`.
 
 ## 매개변수
 
