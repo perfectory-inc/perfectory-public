@@ -56,6 +56,7 @@ fn row(pnu: &str) -> JsonMap<String, JsonValue> {
         "transfer_history_json": "[]",
         "land_rights_json": "[]",
         "land_right_total": 0,
+        "lineage_json": null,
         "attached_via_json": null,
         "row_digest": "a-digest",
         "source_snapshot_id": "999990000000000003",
@@ -102,6 +103,10 @@ fn content_perturbations() -> BTreeMap<&'static str, JsonValue> {
             json!("[{\"right_serial_no\":\"1\",\"building_name\":null,\"right_ratio\":\"1/2\",\"closure_kind\":null,\"closure_kind_code\":null}]"),
         ),
         ("land_right_total", json!(1)),
+        (
+            "lineage_json",
+            json!("[{\"predecessor_pnu\":\"9999900000100000000\",\"successor_pnu\":\"9999900000100000001\",\"relation\":\"split\",\"grade\":\"official\"}]"),
+        ),
         ("attached_via_json", json!("{\"price\":\"lineage:code_derived\"}")),
     ])
 }
