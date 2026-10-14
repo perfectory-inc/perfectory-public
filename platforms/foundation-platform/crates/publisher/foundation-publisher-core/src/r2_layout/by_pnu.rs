@@ -253,6 +253,14 @@ pub fn manifest_history_key(
     ))
 }
 
+/// The directory every replaced manifest is kept under, with its trailing `/`.
+///
+/// # Errors
+/// Returns an error when the lane has no layout in the contract.
+pub fn manifest_history_prefix(lane: ByPnuLane) -> anyhow::Result<String> {
+    Ok(format!("{}/", layout(lane)?.manifest_history_dir))
+}
+
 /// Whether `key` is a canonical manifest history key.
 pub fn is_manifest_history_key(lane: ByPnuLane, key: &str) -> bool {
     let Ok(layout) = layout(lane) else {

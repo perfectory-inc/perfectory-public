@@ -10,6 +10,7 @@
 //! | `inspect-building-by-pnu-section-packs`          | one PNU's fragments and answer          |
 //! | `check-building-gateway-version-health`          | one canary step's verdict, from analytics |
 //! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
+//! | `retire-building-superseded-pack-generations`    | deletes generations replaced a week ago |
 //!
 //! Each command exists for every lane, with the lane's name in place of `building`
 //! (`export-parcel-by-pnu-section-packs`, `check-unit-price-gateway-version-health`, ...): the
@@ -30,6 +31,7 @@ mod load;
 mod monitor;
 mod publish;
 mod read;
+mod retire;
 pub mod sections;
 
 #[cfg(test)]
@@ -52,6 +54,7 @@ pub enum PackCommandKind {
     Monitor,
     /// `show-<lane>-by-pnu-serving-state`, for the lanes `main` does not name itself.
     ShowState,
+    Retire,
 }
 
 /// One section pack command of one lane.
@@ -65,7 +68,7 @@ impl PackCommand {
     /// The command a name spells, if it is one of these, for any lane: the parcel and building
     /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0190).
     pub fn parse(name: &str) -> Option<Self> {
-        const KINDS: [(&str, &str, PackCommandKind); 9] = [
+        const KINDS: [(&str, &str, PackCommandKind); 10] = [
             ("plan-", "-by-pnu-pack-shards", PackCommandKind::PlanShards),
             ("export-", "-by-pnu-section-packs", PackCommandKind::Export),
             (
@@ -95,6 +98,11 @@ impl PackCommand {
             ),
             ("monitor-", "-by-pnu-serving", PackCommandKind::Monitor),
             ("show-", "-by-pnu-serving-state", PackCommandKind::ShowState),
+            (
+                "retire-",
+                "-superseded-pack-generations",
+                PackCommandKind::Retire,
+            ),
         ];
         let lanes = ByPnuLane::all().ok()?;
         KINDS.into_iter().find_map(|(verb, object, kind)| {
@@ -123,6 +131,7 @@ impl PackCommand {
             PackCommandKind::CheckVersionHealth => health::run(lane).await,
             PackCommandKind::Monitor => monitor::run(lane).await,
             PackCommandKind::ShowState => crate::by_pnu_serving_state::run(lane).await,
+            PackCommandKind::Retire => retire::run(lane).await,
         }
     }
 }

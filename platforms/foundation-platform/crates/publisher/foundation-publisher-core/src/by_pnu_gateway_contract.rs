@@ -515,6 +515,8 @@ pub struct SectionPackPolicy {
     pub content_type: String,
     pub cache_control: String,
     pub max_index_entries: usize,
+    /// Days a superseded generation is kept after its successor went live (root ADR-0242).
+    pub superseded_generation_keep_days: i64,
     pub preview_query_parameter: String,
     /// Where the gate's Cloudflare analytics credentials come from.
     pub cloudflare_analytics: CloudflareAnalyticsPolicy,
