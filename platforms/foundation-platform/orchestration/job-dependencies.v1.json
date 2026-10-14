@@ -457,6 +457,7 @@
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
+        "admin_boundary_release",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1298,6 +1299,73 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
           "node_id": "silver-unit-official-price",
           "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "admin_boundary_release",
+      "producers": [
+        "source_sweep",
+        "lineage_stewardship"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.administrative_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
+          "node_id": "silver-administrative-boundaries",
+          "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "perfectory://source-vworld-dataset",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-vworld-dataset,PROD)",
+          "node_id": "source-vworld-dataset",
+          "title": "브이월드 공간·토지 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.place_id_bridge",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_bridge,PROD)",
+          "node_id": "gold-place-id-bridge",
+          "title": "ID↔코드 연결표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.place_id_changelog",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_changelog,PROD)",
+          "node_id": "gold-place-id-changelog",
+          "title": "ID 변경 내역",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.place_id_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_registry,PROD)",
+          "node_id": "gold-place-id-registry",
+          "title": "발행 ID 목록",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.administrative_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
+          "node_id": "silver-administrative-boundaries",
+          "title": "행정경계(읍면동)",
           "kind": "silver_table",
           "surface_kind": null
         }

@@ -25,7 +25,6 @@
     "acryldata/datahub-upgrade:v1.7.0.1": "sha256:c3db54d8fb94bc761be611c014c5ede3fd02daac1f15c8c177d69eceee79a24c",
     "alpine/socat:1.8.0.3": "sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e",
     "alpine:3.19": "sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1",
-    "alpine:3.20": "sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
     "amazon/aws-cli:2.17.0": "sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73",
     "apache/airflow:3.3.2": "sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371",
     "apache/spark:3.5.6-scala2.12-java17-python3-ubuntu": "sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730",

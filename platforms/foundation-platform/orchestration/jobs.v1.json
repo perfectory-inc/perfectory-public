@@ -424,6 +424,28 @@
       "enabled": true
     },
     {
+      "id": "admin_boundary_release",
+      "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-admin-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "30 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-administrative-boundaries",
+        "reference-legal-dong-code-change-to-silver-administrative-boundaries",
+        "silver-administrative-boundaries-to-gold-place-id-registry",
+        "silver-administrative-boundaries-to-gold-place-id-bridge",
+        "silver-administrative-boundaries-to-gold-place-id-changelog"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_kind_rebuild",
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
       "systemd_service": "foundation-gold-kind-rebuild.service",
