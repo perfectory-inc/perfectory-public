@@ -1106,6 +1106,18 @@ migrate_runtime() {
   # `foundation-runtime-grants` never ran. Nothing said so — `/health` does not touch the
   # database, so the stack looked up for a day.
   #
+  # The chain runs to completion first, with the running API left alone, and the API is replaced
+  # only after it succeeded: a refused migration leaves the previous release serving (root
+  # ADR-0245). Asking for `foundation-api` alone replaced its container before the chain ran, and a
+  # refused migration on 2026-10-14 left it Created for 30 minutes.
+  local in_order="${release_root}/current/scripts/deploy/runtime-up-in-order.sh"
+  [[ -r "${in_order}" ]] || {
+    printf 'runtime ordering helper is missing from the release: %s\n' "${in_order}" >&2
+    exit 66
+  }
+  # shellcheck source=runtime-up-in-order.sh
+  source "${in_order}"
+  runtime_chain_before "${runtime}" foundation-api
   # `foundation-api` is the last link, so requiring it requires all of them, in the order the
   # compose file owns. `--wait` makes the command finish when the state is reached rather than
   # when the request was accepted.
