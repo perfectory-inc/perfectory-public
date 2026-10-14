@@ -21,6 +21,7 @@ last_reviewed: 2026-07-29
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
+- [필지 ID 원장 첫 등록 — 예약 작업](./parcel-registry.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
 - [데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인](./operations-map.md)
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
