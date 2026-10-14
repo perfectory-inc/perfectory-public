@@ -207,7 +207,7 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # 104 -> 105: root ADR-0112's lakehouse tile bake embeds config/tile-bake-containers.contract.json,
 # the pinned GDAL and tippecanoe images, the way the static-release toolchain embeds its own
 # contract: the images a bake ran are part of the binary that ran it, not a file found at runtime.
-# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once in handoff_manifest_support.
+# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once (now in building_link_evidence).
 # Catalog, recovery and Gold validators share its relationship evidence policy; embedding
 # keeps the validator's policy bound to its binary instead of a caller-selected runtime file.
 # 106 -> 110: the FLOOR remote command test embeds the native Compose resource contract.

@@ -64,6 +64,11 @@ Foundation은 공식 행정코드·이름·PNU를 토지의 정체성이 아니�
 - 제한된 레거시 대체 경로를 감시하는 `catalog.parcels_missing_temporal_identifier` 뷰.
   표준 PNU가 여기에 남으면 마이그레이션 결함이지 정상 상태가 아니다.
 
+> **2026-10-13.** `catalog.parcel`과 함께 위 뷰 셋, `catalog.publish_parcel_identifier`, PNU 투영
+> 가드 트리거를 지웠다. `parcel_identifier`·`parcel_administrative_unit` 표는 남지만 `catalog.parcel`
+> 을 가리키던 FK는 없다. 필지는 R2 엣지 묶음이 서비스한다 —
+> [ADR-0194](../adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md) §7.
+
 기존 표준 PNU 필지는 결정론적인 `foundation.migration` source record와 기존 행의
 `created_at`부터 시작하는 레거시 리비전으로 보정한다. 이는 출처를 꾸며내는 것이 아니라 호환성
 다리다. 표준 PNU가 없는 블록·대장 필지는 기존 대장 키를 유지하며 PNU 별칭을 임의로 만들지 않는다.

@@ -170,26 +170,6 @@ VALUES
         repeat('3', 64)
     );
 
--- No complex: a parcel does not carry one since ADR-0019 step 3. This fixture's parcels are not
--- claimed to be in the fixture complex, and nothing in the tile slice needs them to be — the mirror
--- rows below carry their own complex column, which is what the proof reads.
-INSERT INTO catalog.parcel
-    (id, pnu, kind, area_m2, version)
-SELECT
-    fixture.parcel_id,
-    fixture.pnu,
-    fixture.kind,
-    fixture.area_m2,
-    1
-FROM tiles_slice_fixture_parcel AS fixture
-ON CONFLICT (id) DO UPDATE
-SET
-    pnu = EXCLUDED.pnu,
-    kind = EXCLUDED.kind,
-    area_m2 = EXCLUDED.area_m2,
-    updated_at = now(),
-    version = catalog.parcel.version + 1;
-
 -- Membership, which is now the only thing that puts these parcels in the fixture complex. The
 -- anchor views below join through `catalog.parcel_current_complex`, so without these rows the proof
 -- would count zero anchors and report that as the fixture's answer.
@@ -494,10 +474,9 @@ SELECT
     count(*)::integer AS count,
     public.ST_Centroid(public.ST_Collect(anchor.anchor_point))::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
-JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
 -- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
 -- "today" predicate so this view does not restate it (ADR-0022).
-JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id
 JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
@@ -511,10 +490,9 @@ SELECT
     anchor.pnu::text AS pnu,
     anchor.anchor_point::public.geometry(Point, 4326) AS geom
 FROM catalog.parcel_marker_anchor AS anchor
-JOIN catalog.parcel AS parcel ON parcel.id = anchor.parcel_id
 -- Membership, not a column on the parcel (ADR-0019). `parcel_current_complex` owns the
 -- "today" predicate so this view does not restate it (ADR-0022).
-JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = parcel.id
+JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id
 JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
   AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';

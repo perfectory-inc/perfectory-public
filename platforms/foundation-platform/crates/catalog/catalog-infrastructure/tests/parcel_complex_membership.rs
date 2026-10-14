@@ -93,19 +93,6 @@ impl Fixture {
             .execute(&mut **tx)
             .await?;
         }
-        for (id, pnu) in [
-            (parcel_id, "9999900101100010001"),
-            (other_parcel_id, "9999900101100010002"),
-        ] {
-            sqlx::query(
-                "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-                 VALUES ($1, $2, 'factory', 1, 1)",
-            )
-            .bind(id)
-            .bind(pnu)
-            .execute(&mut **tx)
-            .await?;
-        }
         sqlx::query(
             "INSERT INTO catalog.source_record (id, source, external_id, checksum_sha256)
              VALUES ($1, 'test', $2, repeat('a', 64))",
@@ -477,10 +464,9 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 
 /// A parcel carries no industrial complex, and one outside every complex can exist.
 ///
-/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, which is the
-/// stronger statement — the old model is not refused, it is unwritable. Asserted against
-/// `information_schema` rather than by attempting a write, because a write would fail with the same
-/// error whether the column is absent or merely misspelled in the test.
+/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, and root ADR-0194
+/// dropped `catalog.parcel` itself. Asserted with `to_regclass` rather than by attempting a write,
+/// because a write would fail with the same error whether the table is absent or misspelled here.
 ///
 /// The second half is the point of the whole change: a parcel belonging to no complex is now a row
 /// the database accepts. While the column was NOT NULL it was not, and most of the country is that
@@ -490,30 +476,24 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 async fn a_parcel_carries_no_complex_and_may_belong_to_none() -> TestResult {
     let pool = pool().await?;
 
-    let column_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (
-             SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'catalog'
-                AND table_name = 'parcel'
-                AND column_name = 'complex_id'
-         )",
-    )
-    .fetch_one(&pool)
-    .await?;
-    assert!(
-        !column_exists,
-        "catalog.parcel.complex_id must be gone; membership is a fact between two entities"
-    );
+    // ADR-0194 §1 went further than dropping the column: the parcel, building and unit copies are
+    // gone, while the parcel facts that still have a home (identifiers, membership) stay.
+    for (table, expected) in [
+        ("catalog.parcel", false),
+        ("catalog.building", false),
+        ("catalog.building_unit", false),
+        ("catalog.parcel_identifier", true),
+        ("catalog.parcel_complex_membership", true),
+    ] {
+        let exists = sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(exists, expected, "{table}");
+    }
 
     let mut tx = pool.begin().await?;
     let unaffiliated_parcel = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-         VALUES ($1, '9999900101100019999', 'other', 1, 1)",
-    )
-    .bind(unaffiliated_parcel)
-    .execute(&mut *tx)
-    .await?;
 
     let memberships = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM catalog.parcel_current_complex WHERE parcel_id = $1",
@@ -676,6 +656,68 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
             "step 2 moved a read from the column to the view; they must answer alike"
         );
 
+        Ok(())
+    })
+    .await
+}
+
+/// Version of the root ADR-0194 migration that drops the catalog parcel, building and unit copies.
+const CATALOG_COPY_DROP_MIGRATION_VERSION: i64 = 20_261_014_021_000;
+
+/// The drop refuses a database whose copies still hold rows until the owner's approval is recorded,
+/// and drops them once it is.
+///
+/// The server applies migrations by itself when main moves (root ADR-0159), so merging the drop
+/// must not be what deletes production rows. Both halves are asserted: a gate observed only
+/// refusing would pass a migration that can never run, and one observed only passing would pass a
+/// gate that is not there.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> TestResult {
+    run_in_disposable_database("catalog_copy_drop_gate", |pool| async move {
+        migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+             VALUES ($1, '9999900101100010001', 'factory', 1, 1)",
+        )
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await?;
+
+        // Unlocked: sqlx returns on a failed migration without releasing its session advisory lock,
+        // which would leave the approved run below, on another session, waiting forever.
+        let mut gated = migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION);
+        gated.set_locking(false);
+        let refused = gated
+            .run(&pool)
+            .await
+            .expect_err("a populated copy must not be dropped without approval");
+        assert!(format!("{refused:#}").contains("ADR-0194"), "{refused:#}");
+        let still_there =
+            sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NOT NULL")
+                .fetch_one(&pool)
+                .await?;
+        assert!(still_there, "a refused drop must leave the table in place");
+
+        // The operator's step, exactly as the migration's hint spells it. A database setting
+        // reaches only sessions opened after it, so the approved run takes a fresh pool.
+        let database: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&pool)
+            .await?;
+        sqlx::query(&format!(
+            "ALTER DATABASE \"{database}\" SET foundation.adr_0194_drop_approved = 'yes'"
+        ))
+        .execute(&pool)
+        .await?;
+        let approved = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        gated.run(&approved).await?;
+        let gone = sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NULL")
+            .fetch_one(&approved)
+            .await?;
+        approved.close().await;
+        assert!(gone, "an approved drop must remove the table");
         Ok(())
     })
     .await

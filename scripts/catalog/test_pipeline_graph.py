@@ -93,16 +93,16 @@ def main() -> None:
         check("dropped serving copy is reconciled")
         migration.write_text('DROP SCHEMA catalog;\n', encoding="utf-8", newline="")
         check("schema drop remains unsupported", "unsupported serving table lifecycle")
-        migration.write_text('ALTER TABLE catalog.parcel RENAME TO parcel_archive;\n'
-                             'CREATE TABLE catalog.parcel (id integer);\n', encoding="utf-8", newline="")
+        migration.write_text('ALTER TABLE catalog.parcel_identifier RENAME TO parcel_identifier_archive;\n'
+                             'CREATE TABLE catalog.parcel_identifier (id integer);\n', encoding="utf-8", newline="")
         tables = migration_tables(root)
-        assert {"catalog.parcel", "catalog.parcel_archive"} <= tables
+        assert {"catalog.parcel_identifier", "catalog.parcel_identifier_archive"} <= tables
         check("renamed table must be represented", "serving tables")
         for statement in ['ALTER TABLE catalog.absent RENAME TO archived;',
-                          'ALTER TABLE catalog.parcel RENAME TO unit_official_price;']:
+                          'ALTER TABLE catalog.parcel_identifier RENAME TO unit_official_price;']:
             migration.write_text(statement, encoding="utf-8", newline="")
             check("invalid rename", "invalid serving table rename")
-        migration.write_text('ALTER TABLE catalog.parcel SET SCHEMA serving_postgis;\n', encoding="utf-8", newline="")
+        migration.write_text('ALTER TABLE catalog.parcel_identifier SET SCHEMA serving_postgis;\n', encoding="utf-8", newline="")
         check("schema move remains unsupported", "unsupported serving table lifecycle")
         migration.write_text('', encoding="utf-8", newline="")
 
