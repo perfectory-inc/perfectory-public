@@ -12,7 +12,7 @@
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
-#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
+#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
 #   by-pnu-pack-operator.sh job start|status <disabled job id>
@@ -31,6 +31,9 @@
 # `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
 # input moved: a table's first full build is run and timed outside the scheduled job this way (root
 # ADR-0193 §7), so it does not first meet the job's time bound.
+# `gold rebuild <unit> --dry-run` runs it with gold-panel-rebuild.sh --dry-run: the whole build and
+# every check, nothing committed, and an input listed under unmeasured_inputs may be read. That is
+# the measured run an input must pass before it leaves that list.
 #
 # `raon` drives the RAON large-file lane's supervised runs (root ADR-0170, runbook
 # provider-acquisition-fargate.md, first supervised run): `build` and `plan` run
@@ -74,7 +77,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -330,14 +333,17 @@ if [[ "${ACTION}" == cutover ]]; then
 fi
 
 TABLE_UNIT=""
+TABLE_DRY_RUN=()
 if [[ "${LANE}" == gold ]]; then
-  (($# == 1)) || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json"
+  (($# == 1)) || [[ $# == 2 && "$2" == --dry-run ]]     || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json [--dry-run]"
   # Every table's unit, the kind lines' too (root ADR-0193 §9; gold_rebuild.load_contract).
   mapfile -t table_units < <(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import gold_rebuild; print("\n".join(t["unit"] for t in gold_rebuild.load_contract()["tables"].values()))' \
     "${RELEASE}/infra/lakehouse/spark/jobs")
   printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
   TABLE_UNIT="$1"
-  shift
+  # A dry run commits nothing and may read an input the contract lists as unmeasured: how it is measured.
+  [[ "${2:-}" != --dry-run ]] || TABLE_DRY_RUN=(--dry-run)
+  shift "$#"
   ACTION=gold-rebuild
 fi
 
@@ -385,7 +391,7 @@ PY
   for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
   if [[ -n "${TABLE_UNIT}" ]]; then
-    command=("${unit[0]}" "${TABLE_UNIT}")
+    command=("${unit[0]}" "${TABLE_UNIT}" ${TABLE_DRY_RUN[@]+"${TABLE_DRY_RUN[@]}"})
   elif is_pack_lane "${LANE}"; then
     # The lane's own Gold, by the rebuild contract's unit for its table (root ADR-0193 §3).
     table_unit="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds, gold_rebuild; print(gold_rebuild.load_contract()["tables"][by_pnu_kinds.lane_fields(sys.argv[2])["gold_table"]]["unit"])' \
