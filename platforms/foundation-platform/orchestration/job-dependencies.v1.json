@@ -222,7 +222,8 @@
         "source_sweep",
         "legal_dong_code_changes",
         "vworld_parcel_edition",
-        "parcel_number_change_history"
+        "parcel_number_change_history",
+        "silver_refresh_land_transfer_history"
       ],
       "reads": [
         {
@@ -231,6 +232,14 @@
           "node_id": "gold-lineage-review-queue",
           "title": "필지 계보 검토 목록",
           "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
           "surface_kind": null
         },
         {
@@ -247,6 +256,14 @@
           "node_id": "serving-lineage-stewardship",
           "title": "필지 계보 스튜어드 결정",
           "kind": "serving_group",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_transfer_history,PROD)",
+          "node_id": "silver-land-transfer-history",
+          "title": "필지별 토지이동이력",
+          "kind": "silver_table",
           "surface_kind": null
         },
         {

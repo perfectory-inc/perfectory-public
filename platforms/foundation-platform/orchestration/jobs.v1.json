@@ -101,7 +101,7 @@
     },
     {
       "id": "lineage_stewardship",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts.",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
@@ -116,6 +116,9 @@
         "silver-parcel-boundaries-to-reference-legal-dong-code-change",
         "source-vworld-dataset-to-silver-parcel-number-change-history",
         "silver-parcel-number-change-history-to-reference-legal-dong-code-change",
+        "silver-parcel-boundaries-to-silver-parcel-lineage",
+        "reference-legal-dong-code-change-to-silver-parcel-lineage",
+        "silver-land-transfer-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"

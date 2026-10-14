@@ -325,6 +325,81 @@ def read_buildings(spark: Any, table: str, snapshot: str, sidos: str) -> dict[st
     }
 
 
+def derive_and_append(spark: Any, args: argparse.Namespace, inputs: LineageInputs, now: datetime) -> dict[str, Any]:
+    """One derivation (one snapshot pair, one set of regions): read, derive and append it once."""
+
+    cat = f"`{args.iceberg_catalog_name}`"
+    views = bind_input_views(spark, args.iceberg_catalog_name, inputs)
+    before = read_pnus(spark, cat, args.from_snapshot_id, args.from_sido, table=views["boundaries_from"])
+    after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido, table=views["boundaries_to"])
+    if not before or not after:
+        raise ValueError(f"no parcels for one side: before={len(before)} after={len(after)}")
+    # An empty change table is accepted only while no code vanished between the snapshots;
+    # `derive` refuses a vanished code the table does not pair in the window.
+    changes = read_code_changes(spark, views["code_changes"])
+    provenance = input_provenance(args, inputs)
+    run_id = derivation_run_id(provenance)
+    all_sido = ",".join(sorted(set(args.from_sido.split(",")) | set(args.to_sido.split(","))))
+    events = read_window_events(spark, views["history"], all_sido, args.from_date, args.to_date)
+    buildings_before: dict[str, str] = {}
+    buildings_after: dict[str, str] = {}
+    if args.building_from_snapshot_id:
+        buildings_before = read_buildings(spark, views["buildings_from"], args.building_from_snapshot_id, args.from_sido)
+        buildings_after = read_buildings(spark, views["buildings_to"], args.building_to_snapshot_id, args.to_sido)
+    links, summary = derive(
+        before, after, changes, events, args.from_date, args.to_date,
+        functools.partial(read_facts_before, spark, views["history"], args.from_date),
+        buildings_before, buildings_after,
+        inputs.ownership_old.rows, inputs.ownership_new.rows,
+    )
+    cards = pl.cardinality(links)
+    rows = [
+        {
+            "predecessor_pnu": link.predecessor_pnu or None,
+            "successor_pnu": link.successor_pnu,
+            "relation": link.relation,
+            "cardinality": cards.get((link.predecessor_pnu, link.successor_pnu)),
+            "effective_date": link.effective_date or None,
+            "grade": link.grade,
+            "evidence_kind": link.evidence_kind,
+            "evidence_ref": link.evidence_ref or None,
+            "from_snapshot_id": args.from_snapshot_id,
+            "to_snapshot_id": args.to_snapshot_id,
+            "rules_version": pl.RULES_VERSION,
+            "derivation_run_id": run_id,
+            "derived_at_utc": now,
+        }
+        for link in links
+    ]
+    table = f"{cat}.`{args.iceberg_namespace}`.`{args.iceberg_table}`"
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.`{args.iceberg_namespace}`")
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+{create_table_columns_sql(CONTRACT)}
+        )
+        USING iceberg
+        {partition_clause_sql(CONTRACT)}
+        TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')
+        """
+    )
+    evolve_iceberg_table_to_contract(spark, table, CONTRACT)
+    schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
+    frame = spark.createDataFrame(rows, schema=schema).select(*COLUMNS)
+    outcome = append_batch_once(spark, frame, COLUMNS, table, CONTRACT["table_name"])
+    summary.update({
+        "job": JOB_NAME,
+        "derivation_run_id": run_id,
+        "input_provenance": provenance,
+        "code_change_pairs": len(changes),
+        "rows": len(rows),
+        "appended": outcome["appended"],
+        "from_snapshot_id": args.from_snapshot_id,
+        "to_snapshot_id": args.to_snapshot_id,
+    })
+    return summary
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     inputs = validate_args(args)
@@ -333,76 +408,8 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc).replace(microsecond=0)
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
-    cat = f"`{args.iceberg_catalog_name}`"
     try:
-        views = bind_input_views(spark, args.iceberg_catalog_name, inputs)
-        before = read_pnus(spark, cat, args.from_snapshot_id, args.from_sido, table=views["boundaries_from"])
-        after = read_pnus(spark, cat, args.to_snapshot_id, args.to_sido, table=views["boundaries_to"])
-        if not before or not after:
-            raise ValueError(f"no parcels for one side: before={len(before)} after={len(after)}")
-        # An empty change table is accepted only while no code vanished between the snapshots;
-        # `derive` refuses a vanished code the table does not pair in the window.
-        changes = read_code_changes(spark, views["code_changes"])
-        provenance = input_provenance(args, inputs)
-        run_id = derivation_run_id(provenance)
-        all_sido = ",".join(sorted(set(args.from_sido.split(",")) | set(args.to_sido.split(","))))
-        events = read_window_events(spark, views["history"], all_sido, args.from_date, args.to_date)
-        buildings_before: dict[str, str] = {}
-        buildings_after: dict[str, str] = {}
-        if args.building_from_snapshot_id:
-            buildings_before = read_buildings(spark, views["buildings_from"], args.building_from_snapshot_id, args.from_sido)
-            buildings_after = read_buildings(spark, views["buildings_to"], args.building_to_snapshot_id, args.to_sido)
-        links, summary = derive(
-            before, after, changes, events, args.from_date, args.to_date,
-            functools.partial(read_facts_before, spark, views["history"], args.from_date),
-            buildings_before, buildings_after,
-            inputs.ownership_old.rows, inputs.ownership_new.rows,
-        )
-        cards = pl.cardinality(links)
-        rows = [
-            {
-                "predecessor_pnu": link.predecessor_pnu or None,
-                "successor_pnu": link.successor_pnu,
-                "relation": link.relation,
-                "cardinality": cards.get((link.predecessor_pnu, link.successor_pnu)),
-                "effective_date": link.effective_date or None,
-                "grade": link.grade,
-                "evidence_kind": link.evidence_kind,
-                "evidence_ref": link.evidence_ref or None,
-                "from_snapshot_id": args.from_snapshot_id,
-                "to_snapshot_id": args.to_snapshot_id,
-                "rules_version": pl.RULES_VERSION,
-                "derivation_run_id": run_id,
-                "derived_at_utc": now,
-            }
-            for link in links
-        ]
-        table = f"{cat}.`{args.iceberg_namespace}`.`{args.iceberg_table}`"
-        spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.`{args.iceberg_namespace}`")
-        spark.sql(
-            f"""
-            CREATE TABLE IF NOT EXISTS {table} (
-{create_table_columns_sql(CONTRACT)}
-            )
-            USING iceberg
-            {partition_clause_sql(CONTRACT)}
-            TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')
-            """
-        )
-        evolve_iceberg_table_to_contract(spark, table, CONTRACT)
-        schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
-        frame = spark.createDataFrame(rows, schema=schema).select(*COLUMNS)
-        outcome = append_batch_once(spark, frame, COLUMNS, table, CONTRACT["table_name"])
-        summary.update({
-            "job": JOB_NAME,
-            "derivation_run_id": run_id,
-            "input_provenance": provenance,
-            "code_change_pairs": len(changes),
-            "rows": len(rows),
-            "appended": outcome["appended"],
-            "from_snapshot_id": args.from_snapshot_id,
-            "to_snapshot_id": args.to_snapshot_id,
-        })
+        summary = derive_and_append(spark, args, inputs, now)
     finally:
         spark.stop()
     if args.summary_output:
