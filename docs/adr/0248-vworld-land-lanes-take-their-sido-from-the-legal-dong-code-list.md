@@ -1,4 +1,4 @@
-# ADR 0212: VWorld 토지 레인의 시도는 법정동코드 목록에서 온다
+# ADR 0248: VWorld 토지 레인의 시도는 법정동코드 목록에서 온다
 
 - Status: Accepted
 - Date: 2026-10-14
