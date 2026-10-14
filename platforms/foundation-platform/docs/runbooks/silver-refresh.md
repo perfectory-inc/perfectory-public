@@ -64,7 +64,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 07:00 UTC 에도 시작한다(대체 시각). `spark` 3 슬롯이라 한 번에 하나씩 돈다. 실행은 마지막 줄에
 `foundation-job-outcome changed|unchanged` 를 찍고, `changed` 면 Airflow 가 Gold 재생성을 시작한다.
 
-모두 `enabled: false` 다. 레인마다 3 절의 첫 감독 실행을 마친 뒤 켠다. 그때까지 Airflow 는 이 유닛을 시작하지
+레인은 꺼진 채(`enabled: false`) 등록되고, 3 절의 첫 감독 실행을 마친 뒤 켠다(2026-10-14 열두 레인 모두 켜짐). 그때까지 Airflow 는 이 유닛을 시작하지
 않는다. 운영자가 다른 Spark 작업이 돌지 않을 때 시작한다. 예약 작업 DAG 를 멈추는 법은
 [예약 작업 운영](./production-orchestrator-cutover.md)에 있다.
 
