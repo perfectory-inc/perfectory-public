@@ -181,12 +181,7 @@ mod tests {
         );
         let units =
             r#"[{"id":"u","official_price_history":[{"base_date":"20250101","price_won":7}]}]"#;
-        let (key, bytes) = render(
-            lane,
-            "gold.unit_price",
-            "999990000000000001",
-            &row(units),
-        )?;
+        let (key, bytes) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         // Root ADR-0204: the key is the PNU then the building id; the document names both.
         assert_eq!(key, format!("9999900000100000000{BUILDING}"));
         assert_eq!(
@@ -198,12 +193,7 @@ mod tests {
                 lane.document_schema_version
             )
         );
-        let (_, again) = render(
-            lane,
-            "gold.unit_price",
-            "999990000000000001",
-            &row(units),
-        )?;
+        let (_, again) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         assert_eq!(bytes, again);
         check(lane, &bytes)
     }
