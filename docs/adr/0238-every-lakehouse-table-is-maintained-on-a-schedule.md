@@ -23,8 +23,11 @@ ADR-0237)은 작업이 그 표를 찾아갈 때만 의미가 있다.
 
 ## Decision
 
-1. 정기 작업 `lakehouse_maintenance`(orchestration/jobs.v1.json): 매일 01:10 UTC, `spark` 풀 3칸, Airflow 165분,
-   systemd `TimeoutStartSec=160m`. 이 시각 spark 풀에는 매시 fold 만 돈다.
+1. 정기 작업 `lakehouse_maintenance`(orchestration/jobs.v1.json): 매일 04:30 UTC, `spark` 풀 3칸, Airflow 165분,
+   systemd `TimeoutStartSec=160m`. 이 시각 spark 풀에는 매시 fold 만 돈다. 마감(140분) 뒤엔 새 표를 시작하지 않아
+   06:50 lineage 전에 손을 뗀다. 01:10 은 기각했다: 일일 spark 작업의 첫 시작이 운영자 by-PNU 전환(`by-pnu-lane-cutover.sh`)이
+   피하는 일일 창의 시작이라, 밤 전환 시간을 01:10 까지 줄인다. 04:30 은 그 창의 시작을 06:50 에서 04:30 으로 당길 뿐
+   밤 전환 시간(창 끝 ~ 04:30)은 남는다.
 2. 한 번의 Spark 실행(`lakehouse_maintenance.py --all-tables`)이 레이크하우스 계약 산출물(`platform_contracts.
    load_lakehouse_artifact()["contracts"]`, 표 목록의 정본)에 있고 카탈로그에 존재하는 표 전부를 돈다. 가장 오래전에
    유지보수한 표부터(상태 디렉터리의 `rotation.json`). 유지보수 계약의 `scheduled.deadline_minutes`(유닛 상한보다 작다)
@@ -48,7 +51,7 @@ ADR-0237)은 작업이 그 표를 찾아갈 때만 의미가 있다.
 - 적재 기록이 계보 전체에 걸친 silver 표는 지금처럼 거의 만료되지 않는다. 기록이 스냅숏 요약에만 있는 한 만료가 곧
   "적재를 잊음"이기 때문이다. 기록을 스냅숏 밖(예: 적재 원장)으로 옮기는 일은 별도 결정이다.
 - 배치 적재 뒤 7일 만료가 적재 기록을 지우던 잠재 결함이 닫힌다.
-- 실행 중에는 릴리스 빌드가 기다린다(ADR-0137). 밤 01:10~03:50 사이다.
+- 실행 중에는 릴리스 빌드가 기다린다(ADR-0137). 04:30~07:15 UTC 사이다.
 
 ## 기각한 대안
 
