@@ -465,8 +465,8 @@
         "silver-administrative-boundaries-to-gold-place-id-bridge",
         "silver-administrative-boundaries-to-gold-place-id-changelog"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T11:40:00Z"
     },
     {
       "id": "parcel_registry",
