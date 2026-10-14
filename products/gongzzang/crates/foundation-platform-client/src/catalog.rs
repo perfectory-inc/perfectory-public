@@ -10,12 +10,9 @@ use crate::{
 };
 
 const PARCEL_BY_PNU_PATH_PREFIX: &str = "catalog/v1/parcels/by-pnu/";
-/// Keyed on the lakehouse id, not on `catalog.industrial_complex.id`.
-///
-/// The two are different identities and neither is computable from the other. What a Gongzzang
-/// caller holds is the lakehouse one: it is what the `complex` vector tile publishes as its feature
-/// id and what every Gold artifact key is derived from.
-const COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX: &str = "catalog/v1/complexes/by-lakehouse-id/";
+/// One industrial complex by its id: the `UUIDv5` the `complex` vector tile publishes as its feature
+/// id and every Gold artifact key is derived from (root ADR-0250).
+const COMPLEX_PATH_PREFIX: &str = "catalog/v1/complexes/";
 /// Paged industrial-complex collection.
 const COMPLEXES_PATH: &str = "catalog/v1/complexes";
 
@@ -214,6 +211,8 @@ impl CatalogIndustrialComplexGoldPointer {
 /// them would be claiming a use it does not have.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CatalogIndustrialComplexResponse {
+    /// The complex's id, echoed back by the provider (root ADR-0250).
+    pub id: String,
     /// Lakehouse identity of the complex, echoed back by the provider.
     pub lakehouse_complex_id: Option<String>,
     /// Source-side official industrial-complex code.
@@ -393,18 +392,18 @@ impl FoundationCatalogClient {
         .await
     }
 
-    /// Sends one complex-by-lakehouse-id request through the published Catalog v1 path.
+    /// Sends one complex request through the published Catalog v1 path.
     ///
     /// # Errors
     ///
     /// Returns an error for transport failures, invalid workload credentials, and retriable status.
-    pub async fn get_complex_by_lakehouse_id_response(
+    pub async fn get_complex_response(
         &self,
-        lakehouse_complex_id: &str,
+        complex_id: &str,
     ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
         self.execute_get(
-            "foundation_platform.catalog.get_complex_by_lakehouse_id",
-            &format!("{COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX}{lakehouse_complex_id}"),
+            "foundation_platform.catalog.get_complex",
+            &format!("{COMPLEX_PATH_PREFIX}{complex_id}"),
             &[],
         )
         .await
