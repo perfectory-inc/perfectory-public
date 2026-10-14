@@ -102,12 +102,35 @@ case "${UNIT}" in
       env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
         "${BASH_SOURCE[0]}" "${lane}" || { lane_status=$?; failed+="${lane} "; ((status)) || status=${lane_status}; }
     done
+    # Then every lane's superseded pack generations past their rollback window (root ADR-0242).
+    "${BASH_SOURCE[0]}" retire || { lane_status=$?; ((status)) || status=${lane_status}; }
     if [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
       echo "foundation-job-outcome changed"
     else
       echo "foundation-job-outcome unchanged"
     fi
     rm -f "${BY_PNU_BAKE_PUBLISHED}"
+    exit "${status}"
+    ;;
+  retire)
+    # Root ADR-0242: a pack generation the manifest no longer serves is deleted once the one that
+    # replaced it has been live for the contract's superseded_generation_keep_days; until then it is
+    # the rollback. Each lane under its own lock, so no publish of that lane runs beside it.
+    source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+    status=0
+    for lane in parcel building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
+      [[ -n "${lane}" ]] || continue
+      prefix="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${lane}")_BY_PNU_SERVING"
+      lock="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${lane}/lane.lock"
+      mkdir -p "$(dirname "${lock}")"
+      if ! (
+        flock -n 9 || { echo "by-pnu-serving-bake ${lane}: retire skipped: another run holds ${lock}"; exit 0; }
+        env "${prefix}_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}"           "${prefix}_PACK_RETIRE_EXECUTE=true" "${PUBLISHER_BIN}" "retire-${lane}-superseded-pack-generations"
+      ) 9>>"${lock}"; then
+        echo "by-pnu-serving-bake ${lane}: retiring superseded pack generations failed; the next run tries again"
+        status=1
+      fi
+    done
     exit "${status}"
     ;;
   *)

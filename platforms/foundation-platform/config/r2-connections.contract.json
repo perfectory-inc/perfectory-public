@@ -221,6 +221,8 @@
     "content_type": "application/octet-stream",
     "cache_control": "public, max-age=31536000, immutable",
     "max_index_entries": 1000000,
+    "superseded_generation_keep_days": 7,
+    "superseded_generation_keep_days_reason": "root ADR-0242: a pack generation the manifest no longer names is kept this long after the generation that replaced it went live (the first manifest naming it), as the rollback, and then its objects are deleted by retire-<lane>-superseded-pack-generations: serving copies are rebuilt from Gold, which stays the source, so a second full copy is not kept for good",
     "preview_query_parameter": "packs",
     "cloudflare_analytics": {
       "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
