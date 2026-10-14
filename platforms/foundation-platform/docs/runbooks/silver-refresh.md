@@ -127,7 +127,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
    - 첫 실행의 시간과 Spark 최대 메모리를 적는다. `MemoryMax=4G`(내보내기)와 계약의 `driver_memory`(16g)는 아직
      실측이 아니다. 특히 면적은 1억 행을 한 묶음으로 넣는다.
 
-5. 측정한 시간이 150 분 안이면 그 레인의 `enabled` 를 `true` 로, `disabled_reason` 을 지우는 PR 을 낸다
+5. 측정한 시간이 150 분 안이면 그 레인의 `enabled` 를 `true` 로, `disabled_reason` 을 지우고 `enabled_since` 에 병합 시각(UTC)을 적는 PR 을 낸다(루트 ADR-0239: 그 전 회차는 늦음이 아니다)
    (ADR-0122 §4). 마지막 줄 `foundation-job-outcome changed|unchanged` 가 `silver-refresh-outcome` 바로 뒤에
    찍혔는지도 본다.
 

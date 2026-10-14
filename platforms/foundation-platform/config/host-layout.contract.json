@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0241-the-host-keeps-the-os-on-its-system-disk-and-docker-on-its-data-disk.md",
+  "purpose": "Where a Foundation host keeps what. The system disk holds the OS and its packages; everything that grows with data — Docker's volumes and containers, containerd's images, snapshots and build cache — lives on the data disk. scripts/ops/host-docker-data-root.sh moves a running host to this layout and lays out a new one; scripts/ops/host_retention.py measures the disk named here.",
+  "data_mount": "/data",
+  "docker": {
+    "data_root": "/data/docker",
+    "legacy_root": "/var/lib/docker",
+    "daemon_json": "/etc/docker/daemon.json"
+  },
+  "containerd": {
+    "root": "/data/containerd",
+    "legacy_root": "/var/lib/containerd",
+    "config_toml": "/etc/containerd/config.toml",
+    "reason": "Docker 29 keeps images, their snapshots and the build cache in containerd's image store (driver-type io.containerd.snapshotter.v1), not under Docker's data-root: measured 2026-10-14 on ai-server, /var/lib/docker 21.4 GB and /var/lib/containerd 105 GB. Moving only Docker's data-root would leave five sixths of it on the system disk."
+  },
+  "time_caps_minutes": {"live_copy": 150, "stopped_copy": 60},
+  "time_caps_reason": "The live copy runs while every service still serves; past its cap the run stops before anything was stopped and unpauses the DAGs. The stopped copy only carries what changed since, and the services are down while it runs; past its cap the run rolls back. Sized from the 2026-10-14 measurement (124 GiB, mostly containerd snapshots) and the data disk's ~180 MB/s measured on 2026-09-09.",
+  "free_space_factor": 2,
+  "free_space_reason": "The copy needs the bytes it copies, and the old trees stay until the owner checks the host: twice the measured size keeps room for both and for growth during the run.",
+  "readiness": {
+    "foundation-api": "http://127.0.0.1:18080/readyz",
+    "identity-api": "http://127.0.0.1:18082/readyz",
+    "airflow-api": "http://127.0.0.1:19080/api/v2/monitor/health",
+    "datahub-gms": "http://127.0.0.1:18095/health"
+  },
+  "readiness_reason": "What the owner looks at after the move, besides every container that ran before running again and every container that was healthy before being healthy again."
+}

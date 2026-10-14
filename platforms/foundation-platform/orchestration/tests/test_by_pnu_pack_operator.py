@@ -289,6 +289,7 @@ class PackOperator(OperatorHarness):
         for job in jobs["jobs"]:
             if job["id"] in job_ids:
                 job["enabled"] = False
+                job.pop("enabled_since", None)
         path.write_text(json.dumps(jobs), encoding="utf-8")
 
     def test_job_start_and_status_name_the_off_jobs_unit(self):
