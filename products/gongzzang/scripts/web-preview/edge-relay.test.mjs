@@ -39,7 +39,7 @@ test("anything else is not relayed", () => {
     "/listings",
     "/edge/tiles",
     "/edge/unknown/x",
-    "/edge/toString/x",
+    "/edge/constructor/x",
     "/x/edge/tiles/1",
   ]) {
     assert.equal(relayRequest(new Request(`${ORIGIN}${path}`)), null, path);
