@@ -213,8 +213,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-units"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_building_register_unit_areas",
@@ -248,8 +247,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-apartment-price"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_building_register_exclusive_unit",
@@ -266,8 +264,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_land_characteristic",
@@ -352,8 +349,7 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_land_use_plan",
@@ -387,8 +383,7 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-zone-code"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "gold_panel_rebuild",
