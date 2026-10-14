@@ -34,22 +34,28 @@ FOUNDATION_PLATFORM_DATAHUB_UI_URL=              # 직원이 여는 DataHub 웹 
 FOUNDATION_PLATFORM_DAWNEER_UI_URL=              # 직원이 여는 더니어 주소(경로 없이). Slack 알림의 링크가 <이 주소>/#/flow?node=<노드> 가 된다
 FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=       # Spark 작업이 쓰는 값과 같다
 FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE=         # Spark 작업이 쓰는 값과 같다
-FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN=     # 읽기 전용 카탈로그 토큰(아래)
+FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=  # 읽기 전용 카탈로그 토큰(아래)
 FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER=r2_data_catalog
 ```
 
 `FOUNDATION_PLATFORM_AIRFLOW_API_URL` 은 넣지 않는다 — `compose.orchestration-bridge.yml` 이 정한다.
 
-**읽기 전용 카탈로그 토큰**: Cloudflare 계정 API 토큰, 권한 그룹은 **Workers R2 Data Catalog Read** 하나
+**읽기 전용 카탈로그 토큰**: Cloudflare 계정 API 토큰 `foundation-platform-lakehouse-catalog-reader-prod`(변수 이름은 이 토큰 이름에서 만든다, 루트 ADR-0236), 권한 그룹은 **Workers R2 Data Catalog Read** 하나
 (대시보드 → *Manage Account → API Tokens → Create Custom Token*). R2 토큰 화면만 쓸 수 있으면 **Admin Read only**.
 지도는 카탈로그의 `loadTable`(표 메타데이터)만 부르고 데이터 파일은 읽지도 쓰지도 않는다. Spark 쓰기 토큰을 재사용하지 않는다.
 만료·교체일은 토큰을 관리하는 곳에 적는다.
 
-만드는 순서(서버에서, 값은 셸 기록에 남기지 않는다):
+만드는 순서. 파일은 손으로 편집하지 않는다 — `foundation-release.sh env-set` 이 계약의 `operations-map` 그룹이 담는
+이름만 받아 계약의 소유자·모드로 쓴다(루트 ADR-0236). 그룹이 담지 않는 이름(예: 쓰기 토큰)은 거부된다. 값은 출력되지
+않고, 셸 기록에도 남기지 않는다.
 
 ```bash
-sudo install -o root -g foundation-platform -m 0640 /dev/null /etc/foundation-platform/operations-map.env
-sudoedit /etc/foundation-platform/operations-map.env     # 위 아홉 줄
+# 노트북: 값을 찍지 않고 이름=값 줄만 0600 파일로 서버에 보낸다
+grep -E '^FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=' platforms/foundation-platform/.env.local \
+  | tr -d '\r' | ssh <서버> 'umask 077; cat > ~/operations-map.set'
+# 서버: 계약을 거쳐 쓰고, 원본을 지우고, 지도를 다시 띄운다
+sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh env-set operations-map ~/operations-map.set
+shred -u ~/operations-map.set
 /opt/foundation-platform/current/scripts/deploy/foundation-runtime.sh up -d foundation-api
 ```
 

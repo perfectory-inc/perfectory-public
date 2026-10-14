@@ -12,6 +12,9 @@ checked against it:
                  sources) is supplied by a group the contract says it loads and which holds it;
                  no runbook or script hand-writes an `EnvironmentFile=/etc/foundation-platform/...`.
     render       rewrites the units' `EnvironmentFile=` lines from the contract.
+    set          on the data host, as root (foundation-release.sh env-set): writes the NAME=value
+                 lines of a file into a group's file, refusing a name the group does not hold, with
+                 the contract's owner, group and mode (root ADR-0236). Prints names only.
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
                  (root ADR-0247). Prints the files and names it changed, never a value.
@@ -410,22 +413,69 @@ def rename(area: Path = AREA, root: Path = Path("/")) -> list[str]:
         if not added:
             continue
         info = path.stat()
-        staged = path.with_name(f".{path.name}.rename")
-        staged.unlink(missing_ok=True)  # left by a run that died before its replace
-        descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IMODE(info.st_mode))
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            if hasattr(os, "chown"):
-                os.chown(staged, info.st_uid, info.st_gid)
-            os.chmod(staged, stat.S_IMODE(info.st_mode))
-            os.replace(staged, path)
-        finally:
-            staged.unlink(missing_ok=True)
+        _replace_atomically(path, text, info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
         changed.extend(f"{group.path}: {entry}" for entry in added)
     return changed
+
+
+def _replace_atomically(path: Path, text: str, uid: int, gid: int, mode: int) -> None:
+    staged = path.with_name(f".{path.name}.staged")
+    staged.unlink(missing_ok=True)  # left by a run that died before its replace
+    descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if hasattr(os, "chown"):
+            os.chown(staged, uid, gid)
+        os.chmod(staged, mode)
+        os.replace(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def set_names(area: Path, group_name: str, source: Path, root: Path = Path("/")) -> list[str]:
+    """Writes each `NAME=value` line of `source` into the group's file (root ADR-0236): that name's
+    lines are replaced, every other line is kept, and the file ends up with the contract's owner,
+    group and mode. A name the group does not hold is refused. Returns the names; never a value."""
+
+    contract = load(area)
+    group = contract.groups.get(group_name)
+    if group is None or group.release:
+        raise ContractError(f"set: the contract has no host group {group_name!r}")
+    if group.owner is None or group.group is None or group.mode is None:
+        raise ContractError(f"set: group {group_name!r} declares no owner, group and mode to write it with")
+    if source.is_symlink() or not source.is_file():
+        raise ContractError(f"set: {source} is not a regular file")
+    values: dict[str, str] = {}
+    for line in source.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", line)
+        if not match:
+            raise ContractError(f"set: {source} has a line that is not NAME=value")
+        if match.group(1) in values:
+            raise ContractError(f"set: {source} names {match.group(1)} twice")
+        values[match.group(1)] = match.group(2)
+    if not values:
+        raise ContractError(f"set: {source} names nothing")
+    foreign = sorted(set(values) - group.holds)
+    if foreign:
+        raise ContractError(f"set: group {group_name!r} does not hold {foreign}")
+    import grp  # noqa: PLC0415 (Unix only)
+    import pwd  # noqa: PLC0415 (Unix only)
+
+    path = root / group.path.lstrip("/")
+    if path.is_symlink():
+        raise ContractError(f"set: {group.path} is a symlink")
+    kept = []
+    if path.exists():
+        kept = [line for line in path.read_text(encoding="utf-8").splitlines()
+                if not ((match := re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=", line)) and match.group(1) in values)]
+    text = "".join(f"{line}\n" for line in kept) + "".join(f"{name}={value}\n" for name, value in values.items())
+    _replace_atomically(path, text, pwd.getpwnam(group.owner).pw_uid, grp.getgrnam(group.group).gr_gid, group.mode)
+    return list(values)
 
 
 def host(area: Path = AREA, root: Path = Path("/")) -> list[str]:
@@ -474,9 +524,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")
     sub.add_parser("render")
-    for name in ("host", "rename"):
-        sub.add_parser(name).add_argument("--root", type=Path, default=Path("/"),
-                                          help="filesystem root the group paths are under")
+    parsers = {name: sub.add_parser(name) for name in ("host", "rename", "set")}
+    for parser_ in parsers.values():
+        parser_.add_argument("--root", type=Path, default=Path("/"), help="filesystem root the group paths are under")
+    parsers["set"].add_argument("group", help="the contract group whose file is written")
+    parsers["set"].add_argument("source", type=Path, help="a file of NAME=value lines the group holds")
     for name in ("properties", "names"):
         sub.add_parser(name).add_argument("consumer")
     args = parser.parse_args(argv)
@@ -491,6 +543,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "render":
             for unit in render(args.area):
                 print(f"rendered {unit}")
+            return 0
+        if args.command == "set":
+            for name in set_names(args.area, args.group, args.source, args.root):
+                print(f"set {name} in {args.group}")
             return 0
         if args.command == "rename":
             for entry in rename(args.area, args.root):

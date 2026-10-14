@@ -254,6 +254,42 @@ class TheHost(unittest.TestCase):
         self.assertEqual(runtime_secrets.rename(self.area, self.root), [])
         self.assertEqual(self.reader.read_text(encoding="utf-8"), before)
 
+    def source(self, text):
+        path = pathlib.Path(self.temp.name) / "source.env"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_set_writes_a_held_name_with_the_contracts_mode_and_prints_no_value(self):
+        operations_map = self.root / "etc/foundation-platform/operations-map.env"
+        self.assertFalse(operations_map.exists())
+        names = runtime_secrets.set_names(self.area, "operations-map",
+                                          self.source("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n"),
+                                          self.root)
+        self.assertEqual(names, ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN"])
+        self.assertEqual(operations_map.read_text(encoding="utf-8"),
+                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n")
+        self.assertEqual(operations_map.stat().st_mode & 0o777, 0o640)
+
+    def test_set_replaces_that_names_lines_and_keeps_the_others(self):
+        before = self.reader.read_text(encoding="utf-8").splitlines()
+        runtime_secrets.set_names(self.area, "lakehouse-reader", self.source(f"{READER}=planted-new\n"), self.root)
+        after = self.reader.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(after, [line for line in before if not line.startswith(f"{READER}=")] + [f"{READER}=planted-new"])
+        self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.findings(), [])
+
+    def test_set_refuses_a_name_the_group_does_not_hold(self):
+        """The operations map never gets a write credential (root ADR-0236)."""
+        writer = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"
+        with self.assertRaisesRegex(runtime_secrets.ContractError, writer):
+            runtime_secrets.set_names(self.area, "operations-map", self.source(f"{writer}=planted-writer\n"), self.root)
+        self.assertFalse((self.root / "etc/foundation-platform/operations-map.env").exists())
+
+    def test_set_refuses_a_source_that_is_not_name_value_lines(self):
+        for text in ("export X\n", f"{READER}=a\n{READER}=b\n", "\n"):
+            with self.subTest(text=text), self.assertRaises(runtime_secrets.ContractError):
+                runtime_secrets.set_names(self.area, "lakehouse-reader", self.source(text), self.root)
+
     def test_an_optional_file_may_be_absent(self):
         self.assertFalse((self.root / "etc/foundation-platform/by-pnu-bake.env").exists())
         self.assertEqual(self.findings(), [])

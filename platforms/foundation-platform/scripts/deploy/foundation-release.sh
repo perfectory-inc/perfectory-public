@@ -45,6 +45,7 @@ usage:
   foundation-release.sh host-retention
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh operator-access <account>
+  foundation-release.sh env-set <group> <NAME=value-file>
   foundation-release.sh status
 USAGE
   exit 64
@@ -1410,6 +1411,15 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   operator-access)
     [[ "$#" == 2 ]] || usage
     install_operator_access "$2"
+    ;;
+  env-set)
+    # A host environment file changes through the contract, not an editor (root ADR-0236): the
+    # names must be ones the group holds, and the file keeps the contract's owner, group and mode.
+    # Prints names, never values; the caller removes its source file.
+    [[ "$#" == 3 ]] || usage
+    assert_current_release
+    python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
+      set --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" "$2" "$3"
     ;;
   status)
     [[ "$#" == 1 ]] || usage
