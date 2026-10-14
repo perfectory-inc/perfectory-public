@@ -29,6 +29,8 @@ pub struct ListingDetail {
     pub listing: Listing,
     /// Active photos ordered by display order.
     pub photos: Vec<ListingPhotoSummary>,
+    /// View count from the `listing_view_event` log.
+    pub view_count: i64,
     /// Bookmark count from the bookmark relation.
     pub bookmark_count: i64,
     /// Whether the viewer bookmarked this listing.
@@ -73,7 +75,7 @@ pub struct ListingCardSummary {
     pub area_m2: f64,
     /// Thumbnail URL when available.
     pub thumbnail_url: Option<String>,
-    /// View count.
+    /// View count from the `listing_view_event` log.
     pub view_count: i64,
     /// Bookmark count from the bookmark relation.
     pub bookmark_count: i64,

@@ -20,20 +20,11 @@ pub(super) async fn save(
     ctx: MutationContext,
 ) -> Result<(), RepoError> {
     let area_decimal = listing_area_decimal(listing)?;
-    let view_count_i64 = i64::try_from(listing.view_count).unwrap_or(i64::MAX);
-    let bookmark_count_i64 = i64::try_from(listing.bookmark_count).unwrap_or(i64::MAX);
 
     let mut tx = pool.begin().await.map_err(map_sqlx_err)?;
     let before_state = crate::audit_state::read_listing_json(&mut tx, &listing.id).await?;
 
-    upsert_listing(
-        &mut tx,
-        listing,
-        &area_decimal,
-        view_count_i64,
-        bookmark_count_i64,
-    )
-    .await?;
+    upsert_listing(&mut tx, listing, &area_decimal).await?;
     super::marker_projection::sync_listing_marker_projection_after_save(&mut tx, &listing.id)
         .await?;
 
@@ -64,8 +55,6 @@ async fn upsert_listing(
     tx: &mut Transaction<'_, Postgres>,
     listing: &Listing,
     area_decimal: &BigDecimal,
-    view_count_i64: i64,
-    bookmark_count_i64: i64,
 ) -> Result<(), RepoError> {
     let result = sqlx::query(
         r"
@@ -73,14 +62,13 @@ async fn upsert_listing(
             id, owner_id, parcel_pnu, listing_type, transaction_type,
             price_krw, deposit_krw, monthly_rent_krw, area_m2,
             title, description, status, contact_visibility,
-            view_count, bookmark_count, created_at, updated_at, expires_at, version
+            created_at, updated_at, expires_at, version
         )
         values (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
             $10, $11, $12, $13,
-            $14, $15,
-            $16, $17, $18, $19
+            $14, $15, $16, $17
         )
         on conflict (id) do update set
             listing_type = excluded.listing_type,
@@ -93,12 +81,10 @@ async fn upsert_listing(
             description = excluded.description,
             status = excluded.status,
             contact_visibility = excluded.contact_visibility,
-            view_count = excluded.view_count,
-            bookmark_count = excluded.bookmark_count,
             updated_at = excluded.updated_at,
             expires_at = excluded.expires_at,
             version = excluded.version
-        where listing.version = $19 - 1
+        where listing.version = $17 - 1
         ",
     )
     .bind(listing.id.as_str())
@@ -114,8 +100,6 @@ async fn upsert_listing(
     .bind(listing.description.as_str())
     .bind(listing.status.as_str())
     .bind(listing.contact_visibility.as_str())
-    .bind(view_count_i64)
-    .bind(bookmark_count_i64)
     .bind(listing.created_at)
     .bind(listing.updated_at)
     .bind(listing.expires_at)
