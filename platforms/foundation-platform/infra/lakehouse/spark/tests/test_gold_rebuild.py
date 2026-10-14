@@ -359,9 +359,10 @@ class Contract(unittest.TestCase):
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
-        # A kind reads the lineage at its host panel's pins, so it takes the panel's leave to go without.
-        accepted = contract["tables"]["gold.parcel_panel"].get("absent_inputs_accepted", {})
+        # A kind reads at its host panel's pins, so it takes that panel's leave to go without an input
+        # (the parcel panel's lineage leave is not a building kind's).
         for kind in kinds.values():
+            accepted = contract["tables"][kind.host_panel].get("absent_inputs_accepted", {})
             self.assertEqual(contract["tables"][kind.gold_table]["absent_inputs_accepted"], accepted)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
