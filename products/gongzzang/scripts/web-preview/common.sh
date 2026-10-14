@@ -4,7 +4,6 @@
 WORKER=gongzzang-web-preview
 WRANGLER_VERSION=4.151.0
 OPENNEXT_VERSION=1.20.11
-NODE_IMAGE=node:24.20.0-bookworm
 
 wrangler() { npx --yes "wrangler@${WRANGLER_VERSION}" "$@"; }
 

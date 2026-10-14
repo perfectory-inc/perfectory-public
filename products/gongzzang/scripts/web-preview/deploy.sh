@@ -14,6 +14,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=common.sh
 source "$here/common.sh"
 repo=$(git -C "$here" rev-parse --show-toplevel)
+# shellcheck source=../../../../tools/container-images.env
+source "$repo/tools/container-images.env"
 ref=${1:-origin/main}
 # The runtime manifest is answered only inside the data host (its public edge is planned), so the
 # preview carries a snapshot. Releases are immutable; redeploy when the map shows an old release.
@@ -56,11 +58,10 @@ vars=(
   "FOUNDATION_PLATFORM_WEBHOOK_SECRET=$(random)"
 )
 
-echo "== build (${NODE_IMAGE}, @opennextjs/cloudflare ${OPENNEXT_VERSION})"
-env_args=()
-for v in "${vars[@]}"; do env_args+=(-e "$v"); done
+echo "== build (${NODE_VERIFY_IMAGE}, @opennextjs/cloudflare ${OPENNEXT_VERSION})"
+printf '%s\n' "${vars[@]}" >"$work/build.env"
 git -C "$repo" archive --format=tar "$commit" products/gongzzang platforms/foundation-platform/config |
-  docker run -i --rm "${env_args[@]}" "$NODE_IMAGE" bash -c "
+  docker run -i --rm --env-file "$work/build.env" "$NODE_VERIFY_IMAGE" bash -c "
     set -euo pipefail
     mkdir /src && tar -xf - -C /src
     cd /src/products/gongzzang
