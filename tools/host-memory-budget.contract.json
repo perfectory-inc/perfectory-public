@@ -110,6 +110,10 @@
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
       ],
+      "complex_boundary_release": [
+        {"project": "foundation-platform-compute", "service": "spark-small"},
+        {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
+      ],
       "map_edit_fold_admin": [
         {"project": "foundation-platform-compute", "service": "spark-small"},
         {"contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json", "containers": ["images"]}
