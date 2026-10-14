@@ -200,17 +200,18 @@ async fn generation_keys(
 
 /// Deletes what `plan` found past its window.
 async fn retire(store: &ByPnuServingStore, superseded: &[Superseded]) -> anyhow::Result<()> {
+    // Owned keys: a stream borrowing them would make the command's future not `Send`.
     let keys = superseded
         .iter()
         .filter(|one| one.kept_until.is_none())
-        .flat_map(|one| one.keys.iter());
-    let failures = stream::iter(keys)
-        .map(|key| store.delete(key))
+        .flat_map(|one| one.keys.clone())
+        .collect::<Vec<_>>();
+    let results = stream::iter(keys)
+        .map(|key| async move { store.delete(&key).await })
         .buffer_unordered(DELETE_CONCURRENCY)
-        .filter_map(|result| async move { result.err() })
         .collect::<Vec<_>>()
         .await;
-    match failures.into_iter().next() {
+    match results.into_iter().find_map(Result::err) {
         Some(first) => Err(first.context("a delete failed; rerun to finish the retirement")),
         None => Ok(()),
     }
@@ -285,6 +286,17 @@ mod tests {
         let store =
             ByPnuServingStore::open(lane, &ProfileStoreConfig::Local { root: root.clone() })?;
         Ok((root, store))
+    }
+
+    /// The publisher binary boxes every command's future as `Send` (`main.rs`); a stream that
+    /// borrows across an await breaks that only there, so it is held here too.
+    #[test]
+    fn the_command_future_is_send() -> anyhow::Result<()> {
+        fn send<T: Send>(_: &T) {}
+        let future = run(lane()?);
+        send(&future);
+        drop(future);
+        Ok(())
     }
 
     fn at(text: &str) -> anyhow::Result<DateTime<Utc>> {
