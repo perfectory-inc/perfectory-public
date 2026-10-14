@@ -252,7 +252,11 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # foundation-api's route-policy test reads config/identity-route-policies.contract.json, its Identity
 # client test reads Identity's published OpenAPI, and Identity's authorization-domain test reads the
 # same contract, once each from CARGO_MANIFEST_DIR. They replace three unchecked hand copies.
-COMPILE_TIME_READ_BASELINE="${3:-131}"
+# 131 -> 133: root ADR-0215 moves the knowledge-source Avro schema from a string in the Intelligence
+# consumer to the Foundation file named after its topic. The consumer embeds that file (one read)
+# and its contract test reads it by topic name (one read), so the topic, the file and the codec
+# cannot drift apart.
+COMPILE_TIME_READ_BASELINE="${3:-133}"
 
 cd "$repo_root"
 

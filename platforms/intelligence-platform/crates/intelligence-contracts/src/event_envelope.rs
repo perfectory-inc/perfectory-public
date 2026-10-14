@@ -3,8 +3,9 @@ use chrono::{DateTime, Utc};
 pub const NORMALIZATION_SUBMISSION_REQUESTED_TOPIC: &str =
     "intelligence.normalization-proposal.submission-requested.v1";
 pub const DEAD_LETTER_TOPIC: &str = "intelligence.dead-letter.v1";
-pub const FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC: &str =
-    "intelligence-platform.fixture.foundation-knowledge-source.upserted.v1";
+/// Foundation-owned topic; its value schema is `foundation-platform/schemas/<topic>.avsc`.
+pub const FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC: &str =
+    "foundation-platform.knowledge.source-upserted.v1";
 
 pub fn schema_subject_for_topic(topic: &str) -> String {
     format!("{topic}-value")

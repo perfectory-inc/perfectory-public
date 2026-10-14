@@ -177,7 +177,9 @@ cargo run -p intelligence-worker --bin foundation_knowledge_consumer
   Foundation submitter 제출). env로 dry-run을 지원한다.
 - `building_register_unit_normalization` — 건축물대장 **단위** 정규화 제안 작업.
 - `foundation_knowledge_consumer` — Foundation 지식 원천 이벤트(Kafka·Karapace schema, DLQ)를
-  Postgres 지식 원천 registry로 소비한다. 현재 Foundation 쪽 producer는 없으며 기본 topic은 fixture 상수다.
+  Postgres 지식 원천 registry로 소비한다. 스키마는 Foundation 소유
+  `foundation-platform.knowledge.source-upserted.v1.avsc`이고, 소비자는 `<topic>-value` subject에서 그 스키마를
+  조회만 한다(등록하지 않음). Foundation이 등록하기 전에는 기동이 실패한다. 현재 Foundation 쪽 producer는 없다.
 
 ### Observability
 
