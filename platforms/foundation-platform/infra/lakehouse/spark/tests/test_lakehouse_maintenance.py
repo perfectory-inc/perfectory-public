@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
@@ -21,7 +22,10 @@ sys.path.insert(0, str(JOBS_DIR))
 
 from lakehouse_maintenance import (  # noqa: E402
     MINIMUM_ORPHAN_SAFETY_HOURS,
+    create_tag_sql,
     load_maintenance_contract,
+    month_end_snapshots,
+    month_end_tags_to_create,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
@@ -34,7 +38,8 @@ def sound_contract() -> dict:
         "order": ["compaction", "snapshot_expiry", "orphan_cleanup"],
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
                        "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25},
-        "snapshot_expiry": {"retain_days": 7, "retain_last": 1},
+        "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
+                            "month_end_tag": {"name_format": "monthly-%Y-%m"}},
         "orphan_cleanup": {"safety_days": 3},
     }
 
@@ -99,6 +104,82 @@ class SafetyWindowTest(unittest.TestCase):
         stamp = timestamp_before(3)
         self.assertRegex(stamp, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$")
         self.assertLess(stamp, timestamp_before(0), "과거여야 한다")
+
+
+def at(year: int, month: int, day: int, hour: int = 0) -> datetime:
+    return datetime(year, month, day, hour, tzinfo=timezone.utc)
+
+
+class MonthEndTagTest(unittest.TestCase):
+    """월마다 한 스냅숏을 영구 보존한다 — 그 달이 끝날 때 `main` 이 가리키던 스냅숏 (ADR-0233)."""
+
+    def test_each_finished_month_ends_on_its_last_current_snapshot(self) -> None:
+        history = [(at(2026, 8, 3), 1), (at(2026, 8, 30), 2), (at(2026, 9, 10), 3)]
+
+        self.assertEqual(
+            month_end_snapshots(history, now=at(2026, 10, 14)),
+            [(2026, 8, 2), (2026, 9, 3)],
+        )
+
+    def test_the_running_month_is_not_tagged_yet(self) -> None:
+        """끝나지 않은 달의 마지막 스냅숏은 아직 모른다."""
+        history = [(at(2026, 10, 1), 7), (at(2026, 10, 13), 8)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2026, 10, 14)), [])
+
+    def test_a_month_without_a_commit_ends_on_the_previous_snapshot(self) -> None:
+        history = [(at(2026, 7, 20), 4), (at(2026, 9, 2), 5)]
+
+        self.assertEqual(
+            month_end_snapshots(history, now=at(2026, 9, 30)),
+            [(2026, 7, 4), (2026, 8, 4)],
+        )
+
+    def test_a_commit_at_the_boundary_belongs_to_the_next_month(self) -> None:
+        history = [(at(2026, 8, 15), 1), (at(2026, 9, 1), 2)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2026, 9, 2)), [(2026, 8, 1)])
+
+    def test_the_year_rolls_over(self) -> None:
+        history = [(at(2026, 12, 31, 23), 9)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2027, 1, 1)), [(2026, 12, 9)])
+
+    def test_an_existing_tag_is_never_moved(self) -> None:
+        """이미 있는 태그는 다시 만들지 않는다. 옮기면 그 달의 상태가 바뀐다."""
+        history = [(at(2026, 8, 3), 1), (at(2026, 9, 10), 3)]
+
+        self.assertEqual(
+            month_end_tags_to_create(
+                history, {"main", "monthly-2026-08"}, "monthly-%Y-%m", at(2026, 10, 14)
+            ),
+            [("monthly-2026-09", 3)],
+        )
+
+    def test_a_tag_is_created_without_an_age_limit(self) -> None:
+        """`RETAIN` 을 붙이면 `max-ref-age-ms` 가 생기고, 만료가 그 태그를 지운다."""
+        sql = create_tag_sql("r2", "silver.parcel_boundaries", "monthly-2026-09", 42)
+
+        self.assertIn("CREATE TAG IF NOT EXISTS `monthly-2026-09` AS OF VERSION 42", sql)
+        self.assertNotIn("RETAIN", sql.upper())
+
+    def test_a_name_two_months_share_is_refused(self) -> None:
+        """이름에 연·월이 없으면 둘째 달부터 태그가 안 생기고 그 스냅숏이 만료된다."""
+        contract = sound_contract()
+        contract["snapshot_expiry"]["month_end_tag"]["name_format"] = "monthly-%Y"
+
+        with self.assertRaises(ValueError) as caught:
+            validate_maintenance_contract(contract)
+        self.assertIn("%m", str(caught.exception))
+
+    def test_the_shipped_name_is_unique_per_month(self) -> None:
+        name_format = load_maintenance_contract()["snapshot_expiry"]["month_end_tag"]["name_format"]
+        names = {
+            at(year, month, 1).strftime(name_format)
+            for year in (2026, 2027)
+            for month in range(1, 13)
+        }
+        self.assertEqual(len(names), 24)
 
 
 class CompactionTriggerTest(unittest.TestCase):

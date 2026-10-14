@@ -17,9 +17,13 @@
     "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
   },
   "snapshot_expiry": {
-    "retain_days": 7,
+    "retain_days": 30,
     "retain_last": 1,
-    "retain_reason": "Seven days of rollback. Iceberg keeps every superseded data file alive for as long as a snapshot references it, which is why this lakehouse held 58 GB to serve 17 GB. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window."
+    "retain_reason": "Thirty days of rollback, decided by the owner on 2026-10-14 (root ADR-0233); it was seven. Iceberg keeps every superseded data file alive for as long as a snapshot references it, so the window is paid for in R2 bytes — measured before the change from each table's snapshot summaries. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window.",
+    "month_end_tag": {
+      "name_format": "monthly-%Y-%m",
+      "reason": "One snapshot per month kept forever: the snapshot `main` pointed at when the month ended (UTC). The maintenance job creates the tag before it expires anything, and a tag without `max-ref-age-ms` is never removed by `expire_snapshots`, so no snapshot id is ever listed by hand. An existing tag is never moved."
+    }
   },
   "orphan_cleanup": {
     "safety_days": 3,

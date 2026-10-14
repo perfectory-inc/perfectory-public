@@ -68,8 +68,18 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
             "floor; deleting a running writer's output corrupts the commit it is about to make"
         )
 
-    if contract["snapshot_expiry"]["retain_last"] < 1:
+    expiry = contract["snapshot_expiry"]
+    if expiry["retain_last"] < 1:
         raise ValueError("snapshot_expiry.retain_last must keep at least the current snapshot")
+    if expiry["retain_days"] < 1:
+        raise ValueError("snapshot_expiry.retain_days must leave at least a day of rollback")
+
+    name_format = expiry["month_end_tag"]["name_format"]
+    if "%Y" not in name_format or "%m" not in name_format:
+        raise ValueError(
+            f"snapshot_expiry.month_end_tag.name_format={name_format!r} must contain %Y and %m: "
+            "a name two months share makes the second month's tag a no-op, and its snapshot expires"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -95,9 +105,61 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def timestamp_before(days: int) -> str:
+def timestamp_before(days: int, now: datetime | None = None) -> str:
     """Iceberg's procedures take a literal timestamp, not an interval."""
-    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S.000")
+    now = now or datetime.now(timezone.utc)
+    return (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S.000")
+
+
+def month_start(year: int, month: int) -> datetime:
+    return datetime(year, month, 1, tzinfo=timezone.utc)
+
+
+def next_month(year: int, month: int) -> tuple[int, int]:
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def month_end_snapshots(
+    history: list[tuple[datetime, int]], now: datetime
+) -> list[tuple[int, int, int]]:
+    """The snapshot `main` pointed at when each finished month ended, as (year, month, id).
+
+    `history` is the table's snapshot log: when each snapshot became current. A month counts once
+    it is over (UTC). The first month is the one the oldest surviving entry falls in; a month
+    before that cannot be answered, because the snapshot that was current then is already gone.
+    A month with no commit of its own ends on the snapshot the previous month ended on.
+    """
+    if not history:
+        return []
+    ordered = sorted(history)
+    year, month = ordered[0][0].year, ordered[0][0].month
+    result: list[tuple[int, int, int]] = []
+    while month_start(*next_month(year, month)) <= now:
+        boundary = month_start(*next_month(year, month))
+        current = [snapshot_id for made_current_at, snapshot_id in ordered if made_current_at < boundary]
+        result.append((year, month, current[-1]))
+        year, month = next_month(year, month)
+    return result
+
+
+def month_end_tags_to_create(
+    history: list[tuple[datetime, int]], existing_refs: set[str], name_format: str, now: datetime
+) -> list[tuple[str, int]]:
+    """Tags still missing for finished months. An existing tag is never moved or recreated."""
+    tags = []
+    for year, month, snapshot_id in month_end_snapshots(history, now):
+        name = month_start(year, month).strftime(name_format)
+        if name not in existing_refs:
+            tags.append((name, snapshot_id))
+    return tags
+
+
+def create_tag_sql(catalog: str, table: str, name: str, snapshot_id: int) -> str:
+    """A tag with no `RETAIN` clause has no `max-ref-age-ms`, so expiry keeps its snapshot forever."""
+    return (
+        f"ALTER TABLE {catalog}.{table} CREATE TAG IF NOT EXISTS `{name}` "
+        f"AS OF VERSION {snapshot_id}"
+    )
 
 
 def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int) -> str:
@@ -106,11 +168,58 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
     Iceberg's `expire_snapshots` never removes a snapshot a live reference names: a branch, or a
     tag without `max-ref-age-ms`. The by-PNU publish tags the Gold snapshot each serving manifest
     reflects (`served-<lane>-...`, root ADR-0146 §2), so that snapshot outlives this call for as
-    long as the manifest serves it. Nothing here may pass options that drop references.
+    long as the manifest serves it; the month-end tags (root ADR-0233) are kept the same way,
+    forever. Nothing here may pass options that drop references.
     """
     return (
         f"CALL {catalog}.system.expire_snapshots(table => '{table}', "
         f"older_than => TIMESTAMP '{cutoff}', retain_last => {retain_last})"
+    )
+
+
+def run_snapshot_expiry(
+    spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool
+) -> None:
+    """Tag each finished month's last snapshot, then expire what is past the window.
+
+    The tags come first and in the same run: a month-end snapshot is pinned before the expiry
+    that would otherwise remove it, so a month is lost only if this job does not run at all for
+    `retain_days` after the month ends.
+    """
+    qualified = f"{catalog}.{table}"
+    history = [
+        (datetime.fromtimestamp(row.ms / 1000, tz=timezone.utc), int(row.snapshot_id))
+        for row in spark.sql(
+            f"SELECT unix_millis(made_current_at) AS ms, snapshot_id FROM {qualified}.history"
+        ).collect()
+    ]
+    refs = {row.name for row in spark.sql(f"SELECT name FROM {qualified}.refs").collect()}
+    alive = {
+        int(row.snapshot_id)
+        for row in spark.sql(f"SELECT snapshot_id FROM {qualified}.snapshots").collect()
+    }
+    tags = month_end_tags_to_create(history, refs, expiry["month_end_tag"]["name_format"], now)
+    for name, snapshot_id in tags:
+        if snapshot_id not in alive:
+            # The month ended on a snapshot that is already gone; tagging another would record a
+            # state the table was never in at that month's end.
+            print(f"maintenance-skip step=month_end_tag tag={name} reason=snapshot_expired", flush=True)
+            continue
+        if dry_run:
+            print(f"maintenance-would step=month_end_tag tag={name} snapshot={snapshot_id}", flush=True)
+        else:
+            spark.sql(create_tag_sql(catalog, table, name, snapshot_id)).collect()
+            print(f"maintenance-done step=month_end_tag tag={name} snapshot={snapshot_id}", flush=True)
+
+    cutoff = timestamp_before(expiry["retain_days"], now)
+    if dry_run:
+        print(f"maintenance-would step=snapshot_expiry older_than={cutoff}", flush=True)
+        return
+    result = spark.sql(expire_snapshots_sql(catalog, table, cutoff, expiry["retain_last"])).collect()[0]
+    print(
+        f"maintenance-done step=snapshot_expiry data_files={result[0]} "
+        f"manifests={result[2]} older_than={cutoff}",
+        flush=True,
     )
 
 
@@ -188,18 +297,9 @@ def main() -> int:
     if "snapshot_expiry" in args.skip:
         print("maintenance-skip step=snapshot_expiry", flush=True)
     else:
-        cutoff = timestamp_before(expiry["retain_days"])
-        if args.dry_run:
-            print(f"maintenance-would step=snapshot_expiry older_than={cutoff}", flush=True)
-        else:
-            result = spark.sql(
-                expire_snapshots_sql(args.catalog, args.table, cutoff, expiry["retain_last"])
-            ).collect()[0]
-            print(
-                f"maintenance-done step=snapshot_expiry data_files={result[0]} "
-                f"manifests={result[2]} older_than={cutoff}",
-                flush=True,
-            )
+        run_snapshot_expiry(
+            spark, args.catalog, args.table, expiry, datetime.now(timezone.utc), args.dry_run
+        )
 
     if "orphan_cleanup" in args.skip:
         print("maintenance-skip step=orphan_cleanup", flush=True)
