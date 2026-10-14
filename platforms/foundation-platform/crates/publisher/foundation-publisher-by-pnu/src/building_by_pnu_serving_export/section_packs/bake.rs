@@ -866,11 +866,12 @@ async fn write_unit(
     Ok((packs, check, cut))
 }
 
-/// One section of one dong, laid out as the packs it is written as (root ADR-0163). A patch
-/// follows the parts the served generation cut the dong into. A base bake lays the dong out
-/// whole and keeps it whole when it fits `parts.part_target_bytes`; otherwise it cuts the dong
-/// into `ceil(size / part_target_bytes)` parts by the PNU's hash. A part with nothing in it is
-/// not written, and no part may outgrow what the gateway reads whole.
+/// One section of one dong, laid out as the packs it is written as. A base bake lays every dong
+/// out as one pack whatever its size (root ADR-0233: the gateway reads every pack by head and
+/// range, so a large dong costs a request no more than a small one; the pack writer holds its
+/// head and documents to the request CPU budget). A patch follows the parts the served
+/// generation cut the dong into (root ADR-0163), until no served generation has parts: a part
+/// with nothing in it is not written, and no part may outgrow what such a generation was held to.
 fn lay_out_parts(
     run: &Run<'_>,
     section: &str,
@@ -894,18 +895,7 @@ fn lay_out_parts(
     let count = if run.config.patch.is_some() {
         run.plan.parts(section).count(dong)
     } else {
-        let whole = lay_out(dong, documents, deleted)?;
-        let parts = u64::try_from(whole.len())?.div_ceil(policy.parts.part_target_bytes);
-        if parts <= 1 {
-            return Ok(vec![LaidOut {
-                section: section.to_owned(),
-                unit: dong.to_owned(),
-                bytes: whole,
-                documents: documents.to_vec(),
-                deleted: deleted.to_vec(),
-            }]);
-        }
-        u32::try_from(parts)?
+        1
     };
     let mut laid_out = Vec::new();
     for part in 0..count {
