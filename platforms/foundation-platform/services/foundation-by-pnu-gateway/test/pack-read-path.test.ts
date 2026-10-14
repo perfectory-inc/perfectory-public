@@ -18,10 +18,9 @@ import {
   type PackReads,
 } from "../src/packs";
 
-// The read path of root ADR-0147's Revision: a pack within the contract's whole-pack bound is read
-// whole by the GET that finds its head (one R2 hop), a larger one as head + range; pack copies live
-// in isolate memory only, the answer of a PNU in the edge cache (ADR-0154); R2 is retried within a
-// deadline. The golden packs are the
+// The read path of root ADR-0233: every pack, whatever its size, is read by its head (kept in
+// isolate memory) and then the one document by range; the answer of a PNU lives in the edge cache
+// (ADR-0154); R2 is retried within a deadline. The golden packs are the
 // publisher's (see section-packs.test.ts); PNUs sit in the synthetic 99999 namespace.
 const PNU_A = "9999900000100000000";
 const UNIT = "9999900000";
@@ -167,53 +166,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("one-hop small packs and head + range large packs", () => {
-  it("a pack within the bound is read whole by one GET and answers from those bytes", async () => {
-    expect(READ.whole_pack_max_bytes).toBeGreaterThan(0);
+describe("one read rule: head, then the document by range", () => {
+  it("every pack is read by its head and the document by range, the rest of its body unread", async () => {
     const objects = await goldenPacks();
-    const { bucket, asked } = strictBucket(objects);
+    const { bucket, asked, streamed } = strictBucket(objects);
     const resolved = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
     expect(resolved.kind).toBe("document");
-    // One unranged GET per section, no range reads.
-    expect(asked).toHaveLength(PACKS.sections.length);
-    expect(asked.every((read) => read.range === undefined)).toBe(true);
+    // One unranged GET per section, cancelled once its head is in, and one range per document,
+    // whose entity tag is compared on the answer, not sent as a condition (ADR-0154).
+    expect(asked.filter((read) => read.range === undefined)).toHaveLength(PACKS.sections.length);
+    const ranges = asked.filter((read) => read.range !== undefined);
+    expect(ranges).toHaveLength(PACKS.sections.length);
+    expect(ranges.every((read) => read.etagMatches === undefined)).toBe(true);
+    expect(streamed.cancelled).toBe(PACKS.sections.length);
+    const packBytes = PACKS.sections.reduce((sum, section) => sum + (objects[key(section)]?.length ?? 0), 0);
+    expect(streamed.pulled).toBeLessThan(packBytes);
   });
 
-  it("whole-pack and head + range answer the same bytes (golden documents unchanged)", async () => {
+  it("the ranged member is the publisher's document (golden documents unchanged)", async () => {
     const objects = await goldenPacks();
     const documents = JSON.parse(await readFile(new URL("documents.json", fixtures), "utf8")) as {
       base: Record<string, string>;
     };
-    const small = strictBucket(objects);
-    const whole = await resolvePacks(reads(small.bucket), unpartedPlan(), PNU_A);
-    forgetPacks();
-    edge.clear();
-    const large = strictBucket(objects, { reportedSize: READ.whole_pack_max_bytes + 1 });
-    const ranged = await resolvePacks(reads(large.bucket), unpartedPlan(), PNU_A);
-    // The large path read each head, cancelled the rest, and read each document by a range whose
-    // entity tag is compared on the answer, not sent as a condition (ADR-0154).
-    expect(large.asked.filter((read) => read.range === undefined)).toHaveLength(PACKS.sections.length);
-    const ranges = large.asked.filter((read) => read.range !== undefined);
-    expect(ranges).toHaveLength(PACKS.sections.length);
-    expect(ranges.every((read) => read.etagMatches === undefined)).toBe(true);
-    expect(large.streamed.cancelled).toBe(PACKS.sections.length);
-    if (whole.kind !== "document" || ranged.kind !== "document") throw new Error("no document");
-    // The same member bytes and the same entity tag, decoding to the object lane's document.
-    expect([...whole.member]).toEqual([...ranged.member]);
-    expect(whole.etag).toBe(ranged.etag);
+    const { bucket } = strictBucket(objects);
+    const resolved = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
+    if (resolved.kind !== "document") throw new Error("no document");
     const decoded = await new Response(
-      new Blob([whole.member]).stream().pipeThrough(new DecompressionStream("gzip")),
+      new Blob([resolved.member]).stream().pipeThrough(new DecompressionStream("gzip")),
     ).text();
     expect(decoded).toBe(documents.base[PNU_A]);
-  });
-
-  it("a whole pack whose length disagrees with its header is a format error", async () => {
-    const objects = await goldenPacks();
-    const name = key(PACKS.anchor_section);
-    const whole = objects[name];
-    if (whole === undefined) throw new Error("no fixture");
-    const { bucket } = strictBucket({ [name]: whole.slice(0, whole.length - 1) });
-    await expect(readPack(reads(bucket), PACKS.anchor_section, name)).rejects.toBeInstanceOf(PackFormatError);
   });
 
   it("a truncated large pack is a format error, not a guess", async () => {
@@ -221,7 +202,7 @@ describe("one-hop small packs and head + range large packs", () => {
     const name = key(PACKS.anchor_section);
     const whole = objects[name];
     if (whole === undefined) throw new Error("no fixture");
-    const { bucket } = strictBucket({ [name]: whole.slice(0, 30) }, { reportedSize: READ.whole_pack_max_bytes + 1 });
+    const { bucket } = strictBucket({ [name]: whole.slice(0, 30) });
     await expect(readPack(reads(bucket), PACKS.anchor_section, name)).rejects.toThrow("shorter than declared");
   });
 });
@@ -232,20 +213,21 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
     const { bucket, asked } = strictBucket(objects);
     const plan = unpartedPlan();
     await resolvePacks(reads(bucket), plan, PNU_A);
-    const r2 = asked.length;
+    const heads = asked.filter((read) => read.range === undefined).length;
     const trace = new ReadTrace();
     await resolvePacks(reads(bucket, { trace }), plan, PNU_A);
-    expect(asked).toHaveLength(r2);
-    expect([...trace.sections.values()].every((source) => source === "memory-whole")).toBe(true);
+    // The head is remembered; only the document is read again.
+    expect(asked.filter((read) => read.range === undefined)).toHaveLength(heads);
+    expect([...trace.sections.values()].every((source) => source === "memory-head+range")).toBe(true);
   });
 
   it("no pack is put in or looked up from the edge cache: a new isolate reads R2 again", async () => {
     const objects = await goldenPacks();
-    for (const reportedSize of [undefined, READ.whole_pack_max_bytes + 1]) {
+    {
       forgetPacks();
       edge.clear();
       edgeAsked.length = 0;
-      const { bucket, asked } = strictBucket(objects, { reportedSize });
+      const { bucket, asked } = strictBucket(objects);
       const first = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
       await Promise.all(pending);
       expect(edge.size).toBe(0);
@@ -263,10 +245,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
   it("a remembered head is never combined with bytes R2 holds under another entity tag", async () => {
     const objects = await goldenPacks();
     const name = key(PACKS.anchor_section);
-    const { bucket, asked } = strictBucket(objects, {
-      reportedSize: READ.whole_pack_max_bytes + 1,
-      rangeEtag: "a-newer-tag",
-    });
+    const { bucket, asked } = strictBucket(objects, { rangeEtag: "a-newer-tag" });
     await expect(resolvePacks(reads(bucket), unpartedPlan(), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
     // Read once, refused, and not retried: retrying cannot make it right.
     const ranged = asked.filter((read) => read.key === name && read.range !== undefined);
@@ -289,7 +268,7 @@ describe("R2 retries within a deadline", () => {
     expect(trace.retries).toBe(2);
     expect(trace.failures).toHaveLength(2);
     expect(trace.failures.every((failure) => failure.endsWith("r2:10001"))).toBe(true);
-    expect(asked).toHaveLength(PACKS.sections.length + 2);
+    expect(asked).toHaveLength(2 * PACKS.sections.length + 2);
     // Full jitter: the planted random 0.5 of an exponentially growing cap.
     expect(slept.every((ms) => ms <= READ.r2_retry_base_ms * 2 ** (READ.r2_attempts - 1))).toBe(true);
   });
@@ -314,7 +293,7 @@ describe("R2 retries within a deadline", () => {
     expect(resolved.kind).toBe("document");
     expect(trace.failures).toEqual([`${PACKS.anchor_section}:pack:timeout`]);
     expect(trace.retries).toBe(1);
-    expect(asked).toHaveLength(2);
+    expect(asked).toHaveLength(3);
     expect(elapsed).toBeGreaterThanOrEqual(READ.r2_attempt_timeout_ms - 50);
     expect(elapsed).toBeLessThan(READ.r2_deadline_ms);
   }, 10_000);
@@ -378,7 +357,7 @@ describe("R2 retries within a deadline", () => {
     const get = () => fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env, ctx);
     const cold = await get();
     const coldBody = new Uint8Array(await cold.arrayBuffer());
-    expect(cold.headers.get("server-timing")).toContain('desc="r2-whole"');
+    expect(cold.headers.get("server-timing")).toContain('desc="r2-head+range"');
     await Promise.all(pending);
     // The copy sits under the plan's fingerprint: another generation names another entry.
     expect(edge.has(answerCacheUrl(previewPlan(1, null).fingerprint, PNU_A))).toBe(true);
@@ -420,7 +399,7 @@ describe("R2 retries within a deadline", () => {
     const get = (version: string) =>
       fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env(version), ctx);
     const first = await get("11111111-1111-4111-8111-111111111111");
-    expect(first.headers.get("server-timing")).toContain('desc="r2-whole"');
+    expect(first.headers.get("server-timing")).toContain('desc="r2-head+range"');
     await Promise.all(pending);
     forgetPacks();
     // The same version answers from its copy; a new upload of the preview does not see it.
@@ -430,8 +409,31 @@ describe("R2 retries within a deadline", () => {
     expect(next.status).toBe(200);
     const timing = next.headers.get("server-timing") ?? "";
     expect(timing).not.toContain("edge-answer");
-    expect(timing).toContain('desc="r2-whole"');
+    expect(timing).toContain('desc="r2-head+range"');
     expect(asked.length).toBeGreaterThan(before);
+  });
+
+  // Root ADR-0233: gunzip costs the Worker 5.8 ms per decompressed MB and a building document
+  // reaches 11.5 MB, so a client that takes no gzip is answered by the edge's conversion.
+  it("a client that takes no gzip still gets the stored member from the Worker, never a decoded body", async () => {
+    const policy = GATEWAY;
+    const objects = await goldenPacks();
+    const { bucket } = strictBucket(objects);
+    const env = {
+      [policy.r2_binding]: bucket,
+      [policy.allowed_origins_binding]: "https://app.example.test",
+      [PACKS.preview_binding]: "true",
+    };
+    const url = `https://buildings.example.test${policy.request_path.prefix}${PNU_A}?packs=g1`;
+    const gzip = await fetchByPnu(new Request(url, { headers: { "Accept-Encoding": "gzip" } }), env, ctx);
+    for (const acceptEncoding of ["identity", "gzip;q=0", "br"]) {
+      forgetPacks();
+      edge.clear();
+      const plain = await fetchByPnu(new Request(url, { headers: { "Accept-Encoding": acceptEncoding } }), env, ctx);
+      expect(plain.headers.get("content-encoding"), acceptEncoding).toBe("gzip");
+      expect(plain.headers.get("etag"), acceptEncoding).toBe(gzip.headers.get("etag"));
+      expect(plain.headers.get("server-timing"), acceptEncoding).toContain('outcome;desc="document"');
+    }
   });
 
   it("a preview answer carries Server-Timing; the live route's answer does not", async () => {
@@ -455,7 +457,7 @@ describe("R2 retries within a deadline", () => {
     expect(preview.status).toBe(200);
     const timing = preview.headers.get("server-timing") ?? "";
     expect(timing).toContain('outcome;desc="document"');
-    expect(timing).toMatch(/r2;dur=\d+;desc="gets=1 retries=0"/);
+    expect(timing).toMatch(/r2;dur=\d+;desc="gets=2 retries=0"/);
     for (const section of PACKS.sections) expect(timing).toContain(`pack-${section};dur=`);
     expect(timing).toMatch(/total;dur=\d+/);
     const live = await fetchByPnu(new Request(url), env(false), ctx);

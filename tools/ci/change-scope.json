@@ -15,6 +15,7 @@
     "intelligence-ci.yml": {
       "paths": [
         "platforms/intelligence-platform/**",
+        "platforms/foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc",
         "tools/xtask/**",
         ".cargo/config.toml",
         "rust-toolchain.toml",
@@ -71,6 +72,7 @@
         "scripts/tiles/vector-tile-manifest.local.json",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]

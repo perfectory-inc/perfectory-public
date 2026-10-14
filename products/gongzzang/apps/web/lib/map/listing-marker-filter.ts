@@ -1,4 +1,5 @@
 import type { ListingFilters } from "@/lib/listings/filters";
+import { LISTING_MARKER_ID_PROPERTY } from "@/lib/map/marker-tile-contract";
 
 type MapboxFilterExpression = unknown[];
 
@@ -10,7 +11,7 @@ export function buildListingMarkerLayerFilter(
   const hiddenMarkerIds = [...tombstoneIds];
 
   if (hiddenMarkerIds.length > 0) {
-    clauses.push(["!", ["in", ["get", "id"], ["literal", hiddenMarkerIds]]]);
+    clauses.push(["!", ["in", ["get", LISTING_MARKER_ID_PROPERTY], ["literal", hiddenMarkerIds]]]);
   }
 
   if (filters.types.length > 0) {

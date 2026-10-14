@@ -75,7 +75,8 @@ fn administrative_boundary_migration_keeps_external_codes_temporal_and_lineaged(
     let grants =
         read_repo_text("platforms/foundation-platform/infra/compose/grant-foundation-runtime.sql");
     assert!(grants.contains("REVOKE INSERT, UPDATE, DELETE ON TABLE"));
-    assert!(grants.contains("GRANT EXECUTE ON FUNCTION catalog.publish_parcel_identifier"));
+    // ADR-0194 §7 dropped the function with catalog.parcel; a grant on it fails the grant script.
+    assert!(!grants.contains("publish_parcel_identifier"));
 }
 
 #[test]

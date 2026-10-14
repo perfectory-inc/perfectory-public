@@ -28,8 +28,9 @@
 //! to hand the stored member out as it is, so a pack answer without `Content-Encoding: gzip` is a
 //! failure (`pack:not-gzip`), and the evidence records which encoding each side answered in and
 //! which path the preview took (its `Server-Timing` outcome). A further `no_gzip_sample_size` of
-//! the sample is then read from the preview with `Accept-Encoding: identity`, the one path where
-//! the Worker decompresses: each must answer 200, uncompressed, with the live route's content.
+//! the sample is then read from the preview with `Accept-Encoding: identity`, which the edge
+//! answers by decoding the member the Worker handed out (root ADR-0233): each must answer 200,
+//! uncompressed, with the live route's content.
 //!
 //! The preview Worker's CPU over the probe window is read from Workers analytics: the account's
 //! plan cuts a request off past its CPU limit (error 1102, an HTTP 503), so the gate demands no
@@ -329,7 +330,7 @@ fn is_stand_in(base_url: &str) -> bool {
 pub enum Accept {
     /// What browsers send: the pack path answers with the stored member as it is.
     Gzip,
-    /// A client without gzip: the Worker decompresses the member.
+    /// A client without gzip: the edge decodes the member the Worker handed out (root ADR-0233).
     Identity,
 }
 
@@ -993,7 +994,7 @@ fn request_class(error: &reqwest::Error, phase: &str) -> String {
 /// description of every `pack-{section}` metric.
 #[derive(Debug, Default, PartialEq)]
 pub struct ParsedServerTiming {
-    /// The path the Worker took (`document`, `document-decompressed`, `r2-unavailable`, …).
+    /// The path the Worker took (`document`, `r2-unavailable`, …).
     pub outcome: Option<String>,
     pub total_ms: Option<f64>,
     pub r2_ms: Option<f64>,

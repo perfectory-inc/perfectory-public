@@ -2,7 +2,7 @@
 
 Runs the Spark path of `parcel_panel_silver_to_gold` against the reference semantics in
 `parcel_attribute_carry.attach`, and pins the digest promise: a row whose sections are all its
-own keeps the fingerprint it had before `attached_via_json` existed.
+own keeps the fingerprint it had before `attached_via_json` and `lineage_json` existed.
 """
 
 import hashlib
@@ -51,10 +51,12 @@ class PanelCarrySparkTest(unittest.TestCase):
             "forest_ledger": "pnu string, forest_ledger_json string",
             "transfer_history": "pnu string, transfer_history_json string",
             "land_rights": "pnu string, land_rights_json string, land_right_total long",
+            "lineage": "pnu string, lineage_json string",
         }
         sections = {name: spark.createDataFrame([], schema) for name, schema in empty.items()}
         sections["price"] = spark.createDataFrame(list(own_price.items()), "pnu string, price_json string")
-        sections = {n: job.carry_section(f, job.SECTION_VIA_COLUMNS[n], cand) for n, f in sections.items()}
+        sections = {n: job.carry_section(f, job.SECTION_VIA_COLUMNS[n], cand) if n in job.SECTION_VIA_COLUMNS else f
+                    for n, f in sections.items()}
         parcels = spark.createDataFrame([(p,) for p in map_pnus], "pnu string")
         rows = job.build_gold_panel_frame(parcels, sections, "snap", "2099-09-01T00:00:00Z").collect()
         self.assertEqual(sorted(r.pnu for r in rows), sorted(map_pnus), "one row per map PNU")
@@ -98,7 +100,8 @@ class PanelCarrySparkTest(unittest.TestCase):
 
         row = self.panel([], {pnu(NEW, 2): '{"price_per_m2":2}'}, [pnu(NEW, 2)])[pnu(NEW, 2)]
         # The fingerprint as it was before the column existed — spelled here, not read from the job.
-        before = [c for c in job.CONTENT_DIGEST_COLUMNS if c != "attached_via_json"]
+        # Neither later column (`attached_via_json`, `lineage_json`) may move it while it is NULL.
+        before = [c for c in job.CONTENT_DIGEST_COLUMNS if c not in ("attached_via_json", "lineage_json")]
         values = ["\x00null" if row[c] is None else str(row[c]) for c in before]
         self.assertEqual(row.row_digest, hashlib.sha256("\x1f".join(values).encode()).hexdigest())
 

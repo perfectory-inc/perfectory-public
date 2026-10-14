@@ -25,9 +25,9 @@ pub use marker_tile::{
     ListingMarkerCount, ListingMarkerDeltas, ListingMarkerMask, ListingMarkerMaskEncoding,
     ListingMarkerMaskQuery, ListingMarkerOverlayTileQuery, ListingMarkerRegisteredFilter,
     ListingMarkerTile, ListingMarkerTileQuery, ListingMarkerTileQueryError,
-    ListingMarkerTombstones, LISTING_MARKER_DELTA_TILE_LAYER, LISTING_MARKER_TILE_CONTENT_TYPE,
-    LISTING_MARKER_TILE_EXACT_MIN_ZOOM, LISTING_MARKER_TILE_LAYER, LISTING_MARKER_TILE_MAX_ZOOM,
-    LISTING_MARKER_TILE_MIN_ZOOM,
+    ListingMarkerTombstones, LISTING_MARKER_DELTA_TILE_LAYER, LISTING_MARKER_ID_PROPERTY,
+    LISTING_MARKER_TILE_CONTENT_TYPE, LISTING_MARKER_TILE_EXACT_MIN_ZOOM,
+    LISTING_MARKER_TILE_LAYER, LISTING_MARKER_TILE_MAX_ZOOM, LISTING_MARKER_TILE_MIN_ZOOM,
 };
 pub use read_models::{
     ListingCardSummary, ListingDetail, ListingParcelDenormalize, ListingPhotoSummary,

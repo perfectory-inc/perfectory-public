@@ -101,7 +101,7 @@
     },
     {
       "id": "lineage_stewardship",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts.",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
@@ -116,6 +116,9 @@
         "silver-parcel-boundaries-to-reference-legal-dong-code-change",
         "source-vworld-dataset-to-silver-parcel-number-change-history",
         "silver-parcel-number-change-history-to-reference-legal-dong-code-change",
+        "silver-parcel-boundaries-to-silver-parcel-lineage",
+        "reference-legal-dong-code-change-to-silver-parcel-lineage",
+        "silver-land-transfer-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
@@ -213,8 +216,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-units"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_building_register_unit_areas",
@@ -248,8 +250,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-apartment-price"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_building_register_exclusive_unit",
@@ -266,8 +267,7 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_land_characteristic",
@@ -352,8 +352,7 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "silver_refresh_land_use_plan",
@@ -387,8 +386,7 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-zone-code"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "gold_panel_rebuild",
@@ -424,6 +422,28 @@
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
       "enabled": true
+    },
+    {
+      "id": "admin_boundary_release",
+      "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-admin-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "30 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-administrative-boundaries",
+        "reference-legal-dong-code-change-to-silver-administrative-boundaries",
+        "silver-administrative-boundaries-to-gold-place-id-registry",
+        "silver-administrative-boundaries-to-gold-place-id-bridge",
+        "silver-administrative-boundaries-to-gold-place-id-changelog"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "gold_kind_rebuild",

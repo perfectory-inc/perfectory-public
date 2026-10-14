@@ -15,7 +15,7 @@ const INDEX_ENTRY_BYTES = 28;
 const PNU_BYTES = 19;
 const STATE_DOCUMENT = 1;
 const STATE_TOMBSTONE = 2;
-/// The read path's bounds (root ADR-0147 Revision): which packs are read whole, how much an
+/// The read path's bounds (root ADR-0147 Revision, ADR-0233): how much an
 /// isolate keeps, and how R2 is retried.
 const readPolicy = packPolicy.read_path;
 const magic = new TextEncoder().encode(packPolicy.magic);
@@ -176,12 +176,10 @@ export interface PackHead {
   etag: string;
 }
 
-/// What one pack read leaves behind: its head, and the whole pack when it is small enough to read
-/// in the same GET (the contract's `read_path.whole_pack_max_bytes`).
+/// What one pack read leaves behind: its head (root ADR-0233: every pack is read by head, then
+/// the one document by range, whatever its size).
 export interface PackCopy {
   head: PackHead;
-  /// The whole pack, or `null` when only the head was read (a large pack: documents by range).
-  bytes: Uint8Array | null;
 }
 
 /// One request's reads: what the read path did, in the words `Server-Timing` and the structured
@@ -190,8 +188,8 @@ export interface PackCopy {
 export class ReadTrace {
   r2Gets = 0;
   retries = 0;
-  /// Per section: `{memory|r2}-{whole|head|absent}`, and `+range` when a document needed a second
-  /// R2 read; `edge-answer` when the PNU's answer came from its edge copy.
+  /// Per section: `{memory|r2}-{head|absent}`, and `+range` for the document's R2 read;
+  /// `edge-answer` when the PNU's answer came from its edge copy.
   readonly sections = new Map<string, string>();
   /// Per section: milliseconds waiting on R2, every attempt included.
   readonly sectionR2Ms = new Map<string, number>();
@@ -243,7 +241,7 @@ const packMemory = new Map<string, PackCopy>();
 let packMemoryBytes = 0;
 
 function copyBytes(copy: PackCopy): number {
-  return copy.head.index.byteLength + (copy.bytes?.byteLength ?? 0);
+  return copy.head.index.byteLength;
 }
 
 /// Forgets every pack and parts index this isolate remembers (tests, to stand for a new isolate).
@@ -316,15 +314,6 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
     bodyLength: header.body_length,
     etag,
   };
-}
-
-/// A whole pack's bytes, checked: the head parses and the body it declares ends at the last byte.
-function wholePack(bytes: Uint8Array, etag: string): PackCopy {
-  const head = parseHead(bytes, etag);
-  if (head === null || head.bodyStart + head.bodyLength !== bytes.byteLength) {
-    throw new PackFormatError("pack length disagrees with its header");
-  }
-  return { head, bytes };
 }
 
 /// The length of a pack's head (prefix, header JSON and index) from its first 20 bytes.
@@ -421,11 +410,11 @@ async function withRetry<T>(
   throw new PackReadUnavailable(`${what.section} ${what.phase}: R2 unavailable (${lastClass})`);
 }
 
-/// One pack: isolate memory, then one GET of R2. The GET names no range, so a pack shorter than
-/// any fixed first read is never asked past its end (no reliance on R2 clamping a range). A pack
-/// within `whole_pack_max_bytes` is read whole by that GET, so its head and its documents come from
-/// one R2 hop; a larger one is read only as far as its head reaches and the rest of its body is
-/// cancelled unread. `null` when the pack does not exist.
+/// One pack's head: isolate memory, then one GET of R2. The GET names no range, so a pack shorter
+/// than any fixed first read is never asked past its end (no reliance on R2 clamping a range); it
+/// is read only as far as its head reaches and the rest of its body is cancelled unread, whatever
+/// the pack's size (root ADR-0233: one read rule; the head is copied once, into its own buffer).
+/// `null` when the pack does not exist.
 ///
 /// No pack goes to the edge cache (ADR-0154): with the Worker placed beside the bucket an R2 read
 /// of a pack read before costs about what an edge lookup does (2026-10-06, Tokyo: 35-45 ms), while
@@ -434,7 +423,7 @@ async function withRetry<T>(
 export async function readPack(reads: PackReads, section: string, key: string): Promise<PackCopy | null> {
   const remembered = recall(key);
   if (remembered !== undefined) {
-    reads.trace.note(section, `memory-${remembered.bytes === null ? "head" : "whole"}`);
+    reads.trace.note(section, "memory-head");
     return remembered;
   }
   const copy = await withRetry(reads, { section, key, phase: "pack" }, () => fetchPack(reads.bucket, key));
@@ -443,7 +432,7 @@ export async function readPack(reads: PackReads, section: string, key: string): 
     return null;
   }
   remember(key, copy);
-  reads.trace.note(section, `r2-${copy.bytes === null ? "head" : "whole"}`);
+  reads.trace.note(section, "r2-head");
   return copy;
 }
 
@@ -451,29 +440,34 @@ async function fetchPack(bucket: Pick<R2Bucket, "get">, key: string): Promise<Pa
   const object = await bucket.get(key);
   if (object === null) return null;
   if (!("body" in object)) throw new PackFormatError("pack read returned no body");
-  if (object.size <= readPolicy.whole_pack_max_bytes) {
-    return wholePack(new Uint8Array(await object.arrayBuffer()), object.etag);
-  }
   const reader = object.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const prefix: Uint8Array[] = [];
+  let head: Uint8Array | null = null;
   let length = 0;
-  let wanted: number | null = null;
   try {
-    while (wanted === null || length < wanted) {
+    while (head === null || length < head.byteLength) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(value);
-      length += value.byteLength;
-      if (wanted === null && length >= PREFIX_BYTES) wanted = headLength(joined(chunks, length));
+      if (head === null) {
+        prefix.push(value);
+        length += value.byteLength;
+        if (length < PREFIX_BYTES) continue;
+        // The head's length is known: its bytes go into one buffer of that length, and no more.
+        const first = joined(prefix, length);
+        head = new Uint8Array(headLength(first));
+        head.set(first.subarray(0, Math.min(length, head.byteLength)));
+      } else {
+        head.set(value.subarray(0, Math.min(value.byteLength, head.byteLength - length)), length);
+        length += value.byteLength;
+      }
     }
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  if (wanted === null || length < wanted) throw new PackFormatError("pack head is shorter than declared");
-  // A copy of the head alone: the body streamed past it is not kept.
-  const head = parseHead(joined(chunks, length).slice(0, wanted), object.etag);
-  if (head === null) throw new PackFormatError("pack head is shorter than declared");
-  return { head, bytes: null };
+  if (head === null || length < head.byteLength) throw new PackFormatError("pack head is shorter than declared");
+  const parsed = parseHead(head, object.etag);
+  if (parsed === null) throw new PackFormatError("pack head is shorter than declared");
+  return { head: parsed };
 }
 
 /// FNV-1a, 32 bit, over the ASCII bytes of `text` (the contract's `parts.hash_definition`): the
@@ -646,8 +640,7 @@ export interface ServedDocument {
   etag: string;
 }
 
-/// One document's gzip member: from the whole pack's bytes when they were read, else by one range
-/// read whose entity tag must be the head's. The tag is compared on the answer rather than sent as
+/// One document's gzip member, by one range read whose entity tag must be the head's. The tag is compared on the answer rather than sent as
 /// `onlyIf.etagMatches`: a pack key is create-only, so the condition never decides anything, and
 /// it cost CPU on every large-pack read (2026-10-06, 590 reads: p99 8.4 ms with it, 6.7 ms
 /// without). A rewritten key would still be refused here, only after its bytes arrived.
@@ -660,7 +653,6 @@ async function readDocument(
 ): Promise<ServedDocument> {
   const start = copy.head.bodyStart + entry.offset;
   const etag = `${copy.head.etag}-${entry.offset}`;
-  if (copy.bytes !== null) return { member: copy.bytes.subarray(start, start + entry.length), etag };
   reads.trace.note(section, "range");
   const member = await withRetry(reads, { section, key, phase: "range" }, async () => {
     const object = await reads.bucket.get(key, { range: { offset: start, length: entry.length } });

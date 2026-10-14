@@ -6,6 +6,9 @@ const LISTING_MARKER_TOMBSTONE_ENDPOINT_PREFIX = API.proxy.listingMarkerTombston
 export const LISTING_MARKER_TILE_LAYER = "listing";
 export const LISTING_MARKER_DELTA_TILE_LAYER = "listing_delta";
 export const ALL_ACTIVE_MARKER_FILTER_HASH = "all-active-v1";
+// The feature property naming a marker in both the base and the delta tile (GZ-ADR-0037).
+// Mirrors `LISTING_MARKER_ID_PROPERTY` in listing-domain; listing-marker-filter.test.ts checks it.
+export const LISTING_MARKER_ID_PROPERTY = "id";
 
 export type MarkerTileSource = {
   type: "vector";

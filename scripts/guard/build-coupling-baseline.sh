@@ -207,7 +207,7 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # 104 -> 105: root ADR-0112's lakehouse tile bake embeds config/tile-bake-containers.contract.json,
 # the pinned GDAL and tippecanoe images, the way the static-release toolchain embeds its own
 # contract: the images a bake ran are part of the binary that ran it, not a file found at runtime.
-# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once in handoff_manifest_support.
+# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once (now in building_link_evidence).
 # Catalog, recovery and Gold validators share its relationship evidence policy; embedding
 # keeps the validator's policy bound to its binary instead of a caller-selected runtime file.
 # 106 -> 110: the FLOOR remote command test embeds the native Compose resource contract.
@@ -252,7 +252,11 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # foundation-api's route-policy test reads config/identity-route-policies.contract.json, its Identity
 # client test reads Identity's published OpenAPI, and Identity's authorization-domain test reads the
 # same contract, once each from CARGO_MANIFEST_DIR. They replace three unchecked hand copies.
-COMPILE_TIME_READ_BASELINE="${3:-131}"
+# 131 -> 133: root ADR-0215 moves the knowledge-source Avro schema from a string in the Intelligence
+# consumer to the Foundation file named after its topic. The consumer embeds that file (one read)
+# and its contract test reads it by topic name (one read), so the topic, the file and the codec
+# cannot drift apart.
+COMPILE_TIME_READ_BASELINE="${3:-133}"
 
 cd "$repo_root"
 

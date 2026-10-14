@@ -231,7 +231,12 @@
     },
     "read_path": {
       "whole_pack_max_bytes": 262144,
-      "whole_pack_max_bytes_reason": "g1 measurement 2026-10-05 (76,040 packs): 93.1% of packs and 62.3% of document reads fall in packs of at most 256 KiB; such a pack is read whole in the GET that finds its head (one R2 hop), a larger one as head + range",
+      "whole_pack_max_bytes_reason": "the bound a part of a dong cut into parts (root ADR-0163) was held to so the Worker could read it whole; since root ADR-0233 the Worker reads every pack by head and range and a base bake no longer cuts, so it only bounds a patch over a generation baked in parts, and retires with the last such generation",
+      "request_cpu_budget": {
+        "document_max_bytes": 262144,
+        "pack_head_max_bytes": 1048576,
+        "reason": "root ADR-0233: every pack is read by one rule, its head (prefix, header and index, kept in isolate memory) then the one document by range, passed through as stored; a request's Worker CPU must not grow with the data, so the bytes a request copies are bounded here and the bake refuses a document or a pack head past them: a document (its gzip member) at most 256 KiB, a head at most 1 MiB. Measured 2026-10-14 on the served bytes: the largest document 256,326 bytes (building), the largest head 720,333 bytes (parcel bundle, about 25,700 entries). The Worker never decompresses a member: a client that does not accept gzip is answered by the edge's own conversion (gunzip cost 5.8 ms per decompressed MB in V8, and building documents reach 11.5 MB)"
+      },
       "memory_budget_bytes": 33554432,
       "r2_attempts": 3,
       "r2_retry_base_ms": 40,
@@ -252,7 +257,7 @@
       "worker_cpu_increase_reason": "a canary step also holds the new version's CPU p99 to the old version's p99 plus this much, both read from Workers analytics over the step, so a version that doubles the cost of a cheap path is refused even while it stays under worker_cpu_p99_max_ms. 2026-10-06: the code phase's new version measured p99 5.67 ms against 3.70 ms for the old (+1.97 ms, the same object-path code moved from LAX to Tokyo placement), and single minutes of it reached 12.9 ms, so 4 ms admits a placement move and still refuses a path that adds a full old p99 on top",
       "comparison_reason": "the pack path is compared with the object path it replaces as served by the same preview Worker (its URL without the pack query): same code, same placement, edge copies named by its own version, both sides saying in Server-Timing where they answered from. 2026-10-07: compared with the production route, whose edge copies of the fixed sample earlier probes had warmed, the pack side read R2 for every cold read (5,816 of 5,816) while the object side could not say how it answered; cold p50 +42 ms and warm p50 +54 ms measured R2 reads against cache hits. The gate holds both sides' cold reads to cold_reads_not_from_r2_max_share, and only the preview's object path says where it answered from",
       "no_gzip_sample_size": 200,
-      "no_gzip_sample_reason": "the paired reads and the load phase ask for gzip as browsers do, so the pack answer must be the stored member passed through (Content-Encoding: gzip); a client that does not accept gzip takes the one path that decompresses in the Worker, and 200 of the sample PNUs read that way must answer 200 without Content-Encoding and with the same content",
+      "no_gzip_sample_reason": "the paired reads and the load phase ask for gzip as browsers do, so the pack answer must be the stored member passed through (Content-Encoding: gzip); a client that does not accept gzip is answered by the edge's conversion of that member (root ADR-0233: the Worker never decompresses), and 200 of the sample PNUs read that way must answer 200 without Content-Encoding and with the same content",
       "slo": {
         "availability_min": 0.9995,
         "availability_reason": "the owner's bound for the pack path: at most one non-200 answer in 2,000 for PNUs the lane serves, counted over the paired probe and the load phase",

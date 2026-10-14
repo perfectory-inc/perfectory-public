@@ -134,10 +134,20 @@ impl PackWriter {
     /// Appends `pnu`'s document, compressed alone.
     ///
     /// # Errors
-    /// Refuses a PNU out of order or outside the unit, and a body past 4 GiB.
+    /// Refuses a PNU out of order or outside the unit, a body past 4 GiB, and a document whose
+    /// member is past the contract's request CPU budget (root ADR-0233).
     pub fn push_document(&mut self, pnu: &str, document: &[u8]) -> anyhow::Result<()> {
         self.check_next(pnu)?;
         let compressed = gzip(document)?;
+        let bound = section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .document_max_bytes;
+        ensure!(
+            u64::try_from(compressed.len())? <= bound,
+            "the document of {pnu} is {} bytes compressed, above the {bound} one request may copy              (request_cpu_budget.document_max_bytes); narrow the lane's document key (root              ADR-0233)",
+            compressed.len()
+        );
         let offset = u32::try_from(self.body.len()).context("pack body passed 4 GiB")?;
         let length = u32::try_from(compressed.len()).context("one document passed 4 GiB")?;
         u32::try_from(self.body.len() + compressed.len()).context("pack body passed 4 GiB")?;
@@ -199,7 +209,8 @@ impl PackWriter {
     /// Lays out the pack.
     ///
     /// # Errors
-    /// Refuses an empty pack and one with more entries than the contract allows.
+    /// Refuses an empty pack, one with more entries than the contract allows, and one whose head
+    /// is past the contract's request CPU budget (root ADR-0233).
     pub fn finish(self) -> anyhow::Result<Vec<u8>> {
         let policy = section_pack_policy()?;
         ensure!(!self.entries.is_empty(), "a pack holds at least one entry");
@@ -253,6 +264,14 @@ impl PackWriter {
             key_length: header_key_length,
         };
         let header = serde_json::to_vec(&header).context("failed to serialize a pack header")?;
+        let head = PREFIX_BYTES + header.len() + index.len();
+        let bound = policy.read_path.request_cpu_budget.pack_head_max_bytes;
+        ensure!(
+            u64::try_from(head)? <= bound,
+            "the pack of {} has a {head}-byte head ({} entries), above the {bound} every read of              it copies (request_cpu_budget.pack_head_max_bytes; root ADR-0233)",
+            self.entries[0].pnu,
+            self.entries.len()
+        );
         let mut pack =
             Vec::with_capacity(PREFIX_BYTES + header.len() + index.len() + self.body.len());
         pack.extend_from_slice(magic(policy)?);
