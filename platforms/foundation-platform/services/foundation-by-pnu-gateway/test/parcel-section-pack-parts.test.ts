@@ -18,6 +18,17 @@ async function text(response: Response): Promise<string> {
   return new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).text();
 }
 
+
+/// The bytes a ranged read returns: an offset and length exactly, a `Range` header as HTTP serves it
+/// (clamped to the object), and the whole object without a range.
+function rangeOf(stored: Uint8Array, range: { offset: number; length: number } | Headers | undefined): Uint8Array {
+  if (range === undefined) return stored;
+  if (range instanceof Headers) {
+    const [, from = "0", to = "0"] = /^bytes=(\d+)-(\d+)$/.exec(range.get("Range") ?? "") ?? [];
+    return stored.slice(Number(from), Math.min(Number(to) + 1, stored.byteLength));
+  }
+  return stored.slice(range.offset, range.offset + range.length);
+}
 const PNU_A = "9999900000100000000";
 const DONG = "9999900000";
 const GATEWAY = connectionContract.parcel_by_pnu_gateway;
@@ -72,13 +83,13 @@ describe("foundation parcel gateway parts (root ADR-0163, ADR-0160)", () => {
   let documents: { base: Record<string, string> };
   const ctx = { waitUntil: () => undefined, passThroughOnException: () => undefined } as unknown as ExecutionContext;
   const bucket = {
-    async get(key: string, options?: { range?: { offset: number; length: number } }) {
+    async get(key: string, options?: { range?: { offset: number; length: number } | Headers }) {
       const stored = objects.get(key);
       if (stored === undefined) return null;
       const range = options?.range;
-      const bytes = range === undefined ? stored : stored.slice(range.offset, range.offset + range.length);
+      const bytes = rangeOf(stored, range);
       return {
-        size: bytes.byteLength,
+        size: stored.byteLength,
         etag: "0123456789abcdef0123456789abcdef",
         body: new Blob([bytes]).stream(),
         arrayBuffer: async () => bytes.slice().buffer,
