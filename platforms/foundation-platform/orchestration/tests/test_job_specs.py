@@ -650,9 +650,10 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
         return next(node for node in graph["nodes"] if node["id"] == node_id)
 
     def test_a_dataset_that_says_nothing_is_refused(self):
-        problems = self.problems(mutate_graph=lambda graph: self.node(graph, "silver-parcel-registry").pop("unscheduled"))
+        # The industrial-complex profile is made on an event (ILIS, by hand); without saying so it is a defect.
+        problems = self.problems(mutate_graph=lambda graph: self.node(graph, "silver-industrial-complexes").pop("unscheduled"))
         self.assertEqual(problems, [
-            "dataset 'silver-parcel-registry' has no job in jobs.v1.json and does not say why (unscheduled)"])
+            "dataset 'silver-industrial-complexes' has no job in jobs.v1.json and does not say why (unscheduled)"])
 
     def test_removing_a_job_edge_exposes_its_dataset(self):
         def drop(jobs):
@@ -668,8 +669,8 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
 
     def test_an_unknown_value_a_missing_runbook_or_a_wrong_node_is_refused(self):
         for node_id, change, expected in [
-            ("silver-parcel-registry", {"unscheduled": "sometimes"}, "not one of"),
-            ("silver-administrative-boundaries", {"runbook_ref": "no/such/runbook.md"}, "names no file"),
+            ("silver-industrial-complexes", {"unscheduled": "sometimes"}, "not one of"),
+            ("silver-industrial-complexes", {"runbook_ref": "no/such/runbook.md"}, "names no file"),
             ("gongzzang-panel", {"unscheduled": "on_event"}, "is not a lakehouse dataset"),
             ("silver-complex-parcel-memberships", {"unscheduled": "needs_job"}, "is not a lakehouse dataset"),
         ]:

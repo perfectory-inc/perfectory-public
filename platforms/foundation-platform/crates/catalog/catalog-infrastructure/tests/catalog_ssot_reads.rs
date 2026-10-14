@@ -139,9 +139,6 @@ async fn assert_canonical_complex_reads(repo: &PgCatalogRepository, fixture: &Ss
 struct SsotFixture {
     complex: IndustrialComplex,
     parcel_id: ParcelId,
-    pnu: String,
-    building_id: Uuid,
-    unit_ids: [Uuid; 3],
     manufacturer_id: Uuid,
     source_record_id: Uuid,
     image_file_asset_id: Uuid,
@@ -171,8 +168,6 @@ impl SsotFixture {
             .take(10)
             .collect::<String>();
         let primary_bjdong_code = format!("{suffix:0<10}")[..10].to_owned();
-
-        let pnu = format!("{primary_bjdong_code}100010000");
 
         Self {
             complex: IndustrialComplex {
@@ -211,9 +206,6 @@ impl SsotFixture {
                 version: 1,
             },
             parcel_id: ParcelId::new(Uuid::now_v7()),
-            pnu,
-            building_id: Uuid::now_v7(),
-            unit_ids: [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()],
             manufacturer_id: Uuid::now_v7(),
             source_record_id: Uuid::now_v7(),
             image_file_asset_id: Uuid::now_v7(),
@@ -235,17 +227,6 @@ impl SsotFixture {
     #[allow(clippy::too_many_lines)]
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
-            "INSERT INTO catalog.parcel
-             (id, pnu, kind, area_m2, version)
-             VALUES ($1, $2, 'factory', 1200, 1)",
-        )
-        .bind(self.parcel_id.as_uuid())
-        .bind(&self.pnu)
-        .execute(pool)
-        .await
-        .expect("insert parcel");
-
-        sqlx::query(
             "INSERT INTO catalog.source_record
              (id, source, source_url, external_id, checksum_sha256)
              VALUES ($1, 'fixture', 'https://example.test/source', $2, $3)",
@@ -256,45 +237,6 @@ impl SsotFixture {
         .execute(pool)
         .await
         .expect("insert source record");
-
-        sqlx::query(
-            // register_pk carries the reserved 99999* band so the fixture can never collide
-            // with a management key the national register might actually issue (ADR-0073).
-            "INSERT INTO catalog.building
-             (id, parcel_id, purpose_code, structure_code, floor_area_m2, stories, built_year,
-              register_pk)
-             VALUES ($1, $2, '02000', '11', 1234.5, 5, 2020, $3)",
-        )
-        .bind(self.building_id)
-        .bind(self.parcel_id.as_uuid())
-        .bind(format!("99999-fixture-{}", self.building_id))
-        .execute(pool)
-        .await
-        .expect("insert building");
-
-        // Three units in two 동s so the keyset walk (ADR-0076 §3) has an order to prove:
-        // (dong_name, ho_name) sorts them 101동/101호, 101동/201호, 102동/101호.
-        for (unit_id, dong_name, ho_name) in [
-            (self.unit_ids[0], "101동", "101호"),
-            (self.unit_ids[1], "101동", "201호"),
-            (self.unit_ids[2], "102동", "101호"),
-        ] {
-            sqlx::query(
-                "INSERT INTO catalog.building_unit
-                 (id, parcel_id, building_id, register_pk, dong_name, ho_name,
-                  floor_label, exclusive_area_m2, usage_name, structure_name)
-                 VALUES ($1, $2, $3, $4, $5, $6, '1층', 84.5, '공장', '철골')",
-            )
-            .bind(unit_id)
-            .bind(self.parcel_id.as_uuid())
-            .bind(self.building_id)
-            .bind(format!("99999-fixture-{unit_id}"))
-            .bind(dong_name)
-            .bind(ho_name)
-            .execute(pool)
-            .await
-            .expect("insert building unit");
-        }
 
         sqlx::query(
             "INSERT INTO catalog.manufacturer
@@ -519,21 +461,6 @@ impl SsotFixture {
             .execute(pool)
             .await
             .expect("cleanup manufacturer");
-        sqlx::query("DELETE FROM catalog.building_unit WHERE building_id = $1")
-            .bind(self.building_id)
-            .execute(pool)
-            .await
-            .expect("cleanup building units");
-        sqlx::query("DELETE FROM catalog.building WHERE id = $1")
-            .bind(self.building_id)
-            .execute(pool)
-            .await
-            .expect("cleanup building");
-        sqlx::query("DELETE FROM catalog.parcel WHERE id = $1")
-            .bind(self.parcel_id.as_uuid())
-            .execute(pool)
-            .await
-            .expect("cleanup parcel");
         sqlx::query("DELETE FROM catalog.industrial_complex WHERE id = $1")
             .bind(self.complex.id.as_uuid())
             .execute(pool)

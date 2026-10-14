@@ -696,7 +696,7 @@ const AREAS: &[Area] = &[
                     LaneTarget::Binary {
                         package: "foundation-outbox-publisher",
                         binary: "foundation-outbox-publisher",
-                        filter: "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+                        filter: "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
                     },
                     LaneTarget::Test {
                         package: "lakehouse-infrastructure",
@@ -2461,7 +2461,7 @@ mod tests {
         assert_eq!(*binaries[0], vec![
             "test", "--locked", "-p", "foundation-outbox-publisher", "--bin", "foundation-outbox-publisher",
             "--", "--ignored", "--exact",
-            "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+            "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
             "--test-threads=1",
         ]);
         let target = lane
