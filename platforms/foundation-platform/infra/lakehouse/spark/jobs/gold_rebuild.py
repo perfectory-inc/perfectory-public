@@ -21,6 +21,10 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
 - An input the contract lists under `unmeasured_inputs` has not been part of a measured run: the
   Spark size was not shown to hold with it. Once it exists the plan refuses, except for a dry run
   (`measuring=True`), which is how it gets measured.
+- An optional input (the parcel lineage) that does not exist is refused unless the contract names
+  it under `absent_inputs_accepted` with its reason; the producer then runs without it and the plan
+  says so. That entry is refused once the input exists, and an optional input with no rows is
+  refused like a missing one, so a Gold is never built without it unnoticed.
 - Nothing changed: nothing to do. Otherwise the plan pins every input to its current snapshot and
   states the fewest rows the new Gold may have: the current Gold's row count less the table's
   `max_row_loss_fraction` (contracts/gold-panel-rebuild.contract.json). The producer refuses
@@ -71,6 +75,7 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
                if k in template},
             # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
             "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
+            "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
             "pins_from": {"gold_table": kind.host_panel, "inputs": "all", "parity_argument": pin["parity_argument"],
                           "reason": pin["reason"]},
         }
@@ -106,6 +111,10 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
         if not (isinstance(unmeasured, dict)
                 and all(isinstance(why, str) and why.strip() for why in unmeasured.values())):
             raise PlanError(f"{name}: unmeasured_inputs must map each input to why it is unmeasured")
+        accepted = table.get("absent_inputs_accepted", {})
+        if not (isinstance(accepted, dict)
+                and all(isinstance(why, str) and why.strip() for why in accepted.values())):
+            raise PlanError(f"{name}: absent_inputs_accepted must map each input to why it may be absent")
         incremental = table.get("incremental")
         if incremental is not None:
             fraction = incremental.get("max_changed_key_fraction")
@@ -146,6 +155,14 @@ def producer_inputs(module: Any, entry: dict[str, Any] | None = None) -> tuple[t
     optional = {module.LINEAGE_SOURCE: "--no-carry-lineage"} if hasattr(module, "LINEAGE_SOURCE") else {}
     anchor = getattr(module, "PARCEL_SOURCE", None) or module.TITLE_SOURCE
     return tuple(module.ALL_SOURCES), optional, anchor
+
+
+def holds_no_rows(state: dict[str, Any]) -> bool:
+    """True when the table has no `main` snapshot or its head snapshot records zero rows."""
+    if state.get("head") is None:
+        return True
+    head = next((s for s in state["snapshots"] if s["snapshot_id"] == state["head"]), None)
+    return head is not None and (head.get("summary") or {}).get("total-records") == "0"
 
 
 def changes_row_data(snapshot: dict[str, Any]) -> bool:
@@ -288,6 +305,20 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     missing = [name for name in required if silver.get(name) is None]
     if missing:
         raise PlanError(f"{table}: required Silver inputs do not exist: {missing}")
+    accepted = entry.get("absent_inputs_accepted", {})
+    absent = [name for name in optional if silver.get(name) is None]
+    unaccepted = [name for name in absent if name not in accepted]
+    if unaccepted:
+        raise PlanError(
+            f"{table}: {unaccepted} do not exist, so the Gold would be built without them and every column "
+            "they feed left empty; load them, or name each with its reason under absent_inputs_accepted "
+            "(contracts/gold-panel-rebuild.contract.json)")
+    stale = sorted(name for name in accepted if silver.get(name) is not None)
+    if stale:
+        raise PlanError(f"{table}: {stale} now exist; remove them from absent_inputs_accepted so the Gold reads them")
+    empty = [name for name in optional if silver.get(name) is not None and holds_no_rows(silver[name])]
+    if empty:
+        raise PlanError(f"{table}: {empty} exist but hold no rows; an empty input is refused like a missing one")
     present = [*required, *(name for name in optional if silver.get(name) is not None)]
     unmeasured = {name: why for name, why in entry.get("unmeasured_inputs", {}).items() if name in present}
     if unmeasured and not measuring:
@@ -366,6 +397,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         "reasons": reasons,
         "producer": entry["producer"],
         "producer_arguments": [*entry.get("producer_arguments", []), *flags],
+        # Inputs built without, by the contract's leave; the run log says so on every run.
+        "absent_inputs": {name: accepted[name] for name in absent},
         "anchor_input": anchor,
         "source_snapshots": pins,
         "previous_gold_snapshot_id": None if gold is None else gold.get("head"),
@@ -497,7 +530,7 @@ def main(argv=None) -> int:
                               encoding="utf-8")
     print("gold-rebuild-plan " + json.dumps(
         {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count",
-                                  "mode", "mode_reasons")},
+                                  "mode", "mode_reasons", "absent_inputs")},
         ensure_ascii=False, sort_keys=True))
     return 0
 

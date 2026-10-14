@@ -40,6 +40,7 @@ def gold(pins=None, rows=1000, published="2026-01-10T00:00:00Z"):
             "row_count": rows, "published_at_utc": published}
 
 
+ABSENT_LINEAGE = {"absent_inputs_accepted": {"silver.lineage": "not produced yet"}}
 A1 = snap("11", None, "2026-01-01T00:00:00Z")
 B1 = snap("21", None, "2026-01-01T00:00:00Z")
 
@@ -132,7 +133,7 @@ class Plan(unittest.TestCase):
     def test_an_unmeasured_input_is_refused_once_it_exists_except_by_a_dry_run(self):
         entry = {**ENTRY, "unmeasured_inputs": {"silver.lineage": "never measured"}}
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
-        absent = rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}),
+        absent = rebuild.plan("gold.x", {**entry, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}),
                               {"silver.a": table(A1), "silver.lineage": None})
         self.assertEqual(absent["action"], "nothing_to_do")
         present = {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))}
@@ -148,22 +149,44 @@ class Plan(unittest.TestCase):
 
     def test_an_optional_input_is_pinned_when_it_exists_and_flagged_off_when_it_does_not(self):
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
-        absent = rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11"}),
+        absent = rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}),
                               {"silver.a": table(A1), "silver.lineage": None})
         self.assertEqual(absent["action"], "nothing_to_do")
         self.assertEqual(absent["producer_arguments"], ["--no-carry-lineage"])
+        self.assertEqual(absent["absent_inputs"], {"silver.lineage": "not produced yet"})
         appeared = rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11"}),
                                 {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))})
         self.assertEqual(appeared["action"], "rebuild")
         self.assertEqual(appeared["source_snapshots"], {"silver.a": "11", "silver.lineage": "31"})
         self.assertEqual(appeared["producer_arguments"], [])
 
+    def test_a_missing_optional_input_is_refused_unless_the_contract_accepts_its_absence(self):
+        inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
+        with self.assertRaisesRegex(rebuild.PlanError, "silver.lineage.*do not exist.*absent_inputs_accepted"):
+            rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11"}),
+                         {"silver.a": table(A1), "silver.lineage": None})
+        appeared = {"silver.a": table(A1), "silver.lineage": table(snap("31", None, "2026-01-02T00:00:00Z"))}
+        with self.assertRaisesRegex(rebuild.PlanError, "silver.lineage.*now exist.*remove them"):
+            rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11"}), appeared)
+
+    def test_an_optional_input_without_rows_is_refused_even_when_its_absence_is_accepted(self):
+        inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
+        zero = snap("31", None, "2026-01-02T00:00:00Z", "overwrite", added=0, deleted=5, **{"total-records": "0"})
+        for state in ({"head": None, "snapshots": []}, table(zero)):
+            for entry in (ENTRY, {**ENTRY, **ABSENT_LINEAGE}):
+                with self.subTest(state=state, entry=entry),                         self.assertRaisesRegex(rebuild.PlanError, "silver.lineage|absent_inputs_accepted"):
+                    rebuild.plan("gold.x", entry, inputs, gold({"silver.a": "11"}),
+                                 {"silver.a": table(A1), "silver.lineage": state})
+        with self.assertRaisesRegex(rebuild.PlanError, "hold no rows"):
+            rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11"}),
+                         {"silver.a": table(A1), "silver.lineage": table(zero)})
+
     def test_a_missing_required_input_or_a_vanished_pinned_input_is_refused(self):
         with self.assertRaisesRegex(rebuild.PlanError, "required Silver inputs do not exist"):
             rebuild.plan("gold.x", ENTRY, INPUTS, gold(), {"silver.a": table(A1), "silver.b": None})
         inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
         with self.assertRaisesRegex(rebuild.PlanError, "no longer exist"):
-            rebuild.plan("gold.x", ENTRY, inputs, gold({"silver.a": "11", "silver.lineage": "31"}),
+            rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11", "silver.lineage": "31"}),
                          {"silver.a": table(A1), "silver.lineage": None})
 
     def test_a_table_without_gold_is_built_with_no_row_floor(self):
@@ -305,6 +328,10 @@ class Contract(unittest.TestCase):
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
+        # A kind reads the lineage at its host panel's pins, so it takes the panel's leave to go without.
+        accepted = contract["tables"]["gold.parcel_panel"].get("absent_inputs_accepted", {})
+        for kind in kinds.values():
+            self.assertEqual(contract["tables"][kind.gold_table]["absent_inputs_accepted"], accepted)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
         producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price_panel": prices,
@@ -351,7 +378,8 @@ class Contract(unittest.TestCase):
         good = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
         for field, value in (("max_row_loss_fraction", 1), ("max_row_loss_fraction", "0.01"),
                              ("max_row_loss_reason", ""), ("producer_arguments", ["x"]),
-                             ("unmeasured_inputs", {"silver.x": ""}), ("unmeasured_inputs", ["silver.x"])):
+                             ("unmeasured_inputs", {"silver.x": ""}), ("unmeasured_inputs", ["silver.x"]),
+                             ("absent_inputs_accepted", {"silver.x": " "}), ("absent_inputs_accepted", ["silver.x"])):
             bad = json.loads(json.dumps(good))
             bad["tables"]["gold.parcel_panel"][field] = value
             with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:
