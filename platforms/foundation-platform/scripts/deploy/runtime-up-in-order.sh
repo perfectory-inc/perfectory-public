@@ -35,9 +35,15 @@ print(" ".join(sorted(name for name, need in (service.get("depends_on") or {}).i
   # shellcheck disable=SC2086 # one name per word, from the compose file
   "${runtime}" up -d ${oneshots} || code=$?
   if ((code == 0)); then
-    local oneshot
+    # `docker wait` on the container, not `compose wait` on the service: compose answers "no
+    # containers" for a one-shot that already exited (a fast finalize does, before the call), while
+    # docker returns the exit code of a container that has exited as well as of one still running.
+    local oneshot container status
     for oneshot in ${oneshots}; do
-      "${runtime}" wait "${oneshot}" >/dev/null || { code=$?; break; }
+      container="$("${runtime}" ps -a -q "${oneshot}" | head -1)"
+      [[ -n "${container}" ]] || { code=70; break; }
+      status="$(docker wait "${container}")" || { code=70; break; }
+      ((status == 0)) || { code="${status}"; break; }
     done
   fi
   if ((code != 0)); then

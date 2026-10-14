@@ -21,8 +21,8 @@ migrate → grants → finalize → api, 각 고리 `service_completed_successfu
 
 1. `migrate` 는 두 단계다.
    - 먼저 `runtime_chain_before <wrapper> foundation-api`(`scripts/deploy/runtime-up-in-order.sh`): compose 의 해석된
-     설정에서 API 가 `service_completed_successfully` 로 기다리는 one-shot 들을 읽어 `up -d` 하고, `compose wait` 로
-     종료 코드를 확인한다. API 는 그 one-shot 들에 의존하는 쪽이라 이 단계는 API 를 건드리지 않는다. 하나라도 0 이
+     설정에서 API 가 `service_completed_successfully` 로 기다리는 one-shot 들을 읽어 `up -d` 하고, 그 컨테이너의
+     종료 코드를 `docker wait` 로 확인한다(`compose wait` 는 이미 끝난 one-shot 을 "컨테이너 없음"으로 답한다). API 는 그 one-shot 들에 의존하는 쪽이라 이 단계는 API 를 건드리지 않는다. 하나라도 0 이
      아니면 실패하고 배포가 멈춘다. 옛 API 는 이전 릴리스로 계속 응답한다.
    - 그다음에야 기존 그대로 `up -d --wait foundation-api`.
 2. 체인의 고리 이름은 배포 스크립트 어디에도 적지 않는다(compose 설정에서 읽는다). `--no-deps` 도 쓰지 않는다. 기존
