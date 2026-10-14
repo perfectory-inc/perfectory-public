@@ -55,7 +55,7 @@ ADMISSION=/opt/perfectory-control/current/scripts/deploy/foundation-release-admi
 DROPIN_NAME=10-data-disk.conf
 RSYNC=(rsync -aHAXx --numeric-ids --delete)
 # Only a dry run without root uses it, to measure the trees read-only; the digest is the one the host holds.
-MEASURE_IMAGE="alpine:3@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+MEASURE_IMAGE="alpine:3.20@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
 JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 
 log() { printf '%s host-docker-data-root: %s\n' "$(date -u +%FT%TZ)" "$*"; }
