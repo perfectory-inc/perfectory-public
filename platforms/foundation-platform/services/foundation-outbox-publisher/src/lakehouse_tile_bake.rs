@@ -311,6 +311,11 @@ impl ServedIds {
         self.sorted.binary_search(&hash).ok()
     }
 
+    /// Whether `id` is served (ADR-0251: whether the new edition holds it anywhere).
+    pub(crate) fn contains(&self, id: &str) -> bool {
+        self.position(id_hash(id)).is_some()
+    }
+
     /// Evidence: the SHA-256 of the sorted id hashes.
     pub(crate) fn digest(&self) -> String {
         let mut hasher = Sha256::new();
@@ -1125,7 +1130,7 @@ async fn bake_and_upload(
     let layer = &active.layer;
     let archive =
         build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
-    let (ids_digest, collector) = {
+    let (ids_digest, collector, ids) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
             layer.clone(),
@@ -1142,7 +1147,7 @@ async fn bake_and_upload(
                 |missing| ids_with_hashes(&summary, &handoff, missing),
                 &mut |tile, id| collector.observe(tile, id),
             )?;
-            anyhow::Ok((digest, collector))
+            anyhow::Ok((digest, collector, ids))
         })
         .await
         .context("the archive gate stopped")??
@@ -1165,6 +1170,7 @@ async fn bake_and_upload(
                     (&layer.source_layer, &layer.feature_id_property),
                     (layer.tile_min_zoom, layer.tile_max_zoom),
                     &collector,
+                    &ids,
                 )
             })
             .await

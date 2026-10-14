@@ -12,6 +12,15 @@
   "region_id_prefix_chars": {
     "parcels": 2
   },
+  "edition_change": {
+    "parcels": {
+      "dong_prefix_chars": 10,
+      "left_max_ratio": 0.005,
+      "additions_max_ratio": 0.005,
+      "renumbered_max_ratio": 0.5
+    }
+  },
+  "edition_change_reason": "Root ADR-0251. A unit listed here is baked from a new cadastral edition, so a sampled active id the new edition does not hold anywhere left the edition: in a dong (the id's first dong_prefix_chars characters) the new edition still holds, it is counted against left_max_ratio; in a dong the new edition no longer holds, it was renumbered by a reorganization and is counted against renumbered_max_ratio, as is an addition placed where the active maxzoom tile holds such a dong. An active id the new edition still holds but the new tile lacks is missing, as before. additions_max_ratio here replaces the global one for the unit. Measured 202606 to 202609: left 0.104%, joined 0.154%, renumbered 16.2% in each direction; where an id went is the lineage's to say, not this gate's.",
   "region_reason": "A region is the feature ids sharing a prefix. A parcel id's first two characters are its sido code, so each sido's tile extent is read from the new archive's maxzoom walk at bake time; no coordinates are written here. A unit without an entry is sampled by its densest and random tiles only.",
   "tiny_reason": "Root ADR-0135 §2. An extra feature inside a tile whose part in the tile has an area of at most tiny_max_area_tile_units square tile units (a quarter of one pixel of a 256-pixel tile at extent 4096) is tiny: geometry PostGIS ST_AsMVTGeom drops. It is allowed and counted. Area, not span, because a thin sliver has a long span and almost no area.",
   "additions_reason": "Root ADR-0135 §2. An extra whose maxzoom tile in the active archive lacks it too is an addition: the active release never had the feature. Additions are allowed while they are at most additions_max_ratio of the sampled active ids; above it the bake is refused for a person to check the source difference. Anything else inside a tile (unexplained) refuses.",
