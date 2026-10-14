@@ -43,6 +43,7 @@ STARVATION_CYCLES = 20
 RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
 TIMER_NAME = re.compile(r"foundation-[a-z0-9-]+\.timer")
+ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # What starts a job (jobs.v1.json `started_by`, root ADR-0171). A `schedule` job starts at its
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
@@ -540,6 +541,12 @@ def load_specs(jobs=None, graph=None):
         reason = job.get("disabled_reason")
         if job["enabled"] and reason is not None:
             raise JobListError(f"{job_id}: an enabled job has no disabled_reason")
+        # When the job was switched on (root ADR-0239): no start before it is a start it missed.
+        since = job.get("enabled_since")
+        if job["enabled"] and not (isinstance(since, str) and ENABLED_SINCE.fullmatch(since)):
+            raise JobListError(f"{job_id}: an enabled job states enabled_since as YYYY-MM-DDTHH:MM:SSZ")
+        if not job["enabled"] and since is not None:
+            raise JobListError(f"{job_id}: a disabled job has no enabled_since")
         if not job["enabled"] and job["systemd_timer"] is None and not (isinstance(reason, str) and reason.strip()):
             raise JobListError(
                 f"{job_id}: off and without a timer it runs nowhere; disabled_reason must say why and what turns it on"

@@ -11,6 +11,7 @@
   },
   "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
+  "enabled_since_means": "When the job was switched on, UTC (root ADR-0239): every enabled job states it and a disabled job does not. A scheduled start before it is not a start the job missed, so the operations map never calls a job late for a slot from before it was on. The pull request that switches a job on sets it to the time it is merged; job_specs.py refuses an enabled job without it.",
   "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
   "jobs": [
     {
@@ -27,7 +28,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-floors"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-02T06:42:17Z"
     },
     {
       "id": "source_sweep",
@@ -42,7 +44,8 @@
         "daily-source-sweep-to-source-building-hub-bulk",
         "daily-source-sweep-to-source-vworld-dataset"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z"
     },
     {
       "id": "outbox_publish",
@@ -59,6 +62,7 @@
         "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T09:45:24Z",
       "started_once_after_deploy": true
     },
     {
@@ -78,6 +82,7 @@
         "gold-administrative-boundary-served-to-admin-tiles"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z",
       "started_once_after_deploy": true
     },
     {
@@ -97,6 +102,7 @@
         "gold-industrial-complex-boundary-served-to-complex-tiles"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z",
       "started_once_after_deploy": true
     },
     {
@@ -120,7 +126,8 @@
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z"
     },
     {
       "id": "legal_dong_code_changes",
@@ -135,6 +142,7 @@
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-05T03:16:07Z",
       "started_once_after_deploy": true
     },
     {
@@ -165,7 +173,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-parcel-number-change-history"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-06T17:08:23Z"
     },
     {
       "id": "data_quality",
@@ -179,6 +188,7 @@
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
       "enabled": true,
+      "enabled_since": "2026-10-01T14:51:40Z",
       "started_once_after_deploy": true
     },
     {
@@ -196,7 +206,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-titles"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_building_register_units",
@@ -213,7 +224,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-units"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_building_register_unit_areas",
@@ -230,7 +242,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-unit-areas"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_building_register_apartment_price",
@@ -247,7 +260,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-apartment-price"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_building_register_exclusive_unit",
@@ -264,7 +278,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_land_characteristic",
@@ -281,7 +296,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-characteristic"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_forest_ledger",
@@ -298,7 +314,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-forest-ledger"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_individual_price",
@@ -315,7 +332,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-individual-price"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_right_registration",
@@ -332,7 +350,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-right-registration"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_transfer_history",
@@ -349,7 +368,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_land_use_plan",
@@ -366,7 +386,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-plan"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_use_zone_code",
@@ -383,7 +404,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-zone-code"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "gold_panel_rebuild",
@@ -418,7 +440,8 @@
         "silver-land-right-registration-to-gold-parcel-panel",
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
     },
     {
       "id": "gold_kind_rebuild",
@@ -440,7 +463,8 @@
         "gold-parcel-panel-to-gold-parcel-transfer-history",
         "gold-parcel-panel-to-gold-parcel-land-rights"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-12T22:17:38Z"
     },
     {
       "id": "by_pnu_serving_bake",
@@ -474,7 +498,8 @@
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
         "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",

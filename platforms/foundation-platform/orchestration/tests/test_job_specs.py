@@ -405,6 +405,14 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                 # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
                 self.assertIn("bronze-object-members.sh", entry["disabled_reason"], lane)
 
+    def test_an_enabled_job_says_since_when_and_a_disabled_one_does_not(self):
+        # Root ADR-0239: a job switched on today was called late for yesterday's slot (2026-10-14).
+        on = lambda jobs: next(j for j in jobs["jobs"] if j["enabled"])
+        off = lambda jobs: next(j for j in jobs["jobs"] if not j["enabled"])
+        self.refused(lambda jobs: on(jobs).pop("enabled_since"), "states enabled_since")
+        self.refused(lambda jobs: on(jobs).update(enabled_since="2026-10-14"), "states enabled_since")
+        self.refused(lambda jobs: off(jobs).update(enabled_since="2026-10-14T00:00:00Z"), "a disabled job has no enabled_since")
+
     def test_started_by_is_stated_and_known(self):
         self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
         self.refused(lambda jobs: jobs["jobs"][0].update(started_by="upstream"), "started_by must be one of")

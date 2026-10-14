@@ -57,7 +57,7 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 
    계약이 제공자의 최신 판을 이미 가지면 `provider=<판> held` 한 줄이고 종료 코드는 0 이다. 2026-10-05 에 같은
    단계를 손으로 돌린 결과: 계획 `ready`, 목록 276 파일, `202609 held`.
-3. 별도 PR 에서 `vworld_parcel_edition` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지운다(ADR-0122 §4).
+3. 별도 PR 에서 `vworld_parcel_edition` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지우고 `enabled_since` 를 적는다(ADR-0122 §4, 루트 ADR-0239).
 
 ## 3. 새 판을 계약에 넣기
 
