@@ -90,6 +90,7 @@ dependencies = [
  "identity-contracts",
  "identity-shared-kernel",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
@@ -996,9 +997,11 @@ name = "identity-service-provisioner"
 version = "0.1.0"
 dependencies = [
  "authorization-domain",
+ "chrono",
  "identity-contracts",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",

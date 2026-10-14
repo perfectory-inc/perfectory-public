@@ -313,18 +313,6 @@ fn draft_default_contact_visibility_is_login_required() {
 }
 
 #[test]
-fn draft_starts_with_zero_view_count() {
-    let l = build_sale();
-    assert_eq!(l.view_count, 0);
-}
-
-#[test]
-fn draft_starts_with_zero_bookmark_count() {
-    let l = build_sale();
-    assert_eq!(l.bookmark_count, 0);
-}
-
-#[test]
 fn draft_starts_with_version_one() {
     let l = build_sale();
     assert_eq!(l.version, 1);

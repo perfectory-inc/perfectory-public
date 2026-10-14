@@ -46,6 +46,8 @@ use spatial_tile_publication_evidence::seed_parcel_source_evidence;
 mod lakehouse_bake;
 #[path = "spatial_tile_publication/readdress.rs"]
 mod readdress;
+#[path = "spatial_tile_publication/source_file_asset.rs"]
+mod source_file_asset;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../../migrations");
 
@@ -1483,6 +1485,15 @@ async fn seed_data_revision(
     .bind(publication_unit_id)
     .bind(snapshot)
     .bind(source_record_id)
+    .execute(&mut *tx)
+    .await?;
+    // The asset `activation_command_with_key` names as lineage; a release cannot name a missing one.
+    sqlx::query(
+        "INSERT INTO catalog.file_asset (id, object_key, mime_type, size_bytes, visibility)
+         VALUES ($1, $2, 'application/json', 1, 'internal')",
+    )
+    .bind(derived_id(revision_id, 2))
+    .bind(format!("silver/test/{revision_id}/lineage.json"))
     .execute(&mut *tx)
     .await?;
     let source_evidence_id = if unit_key == "parcels" {

@@ -47,5 +47,6 @@ const fn safe_message(error: &ProvisionError) -> &'static str {
         ProvisionError::BindingsRead => "workload principal bindings could not be read",
         ProvisionError::ManifestValidation(_) => "workload principal policy resolution failed",
         ProvisionError::Database(_) => "service-principal database operation failed",
+        ProvisionError::EventEncoding => "service capability event could not be encoded",
     }
 }

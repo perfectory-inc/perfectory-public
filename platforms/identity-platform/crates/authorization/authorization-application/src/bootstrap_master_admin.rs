@@ -70,7 +70,6 @@ impl BootstrapMasterAdmin {
             zitadel_subject: input.zitadel_subject,
             email: input.email,
             display_name: input.display_name,
-            primary_role_code: MASTER_ADMIN.to_owned(),
             created_at: now,
             updated_at: now,
             version: 1,

@@ -248,7 +248,11 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # never a hand-written table contract beside it. The publisher already embeds the same file.
 # 127 -> 128: the Silver refresh's lane test embeds orchestration/jobs.v1.json so `Lane::ALL` and
 # the job list's `foundation-silver-refresh@<lane>` instances are held equal; nothing compared them.
-COMPILE_TIME_READ_BASELINE="${3:-128}"
+# 128 -> 131: root ADR-0214 holds the policy names Foundation routes ask Identity for to one file:
+# foundation-api's route-policy test reads config/identity-route-policies.contract.json, its Identity
+# client test reads Identity's published OpenAPI, and Identity's authorization-domain test reads the
+# same contract, once each from CARGO_MANIFEST_DIR. They replace three unchecked hand copies.
+COMPILE_TIME_READ_BASELINE="${3:-131}"
 
 cd "$repo_root"
 

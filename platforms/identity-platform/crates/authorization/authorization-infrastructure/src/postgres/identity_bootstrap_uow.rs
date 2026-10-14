@@ -15,15 +15,11 @@ const MASTER_ADMIN: &str = "MASTER_ADMIN";
 const ZITADEL_SUBJECT_CONSTRAINT: &str = "identity_staff_zitadel_subject_key";
 const BOOTSTRAP_LOCK_SQL: &str =
     "SELECT pg_advisory_xact_lock(hashtext('identity.master_admin.bootstrap'))";
-const MASTER_ADMIN_EXISTS_SQL: &str = "SELECT EXISTS (
-         SELECT 1 FROM identity.staff WHERE primary_role_code = 'MASTER_ADMIN'
-         UNION ALL
-         SELECT 1 FROM identity.staff_role WHERE role_code = 'MASTER_ADMIN'
-     )";
+const MASTER_ADMIN_EXISTS_SQL: &str =
+    "SELECT EXISTS (SELECT 1 FROM identity.staff_role WHERE role_code = 'MASTER_ADMIN')";
 const INSERT_STAFF_SQL: &str = "INSERT INTO identity.staff
-         (id, zitadel_subject, email, display_name, primary_role_code,
-          created_at, updated_at, version)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
+         (id, zitadel_subject, email, display_name, created_at, updated_at, version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)";
 const INSERT_ROLE_SQL: &str =
     "INSERT INTO identity.staff_role (staff_id, role_code, granted_at, granted_by)
      VALUES ($1, $2, $3, $4)";
@@ -79,7 +75,6 @@ impl IdentityBootstrapUnitOfWork for PgIdentityBootstrapUnitOfWork {
             .bind(&staff.zitadel_subject)
             .bind(&staff.email)
             .bind(&staff.display_name)
-            .bind(&staff.primary_role_code)
             .bind(staff.created_at)
             .bind(staff.updated_at)
             .bind(staff.version)
@@ -120,8 +115,7 @@ impl IdentityBootstrapUnitOfWork for PgIdentityBootstrapUnitOfWork {
 }
 
 fn validate_bootstrap(staff: &Staff, role_grant: &RoleGrant) -> Result<(), StaffIdentityError> {
-    if staff.primary_role_code != MASTER_ADMIN
-        || role_grant.role_code.as_str() != MASTER_ADMIN
+    if role_grant.role_code.as_str() != MASTER_ADMIN
         || role_grant.staff_id != staff.id
         || role_grant.granted_by != staff.id
     {
@@ -210,7 +204,6 @@ mod tests {
             zitadel_subject: "subject".to_owned(),
             email: "staff@example.test".to_owned(),
             display_name: "Staff".to_owned(),
-            primary_role_code: "MASTER_ADMIN".to_owned(),
             created_at: now,
             updated_at: now,
             version: 1,

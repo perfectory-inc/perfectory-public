@@ -35,6 +35,9 @@ pub enum TransactionTypeError {
 }
 
 impl TransactionType {
+    /// 모든 값, 선언 순서. `FromStr` 와 `DB` `CHECK` 동등성 테스트가 이 목록을 읽어요.
+    pub const ALL: [Self; 3] = [Self::Sale, Self::MonthlyRent, Self::Jeonse];
+
     /// 정규화된 `snake_case` 문자열 반환 (`DB varchar(20)` 매핑).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -72,14 +75,21 @@ impl FromStr for TransactionType {
     type Err = TransactionTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "sale" => Ok(Self::Sale),
-            "monthly_rent" => Ok(Self::MonthlyRent),
-            "jeonse" => Ok(Self::Jeonse),
-            other => Err(TransactionTypeError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|v| v.as_str() == s)
+            .ok_or_else(|| TransactionTypeError::Unknown(s.to_owned()))
     }
 }
+
+// `ALL` 의 순서 뒤바뀜·중간 누락을 컴파일 시점에 거부해요 (끝 누락은 DB CHECK 동등성 테스트 몫).
+const _: () = {
+    let mut i = 0;
+    while i < TransactionType::ALL.len() {
+        assert!(TransactionType::ALL[i] as usize == i);
+        i += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {
