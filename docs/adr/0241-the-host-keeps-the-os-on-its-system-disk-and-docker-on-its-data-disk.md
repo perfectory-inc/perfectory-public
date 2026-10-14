@@ -36,8 +36,9 @@ Docker 의 data-root 만 옮기면 21GB 만 빈다. 둘 다 옮겨야 원인이 
    - 두 유닛에 `RequiresMountsFor=<데이터 디스크>` 를 둔다. 디스크가 붙기 전에 엔진이 빈 경로로 뜨지 않는다.
    - 확인: 엔진 root, 전에 돌던 컨테이너 전부, 전에 healthy 였던 컨테이너 전부, readiness URL 전부. 하나라도 실패하면
      스스로 되돌린다.
-   - DAG: 실행 전에 unpaused 였던 `foundation_` DAG 만 기록해 멈추고, 끝나면 그것만 consumers-first 순서로 재개한다.
-     설계상 멈춰 둔 DAG 는 건드리지 않는다.
+   - DAG: 실행 전에 unpaused 였던 `foundation_` DAG 만 기록해 멈추고, 끝나면 그중 레지스트리에서 켜진(enabled) 작업의
+     DAG 만 consumers-first 순서로 재개한다. 설계상 멈춰 둔(disabled) 작업은 전에 Airflow 에서 unpaused 였더라도 멈춘 채
+     둔다 — 배포가 하는 것과 같다(2026-10-14 dry-run 에서 disabled 작업 DAG 몇 개가 unpaused 로 보였다).
    - 옛 트리는 `<트리>.old` 로 남는다. 소유자가 확인한 뒤 `delete-old` 가 지운다.
 3. 새 호스트는 컨테이너를 띄우기 전에 같은 스크립트를 돈다(런북 `host-layout.md`). `/var/lib/docker` 를 쓰는 호스트는
    다시 생기지 않는다.

@@ -35,7 +35,7 @@ class DaemonJson(unittest.TestCase):
     def test_every_existing_key_is_kept_and_data_root_is_set(self):
         existing = json.dumps({
             "log-driver": "json-file", "log-opts": {"max-size": "50m", "max-file": "3"},
-            "features": {"containerd-snapshotter": True}, "default-address-pools": [{"base": "10.10.0.0/16", "size": 24}],
+            "features": {"containerd-snapshotter": True}, "default-address-pools": [{"base": "192.0.2.0/24", "size": 28}],
         })
         merged = json.loads(layout.merged_daemon_json(existing, "/data/docker"))
         self.assertEqual(merged.pop("data-root"), "/data/docker")

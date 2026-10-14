@@ -22,8 +22,8 @@
 #     renames the old trees to <tree>.old, starts containerd and Docker.
 #  5. verifies: Docker's root is the new one, every container that ran runs again, every container
 #     that was healthy is healthy again, and each readiness URL of the contract answers 200.
-#  6. unpauses exactly the DAGs that were unpaused before, in the registry's consumers-first order,
-#     and gives autodeploy back.
+#  6. unpauses the DAGs that were unpaused before and whose jobs are enabled (a disabled job stays
+#     paused, as the deploy leaves it), in the registry's consumers-first order, and gives autodeploy back.
 # Any failure after the stop rolls back: stop, restore both config files, remove the drop-ins,
 # rename the old trees back, start, unpause. The copies on the data disk stay for inspection.
 #
@@ -54,6 +54,9 @@ AUTODEPLOY_OFF=/etc/foundation-platform/autodeploy.off
 ADMISSION=/opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py
 DROPIN_NAME=10-data-disk.conf
 RSYNC=(rsync -aHAXx --numeric-ids --delete)
+# Only a dry run without root uses it, to measure the trees read-only; the digest is the one the host holds.
+MEASURE_IMAGE="alpine:3@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 
 log() { printf '%s host-docker-data-root: %s\n' "$(date -u +%FT%TZ)" "$*"; }
 die() { log "REFUSED: $1"; exit "${2:-1}"; }
@@ -84,7 +87,7 @@ size_bytes() {
     du -sxb "$1" | cut -f1
   else
     # A dry run without root measures through Docker, read-only.
-    docker run --rm -v "$1:/m:ro" alpine:3 du -sxb /m | cut -f1
+    docker run --rm -v "$1:/m:ro" "${MEASURE_IMAGE}" du -sxb /m | cut -f1
   fi
 }
 on_data_disk() { [[ "$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)" == "${DOCKER_ROOT}" ]]; }
@@ -103,10 +106,18 @@ preflight() {
     exit 0
   fi
   findmnt -n "${DATA_MOUNT}" >/dev/null || { log "check: ${DATA_MOUNT} is not a mount point"; failures=1; }
-  case "$(systemctl is-active foundation-autodeploy.service 2>/dev/null || true)" in
-    active|activating|reloading) log "check: an autodeploy is running"; failures=1 ;;
-    *) log "check: no autodeploy runs" ;;
-  esac
+  # Whether a unit runs is job_units.py's one answer (root ADR-0184): a oneshot is `activating`
+  # for its whole run. Every foundation service: the autodeploy, the registered jobs and the
+  # operator's units the registry does not list (a pack bake, an unconditional Gold rebuild).
+  local units units_status=0
+  units="$(python3 -I -B "${JOB_UNITS}" running 'foundation-*.service' 2>&1)" || units_status=$?
+  if ((units_status != 0)); then
+    log "check: systemd could not say which units run (exit ${units_status}): ${units}"; failures=1
+  elif [[ -n "${units}" ]]; then
+    log "check: foundation units run: ${units//$'\n'/; }"; failures=1
+  else
+    log "check: no foundation unit runs (the autodeploy included)"
+  fi
   local busy status=0
   busy="$("${ADMISSION}" running-jobs 2>&1)" || status=$?
   case "${status}" in
@@ -114,12 +125,6 @@ preflight() {
     75) log "check: registered jobs run: ${busy//$'\n'/ }"; failures=1 ;;
     *) log "check: release admission gave no answer (exit ${status}): ${busy}"; failures=1 ;;
   esac
-  # Operator units the job registry does not list (a pack bake, an unconditional Gold rebuild)
-  # are oneshot services too: none may be running either.
-  local units
-  units="$(systemctl list-units 'foundation-*.service' --state=active,activating,deactivating --no-legend --plain 2>/dev/null     | awk '{print $1}' | grep -v -x 'foundation-autodeploy.service' || true)"
-  if [[ -n "${units}" ]]; then log "check: foundation units run: ${units//$'
-'/ }"; failures=1; else log "check: no foundation unit runs"; fi
   local spark
   spark="$(spark_containers)"
   if [[ -n "${spark}" ]]; then log "check: Spark containers exist: ${spark//$'\n'/ }"; failures=1; else log "check: no Spark container"; fi
@@ -170,18 +175,20 @@ restore_configs() {
 }
 
 unpause_recorded() {
-  local run="$1" id failed=0
+  local run="$1" id failed=0 count=0
   [[ -s "${run}/unpaused-dags" ]] || { log "no DAG was unpaused before the run; none unpaused"; return 0; }
-  for id in $(consumers_first); do
+  # Only an enabled job's DAG, in the registry's consumers-first order (root ADR-0179): a disabled
+  # job is paused by design, whatever Airflow showed before, as the deploy does.
+  local order
+  order="$(consumers_first)"
+  for id in ${order}; do
     grep -qx "foundation_${id}" "${run}/unpaused-dags" || continue
-    airflow dags unpause "foundation_${id}" >/dev/null || { log "FAILED to unpause foundation_${id}"; failed=1; }
+    if airflow dags unpause "foundation_${id}" >/dev/null; then count=$((count + 1)); else log "FAILED to unpause foundation_${id}"; failed=1; fi
   done
-  # A recorded DAG the registry no longer orders (renamed since) is unpaused last.
-  while read -r dag; do
-    consumers_first | sed 's/^/foundation_/' | grep -qx "${dag}" && continue
-    airflow dags unpause "${dag}" >/dev/null || { log "FAILED to unpause ${dag}"; failed=1; }
-  done <"${run}/unpaused-dags"
-  log "unpaused the $(wc -l <"${run}/unpaused-dags") DAGs that were unpaused before"
+  local left
+  left="$(grep -vxF -f <(sed 's/^/foundation_/' <<<"${order}") "${run}/unpaused-dags" | tr '\n' ' ' || true)"
+  [[ -z "${left// }" ]] || log "left paused (their jobs are disabled in the registry): ${left}"
+  log "unpaused ${count} DAGs that were unpaused before and whose jobs are enabled"
   return "${failed}"
 }
 
@@ -244,7 +251,7 @@ case "${MODE}" in
 dry-run)
   log "dry run: nothing changes"
   status=0; preflight || status=$?
-  log "would pause, then unpause again, these unpaused DAGs: $(airflow dags list -o json 2>/dev/null | python3 -I "${HERE}/host_docker_layout.py" unpaused-dags /dev/stdin | tr '\n' ' ')"
+  log "would pause these unpaused DAGs, and afterwards unpause the ones whose jobs are enabled: $(airflow dags list -o json 2>/dev/null | python3 -I "${HERE}/host_docker_layout.py" unpaused-dags /dev/stdin | tr '\n' ' ')"
   log "would keep running: $(running_containers | wc -l) containers ($(healthy_containers | wc -l) healthy)"
   log "would copy: ${RSYNC[*]} ${DOCKER_OLD}/ ${DOCKER_ROOT}/ and ${CTRD_OLD}/ ${CTRD_ROOT}/ (once live, once stopped, then a pass that must copy nothing)"
   log "would write ${DAEMON_JSON}:"
