@@ -24,10 +24,14 @@ from lakehouse_maintenance import (  # noqa: E402
     MINIMUM_ORPHAN_SAFETY_HOURS,
     create_tag_sql,
     drop_tag_sql,
+    expiry_floor_millis,
+    millis_text,
     load_maintenance_contract,
     month_end_snapshots,
     month_of_tag,
+    protected_snapshots,
     retention_tags,
+    rotation_order,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
@@ -44,6 +48,7 @@ def sound_contract() -> dict:
                             "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
                             "year_end_tag": {"name_format": "yearly-%Y"}},
         "orphan_cleanup": {"safety_days": 3},
+        "scheduled": {"deadline_minutes": 140, "skip": ["orphan_cleanup"]},
     }
 
 
@@ -240,6 +245,88 @@ class MonthEndTagTest(unittest.TestCase):
             for month in range(1, 13)
         }
         self.assertEqual(len(names), 24)
+
+
+INGEST = "foundation.ingest-batch-objects"
+PINS = "foundation.source-iceberg-snapshots"
+
+
+def snapshot(parent: int | None, ms: int, **summary: str) -> dict:
+    return {"parent_id": parent, "committed_ms": ms, "summary": summary}
+
+
+class ReadBackFloorTest(unittest.TestCase):
+    """만료는 이 레이크하우스가 메타데이터에서 다시 읽는 스냅숏을 지우지 않는다."""
+
+    def test_every_ingest_record_in_main_is_protected(self) -> None:
+        """부분 레인은 모든 부분의 기록이 남아 있어야 적재됐다고 본다. 하나라도 지우면 그 부분이 두 번 적재된다."""
+        snapshots = {
+            1: snapshot(None, 100, **{INGEST: "part-1"}),
+            2: snapshot(1, 200, **{INGEST: "part-2"}),
+            3: snapshot(2, 300, operation="replace"),
+        }
+
+        self.assertEqual(protected_snapshots(snapshots, 3), {1, 2})
+
+    def test_only_the_newest_gold_pins_are_protected(self) -> None:
+        """Gold 재구축은 가장 새 pin 만 읽는다. 옛 pin 스냅숏까지 묶으면 Gold 는 영영 만료되지 않는다."""
+        snapshots = {
+            1: snapshot(None, 100, **{PINS: "{}"}),
+            2: snapshot(1, 200, **{PINS: "{}"}),
+            3: snapshot(2, 300),
+        }
+
+        self.assertEqual(protected_snapshots(snapshots, 3), {2})
+
+    def test_a_record_outside_main_is_not_protected(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 9: snapshot(1, 150, **{INGEST: "staged"})}
+
+        self.assertEqual(protected_snapshots(snapshots, 2), set())
+
+    def test_the_floor_moves_the_window_back_to_the_oldest_protected_snapshot(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200)}
+
+        self.assertEqual(expiry_floor_millis(500, snapshots, {2}), 200)
+        self.assertEqual(expiry_floor_millis(500, snapshots, set()), 500)
+        self.assertEqual(expiry_floor_millis(150, snapshots, {2}), 150)
+
+    def test_the_floor_is_written_to_the_millisecond(self) -> None:
+        """Iceberg 는 older_than 보다 엄격히 이전인 스냅숏만 지운다. 초로 자르면 보호한 스냅숏이 지워진다."""
+        self.assertEqual(millis_text(1_760_000_000_123), "2025-10-09 08:53:20.123")
+
+
+class ScheduledRunTest(unittest.TestCase):
+    def test_tables_never_maintained_come_first_then_the_oldest(self) -> None:
+        last = {"gold.a": "2026-10-13T01:00:00+00:00", "silver.b": "2026-10-12T01:00:00+00:00"}
+
+        self.assertEqual(
+            rotation_order(["gold.a", "silver.b", "silver.c"], last), ["silver.c", "silver.b", "gold.a"]
+        )
+
+    def test_a_table_rule_names_a_known_step_and_a_reason(self) -> None:
+        contract = sound_contract()
+        contract["tables"] = {"silver.x": {"skip": ["vacuum"], "reason": "r"}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+        contract["tables"] = {"silver.x": {"skip": ["compaction"]}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_every_table_rule_names_a_lakehouse_table(self) -> None:
+        """규칙이 없는 표 이름을 가리키면 그 표의 실제 이름은 규칙 없이 돈다."""
+        from platform_contracts import load_lakehouse_artifact
+
+        tables = set(load_lakehouse_artifact()["contracts"])
+        self.assertLessEqual(set(load_maintenance_contract().get("tables", {})), tables)
+
+    def test_the_deadline_leaves_the_unit_time_to_finish_a_table(self) -> None:
+        """마감 뒤에는 새 표를 시작하지 않는다. 그 마감이 유닛 상한 안이어야 진행 중인 표가 끝난다."""
+        import re
+
+        unit = (JOBS_DIR.parents[2] / "systemd" / "foundation-lakehouse-maintenance.service").read_text(
+            encoding="utf-8")
+        limit = int(re.search(r"^TimeoutStartSec=(\d+)m$", unit, re.M).group(1))
+        self.assertLess(load_maintenance_contract()["scheduled"]["deadline_minutes"], limit)
 
 
 class CompactionTriggerTest(unittest.TestCase):

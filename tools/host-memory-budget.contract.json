@@ -93,6 +93,7 @@
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_titles": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_units": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_unit_areas": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],

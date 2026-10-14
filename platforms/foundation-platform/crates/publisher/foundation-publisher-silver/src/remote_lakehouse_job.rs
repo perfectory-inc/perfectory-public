@@ -446,6 +446,12 @@ pub fn stop_gold_panel_rebuild() -> anyhow::Result<()> {
     invocation_cleanup::run(invocation_cleanup::Job::GoldPanelRebuild)
 }
 
+/// `ExecStopPost` of foundation-lakehouse-maintenance.service: remove the Spark container a
+/// timed-out or killed run left behind (root ADR-0238).
+pub fn stop_lakehouse_maintenance() -> anyhow::Result<()> {
+    invocation_cleanup::run(invocation_cleanup::Job::LakehouseMaintenance)
+}
+
 pub async fn run_floor_cycle() -> anyhow::Result<()> {
     floor_cycle::run().await
 }
