@@ -4,6 +4,9 @@
 #   0a. 법정동 — 수집 작업이 넘긴 법정동 코드 변경을 먼저 적재하고 짝을 맞춘다(legal-dong-code-load.sh,
 #               root ADR-0143). 넘김이 없으면 그렇게 남기고 지나간다.
 #
+#   0b. 도출   — 원천 계약의 필지 판 이웃 쌍마다, 시도 묶음마다 계보를 한 번 도출해 쌓는다
+#               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
+#
 #   1. 접기   — 서 있는 스튜어드 결정을 silver.parcel_lineage 에 steward 행으로 쌓는다
 #               (export-lineage-steward-fold → Spark → record-lineage-steward-folds).
 #   2. 목록   — 계보에서 검토 목록을 다시 만든다(gold.lineage_review_queue + 넘김 파일).
@@ -77,6 +80,14 @@ json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2
 # 짝을 맞춘다. 실패하면 여기서 멈춘다 — 낡은 크로스워크로 계보에 들어가지 않는다.
 source "$(dirname "${BASH_SOURCE[0]}")/legal-dong-code-load.sh"
 load_legal_dong_code_handoffs
+
+# 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
+# silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
+# 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
+spark parcel_lineage_scheduled.py --allow-non-smoke-write \
+  --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
+  --summary-output "${container_work}/derive-summary.json"
+job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]')"
 
 # 0. 계보 표가 아직 없으면(9월 필지 적재 전) 할 일이 없다 — 조용히 넘기지 않고 그렇다고 남긴다.
 # `|| probe_rc=$?`, not `set +e`: the ERR trap fires even with errexit off, so "no lineage yet"
