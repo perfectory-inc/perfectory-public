@@ -54,8 +54,8 @@ AUTODEPLOY_OFF=/etc/foundation-platform/autodeploy.off
 ADMISSION=/opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py
 DROPIN_NAME=10-data-disk.conf
 RSYNC=(rsync -aHAXx --numeric-ids --delete)
-# Only a dry run without root uses it, to measure the trees read-only; the digest is the one the host holds.
-MEASURE_IMAGE="alpine:3.20@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+# Only a dry run without root uses it, to measure the trees read-only (tools/technology-versions.contract.json pins it).
+MEASURE_IMAGE="busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
 JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 
 log() { printf '%s host-docker-data-root: %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -87,7 +87,8 @@ size_bytes() {
     du -sxb "$1" | cut -f1
   else
     # A dry run without root measures through Docker, read-only.
-    docker run --rm -v "$1:/m:ro" "${MEASURE_IMAGE}" du -sxb /m | cut -f1
+    # busybox du counts in KiB.
+    echo $(( $(docker run --rm -v "$1:/m:ro" "${MEASURE_IMAGE}" du -sxk /m | cut -f1) * 1024 ))
   fi
 }
 on_data_disk() { [[ "$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)" == "${DOCKER_ROOT}" ]]; }
