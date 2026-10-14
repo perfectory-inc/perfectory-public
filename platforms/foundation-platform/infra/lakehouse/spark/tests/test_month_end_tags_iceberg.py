@@ -68,6 +68,10 @@ class MonthEndTagsIceberg(unittest.TestCase):
         year_end = self.head()
         committed = datetime.now(timezone.utc)
         year = committed.year
+        # `month_end_only` is pinned by nothing but a month-end tag naming January of next year,
+        # as a run would have left it; 14 months after December that month is 13 months back.
+        old_month_tag = maintenance.month_start(year + 1, 1).strftime(monthly)
+        self.spark.sql(f"ALTER TABLE proof.{TABLE} CREATE TAG `{old_month_tag}` AS OF VERSION {month_end_only}")
 
         # The run just after this year ends tags `year_end` as every remaining month's end and as
         # the year's end, before anything else is committed.
@@ -76,18 +80,16 @@ class MonthEndTagsIceberg(unittest.TestCase):
         year_tag = maintenance.month_start(year, 12).strftime(yearly)
         self.assertEqual(self.tag(year_tag), year_end)
         self.assertEqual(self.tag(maintenance.month_start(year, 12).strftime(monthly)), year_end)
+        self.assertIn(month_end_only, self.snapshots(), "a month-end tag inside its window did not pin")
 
         self.spark.sql(f"INSERT OVERWRITE proof.{TABLE} VALUES ('9999900000100000001', 'c')")
         current = self.head()
 
-        # A run 14 months after that December. `month_end_only` is pinned by nothing but a
-        # month-end tag naming the month 13 months back, as an earlier run would have left it.
+        # A run 14 months after that December.
         later = maintenance.month_start(year + 2, 2)
-        old_month_tag = maintenance.month_start(year + 1, 1).strftime(monthly)
         self.assertEqual(maintenance.months_ago(year + 1, 1, later), 13)
         self.assertGreater(maintenance.months_ago(year + 1, 1, later),
                            expiry["month_end_tag"]["keep_months"])
-        self.spark.sql(f"ALTER TABLE proof.{TABLE} CREATE TAG `{old_month_tag}` AS OF VERSION {month_end_only}")
         self.assertGreaterEqual(later - committed, window + timedelta(days=1))
         maintenance.run_snapshot_expiry(self.spark, "proof", TABLE, expiry, later, False)
 
