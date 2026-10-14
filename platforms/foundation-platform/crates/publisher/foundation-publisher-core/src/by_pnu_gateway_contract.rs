@@ -543,8 +543,20 @@ pub struct HashTestVector {
 /// The gateway's read bounds the bake must respect.
 #[derive(Debug, Deserialize)]
 pub struct PackReadPathPolicy {
-    /// A pack at most this long is read whole in one GET; the bake refuses a larger part.
+    /// The bound a part of a dong cut into parts is held to (root ADR-0163); since root ADR-0233
+    /// only a patch over a generation baked in parts is.
     pub whole_pack_max_bytes: u64,
+    pub request_cpu_budget: RequestCpuBudget,
+}
+
+/// The bytes one request copies, bounded so its Worker CPU does not grow with the data (root
+/// ADR-0233): every pack writer refuses a document or a head past them.
+#[derive(Debug, Deserialize)]
+pub struct RequestCpuBudget {
+    /// One document's gzip member, the most one answer copies.
+    pub document_max_bytes: u64,
+    /// A pack's prefix, header and index, what the Worker reads and keeps of every pack.
+    pub pack_head_max_bytes: u64,
 }
 
 /// The environment variables that carry the analytics account and its read-only token. The file
@@ -765,6 +777,8 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
             .iter()
             .any(|vector| crate::r2_layout::by_pnu_packs::fnv1a32(&vector.input) != vector.fnv1a32)
         || parts.part_target_bytes == 0
+        || packs.read_path.request_cpu_budget.document_max_bytes == 0
+        || packs.read_path.request_cpu_budget.pack_head_max_bytes == 0
         || parts.part_target_bytes > packs.read_path.whole_pack_max_bytes
         || parts.index_file_name.is_empty()
         || parts.index_schema_version.is_empty()

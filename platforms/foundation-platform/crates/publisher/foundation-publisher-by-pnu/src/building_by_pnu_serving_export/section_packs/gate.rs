@@ -119,7 +119,7 @@ pub struct LoadEvidence {
 }
 
 /// What the preview Worker said about its own answers (`Server-Timing`): its total and R2 wait,
-/// and where each section's pack came from (`r2-whole`, `r2-head+range`, `edge-…`, `memory-…`).
+/// and where each section's pack came from (`r2-head+range`, `memory-head+range`, `edge-answer`).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ServerTimingSummary {
     pub answers: u64,
@@ -127,7 +127,7 @@ pub struct ServerTimingSummary {
     pub r2_ms: Timings,
     pub sources: BTreeMap<String, u64>,
     /// How the Worker answered, by its `outcome` (`document` passes the member through,
-    /// `document-decompressed` gunzipped it for a client without gzip, `r2-unavailable`, …).
+    /// `r2-unavailable`, …).
     #[serde(default)]
     pub outcomes: BTreeMap<String, u64>,
 }
