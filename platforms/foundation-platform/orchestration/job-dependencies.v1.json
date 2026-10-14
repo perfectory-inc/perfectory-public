@@ -458,6 +458,7 @@
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
         "admin_boundary_release",
+        "parcel_registry",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1366,6 +1367,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
           "node_id": "silver-administrative-boundaries",
           "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "parcel_registry",
+      "producers": [
+        "vworld_parcel_edition"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.parcel_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
+          "node_id": "silver-parcel-registry",
+          "title": "필지 ID 원장",
           "kind": "silver_table",
           "surface_kind": null
         }

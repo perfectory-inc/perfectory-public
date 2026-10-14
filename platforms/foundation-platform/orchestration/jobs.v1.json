@@ -446,6 +446,24 @@
       "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "parcel_registry",
+      "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
+      "systemd_service": "foundation-parcel-registry.service",
+      "systemd_timer": null,
+      "schedule": "10 10 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-silver-parcel-registry"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_kind_rebuild",
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
       "systemd_service": "foundation-gold-kind-rebuild.service",
