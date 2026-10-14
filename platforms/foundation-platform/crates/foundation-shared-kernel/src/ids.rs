@@ -35,7 +35,28 @@ macro_rules! id_newtype {
     };
 }
 
-id_newtype!(ComplexId, "Catalog industrial complex identifier.");
+id_newtype!(
+    ComplexId,
+    "Industrial complex identifier: the one id a complex has everywhere (root ADR-0250).\n\n\
+     Derived, never minted: [`ComplexId::for_official_complex_code`] is the same `UUIDv5` the\n\
+     Bronze-to-Silver job writes as `complex_id`, so Postgres, tiles, Gold and R2 profiles name a\n\
+     complex by the same value."
+);
+
+/// Seed prefix of the industrial-complex id derivation.
+///
+/// The Bronze-to-Silver job (`COMPLEX_ID_SEED_PREFIX`) and the SQL function
+/// `catalog.industrial_complex_id_for` spell the same text; all three pin the same vectors.
+pub const COMPLEX_ID_SEED_PREFIX: &str = "foundation-platform:catalog:industrial_complex:";
+
+impl ComplexId {
+    /// The id of the complex with this official code: `uuid5(NAMESPACE_URL, prefix + code)`.
+    #[must_use]
+    pub fn for_official_complex_code(official_complex_code: &str) -> Self {
+        let seed = format!("{COMPLEX_ID_SEED_PREFIX}{official_complex_code}");
+        Self(Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes()))
+    }
+}
 id_newtype!(ParcelId, "Catalog parcel identifier.");
 id_newtype!(BuildingId, "Catalog building identifier.");
 id_newtype!(ManufacturerId, "Catalog manufacturer identifier.");
@@ -100,14 +121,9 @@ id_newtype!(
 );
 id_newtype!(
     LakehouseComplexId,
-    "Lakehouse identifier of an industrial complex, distinct from its Catalog `ComplexId`.\n\n\
-     Two different identities name the same complex. `ComplexId` is minted locally with\n\
-     `Uuid::now_v7()` when the canonical row is created; the lakehouse id is derived\n\
-     deterministically (`UUIDv5`) in the Bronze-to-Silver job and is what Gold artifact keys are\n\
-     computed from. Neither can be reconstructed from the other, so a canonical row that wants to\n\
-     address its Gold profile object has to carry both.\n\n\
-     Separate types because the confusion is the whole point: passing a locally minted id where a\n\
-     lakehouse id is required names an object that does not exist.\n\n\
+    "Industrial complex id as a lakehouse producer handed it over (Silver `complex_id`).\n\n\
+     Since root ADR-0250 it equals the complex's `ComplexId`; Catalog checks that equality when it\n\
+     accepts a row instead of trusting it. The type goes when `lakehouse_complex_id` is retired.\n\n\
      ```compile_fail,E0308\n\
      use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};\n\
      use uuid::Uuid;\n\n\
@@ -129,3 +145,25 @@ id_newtype!(
      ```"
 );
 id_newtype!(StaffId, "Legacy-named Foundation audit staff identifier.");
+
+#[cfg(test)]
+mod tests {
+    use super::ComplexId;
+
+    /// The vectors `test_industrial_complex_bronze_to_silver.py` pins (`RFC4122_VECTORS`) and the
+    /// `catalog.industrial_complex_id_for` migration test checks: one derivation, three languages.
+    #[test]
+    fn complex_id_is_the_lakehouse_derivation_of_the_official_code() {
+        for (code, expected) in [
+            ("000000", "b796bcb0-f180-5220-8007-4cf27bf4c87b"),
+            ("000001", "20c71d10-9b9a-5e7a-95fc-0ffa834b3867"),
+            ("111010", "7df3859c-768f-51fa-a78d-6398acd5f052"),
+        ] {
+            assert_eq!(
+                ComplexId::for_official_complex_code(code).to_string(),
+                expected,
+                "{code}"
+            );
+        }
+    }
+}

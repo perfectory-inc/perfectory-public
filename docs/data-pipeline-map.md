@@ -219,7 +219,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 |---|---|
 | 필지 기본·식별자 | `catalog.parcel_identifier` |
 | 세대 공시가격 연혁 | `catalog.unit_official_price`<br>`catalog.unit_official_price_publication` |
-| 산업단지 | `catalog.industrial_complex` |
+| 산업단지 | `catalog.industrial_complex`<br>`catalog.industrial_complex_retired_id` |
 | 산업단지 프로필 포인터 | `catalog.industrial_complex_gold_pointer` |
 | 필지의 산업단지 소속 | `catalog.parcel_complex_membership` |
 | 업종 분류·허용 | `catalog.industry_group`<br>`catalog.industry_group_member`<br>`catalog.allowed_industry`<br>`catalog.parcel_industry_assignment` |

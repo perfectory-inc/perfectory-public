@@ -14,7 +14,7 @@ workspace = true
 chrono = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
