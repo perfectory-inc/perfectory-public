@@ -65,6 +65,14 @@ impl JobList {
             .map(|job| (job.id.clone(), job.timeout_minutes))
             .collect()
     }
+
+    /// When each enabled job was switched on, by job id (root ADR-0239).
+    pub(super) fn enabled_since(&self) -> BTreeMap<String, DateTime<Utc>> {
+        self.jobs
+            .iter()
+            .filter_map(|job| Some((job.id.clone(), job.enabled_since?)))
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +85,9 @@ struct ListedJob {
     #[serde(default)]
     timeout_minutes: u32,
     enabled: bool,
+    /// When the job was switched on (root ADR-0239): a slot before it is not one it missed.
+    #[serde(default)]
+    enabled_since: Option<DateTime<Utc>>,
     #[serde(default)]
     disabled_reason: Option<String>,
     started_by: ScheduledJobStart,
@@ -127,10 +138,12 @@ pub(super) async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
     };
     let mut jobs = job_statuses(&list, &dependencies, flows, now);
     let timeouts = list.timeouts();
+    let enabled_since = list.enabled_since();
     health::annotate(
         &mut jobs,
         &health::HealthFacts {
             timeouts: &timeouts,
+            enabled_since: &enabled_since,
             tables: &facts.tables,
             failures: &facts.failures,
             in_progress: &facts.in_progress,
@@ -584,6 +597,7 @@ mod tests {
                     schedule: "20 7 * * *".to_owned(),
                     timeout_minutes: 60,
                     enabled: true,
+                    enabled_since: None,
                     disabled_reason: None,
                     started_by: ScheduledJobStart::Schedule,
                     pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
@@ -594,6 +608,7 @@ mod tests {
                     schedule: "0,30 * * * *".to_owned(),
                     timeout_minutes: 60,
                     enabled: true,
+                    enabled_since: None,
                     disabled_reason: None,
                     started_by: ScheduledJobStart::Schedule,
                     pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
@@ -604,6 +619,7 @@ mod tests {
                     schedule: "40 4 * * *".to_owned(),
                     timeout_minutes: 60,
                     enabled: false,
+                    enabled_since: None,
                     disabled_reason: Some("waiting for a supervised run".to_owned()),
                     started_by: ScheduledJobStart::Inputs,
                     pipeline_graph_edges: Vec::new(),

@@ -322,11 +322,17 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
     def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
-        self.refused(lambda jobs: bake(jobs).update(enabled=False, disabled_reason="  "))
-        self.refused(lambda jobs: bake(jobs).update(enabled=False))
+        self.refused(lambda jobs: switch_off(bake(jobs), disabled_reason="  "))
+        self.refused(lambda jobs: switch_off(bake(jobs)))
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+def switch_off(entry, **fields):
+    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239)."""
+    entry.pop("enabled_since", None)
+    entry.update(enabled=False, **fields)
 
 
 def job(jobs, job_id):
@@ -405,6 +411,14 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                 # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
                 self.assertIn("bronze-object-members.sh", entry["disabled_reason"], lane)
 
+    def test_an_enabled_job_says_since_when_and_a_disabled_one_does_not(self):
+        # Root ADR-0239: a job switched on today was called late for yesterday's slot (2026-10-14).
+        on = lambda jobs: next(j for j in jobs["jobs"] if j["enabled"])
+        off = lambda jobs: next(j for j in jobs["jobs"] if not j["enabled"])
+        self.refused(lambda jobs: on(jobs).pop("enabled_since"), "states enabled_since")
+        self.refused(lambda jobs: on(jobs).update(enabled_since="2026-10-14"), "states enabled_since")
+        self.refused(lambda jobs: off(jobs).update(enabled_since="2026-10-14T00:00:00Z"), "a disabled job has no enabled_since")
+
     def test_started_by_is_stated_and_known(self):
         self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
         self.refused(lambda jobs: jobs["jobs"][0].update(started_by="upstream"), "started_by must be one of")
@@ -417,7 +431,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild"):
-                job(jobs, name).update(enabled=False, disabled_reason="planted")
+                switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
                                         "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
 
