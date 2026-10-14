@@ -45,6 +45,7 @@ usage:
   foundation-release.sh host-retention
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh operator-access <account>
+  foundation-release.sh env-set <group> <NAME=value-file>
   foundation-release.sh status
 USAGE
   exit 64
@@ -1079,6 +1080,12 @@ verify_runtime_secrets() {
   }
   # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
   # host, a fake host in foundation-release-test.sh.
+  # First a renamed credential gains its derived name, with the value its old name has, in every
+  # file that holds it (root ADR-0247): the files change through the contract, never by hand.
+  python3 -I "${secrets}" --area "${release_root}/current" rename --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
+    printf 'renaming credentials in the host environment files failed; see above (names only)\n' >&2
+    exit 65
+  }
   python3 -I "${secrets}" --area "${release_root}/current" host --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
     printf 'the host environment files do not match config/runtime-secrets.contract.json; see above (names only)\n' >&2
     exit 65
@@ -1416,6 +1423,15 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   operator-access)
     [[ "$#" == 2 ]] || usage
     install_operator_access "$2"
+    ;;
+  env-set)
+    # A host environment file changes through the contract, not an editor (root ADR-0247): the
+    # names must be ones the group holds, and the file keeps the contract's owner, group and mode.
+    # Prints names, never values; the caller removes its source file.
+    [[ "$#" == 3 ]] || usage
+    assert_current_release
+    python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
+      set --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" "$2" "$3"
     ;;
   status)
     [[ "$#" == 1 ]] || usage
