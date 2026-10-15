@@ -269,7 +269,9 @@ fn provisioner_is_a_fail_closed_atomic_least_privilege_deployment_job() -> TestR
     }
     for required in [
         "GRANT SELECT, INSERT, UPDATE ON identity.service_principal",
-        "GRANT SELECT, INSERT, DELETE ON identity.service_capability_grant",
+        "GRANT SELECT ON identity.service_capability_grant TO :\"identity_provisioner_role\"",
+        "GRANT SELECT, INSERT ON identity.service_capability_grant_record",
+        "GRANT INSERT ON identity.outbox_event TO :\"identity_provisioner_role\"",
     ] {
         assert!(
             grants.contains(required),
@@ -277,6 +279,9 @@ fn provisioner_is_a_fail_closed_atomic_least_privilege_deployment_job() -> TestR
         );
     }
     assert!(!grants.contains("GRANT ALL"));
+    // The grant ledger is append-only (root ADR-0212): no role may delete or rewrite a record.
+    assert!(!grants.contains("DELETE ON identity.service_capability_grant"));
+    assert!(!grants.contains("UPDATE ON identity.service_capability_grant"));
     assert!(smoke.contains("verify_provisioner_acl"));
     assert!(smoke.contains("forbidden_sql_succeeded"));
     Ok(())

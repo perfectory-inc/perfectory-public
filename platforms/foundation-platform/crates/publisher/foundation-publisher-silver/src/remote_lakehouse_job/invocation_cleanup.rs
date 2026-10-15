@@ -14,6 +14,10 @@ use std::{
 use anyhow::{ensure, Context};
 
 const MAX_LIST_BYTES: u64 = 4096;
+/// The label key Compose names a container's project with; the cleanup lists by it.
+pub const PROJECT_LABEL: &str = "com.docker.compose.project";
+/// The label Compose puts on a `run` container; the cleanup removes only those.
+pub const ONEOFF_LABEL: &str = "com.docker.compose.oneoff=True";
 
 /// A registered job whose Spark runs in a per-invocation Compose project.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,8 +26,12 @@ pub(super) enum Job {
     Floor,
     /// `gold-panel-rebuild.sh`, which passes `-p` with the same prefix (root ADR-0139).
     GoldPanelRebuild,
+    /// `lakehouse-maintenance.sh`, which passes `-p` with the same prefix (root ADR-0238).
+    LakehouseMaintenance,
     /// `silver-refresh.sh`: the publisher passes `-p` with this prefix (root ADR-0169).
     SilverRefresh,
+    /// `parcel-tile-bake.sh`, which passes `-p` with the same prefix (root ADR-0133 §7).
+    ParcelTileBake,
 }
 
 impl Job {
@@ -31,7 +39,9 @@ impl Job {
         match self {
             Self::Floor => "foundation-floor",
             Self::GoldPanelRebuild => "foundation-gold-rebuild",
+            Self::LakehouseMaintenance => "foundation-lakehouse-maintenance",
             Self::SilverRefresh => "foundation-silver-refresh",
+            Self::ParcelTileBake => "foundation-parcel-tile-bake",
         }
     }
 }
@@ -86,9 +96,9 @@ fn list(docker: &Path, project: &str) -> anyhow::Result<Vec<String>> {
             "--quiet",
             "--no-trunc",
             "--filter",
-            &format!("label=com.docker.compose.project={project}"),
+            &format!("label={PROJECT_LABEL}={project}"),
             "--filter",
-            "label=com.docker.compose.oneoff=True",
+            &format!("label={ONEOFF_LABEL}"),
         ],
     )
 }
@@ -209,6 +219,14 @@ mod tests {
         assert_eq!(
             project_id(Job::GoldPanelRebuild, &mut |_| Some(id.clone()))?,
             format!("foundation-gold-rebuild-{id}")
+        );
+        assert_eq!(
+            project_id(Job::LakehouseMaintenance, &mut |_| Some(id.clone()))?,
+            format!("foundation-lakehouse-maintenance-{id}")
+        );
+        assert_eq!(
+            project_id(Job::ParcelTileBake, &mut |_| Some(id.clone()))?,
+            format!("foundation-parcel-tile-bake-{id}")
         );
         for invalid in ["", "../other", "ABCDEF", &"A".repeat(32), &"a".repeat(33)] {
             assert!(project_id(Job::Floor, &mut |_| Some(invalid.into())).is_err());

@@ -17,6 +17,7 @@ from industrial_complex_boundaries_silver_to_postgis_handoff import (  # noqa: E
     export_lines,
     export_row,
     needs_iceberg_catalog,
+    newest_source_snapshot,
     parse_args,
     validate_args,
     write_create_only,
@@ -168,6 +169,14 @@ class SummaryTest(unittest.TestCase):
             "canonical_iceberg_snapshot_id_is_unknown_outside_iceberg_input_mode",
             summary["evidence_limitations"],
         )
+
+class TheNewestSnapshotIsCurrent(unittest.TestCase):
+    # A second provider version is appended beside the first (root ADR-0240); a reader that kept
+    # both would give every complex two official boundaries, which the export refuses.
+    def test_the_latest_valid_from_wins_and_a_tie_goes_to_the_greater_id(self):
+        self.assertEqual(newest_source_snapshot([("s-a", "2099-01-01"), ("s-b", "2099-03-01"), ("s-c", "2099-02-01")]), "s-b")
+        self.assertEqual(newest_source_snapshot([("s-a", "2099-01-01"), ("s-b", "2099-01-01")]), "s-b")
+        self.assertIsNone(newest_source_snapshot([]))
 
 
 if __name__ == "__main__":

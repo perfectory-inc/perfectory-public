@@ -2,15 +2,16 @@ use chrono::Utc;
 use gongzzang_persistence::listing::PgListingRepository;
 use listing_domain::repository::{
     ListingMarkerFilter, ListingMarkerFilterSpec, ListingMarkerTileQuery, ListingRepository,
+    LISTING_MARKER_ID_PROPERTY,
 };
 use shared_kernel::listing_type::ListingType;
 use shared_kernel::mutation::MutationContext;
 use shared_kernel::transaction_type::TransactionType;
 
 use super::{
-    activate_listing, lock_marker_tile_tests, make_listing, make_listing_of_type, seed_anchor,
-    seed_owner, setup_test_pool, test_ctx, truncate_all, SYNTHETIC_Z11_X, SYNTHETIC_Z11_Y,
-    SYNTHETIC_Z14_X, SYNTHETIC_Z14_Y,
+    activate_listing, lock_marker_tile_tests, make_listing, make_listing_of_type,
+    mvt_property_keys, seed_anchor, seed_owner, setup_test_pool, test_ctx, truncate_all,
+    SYNTHETIC_Z11_X, SYNTHETIC_Z11_Y, SYNTHETIC_Z14_X, SYNTHETIC_Z14_Y,
 };
 
 #[tokio::test]
@@ -110,6 +111,7 @@ async fn listing_marker_tile_aggregates_low_zoom_without_dropping_records() {
     assert_eq!(tile.represented_count, 2);
     assert_eq!(tile.feature_count, 0);
     assert_eq!(tile.aggregate_count, 1);
+    assert!(mvt_property_keys(&tile.bytes).contains(&LISTING_MARKER_ID_PROPERTY.to_owned()));
 }
 
 #[tokio::test]
@@ -152,6 +154,7 @@ async fn listing_marker_tile_represents_every_active_listing_on_same_pnu() {
     assert_eq!(tile.represented_count, 2);
     assert_eq!(tile.feature_count, 2);
     assert_eq!(tile.aggregate_count, 0);
+    assert!(mvt_property_keys(&tile.bytes).contains(&LISTING_MARKER_ID_PROPERTY.to_owned()));
 }
 
 #[tokio::test]

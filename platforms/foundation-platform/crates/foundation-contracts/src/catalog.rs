@@ -815,29 +815,6 @@ pub struct MarkerTileFeatureResponse {
     pub detail_ref: String,
 }
 
-/// Anchor-derived map summary for one industrial complex.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct ComplexAnchorSummaryResponse {
-    /// Industrial complex whose active parcel anchors were summarized.
-    pub complex_id: Uuid,
-    /// Canonical source for the summary coordinates. Current value: `pnu_anchor`.
-    pub position_source: String,
-    /// Average longitude of active parcel anchors in EPSG:4326.
-    pub center_lng: f64,
-    /// Average latitude of active parcel anchors in EPSG:4326.
-    pub center_lat: f64,
-    /// Minimum active anchor longitude in EPSG:4326.
-    pub min_lng: f64,
-    /// Minimum active anchor latitude in EPSG:4326.
-    pub min_lat: f64,
-    /// Maximum active anchor longitude in EPSG:4326.
-    pub max_lng: f64,
-    /// Maximum active anchor latitude in EPSG:4326.
-    pub max_lat: f64,
-    /// Number of active parcel anchors represented by this summary.
-    pub anchor_count: u64,
-}
-
 /// Request body for rebuilding parcel marker anchors from an approved mirror snapshot.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ParcelMarkerAnchorRebuildRequest {
@@ -868,15 +845,6 @@ pub struct ParcelMarkerAnchorRebuildResponse {
     pub rejected_row_count: u64,
     /// Previously active anchors superseded for the same PNUs.
     pub superseded_row_count: u64,
-}
-
-/// Request body for updating a parcel kind with optimistic concurrency.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateParcelKindRequest {
-    /// New parcel kind wire value.
-    pub new_kind: String,
-    /// Version observed by the caller; stale values return conflict.
-    pub if_match_version: i64,
 }
 
 /// Request body for manually rolling back the active vector tile manifest.

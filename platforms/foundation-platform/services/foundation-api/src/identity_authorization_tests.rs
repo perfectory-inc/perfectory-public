@@ -254,11 +254,6 @@ async fn staff_path_routes_forward_exact_resource_id() -> Result<(), Box<dyn Err
             "018f7c6a-0000-7000-8000-000000000011",
         ),
         (
-            Method::PATCH,
-            "/catalog/v1/parcels/018f7c6a-0000-7000-8000-000000000012/kind",
-            "018f7c6a-0000-7000-8000-000000000012",
-        ),
-        (
             Method::POST,
             "/catalog/v1/normalization/proposals/018f7c6a-0000-7000-8000-000000000013/approve",
             "018f7c6a-0000-7000-8000-000000000013",
@@ -860,19 +855,11 @@ fn protected_request(
         .body(Body::from("{}"))
 }
 
-fn service_route_cases() -> [ServiceRouteCase; 5] {
-    // The parcel by-PNU detail route was retired (root ADR-0109); `parcel_buildings` is now the
-    // representative catalog read case, keeping the same PNU-scoped `resource_id` shape. Several
-    // tests use `service_route_cases()[0]` as that representative, so it must stay a live route.
+fn service_route_cases() -> [ServiceRouteCase; 3] {
+    // The parcel and building catalog reads were retired (root ADR-0109, ADR-0194 §3), so no
+    // PNU-scoped read is left; `complex_notices` is the representative catalog read. Several tests
+    // use `service_route_cases()[0]` as that representative, so it must stay a live route.
     [
-        ServiceRouteCase {
-            name: "parcel_buildings",
-            method: Method::GET,
-            uri: "/catalog/v1/parcels/by-pnu/9999900101100090000/buildings",
-            resource: "foundation.catalog",
-            action: "read",
-            resource_id: Some("9999900101100090000"),
-        },
         // Was `complex_parcels` until ADR-0021 deleted that route. Replaced rather than dropped:
         // this is the matrix's only complex-id-scoped case, so removing it would have stopped
         // anything from proving that a complex route passes its own `{id}` to the policy as the
@@ -885,14 +872,6 @@ fn service_route_cases() -> [ServiceRouteCase; 5] {
             resource: "foundation.catalog",
             action: "read",
             resource_id: Some("018f7c6a-0000-7000-8000-000000000001"),
-        },
-        ServiceRouteCase {
-            name: "parcel_by_id",
-            method: Method::GET,
-            uri: "/catalog/v1/parcels/018f7c6a-0000-7000-8000-000000000002",
-            resource: "foundation.catalog",
-            action: "read",
-            resource_id: Some("018f7c6a-0000-7000-8000-000000000002"),
         },
         ServiceRouteCase {
             name: "lakehouse_artifact",

@@ -620,6 +620,49 @@ impl ByPnuServingStore {
         }
     }
 
+    /// Every key under `prefix`, however many listing pages it takes.
+    ///
+    /// # Errors
+    /// Returns an error when the listing fails.
+    pub async fn list_all(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        match &self.backend {
+            Backend::Local(_, local) => walk_files(&local.join(prefix), prefix),
+            Backend::R2(storage, _) => {
+                let request =
+                    R2InventoryRequest::new(Some(prefix), Some(MAX_R2_INVENTORY_MAX_KEYS))
+                        .context("failed to build the listing request")?;
+                Ok(storage
+                    .inventory_audit(request)
+                    .await
+                    .with_context(|| format!("failed to list serving objects under {prefix}"))?
+                    .objects()
+                    .iter()
+                    .map(|object| object.key.clone())
+                    .collect())
+            }
+        }
+    }
+
+    /// Deletes one object. The only caller retires a superseded pack generation (root ADR-0242);
+    /// every other object of the store stays create-only.
+    ///
+    /// # Errors
+    /// Returns an error when the provider rejects the delete.
+    pub async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        match &self.backend {
+            Backend::Local(_, root) => match std::fs::remove_file(root.join(key)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    Err(error).with_context(|| format!("failed to delete {key}"))
+                }
+                _ => Ok(()),
+            },
+            Backend::R2(storage, _) => storage
+                .delete_object(key)
+                .await
+                .with_context(|| format!("failed to delete serving object {key}")),
+        }
+    }
+
     /// Reads the exact stored bytes of one object.
     ///
     /// # Errors

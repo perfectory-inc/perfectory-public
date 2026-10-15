@@ -4,54 +4,6 @@
  */
 
 export interface paths {
-    "/catalog/v1/buildings/by-register-pk/{register_pk}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getBuildingByRegisterPk"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/catalog/v1/buildings/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getBuilding"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/catalog/v1/buildings/{id}/units": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listBuildingUnits"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/v1/complexes": {
         parameters: {
             query?: never;
@@ -98,22 +50,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateComplex"];
-        trace?: never;
-    };
-    "/catalog/v1/complexes/{id}/anchor-summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getComplexAnchorSummary"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/catalog/v1/complexes/{id}/archive": {
@@ -276,54 +212,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/v1/parcels/by-pnu/{pnu}/buildings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listParcelBuildingsByPnu"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/catalog/v1/parcels/by-pnu/{pnu}/units": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listParcelUnitsByPnu"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/catalog/v1/parcels/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getParcel"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/v1/parcels/{id}/industry-assignments": {
         parameters: {
             query?: never;
@@ -338,22 +226,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/catalog/v1/parcels/{id}/kind": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["updateParcelKind"];
         trace?: never;
     };
     "/catalog/v1/vector-tiles/manifest": {
@@ -610,51 +482,6 @@ export interface components {
              * @description UTC timestamp of the last canonical Catalog update.
              */
             updated_at: string;
-        };
-        /** @description Anchor-derived map summary for one industrial complex. */
-        ComplexAnchorSummaryResponse: {
-            /**
-             * Format: int64
-             * @description Number of active parcel anchors represented by this summary.
-             */
-            anchor_count: number;
-            /**
-             * Format: double
-             * @description Average latitude of active parcel anchors in EPSG:4326.
-             */
-            center_lat: number;
-            /**
-             * Format: double
-             * @description Average longitude of active parcel anchors in EPSG:4326.
-             */
-            center_lng: number;
-            /**
-             * Format: uuid
-             * @description Industrial complex whose active parcel anchors were summarized.
-             */
-            complex_id: string;
-            /**
-             * Format: double
-             * @description Maximum active anchor latitude in EPSG:4326.
-             */
-            max_lat: number;
-            /**
-             * Format: double
-             * @description Maximum active anchor longitude in EPSG:4326.
-             */
-            max_lng: number;
-            /**
-             * Format: double
-             * @description Minimum active anchor latitude in EPSG:4326.
-             */
-            min_lat: number;
-            /**
-             * Format: double
-             * @description Minimum active anchor longitude in EPSG:4326.
-             */
-            min_lng: number;
-            /** @description Canonical source for the summary coordinates. Current value: `pnu_anchor`. */
-            position_source: string;
         };
         /** @description Official notice or announcement attached to an industrial complex. */
         ComplexNoticeResponse: {
@@ -1536,19 +1363,6 @@ export interface components {
              */
             price_won: number;
         };
-        /**
-         * @description One keyset page of a building's units (ADR-0076 §3).
-         *
-         *     Born paginated: a single building holds up to 5,372 measured units, and a list that grows
-         *     with the resource must never be an unbounded array. `next_cursor` is opaque — a caller
-         *     passes it back verbatim and never parses it.
-         */
-        UnitPageResponse: {
-            /** @description The page of units, ordered `(dong_name, ho_name, id)`. */
-            items: components["schemas"]["UnitResponse"][];
-            /** @description Cursor for the next page; `null` when this page is the last. */
-            next_cursor?: string | null;
-        };
         /** @description Canonical 전유부 호 (building unit) response for a parcel. */
         UnitResponse: {
             /**
@@ -1602,16 +1416,6 @@ export interface components {
             if_match_version: number;
             /** @description Optional replacement human-readable industrial complex name. */
             name?: string | null;
-        };
-        /** @description Request body for updating a parcel kind with optimistic concurrency. */
-        UpdateParcelKindRequest: {
-            /**
-             * Format: int64
-             * @description Version observed by the caller; stale values return conflict.
-             */
-            if_match_version: number;
-            /** @description New parcel kind wire value. */
-            new_kind: string;
         };
         /** @description Per-layer vector tile artifact metadata inside the runtime manifest. */
         VectorTileArtifactResponse: {
@@ -1851,98 +1655,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    getBuildingByRegisterPk: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Title-register PK (관리대장 PK), the building's natural key */
-                register_pk: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BuildingResponse"];
-                };
-            };
-            /** @description Building not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    getBuilding: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Building id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BuildingResponse"];
-                };
-            };
-            /** @description Building not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    listBuildingUnits: {
-        parameters: {
-            query?: {
-                /** @description Page size, 1..=1000 (default 200) */
-                limit?: number;
-                /** @description Opaque cursor from the previous page's next_cursor */
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                /** @description Building id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UnitPageResponse"];
-                };
-            };
-            /** @description Building not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     listComplexes: {
         parameters: {
             query?: {
@@ -2084,28 +1796,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IndustrialComplexResponse"];
-                };
-            };
-        };
-    };
-    getComplexAnchorSummary: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Industrial complex id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ComplexAnchorSummaryResponse"];
                 };
             };
         };
@@ -2371,79 +2061,6 @@ export interface operations {
             };
         };
     };
-    listParcelBuildingsByPnu: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description 19-digit Parcel Number Unit */
-                pnu: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BuildingResponse"][];
-                };
-            };
-        };
-    };
-    listParcelUnitsByPnu: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description 19-digit Parcel Number Unit */
-                pnu: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UnitResponse"][];
-                };
-            };
-        };
-    };
-    getParcel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Parcel id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ParcelResponse"];
-                };
-            };
-            /** @description Parcel not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     listParcelIndustryAssignments: {
         parameters: {
             query?: never;
@@ -2462,32 +2079,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParcelIndustryAssignmentResponse"][];
-                };
-            };
-        };
-    };
-    updateParcelKind: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Parcel id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateParcelKindRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ParcelResponse"];
                 };
             };
         };

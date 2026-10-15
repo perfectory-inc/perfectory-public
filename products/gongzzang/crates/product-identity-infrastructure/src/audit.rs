@@ -96,8 +96,8 @@ impl AuthEvent {
 
 /// `audit_log` 에 인증 이벤트를 기록해요.
 ///
-/// `actor_id` 는 NULL — frontend 가 emit 하는 `user_sub` (Zitadel) 는 `users.zitadel_sub`
-/// 와 매칭 후 `users.id` 로 바꿀 수 있지만 본 함수는 시스템 이벤트 처리만 함.
+/// `actor_id` 는 NULL — frontend 가 emit 하는 `user_sub` (Zitadel) 는 `external_account`
+/// (`provider = 'zitadel'`) 와 매칭 후 `user.id` 로 바꿀 수 있지만 본 함수는 시스템 이벤트 처리만 함.
 /// `after_state` 에 `user_sub` + `jti` + payload 저장 → role 변경 시 활성 `jti` 조회 가능.
 ///
 /// # Errors

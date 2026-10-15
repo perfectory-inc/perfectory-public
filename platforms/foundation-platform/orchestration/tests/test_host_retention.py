@@ -233,5 +233,32 @@ class TheRelease(unittest.TestCase):
         self.assertIn("systemctl enable --now foundation-host-retention.timer", self.release)
 
 
+class TheImageStore(unittest.TestCase):
+    """Free space is measured where the images are (root ADR-0241), not on the system disk."""
+
+    def layout(self, directory: str, moved: bool) -> pathlib.Path:
+        root = pathlib.Path(directory) / "data-containerd"
+        if moved:
+            root.mkdir()
+        path = pathlib.Path(directory) / "layout.json"
+        path.write_text(json.dumps({"containerd": {"root": str(root), "legacy_root": "/var/lib/containerd"}}))
+        return path
+
+    def test_a_moved_host_is_measured_on_the_data_disk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(host_retention.image_store(self.layout(directory, True)),
+                             pathlib.Path(directory) / "data-containerd")
+
+    def test_a_host_not_moved_yet_is_measured_where_containerd_still_is(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(host_retention.image_store(self.layout(directory, False)),
+                             pathlib.Path("/var/lib/containerd"))
+
+    def test_a_path_not_made_yet_is_measured_on_its_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = pathlib.Path(directory) / "not" / "made"
+            self.assertEqual(host_retention.free_bytes(missing), shutil.disk_usage(directory).free)
+
+
 if __name__ == "__main__":
     unittest.main()

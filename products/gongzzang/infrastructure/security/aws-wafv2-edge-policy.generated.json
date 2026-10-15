@@ -211,10 +211,6 @@
       "reason": "key_strategy_not_representable_in_wafv2"
     },
     {
-      "source_policy_id": "gongzzang.api_proxy.parcel_read",
-      "reason": "key_strategy_not_representable_in_wafv2"
-    },
-    {
       "source_policy_id": "gongzzang.api_proxy.complexes_collection_read",
       "reason": "key_strategy_not_representable_in_wafv2"
     },

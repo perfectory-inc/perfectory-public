@@ -1,0 +1,24 @@
+[Unit]
+Description=Foundation Platform administrative boundary release: load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the tiles (ADR-0236)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/admin-boundary-release.sh
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lakehouse-ivy

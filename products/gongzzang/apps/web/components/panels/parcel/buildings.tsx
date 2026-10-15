@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import type { BuildingUnit } from "@/lib/api/building-units";
 import type { BuildingsResponse } from "@/lib/api/buildings";
+import { unitFloorText } from "@/lib/api/unit-floor";
 import { fetchUnitPrices, type UnitPrices } from "@/lib/api/unit-price-edge";
 import type { PanelStackEntry } from "@/lib/panel/types";
 
@@ -94,6 +95,7 @@ type PriceState = { prices: UnitPrices | undefined; loading: boolean; failed: bo
 
 function UnitList({ units, price }: { units: BuildingUnit[]; price: PriceState }) {
   const t = useTranslations("panels.parcel.buildings");
+  const floorText = useTranslations("panels.parcel.floors");
   const [visibleCount, setVisibleCount] = useState(100);
   // Whatever the lane says wins; until it answers, or when it fails or has no document, a v2
   // building document's own prices are drawn, so no merge order leaves a gap (root ADR-0190).
@@ -117,7 +119,7 @@ function UnitList({ units, price }: { units: BuildingUnit[]; price: PriceState }
                 {unit.dong_name} {unit.ho_name}
               </span>
               <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
-                {unit.floor_label}
+                {unitFloorText(unit, floorText) ?? floorText("unknownFloor")}
                 {unit.exclusive_area_m2 != null &&
                   ` · ${unit.exclusive_area_m2.toLocaleString("ko-KR")} ㎡`}
                 {unit.usage_name && ` · ${unit.usage_name}`}

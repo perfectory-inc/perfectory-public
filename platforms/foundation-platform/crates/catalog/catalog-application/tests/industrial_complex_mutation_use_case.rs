@@ -9,10 +9,9 @@ use catalog_application::{
     UpdateIndustrialComplexInput,
 };
 use catalog_domain::{
-    CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind, Parcel, ParcelKind,
-    VectorTileManifest,
+    CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind, VectorTileManifest,
 };
-use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -174,16 +173,6 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
             archived_at: Some(chrono::Utc::now()),
             version: expected_version + 1,
         })
-    }
-
-    async fn update_parcel_kind(
-        &self,
-        _id: ParcelId,
-        _expected_version: i64,
-        _new_kind: ParcelKind,
-        _applied_by: StaffId,
-    ) -> Result<Parcel, CatalogError> {
-        Err(unexpected_call("update_parcel_kind"))
     }
 
     async fn rollback_vector_tile_manifest(

@@ -282,6 +282,50 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 64, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
 
+    def switch_off(self, *job_ids):
+        # The release's own job list decides which jobs are off; the tests write it, not main's.
+        path = self.release / "orchestration/jobs.v1.json"
+        jobs = json.loads(path.read_text(encoding="utf-8"))
+        for job in jobs["jobs"]:
+            if job["id"] in job_ids:
+                job["enabled"] = False
+                job.pop("enabled_since", None)
+        path.write_text(json.dumps(jobs), encoding="utf-8")
+
+    def test_job_start_and_status_name_the_off_jobs_unit(self):
+        self.switch_off("legal_dong_code_changes")
+        result, calls = self.run_operator("job", "start", "legal_dong_code_changes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
+                         [["start", "--no-block", "foundation-legal-dong-code.service"]])
+        result, calls = self.run_operator("job", "status", "legal_dong_code_changes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c["tool"] == "journalctl" and
+                            "foundation-legal-dong-code.service" in c["args"] for c in calls))
+
+    def test_job_start_waits_for_the_autodeploy_and_a_spark_job_for_the_spark_work(self):
+        self.switch_off("legal_dong_code_changes", "lineage_stewardship")
+        for job_id, active in (("legal_dong_code_changes", ["foundation-autodeploy.service"]),
+                               ("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),
+                               ("lineage_stewardship", ["foundation-gold-panel-rebuild.service"]),
+                               ("lineage_stewardship", ["foundation-silver-refresh@land-use-plan.service"])):
+            with self.subTest(job=job_id, active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("job", "start", job_id, activating=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
+    def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
+        self.switch_off("silver_refresh_land_use_plan")
+        for args in (("job", "start", "source_sweep"), ("job", "start", "silver_refresh_land_use_plan"),
+                     ("job", "start", "no_such_job"), ("job", "start", "../../etc/passwd"), ("job", "start"),
+                     ("job", "drop", "source_sweep"), ("job", "start", "source_sweep", "extra")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] in ("systemd-run", "systemctl")])
+
     def test_silver_takes_only_a_listed_lane_and_a_known_action(self):
         for args in (("silver", "plan", "not-a-lane"), ("silver", "plan", "../../etc/passwd"),
                      ("silver", "plan"), ("silver", "drop", "land-use-plan"),

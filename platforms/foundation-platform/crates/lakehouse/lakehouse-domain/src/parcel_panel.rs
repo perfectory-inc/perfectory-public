@@ -64,6 +64,14 @@ const GOLD_PARCEL_PANEL_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "long",
         required: true,
     },
+    // The parcel's lineage edges, both directions, as a sorted JSON array of
+    // {predecessor_pnu, successor_pnu, relation, cardinality, effective_date, grade}; null when the
+    // parcel has none or the run does not carry the lineage (root ADR-0113 §1).
+    LakehouseColumn {
+        name: "lineage_json",
+        logical_type: "string",
+        required: false,
+    },
     // Sections that came from an older PNU through the parcel lineage, as a JSON object
     // {section: "lineage:<grade>" | "origin:<relation>:<grade>"}; null when every section is the
     // map PNU's own (root ADR-0113 §6).

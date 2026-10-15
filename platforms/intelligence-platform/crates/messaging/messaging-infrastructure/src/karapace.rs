@@ -82,7 +82,27 @@ impl KarapaceClient {
         subject: &str,
         schema_str: &str,
     ) -> Result<i32, KarapaceError> {
-        let url = self.endpoint_url(&["subjects", subject, "versions"])?;
+        self.post_avro_schema(&["subjects", subject, "versions"], schema_str)
+            .await
+    }
+
+    /// Returns the id of `schema_str` as already registered under `subject` by its owner.
+    /// Never registers: a subject the owner has not registered answers `Rejected { 404 }`.
+    pub async fn lookup_avro_schema(
+        &self,
+        subject: &str,
+        schema_str: &str,
+    ) -> Result<i32, KarapaceError> {
+        self.post_avro_schema(&["subjects", subject], schema_str)
+            .await
+    }
+
+    async fn post_avro_schema(
+        &self,
+        path_segments: &[&str],
+        schema_str: &str,
+    ) -> Result<i32, KarapaceError> {
+        let url = self.endpoint_url(path_segments)?;
         let response = self
             .client
             .post(url)

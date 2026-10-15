@@ -367,8 +367,8 @@ async fn anchor_import_upserts_long_algorithm_version_and_refreshes_listing_proj
     let pnu = "9999900101100090000";
     sqlx::query(
         r#"
-        insert into "user" (id, zitadel_sub, email, display_name, user_kind, created_at, updated_at, version)
-        values ('usr_01HXY3NK0Z9F6S1B2C3D4E5F6G', 'zsub-anchor-import', 'anchor-import@example.com',
+        insert into "user" (id, email, display_name, user_kind, created_at, updated_at, version)
+        values ('usr_01HXY3NK0Z9F6S1B2C3D4E5F6G', 'anchor-import@example.com',
                 'Anchor Import Owner', 'individual', now(), now(), 1)
         "#,
     )

@@ -1,19 +1,11 @@
 //! Contract tests for PNU-anchor backed marker tile domain value objects.
 
 use catalog_domain::{
-    ComplexAnchorSummary, MarkerAnchorAlgorithm, MarkerTileFeature, MarkerTileLayer,
-    MarkerTileRequest, ParcelMarkerAnchor, PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
+    MarkerAnchorAlgorithm, MarkerTileFeature, MarkerTileLayer, MarkerTileRequest,
+    ParcelMarkerAnchor, PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
 use chrono::Utc;
-use foundation_shared_kernel::ids::ComplexId;
 use foundation_shared_kernel::Pnu;
-
-fn assert_f64_near(actual: f64, expected: f64) {
-    assert!(
-        (actual - expected).abs() < f64::EPSILON,
-        "expected {actual} to equal {expected}"
-    );
-}
 
 #[test]
 fn marker_tile_contract_is_mvt_pbf_with_pnu_anchor_positions() {
@@ -109,56 +101,6 @@ fn parcel_marker_anchor_requires_valid_coordinates_and_lineage(
     )
     .is_err());
 
-    Ok(())
-}
-
-#[test]
-fn complex_anchor_summary_uses_active_pnu_anchor_extent() -> Result<(), Box<dyn std::error::Error>>
-{
-    let complex_id = ComplexId::new(uuid::Uuid::now_v7());
-    let summary = ComplexAnchorSummary::new(
-        complex_id,
-        127.123_470_234_75,
-        36.123_425,
-        127.123_470,
-        36.123_420,
-        127.123_470_234_80,
-        36.123_430,
-        2,
-    )?;
-
-    assert_eq!(summary.complex_id, complex_id);
-    assert_eq!(summary.position_source, "pnu_anchor");
-    assert_f64_near(summary.center_lng, 127.123_470_234_75);
-    assert_f64_near(summary.center_lat, 36.123_425);
-    assert_f64_near(summary.min_lng, 127.123_470);
-    assert_f64_near(summary.min_lat, 36.123_420);
-    assert_f64_near(summary.max_lng, 127.123_470_234_80);
-    assert_f64_near(summary.max_lat, 36.123_430);
-    assert_eq!(summary.anchor_count, 2);
-
-    assert!(ComplexAnchorSummary::new(
-        complex_id,
-        127.123_470_234_75,
-        36.123_425,
-        127.123_470_234_80,
-        36.123_420,
-        127.123_470,
-        36.123_430,
-        2,
-    )
-    .is_err());
-    assert!(ComplexAnchorSummary::new(
-        complex_id,
-        127.123_470_234_75,
-        36.123_425,
-        127.123_470,
-        36.123_420,
-        127.123_470_234_80,
-        36.123_430,
-        0
-    )
-    .is_err());
     Ok(())
 }
 

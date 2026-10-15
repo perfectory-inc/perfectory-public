@@ -1,5 +1,7 @@
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -8,7 +10,7 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import parcel_identity as pi  # noqa: E402
 from parcel_lineage import Link  # noqa: E402
-from parcel_registry_to_silver import parse_args, plan, validate_args  # noqa: E402
+from parcel_registry_to_silver import missing_regions, parse_args, plan, validate_args  # noqa: E402
 
 OLD, NEW = "9999910100", "9999920100"
 
@@ -48,6 +50,26 @@ class PlanTest(unittest.TestCase):
         args = parse_args(["--to-snapshot-id", "b", "--allow-non-served-edition", "--to-date", "2099-09-01", "--to-sido", "99"])
         with self.assertRaisesRegex(ValueError, "--from-snapshot-id"):
             validate_args(args)
+
+
+class FirstRegistration(unittest.TestCase):
+    # The scheduled job registers a region at a time within its time limit (root ADR-0243).
+    def test_only_regions_with_nothing_registered_are_missing_and_the_smallest_come_first(self):
+        counts = {"97": 300, "98": 10, "99": 20}
+        self.assertEqual(missing_regions(counts, {"97"}), [("98", 10), ("99", 20)])
+        self.assertEqual(missing_regions(counts, set(counts)), [])
+
+    def test_a_probe_takes_no_region_date_or_lineage(self):
+        base = ["--to-snapshot-id", "b", "--allow-non-served-edition", "--probe-missing"]
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(ValueError, "lakehouse catalog"):
+            validate_args(parse_args(base))
+        for extra in (["--to-sido", "99"], ["--to-date", "2099-09-01"], ["--bootstrap"], ["--from-snapshot-id", "a"]):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "--probe-missing takes only"):
+                validate_args(parse_args(base + extra))
+
+    def test_a_registration_still_needs_its_region_and_date(self):
+        with self.assertRaisesRegex(ValueError, "--to-date and --to-sido are required"):
+            validate_args(parse_args(["--to-snapshot-id", "b", "--allow-non-served-edition", "--bootstrap"]))
 
 
 if __name__ == "__main__":

@@ -50,13 +50,14 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 2. 감독 실행 한 번:
 
    ```bash
-   sudo systemctl start foundation-vworld-parcel-edition.service
+   # 꺼진 작업의 한 번 시작은 허가된 운영자 스크립트로(루트 ADR-0235): 자동배포 중이면 75 로 거부
+   sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start vworld_parcel_edition
    journalctl -u foundation-vworld-parcel-edition.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
    ```
 
    계약이 제공자의 최신 판을 이미 가지면 `provider=<판> held` 한 줄이고 종료 코드는 0 이다. 2026-10-05 에 같은
    단계를 손으로 돌린 결과: 계획 `ready`, 목록 276 파일, `202609 held`.
-3. 별도 PR 에서 `vworld_parcel_edition` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지운다(ADR-0122 §4).
+3. 별도 PR 에서 `vworld_parcel_edition` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지우고 `enabled_since` 를 적는다(ADR-0122 §4, 루트 ADR-0239).
 
 ## 3. 새 판을 계약에 넣기
 

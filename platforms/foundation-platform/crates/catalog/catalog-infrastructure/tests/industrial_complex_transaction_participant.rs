@@ -9,7 +9,7 @@ use catalog_application::{
 use catalog_domain::{CatalogError, IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogUnitOfWork, PgIndustrialComplexTransactionParticipant};
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -317,7 +317,10 @@ async fn archived_target_returns_exact_catalog_error() -> TestResult {
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
-async fn archived_official_code_can_be_reused_by_a_new_active_row() -> TestResult {
+/// The id is derived from the code (root ADR-0250), so a source row for an archived complex's code
+/// is that same complex: the load refreshes the archived row in place and leaves it archived,
+/// instead of minting a second identity beside it or failing the whole batch.
+async fn a_reloaded_archived_code_refreshes_the_archived_row() -> TestResult {
     run_in_disposable_database("catalog_archive_reentry", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let complex = create_complex(&pool).await?;
@@ -338,7 +341,7 @@ async fn archived_official_code_can_be_reused_by_a_new_active_row() -> TestResul
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some("1111010100".to_owned()),
                 area_m2: 100_000,
-                lakehouse_complex_id: None,
+                lakehouse_complex_id: complex.lakehouse_complex_id,
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
@@ -362,11 +365,19 @@ async fn archived_official_code_can_be_reused_by_a_new_active_row() -> TestResul
                 status_raw: None,
                 lot_sales_status_raw: None,
             }])
-            .await?;
+            .await;
 
+        let replacement = replacement?;
         assert_eq!(replacement.len(), 1);
-        assert_ne!(replacement[0].complex.id, complex.id);
-        assert!(replacement[0].complex.archived_at.is_none());
+        assert_eq!(replacement[0].complex.id, complex.id);
+        assert!(replacement[0].complex.archived_at.is_some());
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM catalog.industrial_complex WHERE official_complex_code = $1",
+        )
+        .bind(&complex.official_complex_code)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(rows, 1, "one code, one complex");
         Ok(())
     })
     .await
@@ -406,14 +417,16 @@ async fn missing_target_returns_exact_catalog_error() -> TestResult {
 }
 
 async fn create_complex(pool: &PgPool) -> TestResult<IndustrialComplex> {
+    let official_complex_code = format!("participant-{}", Uuid::new_v4());
+    let id = ComplexId::for_official_complex_code(&official_complex_code);
     let complex = IndustrialComplex {
-        id: ComplexId::new(Uuid::now_v7()),
-        official_complex_code: format!("participant-{}", Uuid::new_v4()),
+        id,
+        official_complex_code,
         name: "Original Industrial Complex".to_owned(),
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("1111010100".to_owned()),
         area_m2: 95_000,
-        lakehouse_complex_id: None,
+        lakehouse_complex_id: Some(LakehouseComplexId::new(id.as_uuid())),
         status: None,
         sido_code: None,
         sigungu_code: None,

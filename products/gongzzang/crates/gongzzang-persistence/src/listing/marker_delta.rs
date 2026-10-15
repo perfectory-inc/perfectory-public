@@ -1,5 +1,6 @@
 use listing_domain::repository::{
     ListingMarkerDeltas, ListingMarkerOverlayTileQuery, RepoError, LISTING_MARKER_DELTA_TILE_LAYER,
+    LISTING_MARKER_ID_PROPERTY,
 };
 use sqlx::{PgPool, Row};
 
@@ -9,7 +10,7 @@ pub(super) async fn find_listing_marker_deltas(
     pool: &PgPool,
     query: ListingMarkerOverlayTileQuery,
 ) -> Result<ListingMarkerDeltas, RepoError> {
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         r"
         with matching as (
             select
@@ -37,7 +38,7 @@ pub(super) async fn find_listing_marker_deltas(
         ),
         features as (
             select
-                marker_id as id,
+                marker_id as {LISTING_MARKER_ID_PROPERTY},
                 pnu,
                 'listing_delta'::text as kind,
                 1::int4 as count,
@@ -67,7 +68,7 @@ pub(super) async fn find_listing_marker_deltas(
             (select max(projection_version)::int8 from matching) as projection_version,
             (select max(anchor_snapshot_id) from matching) as anchor_snapshot_id
         ",
-    )
+    ))
     .bind(i32::from(query.z))
     .bind(i32::try_from(query.x).map_err(|error| RepoError::Database(error.to_string()))?)
     .bind(i32::try_from(query.y).map_err(|error| RepoError::Database(error.to_string()))?)

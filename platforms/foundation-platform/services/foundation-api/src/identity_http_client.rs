@@ -123,3 +123,73 @@ enum ResourceAction {
     Allow,
     Deny,
 }
+
+/// Foundation's private wire types are checked against Identity's published `OpenAPI` document, the
+/// one definition of the policy decision exchange (root ADR-0214).
+#[cfg(test)]
+mod tests {
+    use super::{PolicyDecisionRequest, PolicyDecisionResponse, ResourceAction};
+    use std::collections::BTreeSet;
+    use std::error::Error;
+    use std::path::Path;
+
+    const IDENTITY_OPENAPI: &str =
+        "../../../../platforms/identity-platform/docs/openapi/identity.v1.json";
+
+    fn schema(name: &str) -> Result<serde_json::Value, Box<dyn Error>> {
+        let raw =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(IDENTITY_OPENAPI))?;
+        let document: serde_json::Value = serde_json::from_str(&raw)?;
+        Ok(document["components"]["schemas"][name].clone())
+    }
+
+    fn names(value: &serde_json::Value) -> BTreeSet<String> {
+        match value {
+            serde_json::Value::Object(map) => map.keys().cloned().collect(),
+            serde_json::Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect(),
+            _ => BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn the_request_is_identitys_policy_decision_request() -> Result<(), Box<dyn Error>> {
+        let published = schema("PolicyDecisionRequest")?;
+        let sent = serde_json::to_value(PolicyDecisionRequest {
+            resource: "foundation.catalog",
+            action: "read",
+            resource_id: None,
+            trace_id: "trace",
+        })?;
+        assert_eq!(names(&sent), names(&published["properties"]));
+        assert!(names(&published["required"]).is_subset(&names(&sent)));
+        Ok(())
+    }
+
+    #[test]
+    fn the_response_reads_identitys_policy_decision_response() -> Result<(), Box<dyn Error>> {
+        let published = schema("PolicyDecisionResponse")?;
+        assert_eq!(
+            names(&published["required"]),
+            ["decision", "evaluated_at", "principal_id", "reason_code"]
+                .map(str::to_owned)
+                .into(),
+            "Identity changed the required decision fields Foundation reads"
+        );
+        for decision in names(&schema("ResourceAction")?["enum"]) {
+            let response: PolicyDecisionResponse = serde_json::from_value(serde_json::json!({
+                "principal_id": uuid::Uuid::nil(),
+                "decision": decision,
+                "reason_code": "role_grant",
+                "evaluated_at": "2026-10-14T00:00:00Z",
+            }))?;
+            assert!(matches!(
+                (decision.as_str(), response.decision),
+                ("allow", ResourceAction::Allow) | ("deny", ResourceAction::Deny)
+            ));
+        }
+        Ok(())
+    }
+}

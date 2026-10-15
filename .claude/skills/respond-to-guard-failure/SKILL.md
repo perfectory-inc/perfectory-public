@@ -21,15 +21,17 @@ before "fixing" anything.
   `defaults.run.working-directory: <area>`, then delete the subdir copy.
   (Note: agents must not edit `.github/` workflows without explicit approval.)
 
-### 2. toolchain-consistency
+### 2. technology-version-consistency (Rust toolchain part)
 
-- Failing means: root `rust-toolchain.toml` drifted from the ADR-0001 pin
-  (1.96.0), an area-local `rust-toolchain`/`rust-toolchain.toml` exists
-  (rustup prefers the closest file — it would silently shadow the root SSOT),
-  or a Dockerfile `FROM rust:` image doesn't match `rust:1.96.0-*`.
-- Fix: delete area-local toolchain files; align Dockerfile base images to the
-  pin. A deliberate toolchain bump updates the root pin + every Dockerfile +
-  the `PIN` variable in `scripts/guard/toolchain-consistency.sh` in ONE commit.
+- Failing means: root `rust-toolchain.toml`, a workspace-root Cargo.toml
+  `rust-version`, or a Dockerfile `FROM rust:` tag differs from `rust_toolchain`
+  in `tools/technology-versions.contract.json`; a member crate states its own
+  `rust-version` instead of `rust-version.workspace = true`; or an area-local
+  `rust-toolchain`/`rust-toolchain.toml` exists (rustup prefers the closest
+  file — it would silently shadow the root SSOT).
+- Fix: delete area-local toolchain files; make members inherit. A deliberate
+  toolchain bump changes `rust_toolchain` in the contract, then the copies the
+  guard names (rust-toolchain.toml, workspace roots, Dockerfiles), in ONE commit.
 
 ### 3. migration-naming
 

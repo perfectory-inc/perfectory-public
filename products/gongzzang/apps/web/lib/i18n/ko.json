@@ -237,13 +237,6 @@
       "summary": {
         "landUse": "지목",
         "zoning": "용도지역",
-        "zoningValues": {
-          "residential": "주거지역",
-          "commercial": "상업지역",
-          "industrial": "공업지역",
-          "green": "녹지지역",
-          "other": "기타(관리·농림·자연환경보전)"
-        },
         "officialPrice": "공시지가",
         "officialPricePerM2": "{value} 원/㎡",
         "viewBuildings": "건축물 보기",
@@ -276,7 +269,16 @@
         "aboveGround": "지상 {count}층",
         "belowGround": "지하 {count}층",
         "rooftop": "옥탑",
-        "none": "층 정보가 없어요"
+        "none": "층 정보가 없어요",
+        "unknownFloor": "층 정보 없음",
+        "unitFloor": {
+          "above_ground": "{number}층",
+          "basement": "지하 {number}층",
+          "rooftop": "옥탑",
+          "all_floors": "전층",
+          "multi_floor_lower": "{number}층",
+          "multi_floor_upper": "{number}층"
+        }
       },
       "listings": {
         "title": "이 필지의 매물 ({count})",

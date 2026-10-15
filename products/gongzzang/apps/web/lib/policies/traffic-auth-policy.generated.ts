@@ -457,20 +457,6 @@ export const GENERATED_API_PROXY_ROUTE_POLICIES: readonly GeneratedApiProxyRoute
     },
   },
   {
-    kind: "template",
-    targetPath: "api/parcels/:pnu",
-    methods: ["GET"],
-    exposureClass: "authenticated_user",
-    requiredRoles: [],
-    rate: {
-      keyPrefix: "api-proxy:authenticated-read",
-      keyStrategy: "session_sub",
-      limit: 240,
-      windowSec: 60,
-      problemType: "proxy/too-many-requests",
-    },
-  },
-  {
     kind: "exact",
     targetPath: "api/complexes",
     methods: ["GET"],

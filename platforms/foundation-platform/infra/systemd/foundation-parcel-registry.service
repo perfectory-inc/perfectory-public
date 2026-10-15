@@ -1,0 +1,21 @@
+[Unit]
+Description=Foundation Platform parcel id registry: register the served cadastral edition's regions the registry holds nothing for, one region at a time within the time limit (ADR-0243)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-registry-cycle.sh
+TimeoutStartSec=150m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/lineage-stewardship /var/lib/foundation-platform/lakehouse-ivy

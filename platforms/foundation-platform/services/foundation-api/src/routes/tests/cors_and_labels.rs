@@ -82,10 +82,6 @@ fn canonical_route_label_bounds_dynamic_metric_cardinality() {
         "/catalog/v1/complexes/{id}/archive"
     );
     assert_eq!(
-        super::canonical_route_label("/catalog/v1/complexes/abc/anchor-summary"),
-        "/catalog/v1/complexes/{id}/anchor-summary"
-    );
-    assert_eq!(
         super::canonical_route_label("/catalog/v1/vector-tiles/manifest:rollback"),
         "/catalog/v1/vector-tiles/manifest:action"
     );
@@ -107,7 +103,7 @@ fn canonical_route_label_bounds_dynamic_metric_cardinality() {
     );
     assert_eq!(
         super::canonical_route_label("/catalog/v1/parcels/by-pnu/9999900101100090000/buildings"),
-        "/catalog/v1/parcels/by-pnu/{pnu}/buildings"
+        "/catalog/v1/parcels/by-pnu/{pnu}"
     );
     assert_eq!(
         super::canonical_route_label("/catalog/v1/parcels/by-pnu/9999900101100090000"),

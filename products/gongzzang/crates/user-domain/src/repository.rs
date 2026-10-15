@@ -37,6 +37,9 @@ pub trait UserRepository: Send + Sync {
 
     /// 저장 (insert or update). Optimistic lock 충돌 시 [`RepoError::Conflict`].
     ///
+    /// 새 사용자면 `zitadel_sub` 의 `external_account` link 도 같은 트랜잭션에서 기록해요 —
+    /// 둘 중 하나라도 실패하면 아무것도 남지 않아요 (루트 ADR-0232).
+    ///
     /// `ctx` 의 `actor_id` / `action` / `metadata` / `events` 가 같은 트랜잭션
     /// 안에서 `audit_log` 와 `outbox_event` 로 자동 기록돼요 (SP5-iv 의
     /// transactional 패턴). 시스템 mutation (예: first-sign-in) 은
@@ -46,20 +49,6 @@ pub trait UserRepository: Send + Sync {
     ///
     /// 버전 불일치 → [`RepoError::Conflict`]. DB 통신 실패 → [`RepoError::Database`].
     async fn save(&self, user: &User, ctx: MutationContext) -> Result<(), RepoError>;
-
-    /// `external_account` 에 `zitadel` 행을 삽입해요 (first sign-in 시 호출).
-    ///
-    /// `ON CONFLICT DO NOTHING` — 중복 호출 safe. best-effort (실패해도 인증 흐름 차단 안 함).
-    /// SP6-Social federation 이 kakao/naver/google 행을 채워요.
-    ///
-    /// # Errors
-    ///
-    /// DB 통신 실패 시 [`RepoError::Database`].
-    async fn link_zitadel_account(
-        &self,
-        user_id: &Id<UserMarker>,
-        zitadel_sub: &str,
-    ) -> Result<(), RepoError>;
 }
 
 /// `Repository` 에러.

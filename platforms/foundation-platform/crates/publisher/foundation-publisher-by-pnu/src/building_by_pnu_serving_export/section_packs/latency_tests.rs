@@ -111,6 +111,7 @@ fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyCo
         no_gzip_sample_size: 2,
         sample_units: Vec::new(),
         baseline: None,
+        run: "r".to_owned(),
     }
 }
 
@@ -901,6 +902,7 @@ async fn a_pack_only_lanes_answers_are_held_to_its_packs_not_to_the_baseline() -
         Ok(latency::Baseline {
             lane: ByPnuLane::Building,
             prefix: ByPnuLane::Building.policy()?.request_path.prefix.clone(),
+            generation: Some(1),
             expected: pnus().into_iter().map(|pnu| (pnu, digest)).collect(),
         })
     };
@@ -922,5 +924,47 @@ async fn a_pack_only_lanes_answers_are_held_to_its_packs_not_to_the_baseline() -
     assert!(read
         .iter()
         .all(|request| request.url.path().starts_with(&baseline_prefix)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn both_sides_of_a_pack_only_gate_read_pack_routes_in_this_runs_scope() -> anyhow::Result<()>
+{
+    // 2026-10-13: the zoning lane's gate (b) timed its cold R2 reads against the parcel preview's
+    // live route, which answered 9,502 of 9,505 cold reads from edge copies an earlier run left.
+    let (live, pack) = (MockServer::start().await, MockServer::start().await);
+    let parameter = &section_pack_policy()?.preview_query_parameter;
+    let mut object_lane = config(&live, &pack, 1);
+    object_lane.run = "6a1b".to_owned();
+    // A lane with an object path: the object side has no generation, the pack side is scoped.
+    assert_eq!(
+        latency::live_url(&object_lane, "/buildings/by-pnu/", parameter, PNUS[0]),
+        format!("{}/buildings/by-pnu/{}", live.uri(), PNUS[0])
+    );
+    assert_eq!(
+        latency::preview_url(&object_lane, "/buildings/by-pnu/", parameter, PNUS[0]),
+        format!(
+            "{}/buildings/by-pnu/{}?{parameter}=g1-r6a1b",
+            pack.uri(),
+            PNUS[0]
+        )
+    );
+    // A pack-only lane: the baseline is its own pack route at the generation it serves, in the
+    // same run's scope, so its first read of each document is an R2 read too.
+    let mut pack_only = object_lane.clone();
+    pack_only.baseline = Some(latency::Baseline {
+        lane: ByPnuLane::Building,
+        prefix: "/buildings/by-pnu/".to_owned(),
+        generation: Some(7),
+        expected: std::collections::HashMap::new(),
+    });
+    assert_eq!(
+        latency::live_url(&pack_only, "/buildings/by-pnu/", parameter, PNUS[0]),
+        format!(
+            "{}/buildings/by-pnu/{}?{parameter}=g7-r6a1b",
+            live.uri(),
+            PNUS[0]
+        )
+    );
     Ok(())
 }

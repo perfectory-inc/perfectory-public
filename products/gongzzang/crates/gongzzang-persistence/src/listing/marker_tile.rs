@@ -1,6 +1,6 @@
 use listing_domain::repository::{
-    ListingMarkerTile, ListingMarkerTileQuery, RepoError, LISTING_MARKER_TILE_EXACT_MIN_ZOOM,
-    LISTING_MARKER_TILE_LAYER,
+    ListingMarkerTile, ListingMarkerTileQuery, RepoError, LISTING_MARKER_ID_PROPERTY,
+    LISTING_MARKER_TILE_EXACT_MIN_ZOOM, LISTING_MARKER_TILE_LAYER,
 };
 use sqlx::{PgPool, Row};
 
@@ -37,7 +37,7 @@ async fn find_exact_listing_marker_tile(
         .map(|value| value.as_str().to_owned())
         .collect::<Vec<_>>();
 
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         r"
         WITH unanchored_active AS (
             SELECT COUNT(*)::int8 AS count
@@ -98,7 +98,7 @@ async fn find_exact_listing_marker_tile(
         ),
         features AS (
             SELECT
-                marker_id,
+                marker_id AS {LISTING_MARKER_ID_PROPERTY},
                 listing_id,
                 pnu,
                 'listing'::text AS kind,
@@ -139,7 +139,7 @@ async fn find_exact_listing_marker_tile(
             0::int8 AS aggregate_count,
             (SELECT max(anchor_snapshot_id) FROM represented) AS anchor_snapshot_id
         ",
-    )
+    ))
     .bind(i32::from(query.z))
     .bind(i32::try_from(query.x).map_err(|e| RepoError::Database(e.to_string()))?)
     .bind(i32::try_from(query.y).map_err(|e| RepoError::Database(e.to_string()))?)
@@ -211,7 +211,7 @@ async fn find_aggregate_listing_marker_tile(
         .map(|value| value.as_str().to_owned())
         .collect::<Vec<_>>();
 
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         r"
         WITH unanchored_active AS (
             SELECT COUNT(*)::int8 AS count
@@ -263,7 +263,7 @@ async fn find_aggregate_listing_marker_tile(
         ),
         aggregate_feature AS (
             SELECT
-                format('listing_aggregate_%s_%s_%s', $1, $2, $3) AS marker_id,
+                format('listing_aggregate_%s_%s_%s', $1, $2, $3) AS {LISTING_MARKER_ID_PROPERTY},
                 NULL::text AS listing_id,
                 NULL::text AS pnu,
                 'listing_aggregate'::text AS kind,
@@ -293,7 +293,7 @@ async fn find_aggregate_listing_marker_tile(
         ),
         tile_features AS (
             SELECT
-                marker_id,
+                {LISTING_MARKER_ID_PROPERTY},
                 listing_id,
                 pnu,
                 kind,
@@ -323,7 +323,7 @@ async fn find_aggregate_listing_marker_tile(
             (SELECT COUNT(*)::int8 FROM represented) AS aggregate_count,
             (SELECT max(anchor_snapshot_id) FROM represented) AS anchor_snapshot_id
         ",
-    )
+    ))
     .bind(i32::from(query.z))
     .bind(i32::try_from(query.x).map_err(|e| RepoError::Database(e.to_string()))?)
     .bind(i32::try_from(query.y).map_err(|e| RepoError::Database(e.to_string()))?)

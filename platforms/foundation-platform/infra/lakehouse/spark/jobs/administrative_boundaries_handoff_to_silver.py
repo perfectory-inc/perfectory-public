@@ -186,9 +186,9 @@ def silver_rows(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--input", required=True, help="Merged GeoJSON from merge.py (EPSG:4326).")
+    parser.add_argument("--input", help="Merged GeoJSON from merge.py (EPSG:4326); not with --probe-only.")
     parser.add_argument("--source-snapshot-id", required=True, help="e.g. vworldkr__boundary_emd-30603-202606")
-    parser.add_argument("--source-record-id", required=True, help="The Bronze object key(s) this snapshot came from.")
+    parser.add_argument("--source-record-id", help="The Bronze object key(s) this snapshot came from; not with --probe-only.")
     parser.add_argument("--legal-dong-change-table", help="namespace.table of the code change table; off for a first snapshot")
     parser.add_argument(
         "--predecessor-parcel-snapshot-id",
@@ -200,6 +200,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-table", default="administrative_boundaries")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--validate-only", action="store_true", help="Check the input and stop before Spark.")
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="Only say whether the table already holds --source-snapshot-id; reads no input, writes nothing (root ADR-0236).",
+    )
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     return parser.parse_args(argv)
 
@@ -210,7 +215,14 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"{label} must be a plain SQL identifier")
     if not SNAPSHOT_PATTERN.fullmatch(args.source_snapshot_id):
         raise ValueError("--source-snapshot-id has characters a snapshot id does not use")
-    if not args.source_record_id.strip():
+    if args.probe_only:
+        if args.input or args.source_record_id or args.legal_dong_change_table or args.validate_only:
+            raise ValueError("--probe-only reads no input: pass only --source-snapshot-id and the table")
+        assert_catalog_env()
+        return
+    if not args.input:
+        raise ValueError("--input is required")
+    if not (args.source_record_id or "").strip():
         raise ValueError("--source-record-id is required")
     if args.legal_dong_change_table is not None and not all(
         IDENTIFIER_PATTERN.fullmatch(part) for part in args.legal_dong_change_table.split(".")
@@ -276,9 +288,32 @@ def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, s
     }
 
 
+def probe(args: argparse.Namespace) -> bool:
+    """Whether the table already holds the snapshot; a table not created yet holds nothing."""
+
+    SparkSession = load_pyspark()
+    builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}-probe")
+    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config(
+        "spark.jars.packages", args.iceberg_packages
+    ).getOrCreate()
+    try:
+        table = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`.`{args.iceberg_table}`"
+        if not spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{args.iceberg_namespace}.{args.iceberg_table}"):
+            return False
+        return bool(spark.sql(
+            f"SELECT count(*) AS n FROM {table} WHERE source_snapshot_id = '{args.source_snapshot_id}'"
+        ).collect()[0]["n"])
+    finally:
+        spark.stop()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
+    if args.probe_only:
+        held = probe(args)
+        print(f"administrative-boundaries-silver-probe snapshot={args.source_snapshot_id} held={str(held).lower()}")
+        return 0
     document = json.loads(Path(args.input).read_text(encoding="utf-8"))
     ingested_at = datetime.now(timezone.utc).replace(microsecond=0)
     predecessor_of: dict[str, str] = {}

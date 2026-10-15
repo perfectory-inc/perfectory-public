@@ -247,17 +247,11 @@ pub enum ParseIndustrialComplexDevelopmentStageError {
 /// Canonical industrial complex aggregate root.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndustrialComplex {
-    /// Stable foundation-platform complex identifier.
+    /// The complex's one id, derived from its official code (root ADR-0250).
     pub id: ComplexId,
-    /// Identifier the same complex carries in the lakehouse, when it was sourced from there.
+    /// The same value as [`Self::id`]; Postgres refuses a row where they differ.
     ///
-    /// [`Self::id`] is minted locally with `Uuid::now_v7()`, so it is unrelated to the `UUIDv5` the
-    /// Bronze-to-Silver job derives — and Gold profile object keys are computed from the latter.
-    /// Without this column a canonical row names no object in R2, which is the only reason it
-    /// exists; it is not a second primary key.
-    ///
-    /// `None` for a complex registered through the API rather than loaded from a Gold snapshot:
-    /// such a complex is in no lakehouse table and has no artifact to address.
+    /// Kept only until its readers move to [`Self::id`] and the column is retired (root ADR-0250).
     pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,

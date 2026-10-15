@@ -1,4 +1,4 @@
-//! Relationship evidence shared by canonical loads and the Gold serving boundary.
+//! Relationship evidence the Gold serving boundary checks.
 use std::{collections::HashMap, sync::LazyLock};
 
 use anyhow::{ensure, Context};
@@ -9,11 +9,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-pub fn required_nullable_key<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    Option::<String>::deserialize(deserializer)
-}
+/// Shared relationship policy read by the Spark Gold writer and this serving boundary.
+const BUILDING_UNIT_HANDOFF_CONTRACT: &str =
+    include_str!("../../../../infra/lakehouse/contracts/building-unit-handoff.json");
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -45,10 +43,8 @@ static POLICY: LazyLock<Result<Policy, String>> = LazyLock::new(|| {
         struct Contract {
             relationship_evidence_policy: PolicyWire,
         }
-        let wire = serde_json::from_str::<Contract>(
-            crate::handoff_manifest_support::BUILDING_UNIT_HANDOFF_CONTRACT,
-        )?
-        .relationship_evidence_policy;
+        let wire = serde_json::from_str::<Contract>(BUILDING_UNIT_HANDOFF_CONTRACT)?
+            .relationship_evidence_policy;
         Ok(Policy {
             source_method: wire.source_method,
             sha256: Regex::new(&wire.sha256_pattern)?,

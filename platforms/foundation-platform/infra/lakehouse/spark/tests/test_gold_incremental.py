@@ -178,7 +178,9 @@ class BuildColumns(unittest.TestCase):
         lineage = {"source_snapshot_id", "source_record_id", "ingested_at_utc", "bronze_object_key",
                    "source_line_number", "valid_from_utc", "valid_to_utc", "row_checksum_sha256"}
         for job in (building, parcel):
-            self.assertEqual(set(job.BUILD_COLUMNS), set(job.ALL_SOURCES), job.JOB_NAME)
+            # The parcel panel's lineage section also reads its optional lineage input.
+            optional = {parcel.LINEAGE_SOURCE} if job is parcel else set()
+            self.assertEqual(set(job.BUILD_COLUMNS), set(job.ALL_SOURCES) | optional, job.JOB_NAME)
             for name, columns in job.BUILD_COLUMNS.items():
                 with self.subTest(job=job.JOB_NAME, input=name):
                     self.assertLessEqual(set(columns), set(column_names(load_lakehouse_contract(name))))
@@ -189,8 +191,10 @@ class BuildColumns(unittest.TestCase):
         self.assertLessEqual(set(evidence_policy()["columns"]), set(building.BUILD_COLUMNS[building.UNIT_SOURCE]))
 
     def test_whole_table_inputs_are_inputs(self):
-        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, (parcel.ZONE_CODE_SOURCE,))
-        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), (parcel.ZONE_CODE_SOURCE,))
+        # A lineage edge is keyed by two PNUs and lands in both parcels' lineage section.
+        whole = (parcel.ZONE_CODE_SOURCE, parcel.LINEAGE_SOURCE)
+        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, whole)
+        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), whole)
         self.assertEqual(rebuild.producer_whole_table_inputs(building), ())
 
 

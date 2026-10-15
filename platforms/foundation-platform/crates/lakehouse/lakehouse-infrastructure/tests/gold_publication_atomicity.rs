@@ -151,7 +151,9 @@ async fn insert_complex(
     pool: &PgPool,
     suffix: &str,
 ) -> TestResult<foundation_shared_kernel::ids::ComplexId> {
-    let id = Uuid::now_v7();
+    let official_complex_code = format!("GOLD-{suffix}");
+    let id =
+        foundation_shared_kernel::ids::ComplexId::for_official_complex_code(&official_complex_code);
     let digits = suffix
         .bytes()
         .filter(u8::is_ascii_digit)
@@ -161,16 +163,16 @@ async fn insert_complex(
     let primary_bjdong_code = format!("{digits:0<10}");
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2)
-         VALUES ($1, $2, $3, 'general', $4, 1000)",
+         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code, area_m2)
+         VALUES ($1, $1, $2, $3, 'general', $4, 1000)",
     )
-    .bind(id)
-    .bind(format!("GOLD-{suffix}"))
+    .bind(id.as_uuid())
+    .bind(&official_complex_code)
     .bind(format!("Gold test {suffix}"))
     .bind(primary_bjdong_code)
     .execute(pool)
     .await?;
-    Ok(foundation_shared_kernel::ids::ComplexId::new(id))
+    Ok(id)
 }
 
 async fn count_pointer(

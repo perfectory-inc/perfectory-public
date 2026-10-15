@@ -119,7 +119,7 @@ pub struct LoadEvidence {
 }
 
 /// What the preview Worker said about its own answers (`Server-Timing`): its total and R2 wait,
-/// and where each section's pack came from (`r2-whole`, `r2-head+range`, `edge-…`, `memory-…`).
+/// and where each section's pack came from (`r2-head+range`, `memory-head+range`, `edge-answer`).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ServerTimingSummary {
     pub answers: u64,
@@ -127,7 +127,7 @@ pub struct ServerTimingSummary {
     pub r2_ms: Timings,
     pub sources: BTreeMap<String, u64>,
     /// How the Worker answered, by its `outcome` (`document` passes the member through,
-    /// `document-decompressed` gunzipped it for a client without gzip, `r2-unavailable`, …).
+    /// `r2-unavailable`, …).
     #[serde(default)]
     pub outcomes: BTreeMap<String, u64>,
 }
@@ -375,16 +375,32 @@ pub fn sample_rank(pnu: &str) -> anyhow::Result<u64> {
     Ok(u64::from_be_bytes(first))
 }
 
-/// Whether a bake records `pnu` as a sample candidate: about the contract's
-/// `sample_candidates_per_million` of every million PNUs, a few more than the sample needs.
+/// Whether `pnu` is a sample candidate at `per_million` candidates of every million PNUs (about
+/// that many of every million, a few more than the sample needs; `candidate_rate`).
+///
+/// # Errors
+/// Returns an error when the PNU cannot be ranked.
+pub fn is_sample_candidate_at(pnu: &str, per_million: u64) -> anyhow::Result<bool> {
+    Ok(sample_rank(pnu)? < u64::MAX / 1_000_000 * per_million.min(1_000_000))
+}
+
+/// The candidate rate a lane of `documents` PNUs is baked at: the contract's
+/// `sample_candidates_per_million`, or, for a lane too small to draw `latency_sample_size` from
+/// it, the rate that draws half again as many (every PNU when the lane is smaller than the
+/// sample). On 2026-10-14 the parcel land-rights lane (422,592 PNUs) drew 877 at the contract's
+/// rate: gate (나) refused it for its sample size, and its CPU p99 came from a 1,096-request window
+/// (the 11th slowest read) where the other lanes' came from about 19,000.
 ///
 /// # Errors
 /// Returns an error when the contract cannot be read.
-pub fn is_sample_candidate(pnu: &str) -> anyhow::Result<bool> {
-    let per_million = section_pack_policy()?
-        .cutover_gate
-        .sample_candidates_per_million;
-    Ok(sample_rank(pnu)? < u64::MAX / 1_000_000 * per_million)
+pub fn candidate_rate(documents: u64) -> anyhow::Result<u64> {
+    let gate = &section_pack_policy()?.cutover_gate;
+    let wanted = u64::try_from(gate.latency_sample_size)?.saturating_mul(3) / 2;
+    let needed = wanted.saturating_mul(1_000_000).div_ceil(documents.max(1));
+    Ok(gate
+        .sample_candidates_per_million
+        .max(needed)
+        .min(1_000_000))
 }
 
 /// The Gold row count of `snapshot` as the catalog's table metadata records it; a count an

@@ -43,6 +43,7 @@ STARVATION_CYCLES = 20
 RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
 TIMER_NAME = re.compile(r"foundation-[a-z0-9-]+\.timer")
+ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # What starts a job (jobs.v1.json `started_by`, root ADR-0171). A `schedule` job starts at its
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
@@ -164,6 +165,50 @@ def baked_surfaces_without_a_job(jobs=None, graph=None):
         exempt.add(surface)
     for surface in sorted(baked - set(produced) - exempt):
         problems.append(f"baked serving surface {surface!r} has no producing job in jobs.v1.json and no exemption")
+    return problems
+
+
+# The lakehouse datasets a job is expected to make (root ADR-0234); source groups, Postgres serving
+# groups and serving surfaces are not data-flow steps a scheduled job writes.
+DATA_FLOW_TYPES = {"silver_table", "gold_table", "reference_table"}
+# Why a dataset no job writes has none (pipeline-graph node `unscheduled`, root ADR-0234 §2):
+# on_event: made by hand when its input event comes, by the runbook its runbook_ref names;
+# not_started: production has never written it; needs_job: it should have a job and has none yet.
+UNSCHEDULED = {"on_event", "not_started", "needs_job"}
+
+
+def datasets_without_a_job(jobs=None, graph=None):
+    """Every reason a lakehouse dataset's job coverage is not stated (an empty list is a pass).
+
+    A dataset is written by a job when one of the job's pipeline-graph edges ends at it, enabled
+    or not. Every other dataset says why in its node's `unscheduled`, so the flow map can tell a
+    dataset that is made on an event from one that is missing its job. The declaration cannot
+    outlive the job that replaces it.
+    """
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+    written = {
+        edges[edge]["to"]: job["id"]
+        for job in jobs["jobs"]
+        for edge in job["pipeline_graph_edges"]
+        if edge in edges
+    }
+    problems = []
+    for node in graph["nodes"]:
+        node_id, unscheduled = node["id"], node.get("unscheduled")
+        if unscheduled is None:
+            if node["type"] in DATA_FLOW_TYPES and node.get("status") != "contract_only" and node_id not in written:
+                problems.append(f"dataset {node_id!r} has no job in jobs.v1.json and does not say why (unscheduled)")
+            continue
+        if node["type"] not in DATA_FLOW_TYPES or node.get("status") == "contract_only":
+            problems.append(f"{node_id!r} says unscheduled but is not a lakehouse dataset a job could write")
+        elif node_id in written:
+            problems.append(f"{node_id!r} says unscheduled {unscheduled!r} but job {written[node_id]} writes it")
+        elif unscheduled not in UNSCHEDULED:
+            problems.append(f"{node_id!r} says unscheduled {unscheduled!r}, not one of {sorted(UNSCHEDULED)}")
+        elif unscheduled == "on_event" and not (PLATFORM_ROOT.parents[1] / node.get("runbook_ref", "")).is_file():
+            problems.append(f"{node_id!r} is made on an event but its runbook_ref names no file")
     return problems
 
 
@@ -496,6 +541,12 @@ def load_specs(jobs=None, graph=None):
         reason = job.get("disabled_reason")
         if job["enabled"] and reason is not None:
             raise JobListError(f"{job_id}: an enabled job has no disabled_reason")
+        # When the job was switched on (root ADR-0239): no start before it is a start it missed.
+        since = job.get("enabled_since")
+        if job["enabled"] and not (isinstance(since, str) and ENABLED_SINCE.fullmatch(since)):
+            raise JobListError(f"{job_id}: an enabled job states enabled_since as YYYY-MM-DDTHH:MM:SSZ")
+        if not job["enabled"] and since is not None:
+            raise JobListError(f"{job_id}: a disabled job has no enabled_since")
         if not job["enabled"] and job["systemd_timer"] is None and not (isinstance(reason, str) and reason.strip()):
             raise JobListError(
                 f"{job_id}: off and without a timer it runs nowhere; disabled_reason must say why and what turns it on"

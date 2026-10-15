@@ -6,13 +6,17 @@ use axum::{
     response::Response,
     Json,
 };
+use std::sync::Arc;
+use std::time::Duration;
+
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 
 use intelligence_normalization_application::{
-    PermissionAction, PermissionCheck, PrincipalKind, PrincipalScope, RuntimeSecurityError,
-    VerifiedPrincipal,
+    IdentityPolicyDecision, IdentityPolicyDecisionPort, IdentityPolicyError, PermissionAction,
+    PermissionCheck, PrincipalKind, PrincipalScope, RuntimeSecurityError, VerifiedPrincipal,
 };
+use intelligence_normalization_infrastructure::HttpIdentityPolicyClient;
 
 use crate::state::AppState;
 
@@ -22,8 +26,13 @@ pub struct InboundAuthConfig {
     pub required: bool,
     pub shared_token: Option<String>,
     pub principal: Option<InboundPrincipalConfig>,
+    /// `identity` mode: every protected call is decided by Identity (root ADR-0216).
+    pub identity_policy: Option<Arc<dyn IdentityPolicyDecisionPort>>,
     pub allowed_origins: Vec<String>,
 }
+
+const IDENTITY_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const IDENTITY_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Identity and permissions bound to the configured inbound service token.
 ///
@@ -74,6 +83,7 @@ impl std::fmt::Debug for InboundAuthConfig {
                 &self.shared_token.as_ref().map(|_| "<redacted>"),
             )
             .field("principal", &self.principal)
+            .field("identity_policy", &self.identity_policy.is_some())
             .field("allowed_origins", &self.allowed_origins)
             .finish()
     }
@@ -83,9 +93,13 @@ impl std::fmt::Debug for InboundAuthConfig {
 ///
 /// Supported modes:
 /// - `"disabled"` (default): authentication is not enforced.
-/// - `"shared-token"`: a bearer token and an explicitly bound workload principal are required.
-///   The principal is read from `INTELLIGENCE_INBOUND_SERVICE_*` variables. Request headers are
-///   never used as identity or authorization input.
+/// - `"identity"` (production): the caller presents its Identity workload token; each protected
+///   action is decided by Identity's `POST /identity/v1/policy/decisions` at
+///   `INTELLIGENCE_IDENTITY_BASE_URL`. Who the caller is and what it may do come only from
+///   Identity's workload policy (root ADR-0216).
+/// - `"shared-token"`: loopback-only local development. A bearer token and an explicitly bound
+///   principal read from `INTELLIGENCE_INBOUND_SERVICE_*` variables. Request headers are never
+///   used as identity or authorization input.
 ///
 /// `INTELLIGENCE_CORS_ALLOWED_ORIGINS` is a comma-separated list of allowed origins.
 pub fn inbound_auth_config_from_lookup(
@@ -93,13 +107,39 @@ pub fn inbound_auth_config_from_lookup(
 ) -> Result<InboundAuthConfig, RuntimeSecurityError> {
     let mode = lookup("INTELLIGENCE_INBOUND_AUTH_MODE").unwrap_or_else(|| "disabled".to_string());
 
+    let allowed_origins = lookup("INTELLIGENCE_CORS_ALLOWED_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
     let required = match mode.trim() {
         "disabled" => false,
         "shared-token" => true,
+        "identity" => {
+            let base_url = lookup("INTELLIGENCE_IDENTITY_BASE_URL").unwrap_or_default();
+            let client = HttpIdentityPolicyClient::new(
+                base_url.trim(),
+                IDENTITY_CONNECT_TIMEOUT,
+                IDENTITY_REQUEST_TIMEOUT,
+            )
+            .map_err(|message| RuntimeSecurityError::AuthenticationFailed {
+                message: format!("INTELLIGENCE_IDENTITY_BASE_URL: {message}"),
+            })?;
+            return Ok(InboundAuthConfig {
+                required: true,
+                shared_token: None,
+                principal: None,
+                identity_policy: Some(Arc::new(client)),
+                allowed_origins,
+            });
+        }
         _ => {
             return Err(RuntimeSecurityError::AuthenticationFailed {
-                message: "INTELLIGENCE_INBOUND_AUTH_MODE must be disabled or shared-token"
-                    .to_string(),
+                message:
+                    "INTELLIGENCE_INBOUND_AUTH_MODE must be disabled, shared-token or identity"
+                        .to_string(),
             })
         }
     };
@@ -130,17 +170,11 @@ pub fn inbound_auth_config_from_lookup(
         None
     };
 
-    let allowed_origins = lookup("INTELLIGENCE_CORS_ALLOWED_ORIGINS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
     Ok(InboundAuthConfig {
         required,
         shared_token,
         principal,
+        identity_policy: None,
         allowed_origins,
     })
 }
@@ -193,15 +227,7 @@ fn parse_action(value: &str) -> Result<PermissionAction, RuntimeSecurityError> {
 }
 
 fn all_actions() -> Vec<PermissionAction> {
-    vec![
-        PermissionAction::ChatCompletions,
-        PermissionAction::ValidateNormalizationProposal,
-        PermissionAction::GenerateNormalizationProposal,
-        PermissionAction::SubmitNormalizationProposal,
-        PermissionAction::IngestKnowledge,
-        PermissionAction::RetrieveKnowledge,
-        PermissionAction::ViewGraphContext,
-    ]
+    PermissionAction::ALL.to_vec()
 }
 
 /// Request extension carrying a verified principal for downstream handlers.
@@ -249,6 +275,33 @@ pub async fn auth_middleware(
     };
 
     if !config.required {
+        return Ok(next.run(request).await);
+    }
+
+    if let Some(policy) = config.identity_policy.as_ref() {
+        let Some(actions) = required_actions(request.uri().path()) else {
+            return Err(auth_error(StatusCode::FORBIDDEN));
+        };
+        let capabilities: Vec<_> = actions
+            .iter()
+            .map(PermissionAction::identity_capability)
+            .collect();
+        let principal_id =
+            authorize_with_identity(policy.as_ref(), request.headers(), &capabilities).await?;
+        // Identity workload principals carry no tenant: the principal is its own scope.
+        let principal = VerifiedPrincipal::new_for_kind(
+            principal_id.clone(),
+            PrincipalKind::Service,
+            vec![PrincipalScope {
+                tenant_id: principal_id.clone(),
+                product_id: principal_id,
+                actions,
+            }],
+        )
+        .map_err(|_| auth_error(StatusCode::UNAUTHORIZED))?;
+        request
+            .extensions_mut()
+            .insert(AuthenticatedRequestPrincipal(principal));
         return Ok(next.run(request).await);
     }
 
@@ -327,6 +380,58 @@ pub async fn auth_middleware(
         .insert(AuthenticatedRequestPrincipal(principal));
 
     Ok(next.run(request).await)
+}
+
+fn auth_error(status: StatusCode) -> (StatusCode, Json<AuthErrorResponse>) {
+    let (code, message) = match status {
+        StatusCode::UNAUTHORIZED => ("authentication_failed", "authentication failed"),
+        StatusCode::FORBIDDEN => ("authorization_failed", "authorization failed"),
+        _ => (
+            "authorization_unavailable",
+            "authorization is temporarily unavailable",
+        ),
+    };
+    (status, Json(AuthErrorResponse { code, message }))
+}
+
+/// Asks Identity for every `(resource, action)` with the caller's bearer and returns the one
+/// principal Identity evaluated. Any deny is 403, a rejected credential 401, and an unreachable
+/// or off-contract Identity 503 — never an allow.
+pub(crate) async fn authorize_with_identity(
+    policy: &dyn IdentityPolicyDecisionPort,
+    headers: &HeaderMap,
+    capabilities: &[(&str, &str)],
+) -> Result<String, (StatusCode, Json<AuthErrorResponse>)> {
+    let bearer = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| auth_error(StatusCode::UNAUTHORIZED))?;
+    let trace_id = uuid::Uuid::new_v4().to_string();
+    let mut evaluated: Option<String> = None;
+    for (resource, action) in capabilities {
+        let decision = policy
+            .decide(bearer, resource, action, &trace_id)
+            .await
+            .map_err(|error| match error {
+                IdentityPolicyError::Unauthenticated => auth_error(StatusCode::UNAUTHORIZED),
+                IdentityPolicyError::Unavailable => auth_error(StatusCode::SERVICE_UNAVAILABLE),
+            })?;
+        let IdentityPolicyDecision::Allow { principal_id } = decision else {
+            return Err(auth_error(StatusCode::FORBIDDEN));
+        };
+        if evaluated
+            .as_ref()
+            .is_some_and(|previous| previous != &principal_id)
+        {
+            return Err(auth_error(StatusCode::UNAUTHORIZED));
+        }
+        evaluated = Some(principal_id);
+    }
+    // No capability asked means nothing was allowed.
+    evaluated.ok_or_else(|| auth_error(StatusCode::FORBIDDEN))
 }
 
 /// Exact-path permission map covering both route namespaces per root

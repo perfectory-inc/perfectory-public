@@ -322,11 +322,17 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"].append(copy.deepcopy(jobs["jobs"][0])))
 
     def test_a_disabled_job_without_a_timer_that_does_not_say_why(self):
-        self.refused(lambda jobs: bake(jobs).update(enabled=False, disabled_reason="  "))
-        self.refused(lambda jobs: bake(jobs).update(enabled=False))
+        self.refused(lambda jobs: switch_off(bake(jobs), disabled_reason="  "))
+        self.refused(lambda jobs: switch_off(bake(jobs)))
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+def switch_off(entry, **fields):
+    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239)."""
+    entry.pop("enabled_since", None)
+    entry.update(enabled=False, **fields)
 
 
 def job(jobs, job_id):
@@ -405,6 +411,14 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                 # A land lane refuses a run while an object it could load is unmeasured (ADR-0169 §1).
                 self.assertIn("bronze-object-members.sh", entry["disabled_reason"], lane)
 
+    def test_an_enabled_job_says_since_when_and_a_disabled_one_does_not(self):
+        # Root ADR-0239: a job switched on today was called late for yesterday's slot (2026-10-14).
+        on = lambda jobs: next(j for j in jobs["jobs"] if j["enabled"])
+        off = lambda jobs: next(j for j in jobs["jobs"] if not j["enabled"])
+        self.refused(lambda jobs: on(jobs).pop("enabled_since"), "states enabled_since")
+        self.refused(lambda jobs: on(jobs).update(enabled_since="2026-10-14"), "states enabled_since")
+        self.refused(lambda jobs: off(jobs).update(enabled_since="2026-10-14T00:00:00Z"), "a disabled job has no enabled_since")
+
     def test_started_by_is_stated_and_known(self):
         self.refused(lambda jobs: jobs["jobs"][0].pop("started_by"), "started_by must be one of")
         self.refused(lambda jobs: jobs["jobs"][0].update(started_by="upstream"), "started_by must be one of")
@@ -417,7 +431,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild"):
-                job(jobs, name).update(enabled=False, disabled_reason="planted")
+                switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
                                         "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
 
@@ -629,8 +643,59 @@ class EveryBakedSurfaceHasAJob(unittest.TestCase):
                     {"surface": surface, "reason": reason}))
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn(expected, problems[0])
-        problems = self.problems(mutate_jobs=lambda jobs: jobs["serving_surfaces_without_a_job"][0].update(reason=""))
-        self.assertEqual(problems, ["exemption 'parcel-tiles' gives no reason"])
+        def unreasoned(jobs):
+            # Every baked surface has a job now; take the parcel tile bake's edge away to need one.
+            bake = next(job for job in jobs["jobs"] if job["id"] == "parcel_tile_bake")
+            bake["pipeline_graph_edges"].remove("gold-parcel-boundary-served-to-parcel-tiles")
+            jobs["serving_surfaces_without_a_job"].append({"surface": "parcel-tiles", "reason": ""})
+        self.assertEqual(self.problems(mutate_jobs=unreasoned), ["exemption 'parcel-tiles' gives no reason"])
+
+
+class EveryDatasetSaysHowItIsMade(unittest.TestCase):
+    """A lakehouse dataset is written by a job, or its graph node says why not (root ADR-0234)."""
+
+    def test_the_real_lists_pass(self):
+        self.assertEqual(job_specs.datasets_without_a_job(), [])
+
+    def problems(self, mutate_jobs=lambda jobs: None, mutate_graph=lambda graph: None):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        mutate_jobs(jobs)
+        mutate_graph(graph)
+        return job_specs.datasets_without_a_job(jobs, graph)
+
+    @staticmethod
+    def node(graph, node_id):
+        return next(node for node in graph["nodes"] if node["id"] == node_id)
+
+    def test_a_dataset_that_says_nothing_is_refused(self):
+        # The industrial-complex profile is made on an event (ILIS, by hand); without saying so it is a defect.
+        problems = self.problems(mutate_graph=lambda graph: self.node(graph, "silver-industrial-complexes").pop("unscheduled"))
+        self.assertEqual(problems, [
+            "dataset 'silver-industrial-complexes' has no job in jobs.v1.json and does not say why (unscheduled)"])
+
+    def test_removing_a_job_edge_exposes_its_dataset(self):
+        def drop(jobs):
+            job(jobs, "lineage_stewardship")["pipeline_graph_edges"].clear()
+        self.assertTrue(any("silver-parcel-lineage" in problem for problem in self.problems(mutate_jobs=drop)))
+
+    def test_a_declaration_a_job_made_stale_is_refused(self):
+        def plant(graph):
+            self.node(graph, "silver-land-use-zone-code")["unscheduled"] = "needs_job"
+        problems = self.problems(mutate_graph=plant)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("but job silver_refresh_land_use_zone_code writes it", problems[0])
+
+    def test_an_unknown_value_a_missing_runbook_or_a_wrong_node_is_refused(self):
+        for node_id, change, expected in [
+            ("silver-industrial-complexes", {"unscheduled": "sometimes"}, "not one of"),
+            ("silver-industrial-complexes", {"runbook_ref": "no/such/runbook.md"}, "names no file"),
+            ("gongzzang-panel", {"unscheduled": "on_event"}, "is not a lakehouse dataset"),
+            ("silver-complex-parcel-memberships", {"unscheduled": "needs_job"}, "is not a lakehouse dataset"),
+        ]:
+            with self.subTest(node=node_id):
+                problems = self.problems(mutate_graph=lambda graph: self.node(graph, node_id).update(change))
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(expected, problems[0])
 
 
 class FloorCycleAdapter(unittest.TestCase):

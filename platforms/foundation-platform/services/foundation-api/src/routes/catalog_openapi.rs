@@ -1,28 +1,26 @@
 //! Deterministic `OpenAPI` document for the published Catalog v1 surface.
 
 use foundation_contracts::catalog::{
-    ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexAnchorSummaryResponse,
-    ComplexNoticeResponse, DigitalTwinAssetResponse, FileAssetResponse,
-    IndustrialComplexDevelopmentStageValue, IndustrialComplexGoldPointerResponse,
-    IndustrialComplexKindValue, IndustrialComplexListResponse,
-    IndustrialComplexLotSalesStatusValue, IndustrialComplexResponse, IndustrialComplexStatusValue,
-    IndustryGroupMemberResponse, IndustryGroupResponse, ManufacturerResponse, MapEditRequest,
-    MapEditResponse, MarkerTileContractResponse, ParcelCharacteristicResponse,
-    ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse, ParcelLandRightResponse,
-    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse,
-    ParcelResponse, ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
-    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
-    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
-    UnitOfficialPriceResponse, UnitPageResponse, UnitResponse, UpdateComplexRequest,
-    UpdateParcelKindRequest, VectorTileArtifactResponse, VectorTileDynamicPostgisResponse,
-    VectorTileLineageResponse, VectorTileManifestResponse, VectorTilePublicationUnitResponse,
-    VectorTileRuntimeLayerResponse, VectorTileRuntimeLineageResponse,
-    VectorTileRuntimeManifestResponse, VectorTileRuntimeSourceResponse,
-    VectorTileStaticPmtilesResponse,
+    ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexNoticeResponse,
+    DigitalTwinAssetResponse, FileAssetResponse, IndustrialComplexDevelopmentStageValue,
+    IndustrialComplexGoldPointerResponse, IndustrialComplexKindValue,
+    IndustrialComplexListResponse, IndustrialComplexLotSalesStatusValue, IndustrialComplexResponse,
+    IndustrialComplexStatusValue, IndustryGroupMemberResponse, IndustryGroupResponse,
+    ManufacturerResponse, MapEditRequest, MapEditResponse, MarkerTileContractResponse,
+    ParcelCharacteristicResponse, ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse,
+    ParcelLandRightResponse, ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse,
+    ParcelPriceResponse, ParcelResponse, ParcelTransferEventResponse, ParcelZoningResponse,
+    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
+    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
+    SpatialLayerResponse, UnitOfficialPriceResponse, UnitResponse, UpdateComplexRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
+    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
+use utoipa::openapi::OpenApi;
 use utoipa::openapi::info::LicenseBuilder;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
-use utoipa::openapi::OpenApi;
 use utoipa::{Modify, OpenApi as OpenApiDerive};
 
 use super::{HealthResponse, ReadinessResponse};
@@ -42,16 +40,9 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::register_complex,
         super::catalog::get_complex,
         super::catalog::get_complex_by_lakehouse_id,
-        super::catalog::get_complex_anchor_summary,
         super::catalog::update_complex,
         super::catalog::archive_complex,
         super::catalog::complex_search::list_complexes,
-        super::catalog::building_units::list_parcel_buildings_by_pnu,
-        super::catalog::building_units::list_parcel_units_by_pnu,
-        super::catalog::building_units::get_building,
-        super::catalog::building_units::get_building_by_register_pk,
-        super::catalog::building_units::list_building_units,
-        super::catalog::get_parcel,
         super::catalog::list_complex_notices,
         super::catalog::list_complex_attachments,
         super::catalog::list_complex_blueprints,
@@ -67,8 +58,7 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::map_edits::append_map_edit,
         super::catalog::record_lakehouse_batch_run,
         super::catalog::rollback_vector_tile_manifest,
-        super::catalog::promote_vector_tile_manifest,
-        super::catalog::update_parcel_kind
+        super::catalog::promote_vector_tile_manifest
     ),
     components(schemas(
         // The industrial-complex value lists, so a consumer generates them from this document.
@@ -79,7 +69,6 @@ use super::{HealthResponse, ReadinessResponse};
         ArchiveComplexRequest,
         BlueprintResponse,
         BuildingResponse,
-        ComplexAnchorSummaryResponse,
         ComplexNoticeResponse,
         DigitalTwinAssetResponse,
         FileAssetResponse,
@@ -111,11 +100,9 @@ use super::{HealthResponse, ReadinessResponse};
         RegisterComplexRequest,
         RollbackVectorTileManifestRequest,
         SpatialLayerResponse,
-        UnitPageResponse,
         UnitOfficialPriceResponse,
         UnitResponse,
         UpdateComplexRequest,
-        UpdateParcelKindRequest,
         VectorTileArtifactResponse,
         VectorTileLineageResponse,
         VectorTileManifestResponse,

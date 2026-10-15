@@ -150,7 +150,7 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     expect(await (await get(PNU_B)).text()).toBe(documents.base[PNU_B]);
   });
 
-  it("a client that takes no gzip gets the same bytes decompressed by the Worker", async () => {
+  it("a client that takes no gzip gets the same bytes, decoded by the runtime and not by the Worker's code", async () => {
     await serve(sectionPacks([]));
     for (const acceptEncoding of ["identity", "gzip;q=0", "br"]) {
       const response = await get(PNU_A, "", { "Accept-Encoding": acceptEncoding });
@@ -160,50 +160,36 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     }
   });
 
-  it("the gzip and the decompressed answers carry different entity tags, each validating only itself", async () => {
+  it("the Worker answers every client with the stored member under one entity tag (root ADR-0233)", async () => {
     await serve(sectionPacks([]));
     const gzip = await get(PNU_A, "", { "Accept-Encoding": "gzip" });
-    const identity = await get(PNU_A, "", { "Accept-Encoding": "identity" });
-    await Promise.all([gzip.arrayBuffer(), identity.arrayBuffer()]);
-    const gzipTag = gzip.headers.get("etag") ?? "";
-    const identityTag = identity.headers.get("etag") ?? "";
-    expect(gzipTag).toMatch(/^"[0-9a-f]+-[0-9]+"$/);
-    expect(identityTag).toMatch(/^"[0-9a-f]+-[0-9]+-identity"$/);
-    expect(identityTag).not.toBe(gzipTag);
-    expect((await get(PNU_A, "", { "Accept-Encoding": "gzip", "If-None-Match": gzipTag })).status).toBe(304);
-    expect((await get(PNU_A, "", { "Accept-Encoding": "identity", "If-None-Match": identityTag })).status).toBe(304);
-    // A tag of the other representation is not a match: the client gets the bytes it asked for.
-    const crossed = await get(PNU_A, "", { "Accept-Encoding": "identity", "If-None-Match": gzipTag });
-    expect(crossed.status).toBe(200);
-    expect(await crossed.text()).toBe(documents.base[PNU_A]);
-    const crossedGzip = await get(PNU_A, "", { "Accept-Encoding": "gzip", "If-None-Match": identityTag });
-    expect(crossedGzip.status).toBe(200);
-    await crossedGzip.arrayBuffer();
+    await gzip.arrayBuffer();
+    const tag = gzip.headers.get("etag") ?? "";
+    expect(tag).toMatch(/^"[0-9a-f]+-[0-9]+"$/);
+    for (const acceptEncoding of ["gzip", "identity"]) {
+      // A converted answer's tag may be weakened on the way; the Worker compares tags weakly.
+      expect((await get(PNU_A, "", { "Accept-Encoding": acceptEncoding, "If-None-Match": tag })).status, acceptEncoding).toBe(304);
+      expect(
+        (await get(PNU_A, "", { "Accept-Encoding": acceptEncoding, "If-None-Match": `W/${tag}` })).status,
+        acceptEncoding,
+      ).toBe(304);
+    }
   });
 
-  it("HEAD answers the headers of the GET it stands for, with no body, in either encoding", async () => {
+  it("HEAD answers the headers of the GET it stands for, with no body", async () => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
     await serve(sectionPacks([]));
-    for (const acceptEncoding of ["gzip", "identity"]) {
-      const got = await get(PNU_A, "", { "Accept-Encoding": acceptEncoding });
-      await got.arrayBuffer();
-      const head = await runtime.dispatchFetch(url(PNU_A, ""), {
-        method: "HEAD",
-        headers: { "Accept-Encoding": acceptEncoding },
-      });
-      expect(head.status, acceptEncoding).toBe(200);
-      expect(await head.text(), acceptEncoding).toBe("");
-      for (const name of ["etag", "content-encoding", "content-length", "content-type", "cache-control", "vary"]) {
-        expect(head.headers.get(name), `${acceptEncoding} ${name}`).toBe(got.headers.get(name));
-      }
-    }
-    const identity = await runtime.dispatchFetch(url(PNU_A, ""), {
+    const got = await get(PNU_A, "", { "Accept-Encoding": "gzip" });
+    await got.arrayBuffer();
+    const head = await runtime.dispatchFetch(url(PNU_A, ""), {
       method: "HEAD",
-      headers: { "Accept-Encoding": "identity" },
+      headers: { "Accept-Encoding": "gzip" },
     });
-    expect(identity.headers.get("content-length")).toBe(
-      new TextEncoder().encode(documents.base[PNU_A]).byteLength.toString(),
-    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    for (const name of ["etag", "content-encoding", "content-length", "content-type", "cache-control", "vary"]) {
+      expect(head.headers.get(name), name).toBe(got.headers.get(name));
+    }
   });
 
   it("a PNU no pack holds is a typed 404, in its dong or in a dong without packs", async () => {
