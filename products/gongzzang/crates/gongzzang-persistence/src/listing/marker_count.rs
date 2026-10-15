@@ -24,7 +24,7 @@ pub(super) async fn count_listing_markers(
         r"
         select
             count(*)::int8 as total_count,
-            max(projection_version)::int8 as projection_version,
+            (select version from listing_marker_state) as projection_version,
             max(anchor_snapshot_id) as anchor_snapshot_id
         from listing_marker_projection
         where listing_status = 'active'

@@ -45,6 +45,7 @@ EXPECTED_TABLES=(
   listing_marker_tombstone_log
   listing_marker_delta_log
   listing_marker_dirty_tile_queue
+  listing_marker_state
   foundation_platform_event_inbox
   external_account
 )

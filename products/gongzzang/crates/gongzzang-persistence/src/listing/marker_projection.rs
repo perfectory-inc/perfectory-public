@@ -105,6 +105,39 @@ where
                 old_visibility_scope
             from candidate
         ),
+        diffed as (
+            select
+                p.*,
+                (
+                    e.listing_id is null
+                    or e.pnu is distinct from p.pnu
+                    or not ST_Equals(e.anchor_point, p.anchor_point)
+                    or e.anchor_snapshot_id is distinct from p.anchor_snapshot_id
+                    or e.source_geometry_version is distinct from p.source_geometry_version
+                    or e.source_geometry_checksum_sha256 is distinct from p.source_geometry_checksum_sha256
+                    or e.source_listing_version is distinct from p.source_listing_version
+                    or e.z14_tile_x is distinct from p.z14_tile_x
+                    or e.z14_tile_y is distinct from p.z14_tile_y
+                    or e.listing_status is distinct from p.listing_status
+                    or e.visibility_scope is distinct from p.visibility_scope
+                    or e.listing_type is distinct from p.listing_type
+                    or e.transaction_type is distinct from p.transaction_type
+                    or e.price_krw is distinct from p.price_krw
+                    or e.area_m2 is distinct from p.area_m2
+                    or e.rank_score is distinct from 0
+                    or e.listing_updated_at is distinct from p.listing_updated_at
+                ) as changed
+            from projected p
+            left join listing_marker_projection e on e.listing_id = p.listing_id
+        ),
+        -- One counter for every marker change (root ADR-0257). Its row lock is held until
+        -- commit, so versions commit in order and a reader at N has seen every change <= N.
+        bumped as (
+            update listing_marker_state
+            set version = version + 1
+            where exists (select 1 from diffed where changed)
+            returning version
+        ),
         upserted as (
             insert into listing_marker_projection (
                 marker_id,
@@ -137,7 +170,7 @@ where
                 source_geometry_version,
                 source_geometry_checksum_sha256,
                 source_listing_version,
-                1,
+                bumped.version,
                 z14_tile_x,
                 z14_tile_y,
                 listing_status,
@@ -149,7 +182,9 @@ where
                 0,
                 listing_updated_at,
                 now()
-            from projected
+            from diffed
+            cross join bumped
+            where changed
             on conflict (listing_id) do update set
                 marker_id = excluded.marker_id,
                 pnu = excluded.pnu,
@@ -158,7 +193,7 @@ where
                 source_geometry_version = excluded.source_geometry_version,
                 source_geometry_checksum_sha256 = excluded.source_geometry_checksum_sha256,
                 source_listing_version = excluded.source_listing_version,
-                projection_version = listing_marker_projection.projection_version + 1,
+                projection_version = excluded.projection_version,
                 z14_tile_x = excluded.z14_tile_x,
                 z14_tile_y = excluded.z14_tile_y,
                 listing_status = excluded.listing_status,
@@ -170,22 +205,6 @@ where
                 rank_score = excluded.rank_score,
                 listing_updated_at = excluded.listing_updated_at,
                 updated_at = now()
-            where listing_marker_projection.pnu is distinct from excluded.pnu
-               or not ST_Equals(listing_marker_projection.anchor_point, excluded.anchor_point)
-               or listing_marker_projection.anchor_snapshot_id is distinct from excluded.anchor_snapshot_id
-               or listing_marker_projection.source_geometry_version is distinct from excluded.source_geometry_version
-               or listing_marker_projection.source_geometry_checksum_sha256 is distinct from excluded.source_geometry_checksum_sha256
-               or listing_marker_projection.source_listing_version is distinct from excluded.source_listing_version
-               or listing_marker_projection.z14_tile_x is distinct from excluded.z14_tile_x
-               or listing_marker_projection.z14_tile_y is distinct from excluded.z14_tile_y
-               or listing_marker_projection.listing_status is distinct from excluded.listing_status
-               or listing_marker_projection.visibility_scope is distinct from excluded.visibility_scope
-               or listing_marker_projection.listing_type is distinct from excluded.listing_type
-               or listing_marker_projection.transaction_type is distinct from excluded.transaction_type
-               or listing_marker_projection.price_krw is distinct from excluded.price_krw
-               or listing_marker_projection.area_m2 is distinct from excluded.area_m2
-               or listing_marker_projection.rank_score is distinct from excluded.rank_score
-               or listing_marker_projection.listing_updated_at is distinct from excluded.listing_updated_at
             returning
                 marker_id,
                 listing_id,
