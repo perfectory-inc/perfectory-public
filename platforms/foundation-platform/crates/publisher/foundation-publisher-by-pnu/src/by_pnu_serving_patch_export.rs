@@ -59,7 +59,8 @@ pub fn from_env(
     }
 }
 
-/// One PNU per line, in the contract grammar, each once. An empty file is the empty list.
+/// One key per line (a PNU, or a PNU and the lane's key suffix, root ADR-0204), in the contract
+/// grammar, each once. An empty file is the empty list.
 ///
 /// # Errors
 /// Refuses an unreadable file, a PNU outside the grammar and a repeated PNU.
@@ -68,7 +69,7 @@ pub fn read_pnu_list(lane: ByPnuLane, path: &Path) -> anyhow::Result<BTreeSet<St
         .with_context(|| format!("failed to read the PNU list {}", path.display()))?;
     let mut pnus = BTreeSet::new();
     for line in raw.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        by_pnu::check_pnu(lane, line)?;
+        by_pnu::check_key(lane, line)?;
         ensure!(
             pnus.insert(line.to_owned()),
             "{} names {line} twice",

@@ -178,6 +178,21 @@ class ComparisonSnapshotIceberg(unittest.TestCase):
         frame = delta.snapshot_frame(self.spark, "proof", "gold.parcel_panel", self.digested)
         self.assertEqual([row.row_digest for row in frame.collect()], ["a"])
 
+    def test_a_lane_keyed_narrower_than_a_pnu_compares_and_lists_keys(self):
+        # Root ADR-0204: the unit-price Gold is one row per (pnu, building_id); a building gone from
+        # a PNU is a deleted key, not a changed PNU, so the bake tombstones exactly that document.
+        self.assertEqual(delta.KEY_SUFFIX_COLUMNS.get("unit-price"), "building_id")
+        self.spark.sql("CREATE TABLE proof.gold.keyed (pnu STRING, building_id STRING, row_digest STRING) USING iceberg")
+        pnu = "9999900000100000001"
+        self.spark.sql(f"INSERT INTO proof.gold.keyed VALUES ('{pnu}', 'b1', 'x'), ('{pnu}', 'b2', 'y')")
+        baseline = str(self.spark.sql("SELECT snapshot_id FROM proof.gold.keyed.refs WHERE name = 'main'").first()[0])
+        self.spark.sql(f"INSERT OVERWRITE proof.gold.keyed VALUES ('{pnu}', 'b1', 'z')")
+        current = str(self.spark.sql("SELECT snapshot_id FROM proof.gold.keyed.refs WHERE name = 'main'").first()[0])
+        verdicts = {row.pnu: row.verdict for row in delta.classify(
+            delta.snapshot_frame(self.spark, "proof", "gold.keyed", baseline, "building_id"),
+            delta.snapshot_frame(self.spark, "proof", "gold.keyed", current, "building_id")).collect()}
+        self.assertEqual(verdicts, {f"{pnu}b1": "changed", f"{pnu}b2": "deleted"})
+
 
 if __name__ == "__main__":
     unittest.main()
