@@ -12,8 +12,6 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
-# The tile-derivative bucket's writer: the active v2 runtime manifest is written there for the tile
-# edge (root ADR-0254).
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/publish-outbox.sh
 TimeoutStartSec=15m
