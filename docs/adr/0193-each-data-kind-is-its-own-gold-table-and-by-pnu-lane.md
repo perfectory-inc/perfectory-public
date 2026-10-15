@@ -9,6 +9,7 @@
   [ADR-0180](./0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md) (바뀐 PNU 만 다시 만들기)
 - Aligns with: ADR-0190 (호실 가격 분리와 공용 첫 발행 관문·레인 계약, 병합됨), ADR-0189 (Silver append 경로, PR #425),
   ADR-0191 (Silver 변경 기록) — 둘은 진행 중
+- Applied by: [ADR-0252](./0252-the-building-kinds-are-titles-floors-and-units-keyed-by-building.md) (건물 종류 셋, 호 문서 키)
 
 ## Context
 
