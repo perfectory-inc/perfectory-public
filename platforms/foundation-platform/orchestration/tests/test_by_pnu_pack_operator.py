@@ -315,6 +315,32 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
+    def test_a_parcel_tile_rehearsal_starts_its_half_and_never_beside_spark_work(self):
+        # Root ADR-0253: the rehearsal is two instances of the bake template, started one at a time.
+        for half in ("gold", "bake"):
+            with self.subTest(half=half):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("parcel-tiles", "rehearse", half)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
+                                 [["start", "--no-block", f"foundation-parcel-tile-bake@rehearsal-{half}.service"]])
+        for active in (["foundation-autodeploy.service"], ["foundation-parcel-tile-bake@rehearsal-gold.service"],
+                       ["foundation-parcel-tile-bake@gold.service"], ["foundation-gold-panel-rebuild.service"],
+                       ["foundation-silver-refresh@land-use-plan.service"]):
+            with self.subTest(active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("parcel-tiles", "rehearse", "bake", activating=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+        for args in (("parcel-tiles", "rehearse"), ("parcel-tiles", "rehearse", "promote"),
+                     ("parcel-tiles", "rehearse", "gold", "extra"), ("parcel-tiles", "start", "gold"),
+                     ("parcel-tiles", "status", "extra")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] in ("systemd-run", "systemctl")])
+
     def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
         self.switch_off("silver_refresh_land_use_plan")
         for args in (("job", "start", "source_sweep"), ("job", "start", "silver_refresh_land_use_plan"),

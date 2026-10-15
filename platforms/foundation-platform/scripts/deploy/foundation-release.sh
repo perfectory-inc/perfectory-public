@@ -1309,6 +1309,11 @@ case "${command}" in
       rm -f /etc/systemd/system/foundation-map-edit-fold.timer \
         /etc/systemd/system/foundation-map-edit-fold.service
     fi
+    # The parcel tile bake was one unit before it became the gold/bake template (root ADR-0253). It
+    # never ran (its job was off) and has no timer; a host that installed it would keep a unit no
+    # job names.
+    rm -f /etc/systemd/system/foundation-parcel-tile-bake.service
+    rm -rf /etc/systemd/system/foundation-parcel-tile-bake.service.d
     # Likewise the building serving monitor became the building instance of the by-PNU monitor
     # template (root ADR-0160). A host whose building timer was on keeps the hourly read under the
     # new name (enabled after the reload below); one where it was off keeps it off.
