@@ -80,7 +80,7 @@ const MAP_EDIT_GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWA
 const MAP_EDIT_WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
 /// How many ids a gate failure names; the counts are always complete.
 const NAMED_IDS: usize = 5;
-/// The most missing ids the gate reads geometry for (ADR-0255); 202609 at detail 12 missed 542.
+/// The most missing ids the gate reads geometry for (ADR-0262); 202609 at detail 12 missed 542.
 const MAX_CLASSIFIED_MISSING: usize = 100_000;
 /// Range size for reading the active archive: one directory or a few tiles per request.
 const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
@@ -91,7 +91,7 @@ const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 pub(crate) struct BakeContract {
     images: ImageSet,
     pub(crate) work_disk: WorkDisk,
-    /// Root ADR-0255: tippecanoe's `--full-detail` (maxzoom tile extent `2^detail`) for a unit
+    /// Root ADR-0262: tippecanoe's `--full-detail` (maxzoom tile extent `2^detail`) for a unit
     /// whose features its default 12 drops; a unit not listed keeps the default.
     #[serde(default)]
     pub(crate) maxzoom_detail: std::collections::BTreeMap<String, u8>,
@@ -551,7 +551,7 @@ pub(crate) struct ServedLayer {
     pub(crate) feature_id_property: String,
     pub(crate) tile_min_zoom: u8,
     pub(crate) tile_max_zoom: u8,
-    /// The deepest zoom the map draws this layer at, overzooming the maxzoom tiles (ADR-0255).
+    /// The deepest zoom the map draws this layer at, overzooming the maxzoom tiles (ADR-0262).
     pub(crate) render_max_zoom: u8,
     pub(crate) properties: Vec<String>,
 }
@@ -653,7 +653,7 @@ pub(crate) fn gate_archive(
     if !classified.unexplained.is_empty() {
         let named: Vec<&String> = classified.unexplained.iter().take(NAMED_IDS).collect();
         bail!(
-            "maxzoom tiles miss {} of the {} served ids: {} sub-pixel at render_max_zoom {} (allowed, ADR-0255) and {} that are not; not sub-pixel {named:?}",
+            "maxzoom tiles miss {} of the {} served ids: {} sub-pixel at render_max_zoom {} (allowed, ADR-0262) and {} that are not; not sub-pixel {named:?}",
             missing.len(),
             ids.len(),
             classified.subpixel.len(),
@@ -667,7 +667,7 @@ pub(crate) fn gate_archive(
     })
 }
 
-/// The served ids the maxzoom tiles miss, by whether their own geometry explains it (ADR-0255).
+/// The served ids the maxzoom tiles miss, by whether their own geometry explains it (ADR-0262).
 #[derive(Debug, Default)]
 pub(crate) struct Missing {
     /// Sub-pixel at the layer's render_max_zoom: nothing the map could draw. Allowed, listed.
@@ -684,7 +684,7 @@ pub(crate) struct IdGate {
 }
 
 /// Reads the handoff again for the rows whose id hash is in `missing` and classifies each by its
-/// geometry (ADR-0255).
+/// geometry (ADR-0262).
 fn classify_missing(
     summary: &ServedSummary,
     handoff: &Path,
@@ -753,7 +753,7 @@ struct Config {
     container_project: Option<String>,
     /// ADR-0253: bake and gate only; nothing is recorded, uploaded or promoted.
     rehearsal: bool,
-    /// ADR-0255: the contract's maxzoom detail for this unit, if it sets one.
+    /// ADR-0262: the contract's maxzoom detail for this unit, if it sets one.
     maxzoom_detail: Option<u8>,
 }
 
@@ -1280,7 +1280,7 @@ async fn bake_in(
 }
 
 /// What the bake produced before anything is written: the archive, the maxzoom id gate (the SHA-256
-/// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0255), and — when the active release came from another oven — the first-release equivalence
+/// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0262), and — when the active release came from another oven — the first-release equivalence
 /// outcome with the file its whole evidence was written to.
 struct Gated {
     archive: PathBuf,

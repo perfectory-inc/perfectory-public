@@ -311,7 +311,7 @@ fn gate(archive_bytes: &[u8], layer: &ServedLayer, ids: &[&str]) -> anyhow::Resu
     gate_classified(archive_bytes, layer, ids, &[]).map(|gate| gate.digest)
 }
 
-/// The gate with the missing ids among `subpixel` classified sub-pixel (ADR-0255).
+/// The gate with the missing ids among `subpixel` classified sub-pixel (ADR-0262).
 fn gate_classified(
     archive_bytes: &[u8],
     layer: &ServedLayer,
@@ -441,7 +441,7 @@ fn an_extra_id_at_maxzoom_is_refused_and_named() {
 #[test]
 fn a_missing_id_is_allowed_only_when_its_geometry_is_subpixel_and_is_listed() -> anyhow::Result<()>
 {
-    // ADR-0255: 9999900004 and 9999900005 are not in the archive.
+    // ADR-0262: 9999900004 and 9999900005 are not in the archive.
     let ids = [
         "9999900001",
         "9999900002",

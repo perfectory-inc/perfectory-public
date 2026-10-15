@@ -1,4 +1,4 @@
-//! Whether a served polygon is too small for the map to draw (root ADR-0255).
+//! Whether a served polygon is too small for the map to draw (root ADR-0262).
 //!
 //! The maxzoom id gate requires every served id in the archive's maxzoom tiles. tippecanoe drops a
 //! polygon its integer grid collapses, and no grid keeps every parcel: the national 202609 bake at
@@ -138,7 +138,7 @@ fn measure(polygons: &Polygons, zoom: u8) -> (f64, f64) {
     (area.max(0.0), perimeter)
 }
 
-/// ADR-0255: whether the polygon in `wkb` covers less than one pixel at `render_max_zoom`, by area
+/// ADR-0262: whether the polygon in `wkb` covers less than one pixel at `render_max_zoom`, by area
 /// or by mean width.
 pub(crate) fn is_subpixel(wkb: &[u8], render_max_zoom: u8) -> anyhow::Result<bool> {
     ensure!(
