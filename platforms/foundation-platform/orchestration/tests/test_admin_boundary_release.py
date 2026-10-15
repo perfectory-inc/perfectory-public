@@ -48,7 +48,9 @@ submit = args[args.index("spark-submit"):]
 script = next(a for a in submit if a.startswith("/workspace/") and a.endswith(".py"))
 job, job_args = pathlib.Path(script).name, submit[submit.index(script) + 1:]
 flag = lambda name: job_args[job_args.index(name) + 1]
-log.write(json.dumps({"tool": "spark", "job": job, "args": job_args}) + "\n")
+log.write(json.dumps({"tool": "spark", "job": job, "args": job_args,
+                      "service": args[args.index("spark-submit") - 1],
+                      "memory": submit[submit.index("--driver-memory") + 1]}) + "\n")
 if job == "administrative_boundaries_handoff_to_silver.py" and "--probe-only" in job_args:
     print(f"administrative-boundaries-silver-probe snapshot={flag('--source-snapshot-id')} held={os.environ['FAKE_HELD']}")
 elif job == "merge.py":
@@ -152,6 +154,9 @@ class AdminBoundaryRelease(unittest.TestCase):
                          "bronze/source=vworldkr__boundary_emd/30603-4--sha256-cd.zip")
         self.assertIn("--predecessor-parcel-snapshot-id", load)
         self.assertEqual([c for c in calls if c["tool"] == "fold"], [{"tool": "fold", "unit": "admin", "force": "1"}])
+        # The national merge and load run in the 20g Spark the job's three slots reserve; the 2.5g one
+        # was killed by its memory cap on 2026-10-15 (exit 137).
+        self.assertEqual({(c["service"], c["memory"]) for c in calls if c["tool"] == "spark"}, {("spark", "12g")})
         lines = result.stdout.strip().splitlines()
         self.assertEqual(lines[-1], "foundation-job-outcome changed")
         self.assertIn("round=209902 snapshot=vworldkr__boundary_emd-30603-209902 rows=3", lines[-2])

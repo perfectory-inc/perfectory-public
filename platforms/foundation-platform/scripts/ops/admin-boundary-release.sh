@@ -10,7 +10,8 @@
 #   7. 발행 ID — place_id_release_to_gold.py --unit admin.
 #   8. 타일   — map-edit-fold.sh admin 을 FORCE 로: 새 Silver 위에 편집을 다시 접어 굽는다.
 #
-# 모든 Spark 단계는 이 작업의 spark 풀 자리(3)에서 돈다 — 매시 접기(2 자리)와 겹치지 않는다.
+# 모든 Spark 단계는 이 작업의 spark 풀 자리(3)에서 돈다 — 매시 접기(2 자리)와 겹치지 않는다. 그래서 compose `spark`
+# (20g)를 쓴다: 병합·적재는 전국 경계를 드라이버의 파이썬으로 모으고, spark-small(2.5g)에서는 2026-10-15 OOM(137)이었다.
 # 마지막 줄은 `foundation-job-outcome changed|unchanged` 다(root ADR-0171).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -48,7 +49,7 @@ spark() {
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark-small spark-submit --master 'local[4]' --driver-memory 4g \
+    spark spark-submit --master 'local[4]' --driver-memory 12g \
     --jars "${SPARK_RELEASE_JARS}" "/workspace/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
