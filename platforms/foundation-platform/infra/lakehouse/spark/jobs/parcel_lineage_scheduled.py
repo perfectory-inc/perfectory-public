@@ -86,7 +86,9 @@ def run_groups(
             try:
                 outcome["derived"].append({**group, **derive_one(from_sido, to_sido)})
             except ValueError as refusal:
-                outcome["refused"].append({**group, "reason": str(refusal)[:2000]})
+                # The 동 codes a refusal names, when it names them, so the alert can say which.
+                outcome["refused"].append({**group, "reason": str(refusal)[:2000],
+                                           "unpaired_codes": list(getattr(refusal, "codes", []))})
     return outcome
 
 

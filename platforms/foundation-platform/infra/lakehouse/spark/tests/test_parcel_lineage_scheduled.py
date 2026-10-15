@@ -62,7 +62,15 @@ class RunGroups(unittest.TestCase):
         outcome = job.run_groups(self.GROUPS, lambda f, t: False, derive, deadline_seconds=60)
         self.assertEqual([g["from_sido"] for g in outcome["derived"]], ["98", "96"])
         self.assertEqual(outcome["refused"], [{"from_sido": "97", "to_sido": "97",
-                                               "reason": "2 legal dong codes held parcels and none later; record the change"}])
+                                               "reason": "2 legal dong codes held parcels and none later; record the change",
+                                               "unpaired_codes": []}])
+
+    def test_a_refusal_naming_unpaired_codes_records_them(self):
+        def derive(f, t):
+            raise producer.UnrecordedDongCodes("no pair recorded", ["9999910200", "9999910800"])
+
+        outcome = job.run_groups([("98", "98")], lambda f, t: False, derive, deadline_seconds=60)
+        self.assertEqual(outcome["refused"][0]["unpaired_codes"], ["9999910200", "9999910800"])
 
     def test_anything_but_a_refusal_stops_the_run(self):
         def derive(f, t):
