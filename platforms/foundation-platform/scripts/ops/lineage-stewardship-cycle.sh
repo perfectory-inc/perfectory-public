@@ -117,6 +117,7 @@ spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container
 if [ "${probe_rc}" = 3 ]; then
   job_journal "${journal}" "stewardship waiting: silver.parcel_lineage does not exist yet"
   notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
+  printf 'foundation-job-outcome waiting silver.parcel_lineage does not exist yet\n'
   exit 0
 elif [ "${probe_rc}" != 0 ]; then
   on_error "probe"
@@ -159,5 +160,8 @@ if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
   # What a person acts on: which group, and which 동 codes the code change table does not pair.
   notify_slack "$(lineage_refusal_text "${work}/derive-summary.json")"
+  printf 'foundation-job-outcome failed %s lineage groups refused\n' "${derive_refused}"
   exit 1
 fi
+# The run's last line (root ADR-0171, ADR-0260): it loaded the review queue and folded decisions.
+printf 'foundation-job-outcome changed\n'
