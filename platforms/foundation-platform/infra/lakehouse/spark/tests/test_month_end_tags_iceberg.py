@@ -146,6 +146,18 @@ class MonthEndTagsIceberg(unittest.TestCase):
         self.assertNotIn(old_pins, self.ids(gold), "superseded Gold pins kept the table from expiring")
         self.assertLessEqual({new_pins, after}, self.ids(gold), "expiry removed the pins the rebuild plans from")
 
+    def test_the_compaction_call_runs_on_the_pinned_iceberg(self):
+        """The options the job passes are ones this Iceberg accepts (partial progress, root ADR-0238)."""
+        table = "silver.compaction_probe"
+        self.spark.sql(f"CREATE TABLE proof.{table} (pnu STRING, row_digest STRING) USING iceberg")
+        for digest in "abcd":
+            self.commit(table, digest)
+        before = self.spark.sql(f"SELECT count(*) AS n FROM proof.{table}.files").first().n
+        compaction = maintenance.load_maintenance_contract()["compaction"]
+        row = self.spark.sql(maintenance.rewrite_data_files_sql("proof", table, compaction)).first()
+        self.assertEqual(row[0], before, "the compaction did not read every small file")
+        self.assertEqual(self.spark.sql(f"SELECT count(*) AS n FROM proof.{table}.files").first().n, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -76,7 +76,8 @@ mkdir -p "${work}"
 # The Spark container runs as uid 185: its init step checks it can write the state root it mounts,
 # and the rotation file lives there.
 chmod 0777 "${STATE_ROOT}" "${work}"
-[[ ! -e "${STATE_ROOT}/rotation.json" ]] || chmod 0666 "${STATE_ROOT}/rotation.json"
+# rotation.json is the container's (uid 185) once it exists; the service user cannot chmod it and
+# need not: the container that writes it owns it (2026-10-15 05:04 a chmod here failed the run).
 
 docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 status=0
