@@ -226,7 +226,7 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not derive silver.unit_official_price", result.stdout + result.stderr)
         self.assertEqual(self.producer_calls(calls), [])
-        self.assertNotIn("commits", catalog["gold.unit_price_panel"])
+        self.assertNotIn("commits", catalog["gold.unit_price"])
 
     def test_the_unit_price_panel_places_units_from_the_registers_the_building_panel_was_built_from(self):
         # Root ADR-0190: on its own the price panel waits for the building panel's registers...
