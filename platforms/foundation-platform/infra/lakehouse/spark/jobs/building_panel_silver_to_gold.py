@@ -45,8 +45,10 @@ TITLE_SOURCE = "silver.building_register_titles"
 FLOOR_SOURCE = "silver.building_register_floors"
 UNIT_SOURCE = "silver.building_register_units"
 AREA_SOURCE = "silver.building_register_unit_areas"
+# Not an input: the unit prices are their own panel (root ADR-0190). `read_source` reads the price
+# table's newest batch for that panel, beside the register tables it reads the same way.
 PRICE_SOURCE = "silver.unit_official_price"
-ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE, PRICE_SOURCE)
+ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE)
 # The columns build_gold_panel_frame reads from each input, and the only ones it is handed: the
 # incremental rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a
 # column the build reads must be here or the build fails on it. The unit evidence columns are the
@@ -61,7 +63,6 @@ BUILD_COLUMNS = {
                   *evidence_policy()["columns"]),
     AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
                   "structure_name_raw", "floor_kind"),
-    PRICE_SOURCE: ("mgm_bldrgst_pk", "base_date", "price_won"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs; a change to one rebuilds whole.
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
@@ -237,16 +238,7 @@ def unit_placement(units, titles):
     return placed.withColumn("serving_pnu", F.when(F.col("building_id").isNotNull(), F.col("_parent_pnu")).otherwise(F.col("pnu")))
 
 
-def checked_prices(prices):
-    """The price rows, refused when a (register, reference date) repeats or a value is invalid."""
-    assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
-    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
-                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
-        raise ValueError("unit official price has an invalid base_date or negative price")
-    return prices
-
-
-def build_units(units, titles, areas, prices):
+def build_units(units, titles, areas):
     joined = unit_placement(units, titles).drop("serving_pnu").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
     number, kind = F.col("floor_number"), F.col("floor_kind")
     label = (F.when(number.isNull(), F.lit(""))
@@ -261,13 +253,7 @@ def build_units(units, titles, areas, prices):
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
-    histories = checked_prices(prices).groupBy("mgm_bldrgst_pk").agg(
-        F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
-    # Match price to unit by the unique register key (mgm_bldrgst_pk), not by
-    # (pnu, dong, ho): dong_name is empty for single-building complexes, so the
-    # name tuple collides across distinct units. The register key is 1:1 per unit.
-    result = projected.join(histories, projected["register_pk"] == histories["mgm_bldrgst_pk"], "left").drop(histories["mgm_bldrgst_pk"])
-    return result.withColumn("official_price_history", F.coalesce("official_price_history", F.array()))
+    return projected
 
 
 def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counters):
@@ -288,10 +274,10 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
             raise ValueError(f"{column} must fit the canonical floor count")
     titles = titles.withColumn("id", canonical_id("building", F.col("mgm_bldrgst_pk")))
     counters["unlinked_floor_count"] = floors.join(titles.select("mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_anti").count()
-    projected_units = build_units(units, titles, areas, frames[PRICE_SOURCE])
+    projected_units = build_units(units, titles, areas)
     counters["unlinked_unit_count"] = projected_units.where(F.col("building_id").isNull()).count()
     unit_fields = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk", "building_register_pk",
-                   "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name", "official_price_history", "building_link_evidence", "unit_pnu"]
+                   "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name", "building_link_evidence", "unit_pnu"]
     nested_units = sorted_objects(projected_units.where(F.col("building_id").isNotNull()),
                                   ["_parent_pnu", "building_id"], unit_fields, "units").withColumnRenamed("_parent_pnu", "pnu")
     unlinked = sorted_objects(projected_units.where(F.col("building_id").isNull()), ["pnu"], unit_fields, "unlinked_units")
@@ -446,8 +432,9 @@ def _register_keys(frame):
     return tuple(c for c in ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk") if c in frame.columns)
 
 
-def appended_changes(spark, args, previous, pins, snapshots, new, appended):
-    """Each appended input's change set and the rows its PNUs are found through (root ADR-0189).
+def appended_changes(spark, args, previous, pins, snapshots, new, appended, build_columns=None):
+    """Each appended input's change set and the rows its PNUs are found through (root ADR-0189),
+    projected to `build_columns` (this panel's, unless a panel built from these inputs names its own).
 
     Every input is read as one batch (`assert_single_snapshot`). The same batch at both pins: the
     change set is exactly the rows the appends added to it, and the old rows are among the new.
@@ -455,16 +442,17 @@ def appended_changes(spark, args, previous, pins, snapshots, new, appended):
     superset of the difference that holds every old and new row the mapping needs, since an append
     leaves the old batch untouched. Read by batch id, not compared row by row.
     """
+    build_columns = build_columns or BUILD_COLUMNS
     result = {}
     for name in appended:
         old_batch, new_batch = assert_single_snapshot(read_source(spark, args, name, previous), name), snapshots[name]
         if old_batch == new_batch:
             added = read_source(spark, args, name, pins, after=previous[name], batches=(new_batch,))
-            change = incremental.project_build_inputs({name: added}, BUILD_COLUMNS)[name]
+            change = incremental.project_build_inputs({name: added}, build_columns)[name]
             result[name] = (change, new[name])
         else:
             both = read_source(spark, args, name, pins, batches=(old_batch, new_batch))
-            change = incremental.project_build_inputs({name: both}, BUILD_COLUMNS)[name]
+            change = incremental.project_build_inputs({name: both}, build_columns)[name]
             result[name] = (change, change)
     return result
 
@@ -522,8 +510,6 @@ def restrict_inputs(frames, keys):
             frames[FLOOR_SOURCE], [("mgm_bldrgst_pk", kept_title_registers, "_register", False)]),
         AREA_SOURCE: incremental.rows_matching_any(
             frames[AREA_SOURCE], [("mgm_bldrgst_pk", any_register, "_register", False)]),
-        PRICE_SOURCE: incremental.rows_matching_any(
-            frames[PRICE_SOURCE], [("mgm_bldrgst_pk", unit_registers, "_register", False)]),
     }
 
 
