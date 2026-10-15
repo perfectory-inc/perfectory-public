@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform shape ledger check: the committed production-shape ledgers still describe production (ADR-0259)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/shape-ledger-check.py
+StateDirectory=foundation-shape-ledger
+TimeoutStartSec=15m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target
