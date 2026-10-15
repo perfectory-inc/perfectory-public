@@ -202,8 +202,59 @@ write_configs() {
   systemctl daemon-reload
 }
 
-stop_engine() { systemctl stop docker.socket docker.service containerd.service; }
-start_engine() { systemctl start containerd.service docker.socket docker.service; }
+ENGINE_UNITS=(docker.socket docker.service containerd.service)
+UNPAUSE_RETRY_SECONDS=10
+
+# While the engine is stopped nothing may start it again. On 2026-10-15 at 14:05:16, seven seconds
+# after the run stopped it, the autodeploy timer (every minute) queued its service, whose
+# `Requires=docker.service` started containerd and Docker on their old roots: the stopped copy then
+# copied from a running engine and the run rolled back. So the foundation timers are stopped for
+# the stop (their units would only fail every minute) and the engine units are masked for the
+# runtime of the boot (`--runtime`: /run, gone on reboot), which refuses every start, a dependency's
+# included. The timers stopped are recorded and started again whatever the outcome.
+stop_engine() {
+  local run="$1"
+  systemctl list-timers --no-legend --plain 'foundation-*.timer' 2>/dev/null \
+    | grep -oE 'foundation-[^ ]+\.timer' | sort -u >"${run}/timers-stopped" || true
+  if [[ -s "${run}/timers-stopped" ]]; then
+    # shellcheck disable=SC2046 # one unit name per line
+    systemctl stop $(cat "${run}/timers-stopped")
+    log "stopped $(wc -l <"${run}/timers-stopped") foundation timers for the stop: $(tr '\n' ' ' <"${run}/timers-stopped")"
+  fi
+  systemctl stop "${ENGINE_UNITS[@]}"
+  systemctl mask --runtime "${ENGINE_UNITS[@]}" >/dev/null
+  log "Docker and containerd stopped and masked for this boot; nothing can start them until the run does"
+}
+# Right before the stopped copy: every engine unit is stopped, asked through job_units.py (the
+# host's one answer to "does this unit run", root ADR-0184; a unit is running unless inactive or
+# failed). Anything else means something started it, and the copy would read a live tree.
+engine_is_down() {
+  local running status=0
+  running="$(python3 -I -B "${JOB_UNITS}" running "${ENGINE_UNITS[@]}" 2>&1)" || status=$?
+  if ((status != 0)); then
+    log "systemd could not say whether the engine is stopped (exit ${status}): ${running}"
+    return 1
+  fi
+  if [[ -n "${running}" ]]; then
+    log "the engine runs again although it was stopped and masked: ${running//$'
+'/; }"
+    return 1
+  fi
+}
+start_engine() {
+  systemctl unmask --runtime "${ENGINE_UNITS[@]}" >/dev/null
+  systemctl start containerd.service docker.socket docker.service
+}
+restart_timers() {
+  local run="$1"
+  [[ -s "${run}/timers-stopped" ]] || return 0
+  # shellcheck disable=SC2046 # one unit name per line
+  if systemctl start $(cat "${run}/timers-stopped"); then
+    log "started the foundation timers again"
+  else
+    log "FAILED to start the foundation timers again: $(tr '\n' ' ' <"${run}/timers-stopped")"
+  fi
+}
 
 restore_configs() {
   local run="$1"
@@ -214,21 +265,43 @@ restore_configs() {
 }
 
 unpause_recorded() {
-  local run="$1" id failed=0 count=0
+  local run="$1" id attempt count=0
   [[ -s "${run}/unpaused-dags" ]] || { log "no DAG was unpaused before the run; none unpaused"; return 0; }
   # Only an enabled job's DAG, in the registry's consumers-first order (root ADR-0179): a disabled
   # job is paused by design, whatever Airflow showed before, as the deploy does.
   local order
   order="$(consumers_first)"
+  : >"${run}/unpause-wanted"
   for id in ${order}; do
     grep -qx "foundation_${id}" "${run}/unpaused-dags" || continue
-    if airflow dags unpause "foundation_${id}" >/dev/null; then count=$((count + 1)); else log "FAILED to unpause foundation_${id}"; failed=1; fi
+    echo "foundation_${id}" >>"${run}/unpause-wanted"
+    # Airflow comes back with the engine; a call made before it answers is tried again.
+    for attempt in 1 2 3 4 5 6; do
+      if airflow dags unpause "foundation_${id}" >/dev/null 2>&1; then count=$((count + 1)); break; fi
+      log "unpause foundation_${id}: attempt ${attempt} failed; trying again in ${UNPAUSE_RETRY_SECONDS} s"
+      sleep "${UNPAUSE_RETRY_SECONDS}"
+    done
   done
   local left
   left="$(grep -vxF -f <(sed 's/^/foundation_/' <<<"${order}") "${run}/unpaused-dags" | tr '\n' ' ' || true)"
   [[ -z "${left// }" ]] || log "left paused (their jobs are disabled in the registry): ${left}"
-  log "unpaused ${count} DAGs that were unpaused before and whose jobs are enabled"
-  return "${failed}"
+  # Asked back, not assumed: what Airflow lists as still paused among the ones wanted.
+  local listed still
+  listed="$(mktemp)"
+  if airflow dags list -o json >"${listed}" 2>/dev/null; then
+    still="$(comm -23 <(sort "${run}/unpause-wanted") \
+      <(python3 -I "${HERE}/host_docker_layout.py" unpaused-dags "${listed}" | sort))"
+  else
+    still="$(cat "${run}/unpause-wanted")"
+    log "could not list the DAGs to check the unpause"
+  fi
+  rm -f "${listed}"
+  if [[ -n "${still}" ]]; then
+    printf '%s\n' "${still}" >"${run}/unpause-failed"
+    log "STILL PAUSED after unpausing ($(wc -l <"${run}/unpause-failed")): $(tr '\n' ' ' <"${run}/unpause-failed") (list: ${run}/unpause-failed)"
+    return 1
+  fi
+  log "unpaused ${count} DAGs that were unpaused before and whose jobs are enabled; Airflow lists all of them unpaused"
 }
 
 give_autodeploy_back() {
@@ -274,7 +347,7 @@ verify() {
 rollback_run() {
   local run="$1"
   log "ROLLBACK: putting Docker and containerd back on ${DOCKER_OLD} and ${CTRD_OLD}"
-  stop_engine || true
+  systemctl stop "${ENGINE_UNITS[@]}" || true
   restore_configs "${run}"
   [[ -e "${DOCKER_OLD}.old" && ! -e "${DOCKER_OLD}" ]] && mv "${DOCKER_OLD}.old" "${DOCKER_OLD}"
   [[ -e "${CTRD_OLD}.old" && ! -e "${CTRD_OLD}" ]] && mv "${CTRD_OLD}.old" "${CTRD_OLD}"
@@ -282,6 +355,7 @@ rollback_run() {
   sleep 20
   comm -23 "${run}/running-before" <(running_containers) | while read -r name; do docker start "${name}" >/dev/null 2>&1 || true; done
   unpause_recorded "${run}" || true
+  restart_timers "${run}"
   give_autodeploy_back "${run}"
   log "ROLLBACK done: Docker root $(docker info --format '{{.DockerRootDir}}'); the copies under ${DATA_MOUNT} are kept for inspection"
 }
@@ -314,9 +388,16 @@ run)
   mkdir -p "${STATE_ROOT}"
   exec 9>"${STATE_ROOT}/lock"
   flock -n 9 || die "another run holds ${STATE_ROOT}/lock" 75
-  preflight || die "preflight failed; nothing changed" 75
   RUN="${STATE_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "${RUN}"
+  # Every line goes to the run's own log as well as the terminal: the 14:05 run's lines existed only
+  # on the owner's screen. The directory and the log are world-readable (0755/0644), so the deployer
+  # account reads them without root.
+  : >"${RUN}/run.log"
+  chmod 0644 "${RUN}/run.log"
+  exec > >(tee -a "${RUN}/run.log") 2>&1
+  log "run log: ${RUN}/run.log"
+  preflight || die "preflight failed; nothing changed" 75
   ln -sfn "${RUN}" "${STATE_ROOT}/last"
   begin_run "${RUN}"
   while read -r dag; do airflow dags pause "${dag}" >/dev/null; done <"${RUN}/unpaused-dags"
@@ -330,12 +411,15 @@ run)
   done
   [[ -z "$(spark_containers)" ]] || die "a Spark container started during the copy"
   log "stopping docker.socket, docker and containerd"
-  trap 'status=$?; ((status == 0)) || rollback_run "${RUN}"' EXIT
-  stop_engine
+  trap 'status=$?; ((status == 0)) || { log "FAILED (exit ${status}) after the stop; rolling back"; rollback_run "${RUN}"; }' EXIT
+  stop_engine "${RUN}"
+  engine_is_down || exit 1
   for pair in "${DOCKER_OLD} ${DOCKER_ROOT}" "${CTRD_OLD} ${CTRD_ROOT}"; do
     read -r from to <<<"${pair}"
-    timeout "${STOPPED_CAP}m" "${RSYNC[@]}" "${from}/" "${to}/"
-    left="$("${RSYNC[@]}" -n -i "${from}/" "${to}/")"
+    status=0; timeout "${STOPPED_CAP}m" "${RSYNC[@]}" "${from}/" "${to}/" || status=$?
+    ((status == 0)) || { log "the stopped copy of ${from} failed (rsync ${status})"; exit 1; }
+    status=0; left="$("${RSYNC[@]}" -n -i "${from}/" "${to}/")" || status=$?
+    ((status == 0)) || { log "the check pass of ${from} failed (rsync ${status})"; exit 1; }
     [[ -z "${left}" ]] || { log "a third pass of ${from} would still copy:"; head -20 <<<"${left}"; exit 1; }
     log "copied ${from} -> ${to}; a further pass copies nothing"
   done
@@ -345,7 +429,8 @@ run)
   start_engine
   verify "${RUN}"
   trap - EXIT
-  unpause_recorded "${RUN}" || log "some DAGs did not unpause; unpause them by hand (list: ${RUN}/unpaused-dags)"
+  unpause_recorded "${RUN}" || log "some DAGs did not unpause; unpause them by hand (list: ${RUN}/unpause-failed)"
+  restart_timers "${RUN}"
   give_autodeploy_back "${RUN}"
   log "DONE: Docker ${DOCKER_ROOT}, containerd ${CTRD_ROOT}; ${DOCKER_OLD}.old and ${CTRD_OLD}.old stay until 'delete-old'"
   df -h / "${DATA_MOUNT}"
