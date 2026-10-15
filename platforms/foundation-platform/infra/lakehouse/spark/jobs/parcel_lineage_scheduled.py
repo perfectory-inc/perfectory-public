@@ -12,6 +12,9 @@ so a group is at most one or two sidos, never the country.
 A group is derived once per (edition pair, group, rules version): it is skipped when
 silver.parcel_lineage already holds a row of that pair and rules version whose successor lies in
 the group. No group starts after the deadline; the next run continues where this one stopped.
+A group the producer refuses (a vanished 동 code the code change table does not pair, say) is
+recorded with its reason and the others go on: one region's missing record must not hold back
+every region after it. The run says so (`refused`), and the stewardship unit then fails loudly.
 """
 
 from __future__ import annotations
@@ -66,9 +69,10 @@ def run_groups(
     deadline_seconds: float,
     clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, list[Any]]:
-    """Derive each group not yet held, starting none after the deadline."""
+    """Derive each group not yet held, starting none after the deadline. A refusal (ValueError, the
+    producer's) is recorded and the next group goes on; anything else stops the run."""
     started = clock()
-    outcome: dict[str, list[Any]] = {"derived": [], "held": [], "deferred": []}
+    outcome: dict[str, list[Any]] = {"derived": [], "held": [], "deferred": [], "refused": []}
     for from_sido, to_sido in groups:
         group = {"from_sido": from_sido, "to_sido": to_sido}
         if is_held(from_sido, to_sido):
@@ -76,7 +80,10 @@ def run_groups(
         elif clock() - started >= deadline_seconds:
             outcome["deferred"].append(group)
         else:
-            outcome["derived"].append({**group, **derive_one(from_sido, to_sido)})
+            try:
+                outcome["derived"].append({**group, **derive_one(from_sido, to_sido)})
+            except ValueError as refusal:
+                outcome["refused"].append({**group, "reason": str(refusal)[:2000]})
     return outcome
 
 
@@ -175,11 +182,16 @@ def main(argv: list[str] | None = None) -> int:
         spark.stop()
     summary["derived"] = sum(len(p["derived"]) for p in summary["pairs"])
     summary["deferred"] = sum(len(p["deferred"]) for p in summary["pairs"])
+    summary["refused"] = sum(len(p["refused"]) for p in summary["pairs"])
     if args.summary_output:
         Path(args.summary_output).write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                                              encoding="utf-8")
     print("parcel-lineage-scheduled-json " + json.dumps(
-        {k: summary[k] for k in ("derived", "deferred", "rules_version")}, sort_keys=True))
+        {k: summary[k] for k in ("derived", "deferred", "refused", "rules_version")}, sort_keys=True))
+    for pair in summary["pairs"]:
+        for group in pair["refused"]:
+            print(f"parcel-lineage-refused {pair['from']}->{pair['to']} {group['from_sido']}->{group['to_sido']}: "
+                  f"{group['reason'][:300]}")
     return 0
 
 

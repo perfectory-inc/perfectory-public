@@ -53,6 +53,24 @@ class RunGroups(unittest.TestCase):
         self.assertEqual(derived, ["98"])
         self.assertEqual([g["from_sido"] for g in outcome["deferred"]], ["97", "96"])
 
+    def test_a_refused_group_is_recorded_and_the_next_groups_go_on(self):
+        def derive(f, t):
+            if f == "97":
+                raise ValueError("2 legal dong codes held parcels and none later; record the change")
+            return {"rows": 1}
+
+        outcome = job.run_groups(self.GROUPS, lambda f, t: False, derive, deadline_seconds=60)
+        self.assertEqual([g["from_sido"] for g in outcome["derived"]], ["98", "96"])
+        self.assertEqual(outcome["refused"], [{"from_sido": "97", "to_sido": "97",
+                                               "reason": "2 legal dong codes held parcels and none later; record the change"}])
+
+    def test_anything_but_a_refusal_stops_the_run(self):
+        def derive(f, t):
+            raise RuntimeError("the driver ran out of memory")
+
+        with self.assertRaises(RuntimeError):
+            job.run_groups(self.GROUPS, lambda f, t: False, derive, deadline_seconds=60)
+
     def test_a_held_group_is_reported_held_even_past_the_deadline(self):
         outcome = job.run_groups([("98", "98")], lambda f, t: True, lambda f, t: {}, deadline_seconds=0)
         self.assertEqual((len(outcome["held"]), len(outcome["deferred"])), (1, 0))

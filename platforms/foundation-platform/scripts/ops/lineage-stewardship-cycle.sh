@@ -87,7 +87,10 @@ load_legal_dong_code_handoffs
 spark parcel_lineage_scheduled.py --allow-non-smoke-write \
   --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
   --summary-output "${container_work}/derive-summary.json"
-job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]')"
+derive_refused="$(json_field "${work}/derive-summary.json" '["refused"]')"
+job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused}"
+# A refused group did not stop the others or the steps below; the unit still fails at the end.
+grep -a '^parcel-lineage-refused ' "${run_log}" >&2 || true
 
 # 0. 계보 표가 아직 없으면(9월 필지 적재 전) 할 일이 없다 — 조용히 넘기지 않고 그렇다고 남긴다.
 # `|| probe_rc=$?`, not `set +e`: the ERR trap fires even with errexit off, so "no lineage yet"
@@ -137,3 +140,7 @@ PY
 )"
 job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"
+if [ "${derive_refused}" != 0 ]; then
+  job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
+  exit 1
+fi
