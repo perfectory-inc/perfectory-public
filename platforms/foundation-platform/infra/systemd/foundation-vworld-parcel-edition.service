@@ -7,6 +7,8 @@ OnFailure=foundation-unit-failed@%n.service
 
 [Service]
 Type=oneshot
+# Exit 3 is "a new edition awaits its contract entry" (the script's AWAITING_CONTRACT): not a fault.
+SuccessExitStatus=3
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
