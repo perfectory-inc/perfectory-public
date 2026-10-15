@@ -168,6 +168,18 @@ class PlantedDefects(unittest.TestCase):
         self.write_contract(contract)
         self.assertIn(f"group lakehouse-reader: holds {OLD[READER]} but not {READER}", self.findings())
 
+    def test_a_runbook_that_names_a_host_file_the_contract_does_not_declare(self):
+        runbook = self.area / "docs/runbooks/vworld-parcel-editions.md"
+        runbook.write_text(runbook.read_text(encoding="utf-8") + "\n/etc/foundation-platform/planted.env\n", encoding="utf-8")
+        self.assertIn("/etc/foundation-platform/planted.env is not a group in", self.findings())
+
+    def test_the_parcel_publication_file_lives_in_the_contract(self):
+        """The manual parcel load's file was the one host file outside the contract (root ADR-0247)."""
+        contract = self.contract()
+        contract["groups"] = [g for g in contract["groups"] if g["name"] != "parcel-publication"]
+        self.write_contract(contract)
+        self.assertIn("/etc/foundation-platform/parcel-publication.env is not a group in", self.findings())
+
     def test_a_token_recorded_twice(self):
         contract = self.contract()
         contract["cloudflare_tokens"]["tokens"].append(dict(contract["cloudflare_tokens"]["tokens"][0]))
@@ -296,6 +308,14 @@ class TheHost(unittest.TestCase):
 
 
 class TheCommandLine(unittest.TestCase):
+    def test_every_command_runs_wherever_the_release_lives(self):
+        """The deploy's rename and host must not depend on how deep the release directory is: a
+        default computed from the script's own path once crashed every command at a shallow one."""
+        from unittest import mock  # noqa: PLC0415
+
+        with mock.patch.object(runtime_secrets, "AREA", pathlib.Path("/area")):
+            self.assertEqual(runtime_secrets.main(["--area", str(AREA), "names", NUMBER_CHANGE]), 0)
+
     def test_a_run_gets_its_systemd_run_properties_from_the_contract(self):
         contract = runtime_secrets.load(AREA)
         expected = " ".join(f"-p EnvironmentFile={line}"

@@ -56,6 +56,7 @@ PYTHON_REQUIRED = re.compile(r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["'
 SOURCED = re.compile(r"""^\s*(?:source|\.)\s+"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"]+)\"""", re.MULTILINE)
 EXEC_SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py)")
 HAND_WRITTEN = re.compile(r"EnvironmentFile=-?/etc/foundation-platform/")
+HOST_ENV_FILE = re.compile(r"/etc/foundation-platform/[A-Za-z0-9_.-]+?\.env(?![A-Za-z0-9_.-])")
 # A Cloudflare token's name, and the values each kind of token gives (root ADR-0247).
 TOKEN_NAME = re.compile(r"^foundation-platform-[a-z0-9]+(?:-[a-z0-9]+)*-(?:reader|writer)-prod$")
 TOKEN_VALUES = {"api_token": ("TOKEN",), "r2_access_key": ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")}
@@ -359,11 +360,18 @@ def check(area: Path = AREA) -> list[str]:
                 required |= script_requirements(area / script)
             for name in sorted(required - set(consumer.needs)):
                 findings.append(f"{consumer.key}: {name} is required by its script but not in its needs")
-    for path in sorted([*(area / "docs").rglob("*.md"), *(area / "scripts").rglob("*.sh")]):
+    declared = {group.path for group in contract.groups.values()}
+    named = sorted([*(area / "docs").rglob("*.md"), *(area / "scripts").rglob("*.sh"), *(area / "scripts").rglob("*.py"),
+                    *(area / UNIT_DIR).glob("*.service")])
+    for path in named:
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if HAND_WRITTEN.search(line):
-                findings.append(f"{path.relative_to(area).as_posix()}:{line_no}: hand-written EnvironmentFile; "
-                                f"use `scripts/deploy/runtime_secrets.py properties <run>`")
+            where = f"{path.relative_to(area).as_posix()}:{line_no}"
+            if path.suffix in (".md", ".sh") and HAND_WRITTEN.search(line):
+                findings.append(f"{where}: hand-written EnvironmentFile; use `scripts/deploy/runtime_secrets.py properties <run>`")
+            for host_file in HOST_ENV_FILE.findall(line):
+                if host_file not in declared:
+                    findings.append(f"{where}: {host_file} is not a group in {CONTRACT}; a host environment file "
+                                    f"lives in the contract or not at all (root ADR-0247)")
     return findings
 
 
@@ -577,8 +585,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser_.add_argument("--root", type=Path, default=Path("/"), help="filesystem root the group paths are under")
     parsers["set"].add_argument("group", help="the contract group whose file is written")
     parsers["set"].add_argument("source", type=Path, help="a file of NAME=value lines the group holds")
-    sub.add_parser("credentials").add_argument("--repo", type=Path, default=AREA.parents[1],
-                                               help="the repository whose tracked files are read")
+    sub.add_parser("credentials").add_argument("--repo", type=Path, default=None,
+                                               help="the repository whose tracked files are read (default: the one holding --area)")
     for name in ("properties", "names"):
         sub.add_parser(name).add_argument("consumer")
     args = parser.parse_args(argv)
@@ -595,7 +603,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"rendered {unit}")
             return 0
         if args.command == "credentials":
-            findings = credentials(args.repo, args.area)
+            findings = credentials(args.repo or args.area.resolve().parents[1], args.area)
             for finding in findings:
                 print(f"FAIL credential-names: {finding}", file=sys.stderr)
             if not findings:
