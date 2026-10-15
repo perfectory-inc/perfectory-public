@@ -74,6 +74,21 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# One line per refused lineage group, naming the 동 codes the code change table does not pair (Slack).
+lineage_refusal_text() {
+  PYTHONIOENCODING=utf-8 python3 - "$1" <<'PY'
+import json, sys
+summary = json.load(open(sys.argv[1], encoding="utf-8"))
+lines = ["⛔ 필지 계보 도출 거부 — 코드 변경 표에 짝이 없는 법정동 코드:"]
+for pair in summary.get("pairs", []):
+    for group in pair.get("refused", []):
+        codes = ", ".join(group.get("unpaired_codes") or []) or "(코드 없음: " + group.get("reason", "")[:200] + ")"
+        lines.append(f"• {pair['from']}→{pair['to']} 시도 {group['from_sido']}→{group['to_sido']}: {codes}")
+lines.append("공식 변동연혁(30527)이 반영되면 다음 회차가 잇는다; 그 전엔 스튜어드 목록(ADR-0144 §3)으로만 정한다.")
+print("\n".join(lines))
+PY
+}
+
 json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2)" "$1"; }
 
 # 0a. 법정동 코드 변경 (root ADR-0143). 계보가 그 소비자이므로 계보 앞에서, 이 단위의 spark 자리로 적재하고
@@ -142,5 +157,7 @@ job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
+  # What a person acts on: which group, and which 동 codes the code change table does not pair.
+  notify_slack "$(lineage_refusal_text "${work}/derive-summary.json")"
   exit 1
 fi
