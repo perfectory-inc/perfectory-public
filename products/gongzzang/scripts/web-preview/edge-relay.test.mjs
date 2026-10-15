@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { EDGES, relayRequest } from "./edge-relay.mjs";
+import { EDGES, RUM, relayRequest } from "./edge-relay.mjs";
 
 const ORIGIN = "https://preview.example.test";
 
@@ -53,6 +53,30 @@ test("only reads are relayed", () => {
   assert.equal(answer.status, 405);
 });
 
+test("the real-user beacon is the one write relayed, with the browser's country and nothing else", async () => {
+  const request = new Request(`${ORIGIN}/edge/map-edits/rum`, {
+    method: "POST",
+    headers: { origin: ORIGIN, cookie: "a=b", "content-type": "text/plain;charset=UTF-8" },
+    body: '{"v":1,"m":[{"n":"LCP","v":1}]}',
+  });
+  Object.defineProperty(request, "cf", { value: { country: "KR" } });
+  const upstream = relayRequest(request);
+  assert.ok(upstream instanceof Request);
+  assert.equal(upstream.url, "https://map-edits.perfectory.io/rum");
+  assert.equal(upstream.method, "POST");
+  assert.equal(upstream.headers.get("x-rum-viewer-country"), "KR");
+  assert.equal(upstream.headers.get("origin"), null);
+  assert.equal(upstream.headers.get("cookie"), null);
+  assert.equal(await upstream.text(), '{"v":1,"m":[{"n":"LCP","v":1}]}');
+  for (const path of ["/edge/map-edits/rum?x=1", "/edge/parcels/rum", "/edge/map-edits/rum/x"]) {
+    assert.equal(
+      relayRequest(new Request(`${ORIGIN}${path}`, { method: "POST" })).status,
+      405,
+      path,
+    );
+  }
+});
+
 test("the relayed hosts are the contract's public hostnames", () => {
   const contract = JSON.parse(
     readFileSync(
@@ -70,4 +94,5 @@ test("the relayed hosts are the contract's public hostnames", () => {
     "unit-prices": contract.by_pnu_lanes["unit-price"].public_hostname,
     "map-edits": contract.map_edit_gateway.public_hostname,
   });
+  assert.equal(RUM.path, contract.map_edit_gateway.real_user_metrics.path);
 });
