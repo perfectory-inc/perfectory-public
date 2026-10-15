@@ -9,7 +9,7 @@ written with. No row value leaves the catalog, so the ledger is safe for the pub
 Usage (the catalog settings are the ones `lakehouse-migrate` runs with; `.env.local` on a laptop;
 Trino is the server's, published on its loopback, reached through `ssh -L 18081:127.0.0.1:18081`):
   FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=... FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE=... \
-  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN=... [FOUNDATION_PLATFORM_TRINO_URL=http://127.0.0.1:18081] \
+  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=... [FOUNDATION_PLATFORM_TRINO_URL=http://127.0.0.1:18081] \
   python3 scripts/ops/lakehouse-production-shape.py
 """
 
@@ -146,7 +146,7 @@ def render(ledger: dict) -> str:
 def main() -> int:
     uri = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
     warehouse = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
-    token = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"]
+    token = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN"]
     trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
 
     def get(url: str) -> dict:

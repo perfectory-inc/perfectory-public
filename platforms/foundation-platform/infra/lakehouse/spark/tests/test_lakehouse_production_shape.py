@@ -20,7 +20,23 @@ sys.path.insert(0, str(TESTS_DIR.parent / "jobs"))
 
 import lakehouse_schema_migrate as migrate  # noqa: E402
 
-REPLAYS = json.loads((TESTS_DIR / "fixtures" / "production_shape_replays.json").read_text(encoding="utf-8"))
+
+
+def replay_pr469() -> dict:
+    """#469 (merge commit 3f4ae2cd): its gold.unit_price_panel contract columns, and the shape the
+    production catalog held for that table, which it still holds (one row per PNU, with rows)."""
+    columns = ("pnu", "building_id", "units_json", "row_digest", "source_snapshot_id", "published_at_utc")
+    live = ("pnu", "units_json", "row_digest", "source_snapshot_id", "published_at_utc")
+    return {
+        "contracts": {"gold.unit_price_panel": {"columns": [
+            {"name": column, "logical_type": "string", "required": True} for column in columns]}},
+        "shapes": {"gold.unit_price_panel": {
+            "has_rows": True,
+            "fields": [[index, column, "string", True] for index, column in enumerate(live, start=1)],
+            "columns": list(range(1, len(live) + 1)),
+            "earlier": [],
+        }},
+    }
 
 
 class ProductionShape(unittest.TestCase):
@@ -134,14 +150,19 @@ class Replays(unittest.TestCase):
     def test_pr469_the_unit_price_grain_change_is_refused_as_the_deploy_refused_it(self) -> None:
         # 2026-10-13: gold.unit_price_panel gained a required building_id over live rows; every
         # deploy stopped in its migrate step with the DAGs paused until the revert (#498).
-        replay = REPLAYS["pr469"]
+        replay = replay_pr469()
         refusals = migrate.production_shape_refusals(replay["contracts"], replay["shapes"])
         self.assertEqual(len(refusals), 1)
-        self.assertIn(replay["deploy_refusal"], refusals[0])
+        # The deploy's words on 2026-10-13.
+        self.assertIn("would gain required columns ['building_id'] with no registered backfill", refusals[0])
+
+    def test_pr469_the_replay_is_the_shape_production_holds(self) -> None:
+        self.assertEqual(replay_pr469()["shapes"]["gold.unit_price_panel"],
+                         migrate.load_production_shape()["gold.unit_price_panel"])
 
     def test_pr469_on_an_empty_table_would_have_passed(self) -> None:
         # The refusal comes from the rows production held: the shape, not the contract alone.
-        replay = copy.deepcopy(REPLAYS["pr469"])
+        replay = replay_pr469()
         replay["shapes"]["gold.unit_price_panel"]["has_rows"] = False
         self.assertEqual(migrate.production_shape_refusals(replay["contracts"], replay["shapes"]), [])
 
