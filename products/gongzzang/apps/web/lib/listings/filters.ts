@@ -1,14 +1,14 @@
-export type ListingType =
-  | "factory"
-  | "warehouse"
-  | "office"
-  | "knowledge_industry_center"
-  | "industrial_land"
-  | "logistics_center";
+import {
+  type CardSearchSort,
+  cardSearchSortValues,
+  type ListingType,
+  listingTypeValues,
+  type TransactionType,
+  transactionTypeValues,
+} from "@gongzzang/api-types";
 
-export type TransactionType = "sale" | "monthly_rent" | "jeonse";
-
-export type SortKey = "created_at_desc" | "price_asc" | "price_desc" | "area_asc" | "area_desc";
+export type { ListingType, TransactionType };
+export type SortKey = CardSearchSort;
 
 export interface ListingFilters {
   types: ListingType[];
@@ -23,25 +23,6 @@ export interface ListingFilters {
   /** 지목 (예: `factory_site`). */
   landUseType: string | undefined;
 }
-
-const VALID_TYPES: ListingType[] = [
-  "factory",
-  "warehouse",
-  "office",
-  "knowledge_industry_center",
-  "industrial_land",
-  "logistics_center",
-];
-
-const VALID_TXNS: TransactionType[] = ["sale", "monthly_rent", "jeonse"];
-
-const VALID_SORTS: SortKey[] = [
-  "created_at_desc",
-  "price_asc",
-  "price_desc",
-  "area_asc",
-  "area_desc",
-];
 
 function parseList<T extends string>(raw: string | null, valid: readonly T[]): T[] {
   if (!raw) return [];
@@ -59,13 +40,13 @@ function parseNumber(raw: string | null): number | undefined {
 
 export function parseFiltersFromSearchParams(sp: URLSearchParams): ListingFilters {
   const sortRaw = sp.get("sort");
-  const sort: SortKey = VALID_SORTS.includes(sortRaw as SortKey)
+  const sort: SortKey = cardSearchSortValues.includes(sortRaw as SortKey)
     ? (sortRaw as SortKey)
     : "created_at_desc";
 
   return {
-    types: parseList(sp.get("types"), VALID_TYPES),
-    transactions: parseList(sp.get("transaction"), VALID_TXNS),
+    types: parseList(sp.get("types"), listingTypeValues),
+    transactions: parseList(sp.get("transaction"), transactionTypeValues),
     minAreaM2: parseNumber(sp.get("min_area_m2")),
     maxAreaM2: parseNumber(sp.get("max_area_m2")),
     minPriceKrw: parseNumber(sp.get("min_price_krw")),

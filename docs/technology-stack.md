@@ -168,6 +168,8 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
   정의의 canonical DB/cache/frontend runtime 버전을 검사한다.
 - 같은 guard가 `tools/technology-versions.contract.json`의 `rust_toolchain` 하나를 읽어
   `rust-toolchain.toml`, 모든 Cargo.toml `rust-version`, Docker builder의 `rust:` 태그를 검사한다.
+- 같은 guard가 `cargo_version_requirements`(여러 Cargo 워크스페이스가 함께 쓰는 크레이트, 예: `utoipa`)를 읽어
+  모든 Cargo.toml의 리터럴 요구 버전이 그 값과 같은지 검사한다(루트 ADR-0256).
 - `scripts/guard/utility-library-policy.sh`가 tracked package manifest의 dependency
   key만 읽어, canonical 유틸리티 라이브러리 옆에 같은 역할의 두 번째 라이브러리가 들어오는
   것을 거부한다. 산문·주석·버전 값에는 반응하지 않으므로 이 문단처럼 이력을 적을 수 있다.
