@@ -29,7 +29,7 @@ grep -E '^(CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)=' platforms/foundation-pl
   | sed 's/^CLOUDFLARE_API_TOKEN=/FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=/' \
   | ssh ai-server 'umask 077 && cat > ~/.cloudflare-deploy.env'
 # 2) 계약의 cloudflare-deploy 그룹으로 쓰고(root:root 0600) 임시 파일을 지운다. 출력은 이름뿐이다.
-ssh ai-server 'sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh env-set cloudflare-deploy ~/.cloudflare-deploy.env && shred -u ~/.cloudflare-deploy.env'
+ssh ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set cloudflare-deploy ~/.cloudflare-deploy.env && shred -u ~/.cloudflare-deploy.env'
 ```
 
 토큰에 필요한 권한: 계정의 Workers Scripts 편집(업로드·버전·배포·롤백), D1 편집(지도 편집의 마이그레이션), 사용자
