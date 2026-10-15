@@ -60,7 +60,7 @@ BUILD_COLUMNS = {
     FLOOR_SOURCE: ("mgm_bldrgst_pk", "floor_row_id", "floor_kind", "floor_number", "floor_index",
                    "floor_display_ko"),
     UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
-                  "unit_label_ko", "unit_name_raw", "unit_number", "floor_number", "floor_kind",
+                  "unit_label_ko", "unit_name_raw", "floor_number", "floor_kind",
                   *evidence_policy()["columns"]),
     AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
                   "structure_name_raw", "floor_kind"),
@@ -252,7 +252,7 @@ def build_units(units, titles, areas):
         F.coalesce("dong_join_name", F.lit("")).alias("building_name"),
         F.coalesce("dong_name_raw", F.lit("")).alias("dong_name"),
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
-        "floor_kind", "floor_number", F.col("unit_number").alias("ho_number"),
+        "floor_kind", "floor_number",
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
     return projected
@@ -297,7 +297,6 @@ UNIT_FIELDS = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "regist
 # and the web writes them from these.
 TITLE_KIND_FIELDS = TITLE_FIELDS
 FLOOR_KIND_FIELDS = [f for f in FLOOR_FIELDS if f != "floor_display_ko"]
-UNIT_KIND_FIELDS = [f for f in UNIT_FIELDS if f != "floor_label"] + ["floor_kind", "floor_number", "ho_number"]
 
 
 def title_rows(titles, units, floors, areas):
@@ -395,15 +394,6 @@ def _floors(frames, counters):
     return per_pnu(floor_rows(titles, floors, counters, FLOOR_KIND_FIELDS), ["register_pk", "id", "floors"], "floors")
 
 
-def _units(frames, counters):
-    titles, units, _floors, areas = checked_inputs(frames, counters, (TITLE_SOURCE, UNIT_SOURCE, AREA_SOURCE))
-    linked, unlinked = unit_rows(titles, units, areas, counters, UNIT_KIND_FIELDS)
-    grouped = per_pnu(linked, ["register_pk", "id", "units"], "units")
-    return grouped.join(unlinked, "pnu", "full_outer").select(
-        "pnu", F.coalesce("units", F.array().cast(grouped.schema["units"].dataType)).alias("units"),
-        F.coalesce("unlinked_units", F.array().cast(unlinked.schema["unlinked_units"].dataType)).alias("unlinked_units"))
-
-
 def _buildings_as(entry_type, keep=None):
     """The panel's `buildings_json` read as an array of `entry_type` (fields a kind does not carry are
     dropped), keeping the buildings `keep` holds for."""
@@ -415,10 +405,6 @@ def _has_floors(building):
     return F.size(building["floors"]) > 0
 
 
-def _has_units(building):
-    return F.size(building["units"]) > 0
-
-
 def _titles_view(rows, types):
     return rows.select("pnu", _buildings_as(types["buildings"]).alias("buildings"))
 
@@ -427,16 +413,9 @@ def _floors_view(rows, types):
     return rows.select("pnu", _buildings_as(types["floors"], _has_floors).alias("floors"))
 
 
-def _units_view(rows, types):
-    return rows.select("pnu", _buildings_as(types["units"], _has_units).alias("units"),
-                       F.from_json("unlinked_units_json", T.ArrayType(types["unlinked_units"]), JSON_OPTIONS)
-                       .alias("unlinked_units"))
-
-
 SECTIONS: tuple[Section, ...] = (
     Section("titles", _titles, _titles_view, ("rooftop_usage",)),
     Section("floors", _floors, _floors_view),
-    Section("units", _units, _units_view, ("floor_kind", "floor_number", "ho_number")),
 )
 SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
 

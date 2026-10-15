@@ -50,11 +50,10 @@ class BuildingKindSparkTest(unittest.TestCase):
         ], "mgm_bldrgst_pk string,floor_row_id string,floor_kind string,floor_number int,floor_index int,"
            "floor_display_ko string")
         units = spark.createDataFrame([
-            (A, "UNIT-1", "TITLE-1", "가동", "가동", "101호", "101호", 1, "above_ground", 101),
-            (B, "UNIT-2", None, "", "", "201호", "201호", 2, "above_ground", None),
+            (A, "UNIT-1", "TITLE-1", "가동", "가동", "101호", "101호", 1, "above_ground"),
+            (B, "UNIT-2", None, "", "", "201호", "201호", 2, "above_ground"),
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
-           "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string,"
-           "unit_number int")
+           "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
         units = (units.withColumn("unit_row_id", F.concat(F.lit("row-"), F.col("mgm_bldrgst_pk")))
                  .withColumn("building_link_method", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(), F.lit("parent_key")))
                  .withColumn("building_link_source_record_id", F.when(F.col("building_mgm_bldrgst_pk").isNotNull(),
@@ -80,7 +79,7 @@ class BuildingKindSparkTest(unittest.TestCase):
         return spec, frames, gold, panel_rows
 
     def test_every_building_kind_equals_the_panels_view_of_it(self):
-        self.assertEqual(sorted(self.lanes), ["building-floors", "building-titles", "building-units"])
+        self.assertEqual(sorted(self.lanes), ["building-floors", "building-titles"])
         for lane in self.lanes:
             with self.subTest(lane=lane):
                 spec, frames, gold, panel_rows = self.build(lane)
@@ -96,9 +95,6 @@ class BuildingKindSparkTest(unittest.TestCase):
         self.assertNotIn(B, rows["building-titles"], "a PNU with only an unlinked unit has no titles")
         floors = json.loads(rows["building-floors"][A].floors_json)
         self.assertEqual([(f["register_pk"], len(f["floors"])) for f in floors], [("TITLE-1", 2)])
-        self.assertEqual(json.loads(rows["building-units"][A].units_json)[0]["units"][0]["register_pk"], "UNIT-1")
-        self.assertEqual(json.loads(rows["building-units"][B].unlinked_units_json)[0]["register_pk"], "UNIT-2")
-        self.assertEqual(json.loads(rows["building-units"][B].units_json), [])
 
     def test_a_kind_carries_the_sources_values_not_a_screens_words(self):
         # Root ADR-0193: the web writes "지하 1층"/"옥탑" and joins the rooftop usages; a kind does not.
@@ -107,13 +103,6 @@ class BuildingKindSparkTest(unittest.TestCase):
         self.assertEqual(titles[0]["rooftop_usage"], ["물탱크"])
         floors = json.loads(rows["building-floors"][A].floors_json)[0]["floors"]
         self.assertTrue(all("floor_display_ko" not in f and "floor_kind" in f for f in floors))
-        unit = json.loads(rows["building-units"][A].units_json)[0]["units"][0]
-        self.assertNotIn("floor_label", unit)
-        self.assertEqual(set(unit) & {"floor_kind", "floor_number"}, {"floor_kind", "floor_number"})
-        # The source's normalized unit number, as a number; the web sorts by it (no parsing of ho_name).
-        self.assertEqual(unit["ho_number"], 101)
-        unlinked = json.loads(rows["building-units"][B].unlinked_units_json)[0]
-        self.assertNotIn("floor_label", unlinked)
 
     def test_parity_refuses_a_drifted_panel(self):
         for lane in self.lanes:

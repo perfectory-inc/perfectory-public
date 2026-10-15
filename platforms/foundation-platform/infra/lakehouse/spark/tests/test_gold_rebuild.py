@@ -385,7 +385,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(contract["tables"]["gold.unit_price"]["pins_from"]["gold_table"], "gold.building_panel")
         # While a panel is the reference, each kind is its section: every input pinned to it, checked on
         # every PNU (root ADR-0193 §3, §6-2), and its line is its whole entry: the producer run, its lane.
-        self.assertGreaterEqual(len(kinds), 9)
+        self.assertGreaterEqual(len(kinds), 8)
         for lane, kind in kinds.items():
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))

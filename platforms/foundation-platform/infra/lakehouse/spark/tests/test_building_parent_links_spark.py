@@ -34,7 +34,6 @@ class BuildingParentLinksTest(unittest.TestCase):
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
            "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
         return (frame.withColumn("unit_row_id", F.lit("synthetic-unit-row"))
-                .withColumn("unit_number", F.lit(None).cast("int"))
                 .withColumn("building_link_method", F.lit(method))
                 .withColumn("building_link_source_record_id", F.lit("synthetic-basis#line=2"))
                 .withColumn("building_link_input_sha256", F.lit("a" * 64))
