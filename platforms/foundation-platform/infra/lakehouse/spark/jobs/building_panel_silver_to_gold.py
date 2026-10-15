@@ -60,7 +60,7 @@ BUILD_COLUMNS = {
     FLOOR_SOURCE: ("mgm_bldrgst_pk", "floor_row_id", "floor_kind", "floor_number", "floor_index",
                    "floor_display_ko"),
     UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
-                  "unit_label_ko", "unit_name_raw", "floor_number", "floor_kind",
+                  "unit_label_ko", "unit_name_raw", "unit_number", "floor_number", "floor_kind",
                   *evidence_policy()["columns"]),
     AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
                   "structure_name_raw", "floor_kind"),
@@ -252,7 +252,7 @@ def build_units(units, titles, areas):
         F.coalesce("dong_join_name", F.lit("")).alias("building_name"),
         F.coalesce("dong_name_raw", F.lit("")).alias("dong_name"),
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
-        "floor_kind", "floor_number",
+        "floor_kind", "floor_number", F.col("unit_number").alias("ho_number"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
     return projected
@@ -297,6 +297,7 @@ UNIT_FIELDS = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "regist
 # and the web writes them from these.
 TITLE_KIND_FIELDS = TITLE_FIELDS
 FLOOR_KIND_FIELDS = [f for f in FLOOR_FIELDS if f != "floor_display_ko"]
+UNIT_KIND_FIELDS = [f for f in UNIT_FIELDS if f != "floor_label"] + ["floor_kind", "floor_number", "ho_number"]
 
 
 def title_rows(titles, units, floors, areas):
@@ -394,6 +395,20 @@ def _floors(frames, counters):
     return per_pnu(floor_rows(titles, floors, counters, FLOOR_KIND_FIELDS), ["register_pk", "id", "floors"], "floors")
 
 
+# The building id of the units no building of their PNU carries: one document of them per PNU
+# (root ADR-0252, as the unit price lane's, ADR-0204).
+NO_BUILDING_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _units(frames, counters):
+    """One row per building of a PNU that has units, and one per PNU with units no building carries
+    (`building_id` NO_BUILDING_ID): the units kind's grain (root ADR-0252)."""
+    titles, units, _floors, areas = checked_inputs(frames, counters, (TITLE_SOURCE, UNIT_SOURCE, AREA_SOURCE))
+    linked, unlinked = unit_rows(titles, units, areas, counters, UNIT_KIND_FIELDS)
+    return linked.select("pnu", F.col("id").alias("building_id"), "units").unionByName(
+        unlinked.select("pnu", F.lit(NO_BUILDING_ID).alias("building_id"), F.col("unlinked_units").alias("units")))
+
+
 def _buildings_as(entry_type, keep=None):
     """The panel's `buildings_json` read as an array of `entry_type` (fields a kind does not carry are
     dropped), keeping the buildings `keep` holds for."""
@@ -403,6 +418,17 @@ def _buildings_as(entry_type, keep=None):
 
 def _has_floors(building):
     return F.size(building["floors"]) > 0
+
+
+def _units_view(rows, types):
+    """The panel's units in the units kind's grain: each building's, then the PNU's unlinked ones."""
+    unit = T.ArrayType(types["units"])
+    building_units = T.StructType([T.StructField("id", T.StringType()), T.StructField("units", unit)])
+    buildings = rows.select("pnu", F.explode(_buildings_as(building_units, lambda b: F.size(b["units"]) > 0)).alias("b"))
+    unlinked = rows.select("pnu", F.lit(NO_BUILDING_ID).alias("building_id"),
+                           F.from_json("unlinked_units_json", unit, JSON_OPTIONS).alias("units"))
+    return buildings.select("pnu", F.col("b.id").alias("building_id"), F.col("b.units").alias("units")).unionByName(
+        unlinked.where(F.size("units") > 0))
 
 
 def _titles_view(rows, types):
@@ -416,6 +442,7 @@ def _floors_view(rows, types):
 SECTIONS: tuple[Section, ...] = (
     Section("titles", _titles, _titles_view, ("rooftop_usage",)),
     Section("floors", _floors, _floors_view),
+    Section("units", _units, _units_view, ("floor_kind", "floor_number", "ho_number")),
 )
 SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
 

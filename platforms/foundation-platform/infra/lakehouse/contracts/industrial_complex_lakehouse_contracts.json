@@ -2549,6 +2549,62 @@
         "unit": "derived"
       }
     },
+    "gold.building_units": {
+      "table_name": "gold.building_units",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "building_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "units_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu",
+        "building_id"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per (pnu, building_id)",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.parcel_price": {
       "table_name": "gold.parcel_price",
       "physical_format": "Parquet",

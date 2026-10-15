@@ -252,6 +252,12 @@ pub fn resolve_lane_entry(
     derived.insert("gold_table".to_owned(), json!(format!("gold.{snake}")));
     derived.insert("latency_baseline_lane".to_owned(), json!(host_lane));
     derived.insert("documents_follow_lane".to_owned(), json!(host_lane));
+    // A building kind's units carry their building link evidence: the bake checks it against the
+    // approved links, as the building lane does, and serves none of it (root ADR-0125, ADR-0252).
+    derived.insert(
+        "reads_building_links".to_owned(),
+        json!(host == "building_by_pnu_gateway"),
+    );
     derived.insert(
         "latency_p95_max_ms".to_owned(),
         rule.get("latency_p95_max_ms")
@@ -317,6 +323,10 @@ struct PackLaneEntry {
     /// follows the PNU in the document key.
     #[serde(default)]
     document_key_suffix: Option<KeySuffixEntry>,
+    /// Whether the bake checks the building link evidence the documents' units carry against the
+    /// approved links and drops it (derived for a building kind line).
+    #[serde(default)]
+    reads_building_links: bool,
     #[serde(flatten)]
     gateway: ByPnuGatewayPolicy,
 }
@@ -358,6 +368,9 @@ pub struct PackLane {
     pub latency_p95_max_ms: f64,
     /// The document key's suffix, for a lane keyed narrower than a PNU (root ADR-0204).
     pub key_suffix: Option<KeySuffix>,
+    /// The bake checks the building link evidence in the documents against the approved links and
+    /// serves none of it (root ADR-0125, ADR-0252).
+    pub reads_building_links: bool,
     gateway: ByPnuGatewayPolicy,
 }
 
@@ -470,6 +483,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         latency_baseline_lane: entry.latency_baseline_lane,
         latency_p95_max_ms: entry.latency_p95_max_ms,
         key_suffix,
+        reads_building_links: entry.reads_building_links,
         gateway: entry.gateway,
     })
 }

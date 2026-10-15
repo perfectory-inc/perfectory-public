@@ -507,6 +507,9 @@
       "retired_columns_reason": "the kind carries the whole list (root ADR-0193 §5): a count beside a page was the old API's page shape, and the list's length is the count. The deploy's lakehouse migration drops the column from the live table (Iceberg metadata only, earlier snapshots keep it)"},
     "building-titles": {"host": "building_by_pnu_gateway", "kind": "titles", "section": "titles", "columns": ["buildings_json"]},
     "building-floors": {"host": "building_by_pnu_gateway", "kind": "floors", "section": "floors", "documents_follow_lane": "building-titles", "columns": ["floors_json"]},
+    "building-units": {"host": "building_by_pnu_gateway", "kind": "units", "section": "units", "documents_follow_lane": "building-titles", "columns": ["units_json"],
+      "document_key_suffix": {"column": "building_id", "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "reason": "root ADR-0252: one building's units reach about 245 KB gzip (93% of the 256 KiB document bound) and a large complex's PNU several times that, so a units document is one building of a PNU, as a unit price document is (ADR-0204): the building's catalog id, the nil UUID for the units linked to no building. The request path is <prefix><pnu>/<building_id>"}},
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

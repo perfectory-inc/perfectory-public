@@ -236,7 +236,8 @@
    그 부품의 입력만 한다. 건물 종류의 대등성은 패널 JSON 을 종류의 모양으로 읽어(`from_json`, 종류가 싣지 않는
    칸은 버린다) 비교한다. 층·호 레인은 표제부 레인을 따른다(`documents_follow_lane`): 건물 id 로 표제부를 가리킨다.
    - **종류는 원천 값만 싣는다(5항).** 패널이 만들던 표시 문구는 종류로 옮기지 않는다: 호는 `floor_label`
-     ("지하 N층"/"옥탑"/"N층") 대신 원천의 `floor_kind`·`floor_number` 를, 층은 Silver 의 `floor_display_ko` 없이
+     ("지하 N층"/"옥탑"/"N층") 대신 원천의 `floor_kind`·`floor_number` 를(호 번호는 Silver 의 정규화된 `unit_number` 를
+     `ho_number` 로 — 웹이 `ho_name` 을 다시 해석하지 않는다), 층은 Silver 의 `floor_display_ko` 없이
      원천 칸만, 표제부의 `rooftop_usage` 는 " · " 로 이은 문자열 대신 문자열 목록을 싣는다. 묶음 패널은 퇴역까지 지금
      문서 그대로다. 그래서 그 칸들은 대등성 검사에서 양쪽 모두 뺀다(섹션의 `parity_ignores`); 나머지 칸은 그대로
      모든 PNU 에서 같아야 한다.

@@ -84,8 +84,9 @@ pub enum Renderer {
     Building(ApprovedBuildingLinks),
     /// The parcel document is the Gold row alone.
     Parcel,
-    /// A pack-only lane's document is its Gold row, rendered by rule (root ADR-0190).
-    Pack(&'static PackLane),
+    /// A pack-only lane's document is its Gold row, rendered by rule (root ADR-0190); a lane that
+    /// reads the building links checks its units against them (root ADR-0252).
+    Pack(&'static PackLane, Option<ApprovedBuildingLinks>),
 }
 
 impl Renderer {
@@ -97,7 +98,14 @@ impl Renderer {
         match lane {
             ByPnuLane::Building => Ok(Self::Building(ApprovedBuildingLinks::load_current().await?)),
             ByPnuLane::Parcel => Ok(Self::Parcel),
-            ByPnuLane::Pack(lane) => Ok(Self::Pack(lane)),
+            ByPnuLane::Pack(lane) => Ok(Self::Pack(
+                lane,
+                if lane.reads_building_links {
+                    Some(ApprovedBuildingLinks::load_current().await?)
+                } else {
+                    None
+                },
+            )),
         }
     }
 
@@ -108,7 +116,7 @@ impl Renderer {
     /// Refuses a row without a PNU, or without the lane's key suffix.
     pub(crate) fn key(&self, row: &JsonMap<String, JsonValue>) -> anyhow::Result<String> {
         match self {
-            Self::Pack(lane) => pack_lane_document::key(lane, row),
+            Self::Pack(lane, _) => pack_lane_document::key(lane, row),
             Self::Building(_) | Self::Parcel => row
                 .get("pnu")
                 .and_then(JsonValue::as_str)
@@ -154,12 +162,13 @@ impl Renderer {
                     bytes: artifact.body,
                 })
             }
-            Self::Pack(lane) => {
+            Self::Pack(lane, links) => {
                 let (pnu, bytes) = pack_lane_document::render(
                     lane,
                     &provenance.table,
                     &provenance.iceberg_snapshot_id,
                     row,
+                    links.as_ref(),
                 )?;
                 Ok(PackDocument { pnu, bytes })
             }

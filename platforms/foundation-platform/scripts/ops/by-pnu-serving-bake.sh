@@ -190,7 +190,12 @@ export "${ENV_PREFIX}_RESUME_FROM_LISTING=true"
 
 # The building export checks the approved building links in the runtime database before serving.
 # Same source as FLOOR: compose's API connection on its loopback port, never a second stored URL.
-if [[ "${UNIT}" == building && -z "${DATABASE_URL:-}" ]]; then
+# The building lane and a building kind check the building links their units carry (root ADR-0252).
+reads_links=false
+[[ "${UNIT}" == building ]] && reads_links=true
+[[ "${UNIT}" == building || "${UNIT}" == parcel ]] \
+  || reads_links="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${UNIT}" reads_building_links)"
+if [[ "${reads_links}" == true && -z "${DATABASE_URL:-}" ]]; then
   if ! DATABASE_URL="$(by_pnu_runtime_database_url)"; then
     log "refused: cannot resolve the runtime database connection the building export reads"
     exit 78

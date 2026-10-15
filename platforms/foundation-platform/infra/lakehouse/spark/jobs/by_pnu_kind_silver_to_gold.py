@@ -62,7 +62,8 @@ class KindSpec:
         self.content_columns = tuple(c for c in self.gold_columns if c not in LINEAGE_COLUMNS)
         self.sources, _optional, self.anchor, self.whole_table_inputs = lane_inputs(lane)
         self.json_columns = tuple(c for c in self.kind.columns if c.endswith("_json"))
-        expected = ("pnu", *self.kind.columns, *(("attached_via",) if self.parcel else ()))
+        self.row_key = self.kind.row_key
+        expected = (*self.row_key, *self.kind.columns, *(("attached_via",) if self.parcel else ()))
         if self.content_columns != expected:
             raise ValueError(f"{self.kind.gold_table} columns {self.content_columns} are not the kind line's "
                              f"{expected} (lakehouse contract artifact out of date?)")
@@ -167,8 +168,8 @@ def section_frame(spark, args, spec: KindSpec, frames, candidates, counters) -> 
         parcels = frames[parcel.PARCEL_SOURCE].select("pnu").distinct()
         return parcels.join(carried, "pnu").where(present(spec))
     built = spec.section.build(frames, counters)
-    return built.select("pnu", *[F.to_json(c.removesuffix("_json"), building.JSON_OPTIONS).alias(c)
-                                 for c in spec.kind.columns])
+    return built.select(*spec.row_key, *[F.to_json(c.removesuffix("_json"), building.JSON_OPTIONS).alias(c)
+                                         for c in spec.kind.columns])
 
 
 def build_gold_frame(spark, args, spec: KindSpec, frames, candidates, counters, source_snapshot_id) -> DataFrame:
@@ -188,9 +189,9 @@ def validate_gold_frame(spec: KindSpec, gold, expected_count):
     metrics = {k: int(v or 0) for k, v in gold.agg(*checks).first().asDict().items()}
     if any(v for k, v in metrics.items() if k != "row_count"):
         raise ValueError(f"Gold quality gates failed: {metrics}")
-    duplicates = gold.groupBy("pnu").count().where(F.col("count") > 1).limit(3).collect()
+    duplicates = gold.groupBy(*spec.row_key).count().where(F.col("count") > 1).limit(3).collect()
     if duplicates:
-        raise ValueError(f"Gold must hold one row per pnu: {[r.pnu for r in duplicates]}")
+        raise ValueError(f"Gold must hold one row per {spec.row_key}: {[r.pnu for r in duplicates]}")
     if expected_count is not None and metrics["row_count"] != expected_count:
         raise ValueError(f"Expected {expected_count} Gold rows, found {metrics['row_count']}")
     return metrics["row_count"], metrics
@@ -210,8 +211,8 @@ def panel_section(spec: KindSpec, panel_rows: DataFrame, entries: dict[str, Any]
             "pnu", *panel_columns(spec),
             F.get_json_object("attached_via_json", f"$.{spec.section.name}").alias("attached_via")).where(present(spec))
     view = spec.section.panel_view(panel_rows, entries)
-    return view.select("pnu", *[F.to_json(c.removesuffix("_json"), building.JSON_OPTIONS).alias(c)
-                                for c in spec.kind.columns]).where(present(spec))
+    return view.select(*spec.row_key, *[F.to_json(c.removesuffix("_json"), building.JSON_OPTIONS).alias(c)
+                                        for c in spec.kind.columns]).where(present(spec))
 
 
 def without_fields(data_type, names):
@@ -227,7 +228,8 @@ def without_fields(data_type, names):
 def parity_mismatches(spec: KindSpec, gold: DataFrame, panel_rows: DataFrame,
                       entries: dict[str, Any] | None = None) -> DataFrame:
     """PNUs whose section here differs from the panel's (root ADR-0193 §6-2), on the fields both carry."""
-    compared = [c for c in spec.content_columns if c != "pnu"]
+    key = list(spec.row_key)
+    compared = [c for c in spec.content_columns if c not in key]
     if spec.parcel and spec.section.as_panel is not None:
         gold = spec.section.as_panel(gold)
         compared = [*panel_columns(spec), "attached_via"]
@@ -235,12 +237,12 @@ def parity_mismatches(spec: KindSpec, gold: DataFrame, panel_rows: DataFrame,
     if entries is not None and ignores:
         entries = {name: without_fields(entry, set(ignores)) for name, entry in entries.items()}
         # Read back through the same types, so both sides drop the same fields.
-        gold = gold.select("pnu", *[
+        gold = gold.select(*key, *[
             F.to_json(F.from_json(c, T.ArrayType(entries[c.removesuffix("_json")]), building.JSON_OPTIONS),
                       building.JSON_OPTIONS).alias(c) if c.endswith("_json") else F.col(c) for c in compared])
     expected = panel_section(spec, panel_rows, entries).select(
-        "pnu", *[F.col(c).alias(f"expected_{c}") for c in compared])
-    joined = gold.select("pnu", *compared).join(expected, "pnu", "full_outer")
+        *key, *[F.col(c).alias(f"expected_{c}") for c in compared])
+    joined = gold.select(*key, *compared).join(expected, key, "full_outer")
     same = F.lit(True)
     for c in compared:
         same = same & F.col(c).eqNullSafe(F.col(f"expected_{c}"))
@@ -253,7 +255,8 @@ def entry_types(spec: KindSpec, frames, counters) -> dict[str, Any] | None:
     if spec.parcel:
         return None
     schema = spec.section.build({name: frame.limit(0) for name, frame in frames.items()}, counters).schema
-    return {field.name: field.dataType.elementType for field in schema.fields if field.name != "pnu"}
+    return {field.name: field.dataType.elementType for field in schema.fields
+            if isinstance(field.dataType, T.ArrayType)}
 
 
 def assert_parity(spark, args, spec: KindSpec, gold: DataFrame, frames) -> dict[str, int]:
@@ -331,7 +334,7 @@ def run(spark, args, spec: KindSpec, pins) -> int:
         restrict=restrict, affected=affected,
         validate=lambda gold: validate_gold_frame(spec, gold, None),
         content_columns=spec.content_columns, gold_columns=spec.gold_columns,
-        whole_table_inputs=spec.whole_table_inputs, append_inputs=append_inputs)
+        whole_table_inputs=spec.whole_table_inputs, append_inputs=append_inputs, row_key=spec.row_key)
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table,
                                          lambda gold, expected: validate_gold_frame(spec, gold, expected),
                                          assert_minimum_row_count)
@@ -399,7 +402,7 @@ def column_lineage(spec: KindSpec, carry_lineage: bool) -> list[dict[str, Any]]:
     section = [{"dataset": name, "column": ",".join(host.BUILD_COLUMNS[name]), "transform": f"panel_section:{spec.section.name}"}
                for name in read]
     lineage = {"pnu": one(spec.anchor, "pnu", "identity"),
-               **{c: section for c in spec.kind.columns},
+               **{c: section for c in (*spec.row_key[1:], *spec.kind.columns)},
                "source_snapshot_id": one(spec.anchor, "source_snapshot_id", "identity"),
                "published_at_utc": one("foundation-platform.job_arguments", "published_at_utc", "literal")}
     if spec.parcel:

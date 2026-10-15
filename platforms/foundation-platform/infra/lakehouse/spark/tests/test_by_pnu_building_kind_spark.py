@@ -79,7 +79,7 @@ class BuildingKindSparkTest(unittest.TestCase):
         return spec, frames, gold, panel_rows
 
     def test_every_building_kind_equals_the_panels_view_of_it(self):
-        self.assertEqual(sorted(self.lanes), ["building-floors", "building-titles"])
+        self.assertEqual(sorted(self.lanes), ["building-floors", "building-titles", "building-units"])
         for lane in self.lanes:
             with self.subTest(lane=lane):
                 spec, frames, gold, panel_rows = self.build(lane)
@@ -95,6 +95,15 @@ class BuildingKindSparkTest(unittest.TestCase):
         self.assertNotIn(B, rows["building-titles"], "a PNU with only an unlinked unit has no titles")
         floors = json.loads(rows["building-floors"][A].floors_json)
         self.assertEqual([(f["register_pk"], len(f["floors"])) for f in floors], [("TITLE-1", 2)])
+        # Root ADR-0252: a units row is one building of a PNU; a PNU's unlinked units are one row
+        # under the nil building id. A building without units has no row.
+        units = rows["building-units"]
+        self.assertEqual(units[A].building_id, titles[0]["id"])
+        self.assertEqual([u["register_pk"] for u in json.loads(units[A].units_json)], ["UNIT-1"])
+        self.assertEqual(units[B].building_id, self.panel.NO_BUILDING_ID)
+        self.assertEqual([u["register_pk"] for u in json.loads(units[B].units_json)], ["UNIT-2"])
+        self.assertEqual(sorted((r.pnu, r.building_id) for r in self.build("building-units")[2].collect()),
+                         sorted([(A, titles[0]["id"]), (B, self.panel.NO_BUILDING_ID)]))
 
     def test_a_kind_carries_the_sources_values_not_a_screens_words(self):
         # Root ADR-0193: the web writes "지하 1층"/"옥탑" and joins the rooftop usages; a kind does not.
@@ -103,6 +112,11 @@ class BuildingKindSparkTest(unittest.TestCase):
         self.assertEqual(titles[0]["rooftop_usage"], ["물탱크"])
         floors = json.loads(rows["building-floors"][A].floors_json)[0]["floors"]
         self.assertTrue(all("floor_display_ko" not in f and "floor_kind" in f for f in floors))
+        unit = json.loads(rows["building-units"][A].units_json)[0]
+        self.assertNotIn("floor_label", unit)
+        self.assertEqual(set(unit) & {"floor_kind", "floor_number"}, {"floor_kind", "floor_number"})
+        # The source's normalized unit number, as a number; the web sorts by it (no parsing of ho_name).
+        self.assertEqual(unit["ho_number"], 101)
 
     def test_parity_refuses_a_drifted_panel(self):
         for lane in self.lanes:

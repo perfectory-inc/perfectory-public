@@ -29,10 +29,17 @@ class Kind:
     # Columns the kind's Gold once carried and no longer does: the deploy's lakehouse migration
     # (lakehouse_schema_migrate) drops them from the live table.
     retired_columns: tuple[str, ...] = ()
+    # The Gold column whose value follows the PNU in a document's key (`document_key_suffix`, root
+    # ADR-0204, ADR-0252): rows are one per (pnu, it). None for a kind keyed by PNU.
+    key_suffix: str | None = None
 
     @property
     def gold_table(self) -> str:
         return "gold." + self.lane.replace("-", "_")
+
+    @property
+    def row_key(self) -> tuple[str, ...]:
+        return ("pnu", self.key_suffix) if self.key_suffix else ("pnu",)
 
     @property
     def host_panel(self) -> str:
@@ -52,7 +59,8 @@ def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
         if retired and not entry.get("retired_columns_reason"):
             raise ValueError(f"by_pnu_lanes.{lane}.retired_columns needs a retired_columns_reason")
         found[lane] = Kind(lane, entry["host"], entry["section"],
-                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), retired)
+                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), retired,
+                           (entry.get("document_key_suffix") or {}).get("column"))
     return found
 
 
@@ -60,17 +68,21 @@ def lane_fields(lane: str, path: Path = CONTRACT_PATH) -> dict[str, str]:
     """What the operator's and bake's scripts read of a `by_pnu_lanes` lane, whether it is written
     whole (root ADR-0190) or as a kind line (root ADR-0193 §4, §9): its Gold table, the lane whose
     preview its latency is measured against, the lane whose documents it follows (`""` for none),
-    and the runtime-secrets group its serving monitor reads."""
+    the runtime-secrets group its serving monitor reads, and whether its bake checks the building
+    links its units carry (`reads_building_links`, `true` for a building kind, root ADR-0252; the
+    publisher derives the same in by_pnu_gateway_contract.rs)."""
     entry = json.loads(path.read_text(encoding="utf-8"))["by_pnu_lanes"][lane]
     if "host" not in entry:
         return {"gold_table": entry["gold_table"], "latency_baseline_lane": entry["latency_baseline_lane"],
                 "documents_follow_lane": entry.get("documents_follow_lane", ""),
-                "monitor_group": f"{lane}-serving-monitor"}
+                "monitor_group": f"{lane}-serving-monitor",
+                "reads_building_links": str(bool(entry.get("reads_building_links"))).lower()}
     found = kind(lane, path)
     host_lane = found.host.removesuffix("_by_pnu_gateway")
     return {"gold_table": found.gold_table, "latency_baseline_lane": host_lane,
             "documents_follow_lane": entry.get("documents_follow_lane", host_lane),
-            "monitor_group": "by-pnu-kind-serving-monitor"}
+            "monitor_group": "by-pnu-kind-serving-monitor",
+            "reads_building_links": str(found.host == "building_by_pnu_gateway").lower()}
 
 
 def kind(lane: str, path: Path = CONTRACT_PATH) -> Kind:

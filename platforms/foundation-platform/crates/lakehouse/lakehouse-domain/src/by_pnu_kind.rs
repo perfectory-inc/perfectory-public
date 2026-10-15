@@ -4,7 +4,9 @@
 //! its section of the host's panel and the content columns that section yields. Its Gold table is
 //! `gold.<lane with - as _>`: `pnu`, those columns, `attached_via` for a parcel kind (the lineage
 //! path a carried section came through, root ADR-0113 §6), then the content fingerprint and
-//! lineage every by-PNU panel has. Nothing of a kind's table is written by hand.
+//! lineage every by-PNU panel has. A kind keyed narrower than a PNU (`document_key_suffix`, root
+//! ADR-0204, ADR-0252) carries its suffix column right after `pnu`, and its rows are one per
+//! (`pnu`, suffix). Nothing of a kind's table is written by hand.
 
 use std::sync::OnceLock;
 
@@ -31,6 +33,12 @@ struct Lane {
     host: Option<String>,
     #[serde(default)]
     columns: Vec<String>,
+    document_key_suffix: Option<KeySuffix>,
+}
+
+#[derive(Deserialize)]
+struct KeySuffix {
+    column: String,
 }
 
 /// The Gold tables of the contract's kinds, in lane name order; empty when the contract's lane
@@ -62,8 +70,11 @@ pub fn derive(contract: &str) -> Result<Vec<LakehouseTableContract>, String> {
     contract
         .by_pnu_lanes
         .into_iter()
-        .filter_map(|(name, lane)| lane.host.map(|host| (name, host, lane.columns)))
-        .map(|(name, host, columns)| table(&name, &host, &columns))
+        .filter_map(|(name, lane)| {
+            let suffix = lane.document_key_suffix.map(|suffix| suffix.column);
+            lane.host.map(|host| (name, host, lane.columns, suffix))
+        })
+        .map(|(name, host, columns, suffix)| table(&name, &host, &columns, suffix.as_deref()))
         .collect()
 }
 
@@ -79,13 +90,35 @@ const fn column(name: &'static str, logical_type: &'static str, required: bool) 
     }
 }
 
-fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableContract, String> {
+fn table(
+    lane: &str,
+    host: &str,
+    content: &[String],
+    suffix: Option<&str>,
+) -> Result<LakehouseTableContract, String> {
     if content.is_empty() || !content.iter().any(|name| name.ends_with("_json")) {
         return Err(format!(
             "by_pnu_lanes.{lane}.columns must name the section's content columns, a *_json field first"
         ));
     }
     let mut columns = vec![column("pnu", "string", true)];
+    let mut sort_order = vec!["pnu"];
+    let mut one_row_per = "one row per pnu";
+    if let Some(suffix) = suffix {
+        if suffix.ends_with("_json")
+            || content
+                .iter()
+                .any(|spec| spec.split(':').next() == Some(suffix))
+        {
+            return Err(format!(
+                "by_pnu_lanes.{lane}.document_key_suffix.column {suffix} must be a plain key column, not content"
+            ));
+        }
+        let suffix = leak(suffix.to_owned());
+        columns.push(column(suffix, "string", true));
+        sort_order.push(suffix);
+        one_row_per = leak(format!("one row per (pnu, {suffix})"));
+    }
     for (index, spec) in content.iter().enumerate() {
         let (name, logical_type) = match spec.split_once(':') {
             None if spec.ends_with("_json") => (spec.as_str(), "string"),
@@ -115,15 +148,18 @@ fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableCon
         current_row_predicate: None,
         columns: Box::leak(columns.into_boxed_slice()),
         partition_spec: &["source_snapshot_id"],
-        sort_order: &["pnu"],
+        sort_order: Box::leak(sort_order.into_boxed_slice()),
         write_distribution: LakehouseWriteDistribution::Range,
-        quality_gates: &[
-            "one row per pnu",
-            "pnu matches the cadastral grammar",
-            "every row has its section",
-            "row_digest contains content only",
-            "published_at_utc is present",
-        ],
+        quality_gates: Box::leak(
+            vec![
+                one_row_per,
+                "pnu matches the cadastral grammar",
+                "every row has its section",
+                "row_digest contains content only",
+                "published_at_utc is present",
+            ]
+            .into_boxed_slice(),
+        ),
         load: LakehouseLoadUnit::Derived,
     })
 }
@@ -185,6 +221,34 @@ mod tests {
                     .concat()
                 ),
             ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_kind_keyed_by_a_suffix_carries_it_after_the_pnu_and_is_one_row_per_both(
+    ) -> Result<(), String> {
+        let tables = derive(
+            r#"{"by_pnu_lanes": {"building-example": {"host": "building_by_pnu_gateway", "kind": "example",
+                "columns": ["units_json"], "document_key_suffix": {"column": "building_id"}}}}"#,
+        )?;
+        let table = tables.first().ok_or("no table")?;
+        let names = table
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .collect::<Vec<_>>();
+        assert_eq!(&names[..3], ["pnu", "building_id", "units_json"]);
+        assert!(table.columns[1].required);
+        assert_eq!(table.sort_order, ["pnu", "building_id"]);
+        assert_eq!(table.quality_gates[0], "one row per (pnu, building_id)");
+        let content = derive(
+            r#"{"by_pnu_lanes": {"building-example": {"host": "building_by_pnu_gateway", "kind": "example",
+                "columns": ["units_json"], "document_key_suffix": {"column": "units_json"}}}}"#,
+        );
+        assert!(
+            content.is_err(),
+            "a content column cannot be the key suffix"
         );
         Ok(())
     }

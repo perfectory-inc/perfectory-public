@@ -10,11 +10,16 @@
 //!
 //! It is a pure function of the snapshot and the row, so a re-bake writes the same bytes. No code
 //! is written per lane: a new kind of data is a Gold panel and a contract entry.
+//!
+//! A lane that reads the building links (a building kind, root ADR-0252) checks every object of its
+//! content that carries `building_link_evidence` against the approved links, as the building lane
+//! does (root ADR-0125 §4), and serves the object without it.
 
 use anyhow::{ensure, Context};
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
+use crate::building_link_evidence::{ApprovedBuildingLinks, BuildingLinkEvidence};
 use crate::by_pnu_gateway_contract::{PackLane, PACK_LANE_NON_CONTENT_COLUMNS};
 
 /// Where a document was read from: the Gold table and its snapshot.
@@ -65,13 +70,14 @@ pub fn key(lane: &PackLane, row: &JsonMap<String, JsonValue>) -> anyhow::Result<
 /// `lane`'s document of one Gold row, and the key it answers for.
 ///
 /// # Errors
-/// Refuses a row without a PNU of the lane's grammar, and a content column that is absent or not
-/// JSON text.
+/// Refuses a row without a PNU of the lane's grammar, a content column that is absent or not
+/// JSON text, and building link evidence the approved `links` do not hold.
 pub fn render(
     lane: &PackLane,
     table: &str,
     iceberg_snapshot_id: &str,
     row: &JsonMap<String, JsonValue>,
+    links: Option<&ApprovedBuildingLinks>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
     let key = key(lane, row)?;
     let pnu = key[..19].to_owned();
@@ -94,7 +100,12 @@ pub fn render(
                 .get(column)
                 .and_then(JsonValue::as_str)
                 .with_context(|| format!("{pnu}: {column} is absent or not text"))?;
-            serde_json::from_str(text).with_context(|| format!("{pnu}: {column} is not JSON"))?
+            let mut value = serde_json::from_str(text)
+                .with_context(|| format!("{pnu}: {column} is not JSON"))?;
+            if let Some(links) = links {
+                checked_links(&mut value, links).with_context(|| format!("{pnu}: {column}"))?;
+            }
+            value
         } else {
             match row.get(column) {
                 None | Some(JsonValue::Null) => JsonValue::Null,
@@ -143,6 +154,38 @@ pub fn check(lane: &PackLane, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Checks every object under `value` that carries `building_link_evidence` against `links` (its
+/// `register_pk` and nullable `building_register_pk`, as the building lane does) and drops it.
+fn checked_links(value: &mut JsonValue, links: &ApprovedBuildingLinks) -> anyhow::Result<()> {
+    match value {
+        JsonValue::Array(items) => items
+            .iter_mut()
+            .try_for_each(|item| checked_links(item, links)),
+        JsonValue::Object(object) => {
+            if let Some(evidence) = object.remove("building_link_evidence") {
+                let evidence: BuildingLinkEvidence = serde_json::from_value(evidence)
+                    .context("building_link_evidence is not evidence")?;
+                let unit = object
+                    .get("register_pk")
+                    .and_then(JsonValue::as_str)
+                    .context("an object with building link evidence has no register_pk")?;
+                let parent = match object.get("building_register_pk") {
+                    Some(JsonValue::Null) => None,
+                    Some(JsonValue::String(parent)) => Some(parent.as_str()),
+                    _ => anyhow::bail!("{unit}: building_register_pk is absent or not text"),
+                };
+                links
+                    .validate(&evidence, unit, parent)
+                    .with_context(|| format!("{unit}: building link"))?;
+            }
+            object
+                .values_mut()
+                .try_for_each(|item| checked_links(item, links))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn is_pnu(pnu: &str) -> bool {
     pnu.len() == 19 && pnu.bytes().all(|byte| byte.is_ascii_digit())
 }
@@ -173,6 +216,36 @@ mod tests {
     }
 
     #[test]
+    fn a_building_kind_checks_its_units_links_and_serves_no_evidence() -> anyhow::Result<()> {
+        // Root ADR-0252 §3: the units kind's evidence is checked as the building lane checks it
+        // (ADR-0125 §4) and never served.
+        let units = ByPnuLane::named("building-units")?
+            .and_then(ByPnuLane::pack_lane)
+            .context("the contract names the building-units lane")?;
+        assert!(units.reads_building_links && !lane()?.reads_building_links);
+        let unit = |evidence: JsonValue| {
+            serde_json::json!([{"register_pk": "UNIT-1", "building_register_pk": "BLDG-1",
+                                "ho_name": "101", "building_link_evidence": evidence}])
+            .to_string()
+        };
+        let links = ApprovedBuildingLinks::default();
+        let (_, bytes) = render(
+            units,
+            "t",
+            "1",
+            &row(&unit(crate::building_link_evidence::source_fixture())),
+            Some(&links),
+        )?;
+        let document: JsonValue = serde_json::from_slice(&bytes)?;
+        assert_eq!(document["units"][0]["ho_name"], "101");
+        assert!(document["units"][0].get("building_link_evidence").is_none());
+        let mut unapproved = crate::building_link_evidence::source_fixture();
+        unapproved["normalization_application_id"] = "inactive-application".into();
+        assert!(render(units, "t", "1", &row(&unit(unapproved)), Some(&links)).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn a_row_renders_its_content_columns_by_rule_and_the_same_bytes_twice() -> anyhow::Result<()> {
         let lane = lane()?;
         assert_eq!(
@@ -181,7 +254,13 @@ mod tests {
         );
         let units =
             r#"[{"id":"u","official_price_history":[{"base_date":"20250101","price_won":7}]}]"#;
-        let (key, bytes) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
+        let (key, bytes) = render(
+            lane,
+            "gold.unit_price",
+            "999990000000000001",
+            &row(units),
+            None,
+        )?;
         // Root ADR-0204: the key is the PNU then the building id; the document names both.
         assert_eq!(key, format!("9999900000100000000{BUILDING}"));
         assert_eq!(
@@ -193,7 +272,13 @@ mod tests {
                 lane.document_schema_version
             )
         );
-        let (_, again) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
+        let (_, again) = render(
+            lane,
+            "gold.unit_price",
+            "999990000000000001",
+            &row(units),
+            None,
+        )?;
         assert_eq!(bytes, again);
         check(lane, &bytes)
     }
@@ -212,9 +297,9 @@ mod tests {
             let mut row = row("[]");
             row.insert("building_id".to_owned(), bad.clone());
             assert!(key(lane, &row).is_err(), "{bad}");
-            assert!(render(lane, "t", "1", &row).is_err(), "{bad}");
+            assert!(render(lane, "t", "1", &row, None).is_err(), "{bad}");
         }
-        let (_, bytes) = render(lane, "t", "1", &row("[]"))?;
+        let (_, bytes) = render(lane, "t", "1", &row("[]"), None)?;
         let mut without: JsonValue = serde_json::from_slice(&bytes)?;
         without
             .as_object_mut()
@@ -254,7 +339,7 @@ mod tests {
             ),
         ] {
             row.insert("attached_via".to_owned(), via);
-            let (_, bytes) = render(lane, "gold.parcel_zoning", "1", &row)?;
+            let (_, bytes) = render(lane, "gold.parcel_zoning", "1", &row, None)?;
             let text = String::from_utf8(bytes.clone())?;
             assert!(
                 text.ends_with(&format!(
@@ -268,23 +353,23 @@ mod tests {
             "attached_via".to_owned(),
             serde_json::json!(["not", "a", "scalar"]),
         );
-        assert!(render(lane, "gold.parcel_zoning", "1", &row).is_err());
+        assert!(render(lane, "gold.parcel_zoning", "1", &row, None).is_err());
         Ok(())
     }
 
     #[test]
     fn a_row_or_a_member_that_is_not_the_lanes_is_refused() -> anyhow::Result<()> {
         let lane = lane()?;
-        assert!(render(lane, "t", "1", &row("not json")).is_err());
+        assert!(render(lane, "t", "1", &row("not json"), None).is_err());
         let mut nameless = row("[]");
         nameless.remove("pnu");
-        assert!(render(lane, "t", "1", &nameless).is_err());
+        assert!(render(lane, "t", "1", &nameless, None).is_err());
         assert!(check(
             lane,
             br#"{"schema_version":"other","pnu":"9999900000100000000"}"#
         )
         .is_err());
-        let (_, bytes) = render(lane, "t", "1", &row("[]"))?;
+        let (_, bytes) = render(lane, "t", "1", &row("[]"), None)?;
         let mut without: JsonValue = serde_json::from_slice(&bytes)?;
         without
             .as_object_mut()
