@@ -277,7 +277,7 @@ function buildCspHeader(hostname: string, nonce: string): string {
   const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin, ...edgeOrigins].filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
-    : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com${tileConnectSrc}`;
+    : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com https://*.pstatic.net${tileConnectSrc}`;
 
   // Naver Maps gl 이 WebGL + eval 사용 → 'unsafe-eval' 필수.
   // 'strict-dynamic' 와 함께 modern browser 에서 호환 (CSP3).

@@ -40,6 +40,16 @@ pub enum ListingTypeError {
 }
 
 impl ListingType {
+    /// 모든 값, 선언 순서. `FromStr` 와 `DB` `CHECK` 동등성 테스트가 이 목록을 읽어요.
+    pub const ALL: [Self; 6] = [
+        Self::Factory,
+        Self::Warehouse,
+        Self::Office,
+        Self::KnowledgeIndustryCenter,
+        Self::IndustrialLand,
+        Self::LogisticsCenter,
+    ];
+
     /// 정규화된 `snake_case` 문자열 반환 (`DB` `varchar(30)` 매핑).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -64,17 +74,21 @@ impl FromStr for ListingType {
     type Err = ListingTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "factory" => Ok(Self::Factory),
-            "warehouse" => Ok(Self::Warehouse),
-            "office" => Ok(Self::Office),
-            "knowledge_industry_center" => Ok(Self::KnowledgeIndustryCenter),
-            "industrial_land" => Ok(Self::IndustrialLand),
-            "logistics_center" => Ok(Self::LogisticsCenter),
-            other => Err(ListingTypeError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|v| v.as_str() == s)
+            .ok_or_else(|| ListingTypeError::Unknown(s.to_owned()))
     }
 }
+
+// `ALL` 의 순서 뒤바뀜·중간 누락을 컴파일 시점에 거부해요 (끝 누락은 DB CHECK 동등성 테스트 몫).
+const _: () = {
+    let mut i = 0;
+    while i < ListingType::ALL.len() {
+        assert!(ListingType::ALL[i] as usize == i);
+        i += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {

@@ -24,6 +24,7 @@ EXPECTED_TABLES=(
   "user"
   listing
   listing_photo
+  listing_view_event
   bookmark_listing
   bookmark_external
   search_history
@@ -37,6 +38,7 @@ EXPECTED_TABLES=(
   listing_report
   featured_content
   system_alert
+  listing_status_price_history
   parcel_marker_anchor
   listing_marker_projection
   listing_marker_filter_registry

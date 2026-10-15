@@ -11,6 +11,7 @@
   },
   "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
+  "enabled_since_means": "When the job was switched on, UTC (root ADR-0239): every enabled job states it and a disabled job does not. A scheduled start before it is not a start the job missed, so the operations map never calls a job late for a slot from before it was on. The pull request that switches a job on sets it to the time it is merged; job_specs.py refuses an enabled job without it.",
   "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
   "jobs": [
     {
@@ -27,7 +28,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-floors"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-02T06:42:17Z"
     },
     {
       "id": "source_sweep",
@@ -42,7 +44,8 @@
         "daily-source-sweep-to-source-building-hub-bulk",
         "daily-source-sweep-to-source-vworld-dataset"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z"
     },
     {
       "id": "outbox_publish",
@@ -59,6 +62,7 @@
         "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T09:45:24Z",
       "started_once_after_deploy": true
     },
     {
@@ -78,6 +82,7 @@
         "gold-administrative-boundary-served-to-admin-tiles"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z",
       "started_once_after_deploy": true
     },
     {
@@ -97,11 +102,12 @@
         "gold-industrial-complex-boundary-served-to-complex-tiles"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z",
       "started_once_after_deploy": true
     },
     {
       "id": "lineage_stewardship",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts.",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "schedule": "50 6 * * *",
@@ -116,11 +122,15 @@
         "silver-parcel-boundaries-to-reference-legal-dong-code-change",
         "source-vworld-dataset-to-silver-parcel-number-change-history",
         "silver-parcel-number-change-history-to-reference-legal-dong-code-change",
+        "silver-parcel-boundaries-to-silver-parcel-lineage",
+        "reference-legal-dong-code-change-to-silver-parcel-lineage",
+        "silver-land-transfer-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z"
     },
     {
       "id": "legal_dong_code_changes",
@@ -135,6 +145,7 @@
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
       "enabled": true,
+      "enabled_since": "2026-10-05T03:16:07Z",
       "started_once_after_deploy": true
     },
     {
@@ -165,7 +176,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-parcel-number-change-history"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-06T17:08:23Z"
     },
     {
       "id": "data_quality",
@@ -179,6 +191,7 @@
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
       "enabled": true,
+      "enabled_since": "2026-10-01T14:51:40Z",
       "started_once_after_deploy": true
     },
     {
@@ -196,7 +209,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-titles"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_building_register_units",
@@ -213,8 +227,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-units"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_building_register_unit_areas",
@@ -231,7 +245,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-unit-areas"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_building_register_apartment_price",
@@ -248,8 +263,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-apartment-price"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_building_register_exclusive_unit",
@@ -266,8 +281,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ②, ADR-0171). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_land_characteristic",
@@ -284,7 +299,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-characteristic"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_forest_ledger",
@@ -301,7 +317,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-forest-ledger"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_individual_price",
@@ -318,7 +335,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-individual-price"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_right_registration",
@@ -335,7 +353,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-right-registration"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_transfer_history",
@@ -352,8 +371,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "silver_refresh_land_use_plan",
@@ -370,7 +389,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-plan"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
       "id": "silver_refresh_land_use_zone_code",
@@ -387,8 +407,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-zone-code"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0169 ③, ADR-0171). The daily sweep measures the ZIP members of what it collects (scripts/ops/bronze-object-members.sh after its lanes, ADR-0169 §1, 2000 objects a run; an object still unmeasured refuses the run by design). Off until its first supervised run on the data host (runbook silver-refresh.md) has loaded or confirmed the newest complete release within the unit's 150-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
     },
     {
       "id": "gold_panel_rebuild",
@@ -423,7 +443,87 @@
         "silver-land-right-registration-to-gold-parcel-panel",
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
+    },
+    {
+      "id": "admin_boundary_release",
+      "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-admin-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "30 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-administrative-boundaries",
+        "reference-legal-dong-code-change-to-silver-administrative-boundaries",
+        "silver-administrative-boundaries-to-gold-place-id-registry",
+        "silver-administrative-boundaries-to-gold-place-id-bridge",
+        "silver-administrative-boundaries-to-gold-place-id-changelog"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-14T11:40:00Z"
+    },
+    {
+      "id": "parcel_registry",
+      "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
+      "systemd_service": "foundation-parcel-registry.service",
+      "systemd_timer": null,
+      "schedule": "10 10 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-silver-parcel-registry"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "complex_boundary_release",
+      "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-complex-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "50 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-industrial-complex-boundaries",
+        "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0240). Off until its first supervised run on the data host (runbook complex-boundary-release.md) has answered `unchanged reason=already_loaded` for the file Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "parcel_tile_bake",
+      "description": "Bake the parcel map tiles nationally from the lakehouse (root ADR-0133 §7, ADR-0194 5): when the source contract's served cadastral edition is not the one this job last baked, run the ADR-0113 §7 matching gate over every 시도 of it, build gold.parcel_boundary_served and its handoff parts, and bake, gate and promote them with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh). The first lakehouse release must pass the first-release equivalence gate against the active one (ADR-0133 §4, ADR-0135). Nothing reads PostGIS. Otherwise nothing to do.",
+      "systemd_service": "foundation-parcel-tile-bake.service",
+      "systemd_timer": null,
+      "schedule": "30 7 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-boundary-served",
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+        "gold-parcel-boundary-served-to-parcel-tiles"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0194 5.2). Off until its first supervised national run on the data host (runbook parcel-tile-bake.md) has passed the matching and equivalence gates, promoted, and measured its time, memory and disk within the unit's 160-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "gold_kind_rebuild",
@@ -445,7 +545,25 @@
         "gold-parcel-panel-to-gold-parcel-transfer-history",
         "gold-parcel-panel-to-gold-parcel-land-rights"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-12T22:17:38Z"
+    },
+    {
+      "id": "lakehouse_maintenance",
+      "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
+      "systemd_service": "foundation-lakehouse-maintenance.service",
+      "systemd_timer": null,
+      "schedule": "30 4 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-14T19:37:57Z"
     },
     {
       "id": "by_pnu_serving_bake",
@@ -479,17 +597,13 @@
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
         "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
-  "serving_surfaces_without_a_job": [
-    {
-      "surface": "parcel-tiles",
-      "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
-    }
-  ]
+  "serving_surfaces_without_a_job": []
 }

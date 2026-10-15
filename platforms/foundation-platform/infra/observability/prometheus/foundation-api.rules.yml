@@ -145,3 +145,28 @@ groups:
           summary: Foundation Platform outbox retry backlog is non-empty
           description: At least one unpublished outbox event has retry_count greater than zero for 10 minutes.
           runbook: docs/runbooks/slo-alert-policy.md
+      # The operations map's problems (root ADR-0195), one alert per job and kind. Alertmanager
+      # sends one notice when it starts and one when it resolves; the labels change only when a
+      # new run changes what the problem is (services/foundation-api/src/routes/data_catalog/alerts.rs).
+      # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
+      # is reported as resolved and then again as new.
+      - alert: FoundationScheduledJobProblem
+        expr: foundation_scheduled_job_problem == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.job_id }} [{{ $labels.kind }}] {{ $labels.summary }}{{ if $labels.link }} — {{ $labels.link }}{{ end }}'
+          runbook: docs/runbooks/operations-map.md
+      - alert: FoundationScheduledJobsUnreadable
+        # Without the runs the map knows no problem, so the alert above cannot fire either.
+        expr: foundation_scheduled_jobs_readable == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
+          runbook: docs/runbooks/operations-map.md

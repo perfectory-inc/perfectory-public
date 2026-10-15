@@ -33,8 +33,6 @@ async fn reference_date_migration_applies_after_the_complete_migration_chain(
 #[ignore = "requires PostgreSQL with CREATE DATABASE; cargo xtask integration foundation"]
 async fn projection_preserves_reference_dates_batches_and_legacy_rows(
 ) -> foundation_disposable_database::TestResult {
-    use catalog_application::ports::CatalogRepository;
-    use catalog_infrastructure::PgCatalogRepository;
     foundation_disposable_database::run_in_disposable_database("unit_price", |pool| async move {
         let mut conn = pool.acquire().await?;
         conn.execute("CREATE SCHEMA catalog").await?;
@@ -56,15 +54,14 @@ async fn projection_preserves_reference_dates_batches_and_legacy_rows(
         .await?;
         assert_eq!(promote(&mut conn).await?, (3, 3));
         assert_eq!(promote(&mut conn).await?, (0, 3), "replay keeps immutable rows");
-        let repo = PgCatalogRepository::new(pool.clone());
         let pnu = Pnu::parse("9999900000100000001".to_owned())?;
-        let prices = repo.list_unit_official_prices_by_pnu(&pnu).await?;
+        let prices = published_prices(&pool, &pnu).await?;
         assert_eq!(prices.len(), 2);
         assert_eq!(
-            (prices[0].price.base_date.as_str(), prices[0].price.price_won),
+            (prices[0].0.as_str(), prices[0].1),
             ("20100601", 35_000_000)
         );
-        assert_eq!(prices[1].price.base_date, "20100101");
+        assert_eq!(prices[1].0, "20100101");
         // A changed or incomplete retry cannot reuse the immutable source ID.
         conn.execute("UPDATE unit_official_price_stage SET price_won = 1 WHERE base_date = '20100101'").await?;
         assert!(promote(&mut conn).await.is_err());
@@ -75,7 +72,7 @@ async fn projection_preserves_reference_dates_batches_and_legacy_rows(
             promote(&mut conn).await.is_err(),
             "an empty publication must roll back"
         );
-        assert_eq!(repo.list_unit_official_prices_by_pnu(&pnu).await?.len(), 2);
+        assert_eq!(published_prices(&pool, &pnu).await?.len(), 2);
         conn.execute(
             "INSERT INTO unit_official_price_stage VALUES
             ('9999900000100000001','101동','101호','20100101',36000000,'fixture-two'),
@@ -83,19 +80,19 @@ async fn projection_preserves_reference_dates_batches_and_legacy_rows(
         )
         .await?;
         assert_eq!(promote(&mut conn).await?, (2, 2));
-        let prices = repo.list_unit_official_prices_by_pnu(&pnu).await?;
+        let prices = published_prices(&pool, &pnu).await?;
         assert_eq!(
             prices.len(),
             2,
             "the selected complete source retains both reference dates"
         );
-        assert_eq!(prices[0].price.price_won, 34_000_000);
+        assert_eq!(prices[0].1, 34_000_000);
         let retained: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM catalog.unit_official_price").fetch_one(&mut *conn).await?;
         assert_eq!(retained, 5, "old source batches are never deleted");
         conn.execute("TRUNCATE unit_official_price_stage").await?;
         conn.execute("INSERT INTO unit_official_price_stage SELECT * FROM catalog.unit_official_price WHERE source_snapshot_id = 'fixture-one'").await?;
         assert_eq!(promote(&mut conn).await?, (0, 3));
-        assert_eq!(repo.list_unit_official_prices_by_pnu(&pnu).await?[0].price.price_won, 35_000_000);
+        assert_eq!(published_prices(&pool, &pnu).await?[0].1, 35_000_000);
         conn.execute("INSERT INTO unit_official_price_stage SELECT * FROM unit_official_price_stage LIMIT 1").await?;
         assert!(promote(&mut conn).await.is_err(), "same-date duplicates are never folded");
         for table in ["unit_official_price", "unit_official_price_publication", "unit_official_price_legacy_year"] {
@@ -106,5 +103,20 @@ async fn projection_preserves_reference_dates_batches_and_legacy_rows(
         }
         Ok(())
     })
+    .await
+}
+
+/// `(base_date, price_won)` of the latest published batch for one PNU, newest date first.
+async fn published_prices(pool: &sqlx::PgPool, pnu: &Pnu) -> sqlx::Result<Vec<(String, i64)>> {
+    sqlx::query_as(
+        "SELECT base_date, price_won FROM catalog.unit_official_price
+         WHERE pnu = $1::character(19)
+           AND source_snapshot_id = (
+               SELECT source_snapshot_id FROM catalog.unit_official_price_publication
+               ORDER BY publication_id DESC LIMIT 1)
+         ORDER BY dong_name, ho_name, base_date DESC",
+    )
+    .bind(pnu.as_str())
+    .fetch_all(pool)
     .await
 }

@@ -17,9 +17,30 @@
     "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
   },
   "snapshot_expiry": {
-    "retain_days": 7,
+    "retain_days": 30,
     "retain_last": 1,
-    "retain_reason": "Seven days of rollback. Iceberg keeps every superseded data file alive for as long as a snapshot references it, which is why this lakehouse held 58 GB to serve 17 GB. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window."
+    "retain_reason": "Thirty days of rollback (the daily tier), decided by the owner on 2026-10-14 (root ADR-0237); it was seven. Iceberg keeps every superseded data file alive for as long as a snapshot references it, so the window is paid for in R2 bytes — measured before the change from each table's snapshot summaries. `retain_last` guarantees the table never loses its current state even if every snapshot is older than the window.",
+    "month_end_tag": {
+      "name_format": "monthly-%Y-%m",
+      "keep_months": 12,
+      "reason": "Grandfather-father-son, decided by the owner on 2026-10-14 (root ADR-0237): the snapshot `main` pointed at when each month ended (UTC) is tagged and kept for the 12 months after. The maintenance job creates the tag before it expires anything and drops a month-end tag once the month it names is more than `keep_months` months back. Counted by the month the tag names, not by the snapshot's commit time, which is what Iceberg's `RETAIN` would count. No snapshot id is ever listed by hand; an existing tag is never moved."
+    },
+    "year_end_tag": {
+      "name_format": "yearly-%Y",
+      "reason": "December's month-end snapshot is also tagged as the year end and kept forever: the tag has no `max-ref-age-ms`, so `expire_snapshots` never removes it, and the monthly window never reads its name as a month."
+    }
+  },
+  "scheduled": {
+    "deadline_minutes": 140,
+    "skip": ["orphan_cleanup"],
+    "spark": {"master": "local[8]", "driver_memory": "16g"},
+    "reason": "The scheduled job (`lakehouse_maintenance` in orchestration/jobs.v1.json) runs compaction and expiry on every lakehouse contract table, the least recently maintained first. It starts no table after `deadline_minutes`, which stays under the unit's TimeoutStartSec (160m) and Airflow's 165 so a table in flight can finish; a table it does not reach is first at the next run. Orphan cleanup lists a table's whole location and has not been run against R2 from the server; it stays an operator's step until it has. The Spark size is the batch load's (16g driver under the compose `spark` service's 20g cap)."
+  },
+  "tables": {
+    "silver.building_register_floors": {
+      "skip": ["compaction"],
+      "reason": "The FLOOR job authenticates its history by walking from the head back to a witness snapshot through `append` commits only (building_register_floor_history.py `verify_append_descendant`); a compaction commits a `replace` and the next FLOOR run would refuse. Its ingest records keep expiry from reaching that chain."
+    }
   },
   "orphan_cleanup": {
     "safety_days": 3,

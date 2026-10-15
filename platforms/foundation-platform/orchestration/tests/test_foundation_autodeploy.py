@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -135,6 +136,16 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
 
 
+def bash_assignment(name, value):
+    r"""`name=value` as bash reads it back. An unquoted Windows path loses its
+    backslashes to bash and turns relative: `state=X:\<temp>\state` became
+    `X:<temp>state` under the working directory, and PR #478 committed those
+    lock files (scripts/guard/tracked-paths-are-portable.py)."""
+    if isinstance(value, pathlib.PurePath):
+        value = value.as_posix()
+    return f"{name}={shlex.quote(str(value))}"
+
+
 class TheHostDeploysMainByItself(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="autodeploy-")
@@ -168,7 +179,7 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         for name, value in (("control_root", control), ("release_root", root / "opt"),
                             ("state", self.state), ("off_switch", self.off), ("api", "http://127.0.0.1:9")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
-            text = text.replace(line, f"{name}={value}", 1)
+            text = text.replace(line, bash_assignment(name, value), 1)
         self.script = root / "foundation-autodeploy.sh"
         self.script.write_text(text)
         # systemctl answers from FIXTURE_UNITS ("unit:transient[:ActiveState]", transient yes|no, the
@@ -435,8 +446,8 @@ class TheWholeDeploy(unittest.TestCase):
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
                             ("mirror", root / "var/control-source.git")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
-            text = text.replace(line, f"{name}={value}", 1)
-        text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root}/var/")
+            text = text.replace(line, bash_assignment(name, value), 1)
+        text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
         self.assertNotIn("/var/lib/perfectory", text)
         scripts = root / "scripts"
         scripts.mkdir()

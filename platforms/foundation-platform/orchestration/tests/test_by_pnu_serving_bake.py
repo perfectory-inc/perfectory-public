@@ -184,6 +184,9 @@ elif command.startswith("verify-"):
                                     "only_gold": new}}, out)
 elif command.startswith("publish-"):
     pass
+elif command.startswith("retire-"):
+    if os.environ.get("FAKE_RETIRE_FAIL") == command:
+        sys.exit("a delete failed; rerun to finish the retirement")
 else:
     sys.exit(f"unexpected command {command}")
 '''
@@ -499,7 +502,8 @@ class ByPnuServingBake(unittest.TestCase):
     def test_all_bakes_parcel_then_building_and_one_failure_does_not_stop_the_other(self):
         result, calls = self.bake("all")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        commands = [call["command"] for call in calls]
+        # The bakes, apart from the retirement that follows them all (root ADR-0242).
+        commands = [call["command"] for call in calls if not call["command"].startswith("retire-")]
         self.assertEqual([command for command in commands if command.startswith("publish-")],
                          ["publish-parcel-by-pnu-serving-manifest", "publish-building-by-pnu-serving-manifest"])
         self.assertLess(max(i for i, c in enumerate(commands) if "parcel" in c),
@@ -524,9 +528,18 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the others.
         lanes = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
-        self.assertEqual([call["command"] for call in calls],
+        self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
                          ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
                           *(f"show-{lane}-by-pnu-serving-state" for lane in lanes)])
+        # Then every lane retires its superseded pack generations past the window (root ADR-0242).
+        retired = [call for call in calls if call["command"].startswith("retire-")]
+        self.assertEqual([call["command"] for call in retired],
+                         ["retire-parcel-superseded-pack-generations", "retire-building-superseded-pack-generations",
+                          *(f"retire-{lane}-superseded-pack-generations" for lane in lanes)])
+        for call, lane in zip(retired, ["parcel", "building", *lanes]):
+            prefix = "FOUNDATION_PLATFORM_" + lane.upper().replace("-", "_") + "_BY_PNU_SERVING_"
+            self.assertEqual(call["env"].get(prefix + "PACK_RETIRE_EXECUTE"), "true", call)
+            self.assertEqual(call["env"].get(prefix + "OUTPUT_STORAGE_DRIVER"), "r2", call)
         waiting = [line for line in result.stdout.splitlines() if "is not cut over yet" in line]
         self.assertEqual(waiting, ["by-pnu-serving-bake unit-price: nothing to do: the pack-only unit-price lane is not "
                                    "cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
@@ -537,6 +550,14 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("not cut over", result.stdout)
         self.assertIn("already reflects Gold snapshot 101", result.stdout)
+
+    def test_a_failed_retirement_fails_the_job_and_still_retires_the_other_lanes(self):
+        # Root ADR-0242: a lane whose superseded generations could not be deleted is retried by the
+        # next run, and the job says it failed instead of leaving a second copy unseen.
+        result, calls = self.bake("all", FAKE_GOLD="101", FAKE_RETIRE_FAIL="retire-parcel-superseded-pack-generations")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("by-pnu-serving-bake parcel: retiring superseded pack generations failed", result.stdout)
+        self.assertIn("retire-building-superseded-pack-generations", [call["command"] for call in calls])
 
     def test_a_lane_whose_documents_follow_the_building_lane_waits_when_that_lane_failed(self):
         # Root ADR-0190: the unit price documents place units where the building documents do; a

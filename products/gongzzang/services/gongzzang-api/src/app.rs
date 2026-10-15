@@ -20,7 +20,7 @@ use crate::backend_rate_limit::{
 };
 use crate::listing_marker_serving::ListingMarkerServingGateway;
 use crate::startup::{
-    build_building_reader, build_complex_reader, build_internal_auth_secret, build_parcel_lookup,
+    build_complex_reader, build_internal_auth_secret, build_parcel_lookup,
     build_photo_download_issuer, build_photo_upload_issuer, build_redis_pool_shared,
     build_verifier, connect_postgres, is_production_env, required_env, StartupError,
 };
@@ -251,25 +251,6 @@ async fn async_main() -> Result<(), StartupError> {
             auth_layer,
         ));
 
-    let parcels_state = routes::parcels::ParcelsState {
-        parcel_lookup: listings_state.parcel_lookup.clone(),
-    };
-    let parcels_router: Router<()> = Router::new()
-        .route("/api/parcels/{pnu}", get(routes::parcels::get_parcel))
-        .with_state(parcels_state)
-        .layer(middleware::from_fn_with_state(
-            backend_authorization_state.clone(),
-            enforce_backend_roles,
-        ))
-        .layer(middleware::from_fn_with_state(
-            backend_rate_limit_state.clone(),
-            enforce_backend_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth_state.clone(),
-            auth_layer,
-        ));
-
     let complexes_state = routes::complexes::ComplexesState {
         reader: build_complex_reader(is_production)?,
     };
@@ -283,63 +264,6 @@ async fn async_main() -> Result<(), StartupError> {
             get(routes::complexes::get_complex),
         )
         .with_state(complexes_state)
-        .layer(middleware::from_fn_with_state(
-            backend_authorization_state.clone(),
-            enforce_backend_roles,
-        ))
-        .layer(middleware::from_fn_with_state(
-            backend_rate_limit_state.clone(),
-            enforce_backend_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth_state.clone(),
-            auth_layer,
-        ));
-
-    let building_reader = build_building_reader(is_production)?;
-    let buildings_state = routes::buildings::BuildingsState {
-        reader: building_reader,
-    };
-    let building_units_reader = crate::startup::build_building_units_reader(is_production)?;
-    let building_units_state = routes::building_units::BuildingUnitsState {
-        reader: building_units_reader,
-    };
-    let building_units_router: Router<()> = Router::new()
-        .route(
-            "/api/buildings/{building_id}/units",
-            get(routes::building_units::list_building_units),
-        )
-        .with_state(building_units_state)
-        .layer(middleware::from_fn_with_state(
-            backend_authorization_state.clone(),
-            enforce_backend_roles,
-        ))
-        .layer(middleware::from_fn_with_state(
-            backend_rate_limit_state.clone(),
-            enforce_backend_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth_state.clone(),
-            auth_layer,
-        ));
-    let floors_router: Router<()> = Router::new()
-        .route("/api/floors", get(routes::floors::list_floors))
-        .with_state(buildings_state.clone())
-        .layer(middleware::from_fn_with_state(
-            backend_authorization_state.clone(),
-            enforce_backend_roles,
-        ))
-        .layer(middleware::from_fn_with_state(
-            backend_rate_limit_state.clone(),
-            enforce_backend_rate_limit,
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth_state.clone(),
-            auth_layer,
-        ));
-    let buildings_router: Router<()> = Router::new()
-        .route("/api/buildings", get(routes::buildings::list_buildings))
-        .with_state(buildings_state)
         .layer(middleware::from_fn_with_state(
             backend_authorization_state.clone(),
             enforce_backend_roles,
@@ -481,11 +405,7 @@ async fn async_main() -> Result<(), StartupError> {
         .merge(listing_marker_tombstones_router)
         .merge(listing_marker_deltas_router)
         .merge(listings_router)
-        .merge(parcels_router)
         .merge(complexes_router)
-        .merge(buildings_router)
-        .merge(building_units_router)
-        .merge(floors_router)
         .merge(bookmarks_router)
         .merge(admin_router)
         .merge(notifications_router)

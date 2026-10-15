@@ -460,7 +460,7 @@ fn free_bytes_measures_the_filesystem_of_a_path() -> anyhow::Result<()> {
 fn the_contract_caps_every_container_and_the_runs_pass_the_caps() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     for image in [&contract.images.gdal, &contract.images.tippecanoe] {
-        let args = run_args(Path::new("/work"), image);
+        let args = run_args(Path::new("/work"), image, None);
         let at = args
             .iter()
             .position(|arg| arg == "--memory")
@@ -478,11 +478,41 @@ fn the_contract_caps_every_container_and_the_runs_pass_the_caps() -> anyhow::Res
 }
 
 #[test]
+fn a_job_project_labels_every_tool_container_for_its_cleanup() -> anyhow::Result<()> {
+    use foundation_publisher_silver::remote_lakehouse_job::{ONEOFF_LABEL, PROJECT_LABEL};
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let project = format!("foundation-parcel-tile-bake-{}", "a".repeat(32));
+    for image in [&contract.images.gdal, &contract.images.tippecanoe] {
+        let args = run_args(Path::new("/work"), image, Some(&project));
+        let labels: Vec<&OsString> = args
+            .windows(2)
+            .filter(|pair| pair[0] == "--label")
+            .map(|pair| &pair[1])
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                &OsString::from(format!("{PROJECT_LABEL}={project}")),
+                &OsString::from(ONEOFF_LABEL)
+            ]
+        );
+        assert_eq!(args.last(), Some(&OsString::from(&image.image)));
+        assert!(!run_args(Path::new("/work"), image, None).contains(&OsString::from("--label")));
+    }
+    assert_eq!(container_project(Some(project.clone()))?, Some(project));
+    assert_eq!(container_project(None)?, None);
+    for bad in ["", "Foundation", "-x", "a b", "a;b"] {
+        assert!(container_project(Some(bad.to_owned())).is_err(), "{bad}");
+    }
+    Ok(())
+}
+
+#[test]
 fn the_release_tippecanoe_image_replaces_the_hand_built_tag() -> anyhow::Result<()> {
     let image = format!("sha256:{}", "a".repeat(64));
     let contract =
         BakeContract::parse(CONTRACT_JSON)?.with_release_tippecanoe(Some(image.clone()))?;
-    let args = run_args(Path::new("/work"), &contract.images.tippecanoe);
+    let args = run_args(Path::new("/work"), &contract.images.tippecanoe, None);
     assert_eq!(args.last(), Some(&OsString::from(&image)));
     let unchanged = BakeContract::parse(CONTRACT_JSON)?.with_release_tippecanoe(None)?;
     assert_eq!(

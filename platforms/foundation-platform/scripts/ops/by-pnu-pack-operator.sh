@@ -12,9 +12,10 @@
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
-#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json>
+#   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
+#   by-pnu-pack-operator.sh job start|status <disabled job id>
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
 #
@@ -30,6 +31,9 @@
 # `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
 # input moved: a table's first full build is run and timed outside the scheduled job this way (root
 # ADR-0193 §7), so it does not first meet the job's time bound.
+# `gold rebuild <unit> --dry-run` runs it with gold-panel-rebuild.sh --dry-run: the whole build and
+# every check, nothing committed, and an input listed under unmeasured_inputs may be read. That is
+# the measured run an input must pass before it leaves that list.
 #
 # `raon` drives the RAON large-file lane's supervised runs (root ADR-0170, runbook
 # provider-acquisition-fargate.md, first supervised run): `build` and `plan` run
@@ -42,6 +46,12 @@
 # the outcome; `start` starts its scheduled unit foundation-silver-refresh@<lane>.service once, the
 # supervised first run before the job is enabled; `status` shows the unit and the end of its journal.
 # The lanes are the jobs.v1.json jobs whose service is that template; nothing else is accepted.
+#
+# `job` is the same supervised first run for any other job that jobs.v1.json lists as off
+# (`enabled: false`, ADR-0122 §4): `start` starts its systemd service once, never while the
+# autodeploy runs, and a spark-pool job never beside the Gold rebuilds or a Silver lane; `status`
+# shows the unit and the end of its journal. An enabled job is Airflow's to start
+# (start-scheduled-job.sh), and a Silver lane takes `silver`.
 #
 # sudo grants this script, by its control-checkout path and nothing else, to the operator account
 # (`foundation-release.sh operator-access`, root ADR-0161): it is how a cut-over's gates, publish
@@ -67,7 +77,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -82,7 +92,7 @@ LANE="${1:-}" ACTION="${2:-}"
 # then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`,
 # or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
 # preview serve it by path.
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == job || "${LANE}" == raon ]] || is_pack_lane "${LANE}" \
   || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
   || refuse "${USAGE}"
 if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
@@ -256,6 +266,37 @@ PY
   esac
 fi
 
+if [[ "${LANE}" == job ]]; then
+  JOB_ID="${1:-}"
+  (($# == 1)) || refuse "job ${ACTION} takes one job id"
+  # The job's service and pool, only when the release lists it as off and it is not a Silver lane.
+  read -r JOB_UNIT JOB_POOL < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
+import json, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    if job["id"] == sys.argv[2] and job["enabled"] is False             and not job["systemd_service"].startswith("foundation-silver-refresh@"):
+        print(job["systemd_service"], job["pool"])
+PY
+  ) || true
+  [[ -n "${JOB_UNIT:-}" ]] || refuse "${JOB_ID:-<none>} is not a job jobs.v1.json lists as off (an enabled job is Airflow's; a Silver lane takes 'silver')"
+  case "${ACTION}" in
+    start)
+      refuse_while_active "${JOB_UNIT}" foundation-autodeploy.service
+      if [[ "${JOB_POOL}" == spark ]]; then
+        refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
+        running="$(running_units 'foundation-silver-refresh@*.service')"
+        [[ -z "${running}" ]] || refuse "a Silver refresh lane is running" 75
+      fi
+      log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
+      exec systemctl start --no-block "${JOB_UNIT}"
+      ;;
+    status)
+      systemctl status --no-pager --lines=0 "${JOB_UNIT}" || true
+      exec journalctl -u "${JOB_UNIT}" --no-pager -o short-iso -n 40
+      ;;
+    *) refuse "${USAGE}" ;;
+  esac
+fi
+
 if [[ "${ACTION}" == kind-sizes ]]; then
   # Root ADR-0193 §6-1: what each data kind of the lane's panel weighs as its own lane. Read-only,
   # in the small Spark, never beside a Gold rebuild or a bake (the host's memory budget).
@@ -292,14 +333,17 @@ if [[ "${ACTION}" == cutover ]]; then
 fi
 
 TABLE_UNIT=""
+TABLE_DRY_RUN=()
 if [[ "${LANE}" == gold ]]; then
-  (($# == 1)) || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json"
+  (($# == 1)) || [[ $# == 2 && "$2" == --dry-run ]]     || refuse "gold rebuild takes one table's unit of gold-panel-rebuild.contract.json [--dry-run]"
   # Every table's unit, the kind lines' too (root ADR-0193 §9; gold_rebuild.load_contract).
   mapfile -t table_units < <(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import gold_rebuild; print("\n".join(t["unit"] for t in gold_rebuild.load_contract()["tables"].values()))' \
     "${RELEASE}/infra/lakehouse/spark/jobs")
   printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
   TABLE_UNIT="$1"
-  shift
+  # A dry run commits nothing and may read an input the contract lists as unmeasured: how it is measured.
+  [[ "${2:-}" != --dry-run ]] || TABLE_DRY_RUN=(--dry-run)
+  shift "$#"
   ACTION=gold-rebuild
 fi
 
@@ -347,7 +391,7 @@ PY
   for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
   if [[ -n "${TABLE_UNIT}" ]]; then
-    command=("${unit[0]}" "${TABLE_UNIT}")
+    command=("${unit[0]}" "${TABLE_UNIT}" ${TABLE_DRY_RUN[@]+"${TABLE_DRY_RUN[@]}"})
   elif is_pack_lane "${LANE}"; then
     # The lane's own Gold, by the rebuild contract's unit for its table (root ADR-0193 §3).
     table_unit="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds, gold_rebuild; print(gold_rebuild.load_contract()["tables"][by_pnu_kinds.lane_fields(sys.argv[2])["gold_table"]]["unit"])' \
@@ -408,7 +452,9 @@ case "${ACTION}" in
     file="$(python3 -I -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == sys.argv[2]))' \
       "${RELEASE}/config/runtime-secrets.contract.json" "${group}")"
     file="${ETC}/$(basename "${file}")"
-    { [[ ! -f "${file}" ]] || grep -v "^${P}_MONITOR_SAMPLE_PATH=" "${file}" || true
+    # Read the other lanes' lines before install truncates the file: a grep piped into it raced it.
+    kept="$([[ ! -f "${file}" ]] || grep -v "^${P}_MONITOR_SAMPLE_PATH=" "${file}" || true)"
+    { [[ -z "${kept}" ]] || printf '%s\n' "${kept}"
       printf '%s_MONITOR_SAMPLE_PATH=%s\n' "${P}" "${WORK}/equality.json"; } |
       install -m 0640 -o "${ROOT_OWNER}" -g "${SERVICE_GROUP}" /dev/stdin "${file}"
     log "${file} names ${WORK}/equality.json"

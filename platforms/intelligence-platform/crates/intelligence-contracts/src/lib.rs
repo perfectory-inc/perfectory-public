@@ -8,6 +8,6 @@ pub use dead_letter::{
 };
 pub use event_envelope::{
     schema_subject_for_topic, EventEnvelope, EventHeader, DEAD_LETTER_TOPIC,
-    FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC, NORMALIZATION_SUBMISSION_REQUESTED_TOPIC,
+    FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC, NORMALIZATION_SUBMISSION_REQUESTED_TOPIC,
 };
 pub use trace_context::TraceContext;

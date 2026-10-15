@@ -4,10 +4,9 @@
 
 use catalog_application::ports::{CatalogRepository, CatalogUnitOfWork};
 use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
-use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork, UnitPageKey};
+use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::Utc;
-use foundation_shared_kernel::ids::{ComplexId, ParcelId};
-use foundation_shared_kernel::pnu::Pnu;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -35,87 +34,11 @@ async fn repository_reads_industrial_complex_ssot_subresources() {
         .expect("create complex");
     fixture.insert(&pool).await;
 
-    assert_core_subresource_reads(&repo, &fixture).await;
     assert_document_subresource_reads(&repo, &fixture).await;
     assert_industry_reads(&repo, &fixture).await;
     assert_canonical_complex_reads(&repo, &fixture).await;
 
     fixture.cleanup(&pool).await;
-}
-
-// The complex-scoped parcel, building and manufacturer reads were deleted rather than migrated to
-// the membership table: nothing in this repository called them and the traffic-auth policy registry
-// declared no cross-repo consumer either (ADR-0021). What is left here is the PNU-scoped read, which
-// is the one gongzzang actually calls.
-async fn assert_core_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
-    let pnu = Pnu::parse(fixture.pnu.clone()).expect("fixture pnu");
-    let buildings_by_pnu = repo
-        .list_buildings_by_pnu(&pnu)
-        .await
-        .expect("list buildings by pnu");
-    assert_eq!(buildings_by_pnu.len(), 1);
-    assert_eq!(buildings_by_pnu[0].parcel_id, fixture.parcel_id);
-    assert_eq!(buildings_by_pnu[0].purpose_code.as_deref(), Some("02000"));
-
-    assert_building_resource_reads(repo, fixture).await;
-}
-
-/// The building answers as a resource, by both identities, and pages its units (ADR-0076).
-async fn assert_building_resource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
-    let register_pk = format!("99999-fixture-{}", fixture.building_id);
-    let by_id = repo
-        .find_building(fixture.building_id)
-        .await
-        .expect("find building by id")
-        .expect("the fixture building exists");
-    assert_eq!(by_id.register_pk, register_pk);
-
-    let by_key = repo
-        .find_building_by_register_pk(&register_pk)
-        .await
-        .expect("find building by register_pk")
-        .expect("the natural key names the same building");
-    assert_eq!(by_key.id, by_id.id);
-
-    assert!(
-        repo.find_building(Uuid::nil())
-            .await
-            .expect("query an absent building")
-            .is_none(),
-        "an absent building must be None, not an error"
-    );
-
-    // Walk the units in two pages of two: order is (dong_name, ho_name, id), and the second
-    // page starts exactly after the first page's last key — nothing skipped, nothing repeated.
-    let first = repo
-        .list_units_by_building(fixture.building_id, None, 2)
-        .await
-        .expect("first unit page");
-    assert_eq!(first.len(), 2);
-    assert_eq!(
-        (first[0].dong_name.as_str(), first[0].ho_name.as_str()),
-        ("101동", "101호")
-    );
-    assert_eq!(
-        (first[1].dong_name.as_str(), first[1].ho_name.as_str()),
-        ("101동", "201호")
-    );
-
-    let after = UnitPageKey {
-        dong_name: first[1].dong_name.clone(),
-        ho_name: first[1].ho_name.clone(),
-        id: first[1].id,
-    };
-    let second = repo
-        .list_units_by_building(fixture.building_id, Some(&after), 2)
-        .await
-        .expect("second unit page");
-    assert_eq!(second.len(), 1, "the walk must end, not wrap");
-    assert_eq!(
-        (second[0].dong_name.as_str(), second[0].ho_name.as_str()),
-        ("102동", "101호")
-    );
-    assert_eq!(second[0].building_id, Some(fixture.building_id));
 }
 
 async fn assert_document_subresource_reads(repo: &PgCatalogRepository, fixture: &SsotFixture) {
@@ -216,9 +139,6 @@ async fn assert_canonical_complex_reads(repo: &PgCatalogRepository, fixture: &Ss
 struct SsotFixture {
     complex: IndustrialComplex,
     parcel_id: ParcelId,
-    pnu: String,
-    building_id: Uuid,
-    unit_ids: [Uuid; 3],
     manufacturer_id: Uuid,
     source_record_id: Uuid,
     image_file_asset_id: Uuid,
@@ -239,7 +159,8 @@ struct SsotFixture {
 impl SsotFixture {
     fn new() -> Self {
         let now = Utc::now();
-        let complex_id = ComplexId::new(Uuid::now_v7());
+        let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
+        let complex_id = ComplexId::for_official_complex_code(&official_complex_code);
         let suffix = Uuid::new_v4()
             .simple()
             .to_string()
@@ -249,17 +170,15 @@ impl SsotFixture {
             .collect::<String>();
         let primary_bjdong_code = format!("{suffix:0<10}")[..10].to_owned();
 
-        let pnu = format!("{primary_bjdong_code}100010000");
-
         Self {
             complex: IndustrialComplex {
                 id: complex_id,
-                official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
+                official_complex_code,
                 name: "SSOT read fixture".to_owned(),
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some(primary_bjdong_code),
                 area_m2: 100_000,
-                lakehouse_complex_id: None,
+                lakehouse_complex_id: Some(LakehouseComplexId::new(complex_id.as_uuid())),
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
@@ -288,9 +207,6 @@ impl SsotFixture {
                 version: 1,
             },
             parcel_id: ParcelId::new(Uuid::now_v7()),
-            pnu,
-            building_id: Uuid::now_v7(),
-            unit_ids: [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()],
             manufacturer_id: Uuid::now_v7(),
             source_record_id: Uuid::now_v7(),
             image_file_asset_id: Uuid::now_v7(),
@@ -312,17 +228,6 @@ impl SsotFixture {
     #[allow(clippy::too_many_lines)]
     async fn insert(&self, pool: &PgPool) {
         sqlx::query(
-            "INSERT INTO catalog.parcel
-             (id, pnu, kind, area_m2, version)
-             VALUES ($1, $2, 'factory', 1200, 1)",
-        )
-        .bind(self.parcel_id.as_uuid())
-        .bind(&self.pnu)
-        .execute(pool)
-        .await
-        .expect("insert parcel");
-
-        sqlx::query(
             "INSERT INTO catalog.source_record
              (id, source, source_url, external_id, checksum_sha256)
              VALUES ($1, 'fixture', 'https://example.test/source', $2, $3)",
@@ -333,45 +238,6 @@ impl SsotFixture {
         .execute(pool)
         .await
         .expect("insert source record");
-
-        sqlx::query(
-            // register_pk carries the reserved 99999* band so the fixture can never collide
-            // with a management key the national register might actually issue (ADR-0073).
-            "INSERT INTO catalog.building
-             (id, parcel_id, purpose_code, structure_code, floor_area_m2, stories, built_year,
-              register_pk)
-             VALUES ($1, $2, '02000', '11', 1234.5, 5, 2020, $3)",
-        )
-        .bind(self.building_id)
-        .bind(self.parcel_id.as_uuid())
-        .bind(format!("99999-fixture-{}", self.building_id))
-        .execute(pool)
-        .await
-        .expect("insert building");
-
-        // Three units in two 동s so the keyset walk (ADR-0076 §3) has an order to prove:
-        // (dong_name, ho_name) sorts them 101동/101호, 101동/201호, 102동/101호.
-        for (unit_id, dong_name, ho_name) in [
-            (self.unit_ids[0], "101동", "101호"),
-            (self.unit_ids[1], "101동", "201호"),
-            (self.unit_ids[2], "102동", "101호"),
-        ] {
-            sqlx::query(
-                "INSERT INTO catalog.building_unit
-                 (id, parcel_id, building_id, register_pk, dong_name, ho_name,
-                  floor_label, exclusive_area_m2, usage_name, structure_name)
-                 VALUES ($1, $2, $3, $4, $5, $6, '1층', 84.5, '공장', '철골')",
-            )
-            .bind(unit_id)
-            .bind(self.parcel_id.as_uuid())
-            .bind(self.building_id)
-            .bind(format!("99999-fixture-{unit_id}"))
-            .bind(dong_name)
-            .bind(ho_name)
-            .execute(pool)
-            .await
-            .expect("insert building unit");
-        }
 
         sqlx::query(
             "INSERT INTO catalog.manufacturer
@@ -596,21 +462,6 @@ impl SsotFixture {
             .execute(pool)
             .await
             .expect("cleanup manufacturer");
-        sqlx::query("DELETE FROM catalog.building_unit WHERE building_id = $1")
-            .bind(self.building_id)
-            .execute(pool)
-            .await
-            .expect("cleanup building units");
-        sqlx::query("DELETE FROM catalog.building WHERE id = $1")
-            .bind(self.building_id)
-            .execute(pool)
-            .await
-            .expect("cleanup building");
-        sqlx::query("DELETE FROM catalog.parcel WHERE id = $1")
-            .bind(self.parcel_id.as_uuid())
-            .execute(pool)
-            .await
-            .expect("cleanup parcel");
         sqlx::query("DELETE FROM catalog.industrial_complex WHERE id = $1")
             .bind(self.complex.id.as_uuid())
             .execute(pool)

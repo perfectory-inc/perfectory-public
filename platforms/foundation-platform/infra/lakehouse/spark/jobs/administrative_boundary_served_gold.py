@@ -23,6 +23,7 @@ from typing import Any
 import map_matching_gate
 import served_gold_common as common
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
+from legal_dong_code_snapshot_to_reference import newest_snapshot_codes
 from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "administrative_boundary_served_gold"
@@ -195,15 +196,11 @@ def matching_gate(
 
     namespace, table = code_list_table.split(".")
     code_table = qualified(catalog, namespace, table)
-    newest = spark.sql(f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {code_table}").collect()[0]["d"]
+    newest, official = newest_snapshot_codes(spark, code_table)
     if not newest:
         report = map_matching_gate.GateReport()
         report.refuse("no official code list snapshot", code_list_table)
         return report
-    official = {
-        r["region_cd"]: (r["full_name"], r["status"])
-        for r in spark.sql(f"SELECT region_cd, full_name, status FROM {code_table} WHERE snapshot_date = DATE '{newest}'").collect()
-    }
     previous = {
         r[FEATURE_ID_PROPERTY]: r["canonical_code"]
         for r in spark.sql(f"SELECT {FEATURE_ID_PROPERTY}, canonical_code FROM {served_table}").collect()

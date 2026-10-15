@@ -1,0 +1,10 @@
+{
+  "$comment": "The monorepo's areas: the ONE hand-written list (root AGENTS.md 영역 지도). Every script that needs the set reads this file. scripts/guard/area-registry.sh refuses a tracked file that names all areas but one or more by hand, and the xtask test `areas_match_the_registry` refuses an xtask area table that disagrees. `slug` is the `cargo xtask verify` name, `dir` the path from the repository root, `title` the owner name in the document inventory. One object per line: xtask is std-only and reads these lines without a JSON parser.",
+  "areas": [
+    { "slug": "gongzzang", "dir": "products/gongzzang", "title": "Gongzzang 제품" },
+    { "slug": "foundation", "dir": "platforms/foundation-platform", "title": "Foundation Platform" },
+    { "slug": "identity", "dir": "platforms/identity-platform", "title": "Identity Platform" },
+    { "slug": "intelligence", "dir": "platforms/intelligence-platform", "title": "Intelligence Platform" },
+    { "slug": "dawneer", "dir": "consoles/dawneer", "title": "Dawneer 콘솔" }
+  ]
+}

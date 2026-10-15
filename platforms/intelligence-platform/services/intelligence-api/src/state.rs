@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use intelligence_normalization_application::{
-    FoundationNormalizationSubmitter, FoundationSubmissionError, ModelGateway,
-    ModelReasoningEffort, NormalizationAuditPort, NormalizationOutboxPort,
+    FoundationNormalizationSubmitter, FoundationSubmissionError, IdentityPolicyDecisionPort,
+    ModelGateway, ModelReasoningEffort, NormalizationAuditPort, NormalizationOutboxPort,
     NormalizationProposalGenerator, NormalizationReconcileQueuePort, PermissionAction,
     RateLimitQuota, RateLimitRouteClass, RateLimiterPort,
 };
@@ -251,18 +251,20 @@ impl AppState {
     }
 
     pub fn with_required_inbound_auth(self, token: impl Into<String>) -> Self {
-        self.with_required_inbound_auth_actions(
-            token,
-            vec![
-                PermissionAction::ChatCompletions,
-                PermissionAction::ValidateNormalizationProposal,
-                PermissionAction::GenerateNormalizationProposal,
-                PermissionAction::SubmitNormalizationProposal,
-                PermissionAction::IngestKnowledge,
-                PermissionAction::RetrieveKnowledge,
-                PermissionAction::ViewGraphContext,
-            ],
-        )
+        self.with_required_inbound_auth_actions(token, PermissionAction::ALL.to_vec())
+    }
+
+    /// Requires every protected call to be decided by Identity through `policy` (root ADR-0216).
+    pub fn with_identity_inbound_auth(
+        mut self,
+        policy: Arc<dyn IdentityPolicyDecisionPort>,
+    ) -> Self {
+        self.inbound_auth = Some(InboundAuthConfig {
+            required: true,
+            identity_policy: Some(policy),
+            ..InboundAuthConfig::default()
+        });
+        self
     }
 
     pub fn with_required_inbound_auth_actions(
@@ -279,6 +281,7 @@ impl AppState {
                 "intelligence-platform",
                 actions,
             )),
+            identity_policy: None,
             allowed_origins: vec![],
         });
         self
@@ -768,9 +771,10 @@ pub fn api_runtime_config_from_lookup(
         }
     })?;
 
-    if !bind_address.ip().is_loopback() && !inbound_auth.required {
+    // Off loopback, only Identity may say who the caller is (root ADR-0216).
+    if !bind_address.ip().is_loopback() && inbound_auth.identity_policy.is_none() {
         return Err(FoundationSubmissionError::InvalidResponse {
-            message: "inbound authentication is required for non-loopback bind addresses: set INTELLIGENCE_INBOUND_AUTH_MODE=shared-token and INTELLIGENCE_INBOUND_SERVICE_TOKEN, or bind loopback via INTELLIGENCE_API_BIND=127.0.0.1:8010"
+            message: "inbound authentication is required for non-loopback bind addresses: set INTELLIGENCE_INBOUND_AUTH_MODE=identity and INTELLIGENCE_IDENTITY_BASE_URL, or bind loopback via INTELLIGENCE_API_BIND=127.0.0.1:8010"
                 .to_string(),
         });
     }

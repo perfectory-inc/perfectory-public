@@ -1,0 +1,35 @@
+[Unit]
+Description=Foundation Platform parcel tile bake: bake the served cadastral edition nationally from the lakehouse and promote it (ADR-0133, ADR-0194)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh
+# The timeout below kills the script and the compose client, not the Spark container the Docker
+# daemon owns. Spark runs in the Compose project named after this INVOCATION_ID; this removes that
+# project's one-off containers and networks and nothing else (root ADR-0128). It runs after every
+# exit, a success included, with any installed release's publisher.
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh cleanup
+# Under Airflow's 165 minutes (jobs.v1.json): the spark pool's starvation bound lets a job hold its
+# slots no longer than the Gold rebuild's 165 (root ADR-0171 §5). ADR-0133 §7 budgets 360 minutes
+# for the national bake; a first supervised run that needs more than this reopens that decision
+# (root ADR-0138) rather than raising this line alone.
+TimeoutStartSec=160m
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# The journal and the last baked edition, on the root disk: a few lines.
+StateDirectory=foundation-parcel-tile-bake
+# Every byte of the bake: the matching verdict, the served handoff, Spark's spill, GDAL's input and
+# tippecanoe's temporary files (config/tile-bake-containers.contract.json work_disk.production_root).
+ReadWritePaths=/data/foundation-platform/tile-bake

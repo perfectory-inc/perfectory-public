@@ -166,7 +166,8 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
 
 - `scripts/guard/technology-version-consistency.sh`가 tracked Compose/Dockerfile/package
   정의의 canonical DB/cache/frontend runtime 버전을 검사한다.
-- `scripts/guard/toolchain-consistency.sh`가 Rust `1.96.0`과 Docker builder를 검사한다.
+- 같은 guard가 `tools/technology-versions.contract.json`의 `rust_toolchain` 하나를 읽어
+  `rust-toolchain.toml`, 모든 Cargo.toml `rust-version`, Docker builder의 `rust:` 태그를 검사한다.
 - `scripts/guard/utility-library-policy.sh`가 tracked package manifest의 dependency
   key만 읽어, canonical 유틸리티 라이브러리 옆에 같은 역할의 두 번째 라이브러리가 들어오는
   것을 거부한다. 산문·주석·버전 값에는 반응하지 않으므로 이 문단처럼 이력을 적을 수 있다.
@@ -177,7 +178,7 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
   순서로 한다. Compose에 임의의 두 번째 버전을 추가하지 않는다.
 - Foundation의 환경/bucket policy는
   [`ADR 0029`](../platforms/foundation-platform/docs/adr/0029-runtime-environment-backend-separation.md)와
-  [`runtime_environment.rs`](../platforms/foundation-platform/services/foundation-outbox-publisher/src/runtime_environment.rs)가 소유한다.
+  [`runtime_environment.rs`](../platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/runtime_environment.rs)가 소유한다.
 
 ## 근거 파일
 

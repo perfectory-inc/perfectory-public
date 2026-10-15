@@ -40,6 +40,16 @@ pub enum ListingStatusError {
 }
 
 impl ListingStatus {
+    /// 모든 값, 선언 순서. `FromStr` 와 `DB` `CHECK` 동등성 테스트가 이 목록을 읽어요.
+    pub const ALL: [Self; 6] = [
+        Self::Draft,
+        Self::PendingReview,
+        Self::Active,
+        Self::Sold,
+        Self::Expired,
+        Self::Rejected,
+    ];
+
     /// 정규화된 `snake_case` 문자열 반환 (`DB varchar(20)` 매핑).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -88,17 +98,21 @@ impl FromStr for ListingStatus {
     type Err = ListingStatusError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "draft" => Ok(Self::Draft),
-            "pending_review" => Ok(Self::PendingReview),
-            "active" => Ok(Self::Active),
-            "sold" => Ok(Self::Sold),
-            "expired" => Ok(Self::Expired),
-            "rejected" => Ok(Self::Rejected),
-            other => Err(ListingStatusError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|v| v.as_str() == s)
+            .ok_or_else(|| ListingStatusError::Unknown(s.to_owned()))
     }
 }
+
+// `ALL` 의 순서 뒤바뀜·중간 누락을 컴파일 시점에 거부해요 (끝 누락은 DB CHECK 동등성 테스트 몫).
+const _: () = {
+    let mut i = 0;
+    while i < ListingStatus::ALL.len() {
+        assert!(ListingStatus::ALL[i] as usize == i);
+        i += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {

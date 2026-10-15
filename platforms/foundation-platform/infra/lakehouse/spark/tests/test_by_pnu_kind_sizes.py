@@ -99,6 +99,14 @@ class PackParts(unittest.TestCase):
         self.assertLess(0, part_target)
         self.assertLessEqual(part_target, bound)
 
+    def test_one_digest_per_column_unpacks_to_its_named_quantiles(self):
+        self.assertEqual(sizes.unpack_quantiles({"kind": "k", "gzip_bytes_quantiles": [10, 90], "gzip_bytes_max": 99}),
+                         {"kind": "k", "gzip_bytes_p50": 10, "gzip_bytes_p95": 90, "gzip_bytes_max": 99})
+        self.assertEqual(sizes.unpack_quantiles({"raw_bytes_quantiles": None}),
+                         {"raw_bytes_p50": None, "raw_bytes_p95": None})
+        # The national parcel run's final merge outgrew the small Spark at 10000 (2026-10-13).
+        self.assertLessEqual(sizes.PERCENTILE_ACCURACY, 1000)
+
     def test_each_row_carries_its_pnu_part_hash(self):
         hashes = {h for *_, h in sizes.measure_row("parcel", parcel_row())}
         self.assertEqual(hashes, {sizes.fnv1a32(PNU_A)})
@@ -130,8 +138,7 @@ class MeasureSpark(unittest.TestCase):
         self.assertEqual(kinds["parcel-zoning"]["pnus"], 2)
         self.assertEqual(kinds["parcel-price"]["pnus"], 1)
         self.assertEqual(kinds["parcel-zoning"]["packs"], 1)
-        self.assertEqual(kinds["first-paint"]["pnus"], 2)
-        self.assertNotIn("packs", kinds["first-paint"])
+        self.assertNotIn("first-paint", kinds, "a screen's sum of kinds is the web's (ADR-0193 §5)")
         self.assertEqual(kinds["parcel-zoning"]["dongs"], 1)
         self.assertEqual(kinds["parcel-zoning"]["parted_dongs"], 0)
         with tempfile.TemporaryDirectory() as work:

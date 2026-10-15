@@ -28,7 +28,6 @@
       "runtime_files": [
         "crates/foundation-platform-client/src/lib.rs",
         "services/gongzzang-api/src/foundation_parcel_lookup.rs",
-        "services/gongzzang-api/src/building_reader.rs",
         "services/gongzzang-api/src/startup.rs"
       ]
     },

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 022
+# A command that stops this script under `set -e` says where, before the exit. Without it a failed
+# assignment such as `x="$(… 2>/dev/null | …)"` ended the deploy with status 1 and no line at all
+# (2026-10-13: `timers` after scheduler-access-ok, with the Airflow DAGs left paused). `-E` carries
+# the trap into functions and command substitutions; it reports, it does not change the exit.
+trap 'printf "foundation-release.sh: line %s: \`%s\` exited %s\n" "${LINENO}" "${BASH_COMMAND}" "$?" >&2' ERR
 
 # Independent root-owned control checkout, not code taken from the candidate archive (root
 # ADR-0134 §1). No environment override: a caller cannot appoint the verifier that admits it.
@@ -37,8 +42,10 @@ usage:
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh rollback
   foundation-release.sh prune
+  foundation-release.sh host-retention
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh operator-access <account>
+  foundation-release.sh env-set <group> <NAME=value-file>
   foundation-release.sh status
 USAGE
   exit 64
@@ -1073,6 +1080,12 @@ verify_runtime_secrets() {
   }
   # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
   # host, a fake host in foundation-release-test.sh.
+  # First a renamed credential gains its derived name, with the value its old name has, in every
+  # file that holds it (root ADR-0247): the files change through the contract, never by hand.
+  python3 -I "${secrets}" --area "${release_root}/current" rename --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
+    printf 'renaming credentials in the host environment files failed; see above (names only)\n' >&2
+    exit 65
+  }
   python3 -I "${secrets}" --area "${release_root}/current" host --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
     printf 'the host environment files do not match config/runtime-secrets.contract.json; see above (names only)\n' >&2
     exit 65
@@ -1100,6 +1113,18 @@ migrate_runtime() {
   # `foundation-runtime-grants` never ran. Nothing said so — `/health` does not touch the
   # database, so the stack looked up for a day.
   #
+  # The chain runs to completion first, with the running API left alone, and the API is replaced
+  # only after it succeeded: a refused migration leaves the previous release serving (root
+  # ADR-0245). Asking for `foundation-api` alone replaced its container before the chain ran, and a
+  # refused migration on 2026-10-14 left it Created for 30 minutes.
+  local in_order="${release_root}/current/scripts/deploy/runtime-up-in-order.sh"
+  [[ -r "${in_order}" ]] || {
+    printf 'runtime ordering helper is missing from the release: %s\n' "${in_order}" >&2
+    exit 66
+  }
+  # shellcheck source=runtime-up-in-order.sh
+  source "${in_order}"
+  runtime_chain_before "${runtime}" foundation-api
   # `foundation-api` is the last link, so requiring it requires all of them, in the order the
   # compose file owns. `--wait` makes the command finish when the state is reached rather than
   # when the request was accepted.
@@ -1109,6 +1134,12 @@ migrate_runtime() {
   # asking for the api alone leaves its own loopback listeners down, which surfaced on the
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
+  # Prometheus and Alertmanager bind their rule and route files through `current`, and Docker
+  # resolves that link when it creates a container: a release that changes an alert rule or a
+  # route is otherwise never read (the compose service itself did not change, so `up` keeps the
+  # old container on the old release's files). Their data and the notification log live in
+  # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
+  "${runtime}" up -d --wait --force-recreate prometheus alertmanager
   verify_runtime_schema
   migrate_lakehouse
 }
@@ -1123,10 +1154,21 @@ migrate_runtime() {
 # once, in the repository, and a deploy cannot leave an older copy behind. Scratch is cleaned
 # right away rather than at the OS's next daily tmpfiles run, and journald is restarted only when
 # its drop-in changed.
+# The drop-ins' digest, also when there are none yet: the first deploy finds the directory empty,
+# and `cat <dir>/*.conf` then fails, which under pipefail stopped `timers` (2026-10-13).
+journald_dropins_digest() {
+  local -a dropins=()
+  local file
+  for file in /etc/systemd/journald.conf.d/*.conf; do
+    [[ -f "${file}" ]] && dropins+=("${file}")
+  done
+  if ((${#dropins[@]})); then cat -- "${dropins[@]}"; fi | sha256sum
+}
+
 install_host_retention() {
   local host="${release_root}/current/infra/host" file journald_before journald_after
   install -d -o root -g root -m 0755 /etc/tmpfiles.d /etc/systemd/journald.conf.d
-  journald_before="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  journald_before="$(journald_dropins_digest)"
   for file in "${host}"/tmpfiles.d/*.conf; do
     install -o root -g root -m 0644 -t /etc/tmpfiles.d "${file}"
     systemd-tmpfiles --clean "/etc/tmpfiles.d/${file##*/}"
@@ -1134,7 +1176,7 @@ install_host_retention() {
   for file in "${host}"/journald.conf.d/*.conf; do
     install -o root -g root -m 0644 -t /etc/systemd/journald.conf.d "${file}"
   done
-  journald_after="$(cat /etc/systemd/journald.conf.d/*.conf 2>/dev/null | sha256sum)"
+  journald_after="$(journald_dropins_digest)"
   [[ "${journald_before}" == "${journald_after}" ]] || systemctl restart systemd-journald
 }
 
@@ -1331,6 +1373,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
     # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
+    # The national parcel tile bake's work: the matching verdict, the served handoff, Spark's spill
+    # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
+    # ADR-0194 5). Its unit names this path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
     install_host_retention
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
@@ -1367,6 +1413,13 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     [[ "$#" == 1 ]] || usage
     prune_releases
     ;;
+  host-retention)
+    # The host-retention part of `timers` on its own: re-applies what ages out on the host from
+    # the current release (root ADR-0198), and is what the rehearsal drives.
+    [[ "$#" == 1 ]] || usage
+    assert_current_release
+    install_host_retention
+    ;;
   deployer-access)
     [[ "$#" == 2 || "$#" == 3 ]] || usage
     install_deployer_access "$2" "${3:-}"
@@ -1374,6 +1427,15 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   operator-access)
     [[ "$#" == 2 ]] || usage
     install_operator_access "$2"
+    ;;
+  env-set)
+    # A host environment file changes through the contract, not an editor (root ADR-0247): the
+    # names must be ones the group holds, and the file keeps the contract's owner, group and mode.
+    # Prints names, never values; the caller removes its source file.
+    [[ "$#" == 3 ]] || usage
+    assert_current_release
+    python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
+      set --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" "$2" "$3"
     ;;
   status)
     [[ "$#" == 1 ]] || usage

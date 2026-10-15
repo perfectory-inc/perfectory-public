@@ -5,13 +5,16 @@ Reads what `convert.sh` wrote (`out/*.geojson`, one per collected zip, EPSG:4326
 files of `--round` (the YYYYMM in each layer name, e.g. LSMD_ADM_SECT_UMD_41_202609): Bronze keeps
 every round side by side, and mixing two rounds would serve half the country from each.
 
-Sigungu names come from the official 법정동코드 전체자료 (`--code-list`) when given: a sido that was
-renumbered (29/46 -> 12, 2026-07-01) has no name in the older topographic sigungu file. The official
-list is also the coverage check: every existing sido must have a file in the round, otherwise the
-round is incomplete and nothing is written.
+The official code list is the newest snapshot of `reference.legal_dong_code_snapshot` (the region
+code record the daily code.go.kr collector fills, root ADR-0143), read the way the administrative
+matching gate reads it — never a downloaded file. Sigungu names come from it: a sido that was
+renumbered (29/46 -> 12, 2026-07-01) has no name in the older topographic sigungu file. It is also
+the coverage check: every existing sido must have a file in the round, otherwise the round is
+incomplete and nothing is written.
 
-Writes `official-administrative-boundary.geojson` (EMD_CD, EMD_NM, SIGUNGU_CD, SIGUNGU_NM) and
-`merge-report.json` with every excluded row and why.
+Runs in the lakehouse Spark container (it reads an Iceberg table), so `--out-dir` is a path the
+container sees. Writes `official-administrative-boundary.geojson` (EMD_CD, EMD_NM, SIGUNGU_CD,
+SIGUNGU_NM) and `merge-report.json` with every excluded row and why, next to `--out-dir`.
 """
 
 from __future__ import annotations
@@ -20,27 +23,19 @@ import argparse
 import collections
 import glob
 import hashlib
-import io
 import json
 import re
-import zipfile
+import sys
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "infra" / "lakehouse" / "spark" / "jobs"))
+
+from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages  # noqa: E402
+from legal_dong_code_snapshot_to_reference import newest_snapshot_codes  # noqa: E402
 
 LAYER_ROUND = re.compile(r"_(\d{2})_(\d{6})$")
-
-
-def read_code_list(path: Path) -> dict[str, tuple[str, str]]:
-    raw = path.read_bytes()
-    if zipfile.is_zipfile(io.BytesIO(raw)):
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            raw = archive.read([n for n in archive.namelist() if not n.endswith("/")][0])
-    text = raw.decode("utf-8") if raw[:3] == b"\xef\xbb\xbf" else raw.decode("cp949")
-    codes = {}
-    for line in text.splitlines()[1:]:
-        parts = line.split("\t")
-        if len(parts) == 3:
-            codes[parts[0].strip()] = (parts[1].strip(), parts[2].strip())
-    return codes
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def sigungu_names_from_codes(codes: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -69,33 +64,27 @@ def sigungu_names_from_topographic(path: Path) -> dict[str, str]:
     return names
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--round", required=True, help="YYYYMM of the collection round, e.g. 202609")
-    parser.add_argument("--out-dir", default="out")
-    parser.add_argument("--code-list", help="법정동코드 전체자료 (.zip/.txt); required when a sido was renumbered")
-    args = parser.parse_args()
-    if not re.fullmatch(r"\d{6}", args.round):
-        raise SystemExit("--round must be YYYYMM")
+def merge_round(round_: str, out_dir: Path, codes: dict[str, tuple[str, str]]) -> tuple[bytes, dict[str, Any]]:
+    """The merged GeoJSON bytes and the report. Refuses a round missing a sido the code list has."""
 
-    codes = read_code_list(Path(args.code_list)) if args.code_list else {}
-    names = sigungu_names_from_topographic(Path(args.out_dir) / "sgg-attrs.geojson")
+    if not codes:
+        raise SystemExit("the official code list snapshot is empty; refusing to merge without it")
+    names = sigungu_names_from_topographic(out_dir / "sgg-attrs.geojson")
     names.update(sigungu_names_from_codes(codes))
 
     files_by_sido: dict[str, list[str]] = collections.defaultdict(list)
-    for path in sorted(glob.glob(f"{args.out_dir}/30603-*.geojson")):
+    for path in sorted(glob.glob(str(out_dir / "30603-*.geojson"))):
         layer = json.loads(Path(path).read_text(encoding="utf-8")).get("name", "")
         m = LAYER_ROUND.search(layer)
-        if m and m.group(2) == args.round:
+        if m and m.group(2) == round_:
             files_by_sido[m.group(1)].append(path)
-    if codes:
-        sidos = {c[:2] for c, (_, s) in codes.items() if s == "존재" and c.endswith("00000000")}
-        missing = sorted(sidos - set(files_by_sido))
-        if missing:
-            raise SystemExit(f"round {args.round} has no file for sido {missing}; refusing a partial country")
+    sidos = {c[:2] for c, (_, s) in codes.items() if s == "존재" and c.endswith("00000000")}
+    missing = sorted(sidos - set(files_by_sido))
+    if missing:
+        raise SystemExit(f"round {round_} has no file for sido {missing}; refusing a partial country")
     duplicated = {s: f for s, f in files_by_sido.items() if len(f) > 1}
     if duplicated:
-        raise SystemExit(f"round {args.round} has more than one file for sido {sorted(duplicated)}")
+        raise SystemExit(f"round {round_} has more than one file for sido {sorted(duplicated)}")
 
     features, excluded = [], collections.defaultdict(list)
     for sido, paths in sorted(files_by_sido.items()):
@@ -107,7 +96,7 @@ def main() -> int:
             if len(emd_cd) != 8 or not emd_cd.isdigit() or not emd_nm or len(parent) != 5:
                 excluded["not a legal dong row (malformed code or name)"].append(emd_cd)
                 continue
-            if codes and codes.get(f"{emd_cd}00", ("", ""))[1] != "존재":
+            if codes.get(f"{emd_cd}00", ("", ""))[1] != "존재":
                 excluded["code not existing in the official list"].append(emd_cd)
                 continue
             parent_nm = names.get(parent)
@@ -118,17 +107,55 @@ def main() -> int:
             features.append(feat)
 
     data = json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, separators=(",", ":")).encode()
-    Path("official-administrative-boundary.geojson").write_bytes(data)
-    digest = hashlib.sha256(data).hexdigest()
     report = {
-        "round": args.round,
+        "round": round_,
         "files": {s: Path(p[0]).name for s, p in sorted(files_by_sido.items())},
         "features": len(features),
         "excluded": {reason: {"count": len(v), "sample": v[:20]} for reason, v in excluded.items()},
-        "sha256": digest,
+        "sha256": hashlib.sha256(data).hexdigest(),
     }
-    Path("merge-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({k: report[k] for k in ("round", "features", "sha256")}, ensure_ascii=False))
+    return data, report
+
+
+def read_official_codes(args: argparse.Namespace) -> tuple[str | None, dict[str, tuple[str, str]]]:
+    from pyspark.sql import SparkSession  # noqa: PLC0415
+
+    assert_catalog_env()
+    builder = SparkSession.builder.appName("foundation-platform-admin-boundary-merge")
+    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).config("spark.jars.packages", args.iceberg_packages).getOrCreate()
+    try:
+        namespace, table = args.code_list_table.split(".")
+        return newest_snapshot_codes(spark, f"`{args.iceberg_catalog_name}`.`{namespace}`.`{table}`")
+    finally:
+        spark.stop()
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    # No abbreviations: the retired `--code-list <file>` would otherwise name a table called `<file>`.
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
+    parser.add_argument("--round", required=True, help="YYYYMM of the collection round, e.g. 202609")
+    parser.add_argument("--out-dir", default="out")
+    parser.add_argument("--code-list-table", default="reference.legal_dong_code_snapshot", help="namespace.table of the official code list snapshots")
+    parser.add_argument("--iceberg-catalog-name", default="lakehouse")
+    parser.add_argument("--iceberg-packages", default=iceberg_packages())
+    args = parser.parse_args(argv)
+    if not re.fullmatch(r"\d{6}", args.round):
+        raise SystemExit("--round must be YYYYMM")
+    parts = args.code_list_table.split(".")
+    if len(parts) != 2 or not all(IDENTIFIER.fullmatch(p) for p in parts) or not IDENTIFIER.fullmatch(args.iceberg_catalog_name):
+        raise SystemExit("--code-list-table must be namespace.table and --iceberg-catalog-name an identifier")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    snapshot_date, codes = read_official_codes(args)
+    out_dir = Path(args.out_dir)
+    data, report = merge_round(args.round, out_dir, codes)
+    report["code_list"] = {"table": args.code_list_table, "snapshot_date": snapshot_date}
+    (out_dir.parent / "official-administrative-boundary.geojson").write_bytes(data)
+    (out_dir.parent / "merge-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({k: report[k] for k in ("round", "features", "sha256", "code_list")}, ensure_ascii=False))
     print("excluded:", {k: v["count"] for k, v in report["excluded"].items()})
     return 0
 

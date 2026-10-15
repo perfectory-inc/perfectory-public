@@ -128,6 +128,8 @@ describe("proxy foundation-platform receiver public access", () => {
 
       expect(cspDirective(productionCsp, "script-src")).not.toContain(" http:");
       expect(cspDirective(productionCsp, "img-src")).not.toContain(" http:");
+      // The gl SDK fetches its style JSON from map.pstatic.net; without this the map stays blank.
+      expect(cspDirective(productionCsp, "connect-src")).toContain("https://*.pstatic.net");
     } finally {
       vi.unstubAllEnvs();
     }

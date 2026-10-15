@@ -4,7 +4,6 @@ import { safeGet } from "../lib/http.js";
 
 const scenarioName = "api-read-mix";
 const defaultListingId = "load-fixture-listing-001";
-const defaultPnu = "9999901001100010000";
 
 export const options = {
   scenarios: {
@@ -40,7 +39,6 @@ function authenticatedHeaders() {
 
 function weightedRequest(baseUrl, selector) {
   const listingId = __ENV.LOAD_LISTING_ID || defaultListingId;
-  const pnu = __ENV.LOAD_PNU || defaultPnu;
   const headers = authenticatedHeaders();
 
   if (selector < 0.2) {
@@ -53,18 +51,10 @@ function weightedRequest(baseUrl, selector) {
     return;
   }
 
-  if (selector < 0.9) {
-    safeGet(
-      `${baseUrl}/listings/${encodeURIComponent(listingId)}`,
-      baseTags("listing", "detail"),
-      headers,
-    );
-    return;
-  }
-
+  // The parcel detail read left gongzzang-api (root ADR-0194); the browser reads the R2 edge.
   safeGet(
-    `${baseUrl}/api/parcels/${encodeURIComponent(pnu)}`,
-    baseTags("foundation_catalog", "parcel_by_pnu"),
+    `${baseUrl}/listings/${encodeURIComponent(listingId)}`,
+    baseTags("listing", "detail"),
     headers,
   );
 }

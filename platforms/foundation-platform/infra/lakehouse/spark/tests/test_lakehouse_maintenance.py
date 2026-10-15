@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
@@ -21,7 +22,16 @@ sys.path.insert(0, str(JOBS_DIR))
 
 from lakehouse_maintenance import (  # noqa: E402
     MINIMUM_ORPHAN_SAFETY_HOURS,
+    create_tag_sql,
+    drop_tag_sql,
+    expiry_floor_millis,
+    millis_text,
     load_maintenance_contract,
+    month_end_snapshots,
+    month_of_tag,
+    protected_snapshots,
+    retention_tags,
+    rotation_order,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
@@ -34,8 +44,11 @@ def sound_contract() -> dict:
         "order": ["compaction", "snapshot_expiry", "orphan_cleanup"],
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
                        "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25},
-        "snapshot_expiry": {"retain_days": 7, "retain_last": 1},
+        "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
+                            "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
+                            "year_end_tag": {"name_format": "yearly-%Y"}},
         "orphan_cleanup": {"safety_days": 3},
+        "scheduled": {"deadline_minutes": 140, "skip": ["orphan_cleanup"]},
     }
 
 
@@ -99,6 +112,221 @@ class SafetyWindowTest(unittest.TestCase):
         stamp = timestamp_before(3)
         self.assertRegex(stamp, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$")
         self.assertLess(stamp, timestamp_before(0), "과거여야 한다")
+
+
+def at(year: int, month: int, day: int, hour: int = 0) -> datetime:
+    return datetime(year, month, day, hour, tzinfo=timezone.utc)
+
+
+def gfs(keep_months: int = 12) -> dict:
+    return {"month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": keep_months},
+            "year_end_tag": {"name_format": "yearly-%Y"}}
+
+
+class MonthEndTagTest(unittest.TestCase):
+    """30일 + 달 끝 12개월 + 해 끝 영구 (ADR-0237). 달·해 끝은 그때 `main` 이 가리키던 스냅숏."""
+
+    def test_each_finished_month_ends_on_its_last_current_snapshot(self) -> None:
+        history = [(at(2026, 8, 3), 1), (at(2026, 8, 30), 2), (at(2026, 9, 10), 3)]
+
+        self.assertEqual(
+            month_end_snapshots(history, now=at(2026, 10, 14)),
+            [(2026, 8, 2), (2026, 9, 3)],
+        )
+
+    def test_the_running_month_is_not_tagged_yet(self) -> None:
+        """끝나지 않은 달의 마지막 스냅숏은 아직 모른다."""
+        history = [(at(2026, 10, 1), 7), (at(2026, 10, 13), 8)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2026, 10, 14)), [])
+
+    def test_a_month_without_a_commit_ends_on_the_previous_snapshot(self) -> None:
+        history = [(at(2026, 7, 20), 4), (at(2026, 9, 2), 5)]
+
+        self.assertEqual(
+            month_end_snapshots(history, now=at(2026, 9, 30)),
+            [(2026, 7, 4), (2026, 8, 4)],
+        )
+
+    def test_a_commit_at_the_boundary_belongs_to_the_next_month(self) -> None:
+        history = [(at(2026, 8, 15), 1), (at(2026, 9, 1), 2)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2026, 9, 2)), [(2026, 8, 1)])
+
+    def test_the_year_rolls_over(self) -> None:
+        history = [(at(2026, 12, 31, 23), 9)]
+
+        self.assertEqual(month_end_snapshots(history, now=at(2027, 1, 1)), [(2026, 12, 9)])
+
+    def test_an_existing_tag_is_never_moved(self) -> None:
+        """이미 있는 태그는 다시 만들지 않는다. 옮기면 그 달의 상태가 바뀐다."""
+        history = [(at(2026, 8, 3), 1), (at(2026, 9, 10), 3)]
+
+        create, _ = retention_tags(history, {"main", "monthly-2026-08"}, gfs(), at(2026, 10, 14))
+
+        self.assertEqual(create, [("monthly-2026-09", 3)])
+
+    def test_december_is_also_the_year_end(self) -> None:
+        history = [(at(2025, 12, 20), 5), (at(2026, 1, 5), 6)]
+
+        create, _ = retention_tags(history, {"main"}, gfs(), at(2026, 2, 3))
+
+        self.assertEqual(
+            create, [("monthly-2025-12", 5), ("yearly-2025", 5), ("monthly-2026-01", 6)]
+        )
+
+    def test_a_month_end_tag_past_the_window_is_dropped_and_a_year_end_tag_is_not(self) -> None:
+        """12개월 창은 태그가 이름한 달로 센다: 13개월 전 달 끝 태그는 지우고, 해 끝 태그는 남긴다."""
+        refs = {"main", "monthly-2025-09", "monthly-2025-10", "yearly-2024", "served-parcel-x"}
+
+        _, drop = retention_tags([], refs, gfs(), at(2026, 10, 14))
+
+        self.assertEqual(drop, ["monthly-2025-09"])
+
+    def test_a_month_already_past_the_window_is_not_tagged(self) -> None:
+        """첫 실행이 오래된 history 를 만나도, 창 밖 달은 태그를 만들었다 지우지 않는다."""
+        history = [(at(2025, 8, 3), 1)]
+
+        create, _ = retention_tags(history, {"main"}, gfs(), at(2026, 10, 14))
+
+        self.assertNotIn("monthly-2025-08", [name for name, _ in create])
+        self.assertNotIn("monthly-2025-09", [name for name, _ in create])
+        self.assertIn(("monthly-2025-10", 1), create)
+        self.assertIn(("yearly-2025", 1), create)
+
+    def test_only_a_month_end_name_reads_as_a_month(self) -> None:
+        self.assertEqual(month_of_tag("monthly-2026-09", "monthly-%Y-%m"), (2026, 9))
+        self.assertIsNone(month_of_tag("yearly-2026", "monthly-%Y-%m"))
+        self.assertIsNone(month_of_tag("monthly-2026-9", "monthly-%Y-%m"))
+        self.assertIsNone(month_of_tag("served-parcel-by-pnu-20260101T000000Z-1", "monthly-%Y-%m"))
+
+    def test_a_tag_is_dropped_by_name(self) -> None:
+        self.assertEqual(
+            drop_tag_sql("r2", "silver.parcel_boundaries", "monthly-2025-09"),
+            "ALTER TABLE r2.silver.parcel_boundaries DROP TAG IF EXISTS `monthly-2025-09`",
+        )
+
+    def test_a_year_end_name_that_reads_as_a_month_is_refused(self) -> None:
+        """해 끝 이름이 달 끝 이름으로 읽히면 12개월 창이 영구 태그를 지운다."""
+        contract = sound_contract()
+        contract["snapshot_expiry"]["year_end_tag"]["name_format"] = "monthly-%Y-12"
+
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_an_empty_monthly_window_is_refused(self) -> None:
+        contract = sound_contract()
+        contract["snapshot_expiry"]["month_end_tag"]["keep_months"] = 0
+
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_a_tag_is_created_without_an_age_limit(self) -> None:
+        """`RETAIN` 을 붙이면 `max-ref-age-ms` 가 생기고, 스냅숏 커밋 시각부터 세어 만료가 지운다."""
+        sql = create_tag_sql("r2", "silver.parcel_boundaries", "monthly-2026-09", 42)
+
+        self.assertIn("CREATE TAG IF NOT EXISTS `monthly-2026-09` AS OF VERSION 42", sql)
+        self.assertNotIn("RETAIN", sql.upper())
+
+    def test_a_name_two_months_share_is_refused(self) -> None:
+        """이름에 연·월이 없으면 둘째 달부터 태그가 안 생기고 그 스냅숏이 만료된다."""
+        contract = sound_contract()
+        contract["snapshot_expiry"]["month_end_tag"]["name_format"] = "monthly-%Y"
+
+        with self.assertRaises(ValueError) as caught:
+            validate_maintenance_contract(contract)
+        self.assertIn("%m", str(caught.exception))
+
+    def test_the_shipped_name_is_unique_per_month(self) -> None:
+        name_format = load_maintenance_contract()["snapshot_expiry"]["month_end_tag"]["name_format"]
+        names = {
+            at(year, month, 1).strftime(name_format)
+            for year in (2026, 2027)
+            for month in range(1, 13)
+        }
+        self.assertEqual(len(names), 24)
+
+
+INGEST = "foundation.ingest-batch-objects"
+PINS = "foundation.source-iceberg-snapshots"
+
+
+def snapshot(parent: int | None, ms: int, **summary: str) -> dict:
+    return {"parent_id": parent, "committed_ms": ms, "summary": summary}
+
+
+class ReadBackFloorTest(unittest.TestCase):
+    """만료는 이 레이크하우스가 메타데이터에서 다시 읽는 스냅숏을 지우지 않는다."""
+
+    def test_every_ingest_record_in_main_is_protected(self) -> None:
+        """부분 레인은 모든 부분의 기록이 남아 있어야 적재됐다고 본다. 하나라도 지우면 그 부분이 두 번 적재된다."""
+        snapshots = {
+            1: snapshot(None, 100, **{INGEST: "part-1"}),
+            2: snapshot(1, 200, **{INGEST: "part-2"}),
+            3: snapshot(2, 300, operation="replace"),
+        }
+
+        self.assertEqual(protected_snapshots(snapshots, 3), {1, 2})
+
+    def test_only_the_newest_gold_pins_are_protected(self) -> None:
+        """Gold 재구축은 가장 새 pin 만 읽는다. 옛 pin 스냅숏까지 묶으면 Gold 는 영영 만료되지 않는다."""
+        snapshots = {
+            1: snapshot(None, 100, **{PINS: "{}"}),
+            2: snapshot(1, 200, **{PINS: "{}"}),
+            3: snapshot(2, 300),
+        }
+
+        self.assertEqual(protected_snapshots(snapshots, 3), {2})
+
+    def test_a_record_outside_main_is_not_protected(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 9: snapshot(1, 150, **{INGEST: "staged"})}
+
+        self.assertEqual(protected_snapshots(snapshots, 2), set())
+
+    def test_the_floor_moves_the_window_back_to_the_oldest_protected_snapshot(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200)}
+
+        self.assertEqual(expiry_floor_millis(500, snapshots, {2}), 200)
+        self.assertEqual(expiry_floor_millis(500, snapshots, set()), 500)
+        self.assertEqual(expiry_floor_millis(150, snapshots, {2}), 150)
+
+    def test_the_floor_is_written_to_the_millisecond(self) -> None:
+        """Iceberg 는 older_than 보다 엄격히 이전인 스냅숏만 지운다. 초로 자르면 보호한 스냅숏이 지워진다."""
+        self.assertEqual(millis_text(1_760_000_000_123), "2025-10-09 08:53:20.123")
+
+
+class ScheduledRunTest(unittest.TestCase):
+    def test_tables_never_maintained_come_first_then_the_oldest(self) -> None:
+        last = {"gold.a": "2026-10-13T01:00:00+00:00", "silver.b": "2026-10-12T01:00:00+00:00"}
+
+        self.assertEqual(
+            rotation_order(["gold.a", "silver.b", "silver.c"], last), ["silver.c", "silver.b", "gold.a"]
+        )
+
+    def test_a_table_rule_names_a_known_step_and_a_reason(self) -> None:
+        contract = sound_contract()
+        contract["tables"] = {"silver.x": {"skip": ["vacuum"], "reason": "r"}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+        contract["tables"] = {"silver.x": {"skip": ["compaction"]}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_every_table_rule_names_a_lakehouse_table(self) -> None:
+        """규칙이 없는 표 이름을 가리키면 그 표의 실제 이름은 규칙 없이 돈다."""
+        from platform_contracts import load_lakehouse_artifact
+
+        tables = set(load_lakehouse_artifact()["contracts"])
+        self.assertLessEqual(set(load_maintenance_contract().get("tables", {})), tables)
+
+    def test_the_deadline_leaves_the_unit_time_to_finish_a_table(self) -> None:
+        """마감 뒤에는 새 표를 시작하지 않는다. 그 마감이 유닛 상한 안이어야 진행 중인 표가 끝난다."""
+        import re
+
+        unit = (JOBS_DIR.parents[2] / "systemd" / "foundation-lakehouse-maintenance.service").read_text(
+            encoding="utf-8")
+        limit = int(re.search(r"^TimeoutStartSec=(\d+)m$", unit, re.M).group(1))
+        self.assertLess(load_maintenance_contract()["scheduled"]["deadline_minutes"], limit)
 
 
 class CompactionTriggerTest(unittest.TestCase):

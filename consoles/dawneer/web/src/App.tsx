@@ -83,7 +83,7 @@ export function App() {
         {page.page === "review-item" ? (
           <ReviewItemPage client={client} itemId={page.itemId} me={current.sub} />
         ) : page.page === "flow" ? (
-          <FlowPage client={client} tab={page.tab} />
+          <FlowPage client={client} tab={page.tab} focus={page.focus} />
         ) : page.page === "tiles" ? (
           <TilesPage client={client} />
         ) : page.page === "complexes" ? (

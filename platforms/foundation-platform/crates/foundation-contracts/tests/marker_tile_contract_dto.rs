@@ -1,8 +1,8 @@
 //! Contract tests for marker tile DTOs.
 
 use foundation_contracts::catalog::{
-    ComplexAnchorSummaryResponse, MarkerTileContractResponse, MarkerTileFeatureResponse,
-    ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse,
+    MarkerTileContractResponse, MarkerTileFeatureResponse, ParcelMarkerAnchorRebuildRequest,
+    ParcelMarkerAnchorRebuildResponse,
 };
 use uuid::Uuid;
 
@@ -72,39 +72,6 @@ fn marker_tile_feature_response_uses_pnu_and_completeness_metadata() -> Result<(
     assert!(json.get("latitude").is_none());
     assert!(json.get("longitude").is_none());
     assert!(json.get("geom_point").is_none());
-    Ok(())
-}
-
-#[test]
-fn complex_anchor_summary_response_exposes_anchor_derived_center_without_bbox_input(
-) -> Result<(), serde_json::Error> {
-    let complex_id = Uuid::now_v7();
-    let response = ComplexAnchorSummaryResponse {
-        complex_id,
-        position_source: "pnu_anchor".to_owned(),
-        center_lng: 127.123_470_234_75,
-        center_lat: 36.123_425,
-        min_lng: 127.123_470,
-        min_lat: 36.123_420,
-        max_lng: 127.123_470_234_80,
-        max_lat: 36.123_430,
-        anchor_count: 2,
-    };
-
-    let json = serde_json::to_value(response)?;
-    let complex_id_string = complex_id.to_string();
-
-    assert_eq!(
-        json["complex_id"].as_str(),
-        Some(complex_id_string.as_str())
-    );
-    assert_eq!(json["position_source"].as_str(), Some("pnu_anchor"));
-    assert_eq!(json["center_lng"].as_f64(), Some(127.123_470_234_75));
-    assert_eq!(json["center_lat"].as_f64(), Some(36.123_425));
-    assert_eq!(json["anchor_count"].as_u64(), Some(2));
-    assert!(json.get("request_bbox").is_none());
-    assert!(json.get("latitude").is_none());
-    assert!(json.get("longitude").is_none());
     Ok(())
 }
 

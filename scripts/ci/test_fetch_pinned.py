@@ -153,6 +153,37 @@ class FetchPinnedTest(unittest.TestCase):
             fetch_pinned.fetch("http://example.invalid/a.tar.gz", PAYLOAD_SHA, cache_dir=self.cache)
 
 
+class ExtractMemberTest(unittest.TestCase):
+    """One file comes out of either archive kind, executable; a missing one is refused."""
+
+    def test_zip_and_tar_gz_yield_the_member(self) -> None:
+        import io
+        import os
+        import tarfile
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            zipped = root / "tool.zip"
+            with zipfile.ZipFile(zipped, "w") as archive:
+                archive.writestr("tool.exe", b"zip payload")
+            tarred = root / "tool.tar.gz"
+            with tarfile.open(tarred, "w:gz") as archive:
+                info = tarfile.TarInfo("tool")
+                info.size = len(b"tar payload")
+                archive.addfile(info, io.BytesIO(b"tar payload"))
+
+            fetch_pinned.extract_member(zipped, "tool.exe", root / "out" / "tool.exe")
+            fetch_pinned.extract_member(tarred, "tool", root / "out" / "tool")
+            self.assertEqual((root / "out" / "tool.exe").read_bytes(), b"zip payload")
+            self.assertEqual((root / "out" / "tool").read_bytes(), b"tar payload")
+            if os.name != "nt":
+                self.assertTrue(os.access(root / "out" / "tool", os.X_OK))
+            with self.assertRaisesRegex(fetch_pinned.FetchError, "has no member"):
+                fetch_pinned.extract_member(tarred, "other", root / "out" / "other")
+            self.assertFalse((root / "out" / "other").exists())
+
+
 class RegistryTest(unittest.TestCase):
     """Every registered tool resolves on every platform it declares, from the real pin files."""
 

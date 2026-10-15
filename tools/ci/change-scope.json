@@ -15,14 +15,18 @@
     "intelligence-ci.yml": {
       "paths": [
         "platforms/intelligence-platform/**",
+        "platforms/foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc",
         "tools/xtask/**",
         ".cargo/config.toml",
-        "rust-toolchain.toml"
+        "rust-toolchain.toml",
+        "platforms/identity-platform/docs/openapi/identity.v1.json",
+        "platforms/identity-platform/config/workload-principal-policy.v1.json"
       ]
     },
     "identity-ci.yml": {
       "paths": [
         "platforms/identity-platform/**",
+        "platforms/foundation-platform/config/identity-route-policies.contract.json",
         "tools/xtask/**",
         ".cargo/config.toml",
         "rust-toolchain.toml"
@@ -65,9 +69,11 @@
         "products/gongzzang/.markdownlint-cli2.jsonc",
         "products/gongzzang/.markdownlintignore",
         "products/gongzzang/.npmrc",
+        "products/gongzzang/crates/foundation-platform-client/openapi/catalog.v1.json",
         "scripts/tiles/vector-tile-manifest.local.json",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -137,13 +143,6 @@
       {
         "name": "no-subdir-github",
         "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`."
-      },
-      {
-        "name": "toolchain-consistency",
-        "paths": [
-          "**/rust-toolchain*",
-          "**/Dockerfile*"
-        ]
       },
       {
         "name": "technology-version-consistency",
@@ -363,6 +362,14 @@
       {
         "name": "public-repository-safety",
         "always": "Public-tree hygiene: any tracked path or content may leak private evidence."
+      },
+      {
+        "name": "tracked-paths-are-portable-self-test",
+        "paths": []
+      },
+      {
+        "name": "tracked-paths-are-portable",
+        "always": "Every tracked path must check out on every OS; any change can add a path."
       },
       {
         "name": "container-runtime-policy-self-test",
@@ -644,6 +651,14 @@
       {
         "name": "region-code-pairs-have-one-home",
         "always": "Walks every source and contract file for a second home of a region-code pair."
+      },
+      {
+        "name": "area-registry-self-test",
+        "paths": []
+      },
+      {
+        "name": "area-registry",
+        "always": "Walks every tracked non-prose file for a hand-written copy of the area list."
       },
       {
         "name": "a-deploy-verifies-the-schema-it-left-self-test",

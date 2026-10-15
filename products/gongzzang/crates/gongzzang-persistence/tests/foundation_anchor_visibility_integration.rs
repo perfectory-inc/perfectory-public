@@ -20,10 +20,9 @@ async fn private_listing_anchor_import_never_creates_public_marker_artifacts() {
     sqlx::query(
         r#"
         insert into "user" (
-            id, zitadel_sub, email, display_name, user_kind, created_at, updated_at, version
+            id, email, display_name, user_kind, created_at, updated_at, version
         ) values (
             'usr_01HXY3NK0Z9F6S1B2C3D4E5F6H',
-            'zsub-private-anchor-import',
             'private-anchor-import@example.com',
             'Private Anchor Import Owner',
             'individual',

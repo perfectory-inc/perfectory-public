@@ -3,7 +3,9 @@
 use authorization_domain::Permission;
 use identity_contracts::PrincipalId;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use thiserror::Error;
 
 /// Version accepted by the compiled workload policy parser.
@@ -48,6 +50,8 @@ struct RawBinding {
 pub struct ValidatedPolicy {
     /// Policy contract version.
     pub schema_version: String,
+    /// Lowercase hex SHA-256 of the exact policy document bytes.
+    pub policy_sha256: String,
     /// Stable workload identities and exact capabilities.
     pub principals: Vec<WorkloadPrincipalPolicy>,
 }
@@ -82,6 +86,8 @@ struct ServiceSubjectBinding {
 pub struct ValidatedManifest {
     /// Policy contract version used to build this manifest.
     pub schema_version: String,
+    /// Lowercase hex SHA-256 of the policy document every grant change is attributed to.
+    pub policy_sha256: String,
     /// Service principals with environment subjects and policy-owned capabilities.
     pub principals: Vec<ServicePrincipalDefinition>,
 }
@@ -153,6 +159,7 @@ pub enum ManifestError {
 /// # Errors
 /// Returns [`ManifestError`] when shape, version, identities, or capabilities are invalid.
 pub fn parse_policy(raw: &str) -> Result<ValidatedPolicy, ManifestError> {
+    let policy_sha256 = sha256_hex(raw.as_bytes());
     let raw: RawPolicy = serde_json::from_str(raw).map_err(|_| ManifestError::InvalidJson)?;
     if raw.schema_version != POLICY_SCHEMA_VERSION {
         return Err(ManifestError::UnsupportedSchemaVersion);
@@ -198,6 +205,7 @@ pub fn parse_policy(raw: &str) -> Result<ValidatedPolicy, ManifestError> {
 
     Ok(ValidatedPolicy {
         schema_version: raw.schema_version,
+        policy_sha256,
         principals,
     })
 }
@@ -277,6 +285,7 @@ pub fn resolve_manifest(
 
     Ok(ValidatedManifest {
         schema_version: policy.schema_version,
+        policy_sha256: policy.policy_sha256,
         principals,
     })
 }
@@ -287,6 +296,15 @@ pub fn resolve_manifest(
 /// Returns [`ManifestError`] if the committed policy and binary ever drift into invalid state.
 pub fn compiled_policy() -> Result<ValidatedPolicy, ManifestError> {
     parse_policy(COMPILED_POLICY)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 fn validate_service_slug(service_slug: &str) -> Result<(), ManifestError> {

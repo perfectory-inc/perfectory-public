@@ -88,7 +88,7 @@ pub struct PhotoResponse {
 /// `Rejected` / `Archived` 는 owner only — 비owner 접근은 *404* (존재 자체 leak
 /// 차단).
 ///
-/// 본인 매물 아니면 `view_count` 1 증가 (best-effort).
+/// 본인 매물 아니면 조회 이벤트 1건 기록 (best-effort).
 #[allow(clippy::too_many_lines)]
 #[tracing::instrument(skip(state, auth), fields(actor = %auth.user.id, listing_id = %id))]
 pub async fn get_listing_detail(
@@ -132,10 +132,10 @@ pub async fn get_listing_detail(
         ));
     }
 
-    // view_count: 본인 본인 매물 X (자기 조회 노이즈 차단). best-effort.
+    // 조회 이벤트: 본인 매물 X (자기 조회 노이즈 차단). best-effort.
     if detail.listing.owner_id != auth.user.id {
-        if let Err(e) = state.listing_repo.increment_view_count(&listing_id).await {
-            tracing::warn!(error = %e, "view_count update failed — proceeding");
+        if let Err(e) = state.listing_repo.record_view(&listing_id).await {
+            tracing::warn!(error = %e, "view event write failed — proceeding");
         }
     }
 
@@ -169,7 +169,7 @@ fn detail_to_response(detail: listing_domain::repository::ListingDetail) -> List
         description: l.description.as_str().to_owned(),
         status: l.status.as_str().to_owned(),
         contact_visibility: l.contact_visibility.as_str().to_owned(),
-        view_count: i64::try_from(l.view_count).unwrap_or(i64::MAX),
+        view_count: detail.view_count,
         bookmark_count: detail.bookmark_count,
         is_bookmarked: detail.is_bookmarked,
         version: l.version,

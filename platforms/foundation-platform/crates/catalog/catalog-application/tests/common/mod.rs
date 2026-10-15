@@ -25,11 +25,11 @@ use catalog_application::ports::{
 use catalog_domain::{
     static_release_martin_source_id, static_release_pmtiles_object_key, ActiveTileSource,
     CatalogError, ComplexMutation, DynamicPostgisSource, FeatureIdProperty, IndustrialComplex,
-    ManifestGeneration, Parcel, ParcelKind, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage,
-    ServingGeneration, StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
+    ManifestGeneration, PublicationUnit, RuntimeTileLayer, RuntimeTileLineage, ServingGeneration,
+    StaticPmtilesSource, VectorTileManifest, VectorTileRuntimeManifest,
 };
 use foundation_shared_kernel::ids::{
-    ComplexId, FileAssetId, ParcelId, SourceRecordId, StaffId, VectorTileBuildJobId,
+    ComplexId, FileAssetId, SourceRecordId, StaffId, VectorTileBuildJobId,
     VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 use uuid::Uuid;
@@ -228,15 +228,6 @@ impl CatalogUnitOfWork for $double {
             Err(unused("archive_complex"))
         }
 
-        async fn update_parcel_kind(
-            &self,
-            _id: ParcelId,
-            _expected_version: i64,
-            _new_kind: ParcelKind,
-            _applied_by: StaffId,
-        ) -> Result<Parcel, CatalogError> {
-            Err(unused("update_parcel_kind"))
-        }
 
         async fn rollback_vector_tile_manifest(
             &self,

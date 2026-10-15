@@ -13,7 +13,10 @@ pub mod events;
 pub mod http;
 
 pub use delivery::IdentityEventDeliveryV1;
-pub use events::{IdentityEventV1, StaffInvitedV1, StaffRoleAssignedV1, StaffSessionRevokedV1};
+pub use events::{
+    IdentityEventV1, ServiceCapabilityChangedV1, StaffInvitedV1, StaffRoleAssignedV1,
+    StaffSessionRevokedV1,
+};
 pub use http::{
     AssignStaffRoleRequest, PolicyDecisionRequest, PolicyDecisionResponse, PrincipalId,
     ResourceAction, StaffRoleResponse, VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE,

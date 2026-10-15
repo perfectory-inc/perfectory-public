@@ -23,8 +23,7 @@
       "allowed_surfaces": [
         "/catalog/v1/vector-tiles/manifest",
         "/map/v1/marker-tiles/contract",
-        "/catalog/v1/parcels/by-pnu/:pnu",
-        "/catalog/v1/parcels/by-pnu/:pnu/buildings"
+        "/catalog/v1/parcels/by-pnu/:pnu"
       ],
       "traffic_policy_id": "gongzzang_api_to_foundation_catalog",
       "service_auth_policy_id": "gongzzang_api_to_foundation_api",
