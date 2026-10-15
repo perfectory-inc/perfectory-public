@@ -48,7 +48,7 @@ ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
 STARTED_BY = ("schedule", "inputs")
-# The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0259):
+# The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
 # do on their own.

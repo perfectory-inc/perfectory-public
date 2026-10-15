@@ -178,7 +178,7 @@ class CollectCommand(unittest.TestCase):
                              "the handoff names each file by its bytes (root ADR-0152)")
         # The journal lines are the unit's lines too (root ADR-0174).
         self.assertIn("parcel-number-change collect ok run=", first.stdout)
-        # The last line is the run's outcome (root ADR-0171, ADR-0259): a handoff is a change.
+        # The last line is the run's outcome (root ADR-0171, ADR-0260): a handoff is a change.
         self.assertEqual(first.stdout.splitlines()[-1], "foundation-job-outcome changed")
         second = self.run_job()
         self.assertEqual(second.returncode, 0, second.stderr)

@@ -44,5 +44,5 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
 fi
 
 "${publisher}" run-building-register-floor-cycle
-# Reached only when the cycle exited 0 (set -e): it ran to its end (root ADR-0171, ADR-0259).
+# Reached only when the cycle exited 0 (set -e): it ran to its end (root ADR-0171, ADR-0260).
 printf 'foundation-job-outcome changed\n'

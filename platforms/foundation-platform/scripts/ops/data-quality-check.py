@@ -162,7 +162,7 @@ def main():
             print(f"data-quality: {label}: {item}")
     if totals["unregistered"]:
         print("data-quality: register the contracts first: datahub-runtime.sh ingest data-contracts")
-    # The run's last line (root ADR-0259). It writes no dataset, so a clean run changed nothing.
+    # The run's last line (root ADR-0260). It writes no dataset, so a clean run changed nothing.
     if totals["failed"]:
         print(f"foundation-job-outcome failed {len(totals['failed'])} contract checks failed")
         sys.exit(1)

@@ -543,24 +543,17 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
 
 
 class EveryJobSaysItsOutcome(unittest.TestCase):
-    """Root ADR-0259 §4: a job whose program never prints its run's outcome is refused here.
+    """Root ADR-0260 §4: a job whose program never prints its run's outcome is refused here.
 
     The host runner is what fails such a run in production; this catches it in the pull request.
     """
 
-    # The jobs whose scripts open changes (#597, #585) are editing; they report in the follow-up
-    # pull request, which empties this set. It may only shrink: a listed job that reports is refused.
-    NOT_YET_REPORTING = {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex"}
-
     def test_every_jobs_program_prints_an_outcome_line(self):
         for spec in job_specs.load_specs():
             program = job_specs.PLATFORM_ROOT / entry_script(spec)[len(job_specs.RELEASE_PREFIX):]
-            reports = reports_outcome(program.read_text(encoding="utf-8"))
             with self.subTest(spec.job_id):
-                if spec.job_id in self.NOT_YET_REPORTING:
-                    self.assertFalse(reports, f"{spec.job_id} reports now: take it off NOT_YET_REPORTING")
-                else:
-                    self.assertTrue(reports, f"{program.name} never prints `foundation-job-outcome ...`")
+                self.assertTrue(reports_outcome(program.read_text(encoding="utf-8")),
+                                f"{program.name} never prints `foundation-job-outcome ...`")
 
     def test_a_program_that_only_mentions_the_line_is_refused(self):
         self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
@@ -578,7 +571,7 @@ class TheRunOutcome(unittest.TestCase):
         self.assertEqual(job_specs.job_outcome("foundation-job-outcome unchanged\r\n"), "unchanged")
 
     def test_waiting_and_failed_carry_a_reason_and_withhold_the_events(self):
-        # Root ADR-0259: a wait is not a failure, and a failure is not a success that exited 0.
+        # Root ADR-0260: a wait is not a failure, and a failure is not a success that exited 0.
         self.assertEqual(job_specs.job_outcome(
             b"foundation-job-outcome waiting edition 202610 awaits its contract entry\n"), "waiting")
         self.assertEqual(job_specs.job_outcome(b"foundation-job-outcome failed gate crashed\r\n"), "failed")
@@ -862,7 +855,7 @@ class FloorCycleAdapter(unittest.TestCase):
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0259).
+            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0260).
             self.assertEqual(result.stdout.splitlines(), [
                 source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome changed"])
             self.assertEqual(result.stderr, "")

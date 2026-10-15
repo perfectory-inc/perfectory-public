@@ -117,7 +117,7 @@ result="$(history stage-handoff --inventory "${work}/inventory-changed.json" --e
   --download-dir "${work}/downloads" --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
 rm -rf "${work}/downloads" # the handoff holds its own copy
 job_journal "${journal}" "parcel-number-change collect ok run=${run_id} ${result}"
-# The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0259).
+# The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0260).
 status="$("${PY[@]}" -c 'import json, sys; print(json.loads(sys.stdin.read().splitlines()[-1])["status"])' <<<"${result}")"
 if [ "${status}" = staged ]; then
   printf 'foundation-job-outcome changed\n'
