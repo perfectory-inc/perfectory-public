@@ -103,7 +103,7 @@ spark parcel_lineage_scheduled.py --allow-non-smoke-write \
   --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
   --summary-output "${container_work}/derive-summary.json"
 derive_refused="$(json_field "${work}/derive-summary.json" '["refused"]')"
-job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused}"
+job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused} waiting=$(json_field "${work}/derive-summary.json" '.get("waiting", [])')"
 # A refused group did not stop the others or the steps below; the unit still fails at the end.
 grep -a '^parcel-lineage-refused ' "${run_log}" >&2 || true
 
