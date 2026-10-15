@@ -1,0 +1,13 @@
+{
+  // The temporary read-only preview (root ADR-0249). Everything it makes lives in this one Worker:
+  // no KV, no D1, no R2, no secrets, no routes; teardown.sh deletes the Worker and checks.
+  "name": "gongzzang-web-preview",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // The free plan caps the compressed Worker at 3 MiB; unminified it is about 3.4 MiB.
+  "minify": true,
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" }
+}
