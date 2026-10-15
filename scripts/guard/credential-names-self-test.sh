@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves credential-names refuses what it exists to refuse: a retired name (the old catalog writer
-# token, read from the contract's renamed_from so this file spells no retired name), a made-up
+# token, built in pieces so this file spells no retired name whole), a made-up
 # name, and an R2_ spelling of a derived one. Each is planted in a copy of the contract and its
 # checker; the copy must pass before anything is planted, and a derived name must stay accepted.
 set -euo pipefail
@@ -18,15 +18,9 @@ mkdir -p "$area/infra" && cp -R "$root/platforms/foundation-platform/infra/syste
 git -C "$fixture" init -q
 git -C "$fixture" add .
 
-retired="$(python3 - "$area" <<'PY'
-import sys
-sys.path.insert(0, f"{sys.argv[1]}/scripts/deploy")
-import runtime_secrets
-renamed = runtime_secrets.load(__import__("pathlib").Path(sys.argv[1])).renamed
-print(next(old for old, new in renamed.items() if new.endswith("_LAKEHOUSE_CATALOG_WRITER_TOKEN")))
-PY
-)"
 prefix="FOUNDATION_PLATFORM"
+# The catalog writer token's name before root ADR-0247, in pieces so this file spells it nowhere whole.
+retired="${prefix}_LAKEHOUSE_""CATALOG_TOKEN"
 
 probe() {
   local label="$1" value="$2" should_fail="$3" output
