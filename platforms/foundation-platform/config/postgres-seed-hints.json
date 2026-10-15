@@ -1,0 +1,43 @@
+{
+  "rule": "A synthetic SQL value for a column the seed cannot derive from its type or its CHECK, keyed schema.table.column: a domain rule a trigger or a CHECK across columns enforces. Never a real value. scripts/ci/foundation_postgres_production_shape.py reads it. not_yet_seeded names, with why, each table production holds rows in that the seed cannot fill yet; it only shrinks: a named table that seeds is refused until removed.",
+  "session_settings": {
+    "foundation.temporal_publisher": "on",
+    "foundation.parcel_publication_evidence_sealer": "on"
+  },
+  "values": {
+    "catalog.industrial_complex.id": "catalog.industrial_complex_id_for('synthetic')",
+    "catalog.industrial_complex.lakehouse_complex_id": "catalog.industrial_complex_id_for('synthetic')",
+    "catalog.administrative_unit_identifier.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
+    "catalog.administrative_unit_parent.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
+    "serving_postgis.administrative_unit_boundary_publication.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
+    "catalog.bronze_object_measurement.outcome": "'not_zip'",
+    "catalog.bronze_object_measurement.member_count": "null",
+    "catalog.vector_tile_release.martin_source_id": "'synthetic'",
+    "catalog.vector_tile_release.tiles_url_template": "'/synthetic/{z}/{x}/{y}'",
+    "serving_postgis.parcel_boundary_mirror_rebuild_run.publication_scope": "'{\"kind\": \"national\", \"complete\": true}'",
+    "serving_postgis.parcel_boundary_mirror_rebuild_run.publication_limits": "'{\"row_limit\": null, \"shard_limit\": null, \"object_limit\": null}'",
+    "catalog.publication_revision.bronze_object_id": "null",
+    "serving_postgis.industrial_complex_boundary_publication.geometry_repaired": "false",
+    "serving_postgis.industrial_complex_boundary_publication.repair_hausdorff_distance_m": "null",
+    "serving_postgis.industrial_complex_boundary_publication.repair_area_change_ratio": "null",
+    "catalog.vector_tile_release.source_kind": "'dynamic_postgis'",
+    "catalog.vector_tile_release.pmtiles_object_key": "null",
+    "catalog.vector_tile_release.pmtiles_file_asset_id": "null",
+    "catalog.vector_tile_release.pmtiles_sha256": "null",
+    "catalog.vector_tile_release.pmtiles_bytes": "null"
+  },
+  "not_yet_seeded": {
+    "catalog.administrative_unit_parent": "the parent hierarchy trigger needs a second administrative unit of the parent kind",
+    "catalog.bronze_object_member": "the measurement-holds-its-members trigger needs a zip measurement whose member_count equals its members",
+    "catalog.parcel_publication_source_evidence": "needs a succeeded parcel mirror rebuild run, which is inserted planned and moved by the publisher",
+    "serving_postgis.spatial_projection_load": "needs sealed parcel publication source evidence (see catalog.parcel_publication_source_evidence)",
+    "catalog.vector_tile_release": "a dynamic_postgis release needs a postgis projection revision from a projection load",
+    "catalog.vector_tile_build_job": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
+    "catalog.vector_tile_release_layer": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
+    "catalog.vector_tile_release_source_file_asset": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
+    "catalog.vector_tile_runtime_manifest_unit": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
+    "serving_postgis.administrative_unit_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)",
+    "serving_postgis.industrial_complex_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)",
+    "serving_postgis.parcel_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)"
+  }
+}

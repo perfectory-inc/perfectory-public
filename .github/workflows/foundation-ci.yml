@@ -22,6 +22,9 @@ on:
       - "scripts/verify/foundation-spark-runtime.sh"
       - "scripts/verify/foundation-spark-runtime-files.sh"
       - "scripts/ci/test_foundation_spark_runtime_files.py"
+      - "scripts/ci/foundation_postgres_production_shape.py"
+      - "scripts/ci/test_foundation_postgres_production_shape.py"
+      - "scripts/ci/foundation-postgres-production-shape.sh"
       - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "**/Cargo.lock"
@@ -428,6 +431,15 @@ jobs:
             fi
           fi
           psql --version
+
+      # Root ADR-0259 §5: a change's new migrations run onto main's schema holding a synthetic row
+      # in every table production holds rows in, not only onto the empty database below.
+      - name: Apply new migrations onto production-shaped rows
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          SHAPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: bash scripts/ci/foundation-postgres-production-shape.sh "$DATABASE_URL" "$SHAPE_BASE"
 
       - name: Run migrations through the production runner
         run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
