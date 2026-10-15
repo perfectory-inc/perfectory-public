@@ -16,7 +16,7 @@ const BODY: &[u8] = b"hello world";
 
 /// Serves GETs of `BODY`: the first `broken` answers send the headers and three bytes of the
 /// body, then close; the rest send it whole. Counts the requests.
-async fn serve(broken: usize) -> TestResult<(String, Arc<AtomicUsize>)> {
+pub(super) async fn serve(broken: usize) -> TestResult<(String, Arc<AtomicUsize>)> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
     let endpoint = format!("http://{}", listener.local_addr()?);
     let requests = Arc::new(AtomicUsize::new(0));
@@ -45,7 +45,16 @@ async fn serve(broken: usize) -> TestResult<(String, Arc<AtomicUsize>)> {
     Ok((endpoint, requests))
 }
 
-fn storage(endpoint: String) -> R2ObjectStorage {
+/// The ADR-0102 policy with millisecond waits, so a test of the bounded attempts takes no time.
+pub(super) fn fast_policy() -> read_retry::R2ReadPolicy {
+    read_retry::R2ReadPolicy {
+        max_attempts: 5,
+        min_wait: std::time::Duration::from_millis(2),
+        max_wait: std::time::Duration::from_millis(8),
+    }
+}
+
+pub(super) fn storage(endpoint: String) -> R2ObjectStorage {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("auto"))
@@ -64,6 +73,7 @@ fn storage(endpoint: String) -> R2ObjectStorage {
         client: aws_sdk_s3::Client::from_conf(config),
         bucket_name: "bucket".to_owned(),
         namespace: crate::object_storage::R2KeyNamespace::Production,
+        read_policy: fast_policy(),
     }
 }
 
@@ -94,7 +104,7 @@ async fn a_body_that_keeps_breaking_fails_after_the_bounded_attempts() -> TestRe
         error.to_string().contains("failed to read R2 object body"),
         "{error}"
     );
-    assert_eq!(requests.load(Ordering::SeqCst), R2_RANGE_READ_MAX_ATTEMPTS);
+    assert_eq!(requests.load(Ordering::SeqCst), fast_policy().max_attempts);
     Ok(())
 }
 
