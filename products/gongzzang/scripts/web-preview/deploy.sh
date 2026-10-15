@@ -27,6 +27,8 @@ if [[ -z "${NAVER_MAPS_CLIENT_ID:-}" && -f "$repo/products/gongzzang/apps/web/.e
 fi
 : "${NAVER_MAPS_CLIENT_ID:?set NAVER_MAPS_CLIENT_ID (the Naver Maps client id; public, shipped to browsers)}"
 
+node --test "$here/edge-relay.test.mjs" "$here/common.test.mjs" >/dev/null
+
 work=$(mktemp -d)
 trap 'rm -rf "$work" "$SCRATCH"' EXIT
 
@@ -80,7 +82,6 @@ app="$work/app"
 mkdir -p "$app"
 tar -xf "$work/build.tar" -C "$app"
 cp "$here"/{wrangler.jsonc,worker.mjs,edge-relay.mjs} "$app/"
-node --test "$here/edge-relay.test.mjs" >/dev/null
 
 echo "== runtime manifest snapshot"
 manifest="$app/.open-next/assets/catalog/v1/vector-tiles/runtime-manifest"

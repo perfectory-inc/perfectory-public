@@ -13,12 +13,19 @@ SCRATCH=$(mktemp -d)
 CF_BODY="$SCRATCH/body"
 
 # The Cloudflare API under the caller's own wrangler login (or CLOUDFLARE_API_TOKEN); no token is kept.
+# A wrangler without the `auth token` command (4.56 has none) or without a login prints nothing: that
+# fails here by name instead of as a JSON parse error or an unauthenticated API call later.
 cf_token() {
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-    printf '%s' "$CLOUDFLARE_API_TOKEN"
-  else
-    (cd "$SCRATCH" && wrangler auth token --json 2>/dev/null) | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s.slice(s.indexOf("{"))).token))'
+  local token=${CLOUDFLARE_API_TOKEN:-}
+  if [[ -z "$token" ]]; then
+    token=$( (cd "$SCRATCH" && wrangler auth token --json 2>/dev/null) |
+      node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s.slice(s.indexOf("{"))).token??"")}catch{}})') || true
   fi
+  if [[ -z "$token" ]]; then
+    echo "no Cloudflare API token: set CLOUDFLARE_API_TOKEN, or log in with \`npx wrangler@${WRANGLER_VERSION} login\`" >&2
+    return 1
+  fi
+  printf '%s' "$token"
 }
 
 # Prints the HTTP status and leaves the body in $CF_BODY (one file, so it survives `$(cf_get ...)`).
