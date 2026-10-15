@@ -6,7 +6,9 @@
 //! new archive carries exactly the served ids, but not that a customer sees the same parcels in the
 //! same tiles. So sample tiles are decoded from both archives and compared:
 //!
-//! - (a) every feature id in the active tile is in the new tile;
+//! - (a) every feature id in the active tile is in the new tile — except, for a unit baked from a
+//!   new edition (`edition_change`, ADR-0251), an id the new edition holds nowhere: it left the
+//!   edition, counted as `left` or, when its whole dong is gone, `left_renumbered`, each bounded;
 //! - (b) an id only the new tile has is classified (ADR-0135 §2), and only these features' geometry
 //!   is decoded: `buffer` (outside the tile's own `0..extent` square — a neighbour tippecanoe keeps
 //!   in the tile buffer), `tiny` (the area of its part inside the tile is at most
@@ -36,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::pmtiles_feature_ids::{tile_id, tile_zxy, zoom_range, Archive};
+use super::ServedIds;
 
 pub(crate) const SAMPLE_CONTRACT_JSON: &str =
     include_str!("../../../config/tile-equivalence.contract.json");
@@ -55,6 +58,23 @@ pub(crate) struct SampleContract {
     pub(crate) additions_max_ratio: f64,
     #[serde(default)]
     pub(crate) region_id_prefix_chars: BTreeMap<String, usize>,
+    /// ADR-0251: the units baked from a cadastral edition, whose departures are classified.
+    #[serde(default)]
+    pub(crate) edition_change: BTreeMap<String, EditionChange>,
+}
+
+/// ADR-0251: how a unit baked from a new edition tells departures and renumbered dongs apart.
+#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EditionChange {
+    /// An id's first characters that name its dong (a parcel's 법정동 code).
+    pub(crate) dong_prefix_chars: usize,
+    /// The largest share of the sampled active ids that may leave a dong the new edition holds.
+    pub(crate) left_max_ratio: f64,
+    /// Replaces the contract's `additions_max_ratio` for the unit.
+    pub(crate) additions_max_ratio: f64,
+    /// The largest share, in each direction, of ids in dongs a reorganization renumbered.
+    pub(crate) renumbered_max_ratio: f64,
 }
 
 impl SampleContract {
@@ -89,6 +109,22 @@ impl SampleContract {
                 .all(|chars| *chars > 0),
             "a region id prefix is at least one character"
         );
+        for edition in contract.edition_change.values() {
+            ensure!(
+                edition.dong_prefix_chars > 0,
+                "a dong id prefix is at least one character"
+            );
+            ensure!(
+                [
+                    edition.left_max_ratio,
+                    edition.additions_max_ratio,
+                    edition.renumbered_max_ratio
+                ]
+                .iter()
+                .all(|ratio| (0.0..=1.0).contains(ratio)),
+                "an edition_change bound is a share between 0 and 1"
+            );
+        }
         Ok(contract)
     }
 }
@@ -127,6 +163,8 @@ pub(crate) struct SampleCollector {
     seen: u64,
     pub(crate) reservoir: Vec<u64>,
     pub(crate) regions: BTreeMap<String, Extent>,
+    /// ADR-0251: the dongs the new archive's ids fall in, for a unit baked from an edition.
+    pub(crate) edition: Option<(EditionChange, BTreeSet<String>)>,
     current: Option<(u64, u32, u32)>,
 }
 
@@ -139,11 +177,21 @@ impl SampleCollector {
             seen: 0,
             reservoir: Vec::new(),
             regions: BTreeMap::new(),
+            edition: contract
+                .edition_change
+                .get(unit)
+                .map(|edition| (*edition, BTreeSet::new())),
             current: None,
         }
     }
 
     pub(crate) fn observe(&mut self, tile: u64, id: &str) -> anyhow::Result<()> {
+        if let Some((edition, dongs)) = &mut self.edition {
+            let dong = prefix(id, edition.dong_prefix_chars);
+            if !dongs.contains(dong) {
+                dongs.insert(dong.to_owned());
+            }
+        }
         let (x, y) = match self.current {
             Some((current, x, y)) if current == tile => (x, y),
             _ => {
@@ -161,7 +209,7 @@ impl SampleCollector {
             }
         };
         if let Some(chars) = self.prefix_chars {
-            let region = id.char_indices().nth(chars).map_or(id, |(at, _)| &id[..at]);
+            let region = prefix(id, chars);
             if let Some(extent) = self.regions.get_mut(region) {
                 extent.min = (extent.min.0.min(x), extent.min.1.min(y));
                 extent.max = (extent.max.0.max(x), extent.max.1.max(y));
@@ -177,6 +225,11 @@ impl SampleCollector {
         }
         Ok(())
     }
+}
+
+/// An id's first `chars` characters, or the whole id when it is shorter.
+fn prefix(id: &str, chars: usize) -> &str {
+    id.char_indices().nth(chars).map_or(id, |(at, _)| &id[..at])
 }
 
 /// The `limit` maxzoom tiles with the longest directory entries — the most bytes — read from the
@@ -550,6 +603,19 @@ pub(crate) struct ExtraInside {
     pub(crate) unexplained: Breakdown,
 }
 
+/// ADR-0251: the active ids the new edition no longer holds, and the additions in renumbered dongs.
+#[derive(Debug, Default, Clone, Serialize)]
+pub(crate) struct EditionTally {
+    /// Gone from a dong the new edition still holds: split, merged or closed.
+    pub(crate) left: Breakdown,
+    /// Gone with its whole dong: the dong was renumbered by a reorganization.
+    pub(crate) left_renumbered: Breakdown,
+    /// An addition where the active maxzoom tile holds a dong the new edition does not.
+    pub(crate) joined_renumbered: Breakdown,
+    /// The contract bounds this tally was judged by.
+    pub(crate) bounds: EditionChange,
+}
+
 /// Sampled and passed tiles of one region.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
 pub(crate) struct RegionTally {
@@ -570,6 +636,8 @@ pub(crate) struct Equivalence {
     pub(crate) type_changed: Tally,
     pub(crate) extra_in_buffer: u64,
     pub(crate) regions: BTreeMap<String, RegionTally>,
+    /// ADR-0251, for a unit baked from an edition.
+    pub(crate) edition: Option<EditionTally>,
     /// The contract bounds this outcome was judged by, kept with it as evidence.
     pub(crate) tiny_max_area_tile_units: f64,
     pub(crate) additions_max_ratio: f64,
@@ -578,20 +646,32 @@ pub(crate) struct Equivalence {
 impl Equivalence {
     /// The share of the sampled active ids that additions reached.
     pub(crate) fn additions_ratio(&self) -> f64 {
+        self.share(self.extra_inside.addition.count)
+    }
+
+    /// `count` as a share of the sampled active ids; any count against none is unbounded.
+    pub(crate) fn share(&self, count: u64) -> f64 {
         #[allow(clippy::cast_precision_loss)]
-        let (additions, active) = (
-            self.extra_inside.addition.count as f64,
-            self.active_ids as f64,
-        );
+        let (counted, active) = (count as f64, self.active_ids as f64);
         if self.active_ids == 0 {
-            if self.extra_inside.addition.count == 0 {
+            if count == 0 {
                 0.0
             } else {
                 f64::INFINITY
             }
         } else {
-            additions / active
+            counted / active
         }
+    }
+
+    /// ADR-0251: each edition class within its bound (true for a unit with none).
+    fn edition_within_bounds(&self) -> bool {
+        self.edition.as_ref().is_none_or(|edition| {
+            self.share(edition.left.count) <= edition.bounds.left_max_ratio
+                && self.share(edition.left_renumbered.count) <= edition.bounds.renumbered_max_ratio
+                && self.share(edition.joined_renumbered.count)
+                    <= edition.bounds.renumbered_max_ratio
+        })
     }
 
     /// ADR-0135 §1–2: nothing missing, nothing changed, nothing unexplained, and additions no more
@@ -601,6 +681,7 @@ impl Equivalence {
             && self.changed.count == 0
             && self.extra_inside.unexplained.count == 0
             && self.additions_ratio() <= self.additions_max_ratio
+            && self.edition_within_bounds()
     }
 
     /// The refusal, short enough for a build's failure reason: every count, and the ids of what
@@ -633,7 +714,38 @@ impl Equivalence {
                 },
             },
             "type_changed": self.type_changed.count,
+            "edition": self.edition.as_ref().map(|edition| {
+                let class = |tally: &Breakdown, max_ratio: f64| {
+                    serde_json::json!({
+                        "count": tally.count,
+                        "ratio": self.share(tally.count),
+                        "max_ratio": max_ratio,
+                        "ids": ids(&tally.examples),
+                    })
+                };
+                serde_json::json!({
+                    "left": class(&edition.left, edition.bounds.left_max_ratio),
+                    "left_renumbered": class(&edition.left_renumbered, edition.bounds.renumbered_max_ratio),
+                    "joined_renumbered": class(&edition.joined_renumbered, edition.bounds.renumbered_max_ratio),
+                })
+            }),
         })
+    }
+}
+
+/// ADR-0251: what the comparison knows about the new edition.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EditionCompare<'a> {
+    pub(crate) dong_prefix_chars: usize,
+    /// The dongs the new archive's ids fall in.
+    pub(crate) dongs: &'a BTreeSet<String>,
+    /// Every served id of the new archive.
+    pub(crate) served: &'a ServedIds,
+}
+
+impl EditionCompare<'_> {
+    fn dong_held(&self, id: &str) -> bool {
+        self.dongs.contains(prefix(id, self.dong_prefix_chars))
     }
 }
 
@@ -646,12 +758,12 @@ pub(crate) struct Compare<'a> {
     pub(crate) tiny_max_area_tile_units: f64,
     pub(crate) region_chars: Option<usize>,
     pub(crate) limit: usize,
+    pub(crate) edition: Option<EditionCompare<'a>>,
 }
 
 impl Compare<'_> {
     fn region<'id>(&self, id: &'id str) -> Option<&'id str> {
-        let chars = self.region_chars?;
-        Some(id.char_indices().nth(chars).map_or(id, |(at, _)| &id[..at]))
+        Some(prefix(id, self.region_chars?))
     }
 }
 
@@ -709,8 +821,25 @@ pub(crate) fn compare_tile(
     let mut passed = true;
     for (id, before) in &active {
         let Some(after) = new.get(id) else {
-            outcome.missing.add(at(id), limit);
-            passed = false;
+            // ADR-0251: an id the new edition holds nowhere left it; one it still holds is missing.
+            match compare
+                .edition
+                .filter(|edition| !edition.served.contains(id))
+            {
+                Some(edition) => {
+                    let tally = outcome.edition.get_or_insert_with(EditionTally::default);
+                    let class = if edition.dong_held(id) {
+                        &mut tally.left
+                    } else {
+                        &mut tally.left_renumbered
+                    };
+                    class.add(at(id), zoom, compare.region(id), limit);
+                }
+                None => {
+                    outcome.missing.add(at(id), limit);
+                    passed = false;
+                }
+            }
             continue;
         };
         let texts = |view: &View| -> BTreeMap<String, String> {
@@ -763,9 +892,19 @@ pub(crate) fn compare_tile(
         } else {
             let under =
                 maxzoom_tile_under(&points, clipped, (zoom, x, y), extent, compare.max_zoom)?;
-            if active_maxzoom(under)?.contains(id) {
+            let held = active_maxzoom(under)?;
+            if held.contains(id) {
                 passed = false;
                 &mut outcome.extra_inside.unexplained
+            } else if compare
+                .edition
+                .is_some_and(|edition| held.iter().any(|active_id| !edition.dong_held(active_id)))
+            {
+                // ADR-0251: where the active release held a dong the new edition renumbered.
+                &mut outcome
+                    .edition
+                    .get_or_insert_with(EditionTally::default)
+                    .joined_renumbered
             } else {
                 &mut outcome.extra_inside.addition
             }
@@ -852,6 +991,7 @@ pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
     (layer, id_property): (&str, &str),
     (min_zoom, max_zoom): (u8, u8),
     collector: &SampleCollector,
+    served: &ServedIds,
 ) -> anyhow::Result<Equivalence> {
     let mut active = Archive::open(active).context("the active archive")?;
     let mut new = Archive::open(new).context("the new archive")?;
@@ -874,11 +1014,26 @@ pub(crate) fn first_release_gate<A: Read + Seek, B: Read + Seek>(
             tiny_max_area_tile_units: contract.tiny_max_area_tile_units,
             region_chars: collector.prefix_chars,
             limit: contract.example_ids,
+            edition: collector
+                .edition
+                .as_ref()
+                .map(|(edition, dongs)| EditionCompare {
+                    dong_prefix_chars: edition.dong_prefix_chars,
+                    dongs,
+                    served,
+                }),
         },
         collector.regions.keys().cloned(),
     )?;
     outcome.tiny_max_area_tile_units = contract.tiny_max_area_tile_units;
     outcome.additions_max_ratio = contract.additions_max_ratio;
+    if let Some((edition, _)) = &collector.edition {
+        outcome.additions_max_ratio = edition.additions_max_ratio;
+        outcome
+            .edition
+            .get_or_insert_with(EditionTally::default)
+            .bounds = *edition;
+    }
     Ok(outcome)
 }
 

@@ -39,7 +39,8 @@ function unpartedPlan(): PackPlan {
 
 interface Asked {
   key: string;
-  range: { offset?: number; length?: number } | undefined;
+  /// An offset and length, or `{ header }` for a `Range` header.
+  range: { offset?: number; length?: number; header?: string } | undefined;
   etagMatches: string | undefined;
 }
 
@@ -56,6 +57,9 @@ interface BucketOptions {
   hang?: boolean;
   /// The first `stalls` calls never answer, then the bucket answers (a stalled R2 read).
   stalls?: number;
+  /// A `Range` header read returns at most this many bytes, as a pack whose head is longer than
+  /// the first read would.
+  headerBytes?: number;
 }
 
 /// R2 as a stricter bucket than the real one: a range past the object's end is an error (so no
@@ -69,9 +73,14 @@ function strictBucket(objects: Record<string, Uint8Array>, options: BucketOption
   const bucket = {
     async get(
       wanted: string,
-      opts?: { range?: { offset?: number; length?: number }; onlyIf?: { etagMatches?: string } },
+      opts?: { range?: { offset?: number; length?: number } | Headers; onlyIf?: { etagMatches?: string } },
     ) {
-      asked.push({ key: wanted, range: opts?.range, etagMatches: opts?.onlyIf?.etagMatches });
+      const header = opts?.range instanceof Headers ? (opts.range.get("Range") ?? "") : undefined;
+      asked.push({
+        key: wanted,
+        range: header === undefined ? (opts?.range as Asked["range"]) : { header },
+        etagMatches: opts?.onlyIf?.etagMatches,
+      });
       if (options.hang === true) return new Promise(() => undefined);
       if (failed < (options.stalls ?? 0)) {
         failed += 1;
@@ -86,7 +95,14 @@ function strictBucket(objects: Record<string, Uint8Array>, options: BucketOption
       const size = options.reportedSize ?? bytes.length;
       const condition = opts?.onlyIf?.etagMatches;
       if (condition !== undefined && condition !== etag) return { etag, size };
-      const range = opts?.range;
+      if (header !== undefined) {
+        // HTTP serves a range past the end clamped to the object.
+        const [, from = "0", to = "0"] = header.match(/^bytes=(\d+)-(\d+)$/) ?? [];
+        const end = Math.min(Number(to) + 1, bytes.length, Number(from) + (options.headerBytes ?? Number.MAX_SAFE_INTEGER));
+        const slice = bytes.slice(Number(from), end);
+        return { etag, size, body: new Blob([slice]).stream(), arrayBuffer: async () => slice.buffer };
+      }
+      const range = opts?.range as { offset?: number; length?: number } | undefined;
       if (range !== undefined && options.rangeEtag !== undefined) {
         const slice = bytes.slice(range.offset ?? 0, (range.offset ?? 0) + (range.length ?? bytes.length));
         return { etag: options.rangeEtag, size, body: new Blob([slice]).stream(), arrayBuffer: async () => slice.buffer };
@@ -167,20 +183,40 @@ afterEach(() => {
 });
 
 describe("one read rule: head, then the document by range", () => {
-  it("every pack is read by its head and the document by range, the rest of its body unread", async () => {
+  it("every pack is read by one ranged head read and the document by range, never streamed", async () => {
     const objects = await goldenPacks();
     const { bucket, asked, streamed } = strictBucket(objects);
     const resolved = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
     expect(resolved.kind).toBe("document");
-    // One unranged GET per section, cancelled once its head is in, and one range per document,
-    // whose entity tag is compared on the answer, not sent as a condition (ADR-0154).
-    expect(asked.filter((read) => read.range === undefined)).toHaveLength(PACKS.sections.length);
-    const ranges = asked.filter((read) => read.range !== undefined);
-    expect(ranges).toHaveLength(PACKS.sections.length);
-    expect(ranges.every((read) => read.etagMatches === undefined)).toBe(true);
-    expect(streamed.cancelled).toBe(PACKS.sections.length);
-    const packBytes = PACKS.sections.reduce((sum, section) => sum + (objects[key(section)]?.length ?? 0), 0);
-    expect(streamed.pulled).toBeLessThan(packBytes);
+    // Per section: the head by one `Range` header read of the pack's first bytes (root ADR-0233),
+    // then the document by one offset range whose entity tag is compared on the answer (ADR-0154).
+    const heads = asked.filter((read) => read.range?.header !== undefined);
+    expect(heads).toHaveLength(PACKS.sections.length);
+    expect(heads.every((read) => read.range?.header === "bytes=0-262143")).toBe(true);
+    const documents = asked.filter((read) => read.range?.offset !== undefined);
+    expect(documents).toHaveLength(PACKS.sections.length);
+    expect(documents.every((read) => read.etagMatches === undefined)).toBe(true);
+    expect(asked.filter((read) => read.range === undefined)).toEqual([]);
+    expect(streamed.pulled).toBe(0);
+  });
+
+  it("a head longer than the first read is completed by one more range, then answers", async () => {
+    const objects = await goldenPacks();
+    const name = key(PACKS.anchor_section);
+    const { bucket, asked } = strictBucket(objects, { headerBytes: 25 });
+    const resolved = await resolvePacks(reads(bucket), unpartedPlan(), PNU_A);
+    expect(resolved.kind).toBe("document");
+    const ranges = asked.filter((read) => read.key === name).map((read) => read.range);
+    expect(ranges[0]).toEqual({ header: "bytes=0-262143" });
+    expect(ranges[1]).toMatchObject({ offset: 25 });
+    expect(ranges).toHaveLength(3);
+  });
+
+  it("a head completed under another entity tag is a format error, never joined", async () => {
+    const objects = await goldenPacks();
+    const name = key(PACKS.anchor_section);
+    const { bucket } = strictBucket(objects, { headerBytes: 25, rangeEtag: "a-newer-tag" });
+    await expect(readPack(reads(bucket), PACKS.anchor_section, name)).rejects.toThrow("changed or vanished");
   });
 
   it("the ranged member is the publisher's document (golden documents unchanged)", async () => {
@@ -248,7 +284,7 @@ describe("copies: isolate memory for packs, the edge cache only for answers", ()
     const { bucket, asked } = strictBucket(objects, { rangeEtag: "a-newer-tag" });
     await expect(resolvePacks(reads(bucket), unpartedPlan(), PNU_A)).rejects.toBeInstanceOf(PackFormatError);
     // Read once, refused, and not retried: retrying cannot make it right.
-    const ranged = asked.filter((read) => read.key === name && read.range !== undefined);
+    const ranged = asked.filter((read) => read.key === name && read.range?.offset !== undefined);
     expect(ranged).toHaveLength(1);
   });
 });

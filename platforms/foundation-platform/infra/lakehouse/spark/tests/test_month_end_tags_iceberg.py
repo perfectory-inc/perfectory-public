@@ -105,6 +105,47 @@ class MonthEndTagsIceberg(unittest.TestCase):
         rows = self.spark.sql(f"SELECT row_digest FROM proof.{TABLE} VERSION AS OF {year_end}").collect()
         self.assertEqual([row.row_digest for row in rows], ["b"])
 
+    def commit(self, table, digest, **summary):
+        """One append through the DataFrame writer, with the summary properties a loader records."""
+        writer = self.spark.createDataFrame([("9999900000100000001", digest)], "pnu STRING, row_digest STRING") \
+            .writeTo(f"proof.{table}")
+        for key, value in summary.items():
+            writer = writer.option(f"snapshot-property.{key}", value)
+        writer.append()
+        return str(self.spark.sql(f"SELECT snapshot_id FROM proof.{table}.refs WHERE name = 'main'").first()[0])
+
+    def ids(self, table):
+        return {str(row.snapshot_id) for row in
+                self.spark.sql(f"SELECT snapshot_id FROM proof.{table}.snapshots").collect()}
+
+    def test_expiry_keeps_what_a_loader_or_the_gold_rebuild_reads_back(self):
+        """Past the window, an ingest record and the newest Gold pins survive; what nobody reads does not.
+
+        A part lane counts its release loaded only while every part's record is in `main`
+        (silver_refresh `decide_parts`), and the Gold rebuild plans from the newest pins.
+        """
+        expiry = maintenance.load_maintenance_contract()["snapshot_expiry"]
+        later = maintenance.month_start(datetime.now(timezone.utc).year + 1, 6)
+
+        silver = "silver.building_register_unit_areas"
+        self.spark.sql(f"CREATE TABLE proof.{silver} (pnu STRING, row_digest STRING) USING iceberg")
+        unread = self.commit(silver, "a")
+        part_1 = self.commit(silver, "b", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "part-1"})
+        part_2 = self.commit(silver, "c", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "part-2"})
+        maintenance.run_snapshot_expiry(self.spark, "proof", silver, expiry, later, False)
+        self.assertNotIn(unread, self.ids(silver), "a snapshot nothing reads back outlived the window")
+        self.assertLessEqual({part_1, part_2}, self.ids(silver), "expiry removed an ingest record")
+
+        self.spark.sql("CREATE NAMESPACE IF NOT EXISTS proof.gold")
+        gold = "gold.building_panel"
+        self.spark.sql(f"CREATE TABLE proof.{gold} (pnu STRING, row_digest STRING) USING iceberg")
+        old_pins = self.commit(gold, "a", **{maintenance.SOURCE_SNAPSHOTS_PROPERTY: "{}"})
+        new_pins = self.commit(gold, "b", **{maintenance.SOURCE_SNAPSHOTS_PROPERTY: "{}"})
+        after = self.commit(gold, "c")
+        maintenance.run_snapshot_expiry(self.spark, "proof", gold, expiry, later, False)
+        self.assertNotIn(old_pins, self.ids(gold), "superseded Gold pins kept the table from expiring")
+        self.assertLessEqual({new_pins, after}, self.ids(gold), "expiry removed the pins the rebuild plans from")
+
 
 if __name__ == "__main__":
     unittest.main()

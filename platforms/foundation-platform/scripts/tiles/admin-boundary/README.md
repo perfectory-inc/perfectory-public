@@ -40,7 +40,8 @@ last_reviewed: 2026-10-14
 ## 예약 작업
 
 `orchestration/jobs.v1.json` 의 `admin_boundary_release`(spark 3 자리, `started_by: inputs` — 매일 수집이 새 파일을 받은
-실행 뒤, 대체 09:30 UTC). 작업은 꺼진 채 등록됐다. 켜기 전 감독 실행 한 번(자동배포가 돌지 않을 때):
+실행 뒤, 대체 09:30 UTC). 2026-10-14 감독 실행(40 초, `unchanged reason=already_loaded round=202609`) 뒤 켰다. 감독 실행은
+이렇게 했다(자동배포가 돌지 않을 때):
 
 ```bash
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start admin_boundary_release

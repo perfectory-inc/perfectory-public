@@ -243,6 +243,7 @@ impl Lane {
             expected_gold_snapshot: None,
             max_concurrency: 4,
             summary_path: self.work.join("unused.json"),
+            sample_candidates_per_million: None,
         };
         bake::bake(
             &config,
@@ -940,6 +941,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
         expected_gold_snapshot: None,
         max_concurrency: 1,
         summary_path: lane.work.join("unused.json"),
+        sample_candidates_per_million: None,
     };
     let approvals = ApprovedBuildingLinks::default();
     let documents = rows
@@ -987,11 +989,20 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             })
             .collect::<anyhow::Result<Vec<_>>>()
     };
-    let checked = bake::check_round_trip(LANE, &laid_out(&documents)?, &[], &documents, &[], None)?;
+    let checked = bake::check_round_trip(
+        LANE,
+        &laid_out(&documents)?,
+        &[],
+        &documents,
+        &[],
+        None,
+        None,
+    )?;
     assert_eq!((checked.compared, checked.equal), (2, 2));
     checked.require_equal(UNIT)?;
     assert!(
-        bake::check_round_trip(LANE, &laid_out(&changed)?, &[], &documents, &[], None).is_err(),
+        bake::check_round_trip(LANE, &laid_out(&changed)?, &[], &documents, &[], None, None)
+            .is_err(),
         "packs of another document were accepted"
     );
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
@@ -1096,9 +1107,65 @@ fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyh
         .iter()
         .map(as_pack)
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let checked = bake::check_round_trip(LANE, &[], &[served], &documents, &[], None)?;
+    let checked = bake::check_round_trip(LANE, &[], &[served], &documents, &[], None, None)?;
     assert_eq!((checked.compared, checked.equal), (2, 0));
     assert!(checked.require_equal(UNIT).is_err());
+    Ok(())
+}
+
+/// A lane too small to draw gate (나)'s sample at the contract's rate is baked at a rate that does
+/// (2026-10-14: land-rights, 422,592 PNUs, drew 877 and could never pass); a large lane keeps the
+/// contract's rate, and a lane smaller than the sample offers every PNU.
+#[test]
+fn every_lane_is_baked_at_a_candidate_rate_that_yields_the_sample() -> anyhow::Result<()> {
+    let gate_policy = &section_pack_policy()?.cutover_gate;
+    let sample = u64::try_from(gate_policy.latency_sample_size)?;
+    for documents in [1_u64, 5_000, sample, 422_592, 2_000_000, 39_861_511] {
+        let rate = gate::candidate_rate(documents)?;
+        assert!(
+            rate >= gate_policy.sample_candidates_per_million,
+            "{documents}: {rate}"
+        );
+        assert!(rate <= 1_000_000, "{documents}: {rate}");
+        // The expected draw reaches the sample, or takes every PNU of a smaller lane.
+        let expected = documents.saturating_mul(rate) / 1_000_000;
+        assert!(
+            expected >= sample.min(documents),
+            "{documents} PNUs at {rate} per million draw {expected}"
+        );
+    }
+    // At the rate the bake records, every document of a one-dong lane of 3,000 is a candidate
+    // (no pack is needed to see which documents the bake would record).
+    let rows = (0..3_000_u32)
+        .map(|n| empty_row(&format!("{UNIT}1{n:04}0000")))
+        .collect::<Vec<_>>();
+    let documents = rows
+        .iter()
+        .map(|row| {
+            let document = building_document::document_with_approvals(
+                &provenance(SNAPSHOT),
+                row,
+                &ApprovedBuildingLinks::default(),
+            )?;
+            as_pack(&document)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let all = bake::check_round_trip(
+        LANE,
+        &[],
+        &[],
+        &documents,
+        &[],
+        None,
+        Some(gate::candidate_rate(3_000)?),
+    )?;
+    assert_eq!(all.candidates.len(), documents.len());
+    let contract = bake::check_round_trip(LANE, &[], &[], &documents, &[], None, None)?;
+    assert!(
+        contract.candidates.len() < documents.len() / 10,
+        "{}",
+        contract.candidates.len()
+    );
     Ok(())
 }
 
@@ -1113,7 +1180,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     for n in 0..200_000_u64 {
         let pnu = format!("99999{:010}1{:08}", n % 9_999_999_999, n);
         assert_eq!(gate::sample_rank(&pnu)?, gate::sample_rank(&pnu)?);
-        candidates += u64::from(gate::is_sample_candidate(&pnu)?);
+        candidates += u64::from(gate::is_sample_candidate_at(&pnu, per_million)?);
     }
     let expected = 200_000 * per_million / 1_000_000;
     assert!(

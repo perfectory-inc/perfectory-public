@@ -213,8 +213,10 @@ enum Command {
     RunBuildingRegisterFloorCycle,
     StopBuildingRegisterFloorCycle,
     StopGoldPanelRebuild,
+    StopLakehouseMaintenance,
     RunSilverRefresh,
     StopSilverRefresh,
+    StopParcelTileBake,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
@@ -550,10 +552,16 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::StopGoldPanelRebuild => {
             Box::pin(async { remote_lakehouse_job::stop_gold_panel_rebuild() })
         }
+        Command::StopLakehouseMaintenance => {
+            Box::pin(async { remote_lakehouse_job::stop_lakehouse_maintenance() })
+        }
         Command::RunBuildingRegisterFloorCycle => Box::pin(remote_lakehouse_job::run_floor_cycle()),
         Command::RunSilverRefresh => Box::pin(remote_lakehouse_job::run_silver_refresh()),
         Command::StopSilverRefresh => {
             Box::pin(async { remote_lakehouse_job::stop_silver_refresh() })
+        }
+        Command::StopParcelTileBake => {
+            Box::pin(async { remote_lakehouse_job::stop_parcel_tile_bake() })
         }
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::CollectBuildingHubBronzeCatalogRecoveryInventory => {
@@ -1135,9 +1143,11 @@ where
         Some("run-national-data-collection") => Ok(Command::RunNationalDataCollection),
         Some("stop-building-register-floor-cycle") => Ok(Command::StopBuildingRegisterFloorCycle),
         Some("stop-gold-panel-rebuild") => Ok(Command::StopGoldPanelRebuild),
+        Some("stop-lakehouse-maintenance") => Ok(Command::StopLakehouseMaintenance),
         Some("run-building-register-floor-cycle") => Ok(Command::RunBuildingRegisterFloorCycle),
         Some("run-silver-refresh") => Ok(Command::RunSilverRefresh),
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
+        Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("collect-building-hub-bronze-catalog-recovery-inventory") => {
             Ok(Command::CollectBuildingHubBronzeCatalogRecoveryInventory)
