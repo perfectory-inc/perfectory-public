@@ -100,6 +100,14 @@ services:
       KAFKA_BOOTSTRAP_SERVER: "broker:29092"
       KAFKA_SCHEMAREGISTRY_URL: "http://datahub-gms:8080/schema-registry/api/"
       LOG_AGGREGATOR_ENDPOINT: ""
+      # The image's logback writes com.linkedin DEBUG and com.datahub.graphql DEBUG/TRACE to two
+      # rolling files under /tmp/datahub/logs/gms, inside the container's layer on the system disk.
+      # Their rollover cap did not hold (its date pattern is yyyy-dd-MM): on 2026-10-15 about 50
+      # files of 100MB had piled up and the system disk ran out. The appenders' level filters read
+      # these names; OFF matches no event, so neither file is written. INFO still goes to stdout
+      # (capped json-file) and gms.log.
+      logging.appender.debug_file.level: "OFF"
+      logging.appender.graphql_debug_file.level: "OFF"
       MAE_CONSUMER_ENABLED: "true"
       MCE_CONSUMER_ENABLED: "true"
       MCL_CONSUMER_BATCH_ENABLED: "true"
