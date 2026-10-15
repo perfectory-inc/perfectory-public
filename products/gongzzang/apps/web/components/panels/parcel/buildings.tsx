@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { BuildingUnit } from "@/lib/api/building-units";
 import type { BuildingsResponse } from "@/lib/api/buildings";
 import { unitFloorText } from "@/lib/api/unit-floor";
-import { fetchUnitPrices, type UnitPrices } from "@/lib/api/unit-price-edge";
+import { fetchUnitPrices, UNLINKED_BUILDING_ID } from "@/lib/api/unit-price-edge";
 import type { PanelStackEntry } from "@/lib/panel/types";
 
 export function ParcelBuildingsCard({
@@ -18,21 +18,8 @@ export function ParcelBuildingsCard({
 }) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
-  // The units' prices are the parcel's own document (root ADR-0190): one request per parcel, sent
-  // when a unit list is first shown (unlinked units are shown at once), joined to the units by id.
-  const hasUnits = data.buildings.some((b) => b.units.length > 0) || data.unlinked_units.length > 0;
-  const [unitsShown, setUnitsShown] = useState(data.unlinked_units.length > 0);
-  const prices = useQuery({
-    queryKey: ["unit-prices", entry.id],
-    queryFn: ({ signal }) => fetchUnitPrices(entry.id, signal),
-    enabled: hasUnits && unitsShown,
-    staleTime: 60 * 60_000,
-  });
-  const priceState: PriceState = {
-    prices: prices.data,
-    loading: prices.isFetching && prices.data === undefined,
-    failed: prices.isError,
-  };
+  // A building's unit prices are read when its unit list is first opened (root ADR-0204 §7).
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
   if (data.buildings.length === 0 && data.unlinked_units.length === 0) {
     return <div className="p-6 text-center text-[var(--color-muted)]">{t("none")}</div>;
@@ -65,13 +52,20 @@ export function ParcelBuildingsCard({
               </div>
               <details
                 className="group mt-2"
-                onToggle={(event) => event.currentTarget.open && setUnitsShown(true)}
+                onToggle={(event) =>
+                  event.currentTarget.open && setOpened((ids) => new Set(ids).add(b.id))
+                }
               >
                 <summary className="cursor-pointer text-[length:var(--text-caption)] text-[var(--color-accent)]">
                   <span className="group-open:hidden">{t("units.show")}</span>
                   <span className="hidden group-open:inline">{t("units.hide")}</span>
                 </summary>
-                <UnitList units={b.units} price={priceState} />
+                <UnitList
+                  units={b.units}
+                  pnu={entry.id}
+                  buildingId={b.id}
+                  shown={opened.has(b.id)}
+                />
               </details>
             </li>
           );
@@ -82,21 +76,45 @@ export function ParcelBuildingsCard({
           <h3 className="font-semibold">
             {floorText("buildingFallback")} · {t("unknown")}
           </h3>
-          <UnitList units={data.unlinked_units} price={priceState} />
+          {/* Unlinked units are shown at once, so their nil-UUID document is read at once. */}
+          <UnitList
+            units={data.unlinked_units}
+            pnu={entry.id}
+            buildingId={UNLINKED_BUILDING_ID}
+            shown
+          />
         </section>
       )}
-      {/* PNU 의 entry.id 는 i18n 라벨 표시 외 미사용 — 본 view 는 list-only */}
       <span className="hidden">{entry.id}</span>
     </div>
   );
 }
 
-type PriceState = { prices: UnitPrices | undefined; loading: boolean; failed: boolean };
-
-function UnitList({ units, price }: { units: BuildingUnit[]; price: PriceState }) {
+function UnitList({
+  units,
+  pnu,
+  buildingId,
+  shown,
+}: {
+  units: BuildingUnit[];
+  pnu: string;
+  buildingId: string;
+  shown: boolean;
+}) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
   const [visibleCount, setVisibleCount] = useState(100);
+  const prices = useQuery({
+    queryKey: ["by-pnu", "unit-price", pnu, buildingId],
+    queryFn: ({ signal }) => fetchUnitPrices(pnu, buildingId, signal),
+    enabled: shown && units.length > 0,
+    staleTime: 60 * 60_000,
+  });
+  const price = {
+    prices: prices.data,
+    loading: prices.isFetching && prices.data === undefined,
+    failed: prices.isError,
+  };
   // Whatever the lane says wins; until it answers, or when it fails or has no document, a v2
   // building document's own prices are drawn, so no merge order leaves a gap (root ADR-0190).
   const historyOf = (unit: BuildingUnit) =>
