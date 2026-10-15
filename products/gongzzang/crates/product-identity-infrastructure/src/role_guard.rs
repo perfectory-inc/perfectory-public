@@ -57,8 +57,6 @@ mod tests {
             UserKind::Individual,
             None,
             None,
-            None,
-            None,
             roles,
             None,
             None,

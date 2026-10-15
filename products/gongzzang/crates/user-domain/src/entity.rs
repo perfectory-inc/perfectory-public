@@ -1,9 +1,8 @@
-//! `User` Aggregate (RDS 동적) — spec § 5.1 18 필드.
+//! `User` Aggregate (RDS 동적) — spec § 5.1. 사업자 인증은 `business_verification_queue` 가 유일한 출처 (root ADR-0258).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shared_kernel::broker_license::BrokerLicense;
-use shared_kernel::business_number::BusinessNumber;
 use shared_kernel::email::Email;
 use shared_kernel::id::{Id, UserMarker};
 
@@ -67,7 +66,7 @@ impl UserRole {
     }
 }
 
-/// `User` Aggregate (spec § 5.1 — 18 필드).
+/// `User` Aggregate (spec § 5.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     /// `usr_<26-char ULID>` 형식 `ID`.
@@ -82,10 +81,6 @@ pub struct User {
     pub display_name: String,
     /// 사용자 종류 (개인/법인).
     pub user_kind: UserKind,
-    /// 사업자등록번호 (검증된 경우만 `Some`).
-    pub business_number: Option<BusinessNumber>,
-    /// 사업자 검증 시각.
-    pub business_verified_at: Option<DateTime<Utc>>,
     /// 공인중개사 자격번호.
     pub broker_license_number: Option<BrokerLicense>,
     /// 중개사 검증 시각.
@@ -137,8 +132,6 @@ impl User {
             user_kind,
             None,
             None,
-            None,
-            None,
             Vec::new(),
             None,
             None,
@@ -155,7 +148,6 @@ impl User {
     ///
     /// 위 [`Self::try_new`]와 동일한 에러에 더해:
     /// - `phone_kr_hash` `Some`이면 64-char hex string이어야 — 위반 → [`UserError::InvalidPhoneHash`].
-    /// - `business_verified_at` `Some`인데 `business_number` `None` → [`UserError::BusinessVerificationInconsistent`].
     /// - `broker_verified_at` `Some`인데 `broker_license_number` `None` → [`UserError::BrokerVerificationInconsistent`].
     // Aggregate 풀 생성자 — 의도적으로 전 필드 명시.
     #[allow(clippy::too_many_arguments)]
@@ -166,8 +158,6 @@ impl User {
         phone_kr_hash: Option<String>,
         display_name: &str,
         user_kind: UserKind,
-        business_number: Option<BusinessNumber>,
-        business_verified_at: Option<DateTime<Utc>>,
         broker_license_number: Option<BrokerLicense>,
         broker_verified_at: Option<DateTime<Utc>>,
         roles: Vec<UserRole>,
@@ -201,9 +191,6 @@ impl User {
             }
         }
 
-        if business_verified_at.is_some() && business_number.is_none() {
-            return Err(UserError::BusinessVerificationInconsistent);
-        }
         if broker_verified_at.is_some() && broker_license_number.is_none() {
             return Err(UserError::BrokerVerificationInconsistent);
         }
@@ -215,8 +202,6 @@ impl User {
             phone_kr_hash,
             display_name: display_name.to_owned(),
             user_kind,
-            business_number,
-            business_verified_at,
             broker_license_number,
             broker_verified_at,
             roles,
@@ -231,22 +216,6 @@ impl User {
     }
 
     // ── 도메인 mutation 메서드 ────────────────────────────────────────────────
-
-    /// 사업자 검증 완료. `business_number`/`business_verified_at` 설정 + `version` bump.
-    ///
-    /// 같은 `User`에 중복 호출 시 가장 최근 시각으로 갱신해요 (idempotent).
-    pub fn verify_business(&mut self, business_number: BusinessNumber, at: DateTime<Utc>) {
-        self.business_number = Some(business_number);
-        self.business_verified_at = Some(at);
-        self.bump_version(at);
-    }
-
-    /// 사업자 검증 취소. `business_verified_at`만 비우고 `business_number`는 보존해요
-    /// (재검증 가능).
-    pub const fn revoke_business_verification(&mut self, at: DateTime<Utc>) {
-        self.business_verified_at = None;
-        self.bump_version(at);
-    }
 
     /// 공인중개사 검증 완료. `broker_license_number`/`broker_verified_at` 설정 +
     /// `version` bump.
@@ -326,12 +295,6 @@ impl User {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.deleted_at.is_none()
-    }
-
-    /// 사업자 검증 완료 여부.
-    #[must_use]
-    pub const fn is_business_verified(&self) -> bool {
-        self.business_verified_at.is_some()
     }
 
     /// 중개사 검증 완료 여부.

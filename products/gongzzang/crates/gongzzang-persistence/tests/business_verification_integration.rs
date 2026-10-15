@@ -12,6 +12,8 @@
 #![cfg(feature = "integration")]
 
 mod common;
+#[path = "business_verification_integration/one_place.rs"]
+mod one_place;
 
 use std::sync::Arc;
 

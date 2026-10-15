@@ -181,6 +181,28 @@ impl BusinessVerification {
         Ok(())
     }
 
+    /// `Approved` → `Revoked`. 어드민이 승인을 취소 (메모 필수). 취소 전 상태는
+    /// `business_verification_status_history` 에 남아요.
+    ///
+    /// # Errors
+    ///
+    /// 현재 상태가 `Approved` 가 아니면 [`BusinessVerificationError::InvalidTransition`].
+    /// `note` 가 비어있으면 [`BusinessVerificationError::EmptyReviewerNote`].
+    /// `note` 가 2000자 초과 시 [`BusinessVerificationError::ReviewerNoteTooLong`].
+    pub fn revoke(
+        &mut self,
+        reviewer: Id<UserMarker>,
+        note: String,
+        at: DateTime<Utc>,
+    ) -> Result<(), BusinessVerificationError> {
+        let normalized = Self::normalize_note(Some(note), Some("revoke"))?;
+        self.transition_to(BusinessVerificationStatus::Revoked, at)?;
+        self.reviewer_id = Some(reviewer);
+        self.reviewer_note = normalized;
+        self.reviewed_at = Some(at);
+        Ok(())
+    }
+
     /// `NeedsMoreInfo` → `Pending`. 사용자가 새 문서로 재제출.
     ///
     /// `submitted_documents` 는 새 R2 keys 로 교체되고 reviewer 필드 (`reviewer_id`,

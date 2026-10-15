@@ -42,6 +42,17 @@ pub trait BusinessVerificationRepository: Send + Sync {
         user_id: &Id<UserMarker>,
     ) -> Result<Vec<BusinessVerification>, RepoError>;
 
+    /// 사용자에게 지금 효력이 있는 사업자 인증 — 가장 최근에 승인된(`Approved`) 큐 항목.
+    /// 취소(`Revoked`)·거부된 항목은 효력이 없어요. 사업자 인증의 유일한 출처예요 (root ADR-0258).
+    ///
+    /// # Errors
+    ///
+    /// DB 통신 실패 시 [`RepoError::Database`].
+    async fn find_verified_business(
+        &self,
+        user_id: &Id<UserMarker>,
+    ) -> Result<Option<BusinessVerification>, RepoError>;
+
     /// 저장 (`INSERT` or `UPDATE`). Optimistic lock 충돌 시 [`RepoError::Conflict`].
     ///
     /// # Errors
