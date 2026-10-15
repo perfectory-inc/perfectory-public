@@ -4,7 +4,7 @@ use std::sync::Arc;
 use apache_avro::Schema;
 use intelligence_contracts::{
     schema_subject_for_topic, DeadLetterRecord, DeadLetterSourceMetadata, DEAD_LETTER_TOPIC,
-    FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC,
+    FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC,
 };
 use knowledge_application::{
     KnowledgeProjectionError, KnowledgeProjectionPort, UpsertKnowledgeSource,
@@ -17,8 +17,8 @@ use messaging_infrastructure::{
     avro_codec::{ConfluentAvroCodec, EventCodecError},
     dead_letter_publisher::{dead_letter_to_avro_value, DeadLetterPublisher},
     foundation_knowledge_avro::{
-        foundation_knowledge_source_upserted_fixture_schema_str, FoundationKnowledgeEventError,
-        FoundationKnowledgeSourceUpsertedEvent,
+        FoundationKnowledgeEventError, FoundationKnowledgeSourceUpsertedEvent,
+        FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_SCHEMA,
     },
     kafka::{
         EventOffsetCommitter, EventPayloadPublisher, KafkaCommitError, KafkaConsumerConfig,
@@ -56,19 +56,6 @@ pub fn foundation_knowledge_consumer_config_from_lookup(
         return Ok(None);
     };
 
-    let fixture_contract_enabled = parse_bool_env(
-        lookup("FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT"),
-        "FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT",
-    )?
-    .unwrap_or(false);
-
-    if !fixture_contract_enabled {
-        return Err(
-            "FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT=true is required until Foundation Platform publishes the approved knowledge event contract"
-                .to_string(),
-        );
-    }
-
     let group_id = lookup("FOUNDATION_KNOWLEDGE_CONSUMER_GROUP_ID")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -80,7 +67,7 @@ pub fn foundation_knowledge_consumer_config_from_lookup(
     let source_topic = lookup("FOUNDATION_KNOWLEDGE_CONSUMER_SOURCE_TOPIC")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC.to_string());
+        .unwrap_or_else(|| FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC.to_string());
     let session_timeout_ms = parse_positive_u64_env(
         lookup("FOUNDATION_KNOWLEDGE_CONSUMER_SESSION_TIMEOUT_MS"),
         "FOUNDATION_KNOWLEDGE_CONSUMER_SESSION_TIMEOUT_MS",
@@ -227,17 +214,14 @@ impl FoundationKnowledgeConsumerRuntime {
             timeout_seconds: config.karapace_timeout_seconds,
         })
         .map_err(|_| KnowledgeConsumerRuntimeError::Karapace)?;
-        let source_schema_text = foundation_knowledge_source_upserted_fixture_schema_str();
+        let source_schema_text = FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_SCHEMA;
         let dead_letter_schema_text =
             include_str!("../../../schemas/intelligence.dead-letter.v1.avsc");
         let source_subject = schema_subject_for_topic(&config.consumer.source_topic);
         let dead_letter_subject = schema_subject_for_topic(DEAD_LETTER_TOPIC);
-        karapace
-            .set_backward_transitive(&source_subject)
-            .await
-            .map_err(|_| KnowledgeConsumerRuntimeError::Karapace)?;
+        // Foundation owns and registers the source subject; an unregistered subject stops start-up.
         let source_schema_id = karapace
-            .register_avro_schema(&source_subject, source_schema_text)
+            .lookup_avro_schema(&source_subject, source_schema_text)
             .await
             .map_err(|_| KnowledgeConsumerRuntimeError::Karapace)?;
         karapace
@@ -443,7 +427,7 @@ fn decode_upsert_event(
     if schema_id != schemas.source_schema_id {
         return Err(DecodeFailure {
             schema_id: Some(schema_id),
-            safe_message: "unexpected foundation knowledge fixture schema id".to_string(),
+            safe_message: "unexpected foundation knowledge schema id".to_string(),
         });
     }
 
@@ -582,17 +566,6 @@ fn offset_commit_error(error: KafkaCommitError) -> KnowledgeConsumerError {
     }
 }
 
-fn parse_bool_env(raw: Option<String>, key: &str) -> Result<Option<bool>, String> {
-    let Some(raw) = raw else {
-        return Ok(None);
-    };
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" => Ok(Some(true)),
-        "false" | "0" | "no" => Ok(Some(false)),
-        _ => Err(format!("{key} must be true or false")),
-    }
-}
-
 fn parse_positive_u64_env(raw: Option<String>, key: &str, default: u64) -> Result<u64, String> {
     let Some(raw) = raw else {
         return Ok(default);
@@ -658,30 +631,11 @@ mod tests {
     }
 
     #[test]
-    fn config_requires_fixture_contract_gate_when_bootstrap_is_set() {
-        let values = BTreeMap::from([(
-            "FOUNDATION_KNOWLEDGE_CONSUMER_BOOTSTRAP_SERVERS",
-            "127.0.0.1:19092",
-        )]);
-
-        let error = foundation_knowledge_consumer_config_from_lookup(|key| {
-            values.get(key).map(|value| value.to_string())
-        })
-        .unwrap_err();
-
-        assert!(error.contains("FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT=true"));
-    }
-
-    #[test]
-    fn config_accepts_explicit_fixture_contract_for_local_consumer() {
+    fn config_defaults_to_the_foundation_owned_topic() {
         let values = BTreeMap::from([
             (
                 "FOUNDATION_KNOWLEDGE_CONSUMER_BOOTSTRAP_SERVERS",
                 "127.0.0.1:19092",
-            ),
-            (
-                "FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT",
-                "true",
             ),
             ("FOUNDATION_KNOWLEDGE_CONSUMER_GROUP_ID", "ip-knowledge"),
             ("FOUNDATION_KNOWLEDGE_CONSUMER_CLIENT_ID", "ip-knowledge-1"),
@@ -698,7 +652,7 @@ mod tests {
         assert_eq!(config.client_id, "ip-knowledge-1");
         assert_eq!(
             config.source_topic,
-            "intelligence-platform.fixture.foundation-knowledge-source.upserted.v1"
+            "foundation-platform.knowledge.source-upserted.v1"
         );
         assert_eq!(config.session_timeout_ms, 45_000);
     }

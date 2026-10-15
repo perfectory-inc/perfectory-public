@@ -49,6 +49,17 @@ def record(outcome):
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps({"command": command, "env": env, "prefix": prefix, "outcome": outcome,
                               "started": started, "ended": time.monotonic()}) + "\n")
+if command == "plan-parcel-by-pnu-pack-shards":
+    # The manifests' plan (FAKE_PLAN: its shards), of the Gold snapshot the table is at; without
+    # one the plan fails and the bake starts from the one-digit prefixes.
+    record("planned" if os.environ.get("FAKE_PLAN") else "no-plan")
+    if not os.environ.get("FAKE_PLAN"):
+        sys.exit("Error: the catalog cannot be read")
+    with open(os.environ[P + "PACK_SHARD_PLAN_PATH"], "w") as out:
+        json.dump({"table": "gold.parcel_panel", "gold_iceberg_snapshot_id": open(os.environ["FAKE_GOLD_FILE"]).read().strip(),
+                   "manifest_record_count": 12, "max_rows_per_run": 4,
+                   "shards": [{"prefix": shard, "estimated_rows": 1} for shard in json.loads(os.environ["FAKE_PLAN"])]}, out)
+    sys.exit(0)
 assert command == "export-parcel-by-pnu-section-packs", command
 assert os.environ.get(P + "CONFIRM_PACK_EXPORT") == "true" and os.environ.get(P + "OUTPUT_STORAGE_DRIVER") == "r2"
 # Long enough that shards run side by side when the bake lets them.
@@ -141,8 +152,12 @@ class PackBake(unittest.TestCase):
         self.assertIn(f"complete: generation 2 holds {len(PNUS)} documents of Gold snapshot 202 in {len(LEAVES)} shards",
                       result.stdout)
         self.assertIn("shard 999991 holds more rows than one run may keep; split into 9999910..9999919", result.stdout)
-        # Only the export runs; the publish stays a separate dispatcher action.
-        self.assertEqual({call["command"] for call in calls}, {"export-parcel-by-pnu-section-packs"})
+        # Without a plan the bake starts from the one-digit prefixes; only the export runs, the
+        # publish stays a separate dispatcher action.
+        self.assertIn("could not plan the shards from the manifests", result.stdout)
+        self.assertEqual([call["outcome"] for call in calls if call["command"] != "export-parcel-by-pnu-section-packs"],
+                         ["no-plan"])
+        calls = [call for call in calls if call["command"] == "export-parcel-by-pnu-section-packs"]
         for call in calls:
             self.assertEqual(call["env"][PREFIX + "PACK_GENERATION"], "2")
             self.assertNotIn(PREFIX + "TARGET_PATCH", call["env"])
@@ -160,6 +175,24 @@ class PackBake(unittest.TestCase):
             widest = max(widest, running)
         self.assertGreater(widest, 1)
         self.assertLessEqual(widest, 4)
+
+    def test_a_fresh_generation_bakes_the_manifests_plan_pinned_and_side_by_side_from_the_first(self):
+        # 2026-10-13: a parcel kind lane's generation ran 243 shards from the one-digit prefixes,
+        # 134 over prefixes that hold no row, and its first shard alone.
+        planned = ["999991" + digit for digit in "0123456789"]
+        result, calls = self.run_bake(FAKE_PLAN=json.dumps(planned))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("planned 10 shards of Gold snapshot 202 from its manifests", result.stdout)
+        exports = [call for call in calls if call["command"] == "export-parcel-by-pnu-section-packs"]
+        # Only the planned shards run: no empty prefix, no refused-then-split shard.
+        self.assertEqual(sorted(call["prefix"] for call in exports), sorted(planned))
+        self.assertEqual(self.summaries(), sorted(planned))
+        self.assertIn(f"complete: generation 2 holds {len(PNUS)} documents of Gold snapshot 202 in 10 shards",
+                      result.stdout)
+        # Every shard is pinned to the plan's snapshot, the first one too, and they overlap at once.
+        self.assertEqual({call["env"].get(PREFIX + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID") for call in exports}, {"202"})
+        first = min(exports, key=lambda call: call["started"])
+        self.assertTrue(any(call is not first and call["started"] < first["ended"] for call in exports))
 
     def test_a_rerun_resumes_baked_shards_and_goes_straight_to_split_children(self):
         # A leaf of the deepest split fails every attempt: by then every split has happened.

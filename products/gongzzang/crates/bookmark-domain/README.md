@@ -18,7 +18,9 @@ last_reviewed: 2026-07-29
 - `BookmarkExternal` — 외부 R2 entity 북마크 (polymorphic
   `target_kind` + `target_id`).
 - `BookmarkExternalKind` enum 4값 (`parcel`, `court_auction`,
-  `manufacturer`, `industrial_complex`).
+  `manufacturer`, `industrial_complex`). `industrial_complex` 의 `target_id` 는 lakehouse
+  complex id(UUIDv5)만 — DB 가 강제해요
+  ([루트 ADR-0226](../../../../docs/adr/0226-gongzzang-complex-target-id-is-the-lakehouse-complex-id.md)).
 - `BookmarkRepository` trait — 구현체는 sub-project 5에서 추가.
 
 ## 의존

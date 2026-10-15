@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "decision": "docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md",
-  "purpose": "The by-PNU panel Gold tables (and the unit price history, root ADR-0190) the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes. `incremental` (root ADR-0180) lets a rebuild recompute only the PNUs whose inputs changed and merge them, up to max_changed_key_fraction of the Gold, after a parity sample of parity_sample_keys unchanged PNUs agrees; past it, or without it, the rebuild is full.",
+  "purpose": "The by-PNU panel Gold tables (and the unit price history, root ADR-0190) the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes. `incremental` (root ADR-0180) lets a rebuild recompute only the PNUs whose inputs changed and merge them, up to max_changed_key_fraction of the Gold, after a parity sample of parity_sample_keys unchanged PNUs agrees; past it, or without it, the rebuild is full. A producer's optional input (the parcel lineage) that does not exist or holds no rows refuses the plan, unless the table names it under `absent_inputs_accepted` with its reason; that entry is refused once the input exists.",
   "tables": {
     "gold.parcel_panel": {
       "unit": "parcel",
@@ -11,6 +11,9 @@
       "max_row_loss_reason": "One row per current parcel. A monthly national parcel refresh moves the count by far less than 1% (parcels split, merge or retire a few thousand at a time out of about 40 million); losing more means an input lost a region or a join broke, which must not reach the bake.",
       "unmeasured_inputs": {
         "silver.parcel_lineage": "Absent from the catalog when the parcel rebuild was measured (2026-10-03) and still absent on 2026-10-04, so the 20g cap was shown only with --no-carry-lineage, where the run already peaked at 18.0GiB anon. Carrying the lineage adds a join; measure it before a run may read it (root ADR-0139)."
+      },
+      "absent_inputs_accepted": {
+        "silver.parcel_lineage": "Its producer (parcel_lineage_to_silver) is not scheduled and has never written the table, so the panel and its kinds are built with --no-carry-lineage and attached_via stays empty (2026-10-14). The plan refuses this entry once the table exists, and refuses the table while it holds no rows."
       },
       "incremental": {
         "max_changed_key_fraction": 0.3,

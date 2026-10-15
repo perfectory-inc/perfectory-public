@@ -187,6 +187,10 @@ export type FlowStatus =
   | "never"
   | "off"
   | "manual"
+  | "on_event"
+  | "not_started"
+  | "store"
+  | "outside"
   | "unread";
 
 /** One icon and one word per state, so colour is never the only signal. */
@@ -204,6 +208,10 @@ export const STATUS_TEXT: Record<FlowStatus, { icon: string; word: string }> = {
   never: { icon: "·", word: "아직 안 돌았어요" },
   off: { icon: "–", word: "꺼짐" },
   manual: { icon: "–", word: "자동 작업 없음" },
+  on_event: { icon: "✋", word: "일이 생기면 사람이" },
+  not_started: { icon: "·", word: "아직 안 만듦" },
+  store: { icon: "▤", word: "저장소" },
+  outside: { icon: "◇", word: "작업 대상 아님" },
   unread: { icon: "?", word: "기록을 못 읽음" },
 };
 
@@ -284,6 +292,10 @@ const STATUS_RANK: Record<FlowStatus, number> = {
   never: 11,
   off: 12,
   manual: 13,
+  on_event: 14,
+  not_started: 15,
+  store: 16,
+  outside: 17,
 };
 
 /** The state that speaks for a set of jobs; `manual` when there is none. */
@@ -295,6 +307,47 @@ export function strongest(states: (JobState | undefined)[]): JobState | null {
 /** The status a dataset or edge shows for the jobs that make it. */
 export function flowStatus(state: JobState | null): FlowStatus {
   return state?.status ?? "manual";
+}
+
+/** The kinds a scheduled job writes (root ADR-0234 §1): only these, and baked surfaces, can miss a job. */
+const JOB_WRITTEN_KINDS = new Set(["silver_table", "gold_table", "reference_table"]);
+
+/**
+ * What a dataset shows (root ADR-0234): the state of the jobs that write it; for a lakehouse
+ * dataset no job writes, why (`unscheduled`, Foundation's value), "자동 작업 없음" only when it says
+ * nothing or `needs_job`; a Postgres serving group is a store and other surfaces and source groups
+ * are not job steps.
+ */
+export function nodeStatus(node: RegistryNode, state: JobState | null): FlowStatus {
+  if (state) return state.status;
+  if (JOB_WRITTEN_KINDS.has(node.type ?? "")) {
+    if (node.unscheduled === "on_event") return "on_event";
+    if (node.unscheduled === "not_started") return "not_started";
+    return "manual";
+  }
+  if (node.type === "serving_surface" && BAKED_SURFACES.has(node.surface_kind ?? "")) return "manual";
+  return node.type === "serving_group" ? "store" : "outside";
+}
+
+/** The pipeline graph's own status words for a node that is not a job step (`docs/catalog/pipeline-graph.v1.json`). */
+export const REGISTRY_STATUS_LABEL: Record<string, string> = {
+  implemented: "만들어 둠",
+  partial: "일부만",
+  waiting: "기다리는 중",
+  planned: "계획",
+  missing: "아직 없음",
+  blocked: "막힘",
+  manual_approval: "사람 승인 필요",
+  disabled: "꺼 둠",
+  collection_available: "받을 수 있음",
+  schema_defined: "표 정의됨",
+  unknown: "모름",
+};
+
+/** The line under a node no job writes: the registry's own status for a node that is not a job step. */
+export function registryNote(node: RegistryNode, status: FlowStatus): string | null {
+  if (status !== "outside" || !node.status) return null;
+  return REGISTRY_STATUS_LABEL[node.status] ?? node.status;
 }
 
 /** The one line under a status: how long is left, what it waits for, or how fresh it is. */

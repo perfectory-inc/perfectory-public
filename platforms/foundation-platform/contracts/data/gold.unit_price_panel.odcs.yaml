@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU의 건물마다 그 건물이 싣는 호들의 공시가격 이력(루트 ADR-0190, ADR-0204). 건물에 연결되지 않은 호는 nil UUID 행에 모인다. 건물 패널과 떨어져 있어 가격 판은 건물 행을 건드리지 않는다."
+  purpose: "PNU마다 그 PNU 건물 문서가 싣는 호들의 공시가격 이력(루트 ADR-0190). 건물 패널과 떨어져 있어 가격 판은 건물 행을 건드리지 않는다."
 team:
   name: "foundation-platform"
 servers:
@@ -22,10 +22,6 @@ schema:
     physicalType: "table"
     properties:
       - name: "pnu"
-        physicalType: "string"
-        logicalType: "string"
-        required: true
-      - name: "building_id"
         physicalType: "string"
         logicalType: "string"
         required: true
@@ -49,7 +45,7 @@ schema:
         required: true
     quality:
       - type: "text"
-        description: "one row per (pnu, building_id)"
+        description: "one row per pnu"
       - type: "text"
         description: "pnu matches the cadastral grammar"
       - type: "text"
@@ -70,7 +66,6 @@ customProperties:
   - property: "sortOrder"
     value:
       - "pnu"
-      - "building_id"
   - property: "upstreamDatasets"
     value:
       - "silver.building_register_titles"

@@ -2240,6 +2240,11 @@
           "required": true
         },
         {
+          "name": "lineage_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "attached_via_json",
           "logical_type": "string",
           "required": false
@@ -3412,11 +3417,6 @@
           "required": true
         },
         {
-          "name": "building_id",
-          "logical_type": "string",
-          "required": true
-        },
-        {
           "name": "units_json",
           "logical_type": "string",
           "required": true
@@ -3441,12 +3441,11 @@
         "source_snapshot_id"
       ],
       "sort_order": [
-        "pnu",
-        "building_id"
+        "pnu"
       ],
       "write_distribution": "range",
       "quality_gates": [
-        "one row per (pnu, building_id)",
+        "one row per pnu",
         "pnu matches the cadastral grammar",
         "every row has a priced unit",
         "row_digest contains content only",

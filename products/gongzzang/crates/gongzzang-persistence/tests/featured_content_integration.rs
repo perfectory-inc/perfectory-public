@@ -150,3 +150,35 @@ async fn find_active_filters_by_time_window_and_feature_kind() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].target_id, "lst_active");
 }
+
+/// 루트 ADR-0226: 산업단지 대상은 lakehouse complex id(UUIDv5)만 — Catalog id(UUIDv7)는 거부.
+#[tokio::test]
+async fn industrial_complex_target_accepts_only_lakehouse_complex_id() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let admin = seed_admin(&pool, "zsub-featured-ic", "featured-ic@example.com").await;
+    let repo = PgFeaturedContentRepository::new(pool);
+    let now = Utc::now();
+    let complex = |target_id: &str| {
+        FeaturedContent::try_new(
+            FeaturedContentTargetKind::IndustrialComplex,
+            target_id,
+            FeaturedContentFeatureKind::HomepageFeatured,
+            1,
+            now,
+            now + Duration::hours(1),
+            None,
+            now,
+        )
+        .expect("valid featured content")
+    };
+    let ctx =
+        || MutationContext::new_user_action(admin.clone(), "corr_01HXY8RRPT4F8S1L03", "create");
+
+    repo.save(&complex("00000000-0000-5000-8000-000000000001"), ctx())
+        .await
+        .expect("UUIDv5 lakehouse complex id is accepted");
+    repo.save(&complex("00000000-0000-7000-8000-000000000001"), ctx())
+        .await
+        .expect_err("UUIDv7 Catalog id must be rejected");
+}

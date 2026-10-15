@@ -18,13 +18,11 @@ import {
   registerMapEditOverlayLayers,
 } from "@/lib/map/map-edit-overlay";
 import {
-  LISTING_MARKER_RENDER_MAX_ZOOM,
-  LISTING_MARKER_RENDER_MIN_ZOOM,
-} from "@/lib/map/map-zoom-policy";
-import { ALL_ACTIVE_MARKER_FILTER_HASH } from "@/lib/map/marker-tile-contract";
+  ALL_ACTIVE_MARKER_FILTER_HASH,
+  LISTING_MARKER_ID_PROPERTY,
+} from "@/lib/map/marker-tile-contract";
 import {
-  buildListingMarkerDeltaLayerRegistration,
-  buildListingMarkerLayerRegistration,
+  buildListingMarkerSourceRegistrations,
   buildParcelAnchorMarkerLayerRegistrations,
   LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
@@ -98,6 +96,7 @@ export async function setupMapboxRuntime(
     let activeRuntimeManifest = runtimeManifest;
     const stopRuntimeManifestPolling = startFoundationVectorManifestPolling({
       initialManifest: runtimeManifest,
+      intervalMs: (latest) => latest.refresh_after_seconds * 1_000,
       startImmediately: false,
       fetchManifest: async (signal, previous, etag) => {
         const result = await fetchVectorTileRuntimeManifest(fetch, undefined, {
@@ -479,18 +478,13 @@ async function setupListingMarkerTileLayers(
   }
 
   try {
-    const registration = buildListingMarkerLayerRegistration({
+    // The server state arrives later and is applied by retargetListingMarkerSources.
+    const registrations = buildListingMarkerSourceRegistrations({
       filterHash: ALL_ACTIVE_MARKER_FILTER_HASH,
-      minzoom: LISTING_MARKER_RENDER_MIN_ZOOM,
-      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
-    });
-    const deltaRegistration = buildListingMarkerDeltaLayerRegistration({
-      baseVersion: null,
-      minzoom: 0,
-      maxzoom: LISTING_MARKER_RENDER_MAX_ZOOM,
+      projectionVersion: undefined,
     });
 
-    for (const markerRegistration of [registration, deltaRegistration]) {
+    for (const markerRegistration of registrations) {
       if (!mb.getSource?.(markerRegistration.sourceId)) {
         mb.addSource(markerRegistration.sourceId, markerRegistration.source);
       }
@@ -503,10 +497,10 @@ async function setupListingMarkerTileLayers(
     if (typeof mb.on === "function") {
       const onListingMarkerClick = (e: unknown) => {
         const evt = e as {
-          features?: Array<{ properties?: { id?: string; detail_ref?: string } }>;
+          features?: Array<{ properties?: Record<string, unknown> }>;
         };
         const props = evt.features?.[0]?.properties;
-        const listingId = props?.detail_ref ?? props?.id;
+        const listingId = props?.detail_ref ?? props?.[LISTING_MARKER_ID_PROPERTY];
         if (typeof listingId === "string" && listingId.length > 0) {
           onListingClick(listingId);
         }

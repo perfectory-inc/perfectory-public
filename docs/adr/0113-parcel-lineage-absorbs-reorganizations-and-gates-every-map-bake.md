@@ -153,3 +153,18 @@
   코드변경안내 첨부가 1순위이고, 이 절의 이름 규칙은 생성일·폐지일을 더해 2순위로 쓴다. 위 결정 본문은 고치지 않았다.
 
 - 2026-10-04: §5·§9(계보 안의 동 짝 계산, 선행 코드 지도 CLI 파일)는 코드 변경 정본에서 읽는 것으로 바뀌었다: [ADR-0145](./0145-one-source-of-truth-for-region-code-changes.md) 위 결정 본문은 고치지 않았다.
+
+- 2026-10-14: 근거 사례를 보탠다(결정 본문은 고치지 않았다).
+  - **한국 토지이동 종목.** 「공간정보의 구축 및 관리 등에 관한 법률」 제77~86조가 토지이동을 신규등록·등록전환·분할·
+    합병·지목변경·바다로 된 토지의 등록말소·축척변경·등록사항 정정·행정구역 명칭변경·도시개발사업 등으로 나누고,
+    토지이동이력의 `토지이동사유코드`·`토지이동사유` 칸이 그 종목을 싣는다. §1 의 `relation` 은 그중 PNU 가 바뀌는
+    것만이다: 분할→`split`, 합병→`merge`, 등록전환(임야대장→토지대장)→`registration_conversion`, 관할구역변경(사유코드
+    52)→`jurisdiction_transfer`. 지목변경처럼 번호가 그대로인 이동은 계보 행이 아니다. 상대 지번은 사유 문구
+    ("…번에서 분할", "…번과 합병되어 말소", "산 …번에서 등록전환")에서 읽는다(`parcel_lineage.py`).
+  - **미국 카운티 APN 계보(parent/child).** 카운티 assessor 는 split 을 부모 1 → 자식 N, combination 을 부모 N → 자식 1
+    로 기록하고 부모를 지우지 않고 비활성으로 남긴다(Accela "parcel genealogy": <https://help.accela.com/Content/User/parcelGenealogyEstablish.htm>,
+    카운티 연례 split/combine 보고서 예: <https://eldoradocounty.ca.gov/files/assets/county/v/1/documents/government/assessor/2023_mb_split-combine-report.pdf>).
+    Esri ArcGIS Parcel Fabric 은 새 레코드가 옛 필지를 historic 으로 돌리고 `Created By Record`·`Retired By Record` 로
+    이어, 계보를 그 레코드를 따라 거슬러 오른다(<https://pro.arcgis.com/en/pro-app/latest/help/data/parcel-editing/viewparcellineage.htm>).
+    §1 의 append-only 간선·`effective_date`·`evidence_ref` 가 같은 자리다. 다른 점: 미국은 모든 간선에 사건 레코드(문서
+    번호)가 있지만, 여기서는 공식 짝이 없는 이동(관할이동·재지번)도 싣고 그 차이를 `grade` 로 드러낸다.

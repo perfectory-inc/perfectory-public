@@ -118,7 +118,37 @@ bake_shard() {
   return 1
 }
 
-queue=("${BY_PNU_FIRST_SHARDS[@]}"); done_shards=(); failed=()
+# A fresh generation starts from the shards its Gold snapshot's manifests plan
+# (`plan-<lane>-by-pnu-pack-shards`, lakehouse_snapshot_scan::shard_plan): no shard over a prefix
+# that holds no row, shards over the row cap split before they run, and the plan's snapshot pins
+# every shard from the first, so they run side by side at once. On 2026-10-13 a parcel kind lane's
+# generation ran 243 shards from the one-digit prefixes, 134 of them over prefixes with no row
+# (37% of the shard time) and the first one alone. A resumed generation keeps the shards it has;
+# a plan that cannot be made falls back to the one-digit prefixes and splitting on refusal.
+initial=("${BY_PNU_FIRST_SHARDS[@]}")
+if [[ -z "${pin}" ]]; then
+  plan="${SHARDS}/plan.json"
+  if env "${P}_PACK_SHARD_PLAN_PATH=${plan}" "${PUBLISHER_BIN}" "plan-${LANE}-by-pnu-pack-shards" \
+      >"${SHARDS}/plan.log" 2>&1 && mapfile -t planned < <(python3 -I - "${plan}" <<'PY'
+import json, re, sys
+plan = json.load(open(sys.argv[1]))
+snapshot = str(plan["gold_iceberg_snapshot_id"])
+shards = [shard["prefix"] for shard in plan["shards"]]
+if not re.fullmatch(r"[0-9]+", snapshot) or not shards or not all(re.fullmatch(r"[0-9]{1,10}", s) for s in shards):
+    sys.exit("the plan names no snapshot or no valid shard")
+print(snapshot)
+print("\n".join(shards))
+PY
+  ) && ((${#planned[@]} > 1)); then
+    pin="${planned[0]}"
+    initial=("${planned[@]:1}")
+    log "planned ${#initial[@]} shards of Gold snapshot ${pin} from its manifests; it pins every shard"
+  else
+    log "could not plan the shards from the manifests (${SHARDS}/plan.log); starting from the one-digit prefixes"
+  fi
+fi
+
+queue=("${initial[@]}"); done_shards=(); failed=()
 declare -A running=()
 while ((${#queue[@]} || ${#running[@]})); do
   # Unpinned, one shard at a time: the first summary decides the snapshot. After a failure, start

@@ -85,24 +85,46 @@ async fn register_complex_requires_bearer_token() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
+/// The catalog reads over `catalog.parcel`, `catalog.building` and `catalog.building_unit` are
+/// retired (root ADR-0194 §2): the R2 edge serves those facts, and the tables are dropped once no
+/// release reads them. A route coming back would read a table that is gone, so each must stay 404.
 #[tokio::test]
-async fn update_parcel_kind_requires_bearer_token() -> Result<(), Box<dyn Error>> {
+async fn retired_postgres_copy_routes_are_not_mounted() -> Result<(), Box<dyn Error>> {
     let state = Arc::new(AppState::bootstrap_for_test()?);
-    let app = router(state);
-    let parcel_id = uuid::Uuid::now_v7();
-    let body = serde_json::json!({ "new_kind": "factory", "if_match_version": 1 });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method(Method::PATCH)
-                .uri(format!("/catalog/v1/parcels/{parcel_id}/kind"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(body.to_string()))?,
-        )
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let id = uuid::Uuid::now_v7();
+    let pnu = "9999900101100010000";
+    for (method, uri) in [
+        (Method::GET, format!("/catalog/v1/parcels/{id}")),
+        (Method::PATCH, format!("/catalog/v1/parcels/{id}/kind")),
+        (
+            Method::GET,
+            format!("/catalog/v1/parcels/by-pnu/{pnu}/buildings"),
+        ),
+        (
+            Method::GET,
+            format!("/catalog/v1/parcels/by-pnu/{pnu}/units"),
+        ),
+        (Method::GET, format!("/catalog/v1/buildings/{id}")),
+        (Method::GET, format!("/catalog/v1/buildings/{id}/units")),
+        (
+            Method::GET,
+            "/catalog/v1/buildings/by-register-pk/1-1".to_owned(),
+        ),
+        (
+            Method::GET,
+            format!("/catalog/v1/complexes/{id}/anchor-summary"),
+        ),
+    ] {
+        let response = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(method.clone())
+                    .uri(&uri)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
+    }
     Ok(())
 }
 

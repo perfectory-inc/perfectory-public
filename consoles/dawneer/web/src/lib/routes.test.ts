@@ -6,8 +6,8 @@ describe("routes", () => {
   it("sends the old 운영 현황 and 데이터 카탈로그 addresses to the 데이터 흐름 screen", () => {
     expect(movedTo("/operations")).toBe("/flow");
     expect(movedTo("/catalog")).toBe("/flow/catalog");
-    expect(resolveRoute("/operations")).toEqual({ page: "flow", tab: "timeline" });
-    expect(resolveRoute("/catalog")).toEqual({ page: "flow", tab: "catalog" });
+    expect(resolveRoute("/operations")).toEqual({ page: "flow", tab: "timeline", focus: null });
+    expect(resolveRoute("/catalog")).toEqual({ page: "flow", tab: "catalog", focus: null });
     expect(movedTo("/flow")).toBeNull();
   });
 
@@ -15,8 +15,23 @@ describe("routes", () => {
     // 운영 현황: running now and the job list, quality checks, collection freshness;
     // 데이터 카탈로그: search and an entity's detail and lineage (opened from a search result).
     expect(FLOW_TABS.map((tab) => tab.id)).toEqual(["timeline", "jobs", "quality", "freshness", "catalog"]);
-    for (const tab of FLOW_TABS) expect(resolveRoute(`/flow/${tab.id}`)).toEqual({ page: "flow", tab: tab.id });
-    expect(resolveRoute("/flow/unknown")).toEqual({ page: "flow", tab: "timeline" });
+    for (const tab of FLOW_TABS) expect(resolveRoute(`/flow/${tab.id}`)).toEqual({ page: "flow", tab: tab.id, focus: null });
+    expect(resolveRoute("/flow/unknown")).toEqual({ page: "flow", tab: "timeline", focus: null });
+  });
+
+  it("opens the panel a problem's Slack notice links to", () => {
+    expect(resolveRoute("/flow?node=silver-synthetic-table")).toEqual({
+      page: "flow",
+      tab: "timeline",
+      focus: { kind: "dataset", id: "silver-synthetic-table" },
+    });
+    expect(resolveRoute("/flow/jobs?job=gold_synthetic")).toEqual({
+      page: "flow",
+      tab: "jobs",
+      focus: { kind: "job", id: "gold_synthetic" },
+    });
+    expect(resolveRoute("/flow?node=a%20b")).toMatchObject({ focus: { kind: "dataset", id: "a b" } });
+    expect(resolveRoute("/operations?node=x")).toMatchObject({ page: "flow", focus: { kind: "dataset", id: "x" } });
   });
 
   it("has one menu for the flow and none for the moved pages", () => {

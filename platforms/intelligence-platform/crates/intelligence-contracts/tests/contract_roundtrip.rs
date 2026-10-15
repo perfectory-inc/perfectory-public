@@ -4,7 +4,7 @@ use chrono::Utc;
 use intelligence_contracts::{
     sanitize_safe_error_message, schema_subject_for_topic, DeadLetterRecord,
     DeadLetterSourceMetadata, EventEnvelope, EventHeader, TraceContext, DEAD_LETTER_TOPIC,
-    DEFAULT_SAFE_ERROR_MESSAGE, FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC,
+    DEFAULT_SAFE_ERROR_MESSAGE, FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC,
     NORMALIZATION_SUBMISSION_REQUESTED_TOPIC, SAFE_ERROR_MESSAGE_MAX_CHARS,
 };
 
@@ -55,8 +55,8 @@ fn schema_subject_uses_topic_name_strategy() {
         "intelligence.dead-letter.v1-value"
     );
     assert_eq!(
-        schema_subject_for_topic(FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC),
-        "intelligence-platform.fixture.foundation-knowledge-source.upserted.v1-value"
+        schema_subject_for_topic(FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC),
+        "foundation-platform.knowledge.source-upserted.v1-value"
     );
 }
 

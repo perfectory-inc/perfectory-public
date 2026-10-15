@@ -29,11 +29,13 @@ import pathlib
 import platform
 import shutil
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
@@ -212,7 +214,13 @@ def tool_pin(
     if not version or not sha256:
         raise FetchError(f"{spec['pins']} must set {spec['version_variable']} and {sha_variable}")
     url = spec["url"].format(
-        version=version, os=os_name, arch=arch_name, extension=spec["extension"][system]
+        version=version,
+        os=os_name,
+        arch=arch_name,
+        extension=spec["extension"][system],
+        # A release that names its assets by Rust target triple (cargo-nextest) maps each OS to
+        # its triple here; the pin variables keep the short OS and ARCH names.
+        target=spec.get("target", {}).get(system, ""),
     )
     return url, _check_sha(sha256)
 
@@ -254,6 +262,31 @@ def prune(cache_dir: pathlib.Path, keep: set[str]) -> int:
     return removed
 
 
+def extract_member(archive: pathlib.Path, member: str, output: pathlib.Path) -> None:
+    """Write one named file out of a verified zip or tar.gz archive, executable.
+
+    Python does it rather than `tar`: on Windows the `tar` a shell finds first may be GNU tar,
+    which cannot read the zip archives Windows releases ship.
+    """
+    try:
+        if zipfile.is_zipfile(archive):
+            with zipfile.ZipFile(archive) as source:
+                payload = source.read(member)
+        else:
+            with tarfile.open(archive, mode="r:*") as source:
+                extracted = source.extractfile(member)
+                if extracted is None:
+                    raise KeyError(member)
+                payload = extracted.read()
+    except (KeyError, OSError, tarfile.TarError, zipfile.BadZipFile) as error:
+        raise FetchError(f"{archive.name} has no member {member}: {error}") from error
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = output.with_name(f".{output.name}.{os.getpid()}.partial")
+    staging.write_bytes(payload)
+    staging.chmod(0o755)
+    os.replace(staging, output)
+
+
 def _copy_out(source: pathlib.Path, output: pathlib.Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = output.with_name(f".{output.name}.{os.getpid()}.partial")
@@ -268,6 +301,10 @@ def _parser() -> argparse.ArgumentParser:
     tool = commands.add_parser("tool", help="fetch one registered tool for this platform")
     tool.add_argument("name")
     tool.add_argument("--output", type=pathlib.Path, required=True)
+    tool.add_argument(
+        "--member",
+        help="write this one file from inside the (zip or tar.gz) archive instead of the archive",
+    )
     prefetch = commands.add_parser("prefetch", help="fill the cache with every pin for this platform")
     prefetch.add_argument(
         "--prune", action="store_true", help="also remove cached files no current pin names"
@@ -285,7 +322,11 @@ def main(argv: Iterable[str] | None = None) -> int:
             pin = tool_pin(registry, arguments.name, system, machine)
             if pin is None:
                 raise FetchError(f"{arguments.name} is not pinned for {system}-{machine}")
-            _copy_out(fetch(*pin), arguments.output)
+            archive = fetch(*pin)
+            if arguments.member:
+                extract_member(archive, arguments.member, arguments.output)
+            else:
+                _copy_out(archive, arguments.output)
         elif arguments.command == "prefetch":
             pins = all_pins(registry, system, machine)
             for _, url, sha256 in pins:

@@ -15,6 +15,7 @@ describe("Gongzzang listing marker tile source", () => {
   it("builds the Gongzzang-owned listing marker vector source through same-origin proxy", () => {
     const source = buildListingMarkerTileSource({
       filterHash: ALL_ACTIVE_MARKER_FILTER_HASH,
+      projectionVersion: null,
       minzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.minZoom,
       maxzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.maxZoom,
       origin: "http://localhost:3900",
@@ -41,6 +42,7 @@ describe("Gongzzang listing marker tile source", () => {
 
     const source = buildListingMarkerTileSource({
       filterHash: registeredHash,
+      projectionVersion: null,
       minzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.minZoom,
       maxzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.maxZoom,
       origin: "http://localhost:3900",
@@ -97,6 +99,7 @@ describe("Gongzzang listing marker tile source", () => {
     expect(() =>
       buildListingMarkerTileSource({
         filterHash: "listing filter with spaces",
+        projectionVersion: null,
         minzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.minZoom,
         maxzoom: GONGZZANG_MAP_ZOOM_POLICY.markers.listing.maxZoom,
         origin: "http://localhost:3900",
@@ -106,6 +109,7 @@ describe("Gongzzang listing marker tile source", () => {
     expect(() =>
       buildListingMarkerTileSource({
         filterHash: ALL_ACTIVE_MARKER_FILTER_HASH,
+        projectionVersion: null,
         minzoom: 19,
         maxzoom: 18,
         origin: "http://localhost:3900",

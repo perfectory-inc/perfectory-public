@@ -14,6 +14,7 @@ pub(super) async fn find_detail_by_id(
         r"
         SELECT {LISTING_FULL_COLUMNS_WITH_L_ALIAS},
                COALESCE(bm.cnt, 0)::int8 AS jc_bookmark_count,
+               (SELECT COUNT(*) FROM listing_view_event v WHERE v.listing_id = l.id)::int8 AS jc_view_count,
                CASE WHEN ub.user_id IS NOT NULL THEN true ELSE false END AS jc_is_bookmarked
         FROM listing l
         LEFT JOIN (
@@ -40,6 +41,7 @@ pub(super) async fn find_detail_by_id(
     let listing = row_to_listing(&row)?;
     let bookmark_count: i64 = row.try_get("jc_bookmark_count").unwrap_or(0_i64);
     let is_bookmarked: bool = row.try_get("jc_is_bookmarked").unwrap_or(false);
+    let view_count: i64 = row.try_get("jc_view_count").map_err(map_sqlx_err)?;
 
     let photo_rows = sqlx::query(
         r"
@@ -71,6 +73,7 @@ pub(super) async fn find_detail_by_id(
     Ok(Some(ListingDetail {
         listing,
         photos,
+        view_count,
         bookmark_count,
         is_bookmarked,
     }))

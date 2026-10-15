@@ -105,10 +105,13 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
     uow.create_complex(&first).await.expect("first create");
 
     // 2) 같은 official_complex_code 로 두 번째 시도 — ComplexOfficialCodeConflict 로 실패해야 함.
+    //    id 는 코드에서 파생되므로(root ADR-0250) 같은 코드의 두 번째 산단은 같은 id 를 갖는다.
     let mut conflict = sample_complex();
     conflict
         .official_complex_code
         .clone_from(&first.official_complex_code);
+    conflict.id = first.id;
+    conflict.lakehouse_complex_id = first.lakehouse_complex_id;
     let err = uow
         .create_complex(&conflict)
         .await
@@ -121,30 +124,31 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
         "expected ComplexOfficialCodeConflict, got {err:?}"
     );
 
-    // 3) **rollback 검증**: 두 번째 시도의 complex row 가 DB 에 없고, outbox 에도
-    //    그 complex_id 로 IndustrialComplexCreated 이벤트가 *생기지 않았어야* 한다.
-    let conflict_row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM catalog.industrial_complex WHERE id = $1")
-            .bind(conflict.id.as_uuid())
-            .fetch_optional(&pool)
+    // 3) **rollback 검증**: 두 번째 시도는 첫 산단과 같은 id 이므로, 그 id 의 row 는 여전히 첫 산단의
+    //    것(이름 그대로)이어야 하고 outbox 의 IndustrialComplexCreated 이벤트도 첫 산단의 1개뿐이어야 한다.
+    let stored_names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM catalog.industrial_complex WHERE id = $1")
+            .bind(first.id.as_uuid())
+            .fetch_all(&pool)
             .await
             .expect("conflict row check");
-    assert!(
-        conflict_row.is_none(),
+    assert_eq!(
+        stored_names,
+        vec![first.name.clone()],
         "atomicity violated — conflict complex row leaked into DB"
     );
 
-    let conflict_outbox: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT event_id FROM catalog.outbox_event
+    let created_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM catalog.outbox_event
          WHERE payload->>'type' = $1 AND payload->>'complex_id' = $2",
     )
     .bind("catalog.industrial_complex.created.v3")
     .bind(conflict.id.to_string())
-    .fetch_optional(&pool)
+    .fetch_one(&pool)
     .await
     .expect("conflict outbox check");
-    assert!(
-        conflict_outbox.is_none(),
+    assert_eq!(
+        created_events, 1,
         "atomicity violated — outbox row leaked for failed insert"
     );
 
@@ -164,6 +168,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
     let created = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
+            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E imported complex".to_owned(),
             kind: IndustrialComplexKind::General,
             primary_bjdong_code: Some(first_primary_bjdong_code.clone()),
@@ -183,6 +188,7 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
     let updated = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
+            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E imported complex updated".to_owned(),
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: Some(second_primary_bjdong_code.clone()),
@@ -245,12 +251,12 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
     let complexes = uow
         .upsert_complexes_by_official_code(&[
             UpsertIndustrialComplexCommand {
+                lakehouse_complex_id: Some(derived_lakehouse_complex_id(&first_official_code)),
                 official_complex_code: first_official_code,
                 name: "E2E shared bjdong complex A".to_owned(),
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some(shared_bjdong_code.clone()),
                 area_m2: 1_000,
-                lakehouse_complex_id: None,
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
@@ -275,12 +281,12 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 lot_sales_status_raw: None,
             },
             UpsertIndustrialComplexCommand {
+                lakehouse_complex_id: Some(derived_lakehouse_complex_id(&second_official_code)),
                 official_complex_code: second_official_code,
                 name: "E2E shared bjdong complex B".to_owned(),
                 kind: IndustrialComplexKind::National,
                 primary_bjdong_code: Some(shared_bjdong_code),
                 area_m2: 2_000,
-                lakehouse_complex_id: None,
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
@@ -333,6 +339,7 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
     let created = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
+            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E complex without a legal-dong code".to_owned(),
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
@@ -373,6 +380,7 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
     // A second identical command must change nothing rather than bump the version.
     let repeated = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
+            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             official_complex_code,
             name: "E2E complex without a legal-dong code".to_owned(),
             kind: IndustrialComplexKind::Agricultural,
@@ -405,7 +413,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let repo = PgCatalogRepository::new(pool.clone());
     let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
-    let lakehouse_complex_id = synthetic_lakehouse_complex_id();
+    let lakehouse_complex_id = derived_lakehouse_complex_id(&official_complex_code);
 
     let sourced = fully_sourced_command(official_complex_code.clone(), lakehouse_complex_id);
 
@@ -472,6 +480,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     assert_eq!(cleared.effect, UpsertIndustrialComplexEffect::Updated);
     let cleared = cleared.complex;
     assert_eq!(cleared.id, created.id, "the natural key must keep its id");
+    assert_eq!(cleared.id.as_uuid(), lakehouse_complex_id.as_uuid());
     assert_eq!(cleared.status, None);
     assert_eq!(cleared.address_text, None);
     assert_eq!(cleared.designated_date, None);
@@ -644,14 +653,15 @@ const fn identity_only_command() -> UpsertIndustrialComplexCommand {
 
 fn sample_complex() -> IndustrialComplex {
     let now = Utc::now();
+    let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
     IndustrialComplex {
-        id: ComplexId::new(Uuid::now_v7()),
-        official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
+        id: ComplexId::for_official_complex_code(&official_complex_code),
+        lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
+        official_complex_code,
         name: format!("E2E 테스트 산단 {}", Uuid::new_v4()),
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some(random_primary_bjdong_code()),
         area_m2: 1_234_567,
-        lakehouse_complex_id: None,
         status: None,
         sido_code: None,
         sigungu_code: None,
@@ -716,17 +726,10 @@ async fn cleanup_by_complex_id(pool: &PgPool, complex_id: ComplexId) {
     .expect("cleanup outbox");
 }
 
-/// A unique id in the shape a derived lakehouse `complex_id` has: UUID version 5, RFC 4122 variant.
-///
-/// Shaped rather than actually derived. The stored column's CHECK is what this exercises — it
-/// rejects a locally minted v7, which is the confusion the column exists to prevent — and this
-/// crate does not carry the `v5` feature because nothing in it derives one. Uniqueness matters
-/// because the column is unique where present, so two runs must not collide.
-fn synthetic_lakehouse_complex_id() -> LakehouseComplexId {
-    let mut bytes = *Uuid::new_v4().as_bytes();
-    bytes[6] = (bytes[6] & 0x0f) | 0x50;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    LakehouseComplexId::new(Uuid::from_bytes(bytes))
+/// The lakehouse id an upsert command carries for this code: the code's derivation, the same value
+/// as the complex id (root ADR-0250). The unit of work stores it as given, so a fixture states it.
+fn derived_lakehouse_complex_id(official_complex_code: &str) -> LakehouseComplexId {
+    LakehouseComplexId::new(ComplexId::for_official_complex_code(official_complex_code).as_uuid())
 }
 
 fn random_primary_bjdong_code() -> String {

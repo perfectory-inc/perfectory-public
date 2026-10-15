@@ -95,7 +95,17 @@ async fn metrics_handler(
     // publicly readable.  /healthz and /readyz remain open because liveness and
     // readiness probes must not require credentials.
     if let Some(config) = state.inbound_auth.as_ref().filter(|c| c.required) {
-        if !crate::auth::bearer_token_matches(&headers, config) {
+        if let Some(policy) = config.identity_policy.as_ref() {
+            if let Err(rejection) = crate::auth::authorize_with_identity(
+                policy.as_ref(),
+                &headers,
+                &[intelligence_normalization_application::METRICS_IDENTITY_CAPABILITY],
+            )
+            .await
+            {
+                return rejection.into_response();
+            }
+        } else if !crate::auth::bearer_token_matches(&headers, config) {
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(crate::auth::AuthErrorResponse {

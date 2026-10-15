@@ -1,13 +1,10 @@
-use super::building_units::{
-    building_response, decode_unit_cursor, encode_unit_cursor, unit_response,
-};
 use super::{
-    complex_anchor_summary_response, db_reference_marker_tile_enabled_from_vars, get_marker_tile,
-    get_marker_tile_contract, get_vector_tile_manifest, industrial_complex_list_response,
-    industrial_complex_response, list_complex_blueprints, parcel_marker_anchor_rebuild_response,
-    request_id_from_headers, require_exact_manifest_action_path, vector_tile_artifact_response,
-    ApiError, MarkerTilePath, MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH,
-    VECTOR_TILE_MANIFEST_PROMOTE_PATH, VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
+    db_reference_marker_tile_enabled_from_vars, get_marker_tile, get_marker_tile_contract,
+    get_vector_tile_manifest, industrial_complex_list_response, industrial_complex_response,
+    list_complex_blueprints, parcel_marker_anchor_rebuild_response, request_id_from_headers,
+    require_exact_manifest_action_path, vector_tile_artifact_response, ApiError, MarkerTilePath,
+    MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH, VECTOR_TILE_MANIFEST_PROMOTE_PATH,
+    VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
 };
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
@@ -15,15 +12,14 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::Json;
 use catalog_application::ports::ParcelMarkerAnchorRebuildReport;
 use catalog_domain::{
-    Building, ComplexAnchorSummary, IndustrialComplex, IndustrialComplexKind,
-    MarkerAnchorAlgorithm, VectorTileArtifact, VectorTileLineage, ZoomRange,
+    IndustrialComplex, IndustrialComplexKind, MarkerAnchorAlgorithm, VectorTileArtifact,
+    VectorTileLineage, ZoomRange,
 };
-use catalog_infrastructure::BuildingUnitRow;
 use chrono::Utc;
 use foundation_contracts::catalog::ManufacturerResponse;
 use foundation_shared_kernel::ids::{
-    BuildingId, ComplexId, FileAssetId, ManufacturerId, ParcelId, SourceRecordId,
-    VectorTileArtifactId, VectorTileManifestId,
+    ComplexId, FileAssetId, ManufacturerId, ParcelId, SourceRecordId, VectorTileArtifactId,
+    VectorTileManifestId,
 };
 use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix, ObjectUrlTemplate};
 use lakehouse_domain::IndustrialComplexGoldPointer;
@@ -40,13 +36,6 @@ async fn pool() -> PgPool {
     PgPool::connect(&url)
         .await
         .expect("connect to the database in DATABASE_URL")
-}
-
-fn assert_f64_near(actual: f64, expected: f64) {
-    assert!(
-        (actual - expected).abs() < f64::EPSILON,
-        "expected {actual} to equal {expected}"
-    );
 }
 
 #[test]
@@ -320,34 +309,6 @@ fn industrial_complex_response_includes_thin_gold_pointer() {
     assert_eq!(gold_pointer.profile_row_count, 10);
 }
 
-#[test]
-fn complex_anchor_summary_response_preserves_anchor_source_and_extent() {
-    let complex_id = ComplexId::new(Uuid::now_v7());
-    let summary = ComplexAnchorSummary::new(
-        complex_id,
-        127.123_470_234_80,
-        36.123_430,
-        127.123_470,
-        36.123_420,
-        127.123_470_234_90,
-        36.123_440,
-        2,
-    )
-    .expect("valid anchor summary");
-
-    let response = complex_anchor_summary_response(&summary);
-
-    assert_eq!(response.complex_id, complex_id.as_uuid());
-    assert_eq!(response.position_source, "pnu_anchor");
-    assert_f64_near(response.center_lng, 127.123_470_234_80);
-    assert_f64_near(response.center_lat, 36.123_430);
-    assert_f64_near(response.min_lng, 127.123_470);
-    assert_f64_near(response.min_lat, 36.123_420);
-    assert_f64_near(response.max_lng, 127.123_470_234_90);
-    assert_f64_near(response.max_lat, 36.123_440);
-    assert_eq!(response.anchor_count, 2);
-}
-
 /// A complex whose sourced description columns are all absent.
 ///
 /// These route tests are about the response shape and the Gold pointer join, not about the
@@ -469,157 +430,6 @@ fn industrial_complex_list_response_attaches_gold_pointer_by_complex_id() {
     );
 }
 
-#[test]
-fn building_response_maps_building_read_model() {
-    let building_id = BuildingId::new(Uuid::now_v7());
-    let parcel_id = ParcelId::new(Uuid::now_v7());
-    let updated_at = Utc::now();
-    let building = Building {
-        id: building_id,
-        parcel_id,
-        register_pk: "11710-100254143".to_owned(),
-        purpose_code: Some("02000".to_owned()),
-        structure_code: Some("11".to_owned()),
-        floor_area_m2: Some(1234.5),
-        stories: Some(5),
-        below_ground_floors: 2,
-        has_rooftop: true,
-        rooftop_area_m2: Some(13.87),
-        rooftop_usage: "기타제2종근린생활시설 · 주차장".to_owned(),
-        built_year: Some(2020),
-        updated_at,
-    };
-
-    let response = building_response(&building);
-
-    assert_eq!(response.id, building_id.as_uuid());
-    assert_eq!(response.parcel_id, parcel_id.as_uuid());
-    assert_eq!(response.register_pk, "11710-100254143");
-    assert_eq!(response.purpose_code.as_deref(), Some("02000"));
-    assert_eq!(response.structure_code.as_deref(), Some("11"));
-    assert_eq!(response.floor_area_m2, Some(1234.5));
-    assert_eq!(response.stories, Some(5));
-    assert_eq!(response.below_ground_floors, 2);
-    assert!(response.has_rooftop);
-    assert_eq!(response.rooftop_area_m2, Some(13.87));
-    assert_eq!(response.rooftop_usage, "기타제2종근린생활시설 · 주차장");
-    assert_eq!(response.built_year, Some(2020));
-    assert_eq!(response.updated_at, updated_at);
-}
-
-/// A building the register said nothing about still answers, with nulls where nothing was said.
-///
-/// The failure this guards: migration 20260903000003 made five columns nullable, and a read
-/// model that keeps promising values turns every NULL row into a decode error — the route
-/// answered 500 for such parcels until ADR-0076 §1 (this change).
-#[test]
-fn a_building_with_unstated_facts_maps_to_nulls_not_errors() {
-    let building = Building {
-        id: BuildingId::new(Uuid::now_v7()),
-        parcel_id: ParcelId::new(Uuid::now_v7()),
-        register_pk: "26290-88".to_owned(),
-        purpose_code: None,
-        structure_code: None,
-        floor_area_m2: None,
-        stories: None,
-        below_ground_floors: 0,
-        has_rooftop: false,
-        rooftop_area_m2: None,
-        rooftop_usage: String::new(),
-        built_year: None,
-        updated_at: Utc::now(),
-    };
-
-    let response = building_response(&building);
-
-    assert_eq!(response.purpose_code, None);
-    assert_eq!(response.floor_area_m2, None);
-    assert_eq!(response.built_year, None);
-}
-
-#[test]
-fn a_unit_cursor_survives_the_round_trip() {
-    let unit = unit_row_fixture("109동", "1204호");
-
-    let key = decode_unit_cursor(&encode_unit_cursor(&unit)).expect("a cursor this API issued");
-
-    assert_eq!(key.dong_name, "109동");
-    assert_eq!(key.ho_name, "1204호");
-    assert_eq!(key.id, unit.id);
-}
-
-#[test]
-fn a_cursor_this_api_never_issued_is_refused() {
-    for garbage in ["not-base64!!", "bm90LWEtY3Vyc29y", ""] {
-        let error = decode_unit_cursor(garbage).expect_err("garbage must not become a page key");
-        assert!(matches!(error, ApiError::BadRequest(_)));
-    }
-}
-
-fn unit_row_fixture(dong_name: &str, ho_name: &str) -> BuildingUnitRow {
-    BuildingUnitRow {
-        id: Uuid::now_v7(),
-        parcel_id: Uuid::now_v7(),
-        building_id: Some(Uuid::now_v7()),
-        dong_name: dong_name.to_owned(),
-        ho_name: ho_name.to_owned(),
-        floor_label: "12층".to_owned(),
-        exclusive_area_m2: Some(84.5),
-        usage_name: "공장".to_owned(),
-        structure_name: "철골".to_owned(),
-    }
-}
-
-/// 응답의 `building_name` 은 동명칭 파생이다 — 카탈로그에 별도 건물명 사실은 없고,
-/// 옛 `building_name` 칸은 전 행이 `dong_name` 복사본이었다 (2026-09-25 실측).
-#[test]
-fn unit_response_building_name_derives_from_dong_name() {
-    let unit = unit_row_fixture("109동", "1204호");
-    let response = unit_response(&unit);
-    assert_eq!(response.building_name, "109동");
-    assert_eq!(response.building_name, response.dong_name);
-}
-
-/// The unit wire shape carries the link, and carries its absence.
-#[test]
-fn unit_response_carries_the_building_link_even_when_null() {
-    let linked = unit_row_fixture("101동", "101호");
-    let mut unlinked = unit_row_fixture("101동", "102호");
-    unlinked.building_id = None;
-
-    assert_eq!(unit_response(&linked).building_id, linked.building_id);
-    assert_eq!(unit_response(&unlinked).building_id, None);
-}
-
-#[test]
-fn unit_histories_match_both_names_and_keep_newest_reference_date_first() {
-    use catalog_domain::{UnitOfficialPrice, UnitOfficialPriceRow};
-    let units = [
-        unit_row_fixture("101동", "101호"),
-        unit_row_fixture("102동", "101호"),
-        unit_row_fixture("101동", "102호"),
-    ];
-    let prices = [
-        ("101동", "101호", "20100101", 36_000_000),
-        ("102동", "101호", "20100601", 190_000_000),
-        ("101동", "101호", "20100601", 35_000_000),
-    ]
-    .map(|(dong, ho, base_date, price_won)| UnitOfficialPriceRow {
-        dong_name: dong.to_owned(),
-        ho_name: ho.to_owned(),
-        price: UnitOfficialPrice {
-            base_date: base_date.to_owned(),
-            price_won,
-        },
-    });
-    let response = super::building_units::unit_responses(&units, &prices);
-    assert_eq!(response[0].official_price_history.len(), 2);
-    assert_eq!(response[0].official_price_history[0].base_date, "20100601");
-    assert_eq!(response[0].official_price_history[0].price_won, 35_000_000);
-    assert_eq!(response[1].official_price_history[0].price_won, 190_000_000);
-    assert!(response[2].official_price_history.is_empty());
-}
-
 /// The manufacturer wire shape still omits the business registration number.
 ///
 /// No route returns it since ADR-0021 deleted the complex-scoped list, and the mapper went with
@@ -655,7 +465,6 @@ fn manufacturer_response_omits_sensitive_business_number() {
 #[ignore = "requires local docker stack"]
 async fn list_complex_blueprints_returns_catalog_dto() {
     let pool = pool().await;
-    let complex_id = Uuid::now_v7();
     let file_asset_id = Uuid::now_v7();
     let blueprint_id = Uuid::now_v7();
     let suffix = Uuid::new_v4()
@@ -667,12 +476,14 @@ async fn list_complex_blueprints_returns_catalog_dto() {
         .collect::<String>();
     let primary_bjdong_code = format!("{suffix:0<10}")[..10].to_owned();
     let official_complex_code = format!("IC-{suffix}");
+    let complex_id = ComplexId::for_official_complex_code(&official_complex_code).as_uuid();
     let object_key = format!("complexes/api/blueprints/{blueprint_id}.pdf");
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2, version)
-         VALUES ($1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
+         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+          area_m2, version)
+         VALUES ($1, $1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
          ON CONFLICT (official_complex_code) WHERE archived_at IS NULL DO NOTHING",
     )
     .bind(complex_id)

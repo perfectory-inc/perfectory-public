@@ -1,4 +1,5 @@
 pub mod foundation_platform;
+pub mod identity_policy;
 pub mod memory_rate_limit;
 pub mod memory_workflow_state;
 pub mod normalization_generator;
@@ -11,6 +12,7 @@ pub use foundation_platform::{
     FoundationPlatformNormalizationClient, FoundationPlatformNormalizationConfig,
     WorkloadTokenProvider,
 };
+pub use identity_policy::HttpIdentityPolicyClient;
 pub use memory_rate_limit::{MemoryRateLimitConfig, MemoryRateLimiter};
 pub use memory_workflow_state::InMemoryWorkflowState;
 pub use normalization_generator::{

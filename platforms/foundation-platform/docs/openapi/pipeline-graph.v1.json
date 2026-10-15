@@ -151,6 +151,15 @@
           "description": {
             "type": "string"
           },
+          "unscheduled": {
+            "type": "string",
+            "enum": [
+              "on_event",
+              "not_started",
+              "needs_job"
+            ],
+            "description": "Why no scheduled job writes this lakehouse dataset (root ADR-0234): on_event = made by the runbook_ref runbook when its input event comes; not_started = production has never written it; needs_job = it should have a job and has none yet. Absent when a job in orchestration/jobs.v1.json writes it."
+          },
           "runbook_ref": {
             "type": "string"
           },

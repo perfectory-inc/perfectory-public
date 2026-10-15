@@ -19,6 +19,7 @@
       "!**/reference",
       "!**/.mcp-local",
       "!crates/foundation-platform-client/openapi/*.json",
+      "!apps/web/lib/api/foundation-catalog.generated.ts",
       "!pnpm-lock.yaml"
     ]
   },

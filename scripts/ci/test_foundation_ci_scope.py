@@ -17,6 +17,22 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FOUNDATION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "foundation-ci.yml"
 
 
+def pnpm_caches_without_pnpm(workflow: str) -> list[str]:
+    """Jobs whose setup-node caches pnpm but that never run pnpm.
+
+    setup-node saves the pnpm store in its post step on main whenever the key is new; a job
+    that created no store then fails with "Path(s) specified ... do(es) not exist". That made
+    main's `rust-quality` red after its pnpm suites moved to `suites` (root ADR-0199)."""
+    body = workflow[workflow.index("\njobs:\n") :]
+    jobs = re.split(r"(?m)^  (?=[a-z0-9-]+:\s*$)", body)[1:]
+    runs_pnpm = re.compile(r"(?m)(^\s+(run: )?pnpm |--part suites\b|cargo xtask verify foundation\s*$)")
+    return [
+        job.split(":", 1)[0]
+        for job in jobs
+        if re.search(r"(?m)^\s+cache: pnpm\s*$", job) and not runs_pnpm.search(job)
+    ]
+
+
 class FoundationCiScopeTest(unittest.TestCase):
     def test_each_gate_covers_every_independent_witness(self) -> None:
         witnesses = {
@@ -231,6 +247,17 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
             self.workflow,
         )
         self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 9)
+
+    def test_only_a_job_that_runs_pnpm_caches_pnpm(self) -> None:
+        self.assertEqual(pnpm_caches_without_pnpm(self.workflow), [])
+        self.assertIn("cache: pnpm", self._job_section("suites"))
+        cached_only = (
+            "name: x\njobs:\n  quiet:\n    steps:\n      - uses: actions/setup-node@x\n"
+            "        with:\n          cache: pnpm\n      - run: cargo xtask verify foundation --part cargo\n"
+            "  busy:\n    steps:\n      - uses: actions/setup-node@x\n        with:\n          cache: pnpm\n"
+            "      - run: cargo xtask verify foundation --part suites\n"
+        )
+        self.assertEqual(pnpm_caches_without_pnpm(cached_only), ["quiet"])
 
     def test_each_heavy_job_uses_the_scope_selector_and_success_guard(self) -> None:
         for gate in scope.GATES:

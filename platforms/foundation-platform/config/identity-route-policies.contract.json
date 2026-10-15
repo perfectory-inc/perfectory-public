@@ -1,0 +1,17 @@
+{
+  "$comment": "Every Identity policy decision a foundation-api route asks for (root ADR-0214). Owned by Foundation: it is ROUTE_POLICIES in services/foundation-api/src/routes/mod.rs as data, and routes::tests::route_policies refuses any difference. Identity reads this file: its staff role matrix must grant every staff policy here to some role and grant no foundation.* policy that is not here; its workload policy must give every service policy here to some principal and no foundation.* capability that is not here.",
+  "schema_version": "foundation.identity-route-policies.v1",
+  "policies": [
+    { "principal_kind": "service", "resource": "foundation.catalog", "action": "read" },
+    { "principal_kind": "service", "resource": "foundation.lakehouse", "action": "write" },
+    { "principal_kind": "service", "resource": "foundation.normalization", "action": "propose" },
+    { "principal_kind": "staff", "resource": "foundation.catalog", "action": "write" },
+    { "principal_kind": "staff", "resource": "foundation.lakehouse", "action": "batch_audit" },
+    { "principal_kind": "staff", "resource": "foundation.lineage", "action": "adjudicate" },
+    { "principal_kind": "staff", "resource": "foundation.lineage", "action": "review" },
+    { "principal_kind": "staff", "resource": "foundation.metadata", "action": "read" },
+    { "principal_kind": "staff", "resource": "foundation.spatial", "action": "anchor_rebuild" },
+    { "principal_kind": "staff", "resource": "foundation.spatial", "action": "manifest_admin" },
+    { "principal_kind": "staff", "resource": "foundation.spatial", "action": "map_edit" }
+  ]
+}

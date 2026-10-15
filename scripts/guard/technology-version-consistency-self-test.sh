@@ -25,6 +25,20 @@ pnpm_pin="$(pin pnpm)"
 package_manager_pin="$(pin packageManager)"
 typescript_pin="$(pin typescript)"
 vitest_pin="$(pin vitest)"
+rust_pin="$(python3 - "$root/tools/technology-versions.contract.json" <<'PY' | tr -d '\r'
+import json
+import sys
+
+print(json.load(open(sys.argv[1], encoding="utf-8"))["rust_toolchain"])
+PY
+)"
+
+# The guard reads the Rust pin from the contract; a literal copy of it in the guard is a second
+# source that a bump would leave behind.
+if grep -Fq "$rust_pin" "$checker"; then
+  echo "FAIL technology-version-consistency-self-test: the guard restates the Rust pin $rust_pin instead of reading the contract" >&2
+  exit 1
+fi
 
 git -C "$fixture" init -q
 git -C "$fixture" config user.email guard@example.test
@@ -33,7 +47,41 @@ mkdir -p "$fixture/platforms/foundation-platform/services/foundation-profile-gat
 printf '%s\n' 'services:' '  postgres:' '    image: postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '  valkey:' '    image: valkey/valkey:8-alpine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "$fixture/platforms/foundation-platform/docker-compose.yml"
 printf '%s\n' '{' "  \"packageManager\": \"$package_manager_pin\"," '  "engines": {' "    \"node\": \"$node_pin\"," "    \"pnpm\": \"$pnpm_pin\"" '  }' '}' > "$fixture/products/gongzzang/package.json"
 printf '%s\n' '{' "  \"packageManager\": \"$package_manager_pin\"," '  "engines": {' "    \"node\": \"$node_pin\"," "    \"pnpm\": \"$pnpm_pin\"" '  },' '  "devDependencies": {' "    \"typescript\": \"$typescript_pin\"," "    \"vitest\": \"$vitest_pin\"" '  }' '}' > "$fixture/platforms/foundation-platform/services/foundation-profile-gateway/package.json"
+printf '%s\n' '[toolchain]' "channel = \"$rust_pin\"" > "$fixture/rust-toolchain.toml"
+mkdir -p "$fixture/products/gongzzang/crates/member"
+printf '%s\n' '[workspace]' 'members = ["crates/member"]' '' '[workspace.package]' "rust-version = \"$rust_pin\"" > "$fixture/products/gongzzang/Cargo.toml"
+printf '%s\n' '[package]' 'name = "member"' 'rust-version.workspace = true' > "$fixture/products/gongzzang/crates/member/Cargo.toml"
 git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+
+expect_refused() {
+  git -C "$fixture" add -A
+  if bash "$checker" "$fixture" >/dev/null 2>&1; then
+    echo "FAIL technology-version-consistency-self-test: $1 was accepted" >&2
+    exit 1
+  fi
+}
+
+sed -i "s/rust-version = \"$rust_pin\"/rust-version = \"0.0.1\"/" "$fixture/products/gongzzang/Cargo.toml"
+expect_refused 'workspace rust-version drift'
+sed -i "s/rust-version = \"0.0.1\"/rust-version = \"$rust_pin\"/" "$fixture/products/gongzzang/Cargo.toml"
+
+sed -i "s/rust-version.workspace = true/rust-version = \"$rust_pin\"/" "$fixture/products/gongzzang/crates/member/Cargo.toml"
+expect_refused 'a member crate restating rust-version'
+sed -i "s/rust-version = \"$rust_pin\"/rust-version.workspace = true/" "$fixture/products/gongzzang/crates/member/Cargo.toml"
+
+sed -i "s/channel = \"$rust_pin\"/channel = \"0.0.1\"/" "$fixture/rust-toolchain.toml"
+expect_refused 'rust-toolchain.toml drift'
+sed -i "s/channel = \"0.0.1\"/channel = \"$rust_pin\"/" "$fixture/rust-toolchain.toml"
+
+printf '%s\n' '[toolchain]' "channel = \"$rust_pin\"" > "$fixture/products/gongzzang/rust-toolchain.toml"
+expect_refused 'an area-local rust-toolchain.toml'
+rm "$fixture/products/gongzzang/rust-toolchain.toml"
+
+printf '%s\n' 'FROM rust:0.0.1-bookworm' > "$fixture/products/gongzzang/Dockerfile"
+expect_refused 'a Dockerfile rust base off the pin'
+rm "$fixture/products/gongzzang/Dockerfile"
+git -C "$fixture" add -A
 bash "$checker" "$fixture" >/dev/null
 
 sed -i 's/postgres:17/postgres:16/' "$fixture/platforms/foundation-platform/docker-compose.yml"
