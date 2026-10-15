@@ -101,7 +101,7 @@ if [ -n "$account_bindings" ]; then
 fi
 
 workstation_bindings="$(git grep -n -I -i -E \
-  '[A-Za-z]:[\\/]+Users[\\/]|file:///[A-Za-z]:/Users/' \
+  '[A-Za-z]:[\\/]+Users[\\/]|file:///[A-Za-z]:/Users/|[A-Za-z]:[\\/][^[:space:]]*[\\/]Desktop[\\/]' \
   -- . ':!scripts/guard/public-repository-safety.sh' 2>/dev/null || true)"
 if [ -n "$workstation_bindings" ]; then
   fail "personal workstation or private sibling-repository references are present:\n$workstation_bindings"
@@ -118,8 +118,7 @@ fi
 
 external_sibling_bindings="$(git grep -n -I -E \
   '(^|[^.[:alnum:]_/-])(\.\./)+[[:alnum:]_][[:alnum:]_.-]*/(AGENTS\.md|Cargo\.toml|package\.json|docs/|crates/|services/|apps/)' \
-  -- . ':!scripts/guard/public-repository-safety.sh' \
-       ':!scripts/guard/no-stale-sibling-paths.sh' 2>/dev/null || true)"
+  -- . ':!scripts/guard/public-repository-safety.sh' 2>/dev/null || true)"
 if [ -n "$external_sibling_bindings" ]; then
   fail "references to a pre-merge sibling repository are present; use a monorepo-root path:\n$external_sibling_bindings"
 fi
@@ -190,7 +189,7 @@ fi
 
 raw_floor_building_ids="$(git grep -n -I -E '\"[0-9]{5,}-[0-9]{5,}\"' -- \
   'platforms/foundation-platform/crates/lakehouse/lakehouse-application/tests/building_register_floor_silver_rows.rs' \
-  'platforms/foundation-platform/services/foundation-outbox-publisher/src/building_register_floor_silver_export.rs' \
+  'platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_floor_silver_export.rs' \
   2>/dev/null | grep -Fv 'OPN2099' || true)"
 if [ -n "$raw_floor_building_ids" ]; then
   fail "numeric building identities are present in public floor fixtures; use an explicit SYNTHETIC identity:\n$raw_floor_building_ids"
@@ -370,9 +369,7 @@ done < <(
     -- '*.md' 2>/dev/null || true
 )
 
-bash scripts/guard/check-workflow-policy.sh \
-  .github/workflows tools/github/main-ruleset.json tools/github/selected-actions.json \
-  || rc=1
+# Workflow policy (check-workflow-policy.sh) runs once, from public-github-policy.sh.
 forbidden_tool_actions="$(while IFS= read -r workflow; do
   [ -n "$workflow" ] || continue
   grep -niE "uses:[[:space:]]*['\"]?(lycheeverse/lychee-action|fsfe/reuse-action)@" "$workflow" \

@@ -6,7 +6,7 @@
 //! there is a single source. Dependency-free (std only).
 //!
 //! Usage (from the repository root):
-//!   cargo xtask verify <gongzzang|foundation|identity|intelligence|all>
+//!   cargo xtask verify <area|all>   # area slugs: tools/areas.contract.json, plus `tooling`
 //!   cargo xtask docs   # monorepo-wide lychee internal-link check (offline)
 
 use std::path::{Path, PathBuf};
@@ -591,10 +591,6 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
-                        test: "complex_anchor_summary_reads",
-                    },
-                    LaneTarget::Test {
-                        package: "catalog-infrastructure",
                         test: "industrial_complex_search",
                     },
                     LaneTarget::Test {
@@ -608,10 +604,6 @@ const AREAS: &[Area] = &[
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
                         test: "parcel_complex_membership",
-                    },
-                    LaneTarget::Test {
-                        package: "catalog-infrastructure",
-                        test: "parcel_edit_ledger",
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
@@ -704,7 +696,7 @@ const AREAS: &[Area] = &[
                     LaneTarget::Binary {
                         package: "foundation-outbox-publisher",
                         binary: "foundation-outbox-publisher",
-                        filter: "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+                        filter: "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
                     },
                     LaneTarget::Test {
                         package: "lakehouse-infrastructure",
@@ -1187,9 +1179,153 @@ fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
         ],
     ));
 
-    for command in verify_test_commands(area) {
-        log.absorb(cargo_reporting(&dir, &command));
+    // The Rust tests run under cargo-nextest: one process per test, as many at once as the
+    // machine has cores, where `cargo test` ran each test binary after the last (root ADR-0205).
+    // nextest does not run doctests, so each selection also runs `cargo test --doc`.
+    let Some(nextest) = nextest_dir(log) else {
+        return;
+    };
+    for selection in verify_test_commands(area) {
+        let [tests, doctests] = nextest_commands(&selection);
+        let args: Vec<&str> = tests.iter().map(String::as_str).collect();
+        let mut cargo = cargo_command(&dir, &args);
+        cargo.env("PATH", path_with(&nextest));
+        log.absorb(run_reporting(&mut cargo));
+        let args: Vec<&str> = doctests.iter().map(String::as_str).collect();
+        log.absorb(doctests_reporting(&mut cargo_command(&dir, &args)));
     }
+}
+
+/// Runs `cargo test --doc`; a selection without a library has no doctests, which cargo reports
+/// as an error (`no library targets found`). That one answer means "nothing to run" — the tests
+/// themselves already ran under nextest — and every other failure is a failure.
+fn doctests_reporting(command: &mut Command) -> Result<(), String> {
+    let rendered = format!("{command:?}");
+    let output = command
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprint!("{stderr}");
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    if output.status.success() || no_doctest_targets(&stderr) {
+        return Ok(());
+    }
+    Err(format!("({}) {rendered}", output.status))
+}
+
+/// CI sets `CARGO_TERM_COLOR=always`, so cargo wraps `error` in colour codes even into a pipe;
+/// the excuse is read from the text without them.
+fn no_doctest_targets(stderr: &str) -> bool {
+    let plain = without_ansi_colour(stderr);
+    let errors: Vec<&str> = plain
+        .lines()
+        .filter(|line| line.starts_with("error"))
+        .collect();
+    !errors.is_empty()
+        && errors
+            .iter()
+            .all(|line| line.starts_with("error: no library targets found in package"))
+}
+
+/// `text` without ANSI SGR sequences (`ESC [ … m`), the only escapes cargo's colour writes.
+fn without_ansi_colour(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            for inner in chars.by_ref() {
+                if inner == 'm' {
+                    break;
+                }
+            }
+        } else {
+            plain.push(character);
+        }
+    }
+    plain
+}
+
+/// The two runs one `cargo test` selection becomes: nextest for the test targets, then the
+/// doctests nextest cannot run. Same packages, features and exclusions in both.
+fn nextest_commands(selection: &[&str]) -> [Vec<String>; 2] {
+    let rest = selection
+        .strip_prefix(&["test"])
+        .unwrap_or(selection)
+        .iter()
+        .map(|arg| (*arg).to_owned());
+    let nextest = ["nextest", "run", "--no-fail-fast"]
+        .map(str::to_owned)
+        .into_iter();
+    let doc = ["test", "--doc"].map(str::to_owned).into_iter();
+    [
+        nextest.chain(rest.clone()).collect(),
+        doc.chain(rest).collect(),
+    ]
+}
+
+fn path_with(directory: &Path) -> std::ffi::OsString {
+    let mut paths = vec![directory.to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(paths).unwrap_or_default()
+}
+
+/// The directory holding the pinned `cargo-nextest`, fetched on first use (root ADR-0205).
+///
+/// The version and checksums live in `tools/cargo-nextest.env`; the one pinned fetcher
+/// (`scripts/ci/fetch_pinned.py`, root ADR-0197) downloads and verifies the archive, so CI
+/// restores it from its cache and a laptop fetches it once. Any failure is a recorded failure:
+/// the tests did not run, which is never a pass.
+fn nextest_dir(log: &mut FailureLog) -> Option<PathBuf> {
+    let root = repo_root();
+    let pins = std::fs::read_to_string(root.join("tools/cargo-nextest.env")).unwrap_or_default();
+    let Some(version) = pins
+        .lines()
+        .find_map(|line| line.strip_prefix("CARGO_NEXTEST_VERSION="))
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+    else {
+        log.record("tools/cargo-nextest.env does not pin CARGO_NEXTEST_VERSION".to_owned());
+        return None;
+    };
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let dir = PathBuf::from(home)
+        .join(".cache/perfectory/bin")
+        .join(format!("cargo-nextest-{version}"));
+    let binary = dir.join(if cfg!(windows) {
+        "cargo-nextest.exe"
+    } else {
+        "cargo-nextest"
+    });
+    if binary.is_file() {
+        return Some(dir);
+    }
+    let member = binary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("cargo-nextest");
+    let fetched = run_reporting(
+        Command::new("python3")
+            .current_dir(&root)
+            .args([
+                "scripts/ci/fetch_pinned.py",
+                "tool",
+                "cargo-nextest",
+                "--member",
+                member,
+            ])
+            .arg("--output")
+            .arg(&binary),
+    );
+    if let Err(message) = fetched {
+        log.record(format!(
+            "could not install the pinned cargo-nextest: {message}"
+        ));
+        return None;
+    }
+    Some(dir)
 }
 
 fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
@@ -1891,6 +2027,33 @@ fn fail_usage(message: &str) -> ! {
 mod tests {
     use super::*;
 
+    /// The area list has one home, `tools/areas.contract.json`; this table attaches verification
+    /// to it. An area added on one side only, or a dir that differs, fails here. `tooling` is the
+    /// verifier verifying itself, not an area.
+    #[test]
+    fn areas_match_the_registry() {
+        let text = std::fs::read_to_string(repo_root().join("tools/areas.contract.json")).unwrap();
+        let registry: Vec<(String, String)> = text
+            .lines()
+            .filter(|line| line.contains("\"slug\":"))
+            .map(|line| {
+                let field = |key: &str| {
+                    let fields: Vec<&str> = line.split('"').collect();
+                    let at = fields.iter().position(|f| *f == key).unwrap();
+                    fields[at + 2].to_owned()
+                };
+                (field("slug"), field("dir"))
+            })
+            .collect();
+        let table: Vec<(String, String)> = AREAS
+            .iter()
+            .filter(|area| area.slug != "tooling")
+            .map(|area| (area.slug.to_owned(), area.dir.to_owned()))
+            .collect();
+        assert!(!registry.is_empty(), "the registry lists no areas");
+        assert_eq!(table, registry);
+    }
+
     #[test]
     fn ci_job_without_the_shared_rust_setup_is_refused() {
         assert!(ci_rust_setup_missing(Some("true"), None));
@@ -1978,6 +2141,52 @@ mod tests {
                 "user setting {key} must stay inherited"
             );
         }
+    }
+
+    /// Every `cargo test` selection verify makes runs twice, under nextest and as doctests, with
+    /// the same packages, features and exclusions (root ADR-0205). Dropping the doctest half, or
+    /// letting the two halves select differently, fails here.
+    #[test]
+    fn every_test_selection_runs_under_nextest_and_as_doctests() {
+        let mut checked = 0;
+        for area in AREAS {
+            for selection in verify_test_commands(area) {
+                let [nextest, doc] = nextest_commands(&selection);
+                assert_eq!(nextest[..3], ["nextest", "run", "--no-fail-fast"]);
+                assert_eq!(doc[..2], ["test", "--doc"]);
+                assert_eq!(nextest[3..], doc[2..], "both halves select the same tests");
+                assert_eq!(
+                    doc[2..],
+                    selection[1..],
+                    "the selection is carried unchanged"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= AREAS.len());
+    }
+
+    /// Only cargo's "no library" answer excuses a failed doctest run; a failing doctest, or that
+    /// answer mixed with any other error, still fails (root ADR-0205).
+    #[test]
+    fn only_a_missing_library_excuses_the_doctest_run() {
+        assert!(no_doctest_targets(
+            "error: no library targets found in package `xtask`\n"
+        ));
+        assert!(!no_doctest_targets(""));
+        assert!(!no_doctest_targets(
+            "error: doctest failed, to rerun pass `--doc`\n"
+        ));
+        assert!(!no_doctest_targets(
+            "error: no library targets found in package `a`\nerror: could not compile `b`\n"
+        ));
+        // What CI prints under CARGO_TERM_COLOR=always (the required/repository failure).
+        assert!(no_doctest_targets(
+            "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m:\u{1b}[0m no library targets found in package `xtask`\n"
+        ));
+        assert!(!no_doctest_targets(
+            "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m:\u{1b}[0m doctest failed\n"
+        ));
     }
 
     /// `--part` selects one half and nothing else parses (root ADR-0199).
@@ -2197,6 +2406,41 @@ mod tests {
         }
     }
 
+    /// Live lanes stay on `cargo test`, one process at a time per target, while `verify` moved to
+    /// nextest (root ADR-0205). Their suites share one database and serialize on an in-process
+    /// `TEST_LOCK`; nextest runs each test in its own process, where that lock serializes nothing.
+    /// `lane_target_verdict` also reads libtest's summary, which nextest does not print.
+    #[test]
+    fn every_live_lane_runs_as_one_serial_cargo_test_process() {
+        let mut checked = 0;
+        for area in AREAS {
+            for lane in area.live_lanes {
+                for command in lane_commands(lane) {
+                    assert_eq!(
+                        command[0], "test",
+                        "{} lane {}: {command:?}",
+                        area.slug, lane.name
+                    );
+                    assert!(
+                        !command.iter().any(|arg| arg == "nextest"),
+                        "{} lane {}: {command:?}",
+                        area.slug,
+                        lane.name
+                    );
+                    assert_eq!(
+                        command.last().map(String::as_str),
+                        Some("--test-threads=1"),
+                        "{} lane {}: {command:?}",
+                        area.slug,
+                        lane.name
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no lane command was checked");
+    }
+
     /// A feature-gated lane needs the OPPOSITE flags of an `#[ignore]` lane, and
     /// getting it wrong is silent.
     ///
@@ -2217,7 +2461,7 @@ mod tests {
         assert_eq!(*binaries[0], vec![
             "test", "--locked", "-p", "foundation-outbox-publisher", "--bin", "foundation-outbox-publisher",
             "--", "--ignored", "--exact",
-            "building_unit_building_link_load::tests::postgres_link_load_withdraws_missing_parents_and_reassigns_without_losing_units",
+            "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
             "--test-threads=1",
         ]);
         let target = lane

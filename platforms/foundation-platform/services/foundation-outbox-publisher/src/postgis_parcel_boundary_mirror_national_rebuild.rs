@@ -617,7 +617,7 @@ pub fn handoff_objects_from_source_contract(
     // The served edition only (root ADR-0148): the mirror is the map's parcels, and every other
     // edition the contract holds is evidence, not the national set.
     let contract: JsonValue =
-        foundation_outbox_publisher::vworld_parcel_source_contract::served_edition_view(
+        foundation_publisher_silver::vworld_parcel_source_contract::served_edition_view(
             contract_json,
         )?;
     let handoff_prefix = contract

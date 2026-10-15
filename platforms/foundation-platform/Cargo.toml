@@ -22,8 +22,13 @@ members = [
     "crates/technical/foundation-shapefile",
     "crates/technical/foundation-disposable-database",
     "crates/foundation-outbox",
+    "crates/publisher/foundation-publisher-core",
+    "crates/publisher/foundation-publisher-by-pnu",
+    "crates/publisher/foundation-publisher-parcel-anchor",
+    "crates/publisher/foundation-publisher-collection",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
+    "crates/publisher/foundation-publisher-silver",
 ]
 
 [workspace.package]
@@ -155,9 +160,14 @@ catalog-domain          = { path = "crates/catalog/catalog-domain" }
 catalog-application             = { path = "crates/catalog/catalog-application" }
 catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructure" }
 outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
+foundation-publisher-silver = { path = "crates/publisher/foundation-publisher-silver" }
 foundation-shapefile = { path = "crates/technical/foundation-shapefile" }
 foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }
+foundation-publisher-core   = { path = "crates/publisher/foundation-publisher-core" }
+foundation-publisher-by-pnu = { path = "crates/publisher/foundation-publisher-by-pnu" }
+foundation-publisher-parcel-anchor = { path = "crates/publisher/foundation-publisher-parcel-anchor" }
+foundation-publisher-collection = { path = "crates/publisher/foundation-publisher-collection" }
 
 [profile.release]
 lto = "thin"
@@ -174,3 +184,10 @@ debug = true
 # and native C++ assertions remain enabled (root ADR-0004).
 [profile.dev.package."*"]
 debug = 1
+
+# SHA-256 is the one dependency the tests spend real time in: the floor export hashes its own
+# executable as producer evidence, and in a test that executable is the test binary. Unoptimized,
+# `sha2` hashed 6 MB/s and one floor test spent 89 s in it; optimized, the same 80 MB take 0.33 s
+# (root ADR-0206). Assertions and debug info are unchanged.
+[profile.dev.package.sha2]
+opt-level = 3

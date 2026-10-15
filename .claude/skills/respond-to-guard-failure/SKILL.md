@@ -21,15 +21,17 @@ before "fixing" anything.
   `defaults.run.working-directory: <area>`, then delete the subdir copy.
   (Note: agents must not edit `.github/` workflows without explicit approval.)
 
-### 2. toolchain-consistency
+### 2. technology-version-consistency (Rust toolchain part)
 
-- Failing means: root `rust-toolchain.toml` drifted from the ADR-0001 pin
-  (1.96.0), an area-local `rust-toolchain`/`rust-toolchain.toml` exists
-  (rustup prefers the closest file — it would silently shadow the root SSOT),
-  or a Dockerfile `FROM rust:` image doesn't match `rust:1.96.0-*`.
-- Fix: delete area-local toolchain files; align Dockerfile base images to the
-  pin. A deliberate toolchain bump updates the root pin + every Dockerfile +
-  the `PIN` variable in `scripts/guard/toolchain-consistency.sh` in ONE commit.
+- Failing means: root `rust-toolchain.toml`, a workspace-root Cargo.toml
+  `rust-version`, or a Dockerfile `FROM rust:` tag differs from `rust_toolchain`
+  in `tools/technology-versions.contract.json`; a member crate states its own
+  `rust-version` instead of `rust-version.workspace = true`; or an area-local
+  `rust-toolchain`/`rust-toolchain.toml` exists (rustup prefers the closest
+  file — it would silently shadow the root SSOT).
+- Fix: delete area-local toolchain files; make members inherit. A deliberate
+  toolchain bump changes `rust_toolchain` in the contract, then the copies the
+  guard names (rust-toolchain.toml, workspace roots, Dockerfiles), in ONE commit.
 
 ### 3. migration-naming
 
@@ -49,17 +51,20 @@ before "fixing" anything.
   `foundation-outbox-publisher`), update all dependents and any docs/commands
   that name the old crate.
 
-### 5. no-stale-sibling-paths
+### 5. public-repository-safety: sibling or workstation paths
 
-- Failing means: a LIVE doc/config/code file references pre-merge sibling
-  paths (`../<area>-platform` sibling-repo forms, `Desktop/<old-repo>`
-  absolute paths). Observed: gongzzang AGENTS.md routed agents to a `../`
-  sibling foundation-platform path, which no longer exists.
+- Failing means: a tracked file references pre-merge sibling paths
+  (`../<area>-platform` sibling-repo forms) or a workstation absolute path
+  (a drive letter followed by a Users or Desktop folder). This used to be the separate
+  `no-stale-sibling-paths` guard; the same patterns now live in
+  `public-repository-safety.sh` (`external_sibling_bindings`,
+  `workstation_bindings`), which scans every tracked file. Observed: gongzzang
+  AGENTS.md routed agents to a `../` sibling foundation-platform path, which no
+  longer exists.
 - Fix: rewrite to monorepo paths (`products/gongzzang`,
   `platforms/<area>-platform`; from inside an area use
-  `../../platforms/...`). Archive/history paths (`docs/superpowers/**`,
-  `*/docs/adr/*`, `*/docs/migration/*`, `*/docs/research/*`) are excluded by
-  the guard — do not "fix" history that the guard doesn't flag.
+  `../../platforms/...`). There is no history exclusion: private history is not
+  tracked in the public tree.
 
 ### 6. health-route-conformance
 

@@ -722,9 +722,9 @@ impl StaffRepository for FakeStaffRepository {
         &self,
         subject: &str,
     ) -> Result<Option<Staff>, StaffIdentityError> {
-        let (id, role) = match subject {
-            "staff-admin" | COLLISION_SUBJECT => (ACTOR_ID, "MASTER_ADMIN"),
-            "staff-user" => (USER_ID, "CATALOG_VIEWER"),
+        let id = match subject {
+            "staff-admin" | COLLISION_SUBJECT => ACTOR_ID,
+            "staff-user" => USER_ID,
             _ => return Ok(None),
         };
         Ok(Some(Staff {
@@ -732,7 +732,6 @@ impl StaffRepository for FakeStaffRepository {
             zitadel_subject: subject.to_owned(),
             email: "admin@example.test".to_owned(),
             display_name: "Admin".to_owned(),
-            primary_role_code: role.to_owned(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             version: 1,

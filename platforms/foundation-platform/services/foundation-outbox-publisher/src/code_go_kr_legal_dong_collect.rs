@@ -39,7 +39,7 @@ use collection_domain::{
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
-use foundation_outbox_publisher::code_go_kr_legal_dong_contract::CONTRACT_JSON;
+use foundation_publisher_silver::code_go_kr_legal_dong_contract::CONTRACT_JSON;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
 use reqwest::header::{CONTENT_TYPE, COOKIE, REFERER, SET_COOKIE};
 use serde::Deserialize;

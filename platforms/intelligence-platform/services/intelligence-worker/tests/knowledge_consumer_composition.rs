@@ -17,10 +17,6 @@ async fn deployable_composition_reaches_consumer_loop_and_cancels_without_live_s
             "127.0.0.1:19092",
         ),
         (
-            "FOUNDATION_KNOWLEDGE_CONSUMER_ENABLE_FIXTURE_CONTRACT",
-            "true",
-        ),
-        (
             "FOUNDATION_KNOWLEDGE_CONSUMER_KARAPACE_URL",
             "http://127.0.0.1:18081",
         ),
@@ -42,7 +38,7 @@ async fn deployable_composition_reaches_consumer_loop_and_cancels_without_live_s
                 assert_eq!(config.consumer.client_id, "ip-knowledge-1");
                 assert_eq!(
                     config.consumer.source_topic,
-                    "intelligence-platform.fixture.foundation-knowledge-source.upserted.v1"
+                    "foundation-platform.knowledge.source-upserted.v1"
                 );
                 assert_eq!(config.database_url, "postgres://localhost/intelligence");
                 assert_eq!(config.karapace_url, "http://127.0.0.1:18081");

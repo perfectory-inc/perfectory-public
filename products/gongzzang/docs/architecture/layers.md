@@ -59,7 +59,6 @@ Current examples:
 
 - `crates/gongzzang-persistence`
 - `services/gongzzang-api/src/foundation_parcel_lookup.rs`
-- `services/gongzzang-api/src/building_reader.rs`
 - `services/gongzzang-api/src/photo_upload.rs`
 - `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
 

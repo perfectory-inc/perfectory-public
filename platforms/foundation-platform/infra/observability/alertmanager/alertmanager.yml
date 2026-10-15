@@ -7,6 +7,32 @@ route:
   group_wait: 15s
   group_interval: 5m
   repeat_interval: 4h
+  routes:
+    # The operations map's problems (root ADR-0195): one notice per job and kind when it starts
+    # and one when it resolves, never a reminder while it stays the same. The notification log
+    # keeps what was sent for --data.retention (120h), so a problem still open after five days is
+    # announced once more; nothing else repeats it.
+    - matchers:
+        - service = "data-flow"
+      group_by:
+        - alertname
+        - job_id
+        - kind
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 8760h
+
+# A job waiting on a failed one says "blocked"; while any job has failed, its own notice is the
+# one to read, and every blocked job would only repeat it.
+inhibit_rules:
+  - source_matchers:
+      - alertname = "FoundationScheduledJobProblem"
+      - kind = "failed"
+    target_matchers:
+      - alertname = "FoundationScheduledJobProblem"
+      - kind = "blocked"
+    equal:
+      - alertname
 
 receivers:
   - name: prelaunch-audit

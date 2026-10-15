@@ -28,23 +28,25 @@ bash "$repository_identity_gate"
 bash "$legal_gate"
 rc=0
 for g in hook-isolation-self-test \
-         no-subdir-github toolchain-consistency technology-version-consistency \
+         no-subdir-github technology-version-consistency \
          static-release-toolchain-ssot-self-test static-release-toolchain-ssot \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
          environment-variable-naming-self-test environment-variable-naming \
          technology-version-consistency-self-test migration-naming \
-         unique-package-names no-stale-sibling-paths health-route-conformance \
+         unique-package-names health-route-conformance \
+         intelligence-no-vector-provider-self-test intelligence-no-vector-provider \
          utility-library-policy-self-test utility-library-policy \
          hand-rolled-error-boundary-self-test hand-rolled-error-boundary \
          no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
-         foundation-parcel-current-selector xtask-path-coverage \
+         foundation-parcel-current-selector xtask-path-coverage-self-test xtask-path-coverage \
          lefthook-advisory-policy-self-test lefthook-advisory-policy \
          lefthook-time-budget-self-test lefthook-time-budget \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \
          tracked-blob-sizes-self-test public-repository-safety \
+         tracked-paths-are-portable-self-test tracked-paths-are-portable \
          container-runtime-policy-self-test container-runtime-policy \
          every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          runtime-secrets-contract-self-test runtime-secrets-contract \
@@ -68,6 +70,7 @@ for g in hook-isolation-self-test \
          every-table-declares-its-load-self-test every-table-declares-its-load \
          pipeline-graph-covers-every-dataset-self-test pipeline-graph-covers-every-dataset \
          region-code-pairs-have-one-home-self-test region-code-pairs-have-one-home \
+         area-registry-self-test area-registry \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
          the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
          the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \
@@ -82,6 +85,9 @@ for g in hook-isolation-self-test \
          roadmap-owns-recorded-debt-self-test roadmap-owns-recorded-debt \
          judgment-position-exit-codes-self-test judgment-position-exit-codes \
          publication-authority-self-test \
+         cargo-verify-isolation-self-test public-tree-snapshot-self-test \
+         frontend-test-isolation-self-test safe-git-transport-self-test \
+         repository-identity-capture-self-test each-guard-runs-once-self-test \
          public-github-policy public-root-builder public-root-publisher-self-test \
          import-private-feature-diff-self-test; do
   bash "$dir/$g.sh" || rc=1

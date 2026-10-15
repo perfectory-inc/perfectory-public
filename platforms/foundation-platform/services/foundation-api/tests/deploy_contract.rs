@@ -316,6 +316,38 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
 
     let rules = read_area_file("infra/observability/prometheus/foundation-api.rules.yml")?;
     assert!(rules.contains("foundation_api_up != 1 or absent(foundation_api_up)"));
+
+    // The operations map's problems reach Slack through this Alertmanager (root ADR-0208): the
+    // rule holds a series through a restart, the route never repeats a problem that stays the
+    // same, and a blocked job is quiet while the failure it waits on is announced.
+    for required in [
+        "alert: FoundationScheduledJobProblem",
+        "expr: foundation_scheduled_job_problem == 1",
+        "keep_firing_for:",
+        "service: data-flow",
+        "alert: FoundationScheduledJobsUnreadable",
+    ] {
+        assert!(
+            rules.contains(required),
+            "alert rules are missing {required}"
+        );
+    }
+    for required in [
+        "- service = \"data-flow\"",
+        "repeat_interval: 8760h",
+        "inhibit_rules:",
+        "- kind = \"failed\"",
+        "- kind = \"blocked\"",
+    ] {
+        assert!(
+            alertmanager.contains(required),
+            "Alertmanager is missing {required}"
+        );
+    }
+    // Docker resolves `current` when it creates a container, so a changed rule is read only by a
+    // recreated Prometheus.
+    let release = read_area_file("scripts/deploy/foundation-release.sh")?;
+    assert!(release.contains("up -d --wait --force-recreate prometheus alertmanager"));
     Ok(())
 }
 
@@ -385,7 +417,7 @@ fn lakehouse_runtime_user_contract_has_one_ssot() -> TestResult {
         ".env.example",
         ".env.local.example",
         "docs/runbooks/lakehouse-compute-engines.md",
-        "services/foundation-outbox-publisher/src/remote_lakehouse_job.rs",
+        "crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job.rs",
     ];
 
     for path in contract_files {

@@ -1,8 +1,10 @@
 import hashlib
+import os
 import struct
 import sys
 import unittest
 import uuid
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -129,6 +131,22 @@ class ArgsTest(unittest.TestCase):
     def test_validate_only_needs_no_catalog(self):
         args = parse_args(["--input", "a.geojson", "--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"])
         validate_args(args)
+
+    def test_a_write_needs_its_input_and_its_bronze_objects(self):
+        for args in (["--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"],
+                     ["--input", "a.geojson", "--source-snapshot-id", "s1", "--validate-only"]):
+            with self.subTest(args=args), self.assertRaisesRegex(ValueError, "is required"):
+                validate_args(parse_args(args))
+
+    def test_a_probe_takes_the_snapshot_id_alone(self):
+        # The release job asks before it converts a round (root ADR-0236); a probe that took an input
+        # or a change table would look like a write to whoever reads the command line.
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(ValueError):
+            validate_args(parse_args(["--probe-only", "--source-snapshot-id", "s1"]))  # the catalog is still required
+        for extra in (["--input", "a.geojson"], ["--source-record-id", "r"], ["--validate-only"],
+                      ["--legal-dong-change-table", "reference.legal_dong_code_change", "--predecessor-parcel-snapshot-id", "p"]):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "reads no input"):
+                validate_args(parse_args(["--probe-only", "--source-snapshot-id", "s1", *extra]))
 
     def test_the_predecessor_flags_are_checked_and_the_file_input_is_gone(self):
         base = ["--input", "a.geojson", "--source-snapshot-id", "s1", "--source-record-id", "r", "--validate-only"]

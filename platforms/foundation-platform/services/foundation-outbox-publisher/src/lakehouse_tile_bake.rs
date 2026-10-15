@@ -311,6 +311,11 @@ impl ServedIds {
         self.sorted.binary_search(&hash).ok()
     }
 
+    /// Whether `id` is served (ADR-0251: whether the new edition holds it anywhere).
+    pub(crate) fn contains(&self, id: &str) -> bool {
+        self.position(id_hash(id)).is_some()
+    }
+
     /// Evidence: the SHA-256 of the sorted id hashes.
     pub(crate) fn digest(&self) -> String {
         let mut hasher = Sha256::new();
@@ -642,21 +647,7 @@ pub(crate) fn ensure_work_disk(
     Ok(())
 }
 
-/// The bytes an unprivileged writer may still use on the filesystem holding `path`.
-#[cfg(unix)]
-pub(crate) fn free_bytes(path: &Path) -> anyhow::Result<u64> {
-    let stat =
-        rustix::fs::statvfs(path).with_context(|| format!("free space of {}", path.display()))?;
-    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn free_bytes(path: &Path) -> anyhow::Result<u64> {
-    bail!(
-        "free space of {} can only be measured on the Linux bake host",
-        path.display()
-    )
-}
+pub(crate) use foundation_publisher_core::free_space::free_bytes;
 
 struct Config {
     unit_key: String,
@@ -669,6 +660,9 @@ struct Config {
     promote_idempotency_key: String,
     tool_timeout: Duration,
     edit_store: Option<(String, String)>,
+    /// The Compose project of the job that runs the bake: GDAL and tippecanoe carry its labels so
+    /// the unit's ExecStopPost removes them after a timeout, with the job's Spark container.
+    container_project: Option<String>,
 }
 
 impl Config {
@@ -717,6 +711,9 @@ impl Config {
             promote_idempotency_key: var("PROMOTE_IDEMPOTENCY_KEY")?,
             tool_timeout: Duration::from_secs(timeout),
             edit_store,
+            container_project: container_project(optional_env_value(&format!(
+                "{PREFIX}_CONTAINER_PROJECT"
+            ))?)?,
         })
     }
 }
@@ -811,9 +808,29 @@ async fn docker(
     Ok(output)
 }
 
+/// A Compose project name: lowercase letters, digits, `_` and `-`, starting with a letter or digit.
+pub(crate) fn container_project(value: Option<String>) -> anyhow::Result<Option<String>> {
+    if let Some(project) = &value {
+        ensure!(
+            project
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                && project.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'_'
+                    || b == b'-'),
+            "CONTAINER_PROJECT {project:?} is not a Compose project name"
+        );
+    }
+    Ok(value)
+}
+
 /// `docker run` for one pinned tool: no network, the contract's memory cap with no swap beyond
-/// it, the work directory at `/w`.
-pub(crate) fn run_args(work: &Path, image: &Image) -> Vec<OsString> {
+/// it, the work directory at `/w`. With a job's Compose project, the container carries the labels
+/// the job's cleanup removes by (`invocation_cleanup`): killing the bake leaves the tool running,
+/// and the timeout must not leave it holding its memory.
+pub(crate) fn run_args(work: &Path, image: &Image, project: Option<&str>) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "run".into(),
         "--rm".into(),
@@ -824,6 +841,15 @@ pub(crate) fn run_args(work: &Path, image: &Image) -> Vec<OsString> {
         "--memory-swap".into(),
         image.memory_limit.clone().into(),
     ];
+    if let Some(project) = project {
+        use foundation_publisher_silver::remote_lakehouse_job::{ONEOFF_LABEL, PROJECT_LABEL};
+        args.extend([
+            "--label".into(),
+            format!("{PROJECT_LABEL}={project}").into(),
+            "--label".into(),
+            ONEOFF_LABEL.into(),
+        ]);
+    }
     // Run as the owner of the work directory, so the tools' outputs stay removable afterwards.
     #[cfg(unix)]
     {
@@ -890,7 +916,8 @@ async fn build_archive(
         "the served snapshot lacks properties the served layer promises: {missing:?}"
     );
     let source_srs = format!("EPSG:{srid}");
-    let mut gdal = run_args(work, &images.gdal);
+    let project = config.container_project.as_deref();
+    let mut gdal = run_args(work, &images.gdal, project);
     gdal.extend(
         [
             "ogr2ogr",
@@ -921,7 +948,7 @@ async fn build_archive(
     std::fs::remove_file(work.join("served.csv"))?;
 
     let banner = docker(
-        run_args(work, &images.tippecanoe)
+        run_args(work, &images.tippecanoe, project)
             .into_iter()
             .chain(["--version".into()])
             .collect(),
@@ -941,7 +968,7 @@ async fn build_archive(
         "tippecanoe reports {reported:?}, the contract pins {expected:?}"
     );
 
-    let mut tippecanoe = run_args(work, &images.tippecanoe);
+    let mut tippecanoe = run_args(work, &images.tippecanoe, project);
     tippecanoe.extend(tippecanoe_args(layer, columns));
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
@@ -1139,7 +1166,7 @@ async fn bake_and_upload(
     let layer = &active.layer;
     let archive =
         build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
-    let (ids_digest, collector) = {
+    let (ids_digest, collector, ids) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
             layer.clone(),
@@ -1156,7 +1183,7 @@ async fn bake_and_upload(
                 |missing| ids_with_hashes(&summary, &handoff, missing),
                 &mut |tile, id| collector.observe(tile, id),
             )?;
-            anyhow::Ok((digest, collector))
+            anyhow::Ok((digest, collector, ids))
         })
         .await
         .context("the archive gate stopped")??
@@ -1179,6 +1206,7 @@ async fn bake_and_upload(
                     (&layer.source_layer, &layer.feature_id_property),
                     (layer.tile_min_zoom, layer.tile_max_zoom),
                     &collector,
+                    &ids,
                 )
             })
             .await

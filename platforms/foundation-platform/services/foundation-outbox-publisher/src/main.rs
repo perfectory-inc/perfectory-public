@@ -46,32 +46,28 @@ mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
 mod boundary_static_release_publish;
 mod bounded_live_ingestion_gate_check;
-mod bronze_catalog_recovery_evidence;
-mod bronze_catalog_recovery_execute;
-mod bronze_catalog_recovery_manifest;
-mod bronze_object_members;
-mod bronze_object_storage;
-mod bronze_schema_profile;
+use foundation_publisher_collection::bronze_catalog_recovery_execute;
+use foundation_publisher_collection::bronze_catalog_recovery_manifest;
+use foundation_publisher_collection::bronze_object_members;
+use foundation_publisher_collection::bronze_object_storage;
+use foundation_publisher_collection::bronze_schema_profile;
 mod building_hub_bronze_catalog_recovery;
-mod building_hub_bulk_collection_plan;
-mod building_hub_bulk_ingest;
-mod building_link_evidence;
-use foundation_outbox_publisher::building_register_floor_silver_export;
-mod building_register_ingest;
+use foundation_publisher_collection::building_hub_bulk_collection_plan;
+use foundation_publisher_collection::building_hub_bulk_ingest;
+use foundation_publisher_collection::building_register_ingest;
+use foundation_publisher_silver::building_register_floor_silver_export;
 mod building_register_local_bronze_proof;
-mod building_register_page_count_batch;
-mod building_register_page_count_plan_writer;
+use foundation_publisher_collection::building_register_page_count_batch;
+use foundation_publisher_collection::building_register_page_count_plan_writer;
 mod building_register_smoke;
-use foundation_outbox_publisher::hub_provider_release;
+use foundation_publisher_silver::hub_provider_release;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
-mod bulk_streaming_bronze;
 mod canonical_release_proof;
 mod canonical_silver_gold_cutover_evidence;
 mod code_go_kr_legal_dong_collect;
-mod collection_job_requeue;
-mod content_spool;
+use foundation_publisher_collection::collection_job_requeue;
 mod dbase_table;
 mod github_actions_secret_configurator;
 mod github_cutover_artifact_fetch;
@@ -88,91 +84,55 @@ mod industrial_complex_canonical_source_readiness;
 mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
-mod industrial_complex_gold_profile_store;
+use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
-mod ingestion_run_recovery;
+use foundation_publisher_collection::ingestion_run_recovery;
 #[cfg(test)]
 mod test_crosswalk;
-use foundation_outbox_publisher::lakehouse_engine_contract;
+use foundation_publisher_silver::lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
-mod lakehouse_snapshot_scan;
-mod land_use_silver_export;
+use foundation_publisher_core::lakehouse_snapshot_scan;
+use foundation_publisher_silver::land_use_silver_export;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
-mod profile_gateway_contract;
+use foundation_publisher_by_pnu::building_by_pnu_serving_export;
+use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
+use foundation_publisher_by_pnu::by_pnu_serving_rebase;
+use foundation_publisher_by_pnu::by_pnu_serving_state;
+use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::sync::OnceLock;
-
-    use tokio::sync::{Mutex, MutexGuard};
-
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// The platform's migrations, embedded once for every test that stands up a disposable
-    /// database: each embedding site is a compile-time file read the build-coupling guard counts.
-    pub(crate) static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
-
-    /// Serializes synchronous tests that mutate process-global environment variables.
-    pub(crate) fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(())).blocking_lock()
-    }
-
-    /// Serializes asynchronous tests that mutate process-global environment variables.
-    pub(crate) async fn async_env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(())).lock().await
-    }
-}
-mod building_by_pnu_serving_export;
-mod building_catalog_projection_load;
-mod building_unit_building_link_load;
-mod building_unit_catalog_projection_load;
-mod by_pnu_gateway_contract;
-mod by_pnu_pack;
-mod by_pnu_section_pack_manifest;
-mod by_pnu_serving_generations;
-mod by_pnu_serving_manifest;
-mod by_pnu_serving_manifest_publish;
-mod by_pnu_serving_patch_export;
-mod by_pnu_serving_pins;
-mod by_pnu_serving_rebase;
-mod by_pnu_serving_state;
-mod by_pnu_serving_store;
-mod handoff_manifest_support;
+#[cfg(test)]
+use foundation_publisher_core::test_support;
 mod handoff_object_support;
 mod lakehouse_bake_verdict;
 mod lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
-mod national_bronze_object_manifest;
-mod national_data_collection_async;
-mod national_data_collection_coverage_ledger_check;
-mod national_data_collection_ledger_execute;
-mod national_data_collection_ledger_resume;
-mod national_data_collection_plan_compile;
-mod national_data_collection_rollout_approval_check;
-mod national_data_collection_run;
-mod national_data_collection_scope_writer;
-mod national_data_collection_shard_manifest_writer;
-mod national_page_count_plan_writer;
+use foundation_publisher_collection::national_bronze_object_manifest;
+use foundation_publisher_collection::national_data_collection_async;
+use foundation_publisher_collection::national_data_collection_coverage_ledger_check;
+use foundation_publisher_collection::national_data_collection_ledger_execute;
+use foundation_publisher_collection::national_data_collection_ledger_resume;
+use foundation_publisher_collection::national_data_collection_plan_compile;
+use foundation_publisher_collection::national_data_collection_rollout_approval_check;
+use foundation_publisher_collection::national_data_collection_run;
+use foundation_publisher_collection::national_data_collection_scope_writer;
+use foundation_publisher_collection::national_data_collection_shard_manifest_writer;
+use foundation_publisher_collection::national_page_count_plan_writer;
 mod official_administrative_boundary_source_snapshot;
-mod pack_lane_document;
-mod page_collector;
-mod page_count_plan_contract;
-mod pagination_guard;
-mod parcel_boundary_handoff;
+use foundation_publisher_collection::page_collector;
+use foundation_publisher_parcel_anchor::parcel_boundary_handoff;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
-mod parcel_by_pnu_serving_export;
-mod parcel_catalog_projection_load;
-mod parcel_marker_anchor_artifact_export;
-mod parcel_marker_anchor_pbf_artifact_build;
-mod parcel_marker_anchor_pbf_manifest_promote;
-mod parcel_marker_anchor_streaming_rebuild;
+use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
+use foundation_publisher_parcel_anchor::parcel_marker_anchor_artifact_export;
+use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_artifact_build;
+use foundation_publisher_parcel_anchor::parcel_marker_anchor_streaming_rebuild;
 mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
@@ -181,18 +141,14 @@ mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
-mod provider_acquisition_import;
-mod provider_acquisition_plan;
-mod provider_file_bronze_catalog_recovery;
-mod provider_lane;
-mod provider_rate_limiter;
-mod provider_request_spacing;
-mod public_api_metric_writer;
-mod public_data_bronze_lane_orchestrator;
-mod public_data_bronze_lane_registry;
-mod public_data_control_support;
-mod public_provider_rate_controller;
-mod public_provider_rate_policy;
+use foundation_publisher_collection::provider_acquisition_import;
+use foundation_publisher_collection::provider_acquisition_plan;
+use foundation_publisher_collection::provider_file_bronze_catalog_recovery;
+use foundation_publisher_collection::provider_request_spacing;
+use foundation_publisher_collection::public_api_metric_writer;
+use foundation_publisher_collection::public_data_bronze_lane_orchestrator;
+use foundation_publisher_collection::public_provider_rate_controller;
+use foundation_publisher_core::public_data_control_support;
 mod publish_lakehouse_lineage_event;
 mod r2_billing_export_collect;
 mod r2_billing_usage_metrics;
@@ -200,16 +156,16 @@ mod r2_bronze_key_cleanup_candidates;
 mod r2_bronze_key_migration;
 mod r2_bronze_key_migration_plan;
 mod r2_cleanup_verify;
-mod r2_command_support;
+use foundation_publisher_core::r2_command_support;
 mod r2_delete_candidates;
 mod r2_inventory_audit;
-mod r2_layout;
-mod real_transaction_ingest;
+use foundation_publisher_collection::real_transaction_ingest;
+use foundation_publisher_core::r2_layout;
 mod regional_data_serving_load_check;
-mod remote_lakehouse_job;
-mod rt_molit_real_transaction_export_collection_plan;
-mod rt_molit_real_transaction_export_ingest;
-mod runtime_environment;
+use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
+use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
+use foundation_publisher_core::runtime_environment;
+use foundation_publisher_silver::remote_lakehouse_job;
 mod serving_source_lineage_register;
 mod shapefile_polygon_reader;
 mod silver_gold_national_promotion_execution;
@@ -223,18 +179,17 @@ mod tile_derivative_object_storage;
 mod trino_ready_wait;
 mod unit_official_price_projection_load;
 mod vector_tile_runtime_promote;
-mod vworld_bronze_catalog_recovery;
-mod vworld_cadastral_ingest;
-mod vworld_cadastral_silver_export;
-mod vworld_cadastral_silver_shard_export;
-mod vworld_cadastral_smoke;
-mod vworld_credentials;
-mod vworld_dataset_collection_plan;
-mod vworld_dataset_file_ingest;
-mod vworld_dataset_file_inventory;
-mod vworld_land_register_ingest;
-mod vworld_ned_attribute_ingest;
-mod vworld_page_count_batch;
+use foundation_publisher_collection::vworld_bronze_catalog_recovery;
+use foundation_publisher_collection::vworld_cadastral_ingest;
+use foundation_publisher_collection::vworld_cadastral_silver_export;
+use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
+use foundation_publisher_collection::vworld_cadastral_smoke;
+use foundation_publisher_collection::vworld_dataset_collection_plan;
+use foundation_publisher_collection::vworld_dataset_file_ingest;
+use foundation_publisher_collection::vworld_dataset_file_inventory;
+use foundation_publisher_collection::vworld_land_register_ingest;
+use foundation_publisher_collection::vworld_ned_attribute_ingest;
+use foundation_publisher_collection::vworld_page_count_batch;
 
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -258,8 +213,10 @@ enum Command {
     RunBuildingRegisterFloorCycle,
     StopBuildingRegisterFloorCycle,
     StopGoldPanelRebuild,
+    StopLakehouseMaintenance,
     RunSilverRefresh,
     StopSilverRefresh,
+    StopParcelTileBake,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
@@ -322,10 +279,6 @@ enum Command {
     ReaddressStaticRelease,
     ExportMapEditHandoff,
     BakeLakehouseTiles,
-    LoadBuildingCatalogProjection,
-    LoadBuildingUnitBuildingLink,
-    LoadBuildingUnitCatalogProjection,
-    LoadParcelCatalogProjection,
     LoadUnitOfficialPriceProjection,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
@@ -386,8 +339,6 @@ enum Command {
     VerifyParcelByPnuServingRebase,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
-    PromoteParcelMarkerAnchorRuntimeManifest,
-    PromoteParcelMarkerAnchorPbfManifest,
     RebuildParcelMarkerAnchors,
     RebuildParcelMarkerAnchorsStreaming,
     RebuildPostgisParcelBoundaryMirror,
@@ -447,7 +398,6 @@ const fn command_requires_expanded_stack(command: Command) -> bool {
         Command::ExportParcelMarkerAnchorArtifacts
             | Command::BuildParcelMarkerAnchorPbfArtifacts
             | Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
-            | Command::PromoteParcelMarkerAnchorRuntimeManifest
     )
 }
 
@@ -523,16 +473,16 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { vworld_cadastral_silver_export::run() })
         }
         Command::ExportVWorldCadastralShapefileSilverHandoff => {
-            Box::pin(foundation_outbox_publisher::vworld_cadastral_shapefile_silver_export::run())
+            Box::pin(foundation_publisher_silver::vworld_cadastral_shapefile_silver_export::run())
         }
         Command::ExportVWorldCadastralSilverHandoffShard => {
             Box::pin(vworld_cadastral_silver_shard_export::run())
         }
         Command::ExportBuildingRegisterExclusiveUnitSilverHandoff => Box::pin(
-            foundation_outbox_publisher::building_register_exclusive_unit_silver_export::run(),
+            foundation_publisher_silver::building_register_exclusive_unit_silver_export::run(),
         ),
         Command::ExportBuildingRegisterApartmentPriceSilverHandoff => Box::pin(
-            foundation_outbox_publisher::building_register_apartment_price_silver_export::run(),
+            foundation_publisher_silver::building_register_apartment_price_silver_export::run(),
         ),
         Command::ExportLandUsePlanSilverHandoff => Box::pin(land_use_silver_export::run_plan()),
         Command::ExportLandUseZoneCodeSilverHandoff => {
@@ -602,10 +552,16 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::StopGoldPanelRebuild => {
             Box::pin(async { remote_lakehouse_job::stop_gold_panel_rebuild() })
         }
+        Command::StopLakehouseMaintenance => {
+            Box::pin(async { remote_lakehouse_job::stop_lakehouse_maintenance() })
+        }
         Command::RunBuildingRegisterFloorCycle => Box::pin(remote_lakehouse_job::run_floor_cycle()),
         Command::RunSilverRefresh => Box::pin(remote_lakehouse_job::run_silver_refresh()),
         Command::StopSilverRefresh => {
             Box::pin(async { remote_lakehouse_job::stop_silver_refresh() })
+        }
+        Command::StopParcelTileBake => {
+            Box::pin(async { remote_lakehouse_job::stop_parcel_tile_bake() })
         }
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::CollectBuildingHubBronzeCatalogRecoveryInventory => {
@@ -652,12 +608,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishParcelBoundaryStaticRelease => {
             Box::pin(parcel_boundary_static_release_publish::run())
         }
-        Command::LoadBuildingCatalogProjection => Box::pin(building_catalog_projection_load::run()),
-        Command::LoadBuildingUnitBuildingLink => Box::pin(building_unit_building_link_load::run()),
-        Command::LoadBuildingUnitCatalogProjection => {
-            Box::pin(building_unit_catalog_projection_load::run())
-        }
-        Command::LoadParcelCatalogProjection => Box::pin(parcel_catalog_projection_load::run()),
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
         }
@@ -770,12 +720,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishLakehouseLineageEvent => Box::pin(publish_lakehouse_lineage_event::run()),
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
         Command::R2BillingUsageMetrics => Box::pin(async { r2_billing_usage_metrics::run() }),
-        Command::PromoteParcelMarkerAnchorPbfManifest => {
-            Box::pin(parcel_marker_anchor_pbf_manifest_promote::run())
-        }
-        Command::PromoteParcelMarkerAnchorRuntimeManifest => {
-            Box::pin(parcel_marker_anchor_pbf_manifest_promote::run_runtime())
-        }
         Command::RebuildParcelMarkerAnchors => Box::pin(run_parcel_marker_anchor_rebuild()),
         Command::RebuildParcelMarkerAnchorsStreaming => {
             Box::pin(parcel_marker_anchor_streaming_rebuild::run())
@@ -1199,9 +1143,11 @@ where
         Some("run-national-data-collection") => Ok(Command::RunNationalDataCollection),
         Some("stop-building-register-floor-cycle") => Ok(Command::StopBuildingRegisterFloorCycle),
         Some("stop-gold-panel-rebuild") => Ok(Command::StopGoldPanelRebuild),
+        Some("stop-lakehouse-maintenance") => Ok(Command::StopLakehouseMaintenance),
         Some("run-building-register-floor-cycle") => Ok(Command::RunBuildingRegisterFloorCycle),
         Some("run-silver-refresh") => Ok(Command::RunSilverRefresh),
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
+        Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("collect-building-hub-bronze-catalog-recovery-inventory") => {
             Ok(Command::CollectBuildingHubBronzeCatalogRecoveryInventory)
@@ -1247,12 +1193,6 @@ where
         Some("publish-parcel-boundary-static-release") => {
             Ok(Command::PublishParcelBoundaryStaticRelease)
         }
-        Some("load-building-catalog-projection") => Ok(Command::LoadBuildingCatalogProjection),
-        Some("load-building-unit-building-link") => Ok(Command::LoadBuildingUnitBuildingLink),
-        Some("load-building-unit-catalog-projection") => {
-            Ok(Command::LoadBuildingUnitCatalogProjection)
-        }
-        Some("load-parcel-catalog-projection") => Ok(Command::LoadParcelCatalogProjection),
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
@@ -1452,12 +1392,6 @@ where
         Some("publish-lakehouse-lineage-event") => Ok(Command::PublishLakehouseLineageEvent),
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),
         Some("r2-billing-usage-metrics") => Ok(Command::R2BillingUsageMetrics),
-        Some("promote-parcel-marker-anchor-pbf-manifest") => {
-            Ok(Command::PromoteParcelMarkerAnchorPbfManifest)
-        }
-        Some("promote-parcel-marker-anchor-runtime-manifest") => {
-            Ok(Command::PromoteParcelMarkerAnchorRuntimeManifest)
-        }
         Some("rebuild-parcel-marker-anchors") => Ok(Command::RebuildParcelMarkerAnchors),
         Some("rebuild-parcel-marker-anchors-streaming") => {
             Ok(Command::RebuildParcelMarkerAnchorsStreaming)

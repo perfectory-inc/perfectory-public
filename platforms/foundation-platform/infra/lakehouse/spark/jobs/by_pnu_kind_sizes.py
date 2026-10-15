@@ -7,8 +7,8 @@ many PNUs have content, the per-PNU body size (raw and gzip, the pack member com
 `by_pnu_pack.rs`) at p50/p95/max, the size of each 법정동 (sum of its members' gzip, `dong_bytes`),
 and the packs the bake would write after ADR-0163 splits a large 법정동 into parts (`pack_bytes`,
 the size ADR-0193 §7 bounds), with how many packs and documents pass the whole-read bound.
-`bundle` is today's whole panel row, the baseline the kinds are compared with; `first-paint` is
-the sum of the three kinds the parcel summary reads on open.
+`bundle` is today's whole panel row, the baseline the kinds are compared with. Which kinds a screen
+reads together is the web's matter (ADR-0193 §5), so nothing here sums kinds.
 
 Sizes are of the document body only; the per-kind envelope (schema, pnu, source) adds about a
 hundred bytes before gzip. Building kinds are re-serialised from the panel JSON, so number
@@ -31,10 +31,8 @@ from typing import Any, Iterator
 JOB_NAME = "by_pnu_kind_sizes"
 SUMMARY_SCHEMA_VERSION = "foundation-platform.by_pnu_kind_sizes.v1"
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel"}
-# shortcut: the kind names below and FIRST_PAINT_KINDS copy ADR-0193 §2/§5 by hand; replace them
-# with the contract's by_pnu_lanes once the kinds land there.
-# The lanes the parcel summary reads on open (ADR-0193 §5).
-FIRST_PAINT_KINDS = ("parcel-zoning", "parcel-price", "parcel-characteristics")
+# shortcut: the kind names below copy ADR-0193 §2 by hand; replace them with the contract's
+# by_pnu_lanes once the kinds land there.
 LINEAGE_COLUMNS = ("row_digest", "source_snapshot_id", "published_at_utc")
 JSON_SEPARATORS = (",", ":")
 
@@ -46,6 +44,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-catalog-name", default="r2")
     parser.add_argument("--summary-output", required=True)
     return parser.parse_args(argv)
+
+
+# The final merge holds one quantile digest per kind and column for every map task (about 500 on
+# the national parcel Gold): at accuracy 10000, with a digest per quantile, it outgrew the small
+# Spark's 1.5 GB heap (2026-10-13). 1000 is a 0.1% rank error, below what a byte size needs.
+PERCENTILE_ACCURACY = 1000
+QUANTILES = {"p50": 0.5, "p95": 0.95}
+QUANTILE_SUFFIX = "_quantiles"
+
+
+def unpack_quantiles(values: dict[str, Any]) -> dict[str, Any]:
+    """`<column>_quantiles` (the QUANTILES in order) as `<column>_p50` and `<column>_p95`."""
+    out = {}
+    for key, value in values.items():
+        if key.endswith(QUANTILE_SUFFIX):
+            column = key[: -len(QUANTILE_SUFFIX)]
+            quantiles = value or [None] * len(QUANTILES)
+            out.update({f"{column}_{name}": quantile for name, quantile in zip(QUANTILES, quantiles)})
+        else:
+            out[key] = value
+    return out
 
 
 def r2_contract_path() -> Path:
@@ -164,22 +183,13 @@ def measure_frame(spark: Any, unit: str, frame: Any, rules: tuple[int, int] | No
         frame.rdd.flatMap(lambda row: measure_row(unit, row.asDict())),
         "pnu string, kind string, raw_bytes long, gzip_bytes long, part_hash long",
     )
-    if unit == "parcel":
-        first_paint = (
-            measured.where(F.col("kind").isin(*FIRST_PAINT_KINDS))
-            .groupBy("pnu")
-            .agg(F.sum("raw_bytes").alias("raw_bytes"), F.sum("gzip_bytes").alias("gzip_bytes"),
-                 F.first("part_hash").alias("part_hash"))
-            .withColumn("kind", F.lit("first-paint"))
-            .select("pnu", "kind", "raw_bytes", "gzip_bytes", "part_hash")
-        )
-        measured = measured.unionByName(first_paint)
     measured = measured.withColumn("dong", F.substring("pnu", 1, 10)).persist(StorageLevel.DISK_ONLY)
 
     def pct(column: str) -> list[Any]:
+        # One digest gives both quantiles; unpack_quantiles names them after collect.
         return [
-            F.percentile_approx(column, 0.5, 10000).alias(f"{column}_p50"),
-            F.percentile_approx(column, 0.95, 10000).alias(f"{column}_p95"),
+            F.percentile_approx(column, list(QUANTILES.values()), PERCENTILE_ACCURACY)
+            .alias(f"{column}{QUANTILE_SUFFIX}"),
             F.max(column).alias(f"{column}_max"),
         ]
 
@@ -189,15 +199,14 @@ def measure_frame(spark: Any, unit: str, frame: Any, rules: tuple[int, int] | No
         *pct("raw_bytes"),
         *pct("gzip_bytes"),
     )
-    packed = measured.where(F.col("kind") != "first-paint")
     # ADR-0163: K = max(1, ceil(dong bytes / part target)); a PNU goes to part fnv1a32(pnu) mod K.
     dongs = (
-        packed.groupBy("kind", "dong")
+        measured.groupBy("kind", "dong")
         .agg(F.sum("gzip_bytes").alias("dong_bytes"))
         .withColumn("parts", F.greatest(F.lit(1), F.ceil(F.col("dong_bytes") / F.lit(part_target))))
     )
     packs = (
-        packed.join(dongs.select("kind", "dong", "parts"), ["kind", "dong"])
+        measured.join(dongs.select("kind", "dong", "parts"), ["kind", "dong"])
         .groupBy("kind", "dong", F.pmod(F.col("part_hash"), F.col("parts")).alias("part"))
         .agg(F.sum("gzip_bytes").alias("pack_bytes"))
         .groupBy("kind")
@@ -212,10 +221,10 @@ def measure_frame(spark: Any, unit: str, frame: Any, rules: tuple[int, int] | No
         F.sum(F.when(F.col("parts") > 1, 1).otherwise(0)).alias("parted_dongs"),
         *pct("dong_bytes"),
     )
-    kinds = {row["kind"]: row.asDict() for row in documents.collect()}
+    kinds = {row["kind"]: unpack_quantiles(row.asDict()) for row in documents.collect()}
     for summary in (dong_summary, packs):
         for row in summary.collect():
-            kinds[row["kind"]].update(row.asDict())
+            kinds[row["kind"]].update(unpack_quantiles(row.asDict()))
     measured.unpersist()
     return {kind: {k: v for k, v in values.items() if k != "kind"} for kind, values in sorted(kinds.items())}
 

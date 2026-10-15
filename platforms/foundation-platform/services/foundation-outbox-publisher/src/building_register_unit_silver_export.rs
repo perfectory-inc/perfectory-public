@@ -18,7 +18,7 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use foundation_normalization_application::ActiveBuildingRegisterUnitOverrideReader;
 use foundation_normalization_infrastructure::PgActiveBuildingRegisterUnitOverrideReader;
-use foundation_outbox_publisher::sigungu_crosswalk::hub_sigungu_crosswalk;
+use foundation_publisher_silver::sigungu_crosswalk::hub_sigungu_crosswalk;
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::{
     building_register_unit_silver_override_from_application_snapshot,

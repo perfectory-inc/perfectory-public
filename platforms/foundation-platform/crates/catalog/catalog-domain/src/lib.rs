@@ -82,10 +82,9 @@ pub use industry::{
 pub use manufacturer::Manufacturer;
 pub use map_edit::{MapEditError, MapEditGeometry, MapEditOperation};
 pub use marker_tile::{
-    ComplexAnchorSummary, MarkerAnchorAlgorithm, MarkerTileContract, MarkerTileContractError,
-    MarkerTileFeature, MarkerTileLayer, MarkerTileRequest, ParcelMarkerAnchor,
-    ALL_ACTIVE_MARKER_FILTER_HASH, PARCEL_ANCHOR_MARKER_TILE_LAYER,
-    PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
+    MarkerAnchorAlgorithm, MarkerTileContract, MarkerTileContractError, MarkerTileFeature,
+    MarkerTileLayer, MarkerTileRequest, ParcelMarkerAnchor, ALL_ACTIVE_MARKER_FILTER_HASH,
+    PARCEL_ANCHOR_MARKER_TILE_LAYER, PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT,
 };
 pub use mutation_idempotency::{
     CatalogMutationKind, RequestFingerprint, RequestFingerprintBuilder,

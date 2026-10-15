@@ -1868,7 +1868,6 @@ dependencies = [
  "collection-application",
  "collection-domain",
  "collection-infrastructure",
- "duckdb",
  "encoding_rs",
  "flate2",
  "foundation-contracts",
@@ -1877,6 +1876,11 @@ dependencies = [
  "foundation-normalization-domain",
  "foundation-normalization-infrastructure",
  "foundation-outbox",
+ "foundation-publisher-by-pnu",
+ "foundation-publisher-collection",
+ "foundation-publisher-core",
+ "foundation-publisher-parcel-anchor",
+ "foundation-publisher-silver",
  "foundation-shapefile",
  "foundation-shared-kernel",
  "futures-util",
@@ -1904,6 +1908,157 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wiremock",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "foundation-publisher-by-pnu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "catalog-domain",
+ "chrono",
+ "flate2",
+ "foundation-contracts",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "futures-util",
+ "lakehouse-domain",
+ "lakehouse-infrastructure",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "foundation-publisher-collection"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "collection-application",
+ "collection-domain",
+ "collection-infrastructure",
+ "encoding_rs",
+ "flate2",
+ "foundation-disposable-database",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "futures-util",
+ "http-body 1.1.0",
+ "lakehouse-application",
+ "lakehouse-domain",
+ "outbound-http-infrastructure",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "foundation-publisher-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apache-avro",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "async-trait",
+ "bytes",
+ "catalog-domain",
+ "chrono",
+ "collection-domain",
+ "foundation-normalization-application",
+ "foundation-normalization-domain",
+ "foundation-normalization-infrastructure",
+ "foundation-outbox",
+ "foundation-shared-kernel",
+ "lakehouse-application",
+ "lakehouse-domain",
+ "lakehouse-infrastructure",
+ "parquet",
+ "regex",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "foundation-publisher-parcel-anchor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "catalog-domain",
+ "chrono",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "foundation-publisher-silver"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "bytes",
+ "chrono",
+ "collection-application",
+ "collection-domain",
+ "collection-infrastructure",
+ "duckdb",
+ "encoding_rs",
+ "flate2",
+ "foundation-normalization-domain",
+ "foundation-outbox",
+ "foundation-shapefile",
+ "foundation-shared-kernel",
+ "lakehouse-application",
+ "lakehouse-domain",
+ "lakehouse-infrastructure",
+ "outbound-http-infrastructure",
+ "parquet",
+ "regex",
+ "reqwest",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "shapefile",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
  "zip 2.4.2",
 ]
 
@@ -3766,9 +3921,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -4488,7 +4643,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",

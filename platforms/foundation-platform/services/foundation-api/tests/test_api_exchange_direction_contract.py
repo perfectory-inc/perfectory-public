@@ -48,7 +48,8 @@ class ApiExchangeDirectionContractTest(unittest.TestCase):
             for surface in policy["allowed_service_surfaces"]
         }
 
-        self.assertIn("GET /catalog/v1/parcels/by-pnu/:pnu/buildings", service_surfaces)
+        # The by-PNU catalog reads are retired (root ADR-0109, ADR-0194 §3); the R2 edge serves them.
+        self.assertNotIn("GET /catalog/v1/parcels/by-pnu/:pnu/buildings", service_surfaces)
         self.assertIn("POST /internal/lakehouse/artifacts", service_surfaces)
         self.assertIn("POST /internal/normalization/proposals", service_surfaces)
 

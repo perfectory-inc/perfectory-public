@@ -61,6 +61,8 @@ RULES = {
             "platforms/foundation-platform/crates/foundation-shared-kernel/",
             "platforms/foundation-platform/crates/lakehouse/",
             "platforms/foundation-platform/crates/normalization/",
+            # The publisher's lane library crates (root ADR-0200) build into the same executable.
+            "platforms/foundation-platform/crates/publisher/",
             "platforms/foundation-platform/migrations/",
             "platforms/foundation-platform/services/foundation-api/",
             "platforms/foundation-platform/services/foundation-outbox-publisher/",
@@ -108,6 +110,8 @@ RULES = {
         "exact": [
             "platforms/foundation-platform/compose.lakehouse.yml",
             "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+            "scripts/ci/test_foundation_spark_runtime_files.py",
+            "scripts/verify/foundation-spark-runtime-files.sh",
             "scripts/verify/foundation-spark-runtime.sh",
         ],
         "prefixes": [
@@ -138,6 +142,7 @@ REQUIRED_WITNESSES = {
         "publisher": "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_boundary_static_release_publish.rs",
         "object storage": "platforms/foundation-platform/crates/foundation-outbox/src/object_storage/file.rs",
         "tile domain": "platforms/foundation-platform/crates/catalog/catalog-domain/src/vector_tile.rs",
+        "R2 key layout": "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/r2_layout.rs",
     },
     "kafka-integration": {
         "live harness": "scripts/verify/foundation-kafka-live.sh",
@@ -154,6 +159,7 @@ REQUIRED_WITNESSES = {
     },
     "spark-runtime": {
         "runner": "scripts/verify/foundation-spark-runtime.sh",
+        "file runner": "scripts/verify/foundation-spark-runtime-files.sh",
         "image": "platforms/foundation-platform/compose.lakehouse.yml",
         "engine versions": "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
         "Iceberg commit test": "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_rebuild_iceberg.py",

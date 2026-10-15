@@ -1,7 +1,6 @@
 //! PNU-anchor backed marker tile contract owned by Catalog.
 
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::ComplexId;
 use foundation_shared_kernel::Pnu;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -185,73 +184,6 @@ pub struct ParcelMarkerAnchor {
     pub source_geometry_checksum_sha256: String,
     /// UTC timestamp when this anchor was computed.
     pub computed_at_utc: DateTime<Utc>,
-}
-
-/// Anchor-derived map summary for one industrial complex.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ComplexAnchorSummary {
-    /// Industrial complex whose active parcel anchors were summarized.
-    pub complex_id: ComplexId,
-    /// Canonical source for the summary coordinates.
-    pub position_source: &'static str,
-    /// Average longitude of active parcel anchors in EPSG:4326.
-    pub center_lng: f64,
-    /// Average latitude of active parcel anchors in EPSG:4326.
-    pub center_lat: f64,
-    /// Minimum active anchor longitude in EPSG:4326.
-    pub min_lng: f64,
-    /// Minimum active anchor latitude in EPSG:4326.
-    pub min_lat: f64,
-    /// Maximum active anchor longitude in EPSG:4326.
-    pub max_lng: f64,
-    /// Maximum active anchor latitude in EPSG:4326.
-    pub max_lat: f64,
-    /// Number of active parcel anchors represented by this summary.
-    pub anchor_count: u64,
-}
-
-impl ComplexAnchorSummary {
-    /// Builds a validated complex anchor summary.
-    ///
-    /// # Errors
-    /// Returns `MarkerTileContractError` when coordinates are invalid, the extent is malformed, or
-    /// no active anchor is represented.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        complex_id: ComplexId,
-        center_lng: f64,
-        center_lat: f64,
-        min_lng: f64,
-        min_lat: f64,
-        max_lng: f64,
-        max_lat: f64,
-        anchor_count: u64,
-    ) -> Result<Self, MarkerTileContractError> {
-        if anchor_count == 0 {
-            return Err(MarkerTileContractError::InvalidRepresentedCount(0));
-        }
-        validate_longitude(center_lng)?;
-        validate_latitude(center_lat)?;
-        validate_longitude(min_lng)?;
-        validate_latitude(min_lat)?;
-        validate_longitude(max_lng)?;
-        validate_latitude(max_lat)?;
-        if max_lng < min_lng || max_lat < min_lat {
-            return Err(MarkerTileContractError::InvalidAnchorExtent);
-        }
-
-        Ok(Self {
-            complex_id,
-            position_source: PNU_ANCHOR_PBF_MARKER_TILE_CONTRACT.position_source,
-            center_lng,
-            center_lat,
-            min_lng,
-            min_lat,
-            max_lng,
-            max_lat,
-            anchor_count,
-        })
-    }
 }
 
 impl ParcelMarkerAnchor {

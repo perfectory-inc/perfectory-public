@@ -135,13 +135,18 @@ async fn seed_staff(pool: &PgPool, grantor: StaffId, target: StaffId) -> TestRes
         (target, "target", "target@example.test", "CATALOG_ADMIN"),
     ] {
         sqlx::query(
-            "INSERT INTO identity.staff \
-             (id, zitadel_subject, email, display_name, primary_role_code) \
-             VALUES ($1, $2, $3, 'Role grant contract', $4)",
+            "INSERT INTO identity.staff (id, zitadel_subject, email, display_name) \
+             VALUES ($1, $2, $3, 'Role grant contract')",
         )
         .bind(staff_id.as_uuid())
         .bind(format!("{subject}-{}", staff_id.as_uuid()))
         .bind(email)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO identity.staff_role (staff_id, role_code, granted_by) VALUES ($1, $2, $1)",
+        )
+        .bind(staff_id.as_uuid())
         .bind(role)
         .execute(pool)
         .await?;
@@ -207,7 +212,6 @@ async fn assert_profile_updates_denied(api_pool: &PgPool, target: StaffId) -> Te
     for statement in [
         "UPDATE identity.staff SET email = 'changed@example.test' WHERE id = $1",
         "UPDATE identity.staff SET display_name = 'Changed' WHERE id = $1",
-        "UPDATE identity.staff SET primary_role_code = 'MASTER_ADMIN' WHERE id = $1",
         "UPDATE identity.staff SET version = version + 1 WHERE id = $1",
     ] {
         let Err(error) = sqlx::query(statement)

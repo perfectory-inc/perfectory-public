@@ -20,6 +20,8 @@ on:
       - "scripts/verify/foundation-kafka-live.sh"
       - "scripts/verify/foundation-r2-lakehouse-live.sh"
       - "scripts/verify/foundation-spark-runtime.sh"
+      - "scripts/verify/foundation-spark-runtime-files.sh"
+      - "scripts/ci/test_foundation_spark_runtime_files.py"
       - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "**/Cargo.lock"
@@ -120,15 +122,13 @@ jobs:
           # override, so the rust-cache key and contents do not change (ADR-0201).
           echo "CARGO_PROFILE_DEV_DEBUG=line-tables-only" >>"$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
-        with:
-          version: 9.12.0
-
+      # Node only for the repository guard's `node` checks. The pnpm suites run in
+      # `suites` (root ADR-0199), so this job creates no pnpm store: a pnpm cache
+      # here failed main's post step ("Path(s) ... do(es) not exist") whenever a
+      # gateway lockfile changed and the cache key was new.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0 (SHA pin, ADR 0028)
         with:
           node-version: "24.20.0"
-          cache: pnpm
-          cache-dependency-path: platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml
 
       # Foundation-specific: the committed Catalog OpenAPI artifact must match a
       # fresh export (this builds+runs export-catalog-openapi, which compiles what
@@ -758,8 +758,8 @@ jobs:
   spark-runtime:
     name: Spark and Iceberg runtime tests
     runs-on: ubuntu-24.04
-    # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file.
-    # Measured on a Linux host: about 90 seconds once the image is present.
+    # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
+    # one file per two CPUs at a time. The log ends with every file's duration, slowest first.
     timeout-minutes: 20
 
     steps:
@@ -769,6 +769,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Verify the Spark runtime file runner
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/test_foundation_spark_runtime_files.py -v
       - name: Select Spark runtime gate
         working-directory: ${{ github.workspace }}
         shell: bash

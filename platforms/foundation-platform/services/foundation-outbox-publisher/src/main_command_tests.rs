@@ -13,6 +13,11 @@ fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result
     );
     assert!(parse_command(["publisher", "stop-gold-panel-rebuild", "parcel"]).is_err());
     assert_eq!(
+        parse_command(["publisher", "stop-lakehouse-maintenance"])?,
+        Command::StopLakehouseMaintenance
+    );
+    assert!(parse_command(["publisher", "stop-lakehouse-maintenance", "all"]).is_err());
+    assert_eq!(
         parse_command(["publisher", "run-building-register-floor-cycle"])?,
         Command::RunBuildingRegisterFloorCycle
     );
@@ -47,6 +52,16 @@ fn silver_refresh_takes_its_lane_from_the_environment_not_an_argument() -> anyho
         "building-register-titles"
     ])
     .is_err());
+    Ok(())
+}
+
+#[test]
+fn the_parcel_tile_bake_cleanup_takes_no_argument() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "stop-parcel-tile-bake"])?,
+        Command::StopParcelTileBake
+    );
+    assert!(parse_command(["publisher", "stop-parcel-tile-bake", "parcels"]).is_err());
     Ok(())
 }
 
@@ -954,14 +969,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             Command::BuildParcelMarkerAnchorAggregatePbfArtifacts,
         ),
         (
-            "promote-parcel-marker-anchor-pbf-manifest",
-            Command::PromoteParcelMarkerAnchorPbfManifest,
-        ),
-        (
-            "promote-parcel-marker-anchor-runtime-manifest",
-            Command::PromoteParcelMarkerAnchorRuntimeManifest,
-        ),
-        (
             "export-vworld-cadastral-silver-handoff",
             Command::ExportVWorldCadastralSilverHandoff,
         ),
@@ -1152,9 +1159,6 @@ fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(
         Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
     ));
-    assert!(command_requires_expanded_stack(
-        Command::PromoteParcelMarkerAnchorRuntimeManifest
-    ));
 }
 
 /// The producer of `serving/buildings/by-pnu/v{generation}/{pnu}.json` (root ADR-0100). Without an
@@ -1183,4 +1187,31 @@ fn publish_building_by_pnu_serving_manifest_command_is_explicit() -> anyhow::Res
         Command::PublishBuildingByPnuServingManifest
     );
     Ok(())
+}
+
+#[test]
+fn every_silver_refresh_lane_exports_through_a_publisher_command() -> anyhow::Result<()> {
+    let exports = crate::remote_lakehouse_job::silver_refresh_export_commands()?;
+    assert!(!exports.is_empty());
+    for export in exports {
+        // The export is a publisher command the release can start.
+        assert!(
+            parse_command(["publisher", export.as_str()]).is_ok(),
+            "{export} is not a publisher command"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_retired_catalog_loaders_are_not_commands() {
+    // ADR-0194 §4: nothing writes catalog.parcel, catalog.building or catalog.building_unit.
+    for retired in [
+        "load-parcel-catalog-projection",
+        "load-building-catalog-projection",
+        "load-building-unit-catalog-projection",
+        "load-building-unit-building-link",
+    ] {
+        assert!(parse_command(["publisher", retired]).is_err(), "{retired}");
+    }
 }

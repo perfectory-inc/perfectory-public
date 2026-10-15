@@ -11,6 +11,7 @@ trap 'rm -rf "$fixture"' EXIT
 mkdir -p \
   "$fixture/platforms/foundation-platform/config" \
   "$fixture/platforms/foundation-platform/services/foundation-outbox-publisher/src" \
+  "$fixture/platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src" \
   "$fixture/platforms/foundation-platform/services/foundation-provider-acquisition-worker/src/foundation_provider_acquisition"
 cp "$root/platforms/foundation-platform/config/environment-variable-naming.contract.json" \
   "$fixture/platforms/foundation-platform/config/environment-variable-naming.contract.json"
@@ -29,8 +30,8 @@ FOUNDATION_PLATFORM_VWORLD_PASSWORD=
 DATA_GO_KR_SERVICE_KEY=
 EOF
 done
-cat > "$fixture/platforms/foundation-platform/services/foundation-outbox-publisher/src/vworld_credentials.rs" <<'EOF'
-const CONTRACT: &str = include_str!("../../../config/environment-variable-naming.contract.json");
+cat > "$fixture/platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_credentials.rs" <<'EOF'
+const CONTRACT: &str = include_str!("../../../../config/environment-variable-naming.contract.json");
 fn read_contract() {
     let _: serde_json::Value = serde_json::from_str(CONTRACT).unwrap();
     let deprecated_aliases: Vec<String> = Vec::new();
@@ -65,7 +66,7 @@ expect_failure() {
   fi
 }
 
-rust_adapter="$fixture/platforms/foundation-platform/services/foundation-outbox-publisher/src/vworld_credentials.rs"
+rust_adapter="$fixture/platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_credentials.rs"
 python_adapter="$fixture/platforms/foundation-platform/services/foundation-provider-acquisition-worker/src/foundation_provider_acquisition/vworld_credentials.py"
 cp "$rust_adapter" "$fixture/rust-adapter.clean.rs"
 cp "$python_adapter" "$fixture/python-adapter.clean.py"

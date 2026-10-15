@@ -19,6 +19,71 @@ pub enum PermissionAction {
     ViewGraphContext,
 }
 
+impl PermissionAction {
+    /// The Identity capability (`resource`, `action`) that grants this action to a workload.
+    ///
+    /// This is the one mapping between intelligence actions and the capability strings an
+    /// Identity workload policy grants (`<resource>:<action>`, root ADR-0216).
+    #[must_use]
+    pub const fn identity_capability(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::ChatCompletions => ("intelligence.chat", "complete"),
+            Self::ValidateNormalizationProposal => ("intelligence.normalization", "validate"),
+            Self::GenerateNormalizationProposal => ("intelligence.normalization", "generate"),
+            Self::SubmitNormalizationProposal => ("intelligence.normalization", "submit"),
+            Self::IngestKnowledge => ("intelligence.knowledge", "ingest"),
+            Self::RetrieveKnowledge => ("intelligence.knowledge", "retrieve"),
+            Self::ViewGraphContext => ("intelligence.graph", "view_context"),
+        }
+    }
+
+    /// Every action, for exhaustive contract checks.
+    pub const ALL: [Self; 7] = [
+        Self::ChatCompletions,
+        Self::ValidateNormalizationProposal,
+        Self::GenerateNormalizationProposal,
+        Self::SubmitNormalizationProposal,
+        Self::IngestKnowledge,
+        Self::RetrieveKnowledge,
+        Self::ViewGraphContext,
+    ];
+}
+
+/// Identity capability that lets a workload read `/metrics` in identity mode.
+pub const METRICS_IDENTITY_CAPABILITY: (&str, &str) = ("intelligence.metrics", "read");
+
+/// Outcome of one Identity policy decision for a bearer credential.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IdentityPolicyDecision {
+    /// Identity allowed the action for this principal.
+    Allow { principal_id: String },
+    /// Identity verified the credential but denied the action.
+    Deny,
+}
+
+/// Why an Identity policy decision could not be obtained.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum IdentityPolicyError {
+    /// Identity rejected the credential (invalid, expired, or revoked).
+    #[error("identity rejected the credential")]
+    Unauthenticated,
+    /// Identity could not be reached or answered outside its contract.
+    #[error("identity policy decision is unavailable")]
+    Unavailable,
+}
+
+/// Asks Identity whether the bearer may perform `resource:action` (root ADR-0216).
+#[async_trait]
+pub trait IdentityPolicyDecisionPort: Send + Sync {
+    async fn decide(
+        &self,
+        bearer: &str,
+        resource: &str,
+        action: &str,
+        trace_id: &str,
+    ) -> Result<IdentityPolicyDecision, IdentityPolicyError>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrincipalScope {
     pub tenant_id: String,

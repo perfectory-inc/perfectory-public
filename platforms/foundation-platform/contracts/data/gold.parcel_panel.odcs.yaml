@@ -61,6 +61,10 @@ schema:
         physicalType: "long"
         logicalType: "integer"
         required: true
+      - name: "lineage_json"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "attached_via_json"
         physicalType: "string"
         logicalType: "string"

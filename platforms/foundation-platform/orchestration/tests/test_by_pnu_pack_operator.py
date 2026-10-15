@@ -282,6 +282,50 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 64, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemd-run"])
 
+    def switch_off(self, *job_ids):
+        # The release's own job list decides which jobs are off; the tests write it, not main's.
+        path = self.release / "orchestration/jobs.v1.json"
+        jobs = json.loads(path.read_text(encoding="utf-8"))
+        for job in jobs["jobs"]:
+            if job["id"] in job_ids:
+                job["enabled"] = False
+                job.pop("enabled_since", None)
+        path.write_text(json.dumps(jobs), encoding="utf-8")
+
+    def test_job_start_and_status_name_the_off_jobs_unit(self):
+        self.switch_off("legal_dong_code_changes")
+        result, calls = self.run_operator("job", "start", "legal_dong_code_changes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
+                         [["start", "--no-block", "foundation-legal-dong-code.service"]])
+        result, calls = self.run_operator("job", "status", "legal_dong_code_changes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c["tool"] == "journalctl" and
+                            "foundation-legal-dong-code.service" in c["args"] for c in calls))
+
+    def test_job_start_waits_for_the_autodeploy_and_a_spark_job_for_the_spark_work(self):
+        self.switch_off("legal_dong_code_changes", "lineage_stewardship")
+        for job_id, active in (("legal_dong_code_changes", ["foundation-autodeploy.service"]),
+                               ("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),
+                               ("lineage_stewardship", ["foundation-gold-panel-rebuild.service"]),
+                               ("lineage_stewardship", ["foundation-silver-refresh@land-use-plan.service"])):
+            with self.subTest(job=job_id, active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("job", "start", job_id, activating=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
+    def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
+        self.switch_off("silver_refresh_land_use_plan")
+        for args in (("job", "start", "source_sweep"), ("job", "start", "silver_refresh_land_use_plan"),
+                     ("job", "start", "no_such_job"), ("job", "start", "../../etc/passwd"), ("job", "start"),
+                     ("job", "drop", "source_sweep"), ("job", "start", "source_sweep", "extra")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] in ("systemd-run", "systemctl")])
+
     def test_silver_takes_only_a_listed_lane_and_a_known_action(self):
         for args in (("silver", "plan", "not-a-lane"), ("silver", "plan", "../../etc/passwd"),
                      ("silver", "plan"), ("silver", "drop", "land-use-plan"),
@@ -343,6 +387,32 @@ class PackOperator(OperatorHarness):
         self.assertEqual(result.returncode, 75, result.stderr)
         self.assertIn("building/lane.lock", result.stderr)
         self.assertEqual(calls, [])
+
+    def test_kind_sizes_runs_the_read_only_measurement_as_the_service_never_beside_a_rebuild_or_bake(self):
+        # Root ADR-0193 §6-1: the measure job's only way onto the host is this step.
+        result, calls = self.run_operator("parcel", "kind-sizes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, env, props = self.unit(calls)
+        self.assertIn("--unit=foundation-parcel-kind-sizes", args)
+        self.assertIn("--no-block", args)
+        self.assertTrue(args[-2].endswith("/scripts/ops/by-pnu-kind-sizes.sh"), args)
+        self.assertEqual(args[-1], "parcel")
+        self.assertTrue(any(prop.startswith("User=") for prop in props), props)
+        secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
+        catalog = next(g["path"] for g in secrets["groups"] if g["name"] == "map-edit-fold")
+        self.assertIn(f"EnvironmentFile={catalog}", props)
+        self.assertEqual(env, {})
+        for active in (["foundation-gold-panel-rebuild.service"], ["foundation-by-pnu-serving-bake.service"],
+                       ["foundation-parcel-kind-sizes.service"]):
+            with self.subTest(active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("parcel", "kind-sizes", active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(calls, [])
+        for args in (("parcel", "kind-sizes", "1"), ("unit-price", "kind-sizes")):
+            with self.subTest(args=args):
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
 
     def test_gold_rebuild_is_the_scheduled_unit_with_a_fixed_unconditional_reason(self):
         result, calls = self.run_operator("building", "gold-rebuild")
@@ -420,6 +490,10 @@ class PackOperator(OperatorHarness):
         secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         analytics = next(g["path"] for g in secrets["groups"] if g["name"] == "cloudflare-analytics")
         self.assertIn(f"EnvironmentFile={analytics}", props)
+        # A pack-only lane's probe reads its unpublished packs back from R2 (root ADR-0190): the
+        # lakehouse R2 settings too, or it stops on a missing account id (2026-10-13).
+        lakehouse = next(g["path"] for g in secrets["groups"] if g["name"] == "source-sweep")
+        self.assertIn(f"EnvironmentFile={lakehouse}", props)
         # The earlier evidence is kept, never overwritten.
         self.assertEqual(len(list(work.glob("latency-*.json"))), 1)
 

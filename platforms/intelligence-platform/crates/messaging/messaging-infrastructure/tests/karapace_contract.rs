@@ -174,6 +174,65 @@ async fn karapace_client_registers_avro_schema_and_returns_id_from_created_respo
 }
 
 #[tokio::test]
+async fn karapace_client_looks_up_an_owner_registered_schema_without_registering() {
+    let captured = Arc::new(Mutex::new(None));
+    // Only the lookup route exists: a call to `/versions` (registering) would get a 404.
+    let base_url = spawn_server(
+        Router::new()
+            .route(
+                "/subjects/{subject}",
+                post(
+                    |State(captured): State<Arc<Mutex<Option<CapturedRequest>>>>,
+                     Path(subject): Path<String>,
+                     Json(body): Json<Value>| async move {
+                        *captured.lock().unwrap() = Some(CapturedRequest { subject, body });
+                        Json(json!({ "subject": "s", "id": 23, "version": 1 }))
+                    },
+                ),
+            )
+            .with_state(captured.clone()),
+    )
+    .await;
+    let client = KarapaceClient::new(KarapaceClientConfig {
+        base_url,
+        timeout_seconds: 5,
+    })
+    .unwrap();
+    let subject = schema_subject_for_topic(DEAD_LETTER_TOPIC);
+
+    let schema_id = client
+        .lookup_avro_schema(&subject, r#"{"type":"string"}"#)
+        .await
+        .unwrap();
+
+    assert_eq!(schema_id, 23);
+    let captured = captured.lock().unwrap().clone().unwrap();
+    assert_eq!(captured.subject, subject);
+    assert_eq!(captured.body["schemaType"], "AVRO");
+}
+
+#[tokio::test]
+async fn karapace_client_lookup_of_an_unregistered_subject_is_rejected() {
+    let base_url = spawn_server(Router::new().route(
+        "/subjects/{subject}",
+        post(|| async move { (StatusCode::NOT_FOUND, r#"{"error_code":40401}"#) }),
+    ))
+    .await;
+    let client = KarapaceClient::new(KarapaceClientConfig {
+        base_url,
+        timeout_seconds: 5,
+    })
+    .unwrap();
+
+    let error = client
+        .lookup_avro_schema("missing-value", "{}")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, KarapaceError::Rejected { status: 404, .. }));
+}
+
+#[tokio::test]
 async fn karapace_client_rejects_non_success_status_with_body() {
     let base_url = spawn_server(Router::new().route(
         "/subjects/{subject}/versions",

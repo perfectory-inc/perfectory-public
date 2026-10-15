@@ -8,8 +8,7 @@ use staff_identity_domain::{Staff, StaffIdentityError};
 use crate::row_map::{map_sqlx, row_to_staff};
 
 const FIND_BY_SUBJECT_SQL: &str =
-    "SELECT id, zitadel_subject, email, display_name, primary_role_code,
-            created_at, updated_at, version
+    "SELECT id, zitadel_subject, email, display_name, created_at, updated_at, version
      FROM identity.staff
      WHERE zitadel_subject = $1";
 const IS_JTI_REVOKED_SQL: &str =

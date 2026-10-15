@@ -140,7 +140,7 @@ bundled mapbox-gl, Vitest, Playwright.
 
 - Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs`.
 - Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_derivative_object_storage.rs`.
-- Modify `platforms/foundation-platform/services/foundation-outbox-publisher/src/r2_layout.rs`.
+- Modify `platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/r2_layout.rs`.
 - Reuse `platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2.rs`; do not create another S3 client.
 - Modify `scripts/tiles/{compose.yaml,martin-dynamic.yaml,martin-static.yaml,tiles-slice-proof.sh,fixture.sql,vector-tile-manifest.local.json}`.
 - Modify `platforms/foundation-platform/services/foundation-api/tests/{tiles_slice_contract.rs,tiles_slice_harness_contract.rs}`.

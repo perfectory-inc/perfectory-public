@@ -48,10 +48,8 @@ Foundation이 소유하는 수집 제어 항목:
 제품 서비스는 조회 API로 공개된 Foundation 계약을 가져온다. Foundation 데이터베이스나 객체 레이크
 내부를 직접 읽지 않는다.
 
-현재 관리되는 서비스 경로:
-
-- `GET /catalog/v1/parcels/by-pnu/:pnu`
-- `GET /catalog/v1/parcels/by-pnu/:pnu/buildings`
+현재 관리되는 서비스 경로는 없다. 필지·건물·호는 R2 엣지 묶음으로 서비스하고(루트 ADR-0109, ADR-0194),
+산업단지 조회 경로는 서비스 신원 없이 공개된다.
 
 공개 조회 계약이 추가될 수 있지만, 이 역시 공개 계약이지 저장소 직접 접근이 아니다.
 

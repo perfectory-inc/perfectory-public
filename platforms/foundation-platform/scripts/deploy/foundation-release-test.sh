@@ -140,6 +140,8 @@ build_source() {
   cp "${repo_root}/scripts/deploy/assert-runtime-environment.sh" "${dir}/scripts/deploy/"
   mkdir -p "${dir}/infra/systemd"
   cp "${repo_root}/infra/systemd/building-register-floor.env.example" "${dir}/infra/systemd/"
+  # What ages out on the host (root ADR-0198), which `timers` and `host-retention` install.
+  cp -R "${repo_root}/infra/host" "${dir}/infra/"
   chmod +x "${dir}/scripts/deploy/assert-runtime-migrations.sh"
   chmod +x "${dir}/scripts/deploy/assert-runtime-environment.sh"
   # `verify` and `timers` check the host's environment files against the runtime-secrets contract
@@ -1231,6 +1233,25 @@ fi
 grep -q 'lakehouse-reader.env: missing' "${test_root}/secrets.log"
 mv "${reader_file}.away" "${reader_file}"
 printf 'verify-refuses-a-missing-environment-file=pass\n'
+# A file that holds a credential under its old name only gains the derived name, with the same
+# value and mode, before verify checks it (root ADR-0247); without that step verify refuses it.
+cp -p "${reader_file}" "${reader_file}.full"
+printf 'FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID=old-id\nFOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret\n' >"${reader_file}"
+mutate verify-without-rename 's/ rename --root / host --root /'
+if run_install_root "${test_root}/verify-without-rename.sh" verify >"${test_root}/secrets.log" 2>&1; then
+  printf 'verify passed a file without the derived credential names\n' >&2
+  exit 1
+fi
+grep -q 'does not hold FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID' "${test_root}/secrets.log"
+run_install_root "${release_script}" verify >"${test_root}/secrets.log" 2>&1 || { cat "${test_root}/secrets.log" >&2; exit 1; }
+grep -qx 'FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret' "${reader_file}"
+[[ "$(stat -c '%a' "${reader_file}")" == 600 ]]
+if grep -q 'old-secret' "${test_root}/secrets.log"; then
+  printf 'verify printed a credential value\n' >&2
+  exit 1
+fi
+mv "${reader_file}.full" "${reader_file}"
+printf 'verify-renames-credentials-before-checking=pass\n'
 # An install that does not seal what it moved into place cannot build it: the build's check wants an
 # immutable release (root ADR-0184).
 mutate install-without-seal '/^  "${admission}" seal "${target}"$/d'
@@ -1247,6 +1268,78 @@ fi
 printf 'prune-install-without-prune-mutation=refused\n'
 cp "${test_root}/applied.saved" "${test_root}/applied.txt"
 write_retention_contract "$(prune_id 0)" 20
+
+# Host retention (root ADR-0198) on a host that has none of it yet. Its first deploy found
+# /etc/systemd/journald.conf.d empty; `cat <dir>/*.conf 2>/dev/null | sha256sum` then failed in an
+# assignment, and `timers` exited 1 after scheduler-access-ok without a word (2026-10-13). A test
+# copy points the two /etc directories into the rehearsal; `install` drops the root ownership a
+# test user cannot give, and systemctl and systemd-tmpfiles only record what they were asked.
+host_etc="${test_root}/host-etc"
+retention_bin="${test_root}/retention-bin"
+export REHEARSAL_RETENTION_CALLS="${test_root}/retention-calls.log"
+mkdir -p "${retention_bin}"
+cat >"${retention_bin}/install" <<'INSTALL'
+#!/usr/bin/env bash
+args=()
+while (($#)); do
+  case "$1" in -o|-g) shift 2 ;; *) args+=("$1"); shift ;; esac
+done
+exec /usr/bin/install "${args[@]}"
+INSTALL
+for tool in systemctl systemd-tmpfiles; do
+  printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" "%s" "$*" >>"${REHEARSAL_RETENTION_CALLS}"\n' "${tool}" \
+    >"${retention_bin}/${tool}"
+done
+chmod +x "${retention_bin}"/*
+sed -e "s|/etc/tmpfiles.d|${host_etc}/tmpfiles.d|g" \
+  -e "s|/etc/systemd/journald.conf.d|${host_etc}/systemd/journald.conf.d|g" \
+  "${release_script}" >"${test_root}/host-retention.sh"
+chmod +x "${test_root}/host-retention.sh"
+host_retention_rehearsal() {
+  local script="$1"
+  PATH="${retention_bin}:${PATH}" run_release_with "${script}" host-retention
+}
+run_release_with() {
+  local script="$1"
+  shift
+  FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" \
+  FOUNDATION_PLATFORM_STATE_ROOT="${state_root}" \
+  FOUNDATION_PLATFORM_ENV_FILE="${release_root}/current/rehearsal.env" \
+    "${script}" "$@"
+}
+: >"${REHEARSAL_RETENTION_CALLS}"
+host_retention_rehearsal "${test_root}/host-retention.sh" >"${test_root}/host-retention.log" 2>&1 \
+  || { cat "${test_root}/host-retention.log" >&2; exit 1; }
+cmp -s "${repo_root}/infra/host/journald.conf.d/50-foundation-retention.conf" \
+  "${host_etc}/systemd/journald.conf.d/50-foundation-retention.conf"
+cmp -s "${repo_root}/infra/host/tmpfiles.d/foundation-scratch.conf" "${host_etc}/tmpfiles.d/foundation-scratch.conf"
+grep -q '^systemd-tmpfiles --clean .*/foundation-scratch.conf$' "${REHEARSAL_RETENTION_CALLS}"
+grep -q '^systemctl restart systemd-journald$' "${REHEARSAL_RETENTION_CALLS}"
+# Unchanged drop-ins on the next deploy: journald is not restarted again.
+: >"${REHEARSAL_RETENTION_CALLS}"
+host_retention_rehearsal "${test_root}/host-retention.sh" >"${test_root}/host-retention.log" 2>&1 \
+  || { cat "${test_root}/host-retention.log" >&2; exit 1; }
+if grep -q 'restart systemd-journald' "${REHEARSAL_RETENTION_CALLS}"; then
+  printf 'host retention restarted journald although its drop-ins did not change\n' >&2
+  exit 1
+fi
+printf 'host-retention-on-an-empty-host=pass\n'
+# The line as it was: it must still fail on an empty host, and the failure must now name its line.
+rm -rf "${host_etc}"
+sed 's|journald_before="$(journald_dropins_digest)"|journald_before="$(cat '"${host_etc}"'/systemd/journald.conf.d/*.conf 2>/dev/null \| sha256sum)"|' \
+  "${test_root}/host-retention.sh" >"${test_root}/host-retention-glob.sh"
+chmod +x "${test_root}/host-retention-glob.sh"
+if cmp -s "${test_root}/host-retention.sh" "${test_root}/host-retention-glob.sh"; then
+  printf 'mutation host-retention-glob changed nothing; its expression no longer matches the script\n' >&2
+  exit 1
+fi
+if host_retention_rehearsal "${test_root}/host-retention-glob.sh" >"${test_root}/host-retention.log" 2>&1; then
+  printf 'host retention passed with the empty-directory glob digest\n' >&2
+  exit 1
+fi
+grep -q '^foundation-release.sh: line [0-9]*: `journald_before=.*` exited 1$' "${test_root}/host-retention.log" \
+  || { printf 'a stopped deploy did not name its line:\n' >&2; cat "${test_root}/host-retention.log" >&2; exit 1; }
+printf 'host-retention-glob-mutation=refused-with-its-line\n'
 
 # A modified active tree cannot install host units. The stand-in records any attempted host
 # mutation, so "failed later because the test user cannot write /etc" cannot masquerade as a gate.

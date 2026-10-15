@@ -45,7 +45,7 @@ last_reviewed: 2026-07-29
 - 두 슬러그 계열이 공존:
   - 의미 있는 이름: `source=hub-building-building-electricity-usage` 등(건축 데이터셋들).
   - 자동 생성 코드: `source=hub-go-kr-public-bulk-task-{group}-{code}`
-    (`services/foundation-outbox-publisher/src/building_hub_bulk_collection_plan.rs:319`) - hub.go.kr의 bulk
+    (`crates/publisher/foundation-publisher-collection/src/building_hub_bulk_collection_plan.rs:319`) - hub.go.kr의 bulk
     다운로드 "작업" 하나당 폴더 하나라 수가 많다. -> 카탈로그에서 친절한 이름으로 매핑할 후보.
 - `partition=operation=...`의 이중 `=`는 사소한 흠집(동작 무해). 물리 정리는 §1의 "계획된
   마이그레이션" 규율로만.

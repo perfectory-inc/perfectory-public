@@ -11,10 +11,14 @@ export const FLOW_TABS = [
 ] as const;
 export type FlowTab = (typeof FLOW_TABS)[number]["id"];
 
+/** What a link into the flow screen opens: a dataset's panel (`?node=`) or a job's (`?job=`). The Slack notice
+ * of a problem links here (`services/foundation-api/src/routes/data_catalog/alerts.rs`). */
+export type FlowFocus = { kind: "dataset" | "job"; id: string };
+
 export type Route =
   | { page: "review-list" }
   | { page: "review-item"; itemId: string }
-  | { page: "flow"; tab: FlowTab }
+  | { page: "flow"; tab: FlowTab; focus: FlowFocus | null }
   | { page: "tiles" }
   | { page: "complexes" };
 
@@ -30,17 +34,25 @@ export function movedTo(path: string): string | null {
 }
 
 export function resolveRoute(path: string): Route {
-  const target = movedTo(path) ?? path;
+  const [bare = "", query = ""] = path.split("?", 2);
+  const target = movedTo(bare) ?? bare;
   const itemId = target.match(/^\/items\/([0-9a-f-]{36})$/)?.[1];
   if (itemId) return { page: "review-item", itemId };
   const flow = target.match(/^\/flow(?:\/([a-z]+))?$/);
   if (flow) {
     const tab = FLOW_TABS.find((candidate) => candidate.id === flow[1])?.id ?? "timeline";
-    return { page: "flow", tab };
+    return { page: "flow", tab, focus: flowFocus(new URLSearchParams(query)) };
   }
   if (target === "/tiles") return { page: "tiles" };
   if (target === "/complexes") return { page: "complexes" };
   return { page: "review-list" };
+}
+
+function flowFocus(params: URLSearchParams): FlowFocus | null {
+  const node = params.get("node");
+  if (node) return { kind: "dataset", id: node };
+  const job = params.get("job");
+  return job ? { kind: "job", id: job } : null;
 }
 
 /** The console's menus; each is a platform's own screen composed here (root ADR-0114). */

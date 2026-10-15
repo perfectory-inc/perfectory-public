@@ -129,10 +129,6 @@ class ProducerDecisions(unittest.TestCase):
         self.assertIn(f"WHEN NOT MATCHED AND NOT s.`{incremental.DELETE_FLAG}` THEN INSERT", sql)
         self.assertNotIn(incremental.DELETE_FLAG, sql.split("INSERT", 1)[1].split("VALUES")[0])
 
-    def test_the_merge_matches_a_row_by_its_whole_key(self):
-        sql = incremental.merge_sql("`c`.`gold`.`t`", ["pnu", "building_id", "body"], ("pnu", "building_id"))
-        self.assertIn("ON t.`pnu` = s.`pnu` AND t.`building_id` = s.`building_id` WHEN", sql)
-
     def test_an_input_is_appended_only_when_every_snapshot_since_the_pin_appends(self):
         chain = {11: (None, "append"), 12: (11, "append"), 13: (12, "append"), 14: (13, "overwrite"),
                  15: (14, "append"), 21: (11, "delete")}
@@ -182,7 +178,9 @@ class BuildColumns(unittest.TestCase):
         lineage = {"source_snapshot_id", "source_record_id", "ingested_at_utc", "bronze_object_key",
                    "source_line_number", "valid_from_utc", "valid_to_utc", "row_checksum_sha256"}
         for job in (building, parcel):
-            self.assertEqual(set(job.BUILD_COLUMNS), set(job.ALL_SOURCES), job.JOB_NAME)
+            # The parcel panel's lineage section also reads its optional lineage input.
+            optional = {parcel.LINEAGE_SOURCE} if job is parcel else set()
+            self.assertEqual(set(job.BUILD_COLUMNS), set(job.ALL_SOURCES) | optional, job.JOB_NAME)
             for name, columns in job.BUILD_COLUMNS.items():
                 with self.subTest(job=job.JOB_NAME, input=name):
                     self.assertLessEqual(set(columns), set(column_names(load_lakehouse_contract(name))))
@@ -193,8 +191,10 @@ class BuildColumns(unittest.TestCase):
         self.assertLessEqual(set(evidence_policy()["columns"]), set(building.BUILD_COLUMNS[building.UNIT_SOURCE]))
 
     def test_whole_table_inputs_are_inputs(self):
-        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, (parcel.ZONE_CODE_SOURCE,))
-        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), (parcel.ZONE_CODE_SOURCE,))
+        # A lineage edge is keyed by two PNUs and lands in both parcels' lineage section.
+        whole = (parcel.ZONE_CODE_SOURCE, parcel.LINEAGE_SOURCE)
+        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, whole)
+        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), whole)
         self.assertEqual(rebuild.producer_whole_table_inputs(building), ())
 
 

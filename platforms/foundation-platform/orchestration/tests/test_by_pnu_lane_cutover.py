@@ -10,6 +10,7 @@ import datetime
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import unittest
@@ -150,33 +151,51 @@ class LaneCutover(OperatorHarness):
         self.assertIn("every lane is cut over already", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
 
-    def test_a_declared_parity_passes_only_on_a_full_rebuild_committed_in_this_run(self):
+    def test_a_declared_parity_passes_only_on_a_head_a_full_rebuild_with_parity_committed(self):
         # An incremental commit skips the producer's parity with the bundle (ADR-0193 §6-2), so a
-        # head it made was never checked on every PNU: the cut-over must not serve it.
+        # head it made was never checked on every PNU: the cut-over must not serve it. The head is
+        # read from the rebuild's own run directories, so a head the scheduled kind rebuild made
+        # earlier (this run's gold then says "nothing to do", 2026-10-13) passes on its evidence.
         contract_path = self.release / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
         table = by_pnu_kinds.lane_fields(LANE)["gold_table"]
         contract["tables"][table].setdefault("pins_from", {})["parity_argument"] = "--parity-panel-snapshot-id"
+        unit = contract["tables"][table]["unit"]
         contract_path.write_text(json.dumps(contract), encoding="utf-8")
         self.gates_ready()
-        committed = f"gold-panel-rebuild {LANE}: committed {table}: 5 rows (floor none) in 9s by a full rebuild\n"
-        for kind, output, passes in (
-            ("full", f"gold-kind {table} mode=full seconds=9 rows=5 changed_keys=-\n{committed}", True),
-            ("incremental", f"gold-kind {table} mode=incremental seconds=9 rows=5 changed_keys=2\n"
-                            + committed.replace("full", "incremental"), False),
-            ("nothing", f"gold-panel-rebuild {LANE}: nothing to do: no Silver input of {table} changed rows\n", False),
-            ("dry run", f"gold-kind {table} mode=full seconds=9 rows=5 changed_keys=- dry_run=yes\n", False),
+        state = self.root / "gold-state"
+        parity = ["--lane", LANE, "--parity-panel-snapshot-id", "999990000000000001"]
+
+        def run(name, mode=None, arguments=parity, disposition="iceberg_overwrite"):
+            directory = state / unit / "runs" / name
+            directory.mkdir(parents=True)
+            (directory / "plan.json").write_text(json.dumps({"producer_arguments": arguments}))
+            if mode is not None:  # a run that planned "nothing to do" writes no summary
+                (directory / "summary.json").write_text(json.dumps(
+                    {"write_disposition": disposition, "rebuild": {"mode": mode}, "row_count": 5}))
+
+        full = ("20261012T230000Z", "full")
+        for kind, runs, passes in (
+            ("this run committed full", [full], True),
+            ("an earlier full head, this run nothing to do", [full, ("20261013T010000Z", None)], True),
+            ("a dry run after the full head", [full, ("20261013T010000Z", "full", parity, "validate_only")], True),
+            ("an incremental head", [full, ("20261013T010000Z", "incremental")], False),
+            ("a full head without the parity argument", [("20261012T230000Z", "full", ["--lane", LANE])], False),
+            ("no run wrote the table", [("20261013T010000Z", None)], False),
         ):
             with self.subTest(kind=kind):
+                shutil.rmtree(state, ignore_errors=True)
+                for spec in runs:
+                    run(*spec)
                 for old in [self.log, *(self.bake / "cutover").glob("*.jsonl")] if (self.bake / "cutover").exists() else [self.log]:
                     if old.exists():
                         old.unlink()
-                result, calls = self.runner(LANE, "1", FAKE_GOLD_OUTPUT=output)
+                result, calls = self.runner(LANE, "1", FOUNDATION_GOLD_REBUILD_STATE_ROOT=str(state))
                 steps = {step["step"]: step for step in self.evidence()}
                 if passes:
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(steps["parity"]["outcome"], "passed")
-                    self.assertIn("mode=full seconds=9", steps["gold"]["reason"])
+                    self.assertIn("full rebuild", steps["parity"]["reason"])
                 else:
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertEqual(steps["parity"]["outcome"], "failed")
@@ -194,7 +213,14 @@ class LaneCutover(OperatorHarness):
         args, _, _ = self.unit(calls)
         self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
         self.log.unlink()
+        # The measured run of an input listed under unmeasured_inputs: the same unit, nothing committed.
+        result, calls = self.run_operator("gold", "rebuild", unit, "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-3:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit, "--dry-run"])
+        self.log.unlink()
         for args in (("gold", "rebuild"), ("gold", "rebuild", "all"), ("gold", "rebuild", unit, "x"),
+                     ("gold", "rebuild", unit, "--dry-run", "x"), ("gold", "rebuild", "--dry-run"),
                      ("gold", "rebuild", "../x"), ("gold", "bake", "1")):
             with self.subTest(args=args):
                 result, calls = self.run_operator(*args)

@@ -347,6 +347,12 @@ const fn event_type(event: &IdentityEventV1) -> &'static str {
         IdentityEventV1::StaffInvited(_) => "identity.staff.invited.v1",
         IdentityEventV1::StaffRoleAssigned(_) => "identity.staff.role_assigned.v1",
         IdentityEventV1::StaffSessionRevoked(_) => "identity.staff.session_revoked.v1",
+        IdentityEventV1::ServiceCapabilityGranted(_) => {
+            "identity.service_principal.capability_granted.v1"
+        }
+        IdentityEventV1::ServiceCapabilityRevoked(_) => {
+            "identity.service_principal.capability_revoked.v1"
+        }
     }
 }
 
@@ -355,5 +361,7 @@ const fn has_supported_schema_version(event: &IdentityEventV1) -> bool {
         IdentityEventV1::StaffInvited(payload) => payload.schema_version == 1,
         IdentityEventV1::StaffRoleAssigned(payload) => payload.schema_version == 1,
         IdentityEventV1::StaffSessionRevoked(payload) => payload.schema_version == 1,
+        IdentityEventV1::ServiceCapabilityGranted(payload)
+        | IdentityEventV1::ServiceCapabilityRevoked(payload) => payload.schema_version == 1,
     }
 }
