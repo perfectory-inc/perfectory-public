@@ -3856,6 +3856,1882 @@
           "granularity": "sigungu"
         }
       ]
+    },
+    "202610": {
+      "provider_base_month": "2026-10",
+      "extracted_on": {
+        "earliest": "2026-10-01",
+        "latest": "2026-10-13"
+      },
+      "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=202610",
+      "granularity_counts": {
+        "sido": 10,
+        "sigungu": 256
+      },
+      "objects": [
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-261--sha256-cf9d4d11d09c9f0589c99758e85df0a2b69543f713bcf48bfdba1c4b2ed74a80.zip",
+          "bytes": 100639354,
+          "dataset_name": "LSMD_CONT_LDREG_11_202610",
+          "region_code": "11",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-254--sha256-2f2a79c3525385e38d911bce509ffc1bda47546053d3f960d154bdfd704e462e.zip",
+          "bytes": 90748987,
+          "dataset_name": "LSMD_CONT_LDREG_26_202610",
+          "region_code": "26",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-262--sha256-40d7da87440b20da51d50b8db88148f3d401ece8979fbd4fb6c9bebd4ba37d1c.zip",
+          "bytes": 127126523,
+          "dataset_name": "LSMD_CONT_LDREG_27_202610",
+          "region_code": "27",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-260--sha256-7c3ef3eb4a26bf49f0c41156701cb9b8e01a405e3e145e6b1f45cd247e796e3b.zip",
+          "bytes": 104331420,
+          "dataset_name": "LSMD_CONT_LDREG_28_202610",
+          "region_code": "28",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-265--sha256-474a378524e115bc22abc1de83038249b7b8059a1547d11c4c0b8823f9a93a35.zip",
+          "bytes": 45021855,
+          "dataset_name": "LSMD_CONT_LDREG_30_202610",
+          "region_code": "30",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-266--sha256-efdbcc7e483ae75dcb778239a81bc38cc272ca4b895b95bc713a90329bf66a81.zip",
+          "bytes": 85915569,
+          "dataset_name": "LSMD_CONT_LDREG_31_202610",
+          "region_code": "31",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-312--sha256-db12dc2f4fad05f13dde98b913b14f6061f16815b83c366de481ff83d0f38646.zip",
+          "bytes": 38899735,
+          "dataset_name": "LSMD_CONT_LDREG_36_202610",
+          "region_code": "36",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-264--sha256-335eb947940a1d653c68985a74995ccb0b6398a7390a6ced4c5bd4fb545d2ccb.zip",
+          "bytes": 444404433,
+          "dataset_name": "LSMD_CONT_LDREG_43_202610",
+          "region_code": "43",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-268--sha256-1153b3e9ab6a906a15067d4488e6876f8bfb144399b21b032c5f525d5fabd6e0.zip",
+          "bytes": 147228583,
+          "dataset_name": "LSMD_CONT_LDREG_50_202610",
+          "region_code": "50",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-253--sha256-543a90e825366e6b5da7abac1abdb1f795c0b4a4d3950299ad9ce4570191e230.zip",
+          "bytes": 429573124,
+          "dataset_name": "LSMD_CONT_LDREG_51_202610",
+          "region_code": "51",
+          "granularity": "sido"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-241--sha256-6126aeee5fed9087b20688637b43c39ebba72df5058eb15a79d69353f88134bd.zip",
+          "bytes": 6270865,
+          "dataset_name": "LSMD_CONT_LDREG_11110_202610",
+          "region_code": "11110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-245--sha256-31d20dc6c3299e89a9d675555a1ddc1d7be9879b853cf42a740cc792f5ba9019.zip",
+          "bytes": 3749046,
+          "dataset_name": "LSMD_CONT_LDREG_11140_202610",
+          "region_code": "11140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-236--sha256-a9c03e6b9feed5f3417183133bdeaf5bee348cdda2628af2105716757f668475.zip",
+          "bytes": 5161927,
+          "dataset_name": "LSMD_CONT_LDREG_11170_202610",
+          "region_code": "11170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-240--sha256-aacfd936178ba209992bb47f318c5722d00b0c1426cf56543e8f3bf2a897603c.zip",
+          "bytes": 3487459,
+          "dataset_name": "LSMD_CONT_LDREG_11200_202610",
+          "region_code": "11200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-248--sha256-bce641e49f6951d65c33d1b921aabac6609754c73fdda4dfaa5c1294dcb462ee.zip",
+          "bytes": 2850648,
+          "dataset_name": "LSMD_CONT_LDREG_11215_202610",
+          "region_code": "11215",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-238--sha256-5f8043143873e2e22d73070e2a032b6a50a2dac8c194a0f9f26ec62bc0f5a622.zip",
+          "bytes": 4177562,
+          "dataset_name": "LSMD_CONT_LDREG_11230_202610",
+          "region_code": "11230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-244--sha256-ee7aa3424710f5951c03c4e2f4bd020fdef0cfc2c849e262357a1b333ec8be16.zip",
+          "bytes": 4120028,
+          "dataset_name": "LSMD_CONT_LDREG_11260_202610",
+          "region_code": "11260",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-242--sha256-1af3156dd6562c7d691061b3412cf752eadd3e657ae729d653d3ed8d0f819e78.zip",
+          "bytes": 5971752,
+          "dataset_name": "LSMD_CONT_LDREG_11290_202610",
+          "region_code": "11290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-237--sha256-511598d4b51c9c4c2b02931487eca46ccff1c481c7e91ac8c4a220377d49ce15.zip",
+          "bytes": 4300978,
+          "dataset_name": "LSMD_CONT_LDREG_11305_202610",
+          "region_code": "11305",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-246--sha256-a9f5faeb169e3a3e743435f3315177094bfd1a520cc9c286674701dba46b5b33.zip",
+          "bytes": 2560621,
+          "dataset_name": "LSMD_CONT_LDREG_11320_202610",
+          "region_code": "11320",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-239--sha256-5244e0389a94c665dac1894b1d0f4b117dad0175b54d2605ab1590b601b4200d.zip",
+          "bytes": 2472338,
+          "dataset_name": "LSMD_CONT_LDREG_11350_202610",
+          "region_code": "11350",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-247--sha256-686b0d24f60dac1d1c81be31ff7e6e8693fbf261fb481da8207788256277f9bd.zip",
+          "bytes": 4751834,
+          "dataset_name": "LSMD_CONT_LDREG_11380_202610",
+          "region_code": "11380",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-243--sha256-bd12b564dbc0e2ab164080d5ea6dfb98d01dd43be51361c98f04267c64e0a1e6.zip",
+          "bytes": 4062898,
+          "dataset_name": "LSMD_CONT_LDREG_11410_202610",
+          "region_code": "11410",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-196--sha256-c89cfe86d640e269bfc2803cd4032f64d51f1a951ab1c6af37f52a9095ab371b.zip",
+          "bytes": 4180006,
+          "dataset_name": "LSMD_CONT_LDREG_11440_202610",
+          "region_code": "11440",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-225--sha256-4535fa3984fe598f9fcfc087ade4df89b7df610532b1610004d85b456337bb0e.zip",
+          "bytes": 2246824,
+          "dataset_name": "LSMD_CONT_LDREG_11470_202610",
+          "region_code": "11470",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-215--sha256-b35f5ef59127b76075a17d60f5741d6256a60c01c0fa22ab01d57e2b927ce43c.zip",
+          "bytes": 4811432,
+          "dataset_name": "LSMD_CONT_LDREG_11500_202610",
+          "region_code": "11500",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-198--sha256-3d8c3db17df8c4940afb6de7f9aa69d9ceaaf4e564045d9f4655e7a602cb49c3.zip",
+          "bytes": 3957017,
+          "dataset_name": "LSMD_CONT_LDREG_11530_202610",
+          "region_code": "11530",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-200--sha256-dae87a06d3386aa1741ee0cf432caf3a703870b520734c487ba02bff33e2b74f.zip",
+          "bytes": 2134752,
+          "dataset_name": "LSMD_CONT_LDREG_11545_202610",
+          "region_code": "11545",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-212--sha256-c328f8e8d276fdcdec8b2d1732791c5bdacc580735b871c076c8c8a395700068.zip",
+          "bytes": 4390191,
+          "dataset_name": "LSMD_CONT_LDREG_11560_202610",
+          "region_code": "11560",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-197--sha256-62b20de9ce5d99847d15a5b72ac43307ec561959a3bd5af846b14e7078ae797b.zip",
+          "bytes": 4133654,
+          "dataset_name": "LSMD_CONT_LDREG_11590_202610",
+          "region_code": "11590",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-222--sha256-64adc163f85f8c264e8e75cbc56ef712c17057a349411e20dca4f679612c4a5c.zip",
+          "bytes": 4411436,
+          "dataset_name": "LSMD_CONT_LDREG_11620_202610",
+          "region_code": "11620",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-235--sha256-da51a8b3f357c6240116956d554a5a300361938a733e9830f6708e3a151a7a3e.zip",
+          "bytes": 4582218,
+          "dataset_name": "LSMD_CONT_LDREG_11650_202610",
+          "region_code": "11650",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-224--sha256-29b62e65a5c0c5a82bf911f0f17780b5a44f28a18b1dddda138e16c41b0bdd45.zip",
+          "bytes": 3344951,
+          "dataset_name": "LSMD_CONT_LDREG_11680_202610",
+          "region_code": "11680",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-213--sha256-1e6e7c543fa406158a135aa8b71afab28403c516af2200f034a41c5f5a98f292.zip",
+          "bytes": 4185524,
+          "dataset_name": "LSMD_CONT_LDREG_11710_202610",
+          "region_code": "11710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-219--sha256-1c67f7069c7cfbe9b5ce2a15e8d947411b25ea5ce7e2296bfcaef8b3092da757.zip",
+          "bytes": 3372607,
+          "dataset_name": "LSMD_CONT_LDREG_11740_202610",
+          "region_code": "11740",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-327.zip",
+          "bytes": 8492583,
+          "dataset_name": "LSMD_CONT_LDREG_12110_202610",
+          "region_code": "12110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-335.zip",
+          "bytes": 50678093,
+          "dataset_name": "LSMD_CONT_LDREG_12130_202610",
+          "region_code": "12130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-326.zip",
+          "bytes": 69549173,
+          "dataset_name": "LSMD_CONT_LDREG_12150_202610",
+          "region_code": "12150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-323.zip",
+          "bytes": 61126416,
+          "dataset_name": "LSMD_CONT_LDREG_12170_202610",
+          "region_code": "12170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-333.zip",
+          "bytes": 33481993,
+          "dataset_name": "LSMD_CONT_LDREG_12190_202610",
+          "region_code": "12190",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-328.zip",
+          "bytes": 4694941,
+          "dataset_name": "LSMD_CONT_LDREG_12210_202610",
+          "region_code": "12210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-322.zip",
+          "bytes": 5706475,
+          "dataset_name": "LSMD_CONT_LDREG_12240_202610",
+          "region_code": "12240",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-332.zip",
+          "bytes": 7447980,
+          "dataset_name": "LSMD_CONT_LDREG_12270_202610",
+          "region_code": "12270",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-325.zip",
+          "bytes": 11168860,
+          "dataset_name": "LSMD_CONT_LDREG_12300_202610",
+          "region_code": "12300",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-344.zip",
+          "bytes": 21180873,
+          "dataset_name": "LSMD_CONT_LDREG_12330_202610",
+          "region_code": "12330",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-331.zip",
+          "bytes": 34674373,
+          "dataset_name": "LSMD_CONT_LDREG_12710_202610",
+          "region_code": "12710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-318.zip",
+          "bytes": 32282624,
+          "dataset_name": "LSMD_CONT_LDREG_12720_202610",
+          "region_code": "12720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-330.zip",
+          "bytes": 24996390,
+          "dataset_name": "LSMD_CONT_LDREG_12730_202610",
+          "region_code": "12730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-342.zip",
+          "bytes": 71065766,
+          "dataset_name": "LSMD_CONT_LDREG_12740_202610",
+          "region_code": "12740",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-343.zip",
+          "bytes": 54659860,
+          "dataset_name": "LSMD_CONT_LDREG_12750_202610",
+          "region_code": "12750",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-319.zip",
+          "bytes": 45376400,
+          "dataset_name": "LSMD_CONT_LDREG_12760_202610",
+          "region_code": "12760",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-329.zip",
+          "bytes": 39664123,
+          "dataset_name": "LSMD_CONT_LDREG_12770_202610",
+          "region_code": "12770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-321.zip",
+          "bytes": 32859291,
+          "dataset_name": "LSMD_CONT_LDREG_12780_202610",
+          "region_code": "12780",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-337.zip",
+          "bytes": 68281770,
+          "dataset_name": "LSMD_CONT_LDREG_12790_202610",
+          "region_code": "12790",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-339.zip",
+          "bytes": 45350193,
+          "dataset_name": "LSMD_CONT_LDREG_12800_202610",
+          "region_code": "12800",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-320.zip",
+          "bytes": 43135653,
+          "dataset_name": "LSMD_CONT_LDREG_12810_202610",
+          "region_code": "12810",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-340.zip",
+          "bytes": 33865696,
+          "dataset_name": "LSMD_CONT_LDREG_12820_202610",
+          "region_code": "12820",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-338.zip",
+          "bytes": 37565486,
+          "dataset_name": "LSMD_CONT_LDREG_12830_202610",
+          "region_code": "12830",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-336.zip",
+          "bytes": 46781495,
+          "dataset_name": "LSMD_CONT_LDREG_12840_202610",
+          "region_code": "12840",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-334.zip",
+          "bytes": 37328320,
+          "dataset_name": "LSMD_CONT_LDREG_12850_202610",
+          "region_code": "12850",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-341.zip",
+          "bytes": 33050963,
+          "dataset_name": "LSMD_CONT_LDREG_12860_202610",
+          "region_code": "12860",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-324.zip",
+          "bytes": 51036319,
+          "dataset_name": "LSMD_CONT_LDREG_12870_202610",
+          "region_code": "12870",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-230--sha256-2fb4a5f7fe266fe80becf86d353cc0d7675eea9c9dc5cde19df91258476220fd.zip",
+          "bytes": 1970556,
+          "dataset_name": "LSMD_CONT_LDREG_26110_202610",
+          "region_code": "26110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-210--sha256-8d92a59afab6eb35222aaaaf6225985039927a32a6bf2be2f17a597cbb0e12ae.zip",
+          "bytes": 4380468,
+          "dataset_name": "LSMD_CONT_LDREG_26140_202610",
+          "region_code": "26140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-203--sha256-0579e125c395c8e38ad515c0f2d989cd80b5103141034b382bf2f41fc2825c0b.zip",
+          "bytes": 4145015,
+          "dataset_name": "LSMD_CONT_LDREG_26170_202610",
+          "region_code": "26170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-221--sha256-1d080e79663e38f55cec93a60f04e95ff460c0ec8ec834bfc4fea9cc8be55417.zip",
+          "bytes": 3874352,
+          "dataset_name": "LSMD_CONT_LDREG_26200_202610",
+          "region_code": "26200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-214--sha256-aea6839c0e593e957b4de1e8ee8c48bf5250dd4fcb97ce2c9ddf8cd38a2957c9.zip",
+          "bytes": 6268780,
+          "dataset_name": "LSMD_CONT_LDREG_26230_202610",
+          "region_code": "26230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-218--sha256-41938e5698891eb35d9cd4f4cd42bd86e49cf1c37676204ff72df656d72a312f.zip",
+          "bytes": 3375202,
+          "dataset_name": "LSMD_CONT_LDREG_26260_202610",
+          "region_code": "26260",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-217--sha256-e9ed6bbcdf997ba4f0f1e2845941c0a53ae4494c3d0a3ce7e600b5fc1f8a5b66.zip",
+          "bytes": 4832933,
+          "dataset_name": "LSMD_CONT_LDREG_26290_202610",
+          "region_code": "26290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-223--sha256-fd7dede8fadfeaecdd4f1d5d6403c40f372914df815d9562943002f1247df473.zip",
+          "bytes": 2765053,
+          "dataset_name": "LSMD_CONT_LDREG_26320_202610",
+          "region_code": "26320",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-233--sha256-6bb093f402b7f2cec8facc7dab12bd4e8c715593abe8c1ae97b13a843e6d9e4c.zip",
+          "bytes": 5050108,
+          "dataset_name": "LSMD_CONT_LDREG_26350_202610",
+          "region_code": "26350",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-211--sha256-98b9b2caa7b8a2c399f894722a37955a822f02838620acefe02079b758663f05.zip",
+          "bytes": 4940785,
+          "dataset_name": "LSMD_CONT_LDREG_26380_202610",
+          "region_code": "26380",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-226--sha256-b33b22cfb222de861d3ad0505cbc88a0b4feaf3d1ebe4e8172dd453c2fdc15d0.zip",
+          "bytes": 6517922,
+          "dataset_name": "LSMD_CONT_LDREG_26410_202610",
+          "region_code": "26410",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-216--sha256-6bf957fd2ee4268b8e07a289dcbd95c9529cc0ed9076b2044e614bdeda3dcddd.zip",
+          "bytes": 13306845,
+          "dataset_name": "LSMD_CONT_LDREG_26440_202610",
+          "region_code": "26440",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-209--sha256-1c6cf3a76d5a6539f5a7482fc525dfdfab8d75f958f85e7a901b109244c36289.zip",
+          "bytes": 2445971,
+          "dataset_name": "LSMD_CONT_LDREG_26470_202610",
+          "region_code": "26470",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-204--sha256-bb62835c68642ca2e774180225012ddb8f9aadc242c63058337450f23d1578b1.zip",
+          "bytes": 2038832,
+          "dataset_name": "LSMD_CONT_LDREG_26500_202610",
+          "region_code": "26500",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-193--sha256-c22801c2a51b6aee80799e49e6e858a392c4563d9c5f4ec6855f0f0a8970e9d7.zip",
+          "bytes": 3031125,
+          "dataset_name": "LSMD_CONT_LDREG_26530_202610",
+          "region_code": "26530",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-207--sha256-f9c84e7e610fa2277e3baeb37ae1791bb96de37b79a68b8aa9c3aaf0717386f0.zip",
+          "bytes": 21040952,
+          "dataset_name": "LSMD_CONT_LDREG_26710_202610",
+          "region_code": "26710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-220--sha256-1f7ba90631c8a84c626e8c1806abfcf39b4439276888c49294dd78920cf6bf15.zip",
+          "bytes": 3071617,
+          "dataset_name": "LSMD_CONT_LDREG_27110_202610",
+          "region_code": "27110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-232--sha256-68849c89d4e01b9cfb0d45dafbfffe23a130989c0b7f9ad13d5d987e1ea1dc84.zip",
+          "bytes": 16605695,
+          "dataset_name": "LSMD_CONT_LDREG_27140_202610",
+          "region_code": "27140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-199--sha256-fa00d11ca13b6c33bda32d204f6a7512edc65069c8c4b977ea8fdbbd32f4b8f4.zip",
+          "bytes": 4496367,
+          "dataset_name": "LSMD_CONT_LDREG_27170_202610",
+          "region_code": "27170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-231--sha256-1add692b86088a8f44538f54eb716cda07fc7e0ddbf90d4cc0c3d29da3dfe576.zip",
+          "bytes": 3306949,
+          "dataset_name": "LSMD_CONT_LDREG_27200_202610",
+          "region_code": "27200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-227--sha256-ab731db89d920118c1ad26924f0d76c07884d20af014ebfcf71d00962c6cc88d.zip",
+          "bytes": 9768165,
+          "dataset_name": "LSMD_CONT_LDREG_27230_202610",
+          "region_code": "27230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-201--sha256-92ab928fa1830b46e1270fed66ad360d58cf5803eaae52e1213bb9699c511445.zip",
+          "bytes": 8362354,
+          "dataset_name": "LSMD_CONT_LDREG_27260_202610",
+          "region_code": "27260",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-194--sha256-477e0bacc3038d085536ef5a614646717f1454f6b09fd2f82a0ea3dad0395cc3.zip",
+          "bytes": 5856628,
+          "dataset_name": "LSMD_CONT_LDREG_27290_202610",
+          "region_code": "27290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-208--sha256-c53878a7ab0cd8516f16a3bccf47868b056e02111f23bb041e2db2a5295d0aa4.zip",
+          "bytes": 34902670,
+          "dataset_name": "LSMD_CONT_LDREG_27710_202610",
+          "region_code": "27710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-234--sha256-b97d286bb91d7ddce6b024473c2857442512df470f802277c05d0f8d0207c6f0.zip",
+          "bytes": 40146836,
+          "dataset_name": "LSMD_CONT_LDREG_27720_202610",
+          "region_code": "27720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-314.zip",
+          "bytes": 3703623,
+          "dataset_name": "LSMD_CONT_LDREG_28125_202610",
+          "region_code": "28125",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-317.zip",
+          "bytes": 7223866,
+          "dataset_name": "LSMD_CONT_LDREG_28155_202610",
+          "region_code": "28155",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-192--sha256-e2999b81ada5660580ed1421be5c8f44a4b2e68bb87c3340277404d2cfc436f0.zip",
+          "bytes": 5939166,
+          "dataset_name": "LSMD_CONT_LDREG_28177_202610",
+          "region_code": "28177",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-195--sha256-ddbb4e5081ff67c7cea59aca9bed03a60417f4344efe2125abc313ef61a14a6f.zip",
+          "bytes": 2566830,
+          "dataset_name": "LSMD_CONT_LDREG_28185_202610",
+          "region_code": "28185",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-202--sha256-b5b1d6aa9af7fb90acd21a63db6363c86218cfdbfb869a603b5d07c13fcf0e42.zip",
+          "bytes": 7106867,
+          "dataset_name": "LSMD_CONT_LDREG_28200_202610",
+          "region_code": "28200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-205--sha256-41588fae2e42afa6cc0ef1a56a062d42f9ab997933f73109ce16da7105ed056d.zip",
+          "bytes": 5078855,
+          "dataset_name": "LSMD_CONT_LDREG_28237_202610",
+          "region_code": "28237",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-206--sha256-eef36d645ac61f86868e7f61617c0a60b0c61a21c98d805db3b57d168ff97157.zip",
+          "bytes": 4743344,
+          "dataset_name": "LSMD_CONT_LDREG_28245_202610",
+          "region_code": "28245",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-315.zip",
+          "bytes": 4784123,
+          "dataset_name": "LSMD_CONT_LDREG_28275_202610",
+          "region_code": "28275",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-316.zip",
+          "bytes": 5071294,
+          "dataset_name": "LSMD_CONT_LDREG_28290_202610",
+          "region_code": "28290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-154--sha256-b02aebc2098bdba053014933f45c433e017730bd57e6b0cd95ecef4cf0c1ed66.zip",
+          "bytes": 45592444,
+          "dataset_name": "LSMD_CONT_LDREG_28710_202610",
+          "region_code": "28710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-182--sha256-c5d2426e7f7727541c5bc9bebc686c6f6af815f2a8a3414e200d4fad79d8ff27.zip",
+          "bytes": 11356732,
+          "dataset_name": "LSMD_CONT_LDREG_28720_202610",
+          "region_code": "28720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-173--sha256-c05911ca84f08b64c2575b7b5968cbe6c97036d820604dffa30a5ce0465a4f96.zip",
+          "bytes": 11119308,
+          "dataset_name": "LSMD_CONT_LDREG_30110_202610",
+          "region_code": "30110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-188--sha256-1afd1772645050aec0dbeb2f5c11a88aa90deaa5ef8ef8ccf5122e6c46ad6a30.zip",
+          "bytes": 6566231,
+          "dataset_name": "LSMD_CONT_LDREG_30140_202610",
+          "region_code": "30140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-189--sha256-f47de702006af4295b9a1f9da8b7ac0a5671e05e94556896c22419f2ddc5f09c.zip",
+          "bytes": 8162920,
+          "dataset_name": "LSMD_CONT_LDREG_30170_202610",
+          "region_code": "30170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-190--sha256-c273db715a10deedf904470d16c2014d777624b8e4151be55ec01c896e05ac67.zip",
+          "bytes": 12795442,
+          "dataset_name": "LSMD_CONT_LDREG_30200_202610",
+          "region_code": "30200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-171--sha256-71de624b019a4d4e084d6f19d19e5559839a82e5a663b7a0793570b1212c91b0.zip",
+          "bytes": 6215196,
+          "dataset_name": "LSMD_CONT_LDREG_30230_202610",
+          "region_code": "30230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-161--sha256-a91e6788d70e2379ccbec9f77ffd83138ea43f91968a0623923646998be10c29.zip",
+          "bytes": 5976579,
+          "dataset_name": "LSMD_CONT_LDREG_31110_202610",
+          "region_code": "31110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-166--sha256-3a17d5c02096b5369e77bb243cffc3c11853fa66759341e860a66d24d2e1ab31.zip",
+          "bytes": 8792768,
+          "dataset_name": "LSMD_CONT_LDREG_31140_202610",
+          "region_code": "31140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-164--sha256-de20d5626f682a8c1a754dca897cd0a7dc31926cf3c450c20027e1b5603819c7.zip",
+          "bytes": 3551660,
+          "dataset_name": "LSMD_CONT_LDREG_31170_202610",
+          "region_code": "31170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-157--sha256-cd9f0a8ea1592b9b400483c32e5a19208f500c879d7d08913830c05298ecd7b7.zip",
+          "bytes": 13306982,
+          "dataset_name": "LSMD_CONT_LDREG_31200_202610",
+          "region_code": "31200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-168--sha256-ac56daad465f2673f907e292be7177602b7dfb9ac1c43f2dcf095eb8f820fbac.zip",
+          "bytes": 54092888,
+          "dataset_name": "LSMD_CONT_LDREG_31710_202610",
+          "region_code": "31710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-306--sha256-a6aa05a8542dec193a31ff61b5ea64d23431bae9f62c971c0c7bd650ed136957.zip",
+          "bytes": 38585123,
+          "dataset_name": "LSMD_CONT_LDREG_36110_202610",
+          "region_code": "36110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-278--sha256-c7c8d739eabd0b2367c85daa04a90930460c218f71f532ba24ed4066a9d682c5.zip",
+          "bytes": 3689722,
+          "dataset_name": "LSMD_CONT_LDREG_41111_202610",
+          "region_code": "41111",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-271--sha256-3b138075bdd1b539246e042fc3fc70af351cd9dc2dfb8d008651dffd87545d83.zip",
+          "bytes": 5395596,
+          "dataset_name": "LSMD_CONT_LDREG_41113_202610",
+          "region_code": "41113",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-277--sha256-b3063b36f50d4927108d064828599200d77014008e80b910124ce263073968cd.zip",
+          "bytes": 3117906,
+          "dataset_name": "LSMD_CONT_LDREG_41115_202610",
+          "region_code": "41115",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-276--sha256-ff43123ba85c940b20088a385822519b05a80430b6fa9b2d9327ba68960c928a.zip",
+          "bytes": 2198907,
+          "dataset_name": "LSMD_CONT_LDREG_41117_202610",
+          "region_code": "41117",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-285--sha256-0088422696c3b78fe56d61da48fef1fef015bed8cdbb211c097b7d7faffef83e.zip",
+          "bytes": 4584445,
+          "dataset_name": "LSMD_CONT_LDREG_41131_202610",
+          "region_code": "41131",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-291--sha256-cb27235875d73883b15bc1b07640a0d13ad19db670670201e02c37906e935a86.zip",
+          "bytes": 2492552,
+          "dataset_name": "LSMD_CONT_LDREG_41133_202610",
+          "region_code": "41133",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-274--sha256-ac82b991c3505f5ecc1f80c64a9404c8d3b5f88808fd8038ff16eb9d13eb3389.zip",
+          "bytes": 3439156,
+          "dataset_name": "LSMD_CONT_LDREG_41135_202610",
+          "region_code": "41135",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-165--sha256-f1e762d3b946280fbdca1aa81232bd9b63cc2b269c1652dcc75664c0d48c5d88.zip",
+          "bytes": 6867096,
+          "dataset_name": "LSMD_CONT_LDREG_41150_202610",
+          "region_code": "41150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-302--sha256-b735c0c44b0e328d1b41873ff4148ea58652b790d9fcb5193c3697ee69ca538c.zip",
+          "bytes": 2946469,
+          "dataset_name": "LSMD_CONT_LDREG_41171_202610",
+          "region_code": "41171",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-296--sha256-b63380f4a9df40525bb4494c335a5eadd15f92839a97909df0002361027b061f.zip",
+          "bytes": 1558959,
+          "dataset_name": "LSMD_CONT_LDREG_41173_202610",
+          "region_code": "41173",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-303--sha256-a91d35cdb2da8361f5ba190ef905926e1d3b387bb3835e01aaa5ac154629ce7c.zip",
+          "bytes": 2331837,
+          "dataset_name": "LSMD_CONT_LDREG_41192_202610",
+          "region_code": "41192",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-304--sha256-8544782013fdb316768abee65238f18e6e4d27743fac065d80eee59f79fb2d8e.zip",
+          "bytes": 1647675,
+          "dataset_name": "LSMD_CONT_LDREG_41194_202610",
+          "region_code": "41194",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-298--sha256-e0d43fb4d6dce1fbfaa48bacc31167d18cde018fe2feee3143b06a88f7518d34.zip",
+          "bytes": 2229890,
+          "dataset_name": "LSMD_CONT_LDREG_41196_202610",
+          "region_code": "41196",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-183--sha256-b93812954619c85929b21923de464528ed758384fe43ff8dfec93df17bb27bb1.zip",
+          "bytes": 4591833,
+          "dataset_name": "LSMD_CONT_LDREG_41210_202610",
+          "region_code": "41210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-179--sha256-ec11f7ef438f3729d35b0be7cca6436b8eb5e88d75d1e35b93ce5a932ce6bd3c.zip",
+          "bytes": 48238059,
+          "dataset_name": "LSMD_CONT_LDREG_41220_202610",
+          "region_code": "41220",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-153--sha256-022a64442bb95b7613a056c05a3f7c4086a54a50441a7aebc98eb92a2a69a90f.zip",
+          "bytes": 6025533,
+          "dataset_name": "LSMD_CONT_LDREG_41250_202610",
+          "region_code": "41250",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-295--sha256-37c0c658f0f796f6ff8da79f1cfb6b6a36b2544f734227dc3e320abe05659131.zip",
+          "bytes": 6134454,
+          "dataset_name": "LSMD_CONT_LDREG_41271_202610",
+          "region_code": "41271",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-300--sha256-2e7cccb7542a3f0b6d491ee2af1d371d0a5a5f9d49883c5da53bfc2254b9fb62.zip",
+          "bytes": 8503183,
+          "dataset_name": "LSMD_CONT_LDREG_41273_202610",
+          "region_code": "41273",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-299--sha256-2655aa7643eb389c8d53b015c275e257c30084e7c546b60c1449f270d46844ef.zip",
+          "bytes": 14030568,
+          "dataset_name": "LSMD_CONT_LDREG_41281_202610",
+          "region_code": "41281",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-297--sha256-a57d9453f91b70610f2ee330a9417759cc25bb81df1f4594e1cfef6965548a54.zip",
+          "bytes": 6028003,
+          "dataset_name": "LSMD_CONT_LDREG_41285_202610",
+          "region_code": "41285",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-301--sha256-a2af40d1baf594210163c2a6a46a22a3ae19c0d13bba374257c806b2a788ba03.zip",
+          "bytes": 3022268,
+          "dataset_name": "LSMD_CONT_LDREG_41287_202610",
+          "region_code": "41287",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-191--sha256-870b2ac3ab21b6194fd174068a879d2d4e55578e09fc4c42a97138f8786375c5.zip",
+          "bytes": 3039782,
+          "dataset_name": "LSMD_CONT_LDREG_41290_202610",
+          "region_code": "41290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-180--sha256-ddbaf85a70fc89c7703cb928392ceeb02144d6404c35a711e43f471a85123e60.zip",
+          "bytes": 3045556,
+          "dataset_name": "LSMD_CONT_LDREG_41310_202610",
+          "region_code": "41310",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-175--sha256-1f89c38dbfa42ec9d2152cac0cbbe6060b8aa6f8c0d5ea1d688493b2f0fa6700.zip",
+          "bytes": 30408899,
+          "dataset_name": "LSMD_CONT_LDREG_41360_202610",
+          "region_code": "41360",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-186--sha256-dc0cbbbbb889aebd0383023732cbd372bbf582d9531364f11e8b1df610823dba.zip",
+          "bytes": 5234733,
+          "dataset_name": "LSMD_CONT_LDREG_41370_202610",
+          "region_code": "41370",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-155--sha256-6c0f8b3c4f4dae01eb2fa0e4a2316ecb0c06cad55a797b7d0a47baca1c3d9996.zip",
+          "bytes": 13167433,
+          "dataset_name": "LSMD_CONT_LDREG_41390_202610",
+          "region_code": "41390",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-151--sha256-366a7afadef9019adb04b4d506fc8d5ea44292b5a63958d6442e91583f563e43.zip",
+          "bytes": 3465187,
+          "dataset_name": "LSMD_CONT_LDREG_41410_202610",
+          "region_code": "41410",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-174--sha256-e4806b8ab263e61bc31033eb99d04a9261c5ad6152f84124b07d059204a434eb.zip",
+          "bytes": 5529101,
+          "dataset_name": "LSMD_CONT_LDREG_41430_202610",
+          "region_code": "41430",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-160--sha256-52e9759a223edc6a049ef8b49e796785c981d7f8a8ce1e690eb6214c9527bd10.zip",
+          "bytes": 8640430,
+          "dataset_name": "LSMD_CONT_LDREG_41450_202610",
+          "region_code": "41450",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-284--sha256-7562c01e94028c1feafe0cb3da6f1fba88e5bd300a9def35cbc0db949eb3c51b.zip",
+          "bytes": 44095413,
+          "dataset_name": "LSMD_CONT_LDREG_41461_202610",
+          "region_code": "41461",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-286--sha256-4351147d6f975163e1b3fd510912bf7237752598f376eb83047083b7eea615ee.zip",
+          "bytes": 7554849,
+          "dataset_name": "LSMD_CONT_LDREG_41463_202610",
+          "region_code": "41463",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-290--sha256-90213a8080fdc4338f3eae4f0fff9b0650529490d837a83008da788c4e907cf7.zip",
+          "bytes": 3574304,
+          "dataset_name": "LSMD_CONT_LDREG_41465_202610",
+          "region_code": "41465",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-185--sha256-15180380f3665abb3a2f3cf75f42ba1780f6796e69548d273156f344bf7ca8f1.zip",
+          "bytes": 48903433,
+          "dataset_name": "LSMD_CONT_LDREG_41480_202610",
+          "region_code": "41480",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-159--sha256-dbea1241d3a80cf61cd3e275c0fdcd51e5b2dae3e7de91f12a017235bfbe5712.zip",
+          "bytes": 44434493,
+          "dataset_name": "LSMD_CONT_LDREG_41500_202610",
+          "region_code": "41500",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-187--sha256-c5938bedd6d06b9256febf233732a133a6c52b205fbcd94fe3ca03040a68346e.zip",
+          "bytes": 50893607,
+          "dataset_name": "LSMD_CONT_LDREG_41550_202610",
+          "region_code": "41550",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-184--sha256-a75aa052b5f009d4656adddaf7dc05e2abaf417847f1caeca42fc1901b193387.zip",
+          "bytes": 28896294,
+          "dataset_name": "LSMD_CONT_LDREG_41570_202610",
+          "region_code": "41570",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-308--sha256-1ba12864e7408fd3a732001a8896651697fbc201d26718aa9c9f34a8fa215565.zip",
+          "bytes": 48693585,
+          "dataset_name": "LSMD_CONT_LDREG_41591_202610",
+          "region_code": "41591",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-309--sha256-0f0de0512e8b98b320bb9a3e7c23d57699375bd9c872061a6ae7a4b1f7a388e9.zip",
+          "bytes": 17597077,
+          "dataset_name": "LSMD_CONT_LDREG_41593_202610",
+          "region_code": "41593",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-310--sha256-b50d83ed7b2213520cc3b28dfd1547e79802bb099e66ae8e5ed869cc13ec0500.zip",
+          "bytes": 3495918,
+          "dataset_name": "LSMD_CONT_LDREG_41595_202610",
+          "region_code": "41595",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-311--sha256-1426fd4ab838cbee9b3d31f8f9d9aa7b3dfbf13987f127f8d6b6953e8a9f01d3.zip",
+          "bytes": 3688329,
+          "dataset_name": "LSMD_CONT_LDREG_41597_202610",
+          "region_code": "41597",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-152--sha256-891442dee7c487bbcf69ff4daa10017e7fd4013312635a9ec582d80fc552611c.zip",
+          "bytes": 35137955,
+          "dataset_name": "LSMD_CONT_LDREG_41610_202610",
+          "region_code": "41610",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-172--sha256-00020f74ccc8d9557df35b5f32d4f58d672f4291ef56a5b8225b93d30a378d9c.zip",
+          "bytes": 30762511,
+          "dataset_name": "LSMD_CONT_LDREG_41630_202610",
+          "region_code": "41630",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-143--sha256-a96e9244da63a49df160ede0295107de1f3429db1b2d5d0a38260e88b46d5d0f.zip",
+          "bytes": 43889731,
+          "dataset_name": "LSMD_CONT_LDREG_41650_202610",
+          "region_code": "41650",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-134--sha256-dc6fb5e30706fe64b26d64181307ce73c67adbed445b5709260c933da9459ed7.zip",
+          "bytes": 43557106,
+          "dataset_name": "LSMD_CONT_LDREG_41670_202610",
+          "region_code": "41670",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-146--sha256-3452ed46a461ff2fe6682ded3761b91fba73555ffcfc1cdaac450392e882a9de.zip",
+          "bytes": 35280690,
+          "dataset_name": "LSMD_CONT_LDREG_41800_202610",
+          "region_code": "41800",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-104--sha256-9912d449625e730379ba9f305eecee42725c5e41d5e43aa135ed59f24fcfb3da.zip",
+          "bytes": 32407293,
+          "dataset_name": "LSMD_CONT_LDREG_41820_202610",
+          "region_code": "41820",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-118--sha256-8c444a567c3167c742996c469dd0a964f2cc7c6278776b91489834be5bc498a7.zip",
+          "bytes": 68094540,
+          "dataset_name": "LSMD_CONT_LDREG_41830_202610",
+          "region_code": "41830",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-294--sha256-2d99b597b60790a723e79a979a26adf0e5ef768e906267e7099407bed1d1df36.zip",
+          "bytes": 27399195,
+          "dataset_name": "LSMD_CONT_LDREG_43111_202610",
+          "region_code": "43111",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-281--sha256-3d4e311a3d2fed55392a5fff76461c763381d47d806f874268c0e8d482a1cd80.zip",
+          "bytes": 13209611,
+          "dataset_name": "LSMD_CONT_LDREG_43112_202610",
+          "region_code": "43112",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-287--sha256-1ec246459f11dc2e69fa2b41f35181692d55c1a2a6b79ae260f8fd82825c3513.zip",
+          "bytes": 18005018,
+          "dataset_name": "LSMD_CONT_LDREG_43113_202610",
+          "region_code": "43113",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-292--sha256-c731a92990e5a2e4acabd41a2ead0fa18f1fffdcea926a76f63edec0bb862e8d.zip",
+          "bytes": 21189940,
+          "dataset_name": "LSMD_CONT_LDREG_43114_202610",
+          "region_code": "43114",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-132--sha256-4d0ba7bcdd00f1d2b36551bea16451387e660841d697badcb2769772f7dab509.zip",
+          "bytes": 52988701,
+          "dataset_name": "LSMD_CONT_LDREG_43130_202610",
+          "region_code": "43130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-127--sha256-9215733b58185d7396528858bb3735bc15d9548e5c2da2631ee6bb3185e38b0e.zip",
+          "bytes": 43006182,
+          "dataset_name": "LSMD_CONT_LDREG_43150_202610",
+          "region_code": "43150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-116--sha256-e566382834611487f24ade4ed6626decfabd278b34e48e6e6eeccb9250160f6d.zip",
+          "bytes": 31653648,
+          "dataset_name": "LSMD_CONT_LDREG_43720_202610",
+          "region_code": "43720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-122--sha256-e9c602356b9a3686588451b0b932e08dbd65d33abf6ce977c5d566b7a2b605f4.zip",
+          "bytes": 35412799,
+          "dataset_name": "LSMD_CONT_LDREG_43730_202610",
+          "region_code": "43730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-124--sha256-8ea09601abb830b17d34a3ede12d8e0ac580cb64569576e4838c5be14f18ffb3.zip",
+          "bytes": 46247342,
+          "dataset_name": "LSMD_CONT_LDREG_43740_202610",
+          "region_code": "43740",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-128--sha256-b09d7ebd2ae546b9e90ac9104dede5aaf5f2910b59733ee7fd24b261b48e7047.zip",
+          "bytes": 7452295,
+          "dataset_name": "LSMD_CONT_LDREG_43745_202610",
+          "region_code": "43745",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-125--sha256-8c152c17a8d9d97009618275bdd3a6cb5bea3ef9a5904de9e6c8a83a8fa4a8a2.zip",
+          "bytes": 32405889,
+          "dataset_name": "LSMD_CONT_LDREG_43750_202610",
+          "region_code": "43750",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-119--sha256-c077bf688f6943fef85061cfca186b25cf2ed5da6be91cfb1d076bf2837a829d.zip",
+          "bytes": 42210856,
+          "dataset_name": "LSMD_CONT_LDREG_43760_202610",
+          "region_code": "43760",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-141--sha256-4efbddf2bfdae798b97f7589e60e941e26a265e4d9de439f5e229009bf467c19.zip",
+          "bytes": 42866579,
+          "dataset_name": "LSMD_CONT_LDREG_43770_202610",
+          "region_code": "43770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-131--sha256-39765ecf4aeff5f731fed2382f62d84fc2bf8ea249eb6d7b02be1016cb5873fa.zip",
+          "bytes": 29004863,
+          "dataset_name": "LSMD_CONT_LDREG_43800_202610",
+          "region_code": "43800",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-273--sha256-509c9632042828704b0d31e1744e2660172014b4ef132a20ded72060f829b1eb.zip",
+          "bytes": 31621188,
+          "dataset_name": "LSMD_CONT_LDREG_44131_202610",
+          "region_code": "44131",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-270--sha256-fe5b86ea26dc4484048f0fc2855b9d6d5bcf8cdf8ab899f27c7169877bda4e57.zip",
+          "bytes": 18395895,
+          "dataset_name": "LSMD_CONT_LDREG_44133_202610",
+          "region_code": "44133",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-126--sha256-c529d4465dc1fab9e04d0a202494f64a124b0247932ebca4b5a2401f80b63e16.zip",
+          "bytes": 54108303,
+          "dataset_name": "LSMD_CONT_LDREG_44150_202610",
+          "region_code": "44150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-106--sha256-43d4797b46a662453ca0b126cc169e718aaf2bf0cef305f14a572e82f31f5274.zip",
+          "bytes": 37582500,
+          "dataset_name": "LSMD_CONT_LDREG_44180_202610",
+          "region_code": "44180",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-129--sha256-4159953c49428cdd64daea36660cf3a3c650eb373e1a7f5105b2b0e1309d195a.zip",
+          "bytes": 46070260,
+          "dataset_name": "LSMD_CONT_LDREG_44200_202610",
+          "region_code": "44200",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-107--sha256-603c93181a42f40d58cf0a9dcfc948ee785f6942522b9fe3b5f847ec85f60f68.zip",
+          "bytes": 57944879,
+          "dataset_name": "LSMD_CONT_LDREG_44210_202610",
+          "region_code": "44210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-137--sha256-06f78cc6e24fbe4e25a1e8554e846a3b35e6bbd3103bd8c21b302644d1a4bfd7.zip",
+          "bytes": 47865942,
+          "dataset_name": "LSMD_CONT_LDREG_44230_202610",
+          "region_code": "44230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-109--sha256-e6f368647addb9530c619c7c0f47a18f14cf8ff4bcf6fe150fd98aafba38213b.zip",
+          "bytes": 4024335,
+          "dataset_name": "LSMD_CONT_LDREG_44250_202610",
+          "region_code": "44250",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-130--sha256-910a203e3cfc869251055342eb4b2df80ba1a3a1c51d26c0160a1bbbd9b976d1.zip",
+          "bytes": 55694012,
+          "dataset_name": "LSMD_CONT_LDREG_44270_202610",
+          "region_code": "44270",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-136--sha256-feb01e54b7417a85bbfef795007be62bff14256c0e11c14d368c4bd9ec36b471.zip",
+          "bytes": 37369424,
+          "dataset_name": "LSMD_CONT_LDREG_44710_202610",
+          "region_code": "44710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-144--sha256-fff7e8ad2b44778db212bcc848d6ffc7188fd048bc1b73848653dfd2f74bfefa.zip",
+          "bytes": 46496794,
+          "dataset_name": "LSMD_CONT_LDREG_44760_202610",
+          "region_code": "44760",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-147--sha256-e421058f1571fb653509fa7ab6d7753cbc7455c9cc320858b5a7e3ff496cfeaa.zip",
+          "bytes": 30826699,
+          "dataset_name": "LSMD_CONT_LDREG_44770_202610",
+          "region_code": "44770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-117--sha256-2701c52000a62221946a89f4228532f284c30495fb30e67b844cc97e882de670.zip",
+          "bytes": 32119871,
+          "dataset_name": "LSMD_CONT_LDREG_44790_202610",
+          "region_code": "44790",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-114--sha256-d61b8185352954154b116e191bf73207a57a011032b6917e1bd70f1ab66906be.zip",
+          "bytes": 38254168,
+          "dataset_name": "LSMD_CONT_LDREG_44800_202610",
+          "region_code": "44800",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-108--sha256-db4fea3cc16861f701a119dfe1972699cf7db2e203b2ea1384175adbfebca534.zip",
+          "bytes": 45053951,
+          "dataset_name": "LSMD_CONT_LDREG_44810_202610",
+          "region_code": "44810",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-121--sha256-9c486059f696c9167082f865d50a9eb8ef88146e2062a99460d5df021ace9a3a.zip",
+          "bytes": 39262184,
+          "dataset_name": "LSMD_CONT_LDREG_44825_202610",
+          "region_code": "44825",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-279--sha256-545c60f9e92d3360f67c04e524017e3af21aa64d810683e53193e68191df6c40.zip",
+          "bytes": 31500602,
+          "dataset_name": "LSMD_CONT_LDREG_47111_202610",
+          "region_code": "47111",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-272--sha256-78764af8a76dc94efd4808027f2210597370a1714f9dd6a4fc7050e2d3c6aeb3.zip",
+          "bytes": 44567244,
+          "dataset_name": "LSMD_CONT_LDREG_47113_202610",
+          "region_code": "47113",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-73--sha256-f238601e862e93612dba2d58452cd0be215ca5745a5419facdb1bfe46e3e96e2.zip",
+          "bytes": 87496296,
+          "dataset_name": "LSMD_CONT_LDREG_47130_202610",
+          "region_code": "47130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-83--sha256-30353c44b91036ba6d1bcd192c0e9ea176ec1632994bceeca43992f7b5282b9e.zip",
+          "bytes": 68727209,
+          "dataset_name": "LSMD_CONT_LDREG_47150_202610",
+          "region_code": "47150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-81--sha256-a5e77c2e94fea7ea4a1c06ecd7e7994a9492ebfe2271d2e5c709101e2351cf1c.zip",
+          "bytes": 79785157,
+          "dataset_name": "LSMD_CONT_LDREG_47170_202610",
+          "region_code": "47170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-64--sha256-c419d2a9949e364060ee26ad0afa43800d476999b0f852cf87dbd3e54e5287ea.zip",
+          "bytes": 40341213,
+          "dataset_name": "LSMD_CONT_LDREG_47190_202610",
+          "region_code": "47190",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-71--sha256-edf2a33f5bb6720a4337747fcced901a8e7f8b8e77e1b1baa4286a1bca047c2b.zip",
+          "bytes": 46271476,
+          "dataset_name": "LSMD_CONT_LDREG_47210_202610",
+          "region_code": "47210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-101--sha256-09540421e52422727545b80c731ba1897c3c37a7d6a3dbf27f0765ae8637bd21.zip",
+          "bytes": 67720510,
+          "dataset_name": "LSMD_CONT_LDREG_47230_202610",
+          "region_code": "47230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-75--sha256-a71de2f0527ff5f816950746ced2220ec2c1b44ddadecd46f649e4ca4834116e.zip",
+          "bytes": 70137892,
+          "dataset_name": "LSMD_CONT_LDREG_47250_202610",
+          "region_code": "47250",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-63--sha256-4e89778836b674b4066b2e8d1872fd5cd18dab8e62de925e2bf7040cdd7a3d95.zip",
+          "bytes": 40395680,
+          "dataset_name": "LSMD_CONT_LDREG_47280_202610",
+          "region_code": "47280",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-82--sha256-2dc8e747b1437591640a188416994b90577b538ecc81496f1d178e92c94e2478.zip",
+          "bytes": 38675190,
+          "dataset_name": "LSMD_CONT_LDREG_47290_202610",
+          "region_code": "47290",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-345.zip",
+          "bytes": 76998397,
+          "dataset_name": "LSMD_CONT_LDREG_47730_202610",
+          "region_code": "47730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-72--sha256-f07965ead670f401c325fd282de2b9b1fa68552fa4fdc9d7c5335fb2a0dc3473.zip",
+          "bytes": 33111223,
+          "dataset_name": "LSMD_CONT_LDREG_47750_202610",
+          "region_code": "47750",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-307--sha256-474a03ed9d513e33a6687bda9c9cb032dca48faab13b20d9a3f18959649b1b64.zip",
+          "bytes": 25494132,
+          "dataset_name": "LSMD_CONT_LDREG_47760_202610",
+          "region_code": "47760",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-100--sha256-c8883cca2516f385455d66e61687aee96fb31d5913c0ea076e73ef6b606c7eb1.zip",
+          "bytes": 31220467,
+          "dataset_name": "LSMD_CONT_LDREG_47770_202610",
+          "region_code": "47770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-87--sha256-f45af8fc5941c4a8d2c377373eaa3ef60abac6b288045c3c7bcfd2d1b0cd346a.zip",
+          "bytes": 51913324,
+          "dataset_name": "LSMD_CONT_LDREG_47820_202610",
+          "region_code": "47820",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-70--sha256-e1c67063f5b06ac7ec417e522b9226e3223e04bf9d61d65a9b6ea3e67137d01b.zip",
+          "bytes": 28151925,
+          "dataset_name": "LSMD_CONT_LDREG_47830_202610",
+          "region_code": "47830",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-85--sha256-e114321a735e411a1e822d14ef919abfeab40ffe95730e0b2b8216e4f8df6764.zip",
+          "bytes": 45763801,
+          "dataset_name": "LSMD_CONT_LDREG_47840_202610",
+          "region_code": "47840",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-77--sha256-31a589863b6f84efba285987652d32ef729ed81b4f3bc27c7f16b22f2e6f6525.zip",
+          "bytes": 31378973,
+          "dataset_name": "LSMD_CONT_LDREG_47850_202610",
+          "region_code": "47850",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-94--sha256-79fc7c92f03033a1a8902e68e27969d7947933c11238b7ae7bbcb6867de1d059.zip",
+          "bytes": 49126146,
+          "dataset_name": "LSMD_CONT_LDREG_47900_202610",
+          "region_code": "47900",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-76--sha256-d05ba09c3fd43e01fcafa202d278238eb7dfe4f64c3294a5cd59159d7a41c828.zip",
+          "bytes": 41897005,
+          "dataset_name": "LSMD_CONT_LDREG_47920_202610",
+          "region_code": "47920",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-96--sha256-21573165437085d9357c1b180cc15456c5eb96867165f7bf4fbf9cc2e3ad8ddd.zip",
+          "bytes": 30903058,
+          "dataset_name": "LSMD_CONT_LDREG_47930_202610",
+          "region_code": "47930",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-62--sha256-270708a91e625f89d90a6c29237016a17bd01a6fe55922be496a4732f9353f73.zip",
+          "bytes": 3496468,
+          "dataset_name": "LSMD_CONT_LDREG_47940_202610",
+          "region_code": "47940",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-288--sha256-3ff3dad69228aaa999e776c15d1c04a17b7701f649bfd14f39e268128f340456.zip",
+          "bytes": 18979473,
+          "dataset_name": "LSMD_CONT_LDREG_48121_202610",
+          "region_code": "48121",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-275--sha256-a9611221eab8b725059ecb64a52fa91f9cc0794d465dc511cdf02d8afbccf0b6.zip",
+          "bytes": 3794897,
+          "dataset_name": "LSMD_CONT_LDREG_48123_202610",
+          "region_code": "48123",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-293--sha256-5cba4955c898c179bdfe8a7e13e09877f862c891547d1234c44f48d1042efd9a.zip",
+          "bytes": 23673591,
+          "dataset_name": "LSMD_CONT_LDREG_48125_202610",
+          "region_code": "48125",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-282--sha256-b8060631980c617e6fac32f46481764ea43581b723a68f31f6fdb8c1a53b2cff.zip",
+          "bytes": 7680375,
+          "dataset_name": "LSMD_CONT_LDREG_48127_202610",
+          "region_code": "48127",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-289--sha256-050c9da728d0797bde2714a888273ac4ea10faf1f0ced4c44c3e7f987c9c6ba8.zip",
+          "bytes": 9504698,
+          "dataset_name": "LSMD_CONT_LDREG_48129_202610",
+          "region_code": "48129",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-42--sha256-abf54f87b1bbbb5dc21d9d458bc9ae36766d5fb53b01f4ced295f12bc124861d.zip",
+          "bytes": 62760204,
+          "dataset_name": "LSMD_CONT_LDREG_48170_202610",
+          "region_code": "48170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-46--sha256-17932ecea958d1a96b5365eaee70b68ab82209fc8222ee7eb85423295ee141c1.zip",
+          "bytes": 27440937,
+          "dataset_name": "LSMD_CONT_LDREG_48220_202610",
+          "region_code": "48220",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-23--sha256-e9f90f084d72e335bc78cf46b898fdeb9f6da9d65de253e29294e4f9be145f3b.zip",
+          "bytes": 33921177,
+          "dataset_name": "LSMD_CONT_LDREG_48240_202610",
+          "region_code": "48240",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-51--sha256-94dfea337f446ddd3d40ad93205b5d80e060431c37498884845be8d2ca134133.zip",
+          "bytes": 38744141,
+          "dataset_name": "LSMD_CONT_LDREG_48250_202610",
+          "region_code": "48250",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-41--sha256-e4fc83e0019b7df484bd03864c61321983e1bef253cb2149ecd260043ad998d0.zip",
+          "bytes": 59346236,
+          "dataset_name": "LSMD_CONT_LDREG_48270_202610",
+          "region_code": "48270",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-22--sha256-f82e662e1bb116b7c508dd0bce3198dcf26caaeee3130869bd24544feb5453f6.zip",
+          "bytes": 36422478,
+          "dataset_name": "LSMD_CONT_LDREG_48310_202610",
+          "region_code": "48310",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-43--sha256-697a5d0628d406a0a56377c9dd842afecdaa5a648ec7dbe648fd837dc20f69fb.zip",
+          "bytes": 30206610,
+          "dataset_name": "LSMD_CONT_LDREG_48330_202610",
+          "region_code": "48330",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-29--sha256-f4eb7a6c2028cf98e5029fa68ac45975217c20bfbb33c712dbb332a64f9e659d.zip",
+          "bytes": 36962001,
+          "dataset_name": "LSMD_CONT_LDREG_48720_202610",
+          "region_code": "48720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-27--sha256-95c6d29204fe8287b99d2b0d7ccb9d980073ddb5633067bf111dc99fe6e76223.zip",
+          "bytes": 37151367,
+          "dataset_name": "LSMD_CONT_LDREG_48730_202610",
+          "region_code": "48730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-48--sha256-3cc7fbcdc96a35006d3721c15267af7148d1730826c9850efd5b555d4a915a88.zip",
+          "bytes": 46832961,
+          "dataset_name": "LSMD_CONT_LDREG_48740_202610",
+          "region_code": "48740",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-49--sha256-a4e284e8db2316aba70a12df253b3e353f2258e328870af76072fe162b820f98.zip",
+          "bytes": 47783187,
+          "dataset_name": "LSMD_CONT_LDREG_48820_202610",
+          "region_code": "48820",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-39--sha256-abfdcb3ea142a42ee694b226510fcba0f36b6029e8b12b5cb415d1aa775badcc.zip",
+          "bytes": 24961602,
+          "dataset_name": "LSMD_CONT_LDREG_48840_202610",
+          "region_code": "48840",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-28--sha256-cb6f64bd479c6380ee2579dc43dc6906fc13be1a1d13157edbbe46a62a5266ec.zip",
+          "bytes": 56981554,
+          "dataset_name": "LSMD_CONT_LDREG_48850_202610",
+          "region_code": "48850",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-26--sha256-328d212a736d36ff9617c7069e4d4f6d8741b87845db7942b235c9c136bab57c.zip",
+          "bytes": 45894373,
+          "dataset_name": "LSMD_CONT_LDREG_48860_202610",
+          "region_code": "48860",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-55--sha256-9423a9fa4073dbfb537ecdf721f32cc4f544ccf58a9dc513d7d9911953333c0e.zip",
+          "bytes": 44503748,
+          "dataset_name": "LSMD_CONT_LDREG_48870_202610",
+          "region_code": "48870",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-33--sha256-67c47353fc25080e620a48b26b6591fa68585fe949266d0afed4ac1b56760218.zip",
+          "bytes": 52497162,
+          "dataset_name": "LSMD_CONT_LDREG_48880_202610",
+          "region_code": "48880",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-35--sha256-ff16e5fa92b85d0ef4d940ea74f02253c5798efcbf8aa91d791f2f712702bf66.zip",
+          "bytes": 65391408,
+          "dataset_name": "LSMD_CONT_LDREG_48890_202610",
+          "region_code": "48890",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-54--sha256-16bcb603f96b9d7523b9de5d367a2cff81491af4f1d43856cc0502158fece3a2.zip",
+          "bytes": 78523342,
+          "dataset_name": "LSMD_CONT_LDREG_50110_202610",
+          "region_code": "50110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-38--sha256-9a20d1ceb1535ed7f31aca26078dae6d1dd6075174e4dd2968562d691a3d59ed.zip",
+          "bytes": 67593283,
+          "dataset_name": "LSMD_CONT_LDREG_50130_202610",
+          "region_code": "50130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-37--sha256-b0b638a39f392599c0d77ba9755be05cbc60a82e1db115c285f2da47122d4468.zip",
+          "bytes": 35643822,
+          "dataset_name": "LSMD_CONT_LDREG_51110_202610",
+          "region_code": "51110",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-53--sha256-a29e0f96933f304bb477503c6f8c41510f82813d5e9bd842cb2fe7c90128dd06.zip",
+          "bytes": 41295955,
+          "dataset_name": "LSMD_CONT_LDREG_51130_202610",
+          "region_code": "51130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-30--sha256-378c0e2a1c804856561005cc856a5bde9b203f1f889a23a673e50dd617fccdeb.zip",
+          "bytes": 34234829,
+          "dataset_name": "LSMD_CONT_LDREG_51150_202610",
+          "region_code": "51150",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-21--sha256-3bfb72317e2945e15872b1919508866e5071bb3b9dea8246c558055edaaf8dcc.zip",
+          "bytes": 8002344,
+          "dataset_name": "LSMD_CONT_LDREG_51170_202610",
+          "region_code": "51170",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-47--sha256-ddc314db607dc2780662b799f2be984238f8e831ecb9e52b6d4a5693d8418f0e.zip",
+          "bytes": 5060022,
+          "dataset_name": "LSMD_CONT_LDREG_51190_202610",
+          "region_code": "51190",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-40--sha256-f56ed29820dae2b594076225eac085e6ab57f80c3412aa030362bb256fdf2fae.zip",
+          "bytes": 5314949,
+          "dataset_name": "LSMD_CONT_LDREG_51210_202610",
+          "region_code": "51210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-34--sha256-170866f97359f5393064825a7b00622a4fb00dd8789fbce2174710acc80880b1.zip",
+          "bytes": 23671309,
+          "dataset_name": "LSMD_CONT_LDREG_51230_202610",
+          "region_code": "51230",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-25--sha256-42bbfddc668c970bf2366459ab5651c2cafbe21768808c8ba7e44b733436ec62.zip",
+          "bytes": 42579299,
+          "dataset_name": "LSMD_CONT_LDREG_51720_202610",
+          "region_code": "51720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-36--sha256-5ca88f2cc3ddd08697645a67963599c46cf2632b2268f0ebe3fe355ec88c2bd4.zip",
+          "bytes": 34070947,
+          "dataset_name": "LSMD_CONT_LDREG_51730_202610",
+          "region_code": "51730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-56--sha256-a1a616ca1f7a1107e80fa76818d206187598bd49df576065ddf80b8cd65b4b8d.zip",
+          "bytes": 25691502,
+          "dataset_name": "LSMD_CONT_LDREG_51750_202610",
+          "region_code": "51750",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-44--sha256-b0a2da0abd7e0ac947b48f21753571f327f08a34c6e983993ccd45aa06406a9f.zip",
+          "bytes": 40353391,
+          "dataset_name": "LSMD_CONT_LDREG_51760_202610",
+          "region_code": "51760",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-32--sha256-f8d90bfd404f23ae3330adcd8ea835c75ab2218d34065d43253cb92a8afaca88.zip",
+          "bytes": 21663362,
+          "dataset_name": "LSMD_CONT_LDREG_51770_202610",
+          "region_code": "51770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-50--sha256-4985c7fe69b399ed7de0f7334e38f587ca8122d86996d518d118dc408967add2.zip",
+          "bytes": 26497057,
+          "dataset_name": "LSMD_CONT_LDREG_51780_202610",
+          "region_code": "51780",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-45--sha256-1f4fa227bd8ac21a2c973098bec6c363210b2fa4e51191e347bff95df6b08cf7.zip",
+          "bytes": 13982140,
+          "dataset_name": "LSMD_CONT_LDREG_51790_202610",
+          "region_code": "51790",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-24--sha256-0d91c8170e972738c594545bb8ae41766eacb9a5b15a71781f1a150068d81d63.zip",
+          "bytes": 15739815,
+          "dataset_name": "LSMD_CONT_LDREG_51800_202610",
+          "region_code": "51800",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-57--sha256-e06eedfeb1bed877376b23845ca32302d18a0795c1760f3dbccf5ced16642382.zip",
+          "bytes": 20271457,
+          "dataset_name": "LSMD_CONT_LDREG_51810_202610",
+          "region_code": "51810",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-31--sha256-e5a120885ac7c45755d3311ce1f740799051f1ee18386aee6d1c0c0150261bcf.zip",
+          "bytes": 16810311,
+          "dataset_name": "LSMD_CONT_LDREG_51820_202610",
+          "region_code": "51820",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-52--sha256-cd63a02705a0d9ef4c297bb4accfdb9ef227236751166112fa2e1936b15f835e.zip",
+          "bytes": 17536620,
+          "dataset_name": "LSMD_CONT_LDREG_51830_202610",
+          "region_code": "51830",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-280--sha256-ba0806fc74fdf821af0d259c62a6914cdd73f6810f53c78955860c2afe554160.zip",
+          "bytes": 12713941,
+          "dataset_name": "LSMD_CONT_LDREG_52111_202610",
+          "region_code": "52111",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-283--sha256-09ea4f69cb9f500031ff2bf3be87224ba5c92c317a3739f144952defe4187f89.zip",
+          "bytes": 14587280,
+          "dataset_name": "LSMD_CONT_LDREG_52113_202610",
+          "region_code": "52113",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-139--sha256-7d18398cfb71089191f58ea8fda6b0759b081cd17c6b02d369495dc6d97cfce1.zip",
+          "bytes": 31561176,
+          "dataset_name": "LSMD_CONT_LDREG_52130_202610",
+          "region_code": "52130",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-140--sha256-c8c2fdd244140e99110d7f7444c762ac3c2efc41e832976f3e3bc605e20494cf.zip",
+          "bytes": 54081915,
+          "dataset_name": "LSMD_CONT_LDREG_52140_202610",
+          "region_code": "52140",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-133--sha256-5c8fa6ea8092cef426a24686f79766edbc440b2a93315c0662c81147e0e3261b.zip",
+          "bytes": 61095084,
+          "dataset_name": "LSMD_CONT_LDREG_52180_202610",
+          "region_code": "52180",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-110--sha256-182d27850900171acff3fea36d04c3dbfc074e45b47d2e723ac219cffe3c737d.zip",
+          "bytes": 53880252,
+          "dataset_name": "LSMD_CONT_LDREG_52190_202610",
+          "region_code": "52190",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-135--sha256-02fbd162d25e8eb73b7b827b48709782c571ce4d1a730169754f5af335ae0e35.zip",
+          "bytes": 47355797,
+          "dataset_name": "LSMD_CONT_LDREG_52210_202610",
+          "region_code": "52210",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-115--sha256-7bb69dc3fdfcb3e5fdab86703083d3bfe283ed0ee88ea6e016358adc36dde962.zip",
+          "bytes": 58907811,
+          "dataset_name": "LSMD_CONT_LDREG_52710_202610",
+          "region_code": "52710",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-145--sha256-cfff55caefa025b9828022ce894bb12a67bb31abdbdc17aa77e77f1d4d39c2d6.zip",
+          "bytes": 43424031,
+          "dataset_name": "LSMD_CONT_LDREG_52720_202610",
+          "region_code": "52720",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-120--sha256-7eebcfedfb27bddd0369ecae82fcdd9fd6a1c47fb0d2e14823f8b1890e18f948.zip",
+          "bytes": 29526424,
+          "dataset_name": "LSMD_CONT_LDREG_52730_202610",
+          "region_code": "52730",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-123--sha256-df04fe1ed0e119d6c0b6da14fa9265c6df42d22725ce7176177a0f8bcfb2a039.zip",
+          "bytes": 30157984,
+          "dataset_name": "LSMD_CONT_LDREG_52740_202610",
+          "region_code": "52740",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-142--sha256-366b4134d9045b52a5c5715db2256f227bd0a26f2a451384dbc5c964685cc0a4.zip",
+          "bytes": 44727729,
+          "dataset_name": "LSMD_CONT_LDREG_52750_202610",
+          "region_code": "52750",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-138--sha256-ae3df2ca27087486fb61147839b7ecbea20afc457dedea53605f83fc272996d8.zip",
+          "bytes": 34512590,
+          "dataset_name": "LSMD_CONT_LDREG_52770_202610",
+          "region_code": "52770",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-113--sha256-3df00ff830fec65e1759fb41d234a002d502c4d1914e2d27ffdb1afd94226b8a.zip",
+          "bytes": 58554097,
+          "dataset_name": "LSMD_CONT_LDREG_52790_202610",
+          "region_code": "52790",
+          "granularity": "sigungu"
+        },
+        {
+          "object_key": "bronze/source=vworldkr__parcel/30563-102--sha256-76b665b1b79146215e5feeadb55879c8068dcf4ff4433a78a663217fbcdd5649.zip",
+          "bytes": 34016012,
+          "dataset_name": "LSMD_CONT_LDREG_52800_202610",
+          "region_code": "52800",
+          "granularity": "sigungu"
+        }
+      ]
     }
   }
 }
