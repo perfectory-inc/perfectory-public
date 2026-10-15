@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
+import { connectSrcDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
 import { problem } from "@/lib/http/problem";
 import { tStatic } from "@/lib/i18n/static";
-import { resolveVectorTileAllowedOrigins } from "@/lib/map/vector-tile-manifest";
 import {
   GENERATED_AUTH_RATE_ROUTE_POLICIES,
   GENERATED_PAGE_ROUTE_POLICIES,
@@ -262,20 +262,9 @@ function buildCspHeader(hostname: string, nonce: string): string {
   const imgSrc = allowLocalHttpMapRuntime
     ? "'self' data: blob: http: https:"
     : "'self' data: blob: https://*.map.naver.com https://map.naver.com https://*.map.naver.net https://map.naver.net https://*.pstatic.net";
-  // ADR 0036 / foundation-platform ADR 0004: Gongzzang은 manifest consumer only.
-  // Manifest는 foundation-platform Catalog 또는 public R2/CDN manifest URL에서 읽고,
-  // 실제 tile URL은 manifest.tiles_url_template이 결정한다.
-  const tileOrigins = resolveVectorTileAllowedOrigins().join(" ");
-  // The admin edit overlay (root ADR-0112) is read by the browser alongside the tiles.
-  const mapEditOrigin = new URL(env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL).origin;
-  // The panels read the by-PNU edges directly from the browser: parcels, buildings and the units'
-  // prices, each its own lane (root ADR-0190).
-  const edgeOrigins = [
-    env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
-    env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
-    env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL,
-  ].map((url) => new URL(url).origin);
-  const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin, ...edgeOrigins].filter(Boolean).join(" ")}`;
+  // The map and panel data hosts the browser reads directly; the layout's preconnect hints read
+  // the same list (lib/browser-data-origins.ts).
+  const tileConnectSrc = ` ${connectSrcDataOrigins().filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
     : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com https://*.pstatic.net${tileConnectSrc}`;

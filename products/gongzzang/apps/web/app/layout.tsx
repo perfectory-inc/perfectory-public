@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { Toaster } from "@gongzzang/ui";
+import { preconnectDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
 import { QueryProvider } from "@/lib/query";
 
@@ -26,6 +27,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale}>
       <head>
+        {/* The data is fetched with CORS and no credentials, which uses the anonymous connection
+            pool: a hint without crossOrigin would open a connection the fetch cannot reuse. */}
+        {preconnectDataOrigins().map((origin) => (
+          <link key={origin} rel="preconnect" href={origin} crossOrigin="anonymous" />
+        ))}
         <link rel="stylesheet" href="/fonts/pretendardvariable-dynamic-subset.css" />
         {/* Naver Maps SDK 는 동기 로드 필수 — gl/clustering 서브모듈이 WebGL 백엔드를
             window.naver.maps 에 등록하려면 첫 Map 생성 시점에 이미 로드되어 있어야 함.
