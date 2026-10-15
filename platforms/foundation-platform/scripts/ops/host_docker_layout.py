@@ -29,7 +29,7 @@ def load_layout(path: pathlib.Path = CONTRACT) -> dict[str, Any]:
     if layout.get("schema_version") != 1:
         raise ValueError(f"{path}: unsupported schema_version {layout.get('schema_version')!r}")
     mount = layout["data_mount"].rstrip("/") + "/"
-    for name in (layout["docker"]["data_root"], layout["containerd"]["root"]):
+    for name in (layout["docker"]["data_root"], layout["containerd"]["root"], layout["spark_tmp"]):
         if not name.startswith(mount):
             raise ValueError(f"{name} is not on the data disk {layout['data_mount']}")
     return layout
