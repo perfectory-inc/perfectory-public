@@ -681,6 +681,20 @@ class ReleaseAdmissionTests(unittest.TestCase):
                         pass
             self.module.require_no_release_build()  # released when the build ends
 
+    def test_the_runner_asks_whether_a_build_runs_without_root(self):
+        # Root ADR-0260: the scheduler's runner (not root) asks before it starts a job, and defers it.
+        lock = self.root / "release-build.lock"
+        def main():
+            with mock.patch.object(self.module.os, "geteuid", return_value=1000), \
+                    mock.patch.object(self.module, "CanonicalSource", side_effect=AssertionError("no source needed")), \
+                    mock.patch.object(sys, "argv", ["admission", "release-build-running"]):
+                return self.module.main()
+        with mock.patch.object(self.module, "BUILD_LOCK", lock):
+            self.assertEqual(main(), 0)  # no build has ever run
+            with self.module.release_build_lock():
+                self.assertEqual(main(), 75)
+            self.assertEqual(main(), 0)  # released when the build ends
+
     def test_the_build_holds_its_lock_before_it_looks_for_running_jobs(self):
         # Check-then-start would leave a gap; the lock is taken first, so a job that starts after the
         # check is refused by its own ExecStartPre.
