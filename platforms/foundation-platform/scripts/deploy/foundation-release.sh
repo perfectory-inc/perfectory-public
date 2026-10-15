@@ -45,6 +45,7 @@ usage:
   foundation-release.sh host-retention
   foundation-release.sh deployer-access <account> [--exclusive]
   foundation-release.sh operator-access <account>
+  foundation-release.sh env-set <group> <NAME=value-file>
   foundation-release.sh status
 USAGE
   exit 64
@@ -1079,6 +1080,12 @@ verify_runtime_secrets() {
   }
   # FOUNDATION_PLATFORM_SECRETS_ROOT is the filesystem root the group paths are under: `/` on the
   # host, a fake host in foundation-release-test.sh.
+  # First a renamed credential gains its derived name, with the value its old name has, in every
+  # file that holds it (root ADR-0247): the files change through the contract, never by hand.
+  python3 -I "${secrets}" --area "${release_root}/current" rename --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
+    printf 'renaming credentials in the host environment files failed; see above (names only)\n' >&2
+    exit 65
+  }
   python3 -I "${secrets}" --area "${release_root}/current" host --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" || {
     printf 'the host environment files do not match config/runtime-secrets.contract.json; see above (names only)\n' >&2
     exit 65
@@ -1366,6 +1373,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
     # the loop above installs the template's release admission, switched on or not.
     install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
+    # The national parcel tile bake's work: the matching verdict, the served handoff, Spark's spill
+    # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
+    # ADR-0194 5). Its unit names this path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
     install_host_retention
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
@@ -1416,6 +1427,15 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
   operator-access)
     [[ "$#" == 2 ]] || usage
     install_operator_access "$2"
+    ;;
+  env-set)
+    # A host environment file changes through the contract, not an editor (root ADR-0247): the
+    # names must be ones the group holds, and the file keeps the contract's owner, group and mode.
+    # Prints names, never values; the caller removes its source file.
+    [[ "$#" == 3 ]] || usage
+    assert_current_release
+    python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
+      set --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" "$2" "$3"
     ;;
   status)
     [[ "$#" == 1 ]] || usage

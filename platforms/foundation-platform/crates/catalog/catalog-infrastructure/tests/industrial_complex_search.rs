@@ -16,6 +16,7 @@ use catalog_application::complex_search::{
 use catalog_application::ports::CatalogRepository;
 use catalog_domain::IndustrialComplexStatus;
 use catalog_infrastructure::PgCatalogRepository;
+use foundation_shared_kernel::ids::ComplexId;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -224,16 +225,21 @@ impl SearchFixture {
         // The two 반월 rows deliberately share a name: without the `official_complex_code, id`
         // tiebreak in the ORDER BY, they are exactly the pair Postgres may reorder between pages.
         let shared = format!("테스트반월-{suffix}단지");
+        let codes = vec![
+            format!("T1{suffix}"),
+            format!("T2{suffix}"),
+            format!("T3{suffix}"),
+        ];
+        let ids = codes
+            .iter()
+            .map(|code| ComplexId::for_official_complex_code(code).as_uuid())
+            .collect();
         Self {
             banwol_first: shared.clone(),
             banwol_second: shared,
             gangneung: format!("테스트강릉-{suffix}단지"),
-            codes: vec![
-                format!("T1{suffix}"),
-                format!("T2{suffix}"),
-                format!("T3{suffix}"),
-            ],
-            ids: vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()],
+            codes,
+            ids,
             suffix,
         }
     }
@@ -266,8 +272,9 @@ impl SearchFixture {
         for (index, row) in self.rows().into_iter().enumerate() {
             sqlx::query(
                 "INSERT INTO catalog.industrial_complex
-                 (id, official_complex_code, name, kind, area_m2, sido_code, status, version)
-                 VALUES ($1, $2, $3, $4, 1000, $5, $6, 1)",
+                 (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, sido_code,
+                  status, version)
+                 VALUES ($1, $1, $2, $3, $4, 1000, $5, $6, 1)",
             )
             .bind(self.ids[index])
             .bind(&self.codes[index])

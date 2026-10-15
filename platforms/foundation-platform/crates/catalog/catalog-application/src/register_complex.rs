@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use catalog_domain::{CatalogError, IndustrialComplex, IndustrialComplexKind};
 use chrono::Utc;
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
 
 use crate::industrial_complex_input::{
     validate_clean_required, validate_optional_primary_bjdong_code,
@@ -48,11 +48,12 @@ impl RegisterIndustrialComplex {
     ) -> Result<IndustrialComplex, CatalogError> {
         validate_register_input(&input)?;
         let now = Utc::now();
+        // Derived, not minted (root ADR-0250): the id the lakehouse will give this code is the id
+        // the complex has from its first write.
+        let id = ComplexId::for_official_complex_code(&input.official_complex_code);
         let complex = IndustrialComplex {
-            id: ComplexId::new(uuid::Uuid::now_v7()),
-            // Registering a complex does not put it in the lakehouse, so there is no Gold artifact
-            // for it to address.
-            lakehouse_complex_id: None,
+            id,
+            lakehouse_complex_id: Some(LakehouseComplexId::new(id.as_uuid())),
             official_complex_code: input.official_complex_code,
             name: input.name,
             kind: input.kind,

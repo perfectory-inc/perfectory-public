@@ -58,6 +58,10 @@ last_reviewed: 2026-07-29
 | `catalog.manufacturer` | 입주 제조사 | `id`, `primary_parcel_id`, `name`, `ksic_code` |
 | `catalog.outbox_event` | consumer cache 갱신 이벤트 | `event_id`, `type`, `payload`, `occurred_at`, `published_at` |
 
+산업단지 `id` 는 발급하지 않고 공식 단지코드에서 유도한 UUIDv5 하나다 — 타일·Gold·R2 와 같은 값
+([ADR-0250](../../../../docs/adr/0250-an-industrial-complex-has-one-id-derived-from-its-official-code.md)).
+은퇴한 UUIDv7 은 `catalog.industrial_complex_retired_id` 에 남는다.
+
 ### 3.2 Required expansion
 
 | Entity | Owner rule | 주요 필드 |

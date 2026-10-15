@@ -2198,14 +2198,16 @@ async fn upsert_industrial_complexes_by_official_code(
     let mut outcomes = Vec::with_capacity(commands.len());
 
     for command in commands {
+        // By the derived id, archived or not (root ADR-0250): a code names one complex for good, so
+        // a source that still lists an archived complex refreshes that row and leaves it archived
+        // rather than minting a second one beside it.
         let existing_row = sqlx::query(&format!(
             "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
              FROM catalog.industrial_complex
-             WHERE official_complex_code = $1
-               AND archived_at IS NULL
+             WHERE id = $1
              FOR UPDATE"
         ))
-        .bind(&command.official_complex_code)
+        .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
@@ -2360,7 +2362,7 @@ async fn insert_industrial_complex_from_upsert(
                  $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1, $28, $29, $30, $31)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
-    .bind(Uuid::now_v7())
+    .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
     .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
     .bind(&command.official_complex_code)
     .bind(&command.name)
@@ -2518,7 +2520,11 @@ fn map_industrial_complex_unique_violation(
         Some(
             "industrial_complex_official_complex_code_idx"
             | "industrial_complex_official_complex_code_key"
-            | "industrial_complex_active_official_code_idx",
+            | "industrial_complex_active_official_code_idx"
+            // The id is derived from the code (root ADR-0250), so an archived complex with the
+            // same code collides on the key rather than on the active-code index.
+            | "industrial_complex_pkey"
+            | "industrial_complex_lakehouse_complex_id_idx",
         ) => CatalogError::ComplexOfficialCodeConflict(official_complex_code.to_owned()),
         Some(other) => CatalogError::Infrastructure(format!(
             "unexpected industrial_complex unique constraint violation: {other}"
@@ -2986,6 +2992,18 @@ mod tests {
             "catalog.industrial_complex.created.v1"
         );
         Ok(())
+    }
+
+    /// Re-registering an archived complex's code derives its id again and hits the key.
+    #[test]
+    fn primary_key_violation_maps_to_conflict() {
+        let error =
+            map_industrial_complex_unique_violation(Some("industrial_complex_pkey"), "IC-001");
+
+        assert!(matches!(
+            error,
+            CatalogError::ComplexOfficialCodeConflict(code) if code == "IC-001"
+        ));
     }
 
     #[test]

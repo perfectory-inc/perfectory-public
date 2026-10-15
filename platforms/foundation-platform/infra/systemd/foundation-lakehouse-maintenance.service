@@ -1,0 +1,40 @@
+[Unit]
+Description=Foundation Platform lakehouse maintenance: compact and expire every lakehouse table under its retention (root ADR-0237, ADR-0238)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The lakehouse catalog the maintenance reads and commits through: the file the folds and the
+# lakehouse migration read.
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# One table after the other in one Spark run in the compose `spark` service under its 20g cap,
+# which the host memory guard counts for this job (tools/host-memory-budget.contract.json). A failed
+# table does not stop the others; the run fails if any did.
+ExecStart=/opt/foundation-platform/current/scripts/ops/lakehouse-maintenance.sh
+# The timeout below kills the script and the compose client, not the Spark container the Docker
+# daemon owns: left alone it would keep its 20g after Airflow freed the pool. Spark runs in the
+# Compose project named after this INVOCATION_ID; this removes that project's one-off containers and
+# networks and nothing else (root ADR-0128). It runs after every exit, a success included. The
+# release build refuses to start while this unit is active (ADR-0137), so `current` here is the
+# release that started.
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/lakehouse-maintenance.sh cleanup
+# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allows and
+# no more. The job starts no table after the maintenance contract's `scheduled.deadline_minutes`,
+# below this, so a table in flight finishes; a table it does not reach is first at the next run.
+TimeoutStartSec=160m
+# The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# The rotation (which table was maintained when) and each run's Spark log. The Spark container
+# writes them as uid 185, so the script opens the directory to it. Spark's spill goes to the data
+# disk (/data/foundation-platform/lakehouse/spark-scratch, written by the container), never here.
+StateDirectory=foundation-lakehouse-maintenance

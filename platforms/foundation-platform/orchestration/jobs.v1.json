@@ -465,8 +465,8 @@
         "silver-administrative-boundaries-to-gold-place-id-bridge",
         "silver-administrative-boundaries-to-gold-place-id-changelog"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0236). Off until its first supervised run on the data host (runbook scripts/tiles/admin-boundary/README.md, 'Scheduled job') has answered `unchanged reason=already_loaded` for the round Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-14T11:40:00Z"
     },
     {
       "id": "parcel_registry",
@@ -485,6 +485,45 @@
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "complex_boundary_release",
+      "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-complex-boundary-release.service",
+      "systemd_timer": null,
+      "schedule": "50 9 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 130,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-industrial-complex-boundaries",
+        "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0240). Off until its first supervised run on the data host (runbook complex-boundary-release.md) has answered `unchanged reason=already_loaded` for the file Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "parcel_tile_bake",
+      "description": "Bake the parcel map tiles nationally from the lakehouse (root ADR-0133 §7, ADR-0194 5): when the source contract's served cadastral edition is not the one this job last baked, run the ADR-0113 §7 matching gate over every 시도 of it, build gold.parcel_boundary_served and its handoff parts, and bake, gate and promote them with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh). The first lakehouse release must pass the first-release equivalence gate against the active one (ADR-0133 §4, ADR-0135). Nothing reads PostGIS. Otherwise nothing to do.",
+      "systemd_service": "foundation-parcel-tile-bake.service",
+      "systemd_timer": null,
+      "schedule": "30 7 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-boundary-served",
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+        "gold-parcel-boundary-served-to-parcel-tiles"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0194 5.2). Off until its first supervised national run on the data host (runbook parcel-tile-bake.md) has passed the matching and equivalence gates, promoted, and measured its time, memory and disk within the unit's 160-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "gold_kind_rebuild",
@@ -508,6 +547,23 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-12T22:17:38Z"
+    },
+    {
+      "id": "lakehouse_maintenance",
+      "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
+      "systemd_service": "foundation-lakehouse-maintenance.service",
+      "systemd_timer": null,
+      "schedule": "30 4 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 165,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-14T19:37:57Z"
     },
     {
       "id": "by_pnu_serving_bake",
@@ -549,10 +605,5 @@
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
-  "serving_surfaces_without_a_job": [
-    {
-      "surface": "parcel-tiles",
-      "reason": "The national parcel tiles are rebaked from the lakehouse (root ADR-0133); that bake's job is registered with the ADR-0133 work, not here. Until then they are baked by hand per docs/runbooks/tiles-object-storage-first-slice.md."
-    }
-  ]
+  "serving_surfaces_without_a_job": []
 }
