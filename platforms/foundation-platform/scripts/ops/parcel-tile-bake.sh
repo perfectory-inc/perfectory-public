@@ -170,21 +170,29 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   run_log="${work}/run.log"
   started=${SECONDS}
 
-  # 2. The matching gate: exit 1 is a refusal with its verdict written.
+  # A rehearsal reads an edition the contract does not serve yet; both Spark jobs refuse that unless told.
+  allow=()
+  [[ "${MODE}" == rehearsal-gold ]] && allow=(--allow-non-served-edition)
+
+  # 2. The matching gate: a refusal is exit 1 with a verdict that did not pass. Any other failure —
+  # a crash exits 1 too, with no verdict — stops the run, a rehearsal's included.
   gate_status=0
-  spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" \
+  verdict="${work}/matching-verdict.json"
+  spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" "${allow[@]}" \
     --summary-output "${container_work}/matching-verdict.json" || gate_status=$?
   if ((gate_status != 0)); then
-    [[ "${MODE}" == rehearsal-gold && "${gate_status}" == 1 ]] || { on_error "${LINENO}"; exit "${gate_status}"; }
-    job_journal "${journal}" "rehearsal: the matching gate refused ${snapshot} in $((SECONDS - started))s (verdict ${work}/matching-verdict.json); continuing"
+    refused=no
+    [[ "${gate_status}" == 1 && -s "${verdict}" ]] \
+      && python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1]))["passed"] is not False)' "${verdict}" \
+      && refused=yes
+    [[ "${MODE}" == rehearsal-gold && "${refused}" == yes ]] || { on_error "${LINENO}"; exit "${gate_status}"; }
+    job_journal "${journal}" "rehearsal: the matching gate refused ${snapshot} in $((SECONDS - started))s (verdict ${verdict}); continuing"
   else
     job_journal "${journal}" "matching gate passed for ${snapshot} in $((SECONDS - started))s"
   fi
 
   # 3. The served Gold and its handoff parts.
   step=${SECONDS}
-  allow=()
-  [[ "${MODE}" == rehearsal-gold ]] && allow=(--allow-non-served-edition)
   spark parcel_boundary_served_gold.py --source-snapshot-id "${snapshot}" "${allow[@]}" \
     --output-dir "${container_work}/served" --summary-output "${container_work}/served-summary.json" \
     --allow-non-smoke-write
