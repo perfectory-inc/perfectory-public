@@ -43,13 +43,14 @@ TYPE_VALUES = {
     "tstzrange": "tstzrange('2026-01-01T00:00:00Z', null)", "daterange": "daterange('2026-01-01', null)",
     "int4range": "int4range(1, null)", "int8range": "int8range(1, null)",
 }
-# A geometry by its kind, in WGS84 near the synthetic origin; the SRID comes from the column.
+# A geometry by its kind, in WGS84 inside the reserved synthetic box (public-fixture-safety); the
+# column's SRID is reached by ST_Transform.
+_RING = "127.1231 36.1231,127.1235 36.1231,127.1235 36.1235,127.1231 36.1231"
 GEOMETRY = {
-    "POINT": "POINT(127 37)", "MULTIPOINT": "MULTIPOINT((127 37))",
-    "LINESTRING": "LINESTRING(127 37,127.001 37.001)",
-    "POLYGON": "POLYGON((127 37,127.001 37,127.001 37.001,127 37,127 37))",
-    "MULTIPOLYGON": "MULTIPOLYGON(((127 37,127.001 37,127.001 37.001,127 37)))",
-    "GEOMETRY": "POLYGON((127 37,127.001 37,127.001 37.001,127 37))",
+    "POINT": "POINT(127.1231 36.1231)", "MULTIPOINT": "MULTIPOINT((127.1231 36.1231))",
+    "LINESTRING": "LINESTRING(127.1231 36.1231,127.1235 36.1235)",
+    "POLYGON": f"POLYGON(({_RING}))", "MULTIPOLYGON": f"MULTIPOLYGON((({_RING})))",
+    "GEOMETRY": f"POLYGON(({_RING}))",
 }
 
 
