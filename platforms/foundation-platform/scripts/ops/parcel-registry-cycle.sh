@@ -11,6 +11,7 @@
 # 마지막 줄은 `foundation-job-outcome changed|unchanged` 다(root ADR-0171).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
@@ -55,9 +56,16 @@ finish() {
   printf 'foundation-job-outcome %s\n' "$1"
 }
 
+# The served edition must be one the Bronze ledger holds (root ADR-0224): the publisher reads it.
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(foundation_database_url)"
+  export DATABASE_URL
+fi
+VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
+  "${PUBLISHER_BIN}" vworld-parcel-editions > "${work}/parcel-editions.json" 2>> "${run_log}"
 editions="${RELEASE_ROOT}/infra/lakehouse/spark/jobs/vworld_parcel_editions.py"
 edition="$(python3 -I "${editions}" served)"
-to_date="$(python3 -I "${editions}" valid-from --edition "${edition}")"
+to_date="$(python3 -I "${editions}" valid-from --edition "${edition}" --editions "${work}/parcel-editions.json")"
 to_date="${to_date%%T*}"
 
 # 1. 등록되지 않은 시도.
