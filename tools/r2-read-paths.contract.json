@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0261-each-language-reads-r2-through-one-path.md",
+  "purpose": "Where code may build its own S3/R2 client or spell R2 read-retry settings. Everything else reads R2 through these, so the ADR-0102 retry (a new connection and jittered backoff when a read breaks) is written once per language and every reader gets it. scripts/guard/r2-reads-have-one-path.sh refuses a client or setting outside them.",
+  "rust": {
+    "platforms/foundation-platform": [
+      "platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2.rs",
+      "platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2/"
+    ],
+    "products/gongzzang": [
+      "products/gongzzang/services/gongzzang-api/src/photo_upload.rs",
+      "products/gongzzang/services/gongzzang-outbox-publisher/src/listing_photo_lakehouse.rs"
+    ],
+    "areas_reason": "Areas share no Cargo path dependency (root ADR-0001), so each area that talks to R2 has its own one place. foundation-platform's is foundation-outbox's R2 client and its read policy (r2/read_retry.rs). gongzzang's two files are where its clients stand today; they become one module that carries the same policy."
+  },
+  "spark": [
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_engine.py",
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_object_store.py"
+  ],
+  "spark_reason": "lakehouse_engine spells the Iceberg S3FileIO catalog settings and the s3a retry from the engine contract's r2_read; lakehouse_object_store applies the s3a settings. No other job spells a fs.s3a. or S3FileIO retry/HTTP-client key."
+}
