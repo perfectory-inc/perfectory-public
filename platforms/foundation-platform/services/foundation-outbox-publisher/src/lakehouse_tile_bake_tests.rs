@@ -255,6 +255,7 @@ fn complex_layer() -> ServedLayer {
         feature_id_property: "complex_id".to_owned(),
         tile_min_zoom: 6,
         tile_max_zoom: 16,
+        render_max_zoom: 22,
         properties: vec!["complex_id".to_owned(), "official_complex_code".to_owned()],
     }
 }
@@ -295,6 +296,7 @@ fn parcel_layer(min: u8, max: u8) -> ServedLayer {
         feature_id_property: "pnu".to_owned(),
         tile_min_zoom: min,
         tile_max_zoom: max,
+        render_max_zoom: 22,
         properties: vec!["pnu".to_owned()],
     }
 }
@@ -304,7 +306,18 @@ fn served(ids: &[&str]) -> ServedIds {
         .unwrap_or_else(|_| panic!("distinct fixture ids"))
 }
 
+/// The gate with every missing id unexplained, as a geometry the map can draw would be.
 fn gate(archive_bytes: &[u8], layer: &ServedLayer, ids: &[&str]) -> anyhow::Result<String> {
+    gate_classified(archive_bytes, layer, ids, &[]).map(|gate| gate.digest)
+}
+
+/// The gate with the missing ids among `subpixel` classified sub-pixel (ADR-0255).
+fn gate_classified(
+    archive_bytes: &[u8],
+    layer: &ServedLayer,
+    ids: &[&str],
+    subpixel: &[&str],
+) -> anyhow::Result<IdGate> {
     let file = written(archive_bytes)?;
     let columns = ["pnu".to_owned(), "kind".to_owned()];
     gate_archive(
@@ -313,11 +326,15 @@ fn gate(archive_bytes: &[u8], layer: &ServedLayer, ids: &[&str]) -> anyhow::Resu
         &columns,
         &served(ids),
         |missing| {
-            Ok(ids
-                .iter()
-                .filter(|id| missing.contains(&id_hash(id)))
-                .map(|id| (*id).to_owned())
-                .collect())
+            let mut out = Missing::default();
+            for id in ids.iter().filter(|id| missing.contains(&id_hash(id))) {
+                if subpixel.contains(id) {
+                    out.subpixel.push((*id).to_owned());
+                } else {
+                    out.unexplained.push((*id).to_owned());
+                }
+            }
+            Ok(out)
         },
         &mut |_, _| Ok(()),
     )
@@ -333,7 +350,7 @@ fn the_id_gate_hands_every_maxzoom_tile_and_id_to_the_sample_collector() -> anyh
         &parcel_layer(1, 2),
         &columns,
         &served(&["9999900001", "9999900002", "9999900003"]),
-        |_| Ok(Vec::new()),
+        |_| Ok(Missing::default()),
         &mut |tile, id| {
             seen.push((tile, id.to_owned()));
             Ok(())
@@ -419,6 +436,105 @@ fn an_extra_id_at_maxzoom_is_refused_and_named() {
         refusal.contains("carry 1 feature") && refusal.contains("9999900003"),
         "{refusal}"
     );
+}
+
+#[test]
+fn a_missing_id_is_allowed_only_when_its_geometry_is_subpixel_and_is_listed() -> anyhow::Result<()>
+{
+    // ADR-0255: 9999900004 and 9999900005 are not in the archive.
+    let ids = [
+        "9999900001",
+        "9999900002",
+        "9999900003",
+        "9999900004",
+        "9999900005",
+    ];
+    let gate = gate_classified(
+        &two_zoom_archive(1, 2),
+        &parcel_layer(1, 2),
+        &ids,
+        &["9999900004", "9999900005"],
+    )?;
+    assert_eq!(gate.subpixel, ["9999900004", "9999900005"]);
+    assert_eq!(gate.digest, served(&ids).digest());
+    let refusal = gate_classified(
+        &two_zoom_archive(1, 2),
+        &parcel_layer(1, 2),
+        &ids,
+        &["9999900004"],
+    )
+    .err()
+    .map(|error| error.to_string())
+    .unwrap_or_default();
+    assert!(
+        refusal.contains("1 sub-pixel")
+            && refusal.contains("1 that are not")
+            && refusal.contains("9999900005"),
+        "one drawable miss refuses the whole archive: {refusal}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_real_handoff_reader_classifies_a_missing_rows_geometry() -> anyhow::Result<()> {
+    // A one-row v1 handoff whose polygon is 0.3 px wide at zoom 22 next to one 3 px wide.
+    let degree = 360.0 / (256.0 * f64::from(1_u32 << 22));
+    let wkb = |height: f64| {
+        let ring = [
+            (10.0, 0.001),
+            (10.0 + 500.0 * degree, 0.001),
+            (10.0 + 500.0 * degree, 0.001 + height * degree),
+            (10.0, 0.001 + height * degree),
+            (10.0, 0.001),
+        ];
+        let mut out = vec![1_u8];
+        out.extend(3_u32.to_le_bytes());
+        out.extend(1_u32.to_le_bytes());
+        out.extend(5_u32.to_le_bytes());
+        for (x, y) in ring {
+            out.extend(x.to_le_bytes());
+            out.extend(y.to_le_bytes());
+        }
+        out.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let lines = [
+        json!({"feature_id": "9999900001", "properties": {}, "geometry_wkb_hex": wkb(0.3), "geometry_srid": 4326}),
+        json!({"feature_id": "9999900002", "properties": {}, "geometry_wkb_hex": wkb(3.0), "geometry_srid": 4326}),
+    ];
+    let mut handoff = tempfile::NamedTempFile::new()?;
+    for line in &lines {
+        writeln!(handoff, "{line}")?;
+    }
+    let summary = summary(2);
+    let missing = [id_hash("9999900001"), id_hash("9999900002")];
+    let classified = classify_missing(&summary, handoff.path(), &missing, 22)?;
+    assert_eq!(classified.subpixel, ["9999900001"]);
+    assert_eq!(classified.unexplained, ["9999900002"]);
+    // At zoom 24 the sliver is 1.2 px wide: drawable, so unexplained.
+    let deeper = classify_missing(&summary, handoff.path(), &missing, 24)?;
+    assert!(deeper.subpixel.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -> anyhow::Result<()>
+{
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    assert_eq!(contract.maxzoom_detail.get("parcels"), Some(&14));
+    assert_eq!(contract.maxzoom_detail.get("complex"), None);
+    let args: Vec<String> = tippecanoe_args(&parcel_layer(14, 16), &["pnu".to_owned()], Some(14))
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert!(args.contains(&"--full-detail=14".to_owned()), "{args:?}");
+    for bad in [11, 17] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        value["maxzoom_detail"]["parcels"] = json!(bad);
+        assert!(BakeContract::parse(&value.to_string()).is_err(), "{bad}");
+    }
+    Ok(())
 }
 
 #[test]
@@ -568,7 +684,7 @@ fn a_container_profile_without_a_memory_cap_is_refused() -> anyhow::Result<()> {
 
 #[test]
 fn tippecanoe_keeps_the_measured_flags_and_adds_only_temp_and_parallel_read() {
-    let args: Vec<String> = tippecanoe_args(&complex_layer(), &complex_layer().properties)
+    let args: Vec<String> = tippecanoe_args(&complex_layer(), &complex_layer().properties, None)
         .into_iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();

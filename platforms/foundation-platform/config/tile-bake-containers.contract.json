@@ -17,6 +17,10 @@
       "memory_reason": "The Seoul pilot (898,741 parcels) peaked at 0.96GB; the national run (about 40M) is unmeasured, and its sort and tile work spill to the -t directory. The first national bake re-measures it (root ADR-0133 §7)."
     }
   },
+  "maxzoom_detail": {
+    "parcels": 14
+  },
+  "maxzoom_detail_reason": "Root ADR-0255. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. A unit not listed keeps 12.",
   "work_disk": {
     "min_free_bytes": 2147483648,
     "min_free_bytes_per_handoff_byte": 8,
