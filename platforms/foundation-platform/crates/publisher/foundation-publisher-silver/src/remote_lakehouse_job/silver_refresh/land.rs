@@ -399,6 +399,12 @@ impl SidoCalendar {
     /// Reads the 시도 rows (`region_cd` `NN00000000`) of the newest snapshot among `rows`. A
     /// 폐지 row without its 폐지일 cannot be placed in time and is left out, so a vintage holding
     /// that code is skipped rather than loaded. Refuses a snapshot that lists no current 시도.
+    ///
+    /// A single-tier city has no `NN00000000` row: 세종특별자치시 is `3611000000`, its one
+    /// 시군구-level row. A prefix with no 시도 row and exactly one 시군구-level row (`NNxxx00000`)
+    /// is that 시도, with that row's days; more than one is refused, because which of them speaks
+    /// for the 시도 is not in the list. Leaving 세종 out made every vintage look incomplete and
+    /// stopped all six land lanes (2026-10-15).
     pub(in crate::remote_lakehouse_job) fn from_snapshot_rows(
         rows: &[JsonMap<String, JsonValue>],
     ) -> anyhow::Result<Self> {
@@ -407,15 +413,46 @@ impl SidoCalendar {
             .map(|row| text(row, "snapshot_date"))
             .max()
             .context("reference.legal_dong_code_snapshot holds no 시도 row")?;
-        let mut codes = Vec::new();
-        for row in rows
+        let newest_rows: Vec<_> = rows
             .iter()
             .filter(|row| text(row, "snapshot_date") == newest)
-        {
+            .collect();
+        let with_sido_row: BTreeSet<String> = newest_rows
+            .iter()
+            .filter_map(|row| {
+                text(row, "region_cd")
+                    .strip_suffix("00000000")
+                    .map(str::to_owned)
+            })
+            .collect();
+        let mut single_tier: BTreeMap<String, Vec<&JsonMap<String, JsonValue>>> = BTreeMap::new();
+        let mut sido_rows = Vec::new();
+        for row in newest_rows {
             let region = text(row, "region_cd");
-            let Some(code) = region.strip_suffix("00000000") else {
-                continue;
+            if let Some(code) = region.strip_suffix("00000000") {
+                sido_rows.push((code.to_owned(), row));
+            } else if region.len() == 10
+                && region.ends_with("00000")
+                && !with_sido_row.contains(&region[..2])
+            {
+                single_tier
+                    .entry(region[..2].to_owned())
+                    .or_default()
+                    .push(row);
+            }
+        }
+        for (prefix, held) in single_tier {
+            let [row] = held.as_slice() else {
+                bail!(
+                    "시도 {prefix} has no {prefix}00000000 row and {} 시군구-level rows; which one is the 시도 is not in the code list",
+                    held.len()
+                );
             };
+            sido_rows.push((prefix, row));
+        }
+        let mut codes = Vec::new();
+        for (code, row) in sido_rows {
+            let region = text(row, "region_cd");
             ensure!(
                 code.len() == 2 && code.bytes().all(|b| b.is_ascii_digit()),
                 "{region} is not a 10-digit 법정동 code"
@@ -423,7 +460,7 @@ impl SidoCalendar {
             let (from, until) = (day(row, "created_date")?, day(row, "abolished_date")?);
             match (text(row, "status").as_str(), &until) {
                 ("폐지", None) => {}
-                ("존재" | "폐지", _) => codes.push((code.to_owned(), from, until)),
+                ("존재" | "폐지", _) => codes.push((code, from, until)),
                 (other, _) => bail!("{region} has the status {other:?}, not 존재 or 폐지"),
             }
         }
@@ -459,10 +496,11 @@ pub(in crate::remote_lakehouse_job) async fn read_sido_calendar(
         .with_context(|| format!("cannot resolve the {table} snapshot"))?
         .with_context(|| format!("{table} has no snapshot, so no 시도 lane knows its regions"))?;
     let reader = LakehouseObjectReader::from_env()?;
+    // 시도 rows and 시군구-level rows: a single-tier city's 시도 is its one 시군구-level row.
     let is_sido = |row: &JsonMap<String, JsonValue>| {
         row.get("region_cd")
             .and_then(JsonValue::as_str)
-            .is_some_and(|code| code.ends_with("00000000"))
+            .is_some_and(|code| code.ends_with("00000"))
     };
     let scanned = scan_snapshot_rows_kept(
         &REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
