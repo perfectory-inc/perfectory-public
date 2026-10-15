@@ -497,7 +497,7 @@
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,
       "pack_only_reason": "a lane of one kind of data (root ADR-0190) is born serving from section packs: it never had an object lane, so its first publish is the pack-only cut-over gate and its Worker never reads objects",
-      "gold_table": "gold.unit_price_panel",
+      "gold_table": "gold.unit_price",
       "document_schema_version": "foundation-platform.unit_price_by_pnu.v1",
       "latency_baseline_lane": "building",
       "latency_baseline_lane_reason": "every PNU with a priced unit has a building document (a unit price is served under the PNU its building document carries it), so the building preview reads the same PNUs through the same Worker code at the same placement: the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds a cut-over to",

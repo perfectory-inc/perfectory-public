@@ -7,7 +7,7 @@
 # A table's unit (parcel, building, unit-price, ...) is its `unit` in
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. `all` (the registered job) rebuilds
 # every table of that contract in its order (gold.parcel_panel, gold.building_panel,
-# gold.unit_price_panel; root ADR-0190). `kinds` (the registered kind job, foundation-gold-kind-
+# gold.unit_price; root ADR-0190). `kinds` (the registered kind job, foundation-gold-kind-
 # rebuild) rebuilds the Gold table of every by-PNU data kind line instead (root ADR-0193 §9): each
 # kind is pinned to its host panel's inputs, so it runs after the panel job committed. One Spark run at a time: each takes the whole compose
 # `spark` cap (root ADR-0138). A failed table does not stop the others; `all` fails if any did.
