@@ -49,6 +49,8 @@ cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS="1"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES="1"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE="1"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY="content_addressed"  # live writes key by content (root ADR-0152)
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="/data/foundation-platform/source-sweep/spool"
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```
 
@@ -57,6 +59,8 @@ smoke 증거가 준비된 뒤에만 전국 파일 수집 실행:
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD="1"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE="1"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY="content_addressed"  # live writes key by content (root ADR-0152)
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="/data/foundation-platform/source-sweep/spool"
 unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS
 unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_FILES
 cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
@@ -67,6 +71,8 @@ cargo run -p foundation-outbox-publisher -- ingest-vworld-dataset-files
 ```bash
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD="1"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE="1"
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY="content_addressed"  # live writes key by content (root ADR-0152)
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="/data/foundation-platform/source-sweep/spool"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_EXCLUDE_SELECTION_ARCHIVES="1"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_DEFER_PROVIDER_ACQUISITION_BLOCKED="1"
 unset FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_JOBS
