@@ -163,8 +163,8 @@ async fn insert_complex(
     let primary_bjdong_code = format!("{digits:0<10}");
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code, area_m2)
-         VALUES ($1, $1, $2, $3, 'general', $4, 1000)",
+         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2)
+         VALUES ($1, $2, $3, 'general', $4, 1000)",
     )
     .bind(id.as_uuid())
     .bind(&official_complex_code)

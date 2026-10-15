@@ -97,11 +97,11 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
 
         let area_i64 = u64_to_i64(complex.area_m2)?;
         let insert_res = sqlx::query(
-            // `$21::numeric` because the progress percentage travels as exact decimal text: the
+            // `$20::numeric` because the progress percentage travels as exact decimal text: the
             // column is `numeric(5,2)` and binding an `f64` would store a value the source never
             // stated. The cast is what lets Postgres parse the text it will store.
             "INSERT INTO catalog.industrial_complex
-             (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+             (id, official_complex_code, name, kind, primary_bjdong_code,
               area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
               developer_name, designated_date, construction_start_date, completion_date,
               lot_sales_status, business_period_raw, business_period_start_month,
@@ -109,12 +109,10 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
               development_method_raw, development_purpose_raw, invited_industries_raw,
               created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw,
               development_stage)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                     $31, $32)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                     $17, $18, $19, $20::numeric, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+                     $30, $31)",
         )
-        .bind(complex.id.as_uuid())
-        // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
         .bind(complex.id.as_uuid())
         .bind(&complex.official_complex_code)
         .bind(&complex.name)
@@ -2272,21 +2270,20 @@ async fn update_industrial_complex_from_upsert(
              developer_name = $11,
              designated_date = $12,
              completion_date = $13,
-             lakehouse_complex_id = $14,
-             construction_start_date = $15,
-             development_progress_percent = $16::numeric,
-             lot_sales_status = $17,
-             business_period_raw = $18,
-             business_period_start_month = $19,
-             business_period_end_month = $20,
-             designation_basis_law_raw = $21,
-             development_method_raw = $22,
-             development_purpose_raw = $23,
-             invited_industries_raw = $24,
-             kind_raw = $25,
-             status_raw = $26,
-             lot_sales_status_raw = $27,
-             development_stage = $28,
+             construction_start_date = $14,
+             development_progress_percent = $15::numeric,
+             lot_sales_status = $16,
+             business_period_raw = $17,
+             business_period_start_month = $18,
+             business_period_end_month = $19,
+             designation_basis_law_raw = $20,
+             development_method_raw = $21,
+             development_purpose_raw = $22,
+             invited_industries_raw = $23,
+             kind_raw = $24,
+             status_raw = $25,
+             lot_sales_status_raw = $26,
+             development_stage = $27,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
@@ -2305,8 +2302,6 @@ async fn update_industrial_complex_from_upsert(
     .bind(command.developer_name.as_deref())
     .bind(command.designated_date)
     .bind(command.completion_date)
-    // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
-    .bind(existing.id.as_uuid())
     .bind(command.construction_start_date)
     .bind(command.development_progress_percent.as_deref())
     .bind(
@@ -2352,7 +2347,7 @@ async fn insert_industrial_complex_from_upsert(
     let area_i64 = u64_to_i64(command.area_m2)?;
     let inserted_row = sqlx::query(&format!(
         "INSERT INTO catalog.industrial_complex
-         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+         (id, official_complex_code, name, kind, primary_bjdong_code,
           area_m2, status, sido_code, sigungu_code, address_text, management_agency_name,
           developer_name, designated_date, construction_start_date, completion_date,
           lot_sales_status, business_period_raw, business_period_start_month,
@@ -2360,12 +2355,10 @@ async fn insert_industrial_complex_from_upsert(
           development_method_raw, development_purpose_raw, invited_industries_raw,
           created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw,
           development_stage)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21::numeric, $22, $23, $24, $25, $26, $27, 1, $28, $29, $30, $31)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18, $19, $20::numeric, $21, $22, $23, $24, $25, $26, 1, $27, $28, $29, $30)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
-    .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
-    // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
     .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
     .bind(&command.official_complex_code)
     .bind(&command.name)
@@ -2523,8 +2516,7 @@ fn map_industrial_complex_unique_violation(
             | "industrial_complex_active_official_code_idx"
             // The id is derived from the code (root ADR-0250), so an archived complex with the
             // same code collides on the key rather than on the active-code index.
-            | "industrial_complex_pkey"
-            | "industrial_complex_lakehouse_complex_id_idx",
+            | "industrial_complex_pkey",
         ) => CatalogError::ComplexOfficialCodeConflict(official_complex_code.to_owned()),
         Some(other) => CatalogError::Infrastructure(format!(
             "unexpected industrial_complex unique constraint violation: {other}"

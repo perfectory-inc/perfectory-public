@@ -480,9 +480,9 @@ async fn list_complex_blueprints_returns_catalog_dto() {
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+         (id, official_complex_code, name, kind, primary_bjdong_code,
           area_m2, version)
-         VALUES ($1, $1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
+         VALUES ($1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
          ON CONFLICT (official_complex_code) WHERE archived_at IS NULL DO NOTHING",
     )
     .bind(complex_id)
