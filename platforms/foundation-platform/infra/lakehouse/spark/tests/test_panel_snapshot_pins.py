@@ -157,7 +157,7 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job, "build_spark_session", side_effect=start))
                     for name in ("filtered_by_region", "with_lineage_sources", "build_zonings", "build_price",
                                  "build_characteristics", "build_forest_ledger", "build_transfer_history",
-                                 "build_land_rights", "carry_section"):
+                                 "build_land_rights", "build_lineage", "carry_section"):
                         stack.enter_context(mock.patch.object(job, name, return_value=frame))
                     carry = stack.enter_context(mock.patch.object(job, "read_carry_candidates", return_value=None))
                     stack.enter_context(mock.patch.object(job, "resolve_zoning_anchors", return_value={}))

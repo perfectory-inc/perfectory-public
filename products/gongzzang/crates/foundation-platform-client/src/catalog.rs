@@ -10,15 +10,11 @@ use crate::{
 };
 
 const PARCEL_BY_PNU_PATH_PREFIX: &str = "catalog/v1/parcels/by-pnu/";
-/// Keyed on the lakehouse id, not on `catalog.industrial_complex.id`.
-///
-/// The two are different identities and neither is computable from the other. What a Gongzzang
-/// caller holds is the lakehouse one: it is what the `complex` vector tile publishes as its feature
-/// id and what every Gold artifact key is derived from.
-const COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX: &str = "catalog/v1/complexes/by-lakehouse-id/";
+/// One industrial complex by its id: the `UUIDv5` the `complex` vector tile publishes as its feature
+/// id and every Gold artifact key is derived from (root ADR-0250).
+const COMPLEX_PATH_PREFIX: &str = "catalog/v1/complexes/";
 /// Paged industrial-complex collection.
 const COMPLEXES_PATH: &str = "catalog/v1/complexes";
-const BUILDINGS_PATH_PREFIX: &str = "catalog/v1/buildings/";
 
 /// Foundation Catalog parcel wire response.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -162,83 +158,6 @@ pub struct CatalogParcelZoning {
     pub inclusion_code: String,
 }
 
-/// Foundation Catalog building wire response.
-///
-/// Five columns are nullable upstream since root ADR-0076: the register stating nothing arrives
-/// as `null`, and a consumer that keeps promising values breaks on the first honest row
-/// (root ADR-0078 §1 — this crate was that consumer).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct CatalogBuildingResponse {
-    /// Stable Foundation building identifier.
-    pub id: String,
-    /// Stable Foundation parcel identifier.
-    pub parcel_id: String,
-    /// Source building purpose code. `None` when the register stated nothing.
-    pub purpose_code: Option<String>,
-    /// Source building structure code. `None` when the register stated nothing.
-    pub structure_code: Option<String>,
-    /// Official total floor area in square meters. `None` when the register wrote 0 or nothing.
-    pub floor_area_m2: Option<f64>,
-    /// Above-ground floor count. `None` when the register stated nothing.
-    pub stories: Option<i16>,
-    /// Below-ground floor count.
-    pub below_ground_floors: i16,
-    /// Whether the source reports a rooftop floor or structure.
-    pub has_rooftop: bool,
-    /// Optional rooftop area in square meters.
-    #[serde(default)]
-    pub rooftop_area_m2: Option<f64>,
-    /// Source rooftop usage description.
-    #[serde(default)]
-    pub rooftop_usage: String,
-    /// Source construction-approval year. `None` when the register states no plausible date.
-    pub built_year: Option<i32>,
-    /// Foundation Catalog update timestamp.
-    pub updated_at: String,
-}
-
-/// Foundation Catalog 전유부 호 (building unit) wire response.
-///
-/// Carries the columns the Gongzzang unit panel draws, not the whole upstream contract —
-/// deserializing more would claim a use this consumer does not have.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct CatalogUnitResponse {
-    /// Stable Foundation unit identifier.
-    pub id: String,
-    /// 동명칭 — only real 동 numbers; empty otherwise.
-    pub dong_name: String,
-    /// 호명칭.
-    pub ho_name: String,
-    /// Floor label (지상/지하 + number), free text from source.
-    pub floor_label: String,
-    /// 전유면적 (exclusive area, m²). `None` when unmatched upstream.
-    #[serde(default)]
-    pub exclusive_area_m2: Option<f64>,
-    /// 주용도명. Empty when unmatched upstream.
-    pub usage_name: String,
-    /// Reference-date official assessments, newest first. Older upstreams omit this field.
-    #[serde(default)]
-    pub official_price_history: Vec<CatalogUnitOfficialPrice>,
-}
-
-/// Reference-date official unit assessment carried by the Foundation contract.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct CatalogUnitOfficialPrice {
-    /// Assessment reference date in YYYYMMDD format.
-    pub base_date: String,
-    /// Official value in integer won.
-    pub price_won: i64,
-}
-
-/// One keyset page of a building's units (root ADR-0076 §3).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct CatalogUnitPageResponse {
-    /// The page of units, in the upstream's stable order.
-    pub items: Vec<CatalogUnitResponse>,
-    /// Opaque continuation cursor. Passed back verbatim, never parsed (root ADR-0078 §2).
-    pub next_cursor: Option<String>,
-}
-
 /// Where the pre-rendered Gold profile for one complex lives, and what it must hash to.
 ///
 /// Root ADR-0006 serves catalog point-lookups from pre-rendered JSON on R2/CDN, so the description
@@ -292,6 +211,8 @@ impl CatalogIndustrialComplexGoldPointer {
 /// them would be claiming a use it does not have.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CatalogIndustrialComplexResponse {
+    /// The complex's id, echoed back by the provider (root ADR-0250).
+    pub id: String,
     /// Lakehouse identity of the complex, echoed back by the provider.
     pub lakehouse_complex_id: Option<String>,
     /// Source-side official industrial-complex code.
@@ -471,64 +392,18 @@ impl FoundationCatalogClient {
         .await
     }
 
-    /// Sends one building-list-by-PNU request through the published Catalog v1 path.
+    /// Sends one complex request through the published Catalog v1 path.
     ///
     /// # Errors
     ///
     /// Returns an error for transport failures, invalid workload credentials, and retriable status.
-    pub async fn list_buildings_by_pnu_response(
+    pub async fn get_complex_response(
         &self,
-        pnu: &str,
+        complex_id: &str,
     ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
         self.execute_get(
-            "foundation_platform.catalog.list_parcel_buildings_by_pnu",
-            &format!("{PARCEL_BY_PNU_PATH_PREFIX}{pnu}/buildings"),
-            &[],
-        )
-        .await
-    }
-
-    /// Sends one building-units page request through the published Catalog v1 path.
-    ///
-    /// `cursor` is the upstream's opaque continuation token, passed back verbatim
-    /// (root ADR-0078 §2 — this client never parses or fabricates one).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for transport failures, invalid workload credentials, and retriable status.
-    pub async fn list_building_units_response(
-        &self,
-        building_id: &str,
-        limit: Option<u32>,
-        cursor: Option<&str>,
-    ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
-        let mut pairs: Vec<(&'static str, String)> = Vec::new();
-        if let Some(limit) = limit {
-            pairs.push(("limit", limit.to_string()));
-        }
-        if let Some(cursor) = cursor {
-            pairs.push(("cursor", cursor.to_owned()));
-        }
-        self.execute_get(
-            "foundation_platform.catalog.list_building_units",
-            &format!("{BUILDINGS_PATH_PREFIX}{building_id}/units"),
-            &pairs,
-        )
-        .await
-    }
-
-    /// Sends one complex-by-lakehouse-id request through the published Catalog v1 path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for transport failures, invalid workload credentials, and retriable status.
-    pub async fn get_complex_by_lakehouse_id_response(
-        &self,
-        lakehouse_complex_id: &str,
-    ) -> Result<reqwest::Response, FoundationCatalogClientRequestError> {
-        self.execute_get(
-            "foundation_platform.catalog.get_complex_by_lakehouse_id",
-            &format!("{COMPLEX_BY_LAKEHOUSE_ID_PATH_PREFIX}{lakehouse_complex_id}"),
+            "foundation_platform.catalog.get_complex",
+            &format!("{COMPLEX_PATH_PREFIX}{complex_id}"),
             &[],
         )
         .await

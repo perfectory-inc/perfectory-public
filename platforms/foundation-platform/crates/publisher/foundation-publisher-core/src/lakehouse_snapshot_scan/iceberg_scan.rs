@@ -11,14 +11,15 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{bail, ensure, Context};
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
 use arrow_array::{
-    Array, Date32Array, Decimal128Array, Int64Array, RecordBatch, StringArray,
-    TimestampMicrosecondArray,
+    cast::AsArray, Array, BooleanArray, Date32Array, Decimal128Array, Int64Array, RecordBatch,
+    StringArray, TimestampMicrosecondArray,
 };
 use arrow_schema::{DataType, TimeUnit};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, SecondsFormat, TimeDelta, Utc};
 use lakehouse_domain::LakehouseTableContract;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::arrow_reader::{ArrowPredicateFn, ParquetRecordBatchReaderBuilder, RowFilter};
+use parquet::arrow::ProjectionMask;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 /// Iceberg `manifest_file.content` / `data_file.content` value for row data.
@@ -75,22 +76,40 @@ impl ScannedDataFile {
         let Some(statistics) = self.column_statistics.get(column) else {
             return false;
         };
-        if statistics.null_value_count != Some(0) {
-            return false;
-        }
-        let (Some(lower), Some(upper)) = (&statistics.lower_bound, &statistics.upper_bound) else {
-            return false;
-        };
-        let prefix = prefix.as_bytes();
-        // Every value is at most `upper`, and every value starting with `prefix` is at least
-        // `prefix`.
-        if upper.as_slice() < prefix {
-            return true;
-        }
-        // Every value is at least `lower`, and every value starting with `prefix` is below its
-        // successor.
-        prefix_successor(prefix).is_some_and(|successor| lower.as_slice() >= successor.as_slice())
+        bounds_exclude_prefix(
+            statistics.null_value_count,
+            statistics.lower_bound.as_deref(),
+            statistics.upper_bound.as_deref(),
+            prefix,
+        )
     }
+}
+
+/// Whether values with these bounds hold none starting with the ASCII `prefix`: a null count of
+/// zero, both bounds, and the prefix's whole range outside them (see
+/// [`ScannedDataFile::excludes_prefix`]). A data file's manifest bounds and a Parquet row group's
+/// statistics are both read this way.
+pub(super) fn bounds_exclude_prefix(
+    null_count: Option<u64>,
+    lower: Option<&[u8]>,
+    upper: Option<&[u8]>,
+    prefix: &str,
+) -> bool {
+    if prefix.is_empty() || !prefix.is_ascii() || null_count != Some(0) {
+        return false;
+    }
+    let (Some(lower), Some(upper)) = (lower, upper) else {
+        return false;
+    };
+    let prefix = prefix.as_bytes();
+    // Every value is at most `upper`, and every value starting with `prefix` is at least
+    // `prefix`.
+    if upper < prefix {
+        return true;
+    }
+    // Every value is at least `lower`, and every value starting with `prefix` is below its
+    // successor.
+    prefix_successor(prefix).is_some_and(|successor| lower >= successor.as_slice())
 }
 
 /// The least byte string above every string that starts with the ASCII `prefix`: the prefix with
@@ -246,10 +265,63 @@ fn set_null_value_count(column: &mut ColumnStatistics, value: &AvroValue) {
 pub fn decode_rows(
     contract: &LakehouseTableContract,
     parquet_bytes: Vec<u8>,
-    mut visit: impl FnMut(JsonMap<String, JsonValue>) -> bool,
+    visit: impl FnMut(JsonMap<String, JsonValue>) -> bool,
 ) -> anyhow::Result<u64> {
-    let reader = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
-        .context("failed to open Iceberg Parquet data file")?
+    decode_rows_under(contract, parquet_bytes, None, visit).map(|(decoded, _)| decoded)
+}
+
+/// [`decode_rows`] for a scan that keeps only `column` values under `prefix`. A row group whose
+/// Parquet statistics prove it holds none is not read, and in the rest only `column` is decoded for
+/// every row: the other columns, and the row's JSON, only for the rows under `prefix` (a row with
+/// no value is kept for the keep-filter, as [`KeptPrefix`](super::KeptPrefix) does). On 2026-10-14
+/// a parcel kind bake ran 775 shards, 72% of them over prefixes with no row, each decoding every
+/// row of a 3.6-million-row file into JSON to keep none. Returns the rows handed to `visit` and the
+/// rows of the file it never decoded whole; together they are the file's rows (its footer's count)
+/// when the decoding ran to the end.
+pub(super) fn decode_rows_under(
+    contract: &LakehouseTableContract,
+    parquet_bytes: Vec<u8>,
+    prefix: Option<(&str, &str)>,
+    mut visit: impl FnMut(JsonMap<String, JsonValue>) -> bool,
+) -> anyhow::Result<(u64, u64)> {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
+        .context("failed to open Iceberg Parquet data file")?;
+    let file_rows = u64::try_from(builder.metadata().file_metadata().num_rows())
+        .context("a Parquet file declares a negative row count")?;
+    let mut group_skipped: u64 = 0;
+    let builder = match prefix {
+        None => builder,
+        Some((column, prefix)) => {
+            let leaf = builder
+                .parquet_schema()
+                .columns()
+                .iter()
+                .position(|leaf| leaf.path().parts() == [column]);
+            let mut read = Vec::new();
+            for (index, group) in builder.metadata().row_groups().iter().enumerate() {
+                if leaf.is_some_and(|leaf| row_group_excludes(group.column(leaf), prefix)) {
+                    group_skipped = group_skipped
+                        .checked_add(u64::try_from(group.num_rows())?)
+                        .context("skipped row count overflow")?;
+                } else {
+                    read.push(index);
+                }
+            }
+            let builder = builder.with_row_groups(read);
+            match leaf {
+                Some(leaf) => {
+                    let mask = ProjectionMask::leaves(builder.parquet_schema(), [leaf]);
+                    let prefix = prefix.to_owned();
+                    let under = ArrowPredicateFn::new(mask, move |batch: RecordBatch| {
+                        Ok(starts_with(batch.column(0), &prefix))
+                    });
+                    builder.with_row_filter(RowFilter::new(vec![Box::new(under)]))
+                }
+                None => builder,
+            }
+        }
+    };
+    let reader = builder
         .build()
         .context("failed to build the Iceberg Parquet reader")?;
 
@@ -263,11 +335,50 @@ pub fn decode_rows(
                 .checked_add(1)
                 .context("decoded row count overflow")?;
             if !visit(row) {
-                return Ok(decoded);
+                return Ok((decoded, group_skipped));
             }
         }
     }
-    Ok(decoded)
+    // Read to the end: every row not handed over was skipped by its row group or filtered out.
+    let skipped = file_rows
+        .checked_sub(decoded)
+        .context("decoded more rows than the Parquet file declares")?;
+    Ok((decoded, skipped))
+}
+
+/// The filter mask of one string column: values starting with `prefix`, and nulls (kept so the
+/// contract check still meets them). A column of another type keeps every row.
+fn starts_with(values: &dyn Array, prefix: &str) -> BooleanArray {
+    let keep = |value: Option<&str>| Some(value.is_none_or(|value| value.starts_with(prefix)));
+    if let Some(strings) = values.as_string_opt::<i32>() {
+        strings.iter().map(keep).collect()
+    } else if let Some(strings) = values.as_string_opt::<i64>() {
+        strings.iter().map(keep).collect()
+    } else if let Some(strings) = values.as_string_view_opt() {
+        strings.iter().map(keep).collect()
+    } else {
+        BooleanArray::from(vec![true; values.len()])
+    }
+}
+
+/// Whether one row group's statistics for the column prove none of its values starts with
+/// `prefix`. `min_value` and `max_value` bound the values whether or not the writer marked them
+/// exact (Parquet format: a truncated minimum is still a lower bound, a truncated maximum still an
+/// upper one; parquet-rs reads an unmarked writer's as inexact). The deprecated `min`/`max`, whose
+/// byte order older writers got wrong, are not proof.
+fn row_group_excludes(column: &parquet::file::metadata::ColumnChunkMetaData, prefix: &str) -> bool {
+    let Some(statistics) = column.statistics() else {
+        return false;
+    };
+    if statistics.is_min_max_deprecated() {
+        return false;
+    }
+    bounds_exclude_prefix(
+        statistics.null_count_opt(),
+        statistics.min_bytes_opt(),
+        statistics.max_bytes_opt(),
+        prefix,
+    )
 }
 
 fn assert_batch_matches_contract(

@@ -1018,10 +1018,14 @@ viewer_staff_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 stage="identity_staff_seed"
 i_psql -X -U identity_admin -d identity \
   --set=ON_ERROR_STOP=1 >/dev/null <<SQL
-INSERT INTO staff (id, zitadel_subject, email, display_name, primary_role_code)
+INSERT INTO staff (id, zitadel_subject, email, display_name)
 VALUES
-  ('${catalog_staff_id}', '${catalog_subject}', 'catalog@smoke.invalid', 'Catalog Smoke', 'STAFF'),
-  ('${viewer_staff_id}', '${viewer_subject}', 'viewer@smoke.invalid', 'Viewer Smoke', 'STAFF');
+  ('${catalog_staff_id}', '${catalog_subject}', 'catalog@smoke.invalid', 'Catalog Smoke'),
+  ('${viewer_staff_id}', '${viewer_subject}', 'viewer@smoke.invalid', 'Viewer Smoke');
+INSERT INTO staff_role (staff_id, role_code, granted_by)
+VALUES
+  ('${catalog_staff_id}', 'STAFF', '${catalog_staff_id}'),
+  ('${viewer_staff_id}', 'STAFF', '${viewer_staff_id}');
 SQL
 
 service_principal_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"

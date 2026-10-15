@@ -28,7 +28,7 @@ bash "$repository_identity_gate"
 bash "$legal_gate"
 rc=0
 for g in hook-isolation-self-test \
-         no-subdir-github toolchain-consistency technology-version-consistency \
+         no-subdir-github technology-version-consistency \
          static-release-toolchain-ssot-self-test static-release-toolchain-ssot \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
@@ -46,6 +46,7 @@ for g in hook-isolation-self-test \
          package-publication-policy-self-test public-fixture-safety-self-test \
          public-doc-boundary-self-test \
          tracked-blob-sizes-self-test public-repository-safety \
+         tracked-paths-are-portable-self-test tracked-paths-are-portable \
          container-runtime-policy-self-test container-runtime-policy \
          every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          runtime-secrets-contract-self-test runtime-secrets-contract \
@@ -69,6 +70,7 @@ for g in hook-isolation-self-test \
          every-table-declares-its-load-self-test every-table-declares-its-load \
          pipeline-graph-covers-every-dataset-self-test pipeline-graph-covers-every-dataset \
          region-code-pairs-have-one-home-self-test region-code-pairs-have-one-home \
+         area-registry-self-test area-registry \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
          the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
          the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \

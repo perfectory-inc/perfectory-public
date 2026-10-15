@@ -81,6 +81,9 @@ pub struct BakeConfig {
     pub expected_gold_snapshot: Option<String>,
     pub max_concurrency: usize,
     pub summary_path: PathBuf,
+    /// Sample candidates per million PNUs (`gate::candidate_rate` of the Gold's record count);
+    /// `None` is the contract's rate.
+    pub sample_candidates_per_million: Option<u64>,
 }
 
 impl BakeConfig {
@@ -170,6 +173,8 @@ impl BakeConfig {
                 env("PACK_SUMMARY_PATH")?
                     .with_context(|| format!("{} is required", lane.env("PACK_SUMMARY_PATH")))?,
             ),
+            // Set from the Gold's record count once the scan has read it (`run`).
+            sample_candidates_per_million: None,
         })
     }
 }
@@ -261,13 +266,66 @@ pub struct PackEntry {
     pub outcome: String,
 }
 
+/// Prints the shards a generation bake of the lane's current Gold snapshot runs, planned from its
+/// manifests (`lakehouse_snapshot_scan::shard_plan`), to `<lane>_PACK_SHARD_PLAN_PATH`: one JSON
+/// object with the snapshot it pins,
+/// the snapshot's record count, the export's row cap, and each shard's prefix and the most rows
+/// the manifests allow it. `by-pnu-pack-bake.sh` starts from it.
+///
+/// # Errors
+/// Returns an error when the catalog or a manifest cannot be read.
+pub async fn plan_shards(lane: ByPnuLane) -> anyhow::Result<()> {
+    let table = sections::gold_table(lane).table_name;
+    let catalog = IcebergRestCatalog::new(
+        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+    )?;
+    let snapshot = catalog
+        .load_current_snapshot_manifest_list(table)
+        .await?
+        .with_context(|| format!("{table} has no current snapshot to plan"))?;
+    let lakehouse = LakehouseObjectReader::from_env()?;
+    let max_rows = u64::try_from(MAX_ROWS_PER_RUN)?;
+    let (shards, records) = crate::lakehouse_snapshot_scan::plan_snapshot_shards(
+        &lakehouse, &snapshot, "pnu", max_rows,
+    )
+    .await?;
+    let plan = serde_json::json!({
+        "table": table,
+        "gold_iceberg_snapshot_id": snapshot.snapshot_id.to_string(),
+        "manifest_record_count": records,
+        "max_rows_per_run": max_rows,
+        "shards": shards
+            .iter()
+            .map(|shard| serde_json::json!({"prefix": shard.prefix, "estimated_rows": shard.estimated_rows}))
+            .collect::<Vec<_>>(),
+    });
+    let path = optional_env(&lane.env("PACK_SHARD_PLAN_PATH"))?
+        .with_context(|| format!("{} is required", lane.env("PACK_SHARD_PLAN_PATH")))?;
+    std::fs::write(
+        &path,
+        format!(
+            "{plan}
+"
+        ),
+    )
+    .with_context(|| format!("failed to write the shard plan {path}"))?;
+    tracing::info!(
+        table,
+        shards = shards.len(),
+        records,
+        lane = lane.unit(),
+        "planned the bake's shards from the manifests"
+    );
+    Ok(())
+}
+
 /// Runs the export.
 ///
 /// # Errors
 /// Refuses on any failed check; packs already written stay (create-only, same bytes on re-run).
 pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     sections::check_contract_sections(lane)?;
-    let config = BakeConfig::from_env(lane)?;
+    let mut config = BakeConfig::from_env(lane)?;
     let table = sections::gold_table(lane).table_name;
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
@@ -280,6 +338,8 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let store = ByPnuServingStore::open(lane, &config.output)?;
     let renderer = Renderer::load(lane).await?;
     let (rows, gold_record_count) = scan(&config, &lakehouse, &snapshot).await?;
+    // A small lane draws its candidates at a rate that still yields gate (나)'s sample.
+    config.sample_candidates_per_million = Some(gate::candidate_rate(gold_record_count)?);
     let mut summary = bake(
         &config,
         &store,
@@ -804,6 +864,7 @@ async fn write_unit(
         &documents,
         deleted,
         patch,
+        run.config.sample_candidates_per_million,
     )?;
     check.require_equal(dong)?;
     let mut packs = Vec::with_capacity(laid_out.len());
@@ -813,11 +874,12 @@ async fn write_unit(
     Ok((packs, check, cut))
 }
 
-/// One section of one dong, laid out as the packs it is written as (root ADR-0163). A patch
-/// follows the parts the served generation cut the dong into. A base bake lays the dong out
-/// whole and keeps it whole when it fits `parts.part_target_bytes`; otherwise it cuts the dong
-/// into `ceil(size / part_target_bytes)` parts by the PNU's hash. A part with nothing in it is
-/// not written, and no part may outgrow what the gateway reads whole.
+/// One section of one dong, laid out as the packs it is written as. A base bake lays every dong
+/// out as one pack whatever its size (root ADR-0233: the gateway reads every pack by head and
+/// range, so a large dong costs a request no more than a small one; the pack writer holds its
+/// head and documents to the request CPU budget). A patch follows the parts the served
+/// generation cut the dong into (root ADR-0163), until no served generation has parts: a part
+/// with nothing in it is not written, and no part may outgrow what such a generation was held to.
 fn lay_out_parts(
     run: &Run<'_>,
     section: &str,
@@ -841,18 +903,7 @@ fn lay_out_parts(
     let count = if run.config.patch.is_some() {
         run.plan.parts(section).count(dong)
     } else {
-        let whole = lay_out(dong, documents, deleted)?;
-        let parts = u64::try_from(whole.len())?.div_ceil(policy.parts.part_target_bytes);
-        if parts <= 1 {
-            return Ok(vec![LaidOut {
-                section: section.to_owned(),
-                unit: dong.to_owned(),
-                bytes: whole,
-                documents: documents.to_vec(),
-                deleted: deleted.to_vec(),
-            }]);
-        }
-        u32::try_from(parts)?
+        1
     };
     let mut laid_out = Vec::new();
     for part in 0..count {
@@ -946,7 +997,16 @@ pub(super) fn check_round_trip(
     documents: &[PackDocument],
     deleted: &[String],
     patch: Option<u64>,
+    candidates_per_million: Option<u64>,
 ) -> anyhow::Result<UnitCheck> {
+    let candidates_per_million = match candidates_per_million {
+        Some(rate) => rate,
+        None => {
+            crate::by_pnu_gateway_contract::section_pack_policy()?
+                .cutover_gate
+                .sample_candidates_per_million
+        }
+    };
     let mut baked: Vec<read::SectionPacksOfUnit> = Vec::new();
     for laid in laid_out {
         let section = &laid.section;
@@ -1035,7 +1095,7 @@ pub(super) fn check_round_trip(
             &document.pnu,
             answer.as_deref() == Some(document.bytes.as_slice()),
         );
-        if patch.is_none() && gate::is_sample_candidate(&document.pnu)? {
+        if patch.is_none() && gate::is_sample_candidate_at(&document.pnu, candidates_per_million)? {
             check.candidates.push(document.pnu.clone());
         }
     }

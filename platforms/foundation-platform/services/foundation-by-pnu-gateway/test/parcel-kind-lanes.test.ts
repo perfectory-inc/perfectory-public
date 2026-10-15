@@ -60,7 +60,7 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
     runtime = undefined;
   });
 
-  async function start(): Promise<Miniflare> {
+  async function start(preview = false): Promise<Miniflare> {
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
       define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("parcel") },
@@ -76,7 +76,10 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
       compatibilityDate: PARCEL.compatibility_date,
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [PARCEL.r2_binding],
-      bindings: { [PARCEL.allowed_origins_binding]: "https://app.example.test" },
+      bindings: {
+        [PARCEL.allowed_origins_binding]: "https://app.example.test",
+        ...(preview ? { [PARCEL.section_packs.preview_binding]: "true" } : {}),
+      },
       cache: true,
     });
   }
@@ -116,6 +119,50 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
     expect((await read(PARCEL.request_path.prefix)).status).toBe(503);
     const capabilities = await runtime.dispatchFetch(`https://catalog.example.test${ZONING!.capabilities}`);
     expect(((await capabilities.json()) as { unit: string }).unit).toBe("parcel-zoning-by-pnu");
+  });
+
+  it("a preview serves a lane's unpublished generation before the lane has any manifest", async () => {
+    // 2026-10-13: the zoning lane's first gate (b) read its preview 10,000 times and got 503 each
+    // time; the preview read the (absent) manifest before it looked at the generation it was asked.
+    runtime = await start(true);
+    await put(packKey(ZONING!.packRoot), await pack());
+    const documents = JSON.parse(await readFile(new URL("documents.json", fixtures), "utf8")) as { base: Record<string, string> };
+    const preview = await runtime.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}?packs=g1`, {
+      headers: { "Accept-Encoding": "gzip" },
+    });
+    expect(preview.status).toBe(200);
+    expect(await preview.text()).toBe(documents.base[PNU]);
+    // The live route of the same lane is still an outage: nothing was published.
+    expect((await read(ZONING!.prefix)).status).toBe(503);
+    await runtime.dispose();
+    // A version that is not a preview never serves a named generation the manifest does not name.
+    runtime = await start(false);
+    await put(packKey(ZONING!.packRoot), await pack());
+    const live = await runtime.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}?packs=g1`);
+    expect([404, 503]).toContain(live.status);
+  });
+
+  it("a probe run's token scopes the preview's edge copies, so each run's first read is an R2 read", async () => {
+    // 2026-10-13: gate (b) timed the zoning lane's R2 reads against the parcel preview's answers,
+    // 9,502 of 9,505 of them edge copies an earlier probe run had left.
+    runtime = await start(true);
+    await put(packKey(ZONING!.packRoot), await pack());
+    const source = async (query: string) => {
+      const response = await runtime!.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}${query}`, {
+        headers: { "Accept-Encoding": "gzip" },
+      });
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
+      return response.headers.get("server-timing") ?? "";
+    };
+    expect(await source("?packs=g1-ra1")).not.toContain("edge-answer");
+    // The same run reads it again: its warm read is the edge copy.
+    expect(await source("?packs=g1-ra1")).toContain("edge-answer");
+    // A later run starts cold.
+    expect(await source("?packs=g1-rb2")).not.toContain("edge-answer");
+    // A token outside the grammar is no canonical request.
+    const bad = await runtime.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}?packs=g1-rX!`);
+    expect(bad.status).toBe(404);
   });
 
   it("never answers one lane from another lane's packs or edge copies", async () => {

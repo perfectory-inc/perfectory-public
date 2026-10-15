@@ -8,6 +8,7 @@
 pub mod iceberg_scan;
 #[cfg(test)]
 mod pruning_tests;
+pub mod shard_plan;
 
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -82,8 +83,12 @@ pub struct ScannedRows {
     /// Row count the manifests declared for the files the scan read.
     pub read_record_count: u64,
     /// Rows decoded across every file read, counted before any keep-filter dropped them. This is
-    /// what must equal `read_record_count` — the retained rows never can when a filter is in play.
+    /// what must equal `read_record_count` with `skipped_row_group_record_count` — the retained
+    /// rows never can when a filter is in play.
     pub decoded_row_count: u64,
+    /// Rows of the files read that sat in row groups whose Parquet statistics prove they hold
+    /// none of the scan's prefix, so they were not decoded.
+    pub skipped_row_group_record_count: u64,
     /// The scan stopped because more rows passed the keep-filter than the caller's limit. The
     /// read and decoded counts then cover only the files read so far, and `rows` holds exactly
     /// the limit.
@@ -100,9 +105,13 @@ impl ScannedRows {
             "the scan stopped at its keep limit, so it did not reach every data file"
         );
         ensure!(
-            self.decoded_row_count == self.read_record_count,
-            "scanned {} rows but the manifests declared {} for the data files read",
+            self.decoded_row_count
+                .checked_add(self.skipped_row_group_record_count)
+                == Some(self.read_record_count),
+            "scanned {} rows and skipped {} in row groups but the manifests declared {} for the \
+             data files read",
             self.decoded_row_count,
+            self.skipped_row_group_record_count,
             self.read_record_count
         );
         ensure!(
@@ -183,6 +192,28 @@ pub async fn scan_snapshot_inventory(
     })
 }
 
+/// The shards of a by-PNU bake of `snapshot`, planned from its manifests alone (no data file is
+/// opened), and the snapshot's whole record count: see [`shard_plan`].
+///
+/// # Errors
+/// Returns an error when the manifest list or a manifest cannot be read.
+pub async fn plan_snapshot_shards(
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+    column: &str,
+    max_rows: u64,
+) -> anyhow::Result<(Vec<shard_plan::PlannedShard>, u64)> {
+    let data_files = snapshot_data_files(lakehouse, snapshot).await?;
+    let records = data_files
+        .iter()
+        .try_fold(0_u64, |sum, file| sum.checked_add(file.record_count))
+        .context("manifest record count overflow")?;
+    Ok((
+        shard_plan::plan_prefix_shards(&data_files, column, max_rows),
+        records,
+    ))
+}
+
 /// Decodes every live row of one Iceberg snapshot into contract-shaped JSON objects.
 pub async fn scan_snapshot_rows(
     contract: &LakehouseTableContract,
@@ -235,6 +266,7 @@ pub async fn scan_snapshot_rows_kept(
         skipped_data_file_count: 0,
         skipped_record_count: 0,
         read_record_count: 0,
+        skipped_row_group_record_count: 0,
         decoded_row_count: 0,
         keep_limit_exceeded: false,
     };
@@ -276,15 +308,23 @@ pub async fn scan_snapshot_rows_kept(
             .context("read record count overflow")?;
         let rows = &mut scanned.rows;
         let mut past_limit = false;
-        let decoded =
-            iceberg_scan::decode_rows(contract, bytes_of(lakehouse, data_file).await?, |row| {
+        let (decoded, skipped) = iceberg_scan::decode_rows_under(
+            contract,
+            bytes_of(lakehouse, data_file).await?,
+            prefix.map(|prefix| (prefix.column, prefix.prefix)),
+            |row| {
                 past_limit = keep_row(rows, row, keep, max_kept);
                 !past_limit
-            })?;
+            },
+        )?;
         scanned.decoded_row_count = scanned
             .decoded_row_count
             .checked_add(decoded)
             .context("decoded row count overflow")?;
+        scanned.skipped_row_group_record_count = scanned
+            .skipped_row_group_record_count
+            .checked_add(skipped)
+            .context("skipped row group count overflow")?;
         if past_limit {
             scanned.keep_limit_exceeded = true;
             return Ok(scanned);

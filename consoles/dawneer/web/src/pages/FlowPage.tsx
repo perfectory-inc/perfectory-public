@@ -2,7 +2,7 @@
 // "single pane of glass" Dagster's global asset lineage is, where the catalog and the live run
 // status are the same graph. It replaces the 운영 현황 and 데이터 카탈로그 menus; everything those
 // showed is in the side panel or a tab below the graph.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DawneerClient } from "../api/client";
 import { CatalogSearch } from "../components/CatalogSearch";
@@ -32,9 +32,21 @@ import {
   summarySentence,
   type ProblemRow,
 } from "../lib/dataFlow";
-import { FLOW_TABS, type FlowTab } from "../lib/routes";
+import { FLOW_TABS, type FlowFocus, type FlowTab } from "../lib/routes";
 
-export function FlowPage({ client, tab }: { client: DawneerClient; tab: FlowTab }) {
+/** What a link's focus opens: a job's panel, or a dataset's — turning on every connection when the plain view hides it.
+ * Nothing for a dataset the map does not have. */
+export function focusTarget(
+  focus: FlowFocus,
+  shown: ReadonlySet<string>,
+  known: ReadonlySet<string>,
+): { selection: Selection; everything: boolean } | null {
+  if (focus.kind === "job") return { selection: { kind: "job", id: focus.id }, everything: false };
+  if (!known.has(focus.id)) return null;
+  return { selection: { kind: "dataset", id: focus.id }, everything: !shown.has(focus.id) };
+}
+
+export function FlowPage({ client, tab, focus }: { client: DawneerClient; tab: FlowTab; focus: FlowFocus | null }) {
   const jobs = useScheduledJobs(client);
   const graph = usePipelineGraph(client);
   const quality = useQualityChecks(client);
@@ -65,6 +77,18 @@ export function FlowPage({ client, tab }: { client: DawneerClient; tab: FlowTab 
       setSelection(row.nodeId && shownNodes.has(row.nodeId) ? { kind: "dataset", id: row.nodeId } : { kind: "job", id: row.job.job_id }),
     [shownNodes],
   );
+
+  // A link (a problem's Slack notice) opens its panel once, when the map is known.
+  const applied = useRef<string | null>(null);
+  const focusKey = focus ? `${focus.kind}:${focus.id}` : null;
+  useEffect(() => {
+    if (!focus || !graph.data || !jobs.data || !view || applied.current === focusKey) return;
+    applied.current = focusKey;
+    const target = focusTarget(focus, shownNodes, new Set(graph.data.nodes.map((candidate) => candidate.id)));
+    if (!target) return;
+    if (target.everything) setEverything(true);
+    setSelection(target.selection);
+  }, [focus, focusKey, graph.data, jobs.data, view, shownNodes]);
 
   const loading = Loading({ what: "데이터 흐름", query: jobs }) ?? Loading({ what: "파이프라인 지도", query: graph });
   const node = selection?.kind === "dataset" ? (view?.nodes.find((candidate) => candidate.id === selection.id) ?? null) : null;

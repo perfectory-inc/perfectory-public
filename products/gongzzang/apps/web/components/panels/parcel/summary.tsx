@@ -40,8 +40,8 @@ export function ParcelSummaryCard({
         {data.zoning && (
           <>
             <dt className="text-[var(--color-muted)]">{t("zoning")}</dt>
-            {/* Wire values are the shared-kernel Zoning enum (closed set of five). */}
-            <dd className="text-[var(--color-ink)]">{t(`zoningValues.${data.zoning}`)}</dd>
+            {/* The source's own zone name (e.g. 제2종일반주거지역), shown as given. */}
+            <dd className="text-[var(--color-ink)]">{data.zoning}</dd>
           </>
         )}
         {data.official_land_price_per_m2 != null && (

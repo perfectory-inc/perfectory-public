@@ -13,6 +13,8 @@ import {
   datasetState,
   edgeState,
   flowStatus,
+  nodeStatus,
+  registryNote,
   STAGE_TEXT,
   STATUS_TEXT,
   statusNote,
@@ -38,6 +40,10 @@ export const STATUS_CLASS: Record<FlowStatus, { card: string; pill: string; stro
   never: { card: "border-slate-300", pill: "bg-slate-100 text-slate-600", stroke: "#94a3b8" },
   off: { card: "border-slate-200 bg-slate-50 opacity-70", pill: "bg-slate-200 text-slate-600", stroke: "#cbd5e1" },
   manual: { card: "border-slate-200", pill: "bg-slate-50 text-slate-500", stroke: "#cbd5e1" },
+  on_event: { card: "border-slate-300", pill: "bg-slate-100 text-slate-700", stroke: "#94a3b8" },
+  not_started: { card: "border-slate-200 border-dashed", pill: "bg-slate-50 text-slate-500", stroke: "#cbd5e1" },
+  store: { card: "border-slate-200 bg-slate-50", pill: "bg-slate-100 text-slate-600", stroke: "#cbd5e1" },
+  outside: { card: "border-slate-200 bg-slate-50", pill: "bg-slate-100 text-slate-600", stroke: "#cbd5e1" },
   unread: { card: "border-amber-300", pill: "bg-amber-50 text-amber-800", stroke: "#94a3b8" },
 };
 
@@ -156,7 +162,7 @@ export function FlowGraph({
     }));
     const datasets: Node[] = view.nodes.map((node) => {
       const state = datasetState(node, states);
-      const status = flowStatus(state);
+      const status = nodeStatus(node.node, state);
       const kind = datasetKind(node.node);
       return {
         id: node.id,
@@ -167,7 +173,7 @@ export function FlowGraph({
           icon: kind.icon,
           kindWord: kind.word,
           status,
-          note: statusNote(state, titleOf, now),
+          note: state ? statusNote(state, titleOf, now) : registryNote(node.node, status),
           progress: status === "running" ? (state?.running?.progress ?? null) : null,
           selected: selected === node.id,
         } satisfies DatasetData,

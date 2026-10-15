@@ -15,6 +15,7 @@ import {
 import {
   LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
+  retargetListingMarkerSources,
 } from "@/lib/map/marker-tile-style";
 import { loadNaverMaps } from "@/lib/naver-maps";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
@@ -42,7 +43,8 @@ export function ListingMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<naver.maps.Map | null>(null);
   const [mapboxInstance, setMapboxInstance] = useState<MapboxGLLike | null>(null);
-  const [, setMarkerServerState] = useState<ListingMarkerServerState>(initialMarkerServerState);
+  const [markerServerState, setMarkerServerState] =
+    useState<ListingMarkerServerState>(initialMarkerServerState);
   const [markerOverlayState, setMarkerOverlayState] = useState(() =>
     createListingMarkerOverlayState({ baseVersion: null }),
   );
@@ -68,6 +70,20 @@ export function ListingMap() {
       mb.setFilter(LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID, layerFilter);
     }
   }, [filters, markerOverlayState.tombstoneIds, mapboxInstance]);
+
+  // Keyed on the primitives so an unchanged version does not reload every visible tile.
+  const { filterHash, projectionVersion } = markerServerState;
+  useEffect(() => {
+    if (!mapboxInstance) return;
+    try {
+      retargetListingMarkerSources(mapboxInstance, { filterHash, projectionVersion });
+    } catch (err) {
+      console.warn(
+        "[ListingMap] listing marker sources not retargeted",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }, [mapboxInstance, filterHash, projectionVersion]);
 
   useEffect(() => {
     const controller = new AbortController();

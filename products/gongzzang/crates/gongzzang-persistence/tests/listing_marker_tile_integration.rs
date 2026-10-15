@@ -142,6 +142,58 @@ async fn seed_anchor(pool: &sqlx::PgPool, pnu: &str) {
     .unwrap();
 }
 
+/// Property keys of the one layer an MVT holds — enough protobuf to read the tile contract back.
+fn mvt_property_keys(bytes: &[u8]) -> Vec<String> {
+    fn varint(bytes: &[u8], at: &mut usize) -> u64 {
+        let mut value = 0_u64;
+        let mut shift = 0;
+        loop {
+            let byte = bytes[*at];
+            *at += 1;
+            value |= u64::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                return value;
+            }
+            shift += 7;
+        }
+    }
+    // Yields (field number, payload) for every length-delimited field; skips varints.
+    fn fields(bytes: &[u8]) -> Vec<(u64, &[u8])> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            let tag = varint(bytes, &mut at);
+            match tag & 7 {
+                0 => {
+                    varint(bytes, &mut at);
+                }
+                2 => {
+                    let len = usize::try_from(varint(bytes, &mut at)).unwrap();
+                    out.push((tag >> 3, &bytes[at..at + len]));
+                    at += len;
+                }
+                wire => panic!("unexpected MVT wire type {wire}"),
+            }
+        }
+        out
+    }
+    let layers: Vec<&[u8]> = fields(bytes)
+        .into_iter()
+        .filter(|(field, _)| *field == 3)
+        .map(|(_, layer)| layer)
+        .collect();
+    assert_eq!(
+        layers.len(),
+        1,
+        "a listing marker tile holds exactly one layer"
+    );
+    fields(layers[0])
+        .into_iter()
+        .filter(|(field, _)| *field == 3)
+        .map(|(_, key)| String::from_utf8(key.to_vec()).unwrap())
+        .collect()
+}
+
 #[path = "listing_marker_tile_integration/filter_index.rs"]
 mod filter_index;
 #[path = "listing_marker_tile_integration/projection.rs"]

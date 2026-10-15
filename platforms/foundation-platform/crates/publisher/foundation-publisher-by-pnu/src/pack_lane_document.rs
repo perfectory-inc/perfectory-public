@@ -132,10 +132,6 @@ mod tests {
     fn row(units: &str) -> JsonMap<String, JsonValue> {
         let mut row = JsonMap::new();
         row.insert("pnu".to_owned(), "9999900000100000000".into());
-        row.insert(
-            "building_id".to_owned(),
-            "00000000-0000-0000-0000-00000000000b".into(),
-        );
         row.insert("units_json".to_owned(), units.into());
         row.insert("row_digest".to_owned(), "a".repeat(64).into());
         row.insert("source_snapshot_id".to_owned(), "synthetic".into());
@@ -146,11 +142,7 @@ mod tests {
     #[test]
     fn a_row_renders_its_content_columns_by_rule_and_the_same_bytes_twice() -> anyhow::Result<()> {
         let lane = lane()?;
-        // Root ADR-0204: the Gold is one row per building of a PNU; the document names the building.
-        assert_eq!(
-            fields(lane),
-            vec![("building_id", "building_id"), ("units", "units_json")]
-        );
+        assert_eq!(fields(lane), vec![("units", "units_json")]);
         let units =
             r#"[{"id":"u","official_price_history":[{"base_date":"20250101","price_won":7}]}]"#;
         let (pnu, bytes) = render(
@@ -164,8 +156,7 @@ mod tests {
             String::from_utf8(bytes.clone())?,
             format!(
                 "{{\"schema_version\":\"{}\",\"pnu\":\"9999900000100000000\",\"source\":{{\"table\":\
-                 \"gold.unit_price_panel\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\
-                 \"building_id\":\"00000000-0000-0000-0000-00000000000b\",\"units\":{units}}}",
+                 \"gold.unit_price_panel\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\"units\":{units}}}",
                 lane.document_schema_version
             )
         );

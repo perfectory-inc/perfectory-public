@@ -8,7 +8,6 @@ use catalog_application::{
     ports::{MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
     RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
-    UpdateParcelKind,
 };
 use catalog_infrastructure::{
     PgCatalogRepository, PgCatalogUnitOfWork, PgParcelMarkerAnchorRebuilder,
@@ -254,7 +253,6 @@ pub struct AppState {
     pub register_complex: RegisterIndustrialComplex,
     pub update_complex: UpdateIndustrialComplex,
     pub archive_complex: ArchiveIndustrialComplex,
-    pub update_parcel_kind: UpdateParcelKind,
     pub promote_vector_tile_manifest: PromoteVectorTileManifest,
     pub rollback_vector_tile_manifest: RollbackVectorTileManifest,
     pub rebuild_parcel_marker_anchors: RebuildParcelMarkerAnchors,
@@ -727,7 +725,6 @@ impl AppState {
         let register_complex = RegisterIndustrialComplex::new(catalog_uow.clone());
         let update_complex = UpdateIndustrialComplex::new(catalog_uow.clone());
         let archive_complex = ArchiveIndustrialComplex::new(catalog_uow.clone());
-        let update_parcel_kind = UpdateParcelKind::new(catalog_uow.clone());
         let promote_vector_tile_manifest = PromoteVectorTileManifest::new(catalog_uow.clone());
         let rollback_vector_tile_manifest = RollbackVectorTileManifest::new(catalog_uow);
         let parcel_marker_anchor_rebuilder =
@@ -757,7 +754,6 @@ impl AppState {
             register_complex,
             update_complex,
             archive_complex,
-            update_parcel_kind,
             promote_vector_tile_manifest,
             rollback_vector_tile_manifest,
             rebuild_parcel_marker_anchors,

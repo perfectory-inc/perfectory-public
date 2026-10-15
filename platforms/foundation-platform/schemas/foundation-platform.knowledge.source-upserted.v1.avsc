@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "KnowledgeSourceUpsertedV1",
+  "namespace": "kr.perfectory.foundation.knowledge",
+  "doc": "Foundation-owned value schema of the foundation-platform.knowledge.source-upserted.v1 topic. Foundation registers it under <topic>-value with BACKWARD_TRANSITIVE; consumers look it up and never register it.",
+  "fields": [
+    {"name":"event_id","type":"string"},
+    {"name":"tenant_id","type":"string"},
+    {"name":"product_id","type":"string"},
+    {"name":"source_id","type":"string"},
+    {"name":"source_kind","type":"string"},
+    {"name":"source_uri","type":"string"},
+    {"name":"content_uri","type":["null","string"],"default":null},
+    {"name":"content_checksum_sha256","type":["null","string"],"default":null},
+    {"name":"occurred_at","type":{"type":"long","logicalType":"timestamp-millis"}},
+    {"name":"metadata","type":{"type":"map","values":"string"},"default":{}}
+  ]
+}

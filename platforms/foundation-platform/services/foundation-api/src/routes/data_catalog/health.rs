@@ -51,6 +51,8 @@ pub(super) struct FailedRunLog {
 pub(super) struct HealthFacts<'a> {
     /// Each job's time limit in minutes, by job id.
     pub timeouts: &'a BTreeMap<String, u32>,
+    /// When each job was switched on, by job id (root ADR-0239).
+    pub enabled_since: &'a BTreeMap<String, DateTime<Utc>>,
     /// Every table's `main` snapshots that could be read, newest first.
     pub tables: &'a BTreeMap<String, Vec<IcebergSnapshotSummary>>,
     /// The failed latest runs' logs, by DAG id.
@@ -91,7 +93,8 @@ pub(super) fn annotate(statuses: &mut [ScheduledJobStatus], facts: &HealthFacts<
         if problems.is_empty() && facts.runs_readable {
             let timeout = facts.timeouts.get(&status.job_id).copied().unwrap_or(0);
             if !facts.in_progress.contains_key(&status.dag_id) {
-                problems.extend(late(status, timeout, facts.now));
+                let since = facts.enabled_since.get(&status.job_id).copied();
+                problems.extend(late(status, timeout, since, facts.now));
             }
         }
         problems.extend(slow(status, facts.now));
@@ -189,9 +192,12 @@ fn failed(
 }
 
 /// Late: the latest scheduled start whose time limit has passed, with no success finished since.
+/// A start before the job was switched on (`enabled_since`, root ADR-0239) is not one it missed:
+/// the five Silver lanes switched on 2026-10-14 were called late for the day before.
 pub(super) fn late(
     status: &ScheduledJobStatus,
     timeout_minutes: u32,
+    enabled_since: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> Option<ScheduledJobProblem> {
     if !status.enabled {
@@ -200,6 +206,9 @@ pub(super) fn late(
     let cron = Cron::from_str(&status.schedule).ok()?;
     let limit = now - Duration::minutes(i64::from(timeout_minutes));
     let due_at = cron.find_previous_occurrence(&limit, true).ok()?;
+    if enabled_since.is_some_and(|since| due_at < since) {
+        return None;
+    }
     let last_success_at = status
         .recent_runs
         .iter()
@@ -433,6 +442,7 @@ mod tests {
             statuses,
             &HealthFacts {
                 timeouts: &timeouts,
+                enabled_since: &BTreeMap::new(),
                 tables,
                 failures,
                 in_progress: &BTreeMap::new(),
@@ -736,6 +746,7 @@ mod tests {
                 statuses,
                 &HealthFacts {
                     timeouts: &timeouts,
+                    enabled_since: &BTreeMap::new(),
                     tables: &BTreeMap::new(),
                     failures: &BTreeMap::new(),
                     in_progress,
@@ -841,6 +852,42 @@ mod tests {
     }
 
     #[test]
+    fn a_job_is_not_late_for_a_slot_from_before_it_was_switched_on() {
+        // 2026-10-14: five Silver lanes switched on at 02:51 were called late for the 07:00 slot
+        // of the day before, which no run could have taken (root ADR-0239).
+        let late_since = |since: &str, now: &str| {
+            let mut statuses = vec![job("daily", &[], Vec::new())];
+            let timeouts = BTreeMap::from([("daily".to_owned(), 60)]);
+            let enabled_since = BTreeMap::from([("daily".to_owned(), at(since))]);
+            annotate(
+                &mut statuses,
+                &HealthFacts {
+                    timeouts: &timeouts,
+                    enabled_since: &enabled_since,
+                    tables: &BTreeMap::new(),
+                    failures: &BTreeMap::new(),
+                    in_progress: &BTreeMap::new(),
+                    runs_readable: true,
+                    now: at(now),
+                },
+            );
+            kinds(&statuses[0])
+        };
+        // Due 06:00 yesterday and today; switched on in between: today's 06:00 is the first it owes.
+        assert!(late_since("2026-01-01T09:00:00Z", "2026-01-02T05:00:00Z").is_empty());
+        assert_eq!(
+            late_since("2026-01-01T09:00:00Z", "2026-01-02T07:01:00Z"),
+            vec!["late"],
+            "the first slot after it was switched on is owed"
+        );
+        assert_eq!(
+            late_since("2026-01-01T05:00:00Z", "2026-01-02T05:00:00Z"),
+            vec!["late"],
+            "switched on before yesterday's slot: that slot was owed"
+        );
+    }
+
+    #[test]
     fn nothing_is_claimed_late_when_the_runs_were_not_read() {
         let mut statuses = vec![job("daily", &[], Vec::new())];
         let timeouts = BTreeMap::from([("daily".to_owned(), 60)]);
@@ -848,6 +895,7 @@ mod tests {
             &mut statuses,
             &HealthFacts {
                 timeouts: &timeouts,
+                enabled_since: &BTreeMap::new(),
                 tables: &BTreeMap::new(),
                 failures: &BTreeMap::new(),
                 in_progress: &BTreeMap::new(),

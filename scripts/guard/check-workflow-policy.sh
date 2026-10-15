@@ -42,6 +42,14 @@ else
   bash "$(dirname "$0")/../ci/actionlint.sh" "$workflow_dir" >/dev/null
 fi
 
+# The admitted defaults.run.working-directory values are the area dirs; the registry writes one
+# area object per line, so sed reads it without a JSON parser.
+area_dirs="$(sed -n 's/.*"dir": "\([^"]*\)".*/\1/p' "$(dirname "$0")/../../tools/areas.contract.json" | tr '\n' ' ')"
+if [ -z "${area_dirs// /}" ]; then
+  echo "FAIL workflow-policy: tools/areas.contract.json lists no area dirs" >&2
+  exit 1
+fi
+
 shopt -s nullglob
 workflows=("$workflow_dir"/*.yml "$workflow_dir"/*.yaml)
 if [ "${#workflows[@]}" -eq 0 ]; then
@@ -149,7 +157,7 @@ for workflow in "${workflows[@]}"; do
   # Defaults are useful for this monorepo's area-scoped workflows, but only the
   # literal defaults.run.working-directory form is admitted. Shell defaults,
   # expressions, extra children, and alternative indentation fail closed.
-  awk -v file="$workflow" '
+  awk -v file="$workflow" -v area_dirs="$area_dirs" '
     function indentation(line, copy) {
       copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
     }
@@ -160,12 +168,10 @@ for workflow in "${workflows[@]}"; do
       if (state != 3) fail("defaults must contain exactly run.working-directory")
       state=0; base=-1
     }
-    function allowed_directory(value) {
-      return value == "products/gongzzang" \
-        || value == "platforms/foundation-platform" \
-        || value == "platforms/identity-platform" \
-        || value == "platforms/intelligence-platform" \
-        || value == "consoles/dawneer"
+    function allowed_directory(value,    count, i, dirs) {
+      count=split(area_dirs, dirs, " ")
+      for (i = 1; i <= count; i++) if (value == dirs[i]) return 1
+      return 0
     }
     {
       current=indentation($0)

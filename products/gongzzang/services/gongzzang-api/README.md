@@ -19,7 +19,7 @@ last_reviewed: 2026-07-29
 - `http/` — Problem Details 등 HTTP 공통
 - 인프라 모듈 — startup, observability, photo_upload, foundation_anchor_import,
   foundation_parcel_lookup, backend_authorization, backend_rate_limit,
-  traffic_auth_policy, listing_marker_policy, listing_marker_serving, building_reader
+  traffic_auth_policy, listing_marker_policy, listing_marker_serving
 - `bin/` — `generate-traffic-auth-policy` (정책 산출물 6종 재생성; CI가 drift 검사)
 
 ## 로컬 실행

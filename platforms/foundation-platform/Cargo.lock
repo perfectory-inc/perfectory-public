@@ -1879,6 +1879,7 @@ dependencies = [
  "foundation-publisher-by-pnu",
  "foundation-publisher-collection",
  "foundation-publisher-core",
+ "foundation-publisher-parcel-anchor",
  "foundation-publisher-silver",
  "foundation-publisher-tiles",
  "foundation-shapefile",
@@ -2004,6 +2005,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundation-publisher-parcel-anchor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "catalog-domain",
+ "chrono",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "foundation-publisher-silver"
 version = "0.1.0"
 dependencies = [
@@ -2020,6 +2041,7 @@ dependencies = [
  "flate2",
  "foundation-normalization-domain",
  "foundation-outbox",
+ "foundation-publisher-core",
  "foundation-shapefile",
  "foundation-shared-kernel",
  "lakehouse-application",
@@ -3928,9 +3950,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -4650,7 +4672,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",

@@ -54,6 +54,10 @@ export interface PipelineGraph {
     table_name?: string;
     /** For a serving surface, what kind (`tiles`, `r2_baked_documents`, …). */
     surface_kind?: string;
+    /** The registry's own status (`implemented`, `planned`, `waiting`, …). */
+    status?: string;
+    /** Why no scheduled job writes this lakehouse dataset: `on_event`, `not_started`, `needs_job` (root ADR-0234). */
+    unscheduled?: string;
     runtime_bindings?: { kind: string; value: string }[];
   }[];
   edges?: { id: string; from: string; to: string }[];

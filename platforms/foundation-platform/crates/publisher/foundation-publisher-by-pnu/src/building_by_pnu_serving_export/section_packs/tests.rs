@@ -243,6 +243,7 @@ impl Lane {
             expected_gold_snapshot: None,
             max_concurrency: 4,
             summary_path: self.work.join("unused.json"),
+            sample_candidates_per_million: None,
         };
         bake::bake(
             &config,
@@ -800,87 +801,55 @@ fn write_worker_golden(
     assert_golden("documents.json", &body)
 }
 
-/// A dong above `parts.part_target_bytes` is cut into parts by the PNU's hash (root ADR-0163):
-/// every part is read whole by the gateway, every PNU is in exactly the part its hash names, the
-/// publish writes the parts index and asks for a gateway that reads the parted block, and a patch
-/// over the generation writes only the part of what changed.
+/// A dong is one pack whatever its size (root ADR-0233): a base bake no longer cuts a dong into
+/// parts, so a dong past what the gateway once read whole is still one pack, named by no parts
+/// index, published as an unparted block, read by head and range for every PNU, and a patch over
+/// it writes that one pack.
 #[tokio::test]
-async fn a_large_dong_is_cut_into_parts_each_read_whole() -> anyhow::Result<()> {
-    const ROWS: u32 = 4_000;
+async fn a_large_dong_is_one_pack_read_by_head_and_range() -> anyhow::Result<()> {
+    const ROWS: u32 = 9_000;
     let rows = (0..ROWS)
         .map(|n| empty_row(&format!("{UNIT}1{n:04}0000")))
         .collect::<Vec<_>>();
-    let lane = Lane::serving_objects("parts", &rows).await?;
+    let lane = Lane::serving_objects("one-pack", &rows).await?;
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
     let policy = section_pack_policy()?;
-    let cut = base
-        .parts
-        .get(sections::DOCUMENTS)
-        .and_then(|dongs| dongs.get(UNIT))
-        .copied()
-        .context("the dong was not cut")?;
-    assert!(cut > 1, "{cut}");
-    let parts =
-        by_pnu_packs::Parts::new(std::collections::BTreeMap::from([(UNIT.to_owned(), cut)]))?;
-    assert_eq!(base.packs.len(), usize::try_from(cut)?);
-    for pack in &base.packs {
-        assert!(
-            parts.units_of_dong(UNIT)?.contains(&pack.unit),
-            "{}",
-            pack.unit
-        );
-        assert!(
-            pack.bytes <= policy.read_path.whole_pack_max_bytes,
-            "{}",
-            pack.bytes
-        );
-    }
-    assert_eq!(
-        base.packs.iter().map(|pack| pack.documents).sum::<u64>(),
-        u64::from(ROWS)
+    assert!(
+        base.parts.is_empty(),
+        "a base bake cut a dong: {:?}",
+        base.parts
     );
+    assert_eq!(
+        base.packs
+            .iter()
+            .map(|pack| pack.unit.as_str())
+            .collect::<Vec<_>>(),
+        vec![UNIT]
+    );
+    assert!(
+        base.packs[0].bytes > policy.read_path.whole_pack_max_bytes,
+        "the dong is too small to show it: {} bytes",
+        base.packs[0].bytes
+    );
+    assert_eq!(base.packs[0].documents, u64::from(ROWS));
 
-    // The publish needs a gateway that reads the parted block, and names the index it wrote.
-    let summaries = lane.summaries("parts", &[&base])?;
+    let summaries = lane.summaries("one-pack", &[&base])?;
     let equality = lane.equality(&summaries, u64::from(ROWS))?;
     let latency = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
-    let evidence = || Some((equality.clone(), latency.clone()));
-    assert!(
-        lane.publish_with(
-            Some(summaries.clone()),
+    let state = lane
+        .publish_with(
+            Some(summaries),
             SNAPSHOT,
             u64::from(ROWS),
-            evidence(),
-            None
+            Some((equality, latency)),
+            None,
         )
-        .await
-        .is_err(),
-        "a parted block went out to a gateway that reads only the unparted one"
-    );
-    serve_capabilities(
-        &lane.gateway,
-        &[
-            1,
-            2,
-            policy.manifest_section_packs_schema_version,
-            policy.manifest_section_packs_parted_schema_version,
-        ],
-    )
-    .await;
-    let state = lane
-        .publish_with(Some(summaries), SNAPSHOT, u64::from(ROWS), evidence(), None)
         .await?;
     assert_eq!(
         state.schema_version,
-        policy.manifest_section_packs_parted_schema_version
+        policy.manifest_section_packs_schema_version
     );
-    let named = state.sections[0]
-        .parts
-        .clone()
-        .context("the index is named")?;
-    assert_eq!(named.parted_units, 1);
-    let view = PackView::served(&lane.store, LANE, &state).await?;
-    assert_eq!(view.sections[0].parts, parts);
+    assert!(state.sections[0].parts.is_none());
     for n in [0_u32, 1, 1_234, ROWS - 1] {
         let pnu = format!("{UNIT}1{n:04}0000");
         assert!(
@@ -889,7 +858,6 @@ async fn a_large_dong_is_cut_into_parts_each_read_whole() -> anyhow::Result<()> 
         );
     }
 
-    // A patch over the generation writes the one part its change falls in.
     let gone = format!("{UNIT}100070000");
     let patch = lane
         .bake(&[], NEXT_SNAPSHOT, Some((1, &[], &[gone.as_str()])))
@@ -898,13 +866,9 @@ async fn a_large_dong_is_cut_into_parts_each_read_whole() -> anyhow::Result<()> 
         patch
             .packs
             .iter()
-            .map(|pack| pack.unit.clone())
+            .map(|pack| pack.unit.as_str())
             .collect::<Vec<_>>(),
-        vec![parts.unit_of(&gone)?]
-    );
-    assert!(
-        patch.parts.is_empty(),
-        "a patch follows the generation's parts"
+        vec![UNIT]
     );
     Ok(())
 }
@@ -977,6 +941,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
         expected_gold_snapshot: None,
         max_concurrency: 1,
         summary_path: lane.work.join("unused.json"),
+        sample_candidates_per_million: None,
     };
     let approvals = ApprovedBuildingLinks::default();
     let documents = rows
@@ -1024,11 +989,20 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
             })
             .collect::<anyhow::Result<Vec<_>>>()
     };
-    let checked = bake::check_round_trip(LANE, &laid_out(&documents)?, &[], &documents, &[], None)?;
+    let checked = bake::check_round_trip(
+        LANE,
+        &laid_out(&documents)?,
+        &[],
+        &documents,
+        &[],
+        None,
+        None,
+    )?;
     assert_eq!((checked.compared, checked.equal), (2, 2));
     checked.require_equal(UNIT)?;
     assert!(
-        bake::check_round_trip(LANE, &laid_out(&changed)?, &[], &documents, &[], None).is_err(),
+        bake::check_round_trip(LANE, &laid_out(&changed)?, &[], &documents, &[], None, None)
+            .is_err(),
         "packs of another document were accepted"
     );
     let base = lane.bake(&rows, SNAPSHOT, None).await?;
@@ -1133,9 +1107,65 @@ fn the_equality_gate_compares_the_member_bytes_not_the_parsed_document() -> anyh
         .iter()
         .map(as_pack)
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let checked = bake::check_round_trip(LANE, &[], &[served], &documents, &[], None)?;
+    let checked = bake::check_round_trip(LANE, &[], &[served], &documents, &[], None, None)?;
     assert_eq!((checked.compared, checked.equal), (2, 0));
     assert!(checked.require_equal(UNIT).is_err());
+    Ok(())
+}
+
+/// A lane too small to draw gate (나)'s sample at the contract's rate is baked at a rate that does
+/// (2026-10-14: land-rights, 422,592 PNUs, drew 877 and could never pass); a large lane keeps the
+/// contract's rate, and a lane smaller than the sample offers every PNU.
+#[test]
+fn every_lane_is_baked_at_a_candidate_rate_that_yields_the_sample() -> anyhow::Result<()> {
+    let gate_policy = &section_pack_policy()?.cutover_gate;
+    let sample = u64::try_from(gate_policy.latency_sample_size)?;
+    for documents in [1_u64, 5_000, sample, 422_592, 2_000_000, 39_861_511] {
+        let rate = gate::candidate_rate(documents)?;
+        assert!(
+            rate >= gate_policy.sample_candidates_per_million,
+            "{documents}: {rate}"
+        );
+        assert!(rate <= 1_000_000, "{documents}: {rate}");
+        // The expected draw reaches the sample, or takes every PNU of a smaller lane.
+        let expected = documents.saturating_mul(rate) / 1_000_000;
+        assert!(
+            expected >= sample.min(documents),
+            "{documents} PNUs at {rate} per million draw {expected}"
+        );
+    }
+    // At the rate the bake records, every document of a one-dong lane of 3,000 is a candidate
+    // (no pack is needed to see which documents the bake would record).
+    let rows = (0..3_000_u32)
+        .map(|n| empty_row(&format!("{UNIT}1{n:04}0000")))
+        .collect::<Vec<_>>();
+    let documents = rows
+        .iter()
+        .map(|row| {
+            let document = building_document::document_with_approvals(
+                &provenance(SNAPSHOT),
+                row,
+                &ApprovedBuildingLinks::default(),
+            )?;
+            as_pack(&document)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let all = bake::check_round_trip(
+        LANE,
+        &[],
+        &[],
+        &documents,
+        &[],
+        None,
+        Some(gate::candidate_rate(3_000)?),
+    )?;
+    assert_eq!(all.candidates.len(), documents.len());
+    let contract = bake::check_round_trip(LANE, &[], &[], &documents, &[], None, None)?;
+    assert!(
+        contract.candidates.len() < documents.len() / 10,
+        "{}",
+        contract.candidates.len()
+    );
     Ok(())
 }
 
@@ -1150,7 +1180,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     for n in 0..200_000_u64 {
         let pnu = format!("99999{:010}1{:08}", n % 9_999_999_999, n);
         assert_eq!(gate::sample_rank(&pnu)?, gate::sample_rank(&pnu)?);
-        candidates += u64::from(gate::is_sample_candidate(&pnu)?);
+        candidates += u64::from(gate::is_sample_candidate_at(&pnu, per_million)?);
     }
     let expected = 200_000 * per_million / 1_000_000;
     assert!(
@@ -1176,6 +1206,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
         baseline: None,
+        run: "r".to_owned(),
     };
     let (drawn, _) = gate::read::<gate::EqualityEvidence>(&equality)?;
     assert_eq!(latency::sample(&config(&equality, 1))?, drawn.sample);
@@ -1458,6 +1489,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
         baseline: None,
+        run: "r".to_owned(),
     };
     let live = route(5, body.clone()).await?;
     let close = route(15, joined.clone()).await?;

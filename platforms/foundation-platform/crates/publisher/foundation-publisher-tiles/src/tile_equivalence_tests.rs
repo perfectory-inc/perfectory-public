@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use super::super::pmtiles_feature_ids::tests::{archive, gzip};
+use super::super::{id_hash, ServedIds};
 use super::*;
 
 /// The bounding box of an MVT command stream, in tile units.
@@ -141,7 +142,14 @@ fn contract() -> SampleContract {
         tiny_max_area_tile_units: 64.0,
         additions_max_ratio: 0.001,
         region_id_prefix_chars: BTreeMap::from([("parcels".to_owned(), 7)]),
+        edition_change: BTreeMap::new(),
     }
+}
+
+/// The served ids of a new archive.
+fn served(ids: &[&str]) -> ServedIds {
+    ServedIds::from_hashes(ids.iter().map(|id| id_hash(id)).collect())
+        .unwrap_or_else(|repeated| panic!("synthetic ids repeat {repeated}"))
 }
 
 /// An active and a new archive that share z1 tile 1 and z2 tile 6 and differ only in z2 tile 5.
@@ -181,6 +189,7 @@ fn gate(active: Vec<u8>, new: Vec<u8>, collector: &SampleCollector) -> anyhow::R
         ("parcels", "pnu"),
         (1, 2),
         collector,
+        &served(&[]),
     )?;
     verdict(&outcome, "synthetic.json")
 }
@@ -205,6 +214,7 @@ fn compare() -> Compare<'static> {
         tiny_max_area_tile_units: 64.0,
         region_chars: Some(7),
         limit: 20,
+        edition: None,
     }
 }
 
@@ -737,5 +747,198 @@ fn the_area_inside_is_clipped_to_the_tile_and_holes_subtract() -> anyhow::Result
         &[(25, 25), (25, 75), (75, 75), (75, 25)],
     ]);
     assert!((area(holed)? - 7_500.0).abs() < 1e-9);
+    Ok(())
+}
+
+/// ADR-0251: an edition whose dongs are the first seven characters of a synthetic id.
+const EDITION: EditionChange = EditionChange {
+    dong_prefix_chars: 7,
+    left_max_ratio: 0.005,
+    additions_max_ratio: 0.005,
+    renumbered_max_ratio: 0.5,
+};
+
+#[test]
+fn an_id_the_new_edition_holds_nowhere_left_it_and_its_dong_decides_the_class() -> anyhow::Result<()>
+{
+    let active = decompressed(&mvt(&[
+        inside("9999911111"),
+        inside("9999922222"),
+        inside("9999933333"),
+    ]))?;
+    // The new edition holds 9999922222 elsewhere, and still holds dong 9999911 but not 9999933.
+    let served = served(&["9999911999", "9999922222"]);
+    let dongs = BTreeSet::from(["9999911".to_owned(), "9999922".to_owned()]);
+    let with_edition = Compare {
+        edition: Some(EditionCompare {
+            dong_prefix_chars: 7,
+            dongs: &dongs,
+            served: &served,
+        }),
+        ..compare()
+    };
+    let mut outcome = Equivalence::default();
+    let passed = compare_tile(
+        Some(&active),
+        Some(&decompressed(&mvt(&[]))?),
+        &with_edition,
+        5,
+        &mut no_active_maxzoom,
+        &mut outcome,
+    )?;
+    let edition = outcome.edition.clone().unwrap_or_default();
+    assert_eq!(edition.left.examples, ["9999911111@2/0/0"]);
+    assert_eq!(edition.left_renumbered.examples, ["9999933333@2/0/0"]);
+    assert_eq!(edition.left_renumbered.by_region.get("9999933"), Some(&1));
+    assert_eq!(
+        outcome.missing.examples,
+        ["9999922222@2/0/0"],
+        "an id the new edition still holds is missing from this tile, not gone"
+    );
+    assert!(!passed, "the missing id fails the tile");
+
+    // Without an edition the same tile is three missing ids, as before ADR-0251.
+    let mut outcome = Equivalence::default();
+    compare_tile(
+        Some(&active),
+        Some(&decompressed(&mvt(&[]))?),
+        &compare(),
+        5,
+        &mut no_active_maxzoom,
+        &mut outcome,
+    )?;
+    assert_eq!(outcome.missing.count, 3);
+    assert!(outcome.edition.is_none());
+    Ok(())
+}
+
+#[test]
+fn an_addition_where_the_active_tile_held_a_renumbered_dong_joined_it() -> anyhow::Result<()> {
+    let active = decompressed(&mvt(&[inside("9999911111")]))?;
+    let new = decompressed(&mvt(&[inside("9999911111"), inside("8888811111")]))?;
+    let served = served(&["9999911111", "8888811111"]);
+    let dongs = BTreeSet::from(["9999911".to_owned(), "8888811".to_owned()]);
+    let with_edition = Compare {
+        edition: Some(EditionCompare {
+            dong_prefix_chars: 7,
+            dongs: &dongs,
+            served: &served,
+        }),
+        ..compare()
+    };
+    let judge = |held: &str| -> anyhow::Result<Equivalence> {
+        let mut outcome = Equivalence::default();
+        assert!(compare_tile(
+            Some(&active),
+            Some(&new),
+            &with_edition,
+            5,
+            &mut |_| Ok(BTreeSet::from([held.to_owned()])),
+            &mut outcome,
+        )?);
+        Ok(outcome)
+    };
+    // The active maxzoom tile under it held dong 9999933, which the new edition no longer holds.
+    let renumbered = judge("9999933333")?;
+    assert_eq!(
+        renumbered
+            .edition
+            .map(|edition| edition.joined_renumbered.examples),
+        Some(vec!["8888811111@2/0/0".to_owned()])
+    );
+    assert_eq!(renumbered.extra_inside.addition.count, 0);
+    // It held only a dong the new edition still holds: an ordinary addition.
+    let addition = judge("9999911111")?;
+    assert_eq!(
+        addition.extra_inside.addition.examples,
+        ["8888811111@2/0/0"]
+    );
+    assert!(addition.edition.is_none());
+    Ok(())
+}
+
+#[test]
+fn edition_classes_are_allowed_up_to_their_bounds_and_refused_above() -> anyhow::Result<()> {
+    let judged = |left: u64, left_renumbered: u64, joined_renumbered: u64| {
+        let mut outcome = Equivalence {
+            active_ids: 1_000,
+            additions_max_ratio: EDITION.additions_max_ratio,
+            edition: Some(EditionTally {
+                bounds: EDITION,
+                ..EditionTally::default()
+            }),
+            ..Equivalence::default()
+        };
+        if let Some(edition) = outcome.edition.as_mut() {
+            edition.left.count = left;
+            edition.left_renumbered.count = left_renumbered;
+            edition.joined_renumbered.count = joined_renumbered;
+        }
+        outcome
+    };
+    assert!(judged(5, 500, 500).passed(), "each at its bound");
+    assert!(!judged(6, 0, 0).passed(), "0.6% left is above 0.5%");
+    assert!(!judged(0, 501, 0).passed());
+    assert!(!judged(0, 0, 501).passed());
+    let evidence = verdict(&judged(5, 500, 500), "synthetic.json")?;
+    assert_eq!(evidence["edition"]["left"]["count"], 5);
+    assert_eq!(evidence["edition"]["bounds"]["renumbered_max_ratio"], 0.5);
+    let refusal = verdict(&judged(6, 0, 0), "synthetic.json")
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        refusal.contains("\"left\":{\"count\":6,\"ids\":[],\"max_ratio\":0.005,\"ratio\":0.006}"),
+        "{refusal}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_collector_records_the_dongs_of_a_unit_baked_from_an_edition() -> anyhow::Result<()> {
+    let mut contract = contract();
+    contract.edition_change = BTreeMap::from([("parcels".to_owned(), EDITION)]);
+    let mut collector = SampleCollector::new(&contract, "parcels");
+    for id in ["9999911111", "9999911222", "8888822222"] {
+        collector.observe(tile_id(2, 0, 0), id)?;
+    }
+    let dongs = collector
+        .edition
+        .map(|(_, dongs)| dongs)
+        .unwrap_or_default();
+    assert_eq!(
+        dongs,
+        BTreeSet::from(["8888822".to_owned(), "9999911".to_owned()])
+    );
+    assert!(SampleCollector::new(&contract, "complex").edition.is_none());
+    Ok(())
+}
+
+#[test]
+fn the_real_contract_bakes_parcels_from_editions_and_refuses_a_bound_above_one(
+) -> anyhow::Result<()> {
+    let contract = SampleContract::parse(SAMPLE_CONTRACT_JSON)?;
+    let parcels = contract
+        .edition_change
+        .get("parcels")
+        .copied()
+        .unwrap_or_default();
+    assert_eq!(parcels.dong_prefix_chars, 10, "a PNU's 법정동 code");
+    let mut value: Value = serde_json::from_str(SAMPLE_CONTRACT_JSON)?;
+    for (field, bad) in [
+        ("left_max_ratio", serde_json::json!(1.5)),
+        ("renumbered_max_ratio", serde_json::json!(-0.1)),
+        ("dong_prefix_chars", serde_json::json!(0)),
+    ] {
+        let saved = value["edition_change"]["parcels"][field].clone();
+        value["edition_change"]["parcels"][field] = bad;
+        assert!(
+            SampleContract::parse(&value.to_string()).is_err(),
+            "{field}"
+        );
+        value["edition_change"]["parcels"][field] = saved;
+    }
+    value["edition_change"]["parcels"]["unknown"] = serde_json::json!(1);
+    assert!(SampleContract::parse(&value.to_string()).is_err());
     Ok(())
 }

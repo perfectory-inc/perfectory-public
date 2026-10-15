@@ -8,6 +8,11 @@ pub const LISTING_MARKER_TILE_LAYER: &str = "listing";
 /// Gongzzang listing marker delta vector-tile layer name.
 pub const LISTING_MARKER_DELTA_TILE_LAYER: &str = "listing_delta";
 
+/// Feature property that carries the marker id in every listing marker tile layer (base and delta).
+///
+/// GZ-ADR-0037 names it `id`; tombstones and filter masks list values of this property.
+pub const LISTING_MARKER_ID_PROPERTY: &str = "id";
+
 /// Marker tile response content type.
 pub const LISTING_MARKER_TILE_CONTENT_TYPE: &str = "application/vnd.mapbox-vector-tile";
 

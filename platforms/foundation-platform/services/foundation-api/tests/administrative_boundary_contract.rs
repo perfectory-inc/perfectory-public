@@ -75,7 +75,8 @@ fn administrative_boundary_migration_keeps_external_codes_temporal_and_lineaged(
     let grants =
         read_repo_text("platforms/foundation-platform/infra/compose/grant-foundation-runtime.sql");
     assert!(grants.contains("REVOKE INSERT, UPDATE, DELETE ON TABLE"));
-    assert!(grants.contains("GRANT EXECUTE ON FUNCTION catalog.publish_parcel_identifier"));
+    // ADR-0194 §7 dropped the function with catalog.parcel; a grant on it fails the grant script.
+    assert!(!grants.contains("publish_parcel_identifier"));
 }
 
 #[test]
@@ -126,24 +127,6 @@ fn administrative_boundary_docs_define_revisioned_merge_and_static_promotion() {
         assert!(
             spatial_publication.contains(anchor),
             "single-source spatial publication must still define {anchor:?}"
-        );
-    }
-}
-
-#[test]
-fn repository_reads_resolve_pnu_through_temporal_compatibility_views() {
-    let repository = read_repo_text(
-        "platforms/foundation-platform/crates/catalog/catalog-infrastructure/src/sqlx_repository.rs",
-    );
-
-    for phrase in [
-        "catalog.parcel_identifier_lookup",
-        "catalog.parcel_current_identifier",
-        "identifier_value",
-    ] {
-        assert!(
-            repository.contains(phrase),
-            "repository must resolve PNU through {phrase:?}"
         );
     }
 }

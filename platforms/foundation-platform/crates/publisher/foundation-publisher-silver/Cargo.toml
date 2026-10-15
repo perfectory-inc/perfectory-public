@@ -29,6 +29,7 @@ encoding_rs = { workspace = true }
 flate2 = { workspace = true }
 foundation-normalization-domain = { workspace = true }
 foundation-outbox = { workspace = true }
+foundation-publisher-core = { workspace = true }
 foundation-shapefile = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 lakehouse-application = { workspace = true }

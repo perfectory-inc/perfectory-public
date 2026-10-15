@@ -21,6 +21,7 @@ use std::borrow::Cow;
 
 use catalog_domain::MembershipAssertedBy;
 use foundation_disposable_database::{run_in_disposable_database, TestResult};
+use foundation_shared_kernel::ids::ComplexId;
 use sqlx::migrate::{Migration, Migrator};
 use sqlx::{Acquire, PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
@@ -72,37 +73,31 @@ impl Fixture {
     async fn insert(tx: &mut Transaction<'_, Postgres>) -> Result<Self, sqlx::Error> {
         let parcel_id = Uuid::new_v4();
         let other_parcel_id = Uuid::new_v4();
-        let complex_id = Uuid::new_v4();
-        let other_complex_id = Uuid::new_v4();
+        let complex_code = format!("IC-MEMBERSHIP-{}", Uuid::new_v4());
+        let other_complex_code = format!("IC-MEMBERSHIP-{}", Uuid::new_v4());
+        let complex_id = ComplexId::for_official_complex_code(&complex_code).as_uuid();
+        let other_complex_id = ComplexId::for_official_complex_code(&other_complex_code).as_uuid();
         let revision_id = Uuid::new_v4();
         let source_record_id = Uuid::new_v4();
         let source_snapshot_id = format!("iceberg:membership-{}", revision_id.simple());
 
-        for (id, label) in [
-            (complex_id, "Membership fixture"),
-            (other_complex_id, "Membership fixture neighbour"),
+        for (id, code, label) in [
+            (complex_id, &complex_code, "Membership fixture"),
+            (
+                other_complex_id,
+                &other_complex_code,
+                "Membership fixture neighbour",
+            ),
         ] {
             sqlx::query(
                 "INSERT INTO catalog.industrial_complex
-                 (id, official_complex_code, name, kind, primary_bjdong_code, area_m2, version)
-                 VALUES ($1, $2, $3, 'general', '9999900101', 1, 1)",
+                 (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+                  area_m2, version)
+                 VALUES ($1, $1, $2, $3, 'general', '9999900101', 1, 1)",
             )
             .bind(id)
-            .bind(format!("IC-MEMBERSHIP-{id}"))
+            .bind(code)
             .bind(label)
-            .execute(&mut **tx)
-            .await?;
-        }
-        for (id, pnu) in [
-            (parcel_id, "9999900101100010001"),
-            (other_parcel_id, "9999900101100010002"),
-        ] {
-            sqlx::query(
-                "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-                 VALUES ($1, $2, 'factory', 1, 1)",
-            )
-            .bind(id)
-            .bind(pnu)
             .execute(&mut **tx)
             .await?;
         }
@@ -477,10 +472,9 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 
 /// A parcel carries no industrial complex, and one outside every complex can exist.
 ///
-/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, which is the
-/// stronger statement — the old model is not refused, it is unwritable. Asserted against
-/// `information_schema` rather than by attempting a write, because a write would fail with the same
-/// error whether the column is absent or merely misspelled in the test.
+/// Step 2 froze `catalog.parcel.complex_id` against UPDATE; step 3 dropped it, and root ADR-0194
+/// dropped `catalog.parcel` itself. Asserted with `to_regclass` rather than by attempting a write,
+/// because a write would fail with the same error whether the table is absent or misspelled here.
 ///
 /// The second half is the point of the whole change: a parcel belonging to no complex is now a row
 /// the database accepts. While the column was NOT NULL it was not, and most of the country is that
@@ -490,30 +484,24 @@ async fn a_membership_snapshot_must_match_its_revision() -> TestResult {
 async fn a_parcel_carries_no_complex_and_may_belong_to_none() -> TestResult {
     let pool = pool().await?;
 
-    let column_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (
-             SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'catalog'
-                AND table_name = 'parcel'
-                AND column_name = 'complex_id'
-         )",
-    )
-    .fetch_one(&pool)
-    .await?;
-    assert!(
-        !column_exists,
-        "catalog.parcel.complex_id must be gone; membership is a fact between two entities"
-    );
+    // ADR-0194 §1 went further than dropping the column: the parcel, building and unit copies are
+    // gone, while the parcel facts that still have a home (identifiers, membership) stay.
+    for (table, expected) in [
+        ("catalog.parcel", false),
+        ("catalog.building", false),
+        ("catalog.building_unit", false),
+        ("catalog.parcel_identifier", true),
+        ("catalog.parcel_complex_membership", true),
+    ] {
+        let exists = sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(exists, expected, "{table}");
+    }
 
     let mut tx = pool.begin().await?;
     let unaffiliated_parcel = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
-         VALUES ($1, '9999900101100019999', 'other', 1, 1)",
-    )
-    .bind(unaffiliated_parcel)
-    .execute(&mut *tx)
-    .await?;
 
     let memberships = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM catalog.parcel_current_complex WHERE parcel_id = $1",
@@ -676,6 +664,235 @@ async fn a_pre_existing_parcel_is_backfilled_with_its_membership() -> TestResult
             "step 2 moved a read from the column to the view; they must answer alike"
         );
 
+        Ok(())
+    })
+    .await
+}
+
+/// Version of the root ADR-0194 migration that drops the catalog parcel, building and unit copies.
+const CATALOG_COPY_DROP_MIGRATION_VERSION: i64 = 20_261_014_021_000;
+
+/// The drop refuses a database whose copies still hold rows until the owner's approval is recorded,
+/// and drops them once it is.
+///
+/// The server applies migrations by itself when main moves (root ADR-0159), so merging the drop
+/// must not be what deletes production rows. Both halves are asserted: a gate observed only
+/// refusing would pass a migration that can never run, and one observed only passing would pass a
+/// gate that is not there.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_populated_catalog_copy_is_dropped_only_after_the_owner_approves() -> TestResult {
+    run_in_disposable_database("catalog_copy_drop_gate", |pool| async move {
+        migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO catalog.parcel (id, pnu, kind, area_m2, version)
+             VALUES ($1, '9999900101100010001', 'factory', 1, 1)",
+        )
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await?;
+
+        // Unlocked: sqlx returns on a failed migration without releasing its session advisory lock,
+        // which would leave the approved run below, on another session, waiting forever.
+        let mut gated = migrations_up_to(CATALOG_COPY_DROP_MIGRATION_VERSION);
+        gated.set_locking(false);
+        let refused = gated
+            .run(&pool)
+            .await
+            .expect_err("a populated copy must not be dropped without approval");
+        assert!(format!("{refused:#}").contains("ADR-0194"), "{refused:#}");
+        let still_there =
+            sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NOT NULL")
+                .fetch_one(&pool)
+                .await?;
+        assert!(still_there, "a refused drop must leave the table in place");
+
+        // The operator's step, exactly as the migration's hint spells it. A database setting
+        // reaches only sessions opened after it, so the approved run takes a fresh pool.
+        let database: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&pool)
+            .await?;
+        sqlx::query(&format!(
+            "ALTER DATABASE \"{database}\" SET foundation.adr_0194_drop_approved = 'yes'"
+        ))
+        .execute(&pool)
+        .await?;
+        let approved = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        gated.run(&approved).await?;
+        let gone = sqlx::query_scalar::<_, bool>("SELECT to_regclass('catalog.parcel') IS NULL")
+            .fetch_one(&approved)
+            .await?;
+        approved.close().await;
+        assert!(gone, "an approved drop must remove the table");
+        Ok(())
+    })
+    .await
+}
+
+/// Version of the root ADR-0250 migration that gives an industrial complex one id.
+///
+/// Its tests live here because this file already owns the crate's two-pass migrator; another migrator
+/// site would cost the build-coupling budget for no extra assertion.
+const ONE_ID_MIGRATION_VERSION: i64 = 20_261_015_090_000;
+
+async fn insert_v7_complex(
+    pool: &PgPool,
+    code: &str,
+    lakehouse_complex_id: Option<Uuid>,
+) -> TestResult<Uuid> {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO catalog.industrial_complex
+         (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, version)
+         VALUES ($1, $2, $3, 'One-id fixture', 'general', 1, 1)",
+    )
+    .bind(id)
+    .bind(lakehouse_complex_id)
+    .bind(code)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+async fn count(pool: &PgPool, relation: &str) -> TestResult<i64> {
+    Ok(
+        sqlx::query_scalar(&format!("SELECT count(*) FROM {relation}"))
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_production_shaped_catalog_is_rekeyed_onto_the_derived_id() -> TestResult {
+    run_in_disposable_database("complex_one_id", |pool| async move {
+        migrations_up_to(ONE_ID_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+
+        let sourced_code = "000000";
+        let sourced_id = ComplexId::for_official_complex_code(sourced_code).as_uuid();
+        let sourced_v7 = insert_v7_complex(&pool, sourced_code, Some(sourced_id)).await?;
+        let registered_code = "000001";
+        let registered_id = ComplexId::for_official_complex_code(registered_code).as_uuid();
+        let registered_v7 = insert_v7_complex(&pool, registered_code, None).await?;
+        sqlx::query(
+            "INSERT INTO catalog.complex_notice (id, complex_id, notice_type, title)
+             VALUES ($1, $2, 'notice', 'One-id fixture notice')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(registered_v7)
+        .execute(&pool)
+        .await?;
+        let complexes_before = count(&pool, "catalog.industrial_complex").await?;
+        let notices_before = count(&pool, "catalog.complex_notice").await?;
+
+        migrations_up_to(ONE_ID_MIGRATION_VERSION)
+            .run(&pool)
+            .await?;
+
+        assert_eq!(
+            count(&pool, "catalog.industrial_complex").await?,
+            complexes_before
+        );
+        assert_eq!(
+            count(&pool, "catalog.complex_notice").await?,
+            notices_before
+        );
+        let rows: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
+            "SELECT id, lakehouse_complex_id, official_complex_code
+             FROM catalog.industrial_complex ORDER BY official_complex_code",
+        )
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            rows,
+            vec![
+                (sourced_id, sourced_id, sourced_code.to_owned()),
+                (registered_id, registered_id, registered_code.to_owned()),
+            ]
+        );
+        // The SQL twin agrees with the Rust derivation and the vectors the Spark job pins.
+        assert_eq!(
+            sourced_id.to_string(),
+            "b796bcb0-f180-5220-8007-4cf27bf4c87b"
+        );
+        let notice_complex: Uuid =
+            sqlx::query_scalar("SELECT complex_id FROM catalog.complex_notice")
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(
+            notice_complex, registered_id,
+            "the notice follows its complex"
+        );
+        let mut ledger: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT retired_id, complex_id FROM catalog.industrial_complex_retired_id",
+        )
+        .fetch_all(&pool)
+        .await?;
+        ledger.sort();
+        let mut expected = vec![(sourced_v7, sourced_id), (registered_v7, registered_id)];
+        expected.sort();
+        assert_eq!(ledger, expected, "every retired id is kept");
+
+        // The ledger is append-only.
+        let rewrite = sqlx::query("DELETE FROM catalog.industrial_complex_retired_id")
+            .execute(&pool)
+            .await;
+        assert!(
+            rewrite.is_err(),
+            "the retired-id ledger must refuse a delete"
+        );
+
+        // A minted id is refused; the derived one, next to it, is accepted.
+        let minted = Uuid::now_v7();
+        let refused = sqlx::query(
+            "INSERT INTO catalog.industrial_complex
+             (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, version)
+             VALUES ($1, $1, '000002', 'Minted', 'general', 1, 1)",
+        )
+        .bind(minted)
+        .execute(&pool)
+        .await
+        .expect_err("a minted id must be refused");
+        assert!(
+            format!("{refused:#}").contains("industrial_complex_id_is_derived_from_official_code"),
+            "{refused:#}"
+        );
+        sqlx::query(
+            "INSERT INTO catalog.industrial_complex
+             (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, version)
+             VALUES ($1, $1, '000002', 'Derived', 'general', 1, 1)",
+        )
+        .bind(ComplexId::for_official_complex_code("000002").as_uuid())
+        .execute(&pool)
+        .await?;
+        Ok(())
+    })
+    .await
+}
+
+/// A stored lakehouse id that is not the derivation stops the migration: choosing either value
+/// would hide that a producer derived differently.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_lakehouse_id_that_is_not_the_derivation_stops_the_migration() -> TestResult {
+    run_in_disposable_database("complex_one_id_refusal", |pool| async move {
+        migrations_up_to(ONE_ID_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+        let other_code_id = ComplexId::for_official_complex_code("000001").as_uuid();
+        insert_v7_complex(&pool, "000000", Some(other_code_id)).await?;
+
+        let mut migrator = migrations_up_to(ONE_ID_MIGRATION_VERSION);
+        migrator.set_locking(false);
+        let refused = migrator
+            .run(&pool)
+            .await
+            .expect_err("a disagreeing lakehouse id must stop the migration");
+        assert!(format!("{refused:#}").contains("ADR-0250"), "{refused:#}");
         Ok(())
     })
     .await

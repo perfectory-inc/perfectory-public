@@ -4,6 +4,7 @@
   "previous_version": "019d2b87-3fd1-7e3a-8d88-0b72c8743000",
   "tiles_url_template": "http://127.0.0.1:3101/{object_key_prefix}/{z}/{x}/{y}",
   "published_at": "2026-07-21T00:00:00Z",
+  "source_snapshot_id": "tiles-slice-proof:local",
   "artifacts": {
     "parcels": {
       "source_layer": "parcels",

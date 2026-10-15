@@ -66,6 +66,16 @@ class PlanTable(unittest.TestCase):
         self.assertEqual(plan["add"], [])
         self.assertEqual(plan["backfill"], ["row_digest"])
 
+    def test_the_parcel_panel_lineage_column_reaches_the_production_table_without_a_backfill(self) -> None:
+        # gold.parcel_panel's columns in the production catalog on 2026-10-14, before lineage_json.
+        production = ("pnu", "kind", "area_m2", "zonings_json", "price_json", "characteristics_json",
+                      "forest_ledger_json", "transfer_history_json", "land_rights_json", "land_right_total",
+                      "attached_via_json", "row_digest", "source_snapshot_id", "published_at_utc")
+        from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
+
+        plan = migrate.plan_table(load_lakehouse_contract("gold.parcel_panel"), production, True, "gold.parcel_panel")
+        self.assertEqual((plan["add"], plan["backfill"]), (["lineage_json"], []))
+
     def test_a_wrong_type_is_blocked_even_when_column_names_match(self) -> None:
         with self.assertRaisesRegex(migrate.MigrationBlocked, "type"):
             migrate.plan_table(contract(("a", True)), ("a",), True, "gold.t", actual_types={"a": "int"})

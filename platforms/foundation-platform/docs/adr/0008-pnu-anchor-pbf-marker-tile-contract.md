@@ -213,3 +213,7 @@ JSON 마커 endpoint는 관리자 진단·계약 테스트·상세 조회에서�
 - [ADR 0006 - Lakehouse Table Format and Serving Architecture](./0006-lakehouse-table-format-and-serving-architecture.md)
 - [Gongzzang ADR 0018 - PNU-first identity](../../../../products/gongzzang/docs/adr/0018-pnu-first-identity-no-coordinates.md)
 - [Gongzzang ADR 0036 - Static vector tile runtime contract](../../../../products/gongzzang/docs/adr/0036-static-vector-tile-runtime-contract.md)
+
+## 개정 각주
+
+- 2026-10-14: 결정 절의 "두 anchor layer는 고정된 schema-v1 manifest에 남고"는 [root ADR-0225](../../../../docs/adr/0225-the-tile-manifest-has-one-version-and-v1-retires-in-four-steps.md)가 대체한다. 마커 앵커의 출시 경로는 v2 publication unit이다.

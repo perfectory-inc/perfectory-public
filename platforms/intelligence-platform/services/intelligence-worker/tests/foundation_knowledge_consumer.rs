@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use apache_avro::Schema;
 use async_trait::async_trait;
-use intelligence_contracts::{EventHeader, FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC};
+use intelligence_contracts::{EventHeader, FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC};
 use intelligence_worker::knowledge_consumer::{
     handle_foundation_knowledge_message, FoundationKnowledgeConsumerSchemas, KnowledgeConsumerStep,
 };
@@ -16,8 +16,7 @@ use messaging_infrastructure::{
     avro_codec::ConfluentAvroCodec,
     dead_letter_publisher::dead_letter_from_avro_value,
     foundation_knowledge_avro::{
-        foundation_knowledge_source_upserted_fixture_schema_str,
-        FoundationKnowledgeSourceUpsertedEvent,
+        FoundationKnowledgeSourceUpsertedEvent, FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_SCHEMA,
     },
     kafka::{
         EventOffsetCommitter, EventPayloadPublisher, KafkaCommitError, KafkaPublishError,
@@ -94,14 +93,14 @@ async fn invalid_payload_is_dead_lettered_before_committing_source_offset() {
     let record = dead_letter_from_avro_value(dead_letter_value).unwrap();
     assert_eq!(
         record.source_topic(),
-        FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC
+        FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC
     );
     assert_eq!(record.source_offset(), 41);
     assert_eq!(record.failure_class(), "invalid_payload");
 }
 
 #[tokio::test]
-async fn unexpected_fixture_schema_id_is_dead_lettered_before_commit() {
+async fn unexpected_schema_id_is_dead_lettered_before_commit() {
     let order = Arc::new(Mutex::new(Vec::new()));
     let projection = Arc::new(CapturingProjection::new(order.clone(), None));
     let publisher = CapturingPublisher::with_order(order.clone());
@@ -134,7 +133,7 @@ async fn unexpected_fixture_schema_id_is_dead_lettered_before_commit() {
     assert_eq!(record.failure_class(), "invalid_payload");
     assert_eq!(
         record.safe_error_message(),
-        "unexpected foundation knowledge fixture schema id"
+        "unexpected foundation knowledge schema id"
     );
 }
 
@@ -248,7 +247,7 @@ async fn invalid_payload_dead_letter_omits_untrusted_binary_key_and_bad_headers(
     let published = publisher.calls.lock().unwrap();
     assert_eq!(
         published[0].key,
-        format!("{FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC}:3:41")
+        format!("{FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC}:3:41")
     );
     let (_, dead_letter_value) =
         ConfluentAvroCodec::decode(&dead_letter_schema(), &published[0].payload).unwrap();
@@ -269,7 +268,7 @@ fn schemas() -> FoundationKnowledgeConsumerSchemas {
 }
 
 fn source_schema() -> Schema {
-    Schema::parse_str(foundation_knowledge_source_upserted_fixture_schema_str()).unwrap()
+    Schema::parse_str(FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_SCHEMA).unwrap()
 }
 
 fn dead_letter_schema() -> Schema {
@@ -298,7 +297,7 @@ fn upsert_event() -> FoundationKnowledgeSourceUpsertedEvent {
 
 fn message_with_payload(payload: Vec<u8>) -> KafkaSourceMessage {
     KafkaSourceMessage {
-        topic: FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_FIXTURE_TOPIC.to_string(),
+        topic: FOUNDATION_KNOWLEDGE_SOURCE_UPSERTED_TOPIC.to_string(),
         partition: 3,
         offset: 41,
         key: Some(b"tenant-1:product-1:source-1".to_vec()),

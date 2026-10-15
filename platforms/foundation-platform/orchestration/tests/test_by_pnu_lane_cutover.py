@@ -213,7 +213,14 @@ class LaneCutover(OperatorHarness):
         args, _, _ = self.unit(calls)
         self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
         self.log.unlink()
+        # The measured run of an input listed under unmeasured_inputs: the same unit, nothing committed.
+        result, calls = self.run_operator("gold", "rebuild", unit, "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-3:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit, "--dry-run"])
+        self.log.unlink()
         for args in (("gold", "rebuild"), ("gold", "rebuild", "all"), ("gold", "rebuild", unit, "x"),
+                     ("gold", "rebuild", unit, "--dry-run", "x"), ("gold", "rebuild", "--dry-run"),
                      ("gold", "rebuild", "../x"), ("gold", "bake", "1")):
             with self.subTest(args=args):
                 result, calls = self.run_operator(*args)

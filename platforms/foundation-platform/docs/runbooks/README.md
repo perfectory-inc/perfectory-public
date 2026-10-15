@@ -18,11 +18,15 @@ last_reviewed: 2026-07-29
 - [예약 작업 운영 (Airflow) — 설치·작업 옮기기·확인](./production-orchestrator-cutover.md)
 - [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
+- [산업단지 경계 새 판 — 예약 작업](./complex-boundary-release.md)
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
+- [필지 ID 원장 첫 등록 — 예약 작업](./parcel-registry.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
+- [데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인](./operations-map.md)
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
+- [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 
 전체 목록은 [문서 색인 생성 안내](../../../../docs/README.md)에서 확인한다.
