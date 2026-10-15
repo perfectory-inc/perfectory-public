@@ -22,6 +22,7 @@ members = [
     "crates/product-identity-infrastructure",
     "crates/foundation-platform-client",
     "crates/circuit-breaker",
+    "crates/gongzzang-r2-object-storage",
     "crates/parcel-lookup",
     "crates/gongzzang-persistence",
     "crates/gongzzang-outbox",
