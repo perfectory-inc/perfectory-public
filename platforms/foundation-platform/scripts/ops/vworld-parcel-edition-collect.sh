@@ -103,6 +103,8 @@ if [ "${held}" = held ]; then
       "$(date -u +%FT%TZ)" "$(printf '%s\n' "${reuploads}" | wc -l)" "${edition}" "$(printf '%s' "${reuploads}" | tr '\n' ',')" \
       "${run_id}" | tee -a "${journal}" >&2
   fi
+  # Silver did not move: a run that does not say so counts as changed and starts what reads it (ADR-0171).
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 
@@ -152,4 +154,8 @@ job_journal "${journal}" \
   "vworld-parcel-edition provider=${edition} new: collected ${files} files, proposed ${STATE_ROOT}/proposed/${edition}.json run=${run_id}"
 notify_slack "${message}"
 echo "new edition waiting for contract entry: edition ${edition}; add ${STATE_ROOT}/proposed/${edition}.json to vworld-parcel-source-objects.json (runbook vworld-parcel-editions.md)" >&2
+# Not a fault: the unit counts this status as success (SuccessExitStatus), so systemd's failure notice and
+# the scheduler's red run stay for real failures; the notice above is the one this run sends. Silver is
+# loaded later from a release that holds the edition, so nothing downstream starts from this run.
+printf 'foundation-job-outcome unchanged\n'
 exit "${AWAITING_CONTRACT}"
