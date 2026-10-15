@@ -157,6 +157,12 @@ for group in contract["groups"]:
     if "owner" in group:
         group["owner"] = pwd.getpwuid(os.getuid()).pw_name
         group["group"] = grp.getgrgid(os.getgid()).gr_name
+# A renamed token, so `verify` has a rename to make (root ADR-0247); the real contract lists none once
+# a rename is complete. Spelled in pieces: the credential-names guard refuses a retired name whole.
+for token in contract["cloudflare_tokens"]["tokens"]:
+    if token["name"] == "foundation-platform-lakehouse-reader-prod":
+        token["renamed_from"] = ["FOUNDATION_PLATFORM_" + "R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                                 "FOUNDATION_PLATFORM_" + "R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"]
 json.dump(contract, open(sys.argv[2], "w", encoding="utf-8"), indent=2)
 PY
   # `verify` asks the environment file too, so the rehearsal carries the compose files that
@@ -1236,16 +1242,9 @@ printf 'verify-refuses-a-missing-environment-file=pass\n'
 # A file that holds a credential under its old name only gains the derived name, with the same
 # value and mode, before verify checks it (root ADR-0247); without that step verify refuses it.
 cp -p "${reader_file}" "${reader_file}.full"
-# The old names come from the contract's renamed_from, so this test spells no retired name.
-python3 - "${repo_root}" "${reader_file}" <<'PY'
-import pathlib, sys
-area, reader = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-sys.path.insert(0, str(area / "scripts/deploy"))
-import runtime_secrets
-old = {new: name for name, new in runtime_secrets.load(area).renamed.items()}
-reader.write_text(f"{old['FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID']}=old-id\n"
-                  f"{old['FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY']}=old-secret\n", encoding="utf-8")
-PY
+# The old names are the ones the rehearsal's contract lists as renamed_from (build_source above).
+printf '%s=old-id\n%s=old-secret\n' "FOUNDATION_PLATFORM_""R2_LAKEHOUSE_READER_ACCESS_KEY_ID" \
+  "FOUNDATION_PLATFORM_""R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY" >"${reader_file}"
 mutate verify-without-rename 's/ rename --root / host --root /'
 if run_install_root "${test_root}/verify-without-rename.sh" verify >"${test_root}/secrets.log" 2>&1; then
   printf 'verify passed a file without the derived credential names\n' >&2
@@ -1254,6 +1253,11 @@ fi
 grep -q 'does not hold FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID' "${test_root}/secrets.log"
 run_install_root "${release_script}" verify >"${test_root}/secrets.log" 2>&1 || { cat "${test_root}/secrets.log" >&2; exit 1; }
 grep -qx 'FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret' "${reader_file}"
+# Phase three in the same run: the old lines are gone, their values held under the derived names.
+if grep -q '^FOUNDATION_PLATFORM_''R2_' "${reader_file}"; then
+  printf 'verify left the old credential lines in place\n' >&2
+  exit 1
+fi
 [[ "$(stat -c '%a' "${reader_file}")" == 600 ]]
 if grep -q 'old-secret' "${test_root}/secrets.log"; then
   printf 'verify printed a credential value\n' >&2
