@@ -32,8 +32,11 @@ The owner approved this ADR (2026-10-16) within four limits:
 
 ## Decision
 
-1. **Collector (web).** `web-vitals` 6.2.3 (Apache-2.0, no dependencies; pinned in
-   `docs/technology-stack.md` §1.1) reports LCP, INP, CLS and TTFB. The web also reports one custom
+1. **Collector (web).** Google's `web-vitals` (Apache-2.0) reports LCP, INP, CLS and TTFB. It is
+   used through `next/web-vitals` (`useReportWebVitals`), the copy Next.js compiles in. That copy is
+   pinned by the exact `next` version (`16.3.8`, in the version contract) and adds no package to
+   the dependency tree. A separate `web-vitals` package would be a second copy of the same
+   library. The web also reports one custom
    metric, `panel_data_ready`, per lane:
    - For each panel view (`parcel.summary`, `parcel.buildings`, `parcel.floors`,
      `parcel.listings`, `listing.summary`, `complex.summary`), it is the time from the panel's
@@ -82,7 +85,7 @@ The owner approved this ADR (2026-10-16) within four limits:
 
 - Each speed change (#575, #576 and later ones) can be judged by the Korea p75 of
   `panel_data_ready` per lane, before and after.
-- One new npm dependency (`web-vitals`), and one route plus one Analytics Engine binding on an
-  existing Worker. Server autodeploy ships the binding with the Worker.
+- No new npm dependency, and one route plus one Analytics Engine binding on an existing
+  Worker. Server autodeploy ships the binding with the Worker.
 - Before launch, the visitors are the team. The numbers describe the edge and the code, not
   customers, until there is traffic.
