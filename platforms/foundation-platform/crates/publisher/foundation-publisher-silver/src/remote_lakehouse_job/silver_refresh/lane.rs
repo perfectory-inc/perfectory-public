@@ -272,7 +272,12 @@ struct Block {
 #[serde(deny_unknown_fields)]
 struct CompletenessBlock {
     load_granularity: String,
-    count: usize,
+    /// A national lane's one object. A 시도 lane states none: its 시도 are the code list's.
+    #[serde(default)]
+    count: Option<usize>,
+    /// A 시도 lane: the table its 시도 come from, which must be the code list.
+    #[serde(default)]
+    regions_from: Option<String>,
 }
 
 /// A lane's contract after the checks that keep a wrong value from reaching a run.
@@ -372,12 +377,20 @@ impl LaneContract {
             let completeness = block
                 .completeness
                 .context("a land lane states its completeness")?;
-            let completeness = match (completeness.load_granularity.as_str(), completeness.count) {
-                ("sido", count) if count > 0 => Completeness::Sido { count },
-                ("national", 1) => Completeness::National,
-                (granularity, count) => {
-                    bail!("completeness {granularity} {count} is not sido N or national 1")
-                }
+            // The 시도 are the code list's on the vintage's day, never a number written here: a
+            // hand-written 17 refused every release after the 2026-07-01 merger.
+            let code_list = lakehouse_domain::REFERENCE_LEGAL_DONG_CODE_SNAPSHOT.table_name;
+            let completeness = match (
+                completeness.load_granularity.as_str(),
+                completeness.count,
+                completeness.regions_from.as_deref(),
+            ) {
+                ("sido", None, Some(from)) if from == code_list => Completeness::Sido,
+                ("national", Some(1), None) => Completeness::National,
+                (granularity, count, from) => bail!(
+                    "completeness {granularity} count={count:?} regions_from={from:?} is neither \
+                     sido from {code_list} (no count) nor national 1"
+                ),
             };
             // The label the hand loads wrote (`vworldkr-land-use-plan:<vintage>`), so a release
             // they loaded is the same release here.
