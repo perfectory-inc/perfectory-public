@@ -12,7 +12,7 @@
 #
 # 모든 Spark 단계는 이 작업의 spark 풀 자리(3)에서 돈다 — 매시 접기(2 자리)와 겹치지 않는다.
 # 마지막 줄은 `foundation-job-outcome changed|unchanged` 다(root ADR-0171).
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"

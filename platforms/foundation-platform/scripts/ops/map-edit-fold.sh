@@ -9,7 +9,7 @@
 # 감시: 오버레이가 응답하지 않거나, 접히지 않은 편집이 너무 오래 남았거나, 어느 단계든
 # 실패하면 슬랙 #alerts 가 안다. 아무 일도 없던 시간에도 journal 에 한 줄을 남긴다 —
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).

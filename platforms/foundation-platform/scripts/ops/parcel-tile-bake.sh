@@ -43,7 +43,7 @@
 # GDAL and tippecanoe containers carry that project's one-off labels (CONTAINER_PROJECT): a timeout
 # kills the publisher, not the tool it started. The unit's ExecStopPost (`cleanup`) removes every
 # one-off container of the project (root ADR-0128).
-set -euo pipefail
+set -Eeuo pipefail
 
 MODE="${1:-}"
 case "${MODE}" in
