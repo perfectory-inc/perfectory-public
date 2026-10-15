@@ -1,6 +1,6 @@
 # ADR 0100: 건물·층·호는 독립된 by-PNU R2 객체로 서빙한다
 
-- Status: Accepted
+- Status: Superseded by ADR-0147 (건물마다 객체 하나 대신 구역 묶음; R2 에 미리 굽는 방향은 그대로다)
 - Date: 2026-09-10
 
 ## Context

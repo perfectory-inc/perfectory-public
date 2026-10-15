@@ -1,6 +1,6 @@
 # ADR 0074: 호는 자기 건물에 매달리고, NULL 도 답이다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (`catalog.building_unit.building_id` 와 그 백필을 지웠다)
 - Date: 2026-09-03
 
 ## Context
