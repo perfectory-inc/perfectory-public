@@ -157,7 +157,7 @@ SELECT
     mirror.properties,
     '019d2b87-3fd1-7e3a-8d88-0b72c8743604'
 FROM serving_postgis.parcel_boundary_mirror AS mirror
-WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
+WHERE mirror.complex_id = catalog.industrial_complex_id_for('IC-SYNTHETIC-001')
 -- `DO NOTHING`, not the `DO UPDATE` this used to carry. A load names one materialisation, so
 -- re-running the seed re-asserts the same load rather than replacing its geometry underneath a
 -- release that already points at it. Changed source geometry needs a new load id, which is the whole
@@ -200,7 +200,7 @@ BEGIN
     SELECT count(*), md5(coalesce(string_agg(mirror.pnu || mirror.geometry_checksum_sha256, ',' ORDER BY mirror.pnu), ''))
       INTO mirror_rows, mirror_digest
       FROM serving_postgis.parcel_boundary_mirror AS mirror
-     WHERE mirror.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+     WHERE mirror.complex_id = catalog.industrial_complex_id_for('IC-SYNTHETIC-001');
     IF stored_digest <> mirror_digest THEN
         RAISE EXCEPTION
             'projection load 019d2b87-3fd1-7e3a-8d88-0b72c8743604 holds % row(s) that no longer match the mirror''s % row(s); mint a new load id in this seed, and a new release to name it',

@@ -6,7 +6,7 @@ use catalog_application::ports::{CatalogRepository, CatalogUnitOfWork};
 use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::Utc;
-use foundation_shared_kernel::ids::{ComplexId, ParcelId};
+use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -159,7 +159,8 @@ struct SsotFixture {
 impl SsotFixture {
     fn new() -> Self {
         let now = Utc::now();
-        let complex_id = ComplexId::new(Uuid::now_v7());
+        let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
+        let complex_id = ComplexId::for_official_complex_code(&official_complex_code);
         let suffix = Uuid::new_v4()
             .simple()
             .to_string()
@@ -172,12 +173,12 @@ impl SsotFixture {
         Self {
             complex: IndustrialComplex {
                 id: complex_id,
-                official_complex_code: format!("IC-{}", Uuid::new_v4().simple()),
+                official_complex_code,
                 name: "SSOT read fixture".to_owned(),
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some(primary_bjdong_code),
                 area_m2: 100_000,
-                lakehouse_complex_id: None,
+                lakehouse_complex_id: Some(LakehouseComplexId::new(complex_id.as_uuid())),
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
