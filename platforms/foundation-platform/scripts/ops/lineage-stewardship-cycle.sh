@@ -74,6 +74,12 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# The parcel editions the Bronze ledger holds (root ADR-0224), for legal-dong-code-load.sh.
+parcel_editions() {
+  VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
+    "${PUBLISHER_BIN}" vworld-parcel-editions 2>> "${run_log}"
+}
+
 json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2)" "$1"; }
 
 # 0a. 법정동 코드 변경 (root ADR-0143). 계보가 그 소비자이므로 계보 앞에서, 이 단위의 spark 자리로 적재하고

@@ -57,8 +57,7 @@ legal_dong_pair() {
   fi
   # 판을 감싸는 날짜는 장부의 판에서 읽는다(root ADR-0224): 원천 계약은 규칙만 갖는다.
   mkdir -p "${out}"
-  VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
-    "${PUBLISHER_BIN}" vworld-parcel-editions > "${out}/parcel-editions.json" 2>> "${run_log}"
+  parcel_editions > "${out}/parcel-editions.json"
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
     --table-source-record-id "${table_key}" --jibun-evidence editions --parcel-editions "${cout}/parcel-editions.json" ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
