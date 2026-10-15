@@ -11,7 +11,7 @@ last_reviewed: 2026-10-13
 (지도가 작업마다 다섯 신호를 계산)와 [ADR-0208](../../../../docs/adr/0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md)
 (그 문제를 기존 Alertmanager 로 Slack 에 보냄)의 운영 절차다. 값은 여기에 적지 않는다. 이름과 경로만 적는다.
 작업이 성공했는지는 그 실행의 마지막 `foundation-job-outcome` 줄로 정한다 — 줄이 없으면 실패다
-([ADR-0259](../../../../docs/adr/0259-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md), 제안).
+([ADR-0260](../../../../docs/adr/0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md), 제안).
 
 ## 1. 서버에 만들 파일 하나 — `/etc/foundation-platform/operations-map.env`
 
