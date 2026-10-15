@@ -1136,3 +1136,88 @@ pub struct MapEditResponse {
     /// Whether this answers an earlier request with the same idempotency key.
     pub replayed: bool,
 }
+
+/// The v2 runtime manifest as the API serves it and the publisher writes it to R2 (root ADR-0254):
+/// one conversion, so the two copies cannot differ.
+impl From<catalog_domain::VectorTileRuntimeManifest> for VectorTileRuntimeManifestResponse {
+    fn from(manifest: catalog_domain::VectorTileRuntimeManifest) -> Self {
+        let publication_units = manifest
+            .publication_units
+            .into_iter()
+            .map(|(unit_key, unit)| {
+                let source = match unit.source {
+                    catalog_domain::ActiveTileSource::DynamicPostgis(source) => {
+                        VectorTileRuntimeSourceResponse::DynamicPostgis(
+                            VectorTileDynamicPostgisResponse {
+                                martin_source_id: source.martin_source_id,
+                                tiles_url_template: source.tiles_url_template.as_str().to_owned(),
+                                cache_policy: source.cache_policy,
+                            },
+                        )
+                    }
+                    catalog_domain::ActiveTileSource::StaticPmtiles(source) => {
+                        VectorTileRuntimeSourceResponse::StaticPmtiles(
+                            VectorTileStaticPmtilesResponse {
+                                martin_source_id: source.martin_source_id,
+                                tiles_url_template: source.tiles_url_template.as_str().to_owned(),
+                                pmtiles_object_key: source.pmtiles_object_key,
+                                pmtiles_file_asset_id: source.pmtiles_file_asset_id.as_uuid(),
+                                pmtiles_sha256: source.pmtiles_sha256,
+                                pmtiles_bytes: source.pmtiles_bytes,
+                            },
+                        )
+                    }
+                };
+                let layers = unit
+                    .layers
+                    .into_iter()
+                    .map(|(layer_id, layer)| {
+                        (
+                            layer_id,
+                            VectorTileRuntimeLayerResponse {
+                                source_layer: layer.source_layer,
+                                feature_id_property: layer.feature_id_property.as_str().to_owned(),
+                                tile_min_zoom: layer.tile_min_zoom,
+                                tile_max_zoom: layer.tile_max_zoom,
+                                render_min_zoom: layer.render_min_zoom,
+                                render_max_zoom: layer.render_max_zoom,
+                                feature_filter_properties: layer.feature_filter_properties,
+                            },
+                        )
+                    })
+                    .collect();
+                (
+                    unit_key,
+                    VectorTilePublicationUnitResponse {
+                        data_revision: unit.data_revision.as_uuid(),
+                        serving_generation: unit.serving_generation.value(),
+                        active_release_id: unit.active_release_id.as_uuid(),
+                        canonical_iceberg_snapshot_id: unit
+                            .canonical_iceberg_snapshot_id
+                            .as_str()
+                            .to_owned(),
+                        source,
+                        layers,
+                        lineage: VectorTileRuntimeLineageResponse {
+                            source_record_id: unit.lineage.source_record_id.as_uuid(),
+                            source_file_asset_ids: unit
+                                .lineage
+                                .source_file_asset_ids
+                                .into_iter()
+                                .map(|id| id.as_uuid())
+                                .collect(),
+                        },
+                    },
+                )
+            })
+            .collect();
+        Self {
+            schema_version: 2,
+            current_version: manifest.current_version.as_uuid(),
+            manifest_generation: manifest.manifest_generation.value(),
+            refresh_after_seconds: manifest.refresh_after_seconds,
+            published_at: manifest.published_at,
+            publication_units,
+        }
+    }
+}
