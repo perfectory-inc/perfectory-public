@@ -37,8 +37,8 @@
 2. **호 문서는 PNU 의 건물 하나다(ADR-0204 과 같은 키).** `building_id` 는 표제부 카탈로그 id, 건물에 연결되지 않은 호는
    nil UUID 문서 하나로 모인다. Gold `gold.building_units` 의 grain 은 처음부터 `(pnu, building_id)` 이다 — PNU grain 으로
    운영에 한 번이라도 만들면 나중의 grain 변경은 배포 이주가 거부한다. 그래서 호 종류의 계약 줄은 키 접미
-   (`document_key_suffix`, ADR-0204 구현)가 main 에 들어온 뒤에 들어간다. 호와 호 가격은 같은 `(pnu, building_id)` 에서
-   만나므로 웹은 건물의 호 목록을 펼칠 때 두 문서를 병렬로 읽는다.
+   (`document_key_suffix`, ADR-0204 구현)가 main 에 들어온 뒤에 들어간다. 호와 호 가격은 같은 `(pnu, building_id)` 키로
+   만난다. 무엇을 언제 읽어 어떻게 그릴지는 웹의 결정이다(ADR-0193 §5).
 3. **건물 연결 근거는 Gold 에 남고 공개 문서에는 없다. 대조는 굽기가 한다.** 일반 렌더러는 건물 호스트의 호 종류에서
    묶음 경로와 같은 함수(`ApprovedBuildingLinks::validate`)로 각 호의 근거를 활성 승인 원장과 대조하고, 근거 칸을 빼고
    쓴다. 대조가 실패하면 묶음 경로와 같이 굽기를 거부한다(연결을 고치는 일은 Gold 의 몫이다). 두 번째 검증기는 만들지
