@@ -253,13 +253,38 @@ class TheHost(unittest.TestCase):
                                            for name in derived])
         changed = runtime_secrets.rename(self.area, self.root)
         self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} -> {derived[0]}",
-                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} -> {derived[1]}"])
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} -> {derived[1]}",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} removed",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} removed"])
         self.assertNotIn("planted", "\n".join(changed))
         lines = self.reader.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(lines[-2:], [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
+        self.assertEqual(lines, [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
         self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.findings(), [])
         self.assertEqual(runtime_secrets.rename(self.area, self.root), [], "a second run changes nothing")
+
+    def test_an_old_line_goes_when_its_value_is_under_another_held_name(self):
+        """The map's file held the reader token under the writer's old name (root ADR-0247 phase three)."""
+        operations_map = self.root / "etc/foundation-platform/operations-map.env"
+        old_catalog = OLD["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"]
+        operations_map.write_text(f"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=planted-uri\n{old_catalog}=planted-reader\n"
+                                  "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n", encoding="utf-8")
+        operations_map.chmod(0o640)
+        self.assertEqual(runtime_secrets.rename(self.area, self.root),
+                         [f"/etc/foundation-platform/operations-map.env: {old_catalog} removed"])
+        self.assertEqual(operations_map.read_text(encoding="utf-8"),
+                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=planted-uri\n"
+                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n")
+
+    def test_an_old_line_whose_value_is_nowhere_else_is_kept_and_named(self):
+        held = "".join(f"{name}=planted-secret-value\n" for name in sorted(self.contract.groups["lakehouse-reader"].holds))
+        self.reader.write_text(held + f"{OLD[READER]}=planted-different\n", encoding="utf-8")
+        before = self.reader.read_text(encoding="utf-8")
+        changed = runtime_secrets.rename(self.area, self.root)
+        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} kept, "
+                                   "its value is under no name the group holds"])
+        self.assertNotIn("planted", "\n".join(changed))
+        self.assertEqual(self.reader.read_text(encoding="utf-8"), before)
 
     def test_rename_leaves_a_file_that_already_holds_the_derived_name(self):
         before = self.reader.read_text(encoding="utf-8")

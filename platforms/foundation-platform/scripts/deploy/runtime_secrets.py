@@ -445,10 +445,23 @@ def _account(uid: int, kind: str) -> str:
         return str(uid)
 
 
+def _line_name(line: str) -> str | None:
+    match = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=", line)
+    return match.group(1) if match else None
+
+
+def _values_in(text: str) -> dict[str, str]:
+    """Each name's value as an environment file loader keeps it: the last line wins."""
+    return {match.group(1): match.group(2)
+            for match in re.finditer(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$", text, re.MULTILINE)}
+
+
 def rename(area: Path = AREA, root: Path = Path("/")) -> list[str]:
     """Gives each group file the new name of every `renamed` variable it holds under the old name
     only (root ADR-0247): `NEW=<the old line's value>` is appended to a copy with the file's owner
-    and mode, which then replaces it, so a reader never sees half a file. Names only."""
+    and mode, which then replaces it, so a reader never sees half a file. Then removes an old name's
+    lines once the same value is in the file under a name the group holds; an old line whose value
+    is nowhere else is kept and reported. Names only."""
 
     contract = load(area)
     changed = []
@@ -466,6 +479,15 @@ def rename(area: Path = AREA, root: Path = Path("/")) -> list[str]:
             value = re.findall(rf"^\s*(?:export\s+)?{old}=(.*)$", text, re.MULTILINE)[-1]
             text += ("" if text.endswith("\n") or not text else "\n") + f"{new}={value}\n"
             added.append(f"{old} -> {new}")
+        # Phase three: an old line goes once its value is in the file under a name the group holds,
+        # so nothing is lost; one whose value is nowhere else is kept and named.
+        held = {name: value for name, value in _values_in(text).items() if name in group.holds}
+        for old in sorted(set(contract.renamed) & set(_values_in(text)) - group.holds):
+            if _values_in(text)[old] in held.values():
+                text = "".join(line for line in text.splitlines(keepends=True) if _line_name(line) != old)
+                added.append(f"{old} removed")
+            else:
+                changed.append(f"{group.path}: {old} kept, its value is under no name the group holds")
         if not added:
             continue
         info = path.stat()
