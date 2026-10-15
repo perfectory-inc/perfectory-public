@@ -381,12 +381,18 @@ fn row_group_excludes(column: &parquet::file::metadata::ColumnChunkMetaData, pre
     )
 }
 
+/// Refuses a data file the table contract cannot read: a column the contract does not name, or a
+/// required column the file lacks. A column the contract added after the file was written (Iceberg
+/// schema evolution: `ALTER TABLE ... ADD COLUMNS`, `evolve_iceberg_table_to_contract`) is absent from
+/// the older files and reads as null there, as Iceberg itself reads it. On 2026-10-15 refusing it
+/// stopped every VWorld land Silver refresh: `reference.legal_dong_code_snapshot` gained six columns
+/// and its files written before kept the first six.
 fn assert_batch_matches_contract(
     contract: &LakehouseTableContract,
     batch: &RecordBatch,
 ) -> anyhow::Result<()> {
-    let mut actual = batch
-        .schema()
+    let schema = batch.schema();
+    let mut actual = schema
         .fields()
         .iter()
         .map(|field| field.name().clone())
@@ -398,9 +404,19 @@ fn assert_batch_matches_contract(
         .map(|column| column.name.to_owned())
         .collect::<Vec<_>>();
     expected.sort();
+    let unknown = actual
+        .iter()
+        .filter(|name| !expected.contains(name))
+        .collect::<Vec<_>>();
+    let missing_required = contract
+        .columns
+        .iter()
+        .filter(|column| column.required && schema.field_with_name(column.name).is_err())
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
     ensure!(
-        actual == expected,
-        "{} data file columns {actual:?} do not match the table contract {expected:?}",
+        unknown.is_empty() && missing_required.is_empty(),
+        "{} data file columns {actual:?} do not match the table contract {expected:?}: unknown {unknown:?}, required but absent {missing_required:?}",
         contract.table_name
     );
     Ok(())
@@ -413,10 +429,12 @@ fn decode_row(
 ) -> anyhow::Result<JsonMap<String, JsonValue>> {
     let mut row = JsonMap::new();
     for column in contract.columns {
-        let array = batch
-            .column_by_name(column.name)
-            .with_context(|| format!("data file is missing column {}", column.name))?;
-        let value = decode_value(column.logical_type, column.name, array.as_ref(), index)?;
+        // A column added to the table after this file was written reads as null (see
+        // `assert_batch_matches_contract`, which already refused a required one).
+        let value = match batch.column_by_name(column.name) {
+            Some(array) => decode_value(column.logical_type, column.name, array.as_ref(), index)?,
+            None => JsonValue::Null,
+        };
         ensure!(
             !(column.required && value.is_null()),
             "{} column {} is required by the table contract but the data file row is null",
