@@ -48,7 +48,8 @@ export function PanelEntryView({
   // navigation 시 이전 fetch 자동 cancel (stale data + network 낭비 차단).
   const query = useQuery({
     queryKey: ["panel", entry.kind, entry.view, entry.id],
-    queryFn: async ({ signal }) => {
+    queryFn: async ({ signal, client }) => {
+      viewDef?.prefetch?.(entry.id, client);
       // biome-ignore lint/style/noNonNullAssertion: enabled gate guarantees viewDef defined
       return viewDef!.fetcher(entry.id, signal);
     },
