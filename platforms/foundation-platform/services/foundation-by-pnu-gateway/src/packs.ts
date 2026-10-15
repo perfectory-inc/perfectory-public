@@ -773,16 +773,16 @@ export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string
 export function warmPackPath(pnu: string): boolean {
   const encoder = new TextEncoder();
   const next = `${pnu.slice(0, -1)}1`;
-  const header = encoder.encode(JSON.stringify({ compression: "gzip", entry_count: 2, body_length: 2 }));
-  const bytes = new Uint8Array(PREFIX_BYTES + header.length + 2 * INDEX_ENTRY_BYTES + 2);
+  const header = encoder.encode(JSON.stringify({ format_version: packPolicy.format_version, compression: "gzip", entry_count: 2, body_length: 2 }));
+  const bytes = new Uint8Array(PREFIX_BYTES + header.length + 2 * (PNU_BYTES + ENTRY_TAIL_BYTES) + 2);
   const view = new DataView(bytes.buffer);
   bytes.set(magic, 0);
   view.setUint16(8, packPolicy.format_version, true);
   view.setUint32(12, header.length, true);
-  view.setUint32(16, 2 * INDEX_ENTRY_BYTES, true);
+  view.setUint32(16, 2 * (PNU_BYTES + ENTRY_TAIL_BYTES), true);
   bytes.set(header, PREFIX_BYTES);
   for (const [i, key] of [pnu, next].entries()) {
-    const at = PREFIX_BYTES + header.length + i * INDEX_ENTRY_BYTES;
+    const at = PREFIX_BYTES + header.length + i * (PNU_BYTES + ENTRY_TAIL_BYTES);
     bytes.set(encoder.encode(key), at);
     view.setUint32(at + PNU_BYTES, i, true);
     view.setUint32(at + PNU_BYTES + 4, 1, true);
