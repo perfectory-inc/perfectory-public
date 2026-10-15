@@ -1,6 +1,6 @@
 // apps/web/components/panels/parcel/buildings.tsx
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import type { BuildingUnit } from "@/lib/api/building-units";
@@ -8,7 +8,7 @@ import type { BuildingsResponse } from "@/lib/api/buildings";
 import { unitFloorText } from "@/lib/api/unit-floor";
 import type { UnitPrices } from "@/lib/api/unit-price-edge";
 import type { PanelStackEntry } from "@/lib/panel/types";
-import { unitPricesQuery } from "./unit-prices";
+import { NO_BUILDING, unitPricesQuery } from "./unit-prices";
 
 export function ParcelBuildingsCard({
   entry,
@@ -19,14 +19,19 @@ export function ParcelBuildingsCard({
 }) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
-  // The units' prices are the parcel's own document (root ADR-0190), joined to the units by id.
-  // The buildings view started the request with its own (register.ts), so this reads it.
-  const hasUnits = data.buildings.some((b) => b.units.length > 0) || data.unlinked_units.length > 0;
-  const prices = useQuery({ ...unitPricesQuery(entry.id), enabled: hasUnits });
-  const priceState: PriceState = {
-    prices: prices.data,
-    loading: prices.isFetching && prices.data === undefined,
-    failed: prices.isError,
+  // Each building's unit prices are its own document (root ADR-0190, ADR-0204), joined to the
+  // units by id: one request per building with units (and one for the units no building holds),
+  // all at once.
+  const priced = data.buildings.filter((b) => b.units.length > 0).map((b) => b.id);
+  const keys = data.unlinked_units.length > 0 ? [...priced, NO_BUILDING] : priced;
+  const prices = useQueries({ queries: keys.map((id) => unitPricesQuery(entry.id, id)) });
+  const priceState = (buildingId: string): PriceState => {
+    const query = prices[keys.indexOf(buildingId)];
+    return {
+      prices: query?.data,
+      loading: query?.isFetching === true && query.data === undefined,
+      failed: query?.isError ?? false,
+    };
   };
 
   if (data.buildings.length === 0 && data.unlinked_units.length === 0) {
@@ -63,7 +68,7 @@ export function ParcelBuildingsCard({
                   <span className="group-open:hidden">{t("units.show")}</span>
                   <span className="hidden group-open:inline">{t("units.hide")}</span>
                 </summary>
-                <UnitList units={b.units} price={priceState} />
+                <UnitList units={b.units} price={priceState(b.id)} />
               </details>
             </li>
           );
@@ -74,7 +79,7 @@ export function ParcelBuildingsCard({
           <h3 className="font-semibold">
             {floorText("buildingFallback")} · {t("unknown")}
           </h3>
-          <UnitList units={data.unlinked_units} price={priceState} />
+          <UnitList units={data.unlinked_units} price={priceState(NO_BUILDING)} />
         </section>
       )}
       {/* PNU 의 entry.id 는 i18n 라벨 표시 외 미사용 — 본 view 는 list-only */}
