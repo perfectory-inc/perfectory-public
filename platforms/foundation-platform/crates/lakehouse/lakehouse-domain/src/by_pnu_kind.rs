@@ -103,8 +103,7 @@ fn table(
     }
     let mut columns = vec![column("pnu", "string", true)];
     let mut sort_order = vec!["pnu"];
-    let mut one_row_per = "one row per pnu";
-    if let Some(suffix) = suffix {
+    let one_row_per = if let Some(suffix) = suffix {
         if suffix.ends_with("_json")
             || content
                 .iter()
@@ -117,8 +116,10 @@ fn table(
         let suffix = leak(suffix.to_owned());
         columns.push(column(suffix, "string", true));
         sort_order.push(suffix);
-        one_row_per = leak(format!("one row per (pnu, {suffix})"));
-    }
+        leak(format!("one row per (pnu, {suffix})"))
+    } else {
+        "one row per pnu"
+    };
     for (index, spec) in content.iter().enumerate() {
         let (name, logical_type) = match spec.split_once(':') {
             None if spec.ends_with("_json") => (spec.as_str(), "string"),
