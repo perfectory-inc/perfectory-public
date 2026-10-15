@@ -2,7 +2,7 @@
 """The configuration edits behind host-docker-data-root.sh (root ADR-0241), kept testable.
 
     host_docker_layout.py layout <field>                    a value of config/host-layout.contract.json
-    host_docker_layout.py daemon-json <path> <data-root>    daemon.json with data-root set, every other key kept
+    host_docker_layout.py daemon-json <path> <data-root>    daemon.json with data-root and the build cache bound set, every other key kept
     host_docker_layout.py containerd-toml <path> <root>     config.toml with the top-level root set
     host_docker_layout.py unpaused-dags <airflow-json>      the foundation_ DAGs Airflow lists as unpaused
 
@@ -44,8 +44,9 @@ def layout_field(layout: dict[str, Any], dotted: str) -> str:
     return str(value)
 
 
-def merged_daemon_json(existing: str | None, data_root: str) -> str:
-    """daemon.json with `data-root` set; every other key and its value kept as it was."""
+def merged_daemon_json(existing: str | None, data_root: str, builder_gc: dict[str, Any]) -> str:
+    """daemon.json with `data-root` and the contract's `builder.gc` keys set; every other key and
+    its value kept as it was."""
     config = {} if existing is None or not existing.strip() else json.loads(existing)
     if not isinstance(config, dict):
         raise ValueError("daemon.json is not a JSON object")
@@ -53,6 +54,8 @@ def merged_daemon_json(existing: str | None, data_root: str) -> str:
         # The pre-17.05 spelling of data-root: dockerd refuses both at once.
         raise ValueError("daemon.json sets the retired `graph` key; remove it by hand first")
     config["data-root"] = data_root
+    builder = config.setdefault("builder", {})
+    builder["gc"] = {**builder.get("gc", {}), **builder_gc}
     return json.dumps(config, indent=2) + "\n"
 
 
@@ -100,7 +103,8 @@ def main(argv: list[str]) -> int:
         print(layout_field(load_layout(), args[0]))
     elif command == "daemon-json":
         path = pathlib.Path(args[0])
-        sys.stdout.write(merged_daemon_json(path.read_text(encoding="utf-8") if path.exists() else None, args[1]))
+        existing = path.read_text(encoding="utf-8") if path.exists() else None
+        sys.stdout.write(merged_daemon_json(existing, args[1], load_layout()["docker"]["builder_gc"]))
     elif command == "containerd-toml":
         sys.stdout.write(merged_containerd_toml(pathlib.Path(args[0]).read_text(encoding="utf-8"), args[1]))
     elif command == "unpaused-dags":

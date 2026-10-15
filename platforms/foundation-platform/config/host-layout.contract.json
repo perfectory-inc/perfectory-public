@@ -6,7 +6,9 @@
   "docker": {
     "data_root": "/data/docker",
     "legacy_root": "/var/lib/docker",
-    "daemon_json": "/etc/docker/daemon.json"
+    "daemon_json": "/etc/docker/daemon.json",
+    "builder_gc": {"enabled": true, "defaultKeepStorage": "20GB"},
+    "builder_gc_reason": "BuildKit's cache had no bound: measured 2026-10-15 on ai-server, 98 GB in 545 entries, with no builder.gc in daemon.json and no prune of it anywhere. These keys go into daemon.json `builder.gc` (the docker driver's GC): unused cache past 20 GB is removed, ephemeral cache past about 13.8% of it after 48 h (Docker's documented default policy for this limit)."
   },
   "containerd": {
     "root": "/data/containerd",

@@ -31,32 +31,57 @@ disabled_plugins = ["cri"]
 '''
 
 
+GC = {"enabled": True, "defaultKeepStorage": "20GB"}
+WITH_GC = {"builder": {"gc": GC}}
+
+
+def merged(existing, data_root="/data/docker", gc=GC):
+    return layout.merged_daemon_json(existing, data_root, gc)
+
+
 class DaemonJson(unittest.TestCase):
     def test_every_existing_key_is_kept_and_data_root_is_set(self):
         existing = json.dumps({
             "log-driver": "json-file", "log-opts": {"max-size": "50m", "max-file": "3"},
             "features": {"containerd-snapshotter": True}, "default-address-pools": [{"base": "192.0.2.0/24", "size": 28}],
         })
-        merged = json.loads(layout.merged_daemon_json(existing, "/data/docker"))
-        self.assertEqual(merged.pop("data-root"), "/data/docker")
-        self.assertEqual(merged, json.loads(existing))
+        result = json.loads(merged(existing))
+        self.assertEqual(result.pop("data-root"), "/data/docker")
+        self.assertEqual(result.pop("builder"), {"gc": GC})
+        self.assertEqual(result, json.loads(existing))
 
-    def test_a_host_without_daemon_json_gets_only_data_root(self):
-        self.assertEqual(json.loads(layout.merged_daemon_json(None, "/data/docker")), {"data-root": "/data/docker"})
-        self.assertEqual(json.loads(layout.merged_daemon_json("", "/data/docker")), {"data-root": "/data/docker"})
+    def test_a_host_without_daemon_json_gets_data_root_and_the_cache_bound(self):
+        self.assertEqual(json.loads(merged(None)), {"data-root": "/data/docker", **WITH_GC})
+        self.assertEqual(json.loads(merged("")), {"data-root": "/data/docker", **WITH_GC})
 
     def test_a_second_run_changes_nothing(self):
-        once = layout.merged_daemon_json(json.dumps({"log-driver": "local"}), "/data/docker")
-        self.assertEqual(layout.merged_daemon_json(once, "/data/docker"), once)
+        once = merged(json.dumps({"log-driver": "local"}))
+        self.assertEqual(merged(once), once)
 
     def test_an_existing_data_root_is_replaced_not_duplicated(self):
-        merged = json.loads(layout.merged_daemon_json(json.dumps({"data-root": "/srv/docker"}), "/data/docker"))
-        self.assertEqual(merged, {"data-root": "/data/docker"})
+        self.assertEqual(json.loads(merged(json.dumps({"data-root": "/srv/docker"}))), {"data-root": "/data/docker", **WITH_GC})
+
+    def test_the_cache_bound_overrides_its_keys_and_keeps_other_builder_settings(self):
+        existing = json.dumps({"builder": {"gc": {"enabled": False, "policy": []}, "features": {"x": True}}})
+        result = json.loads(merged(existing))["builder"]
+        self.assertEqual(result, {"gc": {"enabled": True, "defaultKeepStorage": "20GB", "policy": []}, "features": {"x": True}})
+
+    def test_the_rendered_file_carries_the_contracts_bound(self):
+        """What host-docker-data-root.sh writes: the CLI, reading the shipped contract."""
+        bound = layout.load_layout()["docker"]["builder_gc"]
+        self.assertIs(bound["enabled"], True)
+        self.assertRegex(bound["defaultKeepStorage"], r"^\d+GB$")
+        with tempfile.TemporaryDirectory() as directory:
+            daemon = pathlib.Path(directory) / "daemon.json"
+            daemon.write_text(json.dumps({"log-driver": "local"}), encoding="utf-8")
+            out = subprocess.run([sys.executable, "-I", str(PLATFORM / "scripts/ops/host_docker_layout.py"),
+                                  "daemon-json", str(daemon), "/data/docker"], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout)["builder"]["gc"], bound)
 
     def test_the_retired_graph_key_is_refused(self):
         """dockerd refuses `graph` and `data-root` together, so the engine would not start."""
         with self.assertRaises(ValueError):
-            layout.merged_daemon_json(json.dumps({"graph": "/srv/docker"}), "/data/docker")
+            merged(json.dumps({"graph": "/srv/docker"}))
 
 
 class ContainerdToml(unittest.TestCase):
