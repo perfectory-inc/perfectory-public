@@ -6,7 +6,7 @@ use catalog_application::ports::{CatalogRepository, CatalogUnitOfWork};
 use catalog_domain::{IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::Utc;
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId};
+use foundation_shared_kernel::ids::{ComplexId, ParcelId};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -178,7 +178,6 @@ impl SsotFixture {
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some(primary_bjdong_code),
                 area_m2: 100_000,
-                lakehouse_complex_id: Some(LakehouseComplexId::new(complex_id.as_uuid())),
                 status: None,
                 sido_code: None,
                 sigungu_code: None,

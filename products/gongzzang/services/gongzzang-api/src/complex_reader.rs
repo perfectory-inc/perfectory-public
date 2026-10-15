@@ -161,7 +161,8 @@ fn complex_page_from_response(page: CatalogIndustrialComplexListResponse) -> Com
             .complexes
             .into_iter()
             .map(|complex| ComplexCatalogListRecord {
-                lakehouse_complex_id: complex.lakehouse_complex_id,
+                // Foundation's `id` is the lakehouse complex id (root ADR-0250).
+                lakehouse_complex_id: Some(complex.id),
                 official_complex_code: complex.official_complex_code,
                 name: complex.name,
                 kind: complex.kind,
@@ -413,7 +414,6 @@ mod tests {
         format!(
             r#"{{
                 "id":"{complex_id}",
-                "lakehouse_complex_id":"{complex_id}",
                 "official_complex_code":"111010",
                 "name":"테스트산업단지",
                 "kind":"national",

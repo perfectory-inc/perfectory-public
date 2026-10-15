@@ -316,7 +316,6 @@ fn canonical_complex() -> Result<IndustrialComplex, CatalogError> {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("1111010100".to_owned()),
         area_m2: 95_000,
-        lakehouse_complex_id: None,
         status: None,
         sido_code: None,
         sigungu_code: None,

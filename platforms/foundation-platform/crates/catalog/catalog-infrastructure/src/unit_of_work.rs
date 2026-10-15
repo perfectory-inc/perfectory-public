@@ -114,7 +114,8 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
                      $31, $32)",
         )
         .bind(complex.id.as_uuid())
-        .bind(complex.lakehouse_complex_id.map(|id| id.as_uuid()))
+        // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
+        .bind(complex.id.as_uuid())
         .bind(&complex.official_complex_code)
         .bind(&complex.name)
         .bind(complex.kind.wire_name())
@@ -2304,7 +2305,8 @@ async fn update_industrial_complex_from_upsert(
     .bind(command.developer_name.as_deref())
     .bind(command.designated_date)
     .bind(command.completion_date)
-    .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
+    // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
+    .bind(existing.id.as_uuid())
     .bind(command.construction_start_date)
     .bind(command.development_progress_percent.as_deref())
     .bind(
@@ -2363,7 +2365,8 @@ async fn insert_industrial_complex_from_upsert(
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
     .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
-    .bind(command.lakehouse_complex_id.map(|id| id.as_uuid()))
+    // shortcut: `lakehouse_complex_id` only mirrors `id` until its column is dropped (root ADR-0250).
+    .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
     .bind(&command.official_complex_code)
     .bind(&command.name)
     .bind(command.kind.wire_name())
@@ -2424,9 +2427,6 @@ fn changed_industrial_complex_fields(
     command: &UpsertIndustrialComplexCommand,
 ) -> Vec<String> {
     let mut fields = Vec::new();
-    if existing.lakehouse_complex_id != command.lakehouse_complex_id {
-        fields.push("lakehouse_complex_id".to_owned());
-    }
     if existing.name != command.name {
         fields.push("name".to_owned());
     }
