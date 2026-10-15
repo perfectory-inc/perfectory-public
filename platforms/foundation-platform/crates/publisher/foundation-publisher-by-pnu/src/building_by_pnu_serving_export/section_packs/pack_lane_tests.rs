@@ -169,6 +169,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         expected_gold_snapshot: None,
         max_concurrency: 4,
         summary_path: dirs.work.join("unused.json"),
+        sample_candidates_per_million: None,
     };
     let provenance = PackProvenance {
         table: "gold.unit_price".to_owned(),

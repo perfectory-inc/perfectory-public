@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { isReadOnlyPreview } from "@/lib/preview";
 import { ROUTES } from "@/lib/routes";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
 import { getSession } from "@/lib/session/store";
@@ -17,14 +18,16 @@ export const dynamic = "force-dynamic";
 
 export default async function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const t = await getTranslations("common");
-  const cookieStore = await cookies();
-  const sid = cookieStore.get(SID_COOKIE_NAME)?.value;
-  if (!sid) {
-    redirect(LOGIN_ROUTE);
-  }
-  const session = await getSession(sid);
-  if (!session) {
-    redirect(LOGIN_ROUTE);
+  if (!isReadOnlyPreview()) {
+    const cookieStore = await cookies();
+    const sid = cookieStore.get(SID_COOKIE_NAME)?.value;
+    if (!sid) {
+      redirect(LOGIN_ROUTE);
+    }
+    const session = await getSession(sid);
+    if (!session) {
+      redirect(LOGIN_ROUTE);
+    }
   }
   return (
     <>

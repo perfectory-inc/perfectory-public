@@ -3,7 +3,7 @@
   "source_repo": "foundation-platform",
   "source_path": "docs/openapi/catalog.v1.json",
   "snapshot_path": "crates/foundation-platform-client/openapi/catalog.v1.json",
-  "source_sha256": "1f105629f293e77d856c6d36af542c04f7a377440935be4906f11c11987cf64b",
+  "source_sha256": "2f72a64468da4cbdab8953b2b13133f673a604dae9e422e651669888fad89f0d",
   "source_schema_version": "foundation-platform.openapi.catalog.v1",
   "consumer_slug": "gongzzang",
   "base_env": "FOUNDATION_PLATFORM_API_BASE_URL",
@@ -18,15 +18,15 @@
   "parcel_detail_note": "Parcel by-pnu detail is no longer consumed from this OpenAPI contract: root ADR-0109 moved it to the public R2 edge (catalog.perfectory.io/parcels/by-pnu/{pnu}), served from gold.parcel_panel and read by services/gongzzang-api/src/foundation_parcel_lookup.rs. The edge is not OpenAPI-described, so its object shape is guaranteed by the bake + edge-serving checks (root ADR-0096), not by this pin.",
   "endpoints": [
     {
-      "operation_id": "getComplexByLakehouseId",
+      "operation_id": "getComplex",
       "transport_module": "crates/foundation-platform-client/src/catalog.rs",
       "adapter_module": "services/gongzzang-api/src/complex_reader.rs",
       "method": "GET",
-      "path_template": "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
-      "path_pattern_literal": "catalog/v1/complexes/by-lakehouse-id/",
+      "path_template": "/catalog/v1/complexes/{id}",
+      "path_pattern_literal": "catalog/v1/complexes/",
       "success_shape": "object",
       "not_found_behavior": "none",
-      "required_response_fields": ["official_complex_code", "name", "kind", "area_m2"]
+      "required_response_fields": ["id", "official_complex_code", "name", "kind", "area_m2"]
     },
     {
       "operation_id": "listComplexes",

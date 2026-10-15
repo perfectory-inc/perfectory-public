@@ -13,6 +13,11 @@ fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result
     );
     assert!(parse_command(["publisher", "stop-gold-panel-rebuild", "parcel"]).is_err());
     assert_eq!(
+        parse_command(["publisher", "stop-lakehouse-maintenance"])?,
+        Command::StopLakehouseMaintenance
+    );
+    assert!(parse_command(["publisher", "stop-lakehouse-maintenance", "all"]).is_err());
+    assert_eq!(
         parse_command(["publisher", "run-building-register-floor-cycle"])?,
         Command::RunBuildingRegisterFloorCycle
     );
@@ -47,6 +52,16 @@ fn silver_refresh_takes_its_lane_from_the_environment_not_an_argument() -> anyho
         "building-register-titles"
     ])
     .is_err());
+    Ok(())
+}
+
+#[test]
+fn the_parcel_tile_bake_cleanup_takes_no_argument() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["publisher", "stop-parcel-tile-bake"])?,
+        Command::StopParcelTileBake
+    );
+    assert!(parse_command(["publisher", "stop-parcel-tile-bake", "parcels"]).is_err());
     Ok(())
 }
 

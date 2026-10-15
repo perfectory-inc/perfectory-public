@@ -9,6 +9,7 @@ import {
   GENERATED_PAGE_ROUTE_POLICIES,
   GENERATED_PUBLIC_MAP_ROUTE_POLICIES,
 } from "@/lib/policies/traffic-auth-policy.generated";
+import { isReadOnlyPreview, isReadOnlyPreviewPage } from "@/lib/preview";
 import { checkRate } from "@/lib/ratelimit";
 import { API, AUTH_PATH_PREFIX, ROUTES } from "@/lib/routes";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
@@ -277,7 +278,7 @@ function buildCspHeader(hostname: string, nonce: string): string {
   const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin, ...edgeOrigins].filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
-    : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com${tileConnectSrc}`;
+    : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com https://*.pstatic.net${tileConnectSrc}`;
 
   // Naver Maps gl 이 WebGL + eval 사용 → 'unsafe-eval' 필수.
   // 'strict-dynamic' 와 함께 modern browser 에서 호환 (CSP3).
@@ -334,6 +335,10 @@ function redirectToLogin(req: NextRequest, pathname: string): NextResponse {
 export async function proxy(req: NextRequest) {
   const url = req.nextUrl;
 
+  if (isReadOnlyPreview()) {
+    return readOnlyPreviewProxy(req);
+  }
+
   // 1. Rate limit
   const rateBlocked = await checkAuthRateLimit(req);
   if (rateBlocked) return rateBlocked;
@@ -376,6 +381,22 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL(ROUTES.forbidden, req.url));
   }
 
+  return nextWithSecurityHeaders(reqHeaders, cspHeader);
+}
+
+/** The read-only preview never reaches the session store or the rate limiter (both Redis). */
+function readOnlyPreviewProxy(req: NextRequest): NextResponse {
+  const url = req.nextUrl;
+  const nonce = randomBytes(16).toString("base64");
+  const cspHeader = buildCspHeader(url.hostname, nonce);
+  if (url.pathname === ROUTES.home) {
+    return redirectWithSecurityHeaders(new URL(ROUTES.listings.index, req.url), cspHeader);
+  }
+  if (!isReadOnlyPreviewPage(url.pathname)) {
+    return notFoundWithSecurityHeaders(cspHeader);
+  }
+  const reqHeaders = new Headers(req.headers);
+  reqHeaders.set("x-csp-nonce", nonce);
   return nextWithSecurityHeaders(reqHeaders, cspHeader);
 }
 

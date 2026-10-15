@@ -48,8 +48,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--to-snapshot-id",
                         help="silver.parcel_boundaries source_snapshot_id to register: the served edition when omitted (ADR-0148 §1)")
     editions.add_reader_flag(parser)
-    parser.add_argument("--to-date", required=True, help="YYYY-MM-DD the snapshot reflects")
-    parser.add_argument("--to-sido", required=True, help="Comma-separated sido prefixes of the snapshot's parcels")
+    parser.add_argument("--to-date", help="YYYY-MM-DD the snapshot reflects; required unless --probe-missing")
+    parser.add_argument("--to-sido", help="Comma-separated sido prefixes of the snapshot's parcels; required unless --probe-missing")
+    parser.add_argument("--probe-missing", action="store_true",
+                        help="Only print the snapshot's sido prefixes the registry holds nothing for, with their parcel "
+                             "counts, smallest first; writes nothing (root ADR-0243)")
     parser.add_argument("--from-snapshot-id", help="The snapshot the lineage runs from (advance / upgrade)")
     parser.add_argument("--from-sido", help="Sido prefixes the registry held before, when they differ (29,46 -> 12)")
     parser.add_argument("--bootstrap", action="store_true", help="Allow the first registration of the region")
@@ -75,6 +78,13 @@ def validate_args(args: argparse.Namespace) -> None:
         value = getattr(args, label)
         if value is not None and not SNAPSHOT_ID.fullmatch(value):
             raise ValueError(f"--{label.replace('_', '-')} has characters a snapshot id does not use")
+    if args.probe_missing:
+        if args.to_date or args.to_sido or args.from_snapshot_id or args.from_sido or args.bootstrap:
+            raise ValueError("--probe-missing takes only the snapshot and the tables")
+        assert_catalog_env()
+        return
+    if not args.to_date or not args.to_sido:
+        raise ValueError("--to-date and --to-sido are required")
     if not DATE.fullmatch(args.to_date):
         raise ValueError("--to-date must be YYYY-MM-DD")
     for label in ("to_sido", "from_sido"):
@@ -86,6 +96,16 @@ def validate_args(args: argparse.Namespace) -> None:
     if not args.iceberg_table.endswith("_smoke") and not args.allow_non_smoke_write:
         raise ValueError(f"writing {args.iceberg_table} needs --allow-non-smoke-write")
     assert_catalog_env()
+
+
+def missing_regions(snapshot_counts: dict[str, int], registered: set[str]) -> list[tuple[str, int]]:
+    """The snapshot's sido prefixes the registry holds nothing for, smallest first.
+
+    Smallest first so a run that stops at its time limit has registered as many regions as it could;
+    the next run takes the rest (root ADR-0243).
+    """
+
+    return sorted(((sido, n) for sido, n in snapshot_counts.items() if sido not in registered), key=lambda p: (p[1], p[0]))
 
 
 def plan(
@@ -133,6 +153,22 @@ def main(argv: list[str] | None = None) -> int:
     cat = f"`{args.iceberg_catalog_name}`"
     table = f"{cat}.`{args.iceberg_namespace}`.`{args.iceberg_table}`"
     try:
+        if args.probe_missing:
+            counts = {
+                r["sido"]: int(r["n"])
+                for r in spark.sql(
+                    f"SELECT substr(pnu, 1, 2) AS sido, count(DISTINCT pnu) AS n FROM {cat}.`silver`.`parcel_boundaries` "
+                    f"WHERE source_snapshot_id = '{args.to_snapshot_id}' GROUP BY substr(pnu, 1, 2)"
+                ).collect()
+            }
+            exists = spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{args.iceberg_namespace}.{args.iceberg_table}")
+            registered = (
+                {r["sido"] for r in spark.sql(f"SELECT DISTINCT substr(pnu, 1, 2) AS sido FROM {table}").collect()}
+                if exists else set()
+            )
+            missing = missing_regions(counts, registered)
+            print("parcel-registry-probe " + json.dumps({"to_snapshot_id": args.to_snapshot_id, "missing": missing}))
+            return 0
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.`{args.iceberg_namespace}`")
         spark.sql(
             f"""

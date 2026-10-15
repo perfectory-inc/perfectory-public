@@ -28,12 +28,12 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | 한 묶음 overwrite |
 | `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
-| `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 17 | 첫 4 객체 overwrite, 나머지 4개씩 append |
-| `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 17 | 같음 |
-| `land-individual-price` | `silver.land_individual_price` | 개별공시지가 `AL_D151` 시도 17 | 같음 |
-| `land-right-registration` | `silver.land_right_registration` | 대지권등록 `AL_D006` 시도 17 | 같음 |
-| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 17 | 같음 |
-| `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 17 | 같음 |
+| `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 첫 4 객체 overwrite, 나머지 4개씩 append |
+| `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
+| `land-individual-price` | `silver.land_individual_price` | 개별공시지가 `AL_D151` 시도 전부 | 같음 |
+| `land-right-registration` | `silver.land_right_registration` | 대지권등록 `AL_D006` 시도 전부 | 같음 |
+| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같음 |
+| `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | 같음 |
 | `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | 한 객체 overwrite |
 
 ## 1. 한 번의 실행
@@ -149,7 +149,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `a lane contract names no release` | 계약에 `selected_vintage`·`objects` 가 다시 들어갔다 | 지운다. 판은 장부가 정한다 |
 | `another lane holds …/refresh.lock` (75) | 다른 레인이 돈다 | 그 레인이 끝난 뒤 다시 시작한다 |
 | `… have no ZIP member reading yet …` | 토지 레인 원천에 안 이름을 잰 적 없는 객체가 있다. 그 객체가 가장 새 판일 수 있다 | 문구가 이름 짓는 명령(`bronze-object-members.sh <원천>`)을 돌리고 다시 시작한다 (5 절) |
-| `the ledger holds no vintage of … covering 17 regions` | 어느 판도 시도 17 을 다 덮지 않는다 | `skipped_incomplete_release=<판> regions=<n>` 줄을 본다. 시도 체계가 바뀌었으면(통합) 계약의 `completeness.count` 를 PR 로 고친다 |
+| `the ledger holds no vintage of … covering the 시도 the code list lists on its day` | 어느 판도 그 날짜의 법정동코드 목록 시도를 빠짐없이 덮지 않는다 | `skipped_incomplete_release=<판> regions=<코드,…>` 줄을 그 날짜의 `reference.legal_dong_code_snapshot` 시도와 견준다. 시도 수는 계약에 적지 않는다(루트 ADR-0248). 원천이 옛 코드로 늦게 오면 기다린다 |
 | `refused_object=… members the lane's rule reads …` | 한 ZIP 에 레인이 읽을 CSV 가 둘이거나 날짜가 아니다 | 그 객체는 후보에서 빠진다. 그 때문에 판이 불완전하면 원천을 조사한다 |
 | `load batch … holds the source_snapshot_ids …` | 버킷에 이미 있던 토지 핸드오프가 다른 `source_snapshot_id` 로 쓰였다 | 그 판의 핸드오프를 누가 썼는지 본다. gold.parcel_panel 은 표마다 id 하나만 읽는다 |
 
@@ -166,8 +166,7 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 은퇴했다. 토지 일곱 표는 이 레인들로만 들어간다.
 
 **판.** 레인 원천의 장부 행을 ZIP 안 이름과 함께 읽는다(정해진 `zip` 읽기만). 계약 `silver_refresh.member_name` 에
-맞는 안 이름이 하나인 객체가 후보이고, 이름의 `region` 이 시도, `vintage` 가 판(`YYYYMMDD`)이다. 시도
-`completeness.count`(17)를 모두 덮는 판 중 가장 새것이 판이다. 같은 시도·판이 둘이면 `provider_updated_at` 이 늦은
+맞는 안 이름이 하나인 객체가 후보이고, 이름의 `region` 이 시도, `vintage` 가 판(`YYYYMMDD`)이다. 그 날짜에 법정동코드 목록(`reference.legal_dong_code_snapshot` 최신 스냅숏의 생성일·폐지일, 계약 `completeness.regions_from`)이 현존으로 둔 시도를 빠짐없이, 그 밖의 시도 없이 덮는 판 중 가장 새것이 판이다(루트 ADR-0248). 같은 시도·판이 둘이면 `provider_updated_at` 이 늦은
 것이고, 같으면 거부한다. 용도지역 코드표는 전국 객체 하나다(장부 `snapshot_date` 가 가장 새것). 같은 접두사의 다른
 데이터셋(도형 SHP, DBF, 변경분 `CH_*`, `.xlsx`)은 이름이 맞지 않아 후보가 아니다.
 
@@ -195,7 +194,7 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
    ```
 
 2. 3 절의 2–4 를 `lane=land-individual-price` 로 한다. 계획에서 볼 것:
-   - `release=<YYYYMMDD>` 가 기대한 판이고, `region=… object=…` 줄이 시도 17 개다.
+   - `release=<YYYYMMDD>` 가 기대한 판이고, `region=… object=…` 줄의 시도가 그 날짜 법정동코드 목록의 시도와 같다.
    - `skipped_incomplete_release` 와 `refused_object` 줄이 있으면 까닭이 맞는지 본다.
    - 손 적재된 판과 같으면 `outcome=unchanged reason=already_loaded` 다.
 3. `changed` 였으면: `evidence/land-<…>-<판>/` 에 `export-summary-<시도>.json` 17 개와 `spark-summary-*.json` 이

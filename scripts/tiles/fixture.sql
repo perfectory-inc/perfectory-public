@@ -86,11 +86,14 @@ SET
     updated_at = now(),
     version = catalog.file_asset.version + 1;
 
+-- The id is derived from the code, never written by hand (root ADR-0250).
 INSERT INTO catalog.industrial_complex
-    (id, name, kind, primary_bjdong_code, area_m2, official_complex_code, version)
+    (id, lakehouse_complex_id, name, kind, primary_bjdong_code, area_m2, official_complex_code,
+     version)
 VALUES
     (
-        '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
+        catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
+        catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
         'Synthetic Industrial Complex',
         'general',
         '9999999999',
@@ -197,7 +200,7 @@ INSERT INTO catalog.parcel_complex_membership
 SELECT
     md5('tiles-slice-proof-membership:' || fixture.parcel_id::text)::uuid,
     fixture.parcel_id,
-    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
+    catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
     'official_list',
     daterange(DATE '2020-01-01', NULL, '[)'),
     '019d2b87-3fd1-7e3a-8d88-0b72c8742301',
@@ -302,7 +305,7 @@ SELECT
     '019d2b87-3fd1-7e3a-8d88-0b72c8742004',
     'tiles-slice-proof/fixture/parcel-boundaries.geojson',
     fixture.pnu::text,
-    '019d2b87-3fd1-7e3a-8d88-0b72c8742101',
+    catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
     fixture.parcel_id,
     fixture.geometry_checksum_sha256,
     jsonb_build_object('fixture', true),
@@ -465,7 +468,7 @@ SELECT
     boundary.pnu::text AS "PNU",
     boundary.geom::public.geometry(MultiPolygon, 5179) AS geom
 FROM serving_postgis.parcel_boundary_mirror AS boundary
-WHERE boundary.complex_id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+WHERE boundary.complex_id = catalog.industrial_complex_id_for('IC-SYNTHETIC-001');
 
 CREATE OR REPLACE VIEW serving_postgis.tiles_slice_parcel_anchor_aggregate AS
 SELECT
@@ -479,7 +482,7 @@ FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id
 JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
-  AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101'
+  AND complex.id = catalog.industrial_complex_id_for('IC-SYNTHETIC-001')
 GROUP BY complex.id, complex.official_complex_code;
 
 -- Per-parcel anchors carry the PNU and nothing else (ADR-0024). The membership join stays because
@@ -495,6 +498,6 @@ FROM catalog.parcel_marker_anchor AS anchor
 JOIN catalog.parcel_current_complex AS membership ON membership.parcel_id = anchor.parcel_id
 JOIN catalog.industrial_complex AS complex ON complex.id = membership.complex_id
 WHERE anchor.is_active
-  AND complex.id = '019d2b87-3fd1-7e3a-8d88-0b72c8742101';
+  AND complex.id = catalog.industrial_complex_id_for('IC-SYNTHETIC-001');
 
 COMMIT;

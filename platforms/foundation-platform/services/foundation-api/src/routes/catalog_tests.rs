@@ -465,7 +465,6 @@ fn manufacturer_response_omits_sensitive_business_number() {
 #[ignore = "requires local docker stack"]
 async fn list_complex_blueprints_returns_catalog_dto() {
     let pool = pool().await;
-    let complex_id = Uuid::now_v7();
     let file_asset_id = Uuid::now_v7();
     let blueprint_id = Uuid::now_v7();
     let suffix = Uuid::new_v4()
@@ -477,12 +476,14 @@ async fn list_complex_blueprints_returns_catalog_dto() {
         .collect::<String>();
     let primary_bjdong_code = format!("{suffix:0<10}")[..10].to_owned();
     let official_complex_code = format!("IC-{suffix}");
+    let complex_id = ComplexId::for_official_complex_code(&official_complex_code).as_uuid();
     let object_key = format!("complexes/api/blueprints/{blueprint_id}.pdf");
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2, version)
-         VALUES ($1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
+         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+          area_m2, version)
+         VALUES ($1, $1, $2, 'API blueprint fixture', 'general', $3, 1000, 1)
          ON CONFLICT (official_complex_code) WHERE archived_at IS NULL DO NOTHING",
     )
     .bind(complex_id)

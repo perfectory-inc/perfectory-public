@@ -5,6 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::too_many_lines, clippy::unwrap_used)]
 
+use foundation_shared_kernel::ids::ComplexId;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -24,7 +25,8 @@ async fn administrative_aliases_are_stable_and_merges_keep_their_predecessors(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pool = pool().await?;
     let mut tx = pool.begin().await?;
-    let complex_id = Uuid::new_v4();
+    let complex_code = format!("IC-BOUNDARY-{}", Uuid::new_v4());
+    let complex_id = ComplexId::for_official_complex_code(&complex_code).as_uuid();
     let revision_one = Uuid::new_v4();
     let revision_two = Uuid::new_v4();
     let source_one = Uuid::new_v4();
@@ -35,11 +37,12 @@ async fn administrative_aliases_are_stable_and_merges_keep_their_predecessors(
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, official_complex_code, name, kind, primary_bjdong_code, area_m2, version)
-         VALUES ($1, $2, 'Boundary identity fixture', 'general', '9999900101', 1, 1)",
+         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+          area_m2, version)
+         VALUES ($1, $1, $2, 'Boundary identity fixture', 'general', '9999900101', 1, 1)",
     )
     .bind(complex_id)
-    .bind(format!("IC-BOUNDARY-{complex_id}"))
+    .bind(&complex_code)
     .execute(&mut *tx)
     .await?;
     for (source_id, external_id) in [

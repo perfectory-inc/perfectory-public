@@ -42,9 +42,12 @@ export function refreshFoundationVectorSources(
 }
 
 /**
- * Creates an abortable four-second poll loop with one in-flight request and bounded backoff.
+ * Creates an abortable poll loop with one in-flight request and bounded backoff.
  *
  * Generic over what is polled so the map edit overlay reuses the same loop instead of a second copy.
+ * `intervalMs` is either fixed or read from the latest manifest, so a manifest that names its own
+ * cadence (v2 `refresh_after_seconds`) is the only place that cadence lives. The function form
+ * needs `initialManifest`.
  */
 export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManifest>(options: {
   fetchManifest: (
@@ -55,7 +58,7 @@ export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManife
   onManifest: (manifest: T, etag?: string) => void;
   onError?: (error: unknown) => void;
   visible?: () => boolean;
-  intervalMs?: number;
+  intervalMs: number | ((latest: T) => number);
   random?: () => number;
   initialManifest?: T;
   initialEtag?: string;
@@ -68,7 +71,12 @@ export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManife
   let inFlight = false;
   let stopped = false;
   let failures = 0;
-  const base = options.intervalMs ?? 4_000;
+  const { intervalMs } = options;
+  if (typeof intervalMs === "function" && options.initialManifest === undefined) {
+    throw new Error("a manifest-driven poll interval needs an initialManifest");
+  }
+  const base = (): number =>
+    typeof intervalMs === "number" ? intervalMs : intervalMs(previous as T);
   const visible = options.visible ?? (() => true);
   const random = options.random ?? Math.random;
 
@@ -78,7 +86,7 @@ export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManife
   const run = async () => {
     if (stopped || inFlight) return;
     if (!visible()) {
-      schedule(base);
+      schedule(base());
       return;
     }
     inFlight = true;
@@ -88,18 +96,18 @@ export function startFoundationVectorManifestPolling<T = VectorTileRuntimeManife
       etag = result.etag ?? etag;
       failures = 0;
       options.onManifest(result.manifest, result.etag);
-      schedule(base);
+      schedule(base());
     } catch (error) {
       if (!stopped && !controller.signal.aborted) {
         failures = Math.min(failures + 1, 5);
         options.onError?.(error);
-        schedule(Math.min(base * 2 ** failures, 60_000) + Math.floor(random() * 250));
+        schedule(Math.min(base() * 2 ** failures, 60_000) + Math.floor(random() * 250));
       }
     } finally {
       inFlight = false;
     }
   };
-  if (options.startImmediately === false) schedule(base);
+  if (options.startImmediately === false) schedule(base());
   else void run();
   return () => {
     stopped = true;

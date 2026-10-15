@@ -342,22 +342,45 @@ impl R2ObjectStorage {
     ///
     /// # Errors
     ///
-    /// Returns `PublishError` when the provider rejects the read or the body stream fails.
+    /// Returns `PublishError` when the provider rejects the read, or the body stream fails on
+    /// every one of `R2_RANGE_READ_MAX_ATTEMPTS` requests.
+    ///
+    /// The SDK's retry ends when the response headers arrive; a body that breaks after them
+    /// (`streaming error`, a reset connection) is asked for again with a new request, after the
+    /// same backoff as a range read (root ADR-0102). On 2026-10-14 one such break stopped a by-PNU
+    /// cut-over gate 28 minutes into its probe.
     pub async fn get_object_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
-        let output = self
-            .client
-            .get_object()
-            .bucket(&self.bucket_name)
-            .key(key)
-            .send()
-            .await
-            .map_err(|error| {
-                PublishError::Broadcaster(format!("failed to read R2 object {key}: {error}"))
-            })?;
-        let body = output.body.collect().await.map_err(|error| {
-            PublishError::Broadcaster(format!("failed to read R2 object body {key}: {error}"))
-        })?;
-        Ok(body.into_bytes().to_vec())
+        for attempt in 1..=R2_RANGE_READ_MAX_ATTEMPTS {
+            let output = self
+                .client
+                .get_object()
+                .bucket(&self.bucket_name)
+                .key(key)
+                .send()
+                .await
+                .map_err(|error| {
+                    PublishError::Broadcaster(format!("failed to read R2 object {key}: {error}"))
+                })?;
+            match output.body.collect().await {
+                Ok(body) => return Ok(body.into_bytes().to_vec()),
+                Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
+                    tracing::warn!(
+                        key,
+                        attempt,
+                        max_attempts = R2_RANGE_READ_MAX_ATTEMPTS,
+                        error = %error,
+                        "retrying R2 object body read after transient failure"
+                    );
+                }
+                Err(error) => {
+                    return Err(PublishError::Broadcaster(format!(
+                        "failed to read R2 object body {key}: {error}"
+                    )));
+                }
+            }
+            tokio::time::sleep(r2_range_read_retry_delay(attempt)).await;
+        }
+        unreachable!("R2 body retry loop always returns on success or final failure")
     }
 
     /// Reads a large object from R2 with bounded byte-range retries.
@@ -1265,3 +1288,7 @@ const fn r2_range_read_retry_delay(attempt: usize) -> Duration {
         _ => Duration::from_secs(2),
     }
 }
+
+#[cfg(test)]
+#[path = "r2/body_retry_tests.rs"]
+mod body_retry_tests;

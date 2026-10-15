@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Removes the Docker images nothing on the host still needs (root ADR-0198).
 
-Docker lives on the root disk. Measured 2026-10-13 on the host: images 43.5 GB (16.7 GB of
+Docker's images live in containerd's image store, on the disk config/host-layout.contract.json
+names (the data disk since root ADR-0241; the system disk before). Measured 2026-10-13 on the host: images 43.5 GB (16.7 GB of
 them unused by any container), build cache 57.9 GB but only 0.5 GB of it reclaimable — under the
 containerd image store the build cache and the images share their layers, so pruning the cache
 frees almost nothing and pruning images is what returns space. Nothing removed either before.
@@ -35,6 +36,7 @@ from dataclasses import dataclass
 # Image repositories the release prune keeps or removes with their releases.
 RELEASE_OWNED = frozenset({"foundation-outbox-publisher", "foundation-tippecanoe"})
 DEFAULT_REFERENCE_ROOT = pathlib.Path("/opt/perfectory-control/current")
+HOST_LAYOUT = pathlib.Path(__file__).resolve().parents[2] / "config" / "host-layout.contract.json"
 REFERENCE_SUFFIXES = (".env", ".json", ".yml", ".yaml", ".sh", ".py", ".toml", "Dockerfile")
 IMAGE_REFERENCE = re.compile(
     r"(?P<repo>[a-z0-9][a-z0-9./_-]*)(?::(?P<tag>[A-Za-z0-9._-]+))?(?:@sha256:(?P<digest>[0-9a-f]{64}))?"
@@ -139,8 +141,18 @@ def removable(
     return chosen
 
 
-def root_free_bytes() -> int:
-    return shutil.disk_usage("/").free
+def image_store(layout_path: pathlib.Path = HOST_LAYOUT) -> pathlib.Path:
+    """Where the images are: containerd's root on the data disk, or its old root on a host not moved yet."""
+    containerd = json.loads(layout_path.read_text(encoding="utf-8"))["containerd"]
+    moved = pathlib.Path(containerd["root"])
+    return moved if moved.is_dir() else pathlib.Path(containerd["legacy_root"])
+
+
+def free_bytes(path: pathlib.Path) -> int:
+    """Free bytes of the filesystem `path` is on; a path not made yet is on its nearest parent's."""
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    return shutil.disk_usage(path).free
 
 
 def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
@@ -156,7 +168,8 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
         return 65
 
     referenced_tags, referenced_digests = references(arguments.reference_root)
-    before = root_free_bytes()
+    store = image_store()
+    before = free_bytes(store)
     chosen = removable(images(runner), used_image_ids(runner), referenced_tags,
                        referenced_digests, time.time(), arguments.min_age_days)
     planned = sum(image.size for image in chosen)
@@ -171,10 +184,10 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
     if not arguments.dry_run:
         runner(["docker", "builder", "prune", "--force", "--filter",
                 f"until={int(arguments.min_age_days * 24)}h"])
-    after = root_free_bytes()
+    after = free_bytes(store)
     print(
         f"host-retention-{'dry-run' if arguments.dry_run else 'ok'} images={len(chosen)} "
-        f"image_bytes={planned} root_free_before_bytes={before} root_free_after_bytes={after} "
+        f"image_bytes={planned} image_store={store} store_free_before_bytes={before} store_free_after_bytes={after} "
         f"freed_gib={(after - before) / 2**30:.2f}"
     )
     return 0

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "decision": "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md",
-  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)와 그 옆의 ZIP 안 이름(catalog.bronze_object_member, 정해진 'zip' 읽기만)에서 고른다. 안 이름이 silver_refresh.member_name 에 맞는 객체가 후보이고, 이름의 region 이 시도, vintage 가 판이다. 판은 시도 completeness.count 개를 모두 덮는 판 중 가장 새것이다. 같은 시도·판의 객체가 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 아직 잰 적 없는 객체가 있으면 판을 정할 수 없으므로 거부한다(scripts/ops/bronze-object-members.sh, root ADR-0169 §1–2). 같은 접두사의 다른 데이터셋(도형 SHP·변경분 CH_*)은 이름이 맞지 않아 후보가 아니다.",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)와 그 옆의 ZIP 안 이름(catalog.bronze_object_member, 정해진 'zip' 읽기만)에서 고른다. 안 이름이 silver_refresh.member_name 에 맞는 객체가 후보이고, 이름의 region 이 시도, vintage 가 판이다. 판은 그 날짜에 법정동코드 목록(completeness.regions_from)이 현존으로 둔 시도를 빠짐없이, 그 밖의 시도 없이 덮는 판 중 가장 새것이다(시도 수를 여기 적지 않는다: 2026-07-01 통합으로 17이 16이 됐다). 같은 시도·판의 객체가 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 아직 잰 적 없는 객체가 있으면 판을 정할 수 없으므로 거부한다(scripts/ops/bronze-object-members.sh, root ADR-0169 §1–2). 같은 접두사의 다른 데이터셋(도형 SHP·변경분 CH_*)은 이름이 맞지 않아 후보가 아니다.",
   "source": "bronze/source=vworldkr__land_right_registration",
   "dataset_series": "AL_D006",
   "csv_delimiter": "|",
   "field_layout_authority": "Provider CSV headers, EUC-KR, PIPE(|)-delimited, 18 columns: 고유번호|대지권일련번호|법정동코드|법정동명|지번|대장구분코드|대장구분명|건축물명|동명|층명|호명|실명|대지권비율|폐쇄구분코드|폐쇄구분명|관련토지소재지코드|데이터기준일자|원천시도시군구코드",
-  "why_this_file_exists": "Harvest vintages of the same 17 sido pile up; loading two would double every right-registration row, and 16 of 17 sido would look complete while one is missing.",
+  "why_this_file_exists": "Harvest vintages of the same sido pile up; loading two would double every right-registration row, and all but one 시도 would look complete while one is missing.",
   "handoff_prefix": "silver-handoff/vworldkr__land_right_registration",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
@@ -16,7 +16,7 @@
     "member_name": "^AL_D006_(?P<region>[0-9]{2})_(?P<vintage>[0-9]{8})\\.csv$",
     "completeness": {
       "load_granularity": "sido",
-      "count": 17
+      "regions_from": "reference.legal_dong_code_snapshot"
     },
     "export": "export-land-right-registration-silver-handoff",
     "spark": {
