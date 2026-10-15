@@ -47,14 +47,15 @@ FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER=r2_data_catalog
 
 만드는 순서. 파일은 손으로 편집하지 않는다 — `foundation-release.sh env-set` 이 계약의 `operations-map` 그룹이 담는
 이름만 받아 계약의 소유자·모드로 쓴다(루트 ADR-0247). 그룹이 담지 않는 이름(예: 쓰기 토큰)은 거부된다. 값은 출력되지
-않고, 셸 기록에도 남기지 않는다.
+않고, 셸 기록에도 남기지 않는다. 새 이름을 읽는 코드가 배포되기 **전에** 넣는다: `foundation-api` 컨테이너는
+만들어질 때만 이 파일을 읽으므로, 이름이 없던 때 만들어진 컨테이너는 다시 만들 때까지 카탈로그를 못 읽는다(2026-10-15 실측).
 
 ```bash
 # 노트북: 값을 찍지 않고 이름=값 줄만 0600 파일로 서버에 보낸다
 grep -E '^FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=' platforms/foundation-platform/.env.local \
   | tr -d '\r' | ssh <서버> 'umask 077; cat > ~/operations-map.set'
 # 서버: 계약을 거쳐 쓰고, 원본을 지우고, 지도를 다시 띄운다
-sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh env-set operations-map ~/operations-map.set
+sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set operations-map ~/operations-map.set
 shred -u ~/operations-map.set
 /opt/foundation-platform/current/scripts/deploy/foundation-runtime.sh up -d foundation-api
 ```
