@@ -24,7 +24,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(job.edition_pairs({**CONTRACT, "editions": {"209906": {}}}), [])
 
     def test_a_shared_sido_is_its_own_group_and_the_renumbered_ones_go_together(self):
-        self.assertEqual(job.sido_groups({"98", "97", "96"}, {"98", "95"}), [("98", "98"), ("96,97", "95")])
+        self.assertEqual(job.sido_groups({"98", "97", "96"}, {"98", "95"}), [("96,97", "95"), ("98", "98")])
         self.assertEqual(job.sido_groups({"98"}, {"98"}), [("98", "98")])
 
     def test_a_sido_held_by_one_edition_without_a_counterpart_is_refused(self):

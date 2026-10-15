@@ -48,7 +48,8 @@ def edition_pairs(contract: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def sido_groups(before: set[str], after: set[str]) -> list[tuple[str, str]]:
-    """(from prefixes, to prefixes) per derivation: shared prefixes alone, the rest together."""
+    """(from prefixes, to prefixes) per derivation: the renumbered prefixes together first, then each
+    shared prefix alone."""
     if not before or not after:
         raise ValueError(f"an edition holds no parcels: before={sorted(before)} after={sorted(after)}")
     groups = [(p, p) for p in sorted(before & after)]
@@ -58,7 +59,9 @@ def sido_groups(before: set[str], after: set[str]) -> list[tuple[str, str]]:
         # reorganization; deriving would read every parcel of it as vanished or born.
         raise ValueError(f"sido prefixes held by one edition only, with no counterpart: gone={gone} new={new}")
     if gone:
-        groups.append((",".join(gone), ",".join(new)))
+        # First: a reorganized region is what the lineage exists for, and its group is the largest,
+        # so a run cut short by the deadline still derives it.
+        groups.insert(0, (",".join(gone), ",".join(new)))
     return groups
 
 
