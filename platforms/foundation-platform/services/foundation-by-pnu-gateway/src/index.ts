@@ -669,10 +669,14 @@ function warmRequestPath(): boolean {
   const pnu = "9999910100100010000";
   let answered = warmPackPath(pnu);
   for (const lane of LANES) {
-    const url = new URL(`${cacheOrigin}${lane.prefix}${pnu}?${packPolicy.preview_query_parameter}=g1-rwarm`);
-    answered &&= laneOfPath(url.pathname) === lane && canonicalRequest(url, lane)?.pnu === pnu;
+    // A lane keyed narrower than a PNU (root ADR-0204) is asked `<pnu>/<suffix>`: the nil building id.
+    const suffix = lane.keySuffix === null ? "" : "00000000-0000-0000-0000-000000000000";
+    const key = `${pnu}${suffix}`;
+    const path = suffix === "" ? pnu : `${pnu}/${suffix}`;
+    const url = new URL(`${cacheOrigin}${lane.prefix}${path}?${packPolicy.preview_query_parameter}=g1-rwarm`);
+    answered &&= laneOfPath(url.pathname) === lane && canonicalRequest(url, lane)?.pnu === key;
     const plan = previewPlan(1, "warm-up", lane, "warm");
-    answerCacheUrl(plan.fingerprint, pnu);
+    answerCacheUrl(plan.fingerprint, key);
     servingCacheUrl(url.href, plan);
     for (const section of plan.sections) packKey(section, null, pnu.slice(0, plan.unitLength), lane.packRoot);
   }

@@ -1,0 +1,124 @@
+{
+  "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+  "purpose": "The data side gives parts, the web composes (owner principle 2026-10-14, root ADR-0193 §5). A Gold column, a kind line or a Gold producer that carries a screen's words, joins values into display text, pages a list to an old API's size, or names a screen is refused here. This file is the one list of those shapes; scripts/guard/data-knows-no-screen.sh reads it and its self-test plants each one.",
+  "shapes": [
+    {
+      "id": "display-text-name",
+      "pattern": "(_label(_|$)|display)",
+      "applies_to": ["gold_columns", "kind_line_columns", "gold_producer_names"],
+      "reason": "a label or display field is text a screen writes from the source's values; the kind carries the values (root ADR-0193 §5, §9: floor_kind and floor_number, not the floor label)"
+    },
+    {
+      "id": "page-count-name",
+      "pattern": "_total$",
+      "applies_to": ["gold_columns", "kind_line_columns", "gold_producer_names"],
+      "reason": "a count beside a list cut to a page is an old API's page shape; the kind carries the whole list and its length is the count"
+    },
+    {
+      "id": "page-bound",
+      "pattern": "PAGE_BOUND|F\\.slice\\(",
+      "applies_to": ["gold_producer_source"],
+      "reason": "cutting a list to a page is the reader's choice, not a Gold's"
+    },
+    {
+      "id": "joined-display-text",
+      "pattern": "concat_ws\\(\\s*\" [·|/] \"",
+      "applies_to": ["gold_producer_source"],
+      "reason": "values joined with a separator are display text; the kind carries the list"
+    },
+    {
+      "id": "screen-concept",
+      "pattern": "(?i)first[ _-]?(paint|screen)|첫 화면",
+      "applies_to": ["platform_contracts", "gold_producer_source", "adr_target_rows"],
+      "reason": "which data a screen reads first, and how fast it paints, is the web's (gongzzang) decision and target, not the platform's"
+    },
+    {
+      "id": "kind-line-names-a-screen",
+      "pattern": "(?i)panel|screen|first",
+      "applies_to": ["kind_line_fields"],
+      "reason": "a kind line names a host, a kind, a section and its columns; a panel or screen is the web's"
+    }
+  ],
+  "scopes": {
+    "gold_columns": "every column of a gold.* table in infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+    "kind_line_columns": "the columns of every config/r2-connections.contract.json by_pnu_lanes line that names a host",
+    "kind_line_fields": "the keys and string values of those lines (decision paths and reasons excepted)",
+    "gold_producer_names": "quoted lower-case names in the Gold producers below",
+    "gold_producer_source": "the source text of the Gold producers below",
+    "platform_contracts": "config/*.json and contracts/data/*.yaml of foundation-platform, this file excepted",
+    "adr_target_rows": "table rows (lines that start with '|') of docs/adr/*.md and platforms/foundation-platform/docs/adr/*.md"
+  },
+  "gold_producers": [
+    "infra/lakehouse/spark/jobs/*_to_gold.py",
+    "infra/lakehouse/spark/jobs/*_gold.py",
+    "infra/lakehouse/spark/jobs/by_pnu_kind*.py"
+  ],
+  "exceptions": [
+    {
+      "where": "infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py",
+      "match": "floor_label",
+      "until": "gold.building_panel retires (root ADR-0193 §6-5)",
+      "reason": "the bundle panel's document keeps its floor label until it retires; the units kind carries floor_kind and floor_number"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py",
+      "match": "floor_display_ko",
+      "until": "gold.building_panel retires (root ADR-0193 §6-5)",
+      "reason": "Silver's floor display column, read for the bundle panel's floors only; the floors kind leaves it out"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py",
+      "match": "unit_label_ko",
+      "until": "the Silver unit register names the column for what it holds",
+      "reason": "a Silver column read, not written: the normalized unit number becomes ho_name"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py",
+      "match": "concat_ws(\" · \"",
+      "until": "gold.building_panel retires (root ADR-0193 §6-5)",
+      "reason": "the bundle panel's joined rooftop usages; the titles kind carries the list"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py",
+      "match": "LAND_RIGHT_PAGE_BOUND",
+      "until": "gold.parcel_panel retires (root ADR-0193 §6-5)",
+      "reason": "the bundle panel pages the land rights the gongzzang API reads; the land-rights kind carries the whole list"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py",
+      "match": "F.slice(",
+      "until": "gold.parcel_panel retires (root ADR-0193 §6-5)",
+      "reason": "the same page, cut in one place (land_rights_page)"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py",
+      "match": "land_right_total",
+      "until": "gold.parcel_panel retires (root ADR-0193 §6-5)",
+      "reason": "the bundle panel's count beside its page"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/by_pnu_kind_sizes.py",
+      "match": "land_right_total",
+      "until": "gold.parcel_panel retires (root ADR-0193 §6-5)",
+      "reason": "the size measurement reads the bundle panel's count column"
+    },
+    {
+      "where": "gold.parcel_panel",
+      "match": "land_right_total",
+      "until": "gold.parcel_panel retires (root ADR-0193 §6-5)",
+      "reason": "the bundle panel's count beside its page"
+    },
+    {
+      "where": "infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py",
+      "match": "display_name",
+      "until": "the served boundary's tile property is renamed with its map style",
+      "reason": "the source's own place name (VWorld emd_nm) passed to the map tile, not composed text"
+    },
+    {
+      "where": "gold.administrative_boundary_served",
+      "match": "display_name",
+      "until": "the served boundary's tile property is renamed with its map style",
+      "reason": "the source's own place name (VWorld emd_nm), not composed text; the name is the map tile property the style reads"
+    }
+  ]
+}

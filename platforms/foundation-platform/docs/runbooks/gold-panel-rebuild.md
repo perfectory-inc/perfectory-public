@@ -99,7 +99,7 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 | --- | --- | --- |
 | `fewer than the N the previous snapshot allows` | 행 손실이 허용치를 넘음, 커밋 없음 | 입력 중 어느 것이 지역·행을 잃었는지 run 폴더의 요약과 Silver 스냅숏을 본다. 진짜 감소면 감독 아래 생산자를 손으로 `--expected-count` 와 함께 돌린다(아래 5) |
 | `Gold quality gates failed` · `duplicate` | 생산자 품질 검사 거부, 커밋 없음 | 생산자 문서의 거부 사유대로. 필지 중복은 [parcel-by-pnu-serving-bake.md](./parcel-by-pnu-serving-bake.md) 1절 |
-| `required Silver inputs do not exist` · `no longer exist` | 입력 표가 없음 | 계획이 거부. 표를 되살리거나 생산자 입력을 바꾸는 결정이 먼저 |
+| `required Silver inputs do not exist` · `no longer exist` | 지금 읽는 입력 표가 없음 | 계획이 거부. 표를 되살리거나 생산자 입력을 바꾸는 결정이 먼저(입력에서 뺀 표는 거부가 아니라 전량 재생성 이유: ADR-0190) |
 | `records no source pins` | 켜진 작업이 판 기록 없는 Gold 를 만남 | 감독 아래 `gold-panel-rebuild.sh <표> --unconditional "<이유>"` 한 번(4절 3단계와 같음) |
 | `no run was measured with them` | 계약의 `unmeasured_inputs` 에 필수 입력이 있음 | 6절대로 `--dry-run` 을 재고, 상한 안이면 계약에서 그 항목을 지우는 배포 |
 | `could not plan` | 카탈로그 읽기 실패 | 로그 `gold_rebuild.py.log` 확인 후 다음 날 실행이 다시 계획한다 |

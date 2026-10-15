@@ -15,8 +15,9 @@ import hashlib
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pyspark.sql import DataFrame, SparkSession, Window, functions as F, types as T
 from pyspark.storagelevel import StorageLevel
@@ -45,8 +46,10 @@ TITLE_SOURCE = "silver.building_register_titles"
 FLOOR_SOURCE = "silver.building_register_floors"
 UNIT_SOURCE = "silver.building_register_units"
 AREA_SOURCE = "silver.building_register_unit_areas"
+# Not an input: the unit prices are their own panel (root ADR-0190). `read_source` reads the price
+# table's newest batch for that panel, beside the register tables it reads the same way.
 PRICE_SOURCE = "silver.unit_official_price"
-ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE, PRICE_SOURCE)
+ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE)
 # The columns build_gold_panel_frame reads from each input, and the only ones it is handed: the
 # incremental rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a
 # column the build reads must be here or the build fails on it. The unit evidence columns are the
@@ -57,11 +60,10 @@ BUILD_COLUMNS = {
     FLOOR_SOURCE: ("mgm_bldrgst_pk", "floor_row_id", "floor_kind", "floor_number", "floor_index",
                    "floor_display_ko"),
     UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
-                  "unit_label_ko", "unit_name_raw", "floor_number", "floor_kind",
+                  "unit_label_ko", "unit_name_raw", "unit_number", "floor_number", "floor_kind",
                   *evidence_policy()["columns"]),
     AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
                   "structure_name_raw", "floor_kind"),
-    PRICE_SOURCE: ("mgm_bldrgst_pk", "base_date", "price_won"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs; a change to one rebuilds whole.
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
@@ -237,16 +239,7 @@ def unit_placement(units, titles):
     return placed.withColumn("serving_pnu", F.when(F.col("building_id").isNotNull(), F.col("_parent_pnu")).otherwise(F.col("pnu")))
 
 
-def checked_prices(prices):
-    """The price rows, refused when a (register, reference date) repeats or a value is invalid."""
-    assert_unique(prices, ["mgm_bldrgst_pk", "base_date"], PRICE_SOURCE, allow_empty=True)
-    if prices.where(~F.col("base_date").rlike("^[0-9]{8}$") | (F.col("price_won") < 0) |
-                    F.col("base_date").isNull() | F.col("price_won").isNull()).limit(1).count():
-        raise ValueError("unit official price has an invalid base_date or negative price")
-    return prices
-
-
-def build_units(units, titles, areas, prices):
+def build_units(units, titles, areas):
     joined = unit_placement(units, titles).drop("serving_pnu").join(unit_areas(areas), "mgm_bldrgst_pk", "left")
     number, kind = F.col("floor_number"), F.col("floor_kind")
     label = (F.when(number.isNull(), F.lit(""))
@@ -259,27 +252,29 @@ def build_units(units, titles, areas, prices):
         F.coalesce("dong_join_name", F.lit("")).alias("building_name"),
         F.coalesce("dong_name_raw", F.lit("")).alias("dong_name"),
         F.coalesce("unit_label_ko", "unit_name_raw", F.lit("")).alias("ho_name"), label.alias("floor_label"),
+        "floor_kind", "floor_number", F.col("unit_number").alias("ho_number"),
         "exclusive_area_m2", F.coalesce("usage_name", F.lit("")).alias("usage_name"),
         F.coalesce("structure_name", F.lit("")).alias("structure_name"))
-    histories = checked_prices(prices).groupBy("mgm_bldrgst_pk").agg(
-        F.sort_array(F.collect_list(F.struct("base_date", "price_won")), asc=False).alias("official_price_history"))
-    # Match price to unit by the unique register key (mgm_bldrgst_pk), not by
-    # (pnu, dong, ho): dong_name is empty for single-building complexes, so the
-    # name tuple collides across distinct units. The register key is 1:1 per unit.
-    result = projected.join(histories, projected["register_pk"] == histories["mgm_bldrgst_pk"], "left").drop(histories["mgm_bldrgst_pk"])
-    return result.withColumn("official_price_history", F.coalesce("official_price_history", F.array()))
+    return projected
 
 
-def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counters):
+def checked_inputs(frames, counters, names=ALL_SOURCES):
+    """The registers `names` (the titles always) with their PNUs and keys checked and each title's
+    catalog `id`: what the parts of the panel are built from; a register not in `names` is None, so a
+    kind that reads fewer pays for fewer checks. Refuses what the canonical rows cannot hold."""
     titles = valid_pnus(frames[TITLE_SOURCE], TITLE_SOURCE, counters)
-    units = valid_pnus(frames[UNIT_SOURCE], UNIT_SOURCE, counters)
-    areas, floors = frames[AREA_SOURCE], frames[FLOOR_SOURCE]
+    units = valid_pnus(frames[UNIT_SOURCE], UNIT_SOURCE, counters) if UNIT_SOURCE in names else None
+    areas = frames[AREA_SOURCE] if AREA_SOURCE in names else None
+    floors = frames[FLOOR_SOURCE] if FLOOR_SOURCE in names else None
     for frame, keys, name in ((titles, ["mgm_bldrgst_pk"], TITLE_SOURCE),
                              (units, ["mgm_bldrgst_pk"], UNIT_SOURCE),
                              (floors, ["floor_row_id"], FLOOR_SOURCE),
                              (areas, ["area_row_id"], AREA_SOURCE)):
-        assert_unique(frame, keys, name)
+        if frame is not None:
+            assert_unique(frame, keys, name)
     for frame, columns in ((titles, ["floor_area_m2"]), (areas, ["area_m2"])):
+        if frame is None:
+            continue
         for column in columns:
             if frame.where(F.isnan(column) | (F.abs(F.col(column)) == float("inf")) | (F.col(column) < 0)).limit(1).count():
                 raise ValueError(f"{column} must be finite and non-negative")
@@ -287,16 +282,26 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
         if titles.where((F.col(column) < 0) | (F.col(column) > 32767)).limit(1).count():
             raise ValueError(f"{column} must fit the canonical floor count")
     titles = titles.withColumn("id", canonical_id("building", F.col("mgm_bldrgst_pk")))
-    counters["unlinked_floor_count"] = floors.join(titles.select("mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_anti").count()
-    projected_units = build_units(units, titles, areas, frames[PRICE_SOURCE])
-    counters["unlinked_unit_count"] = projected_units.where(F.col("building_id").isNull()).count()
-    unit_fields = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk", "building_register_pk",
-                   "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name", "official_price_history", "building_link_evidence", "unit_pnu"]
-    nested_units = sorted_objects(projected_units.where(F.col("building_id").isNotNull()),
-                                  ["_parent_pnu", "building_id"], unit_fields, "units").withColumnRenamed("_parent_pnu", "pnu")
-    unlinked = sorted_objects(projected_units.where(F.col("building_id").isNull()), ["pnu"], unit_fields, "unlinked_units")
-    floor_fields = ["floor_row_id", "floor_kind", "floor_number", "floor_index", "floor_display_ko"]
-    nested_floors = sorted_objects(floors, ["mgm_bldrgst_pk"], floor_fields, "floors")
+    return titles, units, floors, areas
+
+
+# A building's own fields in the order the document carries them (`register_pk` first: the sort key).
+TITLE_FIELDS = ["register_pk", "id", "parcel_id", "purpose_code", "structure_code", "floor_area_m2", "stories",
+                "below_ground_floors", "has_rooftop", "rooftop_area_m2", "rooftop_usage", "built_year"]
+FLOOR_FIELDS = ["floor_row_id", "floor_kind", "floor_number", "floor_index", "floor_display_ko"]
+UNIT_FIELDS = ["dong_name", "ho_name", "id", "parcel_id", "building_id", "register_pk", "building_register_pk",
+               "building_name", "floor_label", "exclusive_area_m2", "usage_name", "structure_name",
+               "building_link_evidence", "unit_pnu"]
+# A data kind carries the source's values, never a screen's words (root ADR-0193): the panel's
+# Korean floor label, floor display text and joined rooftop usages stay in the panel until it retires,
+# and the web writes them from these.
+TITLE_KIND_FIELDS = TITLE_FIELDS
+FLOOR_KIND_FIELDS = [f for f in FLOOR_FIELDS if f != "floor_display_ko"]
+UNIT_KIND_FIELDS = [f for f in UNIT_FIELDS if f != "floor_label"] + ["floor_kind", "floor_number", "ho_number"]
+
+
+def title_rows(titles, units, floors, areas):
+    """One row per building: its PNU and TITLE_FIELDS, the rooftop facts read from its floors and areas."""
     roof = floors.groupBy("mgm_bldrgst_pk").agg(F.max(F.when(F.col("floor_kind") == "rooftop", 1).otherwise(0)).alias("_roof"))
     # Common rooftop rows may name their title directly or an exclusive register linked to it.
     area_links = verified_building_links(units).select(F.col("mgm_bldrgst_pk").alias("_unit_pk"), F.col("building_mgm_bldrgst_pk").alias("_title_pk"))
@@ -305,26 +310,141 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
         "_building_pk", F.coalesce("_title_pk", "mgm_bldrgst_pk"))
     roof_areas = roof_areas.groupBy("_building_pk").agg(
         F.sum(F.col("area_m2").cast("decimal(38,6)")).cast("double").alias("rooftop_area_m2"),
-        F.concat_ws(" · ", F.sort_array(F.collect_set(text_or_null("usage_name_raw")))).alias("rooftop_usage"))
-    buildings = titles.join(nested_floors, "mgm_bldrgst_pk", "left").join(roof, "mgm_bldrgst_pk", "left")
+        F.concat_ws(" · ", F.sort_array(F.collect_set(text_or_null("usage_name_raw")))).alias("rooftop_usage"),
+        F.sort_array(F.collect_set(text_or_null("usage_name_raw"))).alias("rooftop_usages"))
+    buildings = titles.join(roof, "mgm_bldrgst_pk", "left")
     buildings = buildings.join(roof_areas, buildings.mgm_bldrgst_pk == roof_areas._building_pk, "left")
-    buildings = buildings.join(nested_units, (buildings.pnu == nested_units.pnu) & (buildings.id == nested_units.building_id), "left").drop(nested_units.pnu).drop(nested_units.building_id)
-    buildings = buildings.select("pnu", "id", canonical_id("parcel", F.col("pnu")).alias("parcel_id"),
-        F.col("mgm_bldrgst_pk").alias("register_pk"), text_or_null("purpose_code_raw").alias("purpose_code"),
+    return buildings.select("pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id",
+        canonical_id("parcel", F.col("pnu")).alias("parcel_id"), text_or_null("purpose_code_raw").alias("purpose_code"),
         text_or_null("structure_code_raw").alias("structure_code"),
         F.when(F.col("floor_area_m2") > 0, F.col("floor_area_m2")).alias("floor_area_m2"),
         F.col("ground_floor_count").alias("stories"), F.coalesce("basement_floor_count", F.lit(0)).alias("below_ground_floors"),
         (F.coalesce("_roof", F.lit(0)) == 1).alias("has_rooftop"), "rooftop_area_m2",
         F.coalesce("rooftop_usage", F.lit("")).alias("rooftop_usage"), F.col("approval_year").alias("built_year"),
-        F.coalesce("floors", F.array()).alias("floors"), F.coalesce("units", F.array()).alias("units"))
-    fields = ["register_pk"] + [c for c in buildings.columns if c not in ("pnu", "register_pk")]
-    grouped = sorted_objects(buildings, ["pnu"], fields, "buildings")
+        F.coalesce("rooftop_usages", F.array().cast("array<string>")).alias("rooftop_usages"))
+
+
+def floor_rows(titles, floors, counters, fields=FLOOR_FIELDS):
+    """One row per building that has floors: its PNU, `register_pk`, `id` and its sorted `floors`."""
+    counters["unlinked_floor_count"] = floors.join(titles.select("mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_anti").count()
+    nested = sorted_objects(floors, ["mgm_bldrgst_pk"], fields, "floors")
+    return titles.join(nested, "mgm_bldrgst_pk").select(
+        "pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id", "floors")
+
+
+def unit_rows(titles, units, areas, counters, fields=UNIT_FIELDS):
+    """(one row per building that has units: its PNU, `register_pk`, `id` and its sorted `units`;
+    one row per PNU with units no building of it carries: `unlinked_units`)."""
+    projected = build_units(units, titles, areas)
+    counters["unlinked_unit_count"] = projected.where(F.col("building_id").isNull()).count()
+    nested = sorted_objects(projected.where(F.col("building_id").isNotNull()), ["_parent_pnu", "building_id"],
+                            fields, "units")
+    linked = titles.select("pnu", F.col("mgm_bldrgst_pk").alias("register_pk"), "id").join(
+        nested, (F.col("pnu") == F.col("_parent_pnu")) & (F.col("id") == F.col("building_id"))).select(
+        "pnu", "register_pk", "id", "units")
+    unlinked = sorted_objects(projected.where(F.col("building_id").isNull()), ["pnu"], fields, "unlinked_units")
+    return linked, unlinked
+
+
+def per_pnu(rows, fields, output):
+    """`rows` grouped by PNU into one sorted array of `fields` structs."""
+    return sorted_objects(rows, ["pnu"], fields, output)
+
+
+def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counters):
+    titles, units, floors, areas = checked_inputs(frames, counters)
+    floors_by_building = floor_rows(titles, floors, counters)
+    units_by_building, unlinked = unit_rows(titles, units, areas, counters)
+    buildings = (title_rows(titles, units, floors, areas)
+                 .join(floors_by_building.select("id", "floors"), "id", "left")
+                 .join(units_by_building.select("id", "units"), "id", "left")
+                 .withColumn("floors", F.coalesce("floors", F.array()))
+                 .withColumn("units", F.coalesce("units", F.array())))
+    grouped = per_pnu(buildings, [*TITLE_FIELDS, "floors", "units"], "buildings")
     pnus = titles.select("pnu").union(units.select("pnu")).distinct()
     gold = pnus.join(grouped, "pnu", "left").join(unlinked, "pnu", "left").select("pnu",
         F.to_json(F.coalesce("buildings", F.array()), JSON_OPTIONS).alias("buildings_json"),
         F.to_json(F.coalesce("unlinked_units", F.array()), JSON_OPTIONS).alias("unlinked_units_json"),
         F.lit(source_snapshot_id).alias("source_snapshot_id"), F.lit(published_at_utc).alias("published_at_utc"))
     return gold.withColumn("row_digest", row_digest_column()).select(*GOLD_COLUMNS)
+
+
+@dataclass(frozen=True)
+class Section:
+    """One by-PNU data kind of this panel (root ADR-0193): `build(frames, counters)` returns `pnu` and
+    the kind's content as arrays of structs, one row per PNU that has it, built from the same parts as
+    the panel; `panel_view(panel_rows, entries)` is the panel's content in the kind's shape, for the
+    kind's parity check (`entries` names the struct type of each content array). `parity_ignores`
+    names the fields the kind carries as the source's values where the panel carries display text,
+    so the two cannot be equal there."""
+
+    name: str
+    build: Callable[[dict[str, DataFrame], dict[str, int]], DataFrame]
+    panel_view: Callable[[DataFrame, dict[str, T.DataType]], DataFrame]
+    parity_ignores: tuple[str, ...] = ()
+
+
+def _titles(frames, counters):
+    titles, units, floors, areas = checked_inputs(frames, counters)
+    rows = title_rows(titles, units, floors, areas).withColumn("rooftop_usage", F.col("rooftop_usages"))
+    return per_pnu(rows, TITLE_KIND_FIELDS, "buildings")
+
+
+def _floors(frames, counters):
+    titles, _units, floors, _areas = checked_inputs(frames, counters, (TITLE_SOURCE, FLOOR_SOURCE))
+    return per_pnu(floor_rows(titles, floors, counters, FLOOR_KIND_FIELDS), ["register_pk", "id", "floors"], "floors")
+
+
+# The building id of the units no building of their PNU carries: one document of them per PNU
+# (root ADR-0252, as the unit price lane's, ADR-0204).
+NO_BUILDING_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _units(frames, counters):
+    """One row per building of a PNU that has units, and one per PNU with units no building carries
+    (`building_id` NO_BUILDING_ID): the units kind's grain (root ADR-0252)."""
+    titles, units, _floors, areas = checked_inputs(frames, counters, (TITLE_SOURCE, UNIT_SOURCE, AREA_SOURCE))
+    linked, unlinked = unit_rows(titles, units, areas, counters, UNIT_KIND_FIELDS)
+    return linked.select("pnu", F.col("id").alias("building_id"), "units").unionByName(
+        unlinked.select("pnu", F.lit(NO_BUILDING_ID).alias("building_id"), F.col("unlinked_units").alias("units")))
+
+
+def _buildings_as(entry_type, keep=None):
+    """The panel's `buildings_json` read as an array of `entry_type` (fields a kind does not carry are
+    dropped), keeping the buildings `keep` holds for."""
+    parsed = F.from_json("buildings_json", T.ArrayType(entry_type), JSON_OPTIONS)
+    return parsed if keep is None else F.filter(parsed, keep)
+
+
+def _has_floors(building):
+    return F.size(building["floors"]) > 0
+
+
+def _units_view(rows, types):
+    """The panel's units in the units kind's grain: each building's, then the PNU's unlinked ones."""
+    unit = T.ArrayType(types["units"])
+    building_units = T.StructType([T.StructField("id", T.StringType()), T.StructField("units", unit)])
+    buildings = rows.select("pnu", F.explode(_buildings_as(building_units, lambda b: F.size(b["units"]) > 0)).alias("b"))
+    unlinked = rows.select("pnu", F.lit(NO_BUILDING_ID).alias("building_id"),
+                           F.from_json("unlinked_units_json", unit, JSON_OPTIONS).alias("units"))
+    return buildings.select("pnu", F.col("b.id").alias("building_id"), F.col("b.units").alias("units")).unionByName(
+        unlinked.where(F.size("units") > 0))
+
+
+def _titles_view(rows, types):
+    return rows.select("pnu", _buildings_as(types["buildings"]).alias("buildings"))
+
+
+def _floors_view(rows, types):
+    return rows.select("pnu", _buildings_as(types["floors"], _has_floors).alias("floors"))
+
+
+SECTIONS: tuple[Section, ...] = (
+    Section("titles", _titles, _titles_view, ("rooftop_usage",)),
+    Section("floors", _floors, _floors_view),
+    Section("units", _units, _units_view, ("floor_kind", "floor_number", "ho_number")),
+)
+SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
 
 
 def row_digest_column():
@@ -446,8 +566,9 @@ def _register_keys(frame):
     return tuple(c for c in ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk") if c in frame.columns)
 
 
-def appended_changes(spark, args, previous, pins, snapshots, new, appended):
-    """Each appended input's change set and the rows its PNUs are found through (root ADR-0189).
+def appended_changes(spark, args, previous, pins, snapshots, new, appended, build_columns=None):
+    """Each appended input's change set and the rows its PNUs are found through (root ADR-0189),
+    projected to `build_columns` (this panel's, unless a panel built from these inputs names its own).
 
     Every input is read as one batch (`assert_single_snapshot`). The same batch at both pins: the
     change set is exactly the rows the appends added to it, and the old rows are among the new.
@@ -455,16 +576,17 @@ def appended_changes(spark, args, previous, pins, snapshots, new, appended):
     superset of the difference that holds every old and new row the mapping needs, since an append
     leaves the old batch untouched. Read by batch id, not compared row by row.
     """
+    build_columns = build_columns or BUILD_COLUMNS
     result = {}
     for name in appended:
         old_batch, new_batch = assert_single_snapshot(read_source(spark, args, name, previous), name), snapshots[name]
         if old_batch == new_batch:
             added = read_source(spark, args, name, pins, after=previous[name], batches=(new_batch,))
-            change = incremental.project_build_inputs({name: added}, BUILD_COLUMNS)[name]
+            change = incremental.project_build_inputs({name: added}, build_columns)[name]
             result[name] = (change, new[name])
         else:
             both = read_source(spark, args, name, pins, batches=(old_batch, new_batch))
-            change = incremental.project_build_inputs({name: both}, BUILD_COLUMNS)[name]
+            change = incremental.project_build_inputs({name: both}, build_columns)[name]
             result[name] = (change, change)
     return result
 
@@ -522,8 +644,6 @@ def restrict_inputs(frames, keys):
             frames[FLOOR_SOURCE], [("mgm_bldrgst_pk", kept_title_registers, "_register", False)]),
         AREA_SOURCE: incremental.rows_matching_any(
             frames[AREA_SOURCE], [("mgm_bldrgst_pk", any_register, "_register", False)]),
-        PRICE_SOURCE: incremental.rows_matching_any(
-            frames[PRICE_SOURCE], [("mgm_bldrgst_pk", unit_registers, "_register", False)]),
     }
 
 

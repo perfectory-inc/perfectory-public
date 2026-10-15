@@ -55,7 +55,12 @@ RETRY_SECONDS="${FOUNDATION_BY_PNU_BAKE_RETRY_SECONDS:-45}"
 for name in $(compgen -e | grep "^${P}_" || true); do unset "${name}"; done
 export "${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_CONFIRM_PACK_EXPORT=true" "${P}_PACK_GENERATION=${GENERATION}"
 
-if [[ "${LANE}" == building && -z "${DATABASE_URL:-}" ]]; then
+# The building lane and a building kind check the building links their units carry (root ADR-0252).
+reads_links=false
+[[ "${LANE}" == building ]] && reads_links=true
+[[ "${LANE}" == building || "${LANE}" == parcel ]] \
+  || reads_links="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${LANE}" reads_building_links)"
+if [[ "${reads_links}" == true && -z "${DATABASE_URL:-}" ]]; then
   if ! DATABASE_URL="$(by_pnu_runtime_database_url)"; then
     log "refused: cannot resolve the runtime database connection the building export reads"
     exit 78

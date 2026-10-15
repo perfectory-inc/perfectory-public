@@ -412,7 +412,7 @@
     },
     {
       "id": "gold_panel_rebuild",
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the unit price panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182, ADR-0190); the building panel no longer reads it. Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "schedule": "45 8 * * *",
@@ -427,7 +427,6 @@
         "silver-building-register-floors-to-gold-building-panel",
         "silver-building-register-units-to-gold-building-panel",
         "silver-building-register-unit-areas-to-gold-building-panel",
-        "silver-unit-official-price-to-gold-building-panel",
         "silver-building-register-titles-to-gold-unit-price-panel",
         "silver-building-register-units-to-gold-unit-price-panel",
         "silver-unit-official-price-to-gold-unit-price-panel",
@@ -560,7 +559,10 @@
         "gold-parcel-panel-to-gold-parcel-characteristics",
         "gold-parcel-panel-to-gold-parcel-forest-ledger",
         "gold-parcel-panel-to-gold-parcel-transfer-history",
-        "gold-parcel-panel-to-gold-parcel-land-rights"
+        "gold-parcel-panel-to-gold-parcel-land-rights",
+        "gold-building-panel-to-gold-building-titles",
+        "gold-building-panel-to-gold-building-floors",
+        "gold-building-panel-to-gold-building-units"
       ],
       "enabled": true,
       "enabled_since": "2026-10-12T22:17:38Z"
@@ -612,7 +614,10 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
+        "gold-building-titles-to-building-titles-by-pnu-section-packs",
+        "gold-building-floors-to-building-floors-by-pnu-section-packs",
+        "gold-building-units-to-building-units-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"

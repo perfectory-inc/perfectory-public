@@ -40,6 +40,26 @@ ROWS = {
 }
 
 
+class RetiredColumnsTest(unittest.TestCase):
+    """A kind line's retired columns leave the live Gold through the producer, never by hand."""
+
+    def test_a_retired_column_needs_its_reason(self):
+        import tempfile
+
+        import by_pnu_kinds
+
+        line = {"host": "parcel_by_pnu_gateway", "kind": "x", "section": "price", "columns": ["price_json"],
+                "retired_columns": ["price_total"]}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp, "contract.json")
+            path.write_text(json.dumps({"by_pnu_lanes": {"parcel-x": line}}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "retired_columns_reason"):
+                by_pnu_kinds.kinds(path)
+            path.write_text(json.dumps({"by_pnu_lanes": {"parcel-x": {**line, "retired_columns_reason": "r"}}}),
+                            encoding="utf-8")
+            self.assertEqual(by_pnu_kinds.kinds(path)["parcel-x"].retired_columns, ("price_total",))
+
+
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class ParcelKindSparkTest(unittest.TestCase):
     @classmethod
@@ -93,6 +113,29 @@ class ParcelKindSparkTest(unittest.TestCase):
                 self.assertEqual(rows[pnu(NEW, 2)].attached_via, "lineage:code_derived")
                 count, _ = job.validate_gold_frame(spec, gold, 2)
                 self.assertEqual(count, 2)
+
+    def test_the_land_rights_kind_carries_the_whole_list_the_panel_pages(self):
+        # Root ADR-0193 §5: the old API's 200-row page is the panel's until it retires, not the kind's.
+        import argparse
+
+        import by_pnu_kind_silver_to_gold as job
+        import parcel_panel_silver_to_gold as panel
+
+        _, frames, cand, _ = self.frames()
+        many = [(pnu(NEW, 1), f"{n:04d}", "가", "", "", "", "", "1/2", None, None) for n in range(2, 252)]
+        frames[panel.LAND_RIGHT_SOURCE] = frames[panel.LAND_RIGHT_SOURCE].union(
+            self.spark.createDataFrame(many, frames[panel.LAND_RIGHT_SOURCE].schema))
+        args = argparse.Namespace(published_at_utc="2099-09-01T00:00:00Z", allow_intra_snapshot_duplicates=False)
+        panel_rows = {r.pnu: r for r in panel.build_panel(self.spark, args, frames, cand, {}, "snap").collect()}
+        self.assertEqual(len(json.loads(panel_rows[pnu(NEW, 1)].land_rights_json)), panel.LAND_RIGHT_PAGE_BOUND)
+        self.assertEqual(panel_rows[pnu(NEW, 1)].land_right_total, 251)
+        spec = job.KindSpec("parcel-land-rights")
+        gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources}, cand, {}, "snap")
+        self.assertNotIn("land_right_total", gold.columns)
+        own = {r.pnu: r for r in gold.collect()}[pnu(NEW, 1)]
+        self.assertEqual(len(json.loads(own.land_rights_json)), 251)
+        panel_frame = panel.build_panel(self.spark, args, frames, cand, {}, "snap")
+        self.assertEqual(job.parity_mismatches(spec, gold, panel_frame).count(), 0)
 
     def test_parity_refuses_a_drifted_panel(self):
         from pyspark.sql import functions as F

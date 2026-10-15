@@ -70,6 +70,7 @@ for g in hook-isolation-self-test \
          build-coupling-baseline-self-test build-coupling-baseline \
          lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
          every-table-declares-its-load-self-test every-table-declares-its-load \
+         data-knows-no-screen-self-test data-knows-no-screen \
          pipeline-graph-covers-every-dataset-self-test pipeline-graph-covers-every-dataset \
          region-code-pairs-have-one-home-self-test region-code-pairs-have-one-home \
          area-registry-self-test area-registry \

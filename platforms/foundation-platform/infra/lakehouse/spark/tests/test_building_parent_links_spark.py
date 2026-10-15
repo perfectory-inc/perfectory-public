@@ -34,6 +34,7 @@ class BuildingParentLinksTest(unittest.TestCase):
         ], "pnu string,mgm_bldrgst_pk string,building_mgm_bldrgst_pk string,dong_join_name string,"
            "dong_name_raw string,unit_label_ko string,unit_name_raw string,floor_number int,floor_kind string")
         return (frame.withColumn("unit_row_id", F.lit("synthetic-unit-row"))
+                .withColumn("unit_number", F.lit(None).cast("int"))
                 .withColumn("building_link_method", F.lit(method))
                 .withColumn("building_link_source_record_id", F.lit("synthetic-basis#line=2"))
                 .withColumn("building_link_input_sha256", F.lit("a" * 64))
@@ -45,8 +46,7 @@ class BuildingParentLinksTest(unittest.TestCase):
             ("9999900000100000002", "TITLE-1", "synthetic-title-id"),
         ], "pnu string,mgm_bldrgst_pk string,id string")
         areas = self.spark.createDataFrame([], "area_row_id string,mgm_bldrgst_pk string,area_kind string,area_m2 double,usage_name_raw string,structure_name_raw string")
-        prices = self.spark.createDataFrame([], "mgm_bldrgst_pk string,base_date string,price_won long")
-        row = self.gold.build_units(self.units(), titles, areas, prices).first()
+        row = self.gold.build_units(self.units(), titles, areas).first()
         self.assertEqual(row.building_id, "synthetic-title-id")
         self.assertEqual(row.pnu, "9999900000100000001")
 
@@ -58,9 +58,8 @@ class BuildingParentLinksTest(unittest.TestCase):
            "floor_area_m2 double,ground_floor_count int,basement_floor_count int,approval_year int")
         areas = self.spark.createDataFrame([], "area_row_id string,mgm_bldrgst_pk string,area_kind string,area_m2 double,usage_name_raw string,structure_name_raw string,floor_kind string")
         floors = self.spark.createDataFrame([], "mgm_bldrgst_pk string,floor_row_id string,floor_kind string,floor_number int,floor_index int,floor_display_ko string")
-        prices = self.spark.createDataFrame([], "mgm_bldrgst_pk string,base_date string,price_won long")
         frames = {self.gold.UNIT_SOURCE: self.units(), self.gold.TITLE_SOURCE: titles,
-                  self.gold.AREA_SOURCE: areas, self.gold.FLOOR_SOURCE: floors, self.gold.PRICE_SOURCE: prices}
+                  self.gold.AREA_SOURCE: areas, self.gold.FLOOR_SOURCE: floors}
         row = self.gold.build_gold_panel_frame(frames, "synthetic-source", "2099-01-01T00:00:00Z", {}).first()
         self.assertEqual(json.loads(row.buildings_json), [])
         unit = json.loads(row.unlinked_units_json)[0]

@@ -3,7 +3,9 @@
 Run by the deploy's `migrate` step after the database migrations, the way those bring Postgres to
 the release's schema. For each contract table the lakehouse holds:
 
-1. Undeclared columns stop the run except for the exact known-drift columns. All present column types
+1. Undeclared columns stop the run except for the exact known-drift columns and the columns a by-PNU
+   kind line retires (`retired_columns`, root ADR-0193 §9), which are dropped: an Iceberg metadata
+   commit, the table's earlier snapshots keep them. All present column types
    must match. Contract columns in another order are put in contract order: an `INSERT` resolves columns by position and would
    write values into the wrong ones, and Iceberg reorders by metadata alone (rows are read by field
    id), so no data is rewritten.
@@ -34,6 +36,7 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from pyspark.sql import Column, SparkSession
 
+import by_pnu_kinds
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
 from platform_contracts import (
     IDENTIFIER_PATTERN,
@@ -109,12 +112,19 @@ def known_drift_for_contract(contract: dict, table_name: str) -> dict:
     return entry
 
 
+def retired_columns(table_name: str) -> tuple[str, ...]:
+    """The columns the kind line of `table_name` retires; the migration drops them where present."""
+    return next((kind.retired_columns for kind in by_pnu_kinds.kinds().values()
+                 if kind.gold_table == table_name), ())
+
+
 def migration_contract(contract: dict, actual: tuple[str, ...], table_name: str) -> dict:
     """Keep an explicit temporary extension local to the migrator; ordinary writers stay strict."""
     expected = column_names(contract)
     entry = known_drift_for_contract(contract, table_name)
     allowed = {column["name"]: column for column in entry.get("extra_columns", ())}
-    unknown = [name for name in actual if name not in expected and name not in allowed]
+    retired = retired_columns(table_name)
+    unknown = [name for name in actual if name not in expected and name not in allowed and name not in retired]
     if unknown:
         raise MigrationBlocked(f"{table_name} carries columns the contract does not declare: {unknown}")
     retained = [name for name in allowed if name in actual]
@@ -135,6 +145,8 @@ def plan_table(
     """What bringing one table to its contract means, or why it cannot be done automatically."""
     effective = migration_contract(contract, actual, table_name)
     expected = column_names(effective)
+    drop = [name for name in actual if name in retired_columns(table_name) and name not in expected]
+    actual = tuple(name for name in actual if name not in drop)
     if actual_types is not None:
         for column in effective["columns"]:
             name = column["name"]
@@ -164,6 +176,8 @@ def plan_table(
     retained = [name for name in expected if name not in column_names(contract)]
     if retained:
         plan["temporary_extra_columns"] = retained
+    if drop:
+        plan["drop"] = drop
     return plan
 
 
@@ -306,18 +320,22 @@ def inspect_table(spark: SparkSession, quoted: str, contract: dict, table_name: 
 def apply_table(spark: SparkSession, catalog: str, table_name: str, contract: dict, plan: dict) -> dict:
     quoted = ".".join(f"`{part}`" for part in f"{catalog}.{table_name}".split("."))
     actual = iceberg_table_columns(spark, quoted)
+    for name in plan.get("drop", ()):
+        spark.sql(f"ALTER TABLE {quoted} DROP COLUMN `{name}`")
+    actual = iceberg_table_columns(spark, quoted)
     effective = migration_contract(contract, actual, table_name)
+    result = {"dropped": list(plan.get("drop", ()))} if plan.get("drop") else {}
     if plan["reorder"]:
         reorder_to_contract(spark, quoted, effective, actual)
     added = evolve_iceberg_table_to_contract(spark, quoted, effective)
-    result = {"added": list(added)}
+    result["added"] = list(added)
     if plan["backfill"]:
         result["backfilled"] = backfill(spark, catalog, table_name, effective, plan["backfill"])
     if plan["write_order"]:
         result["write_ordered_by"] = list(contract["sort_order"]) if apply_write_order(
             spark, quoted, contract) else []
     remaining = inspect_table(spark, quoted, contract, table_name)
-    if remaining["add"] or remaining["backfill"] or remaining["reorder"] or remaining["write_order"]:
+    if remaining["add"] or remaining["backfill"] or remaining["reorder"] or remaining["write_order"] or remaining.get("drop"):
         raise MigrationBlocked(f"{table_name} still needs migration: {remaining}")
     return result
 
@@ -370,7 +388,8 @@ def main() -> int:
                 report[table_name] = {"state": "blocked", "reason": str(error)}
                 print(f"lakehouse-migrate {table_name}: BLOCKED {error}")
                 continue
-            if not plan["add"] and not plan["reorder"] and not plan["backfill"] and not plan["write_order"]:
+            if (not plan["add"] and not plan["reorder"] and not plan["backfill"] and not plan["write_order"]
+                    and not plan.get("drop")):
                 entry = ({"state": "known_drift", **plan} if plan.get("temporary_extra_columns")
                          else {"state": "matches"})
                 if table_name in known_drift:

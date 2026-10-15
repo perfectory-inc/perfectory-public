@@ -473,10 +473,34 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.building_floors",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_floors,PROD)",
+          "node_id": "gold-building-floors",
+          "title": "건물 층 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.building_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
           "node_id": "gold-building-panel",
           "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_titles,PROD)",
+          "node_id": "gold-building-titles",
+          "title": "건물 표제부 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_units,PROD)",
+          "node_id": "gold-building-units",
+          "title": "건물 호 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1503,6 +1527,14 @@
       ],
       "reads": [
         {
+          "dataset": "iceberg://gold.building_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
+          "node_id": "gold-building-panel",
+          "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
           "node_id": "gold-parcel-panel",
@@ -1512,6 +1544,30 @@
         }
       ],
       "writes": [
+        {
+          "dataset": "iceberg://gold.building_floors",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_floors,PROD)",
+          "node_id": "gold-building-floors",
+          "title": "건물 층 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_titles,PROD)",
+          "node_id": "gold-building-titles",
+          "title": "건물 표제부 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_units,PROD)",
+          "node_id": "gold-building-units",
+          "title": "건물 호 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
         {
           "dataset": "iceberg://gold.parcel_characteristics",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
@@ -1601,10 +1657,34 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.building_floors",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_floors,PROD)",
+          "node_id": "gold-building-floors",
+          "title": "건물 층 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.building_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
           "node_id": "gold-building-panel",
           "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_titles,PROD)",
+          "node_id": "gold-building-titles",
+          "title": "건물 표제부 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_units,PROD)",
+          "node_id": "gold-building-units",
+          "title": "건물 호 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1947,10 +2027,34 @@
       ],
       "reads": [
         {
+          "dataset": "iceberg://gold.building_floors",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_floors,PROD)",
+          "node_id": "gold-building-floors",
+          "title": "건물 층 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.building_panel",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
           "node_id": "gold-building-panel",
           "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_titles,PROD)",
+          "node_id": "gold-building-titles",
+          "title": "건물 표제부 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_units,PROD)",
+          "node_id": "gold-building-units",
+          "title": "건물 호 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2033,6 +2137,30 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,building-by-pnu-serving,PROD)",
           "node_id": "building-by-pnu-serving",
           "title": "건물 by-PNU 서빙 문서",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://building-floors-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,building-floors-by-pnu-section-packs,PROD)",
+          "node_id": "building-floors-by-pnu-section-packs",
+          "title": "건물 층 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://building-titles-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,building-titles-by-pnu-section-packs,PROD)",
+          "node_id": "building-titles-by-pnu-section-packs",
+          "title": "건물 표제부 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://building-units-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,building-units-by-pnu-section-packs,PROD)",
+          "node_id": "building-units-by-pnu-section-packs",
+          "title": "건물 호 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },
