@@ -18,7 +18,6 @@
 mod fixtures {
     use chrono::{DateTime, Utc};
     use shared_kernel::broker_license::BrokerLicense;
-    use shared_kernel::business_number::BusinessNumber;
     use shared_kernel::email::Email;
     use shared_kernel::id::Id;
 
@@ -31,10 +30,6 @@ mod fixtures {
     // 64-char hex (lowercase). SHA-256 of "test" — fixture only.
     pub(super) const SAMPLE_PHONE_HASH: &str =
         "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-
-    pub(super) fn sample_business_number() -> BusinessNumber {
-        BusinessNumber::try_new("1234567891").expect("valid")
-    }
 
     pub(super) fn sample_broker_license() -> BrokerLicense {
         BrokerLicense::try_new("11-2024-12345").expect("valid")

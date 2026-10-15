@@ -34,6 +34,7 @@ EXPECTED_TABLES=(
   outbox_event
   admin_action
   business_verification_queue
+  business_verification_status_history
   listing_review_queue
   listing_report
   featured_content

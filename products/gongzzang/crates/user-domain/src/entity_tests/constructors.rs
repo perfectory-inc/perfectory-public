@@ -30,8 +30,6 @@ fn try_new_happy_path() {
     assert_eq!(user.updated_at, now);
     // Optional fields default
     assert!(user.phone_kr_hash.is_none());
-    assert!(user.business_number.is_none());
-    assert!(user.business_verified_at.is_none());
     assert!(user.broker_license_number.is_none());
     assert!(user.broker_verified_at.is_none());
     assert!(user.roles.is_empty());
