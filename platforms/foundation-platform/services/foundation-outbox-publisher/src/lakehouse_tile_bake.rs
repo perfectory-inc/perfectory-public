@@ -663,6 +663,18 @@ struct Config {
     /// The Compose project of the job that runs the bake: GDAL and tippecanoe carry its labels so
     /// the unit's ExecStopPost removes them after a timeout, with the job's Spark container.
     container_project: Option<String>,
+    /// ADR-0253: bake and gate only; nothing is recorded, uploaded or promoted.
+    rehearsal: bool,
+}
+
+/// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
+/// misspelt rehearsal never promotes.
+fn rehearsal_flag(value: Option<String>) -> anyhow::Result<bool> {
+    match value.as_deref() {
+        None | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(other) => bail!("{PREFIX}_REHEARSAL is {other:?}; it is 0 or 1"),
+    }
 }
 
 impl Config {
@@ -714,6 +726,7 @@ impl Config {
             container_project: container_project(optional_env_value(&format!(
                 "{PREFIX}_CONTAINER_PROJECT"
             ))?)?,
+            rehearsal: rehearsal_flag(optional_env_value(&format!("{PREFIX}_REHEARSAL"))?)?,
         })
     }
 }
@@ -1074,6 +1087,18 @@ async fn bake_in(
         "the active release already serves Gold snapshot {}",
         active.snapshot
     );
+    if config.rehearsal {
+        return rehearse(
+            config,
+            &contract.images,
+            work,
+            prepared,
+            &active,
+            samples,
+            summary,
+        )
+        .await;
+    }
     let uow = Arc::new(
         PgCatalogUnitOfWork::new(pool.clone())
             .with_runtime_manifest_publication(RuntimeManifestPublicationCapability::enabled()),
@@ -1153,16 +1178,28 @@ async fn bake_in(
     Ok(())
 }
 
-async fn bake_and_upload(
+/// What the bake produced before anything is written: the archive, the SHA-256 of its maxzoom id
+/// hashes, and — when the active release came from another oven — the first-release equivalence
+/// outcome with the file its whole evidence was written to.
+struct Gated {
+    archive: PathBuf,
+    ids_digest: String,
+    equivalence: Option<(tile_equivalence::Equivalence, PathBuf)>,
+}
+
+/// Bakes and runs every gate, writing nothing but the work directory and the equivalence evidence
+/// (named after `label`) beside it.
+#[allow(clippy::too_many_arguments)]
+async fn bake_and_gate(
     config: &Config,
     images: &ImageSet,
-    build_job_id: VectorTileBuildJobId,
+    label: &str,
     work: &Path,
     (columns, ids): (Vec<String>, ServedIds),
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
-) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
+) -> anyhow::Result<Gated> {
     let layer = &active.layer;
     let archive =
         build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
@@ -1188,39 +1225,120 @@ async fn bake_and_upload(
         .await
         .context("the archive gate stopped")??
     };
+    if tile_equivalence::skipped(active.origin).is_some() {
+        return Ok(Gated {
+            archive,
+            ids_digest,
+            equivalence: None,
+        });
+    }
     let storage = TileDerivativeR2Config::from_env()?;
-    let equivalence = match tile_equivalence::skipped(active.origin) {
-        Some(skipped) => skipped,
-        None => {
-            // The active archive is read by range: its directory and the sampled tiles, never whole.
-            let active_reader = R2ObjectStorage::from_config(storage.reader_config())
-                .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
-                .await
-                .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
-            let (archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
-            let outcome = tokio::task::spawn_blocking(move || {
-                tile_equivalence::first_release_gate(
-                    active_reader,
-                    File::open(&archive)?,
-                    &samples,
-                    (&layer.source_layer, &layer.feature_id_property),
-                    (layer.tile_min_zoom, layer.tile_max_zoom),
-                    &collector,
-                    &ids,
-                )
-            })
-            .await
-            .context("the equivalence gate stopped")??;
-            // Beside the work directory, which is removed: the whole evidence outlives the bake.
-            let evidence_file = config.work_root.join(format!(
-                "{}-first-release-equivalence-{build_job_id}.json",
-                config.unit_key
-            ));
-            std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
-                .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
-            tile_equivalence::verdict(&outcome, &evidence_file.display().to_string())?
-        }
+    // The active archive is read by range: its directory and the sampled tiles, never whole.
+    let active_reader = R2ObjectStorage::from_config(storage.reader_config())
+        .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
+        .await
+        .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
+    let (new_archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
+    let outcome = tokio::task::spawn_blocking(move || {
+        tile_equivalence::first_release_gate(
+            active_reader,
+            File::open(&new_archive)?,
+            &samples,
+            (&layer.source_layer, &layer.feature_id_property),
+            (layer.tile_min_zoom, layer.tile_max_zoom),
+            &collector,
+            &ids,
+        )
+    })
+    .await
+    .context("the equivalence gate stopped")??;
+    // Beside the work directory, which is removed: the whole evidence outlives the bake.
+    let evidence_file = config.work_root.join(format!(
+        "{}-first-release-equivalence-{label}.json",
+        config.unit_key
+    ));
+    std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
+        .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
+    Ok(Gated {
+        archive,
+        ids_digest,
+        equivalence: Some((outcome, evidence_file)),
+    })
+}
+
+/// ADR-0253: bakes and gates the snapshot like a bake, then stops — no build row, no upload, no
+/// promotion, no fold — and prints what a person needs before the contract serves the edition.
+async fn rehearse(
+    config: &Config,
+    images: &ImageSet,
+    work: &Path,
+    prepared: (Vec<String>, ServedIds),
+    active: &ActiveStatic,
+    samples: &SampleContract,
+    summary: Arc<ServedSummary>,
+) -> anyhow::Result<()> {
+    let label = format!("rehearsal-{}", Uuid::now_v7());
+    let gated = bake_and_gate(
+        config,
+        images,
+        &label,
+        work,
+        prepared,
+        active,
+        samples,
+        summary.clone(),
+    )
+    .await?;
+    let pmtiles_bytes = std::fs::metadata(&gated.archive)?.len();
+    let equivalence = gated.equivalence.as_ref().map(|(outcome, file)| {
+        serde_json::json!({
+            "passed": outcome.passed(),
+            "evidence": file.display().to_string(),
+            "counts": outcome.refusal(),
+        })
+    });
+    println!(
+        "lakehouse-tile-bake-rehearsal unit={} gold_snapshot={} served_row_count={} pmtiles_bytes={pmtiles_bytes} maxzoom_feature_id_hashes_sha256={} first_release_equivalence={}",
+        config.unit_key,
+        summary.canonical_iceberg_snapshot_id,
+        summary.served_row_count,
+        gated.ids_digest,
+        serde_json::to_string(&equivalence)?
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn bake_and_upload(
+    config: &Config,
+    images: &ImageSet,
+    build_job_id: VectorTileBuildJobId,
+    work: &Path,
+    prepared: (Vec<String>, ServedIds),
+    active: &ActiveStatic,
+    samples: &SampleContract,
+    summary: Arc<ServedSummary>,
+) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
+    let Gated {
+        archive,
+        ids_digest,
+        equivalence,
+    } = bake_and_gate(
+        config,
+        images,
+        &build_job_id.to_string(),
+        work,
+        prepared,
+        active,
+        samples,
+        summary.clone(),
+    )
+    .await?;
+    let equivalence = match &equivalence {
+        Some((outcome, file)) => tile_equivalence::verdict(outcome, &file.display().to_string())?,
+        None => tile_equivalence::skipped(active.origin).unwrap_or_default(),
     };
+    let storage = TileDerivativeR2Config::from_env()?;
     let release_id = static_release_id_for_build(build_job_id);
     let object_key = storage.release_key(&config.unit_key, &release_id.to_string())?;
     ensure!(

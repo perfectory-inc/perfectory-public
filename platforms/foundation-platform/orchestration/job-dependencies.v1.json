@@ -460,7 +460,7 @@
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
-        "parcel_tile_bake",
+        "parcel_served_gold",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1435,21 +1435,13 @@
       ]
     },
     {
-      "id": "parcel_tile_bake",
+      "id": "parcel_served_gold",
       "producers": [
         "map_edit_fold_admin",
         "map_edit_fold_complex",
         "vworld_parcel_edition"
       ],
       "reads": [
-        {
-          "dataset": "iceberg://gold.parcel_boundary_served",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_boundary_served,PROD)",
-          "node_id": "gold-parcel-boundary-served",
-          "title": "필지 서빙본",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
         {
           "dataset": "iceberg://silver.map_edit_ledger",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.map_edit_ledger,PROD)",
@@ -1475,7 +1467,25 @@
           "title": "필지 서빙본",
           "kind": "gold_table",
           "surface_kind": null
-        },
+        }
+      ]
+    },
+    {
+      "id": "parcel_tile_bake",
+      "producers": [
+        "parcel_served_gold"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_boundary_served,PROD)",
+          "node_id": "gold-parcel-boundary-served",
+          "title": "필지 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
         {
           "dataset": "perfectory://parcel-tiles",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-tiles,PROD)",
@@ -1578,7 +1588,7 @@
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
-        "parcel_tile_bake",
+        "parcel_served_gold",
         "gold_kind_rebuild"
       ],
       "reads": [

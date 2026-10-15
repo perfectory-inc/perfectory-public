@@ -600,3 +600,15 @@ fn tippecanoe_keeps_the_measured_flags_and_adds_only_temp_and_parallel_read() {
         ]
     );
 }
+
+#[test]
+fn only_one_spelling_makes_a_rehearsal_and_a_misspelt_one_is_refused() -> anyhow::Result<()> {
+    // ADR-0253: a rehearsal stops before the catalog; a typo must not silently bake and promote.
+    assert!(!rehearsal_flag(None)?);
+    assert!(!rehearsal_flag(Some("0".to_owned()))?);
+    assert!(rehearsal_flag(Some("1".to_owned()))?);
+    for wrong in ["true", "yes", "2", "on"] {
+        assert!(rehearsal_flag(Some(wrong.to_owned())).is_err(), "{wrong}");
+    }
+    Ok(())
+}
