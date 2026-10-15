@@ -90,7 +90,7 @@ jobs:
             tools/xtask
           # The entries saved before ADR-0210 hold no dependency builds (the stash took
           # them) and a key is never overwritten, so this cache starts under a new name.
-          key: dependencies
+          shared-key: rust-quality-dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # rust-cache keeps dependencies only; this keeps the workspace crates main
       # last built, so a pull request recompiles only what it changed (ADR-0201).
