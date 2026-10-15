@@ -68,7 +68,7 @@
     },
     "export": "export-building-register-exclusive-unit-silver-handoff",
     "spark": {
-      "master": "local[8]",
+      "master": "local[8,8]",
       "driver_memory": "16g",
       "iceberg_write_mode": "append",
       "input_file_batch_size": 40

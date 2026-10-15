@@ -266,6 +266,10 @@ fn build_host_execution_plan(config: &SpatialTileWapConfig) -> anyhow::Result<Ho
     args.extend([
         "spark".to_owned(),
         "spark-submit".to_owned(),
+        // Task retries, as every lakehouse job (root ADR-0102); unset, Spark's default local[*]
+        // aborts on one reset R2 read.
+        "--master".to_owned(),
+        "local[*,8]".to_owned(),
         "--conf".to_owned(),
         "spark.jars.ivy=/tmp/.ivy2".to_owned(),
         "--packages".to_owned(),
@@ -825,6 +829,8 @@ mod tests {
                 "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
                 "spark",
                 "spark-submit",
+                "--master",
+                "local[*,8]",
                 "--conf",
                 "spark.jars.ivy=/tmp/.ivy2",
                 "--packages",

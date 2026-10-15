@@ -48,7 +48,7 @@ spark() {
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark spark-submit --master 'local[4]' --driver-memory "${DRIVER_MEMORY}" \
+    spark spark-submit --master 'local[4,8]' --driver-memory "${DRIVER_MEMORY}" \
     --jars "${SPARK_RELEASE_JARS}" "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 

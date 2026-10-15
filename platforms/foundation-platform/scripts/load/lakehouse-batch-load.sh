@@ -94,7 +94,7 @@ submit() {
     -e FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY \
     spark \
-    spark-submit --master "local[$TASKS]" --driver-memory "$DRIVER_MEM" \
+    spark-submit --master "local[$TASKS,8]" --driver-memory "$DRIVER_MEM" \
     --packages "$PACKAGES" --conf spark.jars.ivy=/home/spark/.ivy2 "$@"
 }
 

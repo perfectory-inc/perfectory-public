@@ -34,6 +34,6 @@
     "table": "silver.building_register_apartment_price",
     "roles": {"source": "hubgokr__building_register_apartment_price"},
     "export": "export-building-register-apartment-price-silver-handoff",
-    "spark": {"master": "local[8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 40}
+    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 40}
   }
 }

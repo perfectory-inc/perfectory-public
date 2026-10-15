@@ -382,7 +382,7 @@ fn pipeline_hub_smoke_uses_hub_bronze_but_smoke_iceberg_table() -> anyhow::Resul
     assert!(plan
         .remote_script
         .contains("--iceberg-table building_register_floors_smoke"));
-    assert!(plan.remote_script.contains("--master local[*]"));
+    assert!(plan.remote_script.contains("--master local[*,8]"));
     assert!(plan.remote_script.contains("--driver-memory 12g"));
     assert!(!plan.remote_script.contains("-Xint"));
     assert!(plan.remote_script.contains(
@@ -600,7 +600,7 @@ fn unit_area_pipeline_full_exports_all_areas_to_canonical_table() -> anyhow::Res
     assert!(plan.remote_script.contains("--allow-non-smoke-overwrite"));
     // High-fanout writes use explicit concurrency and heap bounds instead of
     // inheriting host-wide parallelism.
-    assert!(plan.remote_script.contains("--master local[8]"));
+    assert!(plan.remote_script.contains("--master local[8,8]"));
     assert!(plan.remote_script.contains("--driver-memory 28g"));
     assert!(!plan
         .remote_script

@@ -19,7 +19,7 @@
     },
     "export": "export-land-forest-silver-handoff",
     "spark": {
-      "master": "local[8]",
+      "master": "local[8,8]",
       "driver_memory": "16g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 4

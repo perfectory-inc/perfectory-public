@@ -570,7 +570,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_floors_smoke",
                 contract: "silver.building_register_floors",
                 input_format: "jsonl",
-                spark_master: "local[1]",
+                spark_master: "local[1,8]",
                 spark_driver_memory: "2g",
                 spark_java_extra_options: Some("-Xint"),
                 default_input_file_batch_size: 1,
@@ -584,7 +584,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_floors_smoke",
                 contract: "silver.building_register_floors",
                 input_format: "jsonl",
-                spark_master: "local[1]",
+                spark_master: "local[1,8]",
                 spark_driver_memory: "2g",
                 spark_java_extra_options: Some("-Xint"),
                 default_input_file_batch_size: 1,
@@ -598,7 +598,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_floors_smoke",
                 contract: "silver.building_register_floors",
                 input_format: "parquet",
-                spark_master: "local[1]",
+                spark_master: "local[1,8]",
                 spark_driver_memory: "2g",
                 spark_java_extra_options: Some("-Xint"),
                 default_input_file_batch_size: 1,
@@ -612,7 +612,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_floors_smoke",
                 contract: "silver.building_register_floors",
                 input_format: "parquet",
-                spark_master: "local[*]",
+                spark_master: "local[*,8]",
                 spark_driver_memory: "12g",
                 spark_java_extra_options: None,
                 default_input_file_batch_size: 128,
@@ -626,7 +626,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_floors",
                 contract: "silver.building_register_floors",
                 input_format: "parquet",
-                spark_master: "local[*]",
+                spark_master: "local[*,8]",
                 spark_driver_memory: "12g",
                 spark_java_extra_options: None,
                 default_input_file_batch_size: 128,
@@ -640,7 +640,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_units_smoke",
                 contract: "silver.building_register_units",
                 input_format: "jsonl",
-                spark_master: "local[1]",
+                spark_master: "local[1,8]",
                 spark_driver_memory: "2g",
                 spark_java_extra_options: Some("-Xint"),
                 default_input_file_batch_size: 1,
@@ -654,7 +654,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_units",
                 contract: "silver.building_register_units",
                 input_format: "parquet",
-                spark_master: "local[*]",
+                spark_master: "local[*,8]",
                 spark_driver_memory: "12g",
                 spark_java_extra_options: None,
                 default_input_file_batch_size: 128,
@@ -674,7 +674,7 @@ impl RemoteLakehouseJob {
                 iceberg_table: "building_register_unit_areas_smoke",
                 contract: "silver.building_register_unit_areas",
                 input_format: "jsonl",
-                spark_master: "local[1]",
+                spark_master: "local[1,8]",
                 spark_driver_memory: "2g",
                 spark_java_extra_options: Some("-Xint"),
                 default_input_file_batch_size: 1,
@@ -690,7 +690,7 @@ impl RemoteLakehouseJob {
                 input_format: "parquet",
                 // Bound local task concurrency and heap explicitly because this
                 // high-fanout write must not inherit host-wide parallelism.
-                spark_master: "local[8]",
+                spark_master: "local[8,8]",
                 spark_driver_memory: "28g",
                 spark_java_extra_options: None,
                 default_input_file_batch_size: 128,
@@ -1222,7 +1222,7 @@ docker run --rm --entrypoint sh \\
 {LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-batch run --rm \\
   -v \"$PWD/target/remote-lakehouse:/workspace/target/remote-lakehouse\" \\
   spark spark-submit \\
-  --master local[8] \\
+  --master local[8,8] \\
   --driver-memory 12g \\
   --conf spark.jars.ivy=/tmp/.ivy2 \\
   /workspace/infra/lakehouse/spark/jobs/building_register_unit_floor_resolution_export.py \\
@@ -1276,7 +1276,7 @@ docker run --rm --entrypoint sh \\
 {LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-batch run --rm \\
   -v \"$PWD/target/remote-lakehouse:/workspace/target/remote-lakehouse\" \\
   spark spark-submit \\
-  --master local[*] \\
+  --master local[*,8] \\
   --driver-memory 4g \\
   /workspace/infra/lakehouse/spark/jobs/building_register_unit_proposal_context_export.py \\
   --input-parquet /workspace/{input_path} \\

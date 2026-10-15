@@ -28,7 +28,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[4]' --driver-memory 1500m --jars "${SPARK_RELEASE_JARS}" \
+  spark-small spark-submit --master 'local[4,8]' --driver-memory 1500m --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/by_pnu_kind_sizes.py --unit "${UNIT}" \
   --summary-output "/workspace/target/lakehouse/${run_id}/kind-sizes.json" \
   >"${STATE_ROOT}/${run_id}/spark.log" 2>&1 || rc=$?

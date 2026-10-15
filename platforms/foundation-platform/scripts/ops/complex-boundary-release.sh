@@ -94,7 +94,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[4]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
+  spark-small spark-submit --master 'local[4,8]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py \
   --input "${container_work}/handoff.jsonl" --write-mode iceberg --iceberg-catalog-name lakehouse \
   --summary-output "${container_work}/silver-summary.json" >> "${run_log}" 2>&1
