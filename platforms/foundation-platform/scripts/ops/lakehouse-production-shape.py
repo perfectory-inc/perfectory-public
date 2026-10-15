@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Capture the production lakehouse's table shapes into the committed shape ledger (root ADR-0259).
 
-Read-only REST catalog calls: every table of every namespace a contract names. Writes, per table,
-whether its current snapshot holds rows, its columns now, and every earlier set of columns in its
-Iceberg metadata -- the shapes its data files were written under. No row value leaves the catalog,
-so the ledger is safe for the public repository.
+Read-only: the REST catalog for every table of every namespace a contract names, and Trino's
+`$files` metadata table for the column sets its live data files hold. Writes, per table, whether its
+current snapshot holds rows, its columns now, and every other set of columns a live data file was
+written with. No row value leaves the catalog, so the ledger is safe for the public repository.
 
-Usage (the catalog settings are the ones `lakehouse-migrate` runs with; `.env.local` on a laptop):
+Usage (the catalog settings are the ones `lakehouse-migrate` runs with; `.env.local` on a laptop;
+Trino is the server's, published on its loopback, reached through `ssh -L 18081:127.0.0.1:18081`):
   FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=... FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE=... \
-  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN=... python3 scripts/ops/lakehouse-production-shape.py
+  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN=... [FOUNDATION_PLATFORM_TRINO_URL=http://127.0.0.1:18081] \
+  python3 scripts/ops/lakehouse-production-shape.py
 """
 
 from __future__ import annotations
@@ -42,9 +44,23 @@ def logical_type(iceberg_type: object) -> str:
     return f"iceberg:{json.dumps(iceberg_type, sort_keys=True)}"
 
 
-def table_shape(metadata: dict) -> dict:
+def nested_ids(iceberg_type: object) -> list[int]:
+    """The field ids inside a nested type: a list's element, a map's key and value, a struct's fields."""
+    if not isinstance(iceberg_type, dict):
+        return []
+    children = {"list": [("element-id", "element")], "map": [("key-id", "key"), ("value-id", "value")]}.get(
+        iceberg_type.get("type"), [])
+    found = []
+    for id_key, type_key in children:
+        found += [iceberg_type[id_key], *nested_ids(iceberg_type[type_key])]
+    for field in iceberg_type.get("fields", []) if iceberg_type.get("type") == "struct" else []:
+        found += [field["id"], *nested_ids(field["type"])]
+    return found
+
+
+def table_shape(metadata: dict, file_shapes: list[list[int]]) -> dict:
     """A table's shape by Iceberg field id: every field it ever had, the current schema's columns in
-    their order, and each earlier set of columns a data file can have been written with."""
+    their order, and every other set of columns a live data file holds (`file_shapes`)."""
     current = metadata.get("current-snapshot-id")
     snapshots = {snapshot["snapshot-id"]: snapshot for snapshot in metadata.get("snapshots", [])}
     # `snapshots[-1]` is not the current snapshot; only current-snapshot-id names it.
@@ -59,14 +75,46 @@ def table_shape(metadata: dict) -> dict:
                 raise ValueError(f"field {field['id']} changed from {fields[field['id']]} to {entry}")
     by_id = {schema["schema-id"]: schema for schema in schemas}
     columns = [field["id"] for field in by_id[metadata["current-schema-id"]]["fields"]]
-    # Snapshot expiry drops the snapshot that wrote a file, not the file: every schema counts.
-    earlier: list[list[int]] = []
+    # The live files, not the schemas: a backfill that rewrote every file leaves no file of the
+    # schema before it, and a schema no file was written under is no shape a reader meets.
+    # A file records sizes by leaf: a list column by its element's id. Name each by its column.
+    column_of = {field["id"]: field["id"] for schema in schemas for field in schema["fields"]}
     for schema in schemas:
-        ids = sorted(field["id"] for field in schema["fields"])
-        if ids != sorted(columns) and ids not in earlier:
-            earlier.append(ids)
+        for field in schema["fields"]:
+            column_of.update(dict.fromkeys(nested_ids(field["type"]), field["id"]))
+    unknown = sorted({leaf for ids in file_shapes for leaf in ids} - set(column_of))
+    if unknown:
+        raise ValueError(f"live data files hold field ids no schema names: {unknown}")
+    shapes = {tuple(sorted({column_of[leaf] for leaf in ids})) for ids in file_shapes}
+    earlier = sorted(list(ids) for ids in shapes if list(ids) != sorted(columns))
     return {"has_rows": rows > 0, "fields": sorted(fields.values()),
             "columns": columns, "earlier": earlier}
+
+
+def trino_rows(url: str, sql: str) -> list[list]:
+    """One statement over Trino's client protocol (POST /v1/statement, then follow nextUri)."""
+    headers = {"X-Trino-User": "lakehouse-production-shape", "User-Agent": "foundation-lakehouse-production-shape"}
+    request = urllib.request.Request(f"{url}/v1/statement", data=sql.encode(), headers=headers, method="POST")
+    rows: list[list] = []
+    while request is not None:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            page = json.load(response)
+        if "error" in page:
+            raise RuntimeError(f"trino: {page['error'].get('message')}")
+        rows += page.get("data", [])
+        request = urllib.request.Request(page["nextUri"], headers=headers) if page.get("nextUri") else None
+    return rows
+
+
+def live_file_shapes(trino_url: str, table_name: str) -> list[list[int]]:
+    """The distinct sets of field ids the table's live data files hold: a data file's manifest entry
+    records a size for every column the file was written with."""
+    namespace, name = table_name.split(".", 1)
+    rows = trino_rows(trino_url, f'SELECT array_sort(map_keys(column_sizes)) FROM r2.{namespace}."{name}$files" '
+                                 "WHERE content = 0 GROUP BY 1")
+    if any(row[0] is None for row in rows):
+        raise ValueError(f"{table_name}: a live data file records no column sizes")
+    return [row[0] for row in rows]
 
 
 def render(ledger: dict) -> str:
@@ -99,6 +147,7 @@ def main() -> int:
     uri = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
     warehouse = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
     token = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"]
+    trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
 
     def get(url: str) -> dict:
         request = urllib.request.Request(url, headers={
@@ -124,7 +173,11 @@ def main() -> int:
                 break
         for name in sorted(names):
             metadata = get(f"{uri}/v1/{prefix}/namespaces/{namespace}/tables/{name}")["metadata"]
-            tables[f"{namespace}.{name}"] = table_shape(metadata)
+            table_name = f"{namespace}.{name}"
+            # A table no write has committed to has no snapshot, so no file (Trino refuses its $files).
+            written = metadata.get("current-snapshot-id") not in (None, -1)
+            files = live_file_shapes(trino_url, table_name) if written else []
+            tables[table_name] = table_shape(metadata, files)
     ledger = {
         "schema_version": SCHEMA_VERSION,
         "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",

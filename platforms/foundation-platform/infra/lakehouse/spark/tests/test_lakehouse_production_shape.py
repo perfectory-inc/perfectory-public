@@ -9,6 +9,7 @@ deploy would refuse fails before the merge instead of stopping the deploy and ev
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import sys
 import unittest
@@ -58,6 +59,57 @@ class ProductionShape(unittest.TestCase):
             "columns": [{"name": "planted", "logical_type": "string", "required": True}]}
         self.assertNotIn("gold.not_yet_loaded", self.shapes)
         self.assertEqual(migrate.production_shape_refusals(contracts, self.shapes), [])
+
+
+def load_capture():
+    path = TESTS_DIR.parents[3] / "scripts" / "ops" / "lakehouse-production-shape.py"
+    spec = importlib.util.spec_from_file_location("lakehouse_production_shape", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class Capture(unittest.TestCase):
+    """The capture reads a shape from the catalog's metadata and the live files' column ids."""
+
+    METADATA = {
+        "current-schema-id": 1,
+        "current-snapshot-id": 20,
+        # The current snapshot is named by id, not by its place in the list.
+        "snapshots": [{"snapshot-id": 20, "summary": {"total-records": "3"}},
+                      {"snapshot-id": 10, "summary": {"total-records": "0"}}],
+        "schemas": [
+            {"schema-id": 0, "fields": [{"id": 1, "name": "a", "type": "string", "required": False},
+                                        {"id": 2, "name": "b", "type": "timestamptz", "required": True}]},
+            {"schema-id": 1, "fields": [
+                {"id": 1, "name": "a", "type": "string", "required": False},
+                {"id": 2, "name": "b", "type": "timestamptz", "required": True},
+                {"id": 3, "name": "c", "type": {"type": "list", "element-id": 4, "element": "string",
+                                                "element-required": False}, "required": False}]},
+        ],
+    }
+
+    def test_old_files_are_the_shapes_and_a_list_is_named_by_its_column(self) -> None:
+        shape = load_capture().table_shape(self.METADATA, [[1, 2], [1, 2, 4]])
+        self.assertEqual(shape, {
+            "has_rows": True,
+            "fields": [[1, "a", "string", True], [2, "b", "timestamp", False], [3, "c", "array<string>", True]],
+            "columns": [1, 2, 3],
+            "earlier": [[1, 2]],
+        })
+
+    def test_a_schema_no_live_file_was_written_under_is_no_shape(self) -> None:
+        # A backfill rewrote every file: schema 0 is in the metadata, no file of it is live.
+        self.assertEqual(load_capture().table_shape(self.METADATA, [[1, 2, 4]])["earlier"], [])
+
+    def test_a_file_column_no_schema_names_stops_the_capture(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"\[9\]"):
+            load_capture().table_shape(self.METADATA, [[1, 9]])
+
+    def test_the_rendered_ledger_is_the_committed_one_read_back(self) -> None:
+        path = migrate.PRODUCTION_SHAPE_PATH
+        document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(load_capture().render(document), path.read_text(encoding="utf-8"))
 
 
 class LedgerDrift(unittest.TestCase):
