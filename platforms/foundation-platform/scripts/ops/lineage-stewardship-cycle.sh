@@ -16,7 +16,7 @@
 #
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다: 계보 표가 아직 없으면 그렇다고 알리고, 어느 단계든
 # 실패하면 슬랙 #alerts 가 안다. 모든 산출물은 실행마다 새 작업 폴더에 남는다.
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
