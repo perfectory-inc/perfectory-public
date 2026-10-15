@@ -18,9 +18,9 @@ use foundation_contracts::catalog::{
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
-use utoipa::openapi::OpenApi;
 use utoipa::openapi::info::LicenseBuilder;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::openapi::OpenApi;
 use utoipa::{Modify, OpenApi as OpenApiDerive};
 
 use super::{HealthResponse, ReadinessResponse};
