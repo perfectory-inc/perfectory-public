@@ -27,7 +27,11 @@ import runtime_secrets  # noqa: E402
 
 CONTRACT = AREA / "config/runtime-secrets.contract.json"
 NUMBER_CHANGE = "foundation-parcel-number-change.service"
-READER = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
+READER = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"
+READER_SECRET = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
+# The names a credential went by before root ADR-0247, read from the contract's renamed_from so no
+# test spells a retired name.
+OLD = {new: old for old, new in runtime_secrets.load(AREA).renamed.items()}
 
 
 class TheRepository(unittest.TestCase):
@@ -42,8 +46,8 @@ class TheRepository(unittest.TestCase):
     def test_a_unit_that_reads_bronze_back_gets_the_reader_pair_alone(self):
         contract = runtime_secrets.load(AREA)
         reader = contract.groups["lakehouse-reader"]
-        self.assertEqual(reader.holds, {READER, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-                                        *contract.tokens["foundation-platform-lakehouse-reader-prod"]})
+        self.assertEqual(reader.holds, {READER, READER_SECRET})
+        self.assertEqual(contract.tokens["foundation-platform-lakehouse-reader-prod"], [READER, READER_SECRET])
         self.assertEqual(reader.mode, 0o600)
         lines = runtime_secrets.rendered_lines(contract, contract.consumer(NUMBER_CHANGE))
         self.assertEqual(lines[-1], reader.path)
@@ -68,8 +72,7 @@ class CloudflareTokens(unittest.TestCase):
     def test_every_old_name_maps_to_a_name_a_recorded_token_derives(self):
         contract = runtime_secrets.load(AREA)
         derived = {name for names in contract.tokens.values() for name in names}
-        self.assertEqual(contract.renamed["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"],
-                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN")
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN", contract.renamed.values())
         self.assertLessEqual(set(contract.renamed.values()), derived)
 
 
@@ -113,7 +116,7 @@ class PlantedDefects(unittest.TestCase):
         contract = self.contract()
         self.consumer(contract, "measure-building-section-packs")["needs"] = {}
         self.write_contract(contract)
-        self.assertIn("measure-building-section-packs: FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID is required by its script",
+        self.assertIn("measure-building-section-packs: FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID is required by its script",
                       self.findings())
 
     def test_a_hand_edited_environment_file_line(self):
@@ -161,10 +164,21 @@ class PlantedDefects(unittest.TestCase):
     def test_a_group_that_holds_an_old_name_without_its_derived_name(self):
         contract = self.contract()
         group = next(g for g in contract["groups"] if g["name"] == "lakehouse-reader")
-        group["holds"].remove("@token:foundation-platform-lakehouse-reader-prod")
+        group["holds"] = [OLD[READER], OLD[READER_SECRET]]
         self.write_contract(contract)
-        self.assertIn(f"group lakehouse-reader: holds {READER} but not FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
-                      self.findings())
+        self.assertIn(f"group lakehouse-reader: holds {OLD[READER]} but not {READER}", self.findings())
+
+    def test_a_runbook_that_names_a_host_file_the_contract_does_not_declare(self):
+        runbook = self.area / "docs/runbooks/vworld-parcel-editions.md"
+        runbook.write_text(runbook.read_text(encoding="utf-8") + "\n/etc/foundation-platform/planted.env\n", encoding="utf-8")
+        self.assertIn("/etc/foundation-platform/planted.env is not a group in", self.findings())
+
+    def test_the_parcel_publication_file_lives_in_the_contract(self):
+        """The manual parcel load's file was the one host file outside the contract (root ADR-0247)."""
+        contract = self.contract()
+        contract["groups"] = [g for g in contract["groups"] if g["name"] != "parcel-publication"]
+        self.write_contract(contract)
+        self.assertIn("/etc/foundation-platform/parcel-publication.env is not a group in", self.findings())
 
     def test_a_token_recorded_twice(self):
         contract = self.contract()
@@ -233,15 +247,13 @@ class TheHost(unittest.TestCase):
 
     def test_rename_gives_an_old_name_its_derived_name_with_the_same_value_and_mode(self):
         derived = self.contract.tokens["foundation-platform-lakehouse-reader-prod"]
-        self.reader.write_text(f"{READER}=planted-id\n"
-                               "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=planted-secret-value", encoding="utf-8")
+        self.reader.write_text(f"{OLD[READER]}=planted-id\n{OLD[READER_SECRET]}=planted-secret-value", encoding="utf-8")
         self.reader.chmod(0o600)
         self.assertEqual(self.findings(), [f"/etc/foundation-platform/lakehouse-reader.env: does not hold {name}"
                                            for name in derived])
         changed = runtime_secrets.rename(self.area, self.root)
-        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {READER} -> {derived[0]}",
-                                   "/etc/foundation-platform/lakehouse-reader.env: "
-                                   f"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY -> {derived[1]}"])
+        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} -> {derived[0]}",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} -> {derived[1]}"])
         self.assertNotIn("planted", "\n".join(changed))
         lines = self.reader.read_text(encoding="utf-8").splitlines()
         self.assertEqual(lines[-2:], [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
@@ -296,6 +308,14 @@ class TheHost(unittest.TestCase):
 
 
 class TheCommandLine(unittest.TestCase):
+    def test_every_command_runs_wherever_the_release_lives(self):
+        """The deploy's rename and host must not depend on how deep the release directory is: a
+        default computed from the script's own path once crashed every command at a shallow one."""
+        from unittest import mock  # noqa: PLC0415
+
+        with mock.patch.object(runtime_secrets, "AREA", pathlib.Path("/area")):
+            self.assertEqual(runtime_secrets.main(["--area", str(AREA), "names", NUMBER_CHANGE]), 0)
+
     def test_a_run_gets_its_systemd_run_properties_from_the_contract(self):
         contract = runtime_secrets.load(AREA)
         expected = " ".join(f"-p EnvironmentFile={line}"

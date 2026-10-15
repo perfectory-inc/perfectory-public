@@ -80,16 +80,16 @@ pub fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
 pub fn r2_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageConfig> {
     r2_config_from_env_file_with_credentials(
         path,
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
     )
 }
 
 pub fn r2_reader_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectStorageConfig> {
     r2_config_from_env_file_with_credentials(
         path,
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
     )
 }
 
@@ -98,8 +98,8 @@ pub fn parcel_publication_evidence_writer_config_from_env_file(
 ) -> anyhow::Result<R2ObjectStorageConfig> {
     r2_config_from_env_file_with_credentials(
         path,
-        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
     )
 }
 
@@ -169,7 +169,7 @@ pub fn lakehouse_catalog_config_from_env_file(
         )?,
         catalog_token: value_from_dotenv_or_env(
             &values,
-            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
         )?,
     })
 }

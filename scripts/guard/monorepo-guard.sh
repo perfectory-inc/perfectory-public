@@ -50,6 +50,7 @@ for g in hook-isolation-self-test \
          container-runtime-policy-self-test container-runtime-policy \
          every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          runtime-secrets-contract-self-test runtime-secrets-contract \
+         credential-names-self-test credential-names \
          container-images-match-the-contract-self-test container-images-match-the-contract \
          workflow-policy-self-test github-policy-json-self-test \
          rust-ci-setup-self-test rust-ci-setup \

@@ -210,7 +210,7 @@ class CatalogSettingsTest(unittest.TestCase):
     ENV = {
         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI": "https://example.invalid/acct/wh",
         "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "acct_wh",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": "not-a-real-token",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "not-a-real-token",
     }
 
     def test_it_carries_every_setting_a_job_needs(self) -> None:

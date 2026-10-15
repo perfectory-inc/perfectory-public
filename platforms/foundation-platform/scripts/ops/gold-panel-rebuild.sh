@@ -170,7 +170,7 @@ spark() {
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
     -p "foundation-gold-rebuild-${INVOCATION_ID}" --profile lakehouse-batch run --rm -v "${SCRATCH}:/scratch" \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark spark-submit --master "${master}" --driver-memory "${driver_memory}" \
     --conf spark.local.dir=/scratch --jars "${SPARK_RELEASE_JARS}" \
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${work}/$1.log" 2>&1

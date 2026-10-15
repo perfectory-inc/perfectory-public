@@ -99,10 +99,10 @@ class ComplexBoundaryRelease(unittest.TestCase):
             "FOUNDATION_COMPLEX_BOUNDARY_RELEASE_STATE_ROOT": str(self.root / "state"),
             "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.lakehouse),
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": "bucket", "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": "https://r2.invalid",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID": "reader-id",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY": "reader-secret",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID": "writer-id",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY": "writer-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID": "reader-id",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY": "reader-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID": "writer-id",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY": "writer-secret",
         }
 
     def run_job(self, **env):

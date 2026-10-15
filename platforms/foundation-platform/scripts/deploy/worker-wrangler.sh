@@ -36,7 +36,9 @@ case "${action}" in
       sh -c 'corepack pnpm install --frozen-lockfile && corepack pnpm run config:check'
     ;;
   wrangler)
-    exec docker run --rm --init --memory "${memory}" --memory-swap="${memory}" --pids-limit 1024 \
+    # wrangler reads its token only as CLOUDFLARE_API_TOKEN; the host holds it under the name derived from
+    # the token's Cloudflare name (root ADR-0247). Passed through the environment, never on the command line.
+    CLOUDFLARE_API_TOKEN="${FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN:?}" exec docker run --rm --init --memory "${memory}" --memory-swap="${memory}" --pids-limit 1024 \
       --user "${owner}" -e HOME=/work/.home -e COREPACK_HOME=/work/.corepack \
       -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 -e CI=true -e WRANGLER_SEND_METRICS=false \
       -e CLOUDFLARE_API_TOKEN -e CLOUDFLARE_ACCOUNT_ID \

@@ -22,7 +22,7 @@ STATE_ROOT="${FOUNDATION_ADMIN_BOUNDARY_RELEASE_STATE_ROOT:-/var/lib/foundation-
 LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/lakehouse}"
 SNAPSHOT_PREFIX="vworldkr__boundary_emd-30603-"
 # 쓰기 키는 이 작업의 읽기 단계에 필요 없다: 받기는 읽기 키 한 쌍으로만 한다(root ADR-0152).
-unset FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+unset FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
 
 mkdir -p "${STATE_ROOT}"
 journal="${STATE_ROOT}/journal.log"
@@ -47,7 +47,7 @@ spark() {
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark-small spark-submit --master 'local[4]' --driver-memory 4g \
     --jars "${SPARK_RELEASE_JARS}" "/workspace/$1" "${@:2}" >> "${run_log}" 2>&1
 }

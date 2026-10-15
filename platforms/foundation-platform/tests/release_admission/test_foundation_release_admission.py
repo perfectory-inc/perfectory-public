@@ -373,7 +373,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
             if args[0] == "/usr/bin/docker":
                 self.assertIsNotNone(docker_config)
                 self.assertEqual(Path(docker_config).stat().st_mode & 0o777, 0o700)
-            self.assertNotIn("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN", kwargs["env"])
+            self.assertNotIn("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN", kwargs["env"])
             if args[1:3] == ["buildx", "create"]:
                 self.assertIn("docker-container", args)
                 self.assertRegex(self.module.BUILDKIT_IMAGE, r"@sha256:[0-9a-f]{64}$")
@@ -469,7 +469,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
                 mock.patch.object(Path, "rename", autospec=True, side_effect=privileged_rename), \
                 mock.patch.object(self.module, "verify_artifacts", side_effect=lambda sha, path: real_verify(sha, path, os.getuid())), \
                 mock.patch.object(self.module.subprocess, "check_output", side_effect=run), \
-                mock.patch.dict(os.environ, {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": "fixture-secret"}):
+                mock.patch.dict(os.environ, {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "fixture-secret"}):
             self.module.build_artifacts(self.target)
         self.addCleanup(lambda: self.make_writable(artifact_root))
         real_verify(self.merged, artifact_root / self.merged, os.getuid())

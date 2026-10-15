@@ -179,8 +179,8 @@ impl R2ObjectStorageConfig {
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn from_env() -> Result<Self, PublishError> {
         Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )
     }
 
@@ -194,8 +194,8 @@ impl R2ObjectStorageConfig {
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn lakehouse_reader_from_env() -> Result<Self, PublishError> {
         Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
         )
     }
 

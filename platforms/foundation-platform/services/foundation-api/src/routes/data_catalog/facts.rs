@@ -348,7 +348,8 @@ async fn read_tables(
     written_at: &BTreeMap<&str, DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> (Tables, ReadAt, Option<String>) {
-    let catalog = LakehouseCatalogConfig::from_env()
+    // The map reads table metadata only, so it is given the read-only token (root ADR-0247).
+    let catalog = LakehouseCatalogConfig::reader_from_env()
         .map_err(|_| "the lakehouse catalog is not configured".to_owned())
         .and_then(|config| IcebergRestCatalog::new(config).map_err(|error| error.to_string()));
     let catalog = match catalog {

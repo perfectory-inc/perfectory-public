@@ -342,7 +342,7 @@ run_delta() {
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark-small spark-submit --master 'local[4]' --driver-memory "${DELTA_DRIVER_MEMORY}" \
     --jars "${SPARK_RELEASE_JARS}" \
     /workspace/infra/lakehouse/spark/jobs/by_pnu_panel_delta.py \

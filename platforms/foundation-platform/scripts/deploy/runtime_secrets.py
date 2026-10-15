@@ -15,6 +15,8 @@ checked against it:
     set          on the data host, as root (foundation-release.sh env-set): writes the NAME=value
                  lines of a file into a group's file, refusing a name the group does not hold, with
                  the contract's owner, group and mode (root ADR-0247). Prints names only.
+    credentials  repository: every credential-shaped FOUNDATION_PLATFORM_ name in a tracked file is
+                 derived from a recorded Cloudflare token or named in not_cloudflare (root ADR-0247).
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
                  (root ADR-0247). Prints the files and names it changed, never a value.
@@ -37,6 +39,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,9 +56,14 @@ PYTHON_REQUIRED = re.compile(r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["'
 SOURCED = re.compile(r"""^\s*(?:source|\.)\s+"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"]+)\"""", re.MULTILINE)
 EXEC_SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py)")
 HAND_WRITTEN = re.compile(r"EnvironmentFile=-?/etc/foundation-platform/")
+HOST_ENV_FILE = re.compile(r"/etc/foundation-platform/[A-Za-z0-9_.-]+?\.env(?![A-Za-z0-9_.-])")
 # A Cloudflare token's name, and the values each kind of token gives (root ADR-0247).
 TOKEN_NAME = re.compile(r"^foundation-platform-[a-z0-9]+(?:-[a-z0-9]+)*-(?:reader|writer)-prod$")
 TOKEN_VALUES = {"api_token": ("TOKEN",), "r2_access_key": ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")}
+# A name in our namespace shaped like a credential; `credentials` requires it to be derived.
+CREDENTIAL = re.compile(r"(?<![A-Za-z0-9_])FOUNDATION_PLATFORM_[A-Z0-9_]*?_(?:TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY)(?![A-Za-z0-9_])")
+# Accepted ADRs are immutable (root ADR-0002), so they keep the names of their day.
+HISTORY = ("docs/adr/",)
 
 
 class ContractError(ValueError):
@@ -91,6 +99,7 @@ class Contract:
     consumers: list[Consumer]
     tokens: dict[str, list[str]] = field(default_factory=dict)  # Cloudflare token name -> its derived names
     renamed: dict[str, str] = field(default_factory=dict)  # old name -> the derived name that replaces it
+    not_cloudflare: dict[str, str] = field(default_factory=dict)  # credential name -> why no token derives it
 
     def consumer(self, key: str) -> Consumer:
         for consumer in self.consumers:
@@ -210,7 +219,9 @@ def load(area: Path = AREA) -> Contract:
     if len(keys) != len(set(keys)):
         raise ContractError("a unit or run is declared twice")
     return Contract(groups=groups, systemd_supplied=frozenset(raw.get("systemd_supplied", [])), consumers=consumers,
-                    tokens=tokens, renamed=renamed)
+                    tokens=tokens, renamed=renamed,
+                    not_cloudflare={name: reason for name, reason in raw.get("cloudflare_tokens", {}).get("not_cloudflare", {}).items()
+                                    if not name.startswith("$")})
 
 
 # --- what scripts require --------------------------------------------------------------------
@@ -311,7 +322,15 @@ def check(area: Path = AREA) -> list[str]:
         findings.append(f"{missing}: the unit is not in {CONTRACT}")
     for stale in sorted(declared_units - set(units)):
         findings.append(f"{stale}: the contract names a unit that does not exist")
+    allowed = {name for names in contract.tokens.values() for name in names} | set(contract.not_cloudflare)
+    for name, reason in sorted(contract.not_cloudflare.items()):
+        if name in allowed - set(contract.not_cloudflare) or not str(reason).strip():
+            findings.append(f"not_cloudflare: {name} needs a reason and must not be a derived name")
     for group in contract.groups.values():
+        for name in sorted(n for n in group.holds - set(contract.renamed) if re.search(r"_(TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY)$", n)):
+            if name not in allowed:
+                findings.append(f"group {group.name}: holds {name}, which no recorded Cloudflare token derives and not_cloudflare "
+                                f"does not name (root ADR-0247)")
         for old in sorted(group.holds & set(contract.renamed)):
             if contract.renamed[old] not in group.holds:
                 findings.append(f"group {group.name}: holds {old} but not {contract.renamed[old]}, the name it is renamed to "
@@ -341,11 +360,48 @@ def check(area: Path = AREA) -> list[str]:
                 required |= script_requirements(area / script)
             for name in sorted(required - set(consumer.needs)):
                 findings.append(f"{consumer.key}: {name} is required by its script but not in its needs")
-    for path in sorted([*(area / "docs").rglob("*.md"), *(area / "scripts").rglob("*.sh")]):
+    declared = {group.path for group in contract.groups.values()}
+    named = sorted([*(area / "docs").rglob("*.md"), *(area / "scripts").rglob("*.sh"), *(area / "scripts").rglob("*.py"),
+                    *(area / UNIT_DIR).glob("*.service")])
+    for path in named:
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if HAND_WRITTEN.search(line):
-                findings.append(f"{path.relative_to(area).as_posix()}:{line_no}: hand-written EnvironmentFile; "
-                                f"use `scripts/deploy/runtime_secrets.py properties <run>`")
+            where = f"{path.relative_to(area).as_posix()}:{line_no}"
+            if path.suffix in (".md", ".sh") and HAND_WRITTEN.search(line):
+                findings.append(f"{where}: hand-written EnvironmentFile; use `scripts/deploy/runtime_secrets.py properties <run>`")
+            for host_file in HOST_ENV_FILE.findall(line):
+                if host_file not in declared:
+                    findings.append(f"{where}: {host_file} is not a group in {CONTRACT}; a host environment file "
+                                    f"lives in the contract or not at all (root ADR-0247)")
+    return findings
+
+
+def credentials(repo: Path, area: Path = AREA) -> list[str]:
+    """Every credential-shaped name in the repository's tracked files that a recorded Cloudflare token
+    does not derive and `cloudflare_tokens.not_cloudflare` does not name (root ADR-0247). Accepted
+    ADRs keep the names of their day (they are immutable); the contract's own `renamed_from` is
+    where retired names live until no host file holds them."""
+
+    contract = load(area)
+    allowed = {name for names in contract.tokens.values() for name in names} | set(contract.not_cloudflare)
+    own = (area / CONTRACT).resolve()
+    listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, check=False)
+    if listed.returncode != 0:
+        raise ContractError(f"credentials: git cannot list {repo}: {listed.stderr.decode(errors='replace').strip()}")
+    tracked = listed.stdout
+    findings = []
+    for relative in sorted(filter(None, tracked.decode("utf-8").split("\0"))):
+        path = repo / relative
+        if relative.startswith(HISTORY) or not path.is_file() or path.resolve() == own:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for name in CREDENTIAL.findall(line):
+                if name not in allowed:
+                    findings.append(f"{relative}:{line_no}: {name} is not derived from a token in cloudflare_tokens "
+                                    f"(drop -prod, upper case, - as _, then the value kind) nor named in not_cloudflare")
     return findings
 
 
@@ -529,6 +585,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser_.add_argument("--root", type=Path, default=Path("/"), help="filesystem root the group paths are under")
     parsers["set"].add_argument("group", help="the contract group whose file is written")
     parsers["set"].add_argument("source", type=Path, help="a file of NAME=value lines the group holds")
+    sub.add_parser("credentials").add_argument("--repo", type=Path, default=None,
+                                               help="the repository whose tracked files are read (default: the one holding --area)")
     for name in ("properties", "names"):
         sub.add_parser(name).add_argument("consumer")
     args = parser.parse_args(argv)
@@ -544,6 +602,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             for unit in render(args.area):
                 print(f"rendered {unit}")
             return 0
+        if args.command == "credentials":
+            findings = credentials(args.repo or args.area.resolve().parents[1], args.area)
+            for finding in findings:
+                print(f"FAIL credential-names: {finding}", file=sys.stderr)
+            if not findings:
+                print("OK credential-names (every credential name is derived from its Cloudflare token, root ADR-0247)")
+            return 1 if findings else 0
         if args.command == "set":
             for name in set_names(args.area, args.group, args.source, args.root):
                 print(f"set {name} in {args.group}")

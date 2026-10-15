@@ -22,8 +22,8 @@ import os
 from typing import Any
 
 ENDPOINT_ENV = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT"
-ACCESS_KEY_ENV = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
-SECRET_KEY_ENV = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
+ACCESS_KEY_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"
+SECRET_KEY_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
 
 # The reader credentials, not the writer ones. A job reads its input through this filesystem
 # and writes its output through Iceberg, so a writer key here would grant the read path a

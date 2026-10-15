@@ -743,11 +743,9 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
         assert!(args
             .windows(2)
             .any(|w| w[0] == "--iceberg-branch" && w[1] == execute::load_branch("synthetic-load")));
-        assert!(args.windows(2).any(|w| w
-            == [
-                "-e",
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
-            ]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["-e", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]));
     }
     Ok(())
 }

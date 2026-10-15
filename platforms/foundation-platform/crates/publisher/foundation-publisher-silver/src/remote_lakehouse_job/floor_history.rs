@@ -41,7 +41,7 @@ if {compose} --profile lakehouse-batch run --rm{run_options} \\
   --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:$(id -g)\" \\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \\
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \\
   spark spark-submit \\
   --master 'local[2]' --driver-memory 1g \\
   --conf spark.jars.ivy=/home/spark/.ivy2 \\

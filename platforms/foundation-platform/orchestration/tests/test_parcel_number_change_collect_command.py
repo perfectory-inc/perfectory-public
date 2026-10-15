@@ -190,7 +190,7 @@ class CollectCommand(unittest.TestCase):
         # 2026-10-05: the reader key was checked after the ingest, so the first run wrote all 20
         # files to Bronze and then failed. Everything the script requires is checked before the
         # first side effect, and the script requires only what the contract gives the unit.
-        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID", REQUIRED)
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID", REQUIRED)
         self.assertLessEqual(set(REQUIRED), set(NEEDS))
         (self.fake / "objects" / "5.zip").write_bytes(zipped([row(n) for n in range(1, 40)]))
         self.listing(item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip", "2099-09-15"))

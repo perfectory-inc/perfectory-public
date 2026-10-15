@@ -122,13 +122,13 @@ iceberg.catalog.type=rest
 iceberg.rest-catalog.uri=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI}
 iceberg.rest-catalog.warehouse=${FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE}
 iceberg.rest-catalog.security=OAUTH2
-iceberg.rest-catalog.oauth2.token=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN}
+iceberg.rest-catalog.oauth2.token=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN}
 iceberg.rest-catalog.oauth2.server-uri=${FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI%/}/v1/oauth/tokens
 fs.s3.enabled=true
 s3.region=${FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}
 s3.endpoint=${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}
-s3.aws-access-key=${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}
-s3.aws-secret-key=${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}
+s3.aws-access-key=${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID}
+s3.aws-secret-key=${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}
 s3.path-style-access=true
 TRINO_CATALOG
   chmod 600 'infra/lakehouse/trino/catalog/r2.properties'
@@ -196,7 +196,7 @@ fi
 {spark_user}\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \\
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \\
   -e FOUNDATION_PLATFORM_SPARK_SKIP_STOP_ON_SUCCESS=1 \\
   spark spark-submit \\
   --master {spec_spark_master} \\
