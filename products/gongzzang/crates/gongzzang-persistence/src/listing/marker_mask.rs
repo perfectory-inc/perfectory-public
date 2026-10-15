@@ -26,7 +26,6 @@ pub(super) async fn find_listing_marker_mask(
         WITH matching AS (
             SELECT
                 marker_id,
-                projection_version,
                 anchor_snapshot_id
             FROM listing_marker_projection
             WHERE listing_status = 'active'
@@ -44,7 +43,7 @@ pub(super) async fn find_listing_marker_mask(
         )
         SELECT
             COALESCE(array_agg(marker_id ORDER BY marker_id), ARRAY[]::text[]) AS marker_ids,
-            max(projection_version)::int8 AS projection_version,
+            (SELECT version FROM listing_marker_state) AS projection_version,
             max(anchor_snapshot_id) AS anchor_snapshot_id
         FROM matching
         ",

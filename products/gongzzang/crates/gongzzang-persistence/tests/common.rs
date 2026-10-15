@@ -38,6 +38,11 @@ pub async fn truncate_all(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("truncate failed");
+    // The marker version counter is one row that truncate must not remove; restart it.
+    sqlx::query("update listing_marker_state set version = 0")
+        .execute(pool)
+        .await
+        .expect("marker version reset failed");
 }
 
 /// 테스트용 시스템 액션 [`MutationContext`] — seed 호출에 표준화된 ctx 제공.
