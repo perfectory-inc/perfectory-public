@@ -48,10 +48,14 @@ ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
 STARTED_BY = ("schedule", "inputs")
-# The line a job's unit prints last to say whether its run changed its outputs (root ADR-0171 §3).
-# Only `unchanged` withholds the run's output events: a run that does not say counts as changed,
-# and the jobs it starts find nothing to do on their own.
-OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged)\r?$", re.MULTILINE)
+# The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0259):
+# `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
+# output events; a run that does not say counts as changed, and the jobs it starts find nothing to
+# do on their own.
+OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiting|failed) \S[^\r\n]*)\r?$", re.MULTILINE)
+# The outcomes after which nothing downstream starts: nothing changed, the run waits on someone
+# else, or it failed.
+WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed")
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
 
@@ -105,18 +109,18 @@ def asset_uri(dataset):
 
 
 def job_outcome(output):
-    """`changed` or `unchanged`, from the tail of what a run printed (bytes or text).
+    """`changed`, `unchanged`, `waiting` or `failed`, from the tail of what a run printed (bytes or text).
 
-    The last `foundation-job-outcome` line decides. No line counts as `changed`: a job that does not
-    say yet, or whose last lines the journal follower missed, still starts what reads its outputs,
-    which then finds nothing to do.
+    The last `foundation-job-outcome` line decides; its reason is not kept. No line counts as
+    `changed`: a job that does not say yet, or whose last lines the journal follower missed, still
+    starts what reads its outputs, which then finds nothing to do.
     """
     if output is None:
         return "changed"
     if isinstance(output, str):
         output = output.encode("utf-8", "replace")
     found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
-    return found[-1].decode() if found else "changed"
+    return found[-1].decode().split(" ", 1)[0] if found else "changed"
 
 
 def service_unit_file(service):

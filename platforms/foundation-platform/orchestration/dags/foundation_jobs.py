@@ -19,7 +19,7 @@ from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator,
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
-from job_specs import RETRY_DELAY_MINUTES, asset_uri, job_outcome, load_specs
+from job_specs import RETRY_DELAY_MINUTES, WITHHOLDS_EVENTS, asset_uri, job_outcome, load_specs
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
 # Defined by airflow-runtime.sh as AIRFLOW_CONN_FOUNDATION_HOST: the host, the scheduler account,
@@ -39,12 +39,12 @@ class RunJob(SSHOperator):
 
 
 class PublishOutputs(BaseOperator):
-    """Succeeds, and so records an event on each output asset, unless the run changed nothing."""
+    """Succeeds, and so records an event on each output asset, unless the run did not change them."""
 
     def execute(self, context):
         outcome = context["ti"].xcom_pull(task_ids="run", key=OUTCOME_KEY)
-        if outcome == "unchanged":
-            raise AirflowSkipException("the run changed none of its outputs: no asset events, nothing downstream starts")
+        if outcome in WITHHOLDS_EVENTS:
+            raise AirflowSkipException(f"the run reported {outcome}: no asset events, nothing downstream starts")
         self.log.info("the run reported %s: recording events on %d output assets", outcome or "nothing", len(self.outlets))
 
 

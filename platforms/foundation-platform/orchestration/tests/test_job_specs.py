@@ -21,6 +21,23 @@ def bake(jobs):
     return next(job for job in jobs["jobs"] if job["id"] == "by_pnu_serving_bake")
 
 
+def entry_script(spec):
+    """The release path of the program a job's service runs: its ExecStart, through FLOOR's launcher."""
+    unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+    exec_start = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1)
+    if "RuntimeDirectory=foundation-building-register-floor" in unit:
+        # The runtime snapshot binds run AND cleanup to the physical release.
+        launcher = re.search(r'exec "\$\$\{release\}/([^"]+)"', exec_start)
+        assert launcher, "FLOOR's ExecStart names no release launcher"
+        return job_specs.RELEASE_PREFIX + launcher.group(1)
+    return exec_start.split()[0]
+
+
+def reports_outcome(text):
+    """Whether a program prints the run's `foundation-job-outcome` line: on a line that is not a comment."""
+    return any("foundation-job-outcome" in line and not line.lstrip().startswith("#") for line in text.splitlines())
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -172,15 +189,7 @@ class TheRealJobList(unittest.TestCase):
         # a file that a Linux host would refuse to execute.
         release = job_specs.RELEASE_PREFIX
         for spec in self.specs:
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
-            exec_start = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1)
-            if "RuntimeDirectory=foundation-building-register-floor" in unit:
-                # The runtime snapshot binds run AND cleanup to the physical release.
-                launcher = re.search(r'exec "\$\$\{release\}/([^"]+)"', exec_start)
-                self.assertIsNotNone(launcher)
-                exec_start = release + launcher.group(1)
-            else:
-                exec_start = exec_start.split()[0]
+            exec_start = entry_script(spec)
             with self.subTest(spec.dag_id):
                 self.assertTrue(exec_start.startswith(release), f"{exec_start} is not in the release")
                 relative = exec_start[len(release):]
@@ -533,6 +542,33 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
 
 
+class EveryJobSaysItsOutcome(unittest.TestCase):
+    """Root ADR-0259 §4: a job whose program never prints its run's outcome is refused here.
+
+    The host runner is what fails such a run in production; this catches it in the pull request.
+    """
+
+    # The jobs whose scripts open changes (#597, #585) are editing; they report in the follow-up
+    # pull request, which empties this set. It may only shrink: a listed job that reports is refused.
+    NOT_YET_REPORTING = {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex"}
+
+    def test_every_jobs_program_prints_an_outcome_line(self):
+        for spec in job_specs.load_specs():
+            program = job_specs.PLATFORM_ROOT / entry_script(spec)[len(job_specs.RELEASE_PREFIX):]
+            reports = reports_outcome(program.read_text(encoding="utf-8"))
+            with self.subTest(spec.job_id):
+                if spec.job_id in self.NOT_YET_REPORTING:
+                    self.assertFalse(reports, f"{spec.job_id} reports now: take it off NOT_YET_REPORTING")
+                else:
+                    self.assertTrue(reports, f"{program.name} never prints `foundation-job-outcome ...`")
+
+    def test_a_program_that_only_mentions_the_line_is_refused(self):
+        self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
+        self.assertTrue(reports_outcome('    print("foundation-job-outcome unchanged")\n'))
+        self.assertFalse(reports_outcome("# ends with `foundation-job-outcome changed`\nexec run\n"))
+        self.assertFalse(reports_outcome("exec run\n"))
+
+
 class TheRunOutcome(unittest.TestCase):
     """A run's last `foundation-job-outcome` line decides whether its outputs start anything."""
 
@@ -541,10 +577,20 @@ class TheRunOutcome(unittest.TestCase):
         self.assertEqual(job_specs.job_outcome(b"nothing to do\nfoundation-job-outcome unchanged\n"), "unchanged")
         self.assertEqual(job_specs.job_outcome("foundation-job-outcome unchanged\r\n"), "unchanged")
 
+    def test_waiting_and_failed_carry_a_reason_and_withhold_the_events(self):
+        # Root ADR-0259: a wait is not a failure, and a failure is not a success that exited 0.
+        self.assertEqual(job_specs.job_outcome(
+            b"foundation-job-outcome waiting edition 202610 awaits its contract entry\n"), "waiting")
+        self.assertEqual(job_specs.job_outcome(b"foundation-job-outcome failed gate crashed\r\n"), "failed")
+        for outcome in ("unchanged", "waiting", "failed"):
+            self.assertIn(outcome, job_specs.WITHHOLDS_EVENTS)
+        self.assertNotIn("changed", job_specs.WITHHOLDS_EVENTS)
+
     def test_no_line_counts_as_changed(self):
         for output in [b"", None, b"silver-refresh-outcome lane=x outcome=unchanged\n",
                        b"foundation-job-outcome maybe\n", b"note: foundation-job-outcome unchanged\n",
-                       b"foundation-job-outcome unchanged but more\n"]:
+                       b"foundation-job-outcome unchanged but more\n", b"foundation-job-outcome waiting\n",
+                       b"foundation-job-outcome failed \n"]:
             with self.subTest(output=output):
                 self.assertEqual(job_specs.job_outcome(output), "changed")
 
@@ -805,7 +851,7 @@ class FloorCycleAdapter(unittest.TestCase):
             docker = root / "docker"
             docker.write_text("#!/bin/sh\ncat <<'JSON'\n" + json.dumps(config) + "\nJSON\n")
             docker.chmod(0o755)
-            script, release = self.release_wrapper(root, '#!/bin/sh\nprintf "%s" "$DATABASE_URL"\n')
+            script, release = self.release_wrapper(root, '#!/bin/sh\nprintf "%s\\n" "$DATABASE_URL"\n')
             env = {
                 "PATH": str(root) + os.pathsep + os.environ["PATH"],
                 "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT": str(release),
@@ -816,7 +862,9 @@ class FloorCycleAdapter(unittest.TestCase):
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, source_url.replace("postgres:5433", "127.0.0.1:15439"))
+            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0259).
+            self.assertEqual(result.stdout.splitlines(), [
+                source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome changed"])
             self.assertEqual(result.stderr, "")
             # A failed Compose command must not be masked by a successful JSON consumer.
             docker.write_text(docker.read_text() + "exit 19\n")
@@ -828,7 +876,7 @@ class FloorCycleAdapter(unittest.TestCase):
     def test_publisher_is_the_release_artifact_for_run_and_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            _, release = self.release_wrapper(root, '#!/bin/sh\nprintf "%s" "$1"\n')
+            _, release = self.release_wrapper(root, '#!/bin/sh\nprintf "%s\\n" "$1"\n')
             (root / "current").symlink_to(release, target_is_directory=True)
             # The shared binary production ran before root ADR-0134, and the old override.
             stale = root / "bin/foundation-outbox-publisher"
@@ -847,10 +895,11 @@ class FloorCycleAdapter(unittest.TestCase):
                 "PUBLISHER_BIN": str(stale),
             }
             script = root / "current/scripts/ops/building-register-floor-cycle.sh"
-            for args, command in [([], "run-building-register-floor-cycle"), (["cleanup"], "stop-building-register-floor-cycle")]:
+            for args, lines in [([], ["run-building-register-floor-cycle", "foundation-job-outcome changed"]),
+                                (["cleanup"], ["stop-building-register-floor-cycle"])]:
                 result = subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout, command)
+                self.assertEqual(result.stdout.splitlines(), lines)
             # A substituted artifact is refused before it runs, for cleanup as well.
             binary = root / "artifacts" / release.name / "foundation-outbox-publisher"
             binary.chmod(0o755)
