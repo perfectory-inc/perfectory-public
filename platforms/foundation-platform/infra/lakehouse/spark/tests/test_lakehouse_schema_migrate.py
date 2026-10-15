@@ -289,9 +289,6 @@ class UnitPriceGrain(unittest.TestCase):
     stopped with the DAGs paused. The kind is now its own table, gold.unit_price, which its load
     creates; the old table is no contract's and the migration leaves it alone."""
 
-    # The columns the live gold.unit_price_panel holds (one row per PNU, root ADR-0190).
-    LIVE_SHAPE = ("pnu", "units_json", "row_digest", "source_snapshot_id", "published_at_utc")
-
     def test_the_regrained_unit_price_gold_never_alters_the_live_table(self) -> None:
         contracts = migrate.load_lakehouse_artifact()["contracts"]
         self.assertIn("gold.unit_price", contracts)
@@ -300,5 +297,7 @@ class UnitPriceGrain(unittest.TestCase):
         self.assertNotIn("gold.unit_price_panel", contracts)
         # Kept under the old name, the same contract on the live rows is the refusal that stopped
         # the deploys: the reason for the new name.
-        with self.assertRaises(migrate.MigrationBlocked):
-            migrate.plan_table(contracts["gold.unit_price"], self.LIVE_SHAPE, True, "gold.unit_price_panel")
+        # The live table's shape is production's, from the shape ledger (root ADR-0259).
+        refusals = migrate.production_shape_refusals(
+            {"gold.unit_price_panel": contracts["gold.unit_price"]}, migrate.load_production_shape())
+        self.assertIn("['building_id'] with no registered backfill", " ".join(refusals))
