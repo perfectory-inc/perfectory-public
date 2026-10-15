@@ -28,12 +28,12 @@
 # rename the old trees back, start, unpause. The copies on the data disk stay for inspection.
 #
 # Idempotent: a host already on the data disk is reported and left alone.
+#
+# The file can be sourced (orchestration/tests/test_host_docker_data_root_script.py does): it then
+# defines its functions and runs nothing.
 set -euo pipefail
 
-MODE="${1:-}"
-case "${MODE}" in dry-run|run|rollback|delete-old) ;; *)
-  echo "usage: host-docker-data-root.sh dry-run|run|rollback|delete-old" >&2; exit 64 ;;
-esac
+MODE=""
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLATFORM_ROOT="$(cd "${HERE}/../.." && pwd -P)"
 export PYTHONDONTWRITEBYTECODE=1
@@ -51,6 +51,8 @@ STOPPED_CAP="$(layout time_caps_minutes.stopped_copy)"
 mapfile -t READINESS < <(layout readiness)
 STATE_ROOT=/var/lib/foundation-host-layout
 AUTODEPLOY_OFF=/etc/foundation-platform/autodeploy.off
+RELEASE_DEPLOY_CONF=/etc/foundation-platform/release-deploy.conf
+AIRFLOW_RUNTIME="${PLATFORM_ROOT}/scripts/deploy/airflow-runtime.sh"
 ADMISSION=/opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py
 DROPIN_NAME=10-data-disk.conf
 RSYNC=(rsync -aHAXx --numeric-ids --delete)
@@ -60,18 +62,21 @@ JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 
 log() { printf '%s host-docker-data-root: %s\n' "$(date -u +%FT%TZ)" "$*"; }
 die() { log "REFUSED: $1"; exit "${2:-1}"; }
-need_root() { [[ ${EUID} == 0 ]] || die "${MODE} changes the host; run it with sudo" 64; }
+am_root() { [[ "$(id -u)" == 0 ]]; }
+need_root() { am_root || die "${MODE} changes the host; run it with sudo" 64; }
 
-# Airflow as the deployer, the way the deploy pauses DAGs (foundation-deploy.sh step 0).
+# Airflow as the deployer, the way the deploy pauses DAGs (foundation-deploy.sh step 0). `-T` and
+# no stdin: the owner runs this over `ssh -t`, and a terminal on stdin would have compose allocate
+# one for the CLI too, which the deploy (under systemd) never does.
 airflow() {
-  local runner=(bash /opt/foundation-platform/current/scripts/deploy/airflow-runtime.sh exec airflow-scheduler airflow "$@")
-  if [[ ${EUID} == 0 ]]; then
+  local runner=(bash "${AIRFLOW_RUNTIME}" exec -T airflow-scheduler airflow "$@")
+  if am_root; then
     local deployer
-    deployer="$(sed -n 's/^FOUNDATION_DEPLOYER=\([a-z_][a-z0-9_-]*\)$/\1/p' /etc/foundation-platform/release-deploy.conf | tail -1)"
-    [[ -n "${deployer}" ]] || die "/etc/foundation-platform/release-deploy.conf names no FOUNDATION_DEPLOYER" 78
-    sudo -u "${deployer}" -H "${runner[@]}"
+    deployer="$(sed -n 's/^FOUNDATION_DEPLOYER=\([a-z_][a-z0-9_-]*\)$/\1/p' "${RELEASE_DEPLOY_CONF}" | tail -1)"
+    [[ -n "${deployer}" ]] || die "${RELEASE_DEPLOY_CONF} names no FOUNDATION_DEPLOYER" 78
+    sudo -u "${deployer}" -H "${runner[@]}" </dev/null
   else
-    "${runner[@]}"
+    "${runner[@]}" </dev/null
   fi
 }
 consumers_first() {
@@ -83,7 +88,7 @@ print("\n".join(unpause_order()))
 PY
 }
 size_bytes() {
-  if [[ ${EUID} == 0 ]]; then
+  if am_root; then
     du -sxb "$1" | cut -f1
   else
     # A dry run without root measures through Docker, read-only.
@@ -95,9 +100,42 @@ on_data_disk() { [[ "$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)" =
 spark_containers() { docker ps --format '{{.Names}}' | grep -E -- '-spark-run-|spark-small-run|lakehouse-control-run' || true; }
 running_containers() { docker ps --format '{{.Names}}' | sort; }
 healthy_containers() {
+  # `if`, not `[[ … ]] && echo`: a loop whose last container is not healthy would otherwise end
+  # with status 1, and under pipefail and `set -e` the caller stops right after writing the list
+  # (the 2026-10-15 12:03 run did, after healthy-before, before anything else was recorded).
   docker ps --format '{{.Names}}' | while read -r name; do
-    [[ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${name}")" == healthy ]] && echo "${name}"
+    if [[ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${name}")" == healthy ]]; then
+      echo "${name}"
+    fi
   done | sort
+}
+
+# What a run restores from: the containers that run, the healthy ones, the unpaused DAGs. A dry run
+# records the same into a temporary directory, so every call a run makes here (as root, the
+# deployer's Airflow call too) is exercised before a run depends on it.
+record_state() {
+  local dir="$1"
+  running_containers >"${dir}/running-before"
+  healthy_containers >"${dir}/healthy-before"
+  airflow dags list -o json >"${dir}/dags-before.json.tmp"
+  mv "${dir}/dags-before.json.tmp" "${dir}/dags-before.json"
+  python3 -I "${HERE}/host_docker_layout.py" unpaused-dags "${dir}/dags-before.json" >"${dir}/unpaused-dags"
+}
+
+# The run's first steps. The cleanup is in place before autodeploy.off exists, so a failure at any
+# step from here on gives autodeploy back; the marker is written before the file, so the cleanup
+# removes only a file this run created.
+begin_run() {
+  local run="$1"
+  trap 'log "stopped before Docker was stopped; unpausing"; unpause_recorded "'"${run}"'" || true; give_autodeploy_back "'"${run}"'"' EXIT
+  if [[ ! -e "${AUTODEPLOY_OFF}" ]]; then
+    : >"${run}/autodeploy-off-created"
+    touch "${AUTODEPLOY_OFF}"
+  fi
+  [[ ! -f "${DAEMON_JSON}" ]] || cp -p "${DAEMON_JSON}" "${run}/daemon.json"
+  cp -p "${CTRD_TOML}" "${run}/config.toml"
+  record_state "${run}"
+  log "recorded $(wc -l <"${run}/running-before") running containers, $(wc -l <"${run}/unpaused-dags") unpaused DAGs in ${run}"
 }
 
 preflight() {
@@ -248,12 +286,21 @@ rollback_run() {
   log "ROLLBACK done: Docker root $(docker info --format '{{.DockerRootDir}}'); the copies under ${DATA_MOUNT} are kept for inspection"
 }
 
+main() {
+MODE="${1:-}"
+case "${MODE}" in dry-run|run|rollback|delete-old) ;; *)
+  echo "usage: host-docker-data-root.sh dry-run|run|rollback|delete-old" >&2; exit 64 ;;
+esac
 case "${MODE}" in
 dry-run)
-  log "dry run: nothing changes"
+  log "dry run: nothing changes$(am_root && echo ' (as root: the root-only checks and the deployer'"'"'s Airflow call run too)')"
   status=0; preflight || status=$?
-  log "would pause these unpaused DAGs, and afterwards unpause the ones whose jobs are enabled: $(airflow dags list -o json 2>/dev/null | python3 -I "${HERE}/host_docker_layout.py" unpaused-dags /dev/stdin | tr '\n' ' ')"
-  log "would keep running: $(running_containers | wc -l) containers ($(healthy_containers | wc -l) healthy)"
+  # The same recording a run makes, into a directory that is removed again.
+  probe="$(mktemp -d)"
+  record_state "${probe}" || { rm -rf "${probe}"; die "recording what a run restores from failed; a run would stop here" 70; }
+  log "would pause these unpaused DAGs, and afterwards unpause the ones whose jobs are enabled: $(tr '\n' ' ' <"${probe}/unpaused-dags")"
+  log "would keep running: $(wc -l <"${probe}/running-before") containers ($(wc -l <"${probe}/healthy-before") healthy)"
+  rm -rf "${probe}"
   log "would copy: ${RSYNC[*]} ${DOCKER_OLD}/ ${DOCKER_ROOT}/ and ${CTRD_OLD}/ ${CTRD_ROOT}/ (once live, once stopped, then a pass that must copy nothing)"
   log "would write ${DAEMON_JSON}:"
   python3 -I "${HERE}/host_docker_layout.py" daemon-json "${DAEMON_JSON}" "${DOCKER_ROOT}"
@@ -271,15 +318,7 @@ run)
   RUN="${STATE_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "${RUN}"
   ln -sfn "${RUN}" "${STATE_ROOT}/last"
-  [[ -e "${AUTODEPLOY_OFF}" ]] || { touch "${AUTODEPLOY_OFF}"; : >"${RUN}/autodeploy-off-created"; }
-  [[ ! -f "${DAEMON_JSON}" ]] || cp -p "${DAEMON_JSON}" "${RUN}/daemon.json"
-  cp -p "${CTRD_TOML}" "${RUN}/config.toml"
-  running_containers >"${RUN}/running-before"
-  healthy_containers >"${RUN}/healthy-before"
-  airflow dags list -o json >"${RUN}/dags-before.json"
-  python3 -I "${HERE}/host_docker_layout.py" unpaused-dags "${RUN}/dags-before.json" >"${RUN}/unpaused-dags"
-  log "recorded $(wc -l <"${RUN}/running-before") running containers, $(wc -l <"${RUN}/unpaused-dags") unpaused DAGs in ${RUN}"
-  trap 'log "stopped before Docker was stopped; unpausing"; unpause_recorded "${RUN}" || true; give_autodeploy_back "${RUN}"' EXIT
+  begin_run "${RUN}"
   while read -r dag; do airflow dags pause "${dag}" >/dev/null; done <"${RUN}/unpaused-dags"
   log "paused those DAGs; copying while Docker runs"
   for pair in "${DOCKER_OLD} ${DOCKER_ROOT}" "${CTRD_OLD} ${CTRD_ROOT}"; do
@@ -327,3 +366,6 @@ delete-old)
   df -h / "${DATA_MOUNT}"
   ;;
 esac
+}
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || main "$@"
