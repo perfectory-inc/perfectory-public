@@ -33,6 +33,10 @@ sudo bash /opt/foundation-platform/current/scripts/ops/host-docker-data-root.sh 
 
 1. `dry-run`(root 불필요): 사전 점검, 크기, 데이터 디스크 여유, 멈췄다가 되살릴 DAG, 쓸 `daemon.json`·`config.toml`.
    지금 돌릴 수 없으면 이유를 말하고 0 이 아닌 코드로 끝난다.
+   실행 직전에는 **root 로** 한 번 더 돌린다: `ssh -t ai-server "sudo bash /opt/foundation-platform/current/scripts/ops/host-docker-data-root.sh dry-run"`.
+   root 만 하는 점검(release admission, `du`)과 실행이 기록하는 것(돌던 컨테이너, healthy 목록, 배포자 계정으로
+   부르는 Airflow DAG 목록)을 실행과 같은 코드로 임시 디렉터리에 기록해 본다. 2026-10-15 첫 실행은 이 기록 단계에서
+   멈췄다(healthy 목록 함수의 종료 코드).
 2. 소유자가 자기 PowerShell 에서 한 줄로 실행한다(root 가 필요하다).
 
    ```powershell
