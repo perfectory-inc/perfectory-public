@@ -142,9 +142,43 @@ class _EnvReader:
         return (self._lookup(name) or "").strip()
 
 
+def r2_read_policy() -> dict[str, int]:
+    """The contract's `r2_read`: the one statement of how a Spark or JVM read of R2 retries
+    (root ADR-0102). The catalog settings, the s3a settings and the master URL all come from it."""
+    policy = load_engine_contract()["r2_read"]
+    for name in ("num_retries", "min_wait_ms", "max_wait_ms", "connection_ttl_ms",
+                 "connection_max_idle_ms", "task_max_failures"):
+        if type(policy.get(name)) is not int or policy[name] < 1:
+            raise ValueError(f"lakehouse engine contract r2_read.{name} must be a positive integer")
+    if policy["task_max_failures"] < 2:
+        raise ValueError("r2_read.task_max_failures must let a failed task run again")
+    return policy
+
+
+def spark_master(threads: int | str) -> str:
+    """`local[threads,task_max_failures]`: plain `local[N]` ignores spark.task.maxFailures, so one
+    reset read would abort the whole job (root ADR-0102)."""
+    return f"local[{threads},{r2_read_policy()['task_max_failures']}]"
+
+
+def s3a_read_settings() -> dict[str, str]:
+    """Hadoop 3.3.4 s3a's equivalent of the S3FileIO retry: an input stream that breaks is reopened
+    on a new connection and retried with the s3a retry policy's backoff; the SDK retries a request
+    that got no answer."""
+    policy = r2_read_policy()
+    return {
+        "spark.hadoop.fs.s3a.attempts.maximum": str(policy["num_retries"]),
+        "spark.hadoop.fs.s3a.retry.limit": str(policy["num_retries"]),
+        "spark.hadoop.fs.s3a.retry.interval": f"{policy['min_wait_ms']}ms",
+        "spark.hadoop.fs.s3a.retry.throttle.limit": str(policy["num_retries"]),
+        "spark.hadoop.fs.s3a.retry.throttle.interval": f"{policy['min_wait_ms']}ms",
+    }
+
+
 def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, str]:
     """The one place the settings are spelled. Everything else asks this."""
     catalog_uri = reader.require(CATALOG_URI_ENV)
+    read = r2_read_policy()
     settings = {
         "spark.sql.extensions": ICEBERG_SPARK_EXTENSIONS,
         f"spark.sql.catalog.{catalog}": "org.apache.iceberg.spark.SparkCatalog",
@@ -162,17 +196,17 @@ def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, st
         # 원인을 없앤다: 서버가 끊기 전에 우리가 먼저 늙은 연결을 버린다. TTL 은 연결 수명의
         # 절대 상한, max-idle 은 놀던 연결 재사용 금지선, reaper 는 이를 실행하는 배경 스레드다.
         f"spark.sql.catalog.{catalog}.http-client.type": "apache",
-        f"spark.sql.catalog.{catalog}.http-client.apache.connection-time-to-live-ms": "60000",
-        f"spark.sql.catalog.{catalog}.http-client.apache.connection-max-idle-time-ms": "10000",
+        f"spark.sql.catalog.{catalog}.http-client.apache.connection-time-to-live-ms": str(read["connection_ttl_ms"]),
+        f"spark.sql.catalog.{catalog}.http-client.apache.connection-max-idle-time-ms": str(read["connection_max_idle_ms"]),
         f"spark.sql.catalog.{catalog}.http-client.apache.use-idle-connection-reaper-enabled": "true",
         f"spark.sql.catalog.{catalog}.http-client.apache.tcp-keep-alive-enabled": "true",
         # 그래도 나는 순간의 리셋은 지수 백오프+jitter 로 되읽는다. S3InputStream 이 이
         # retryPolicy(EqualJitterBackoffStrategy) 를 쓰므로 — 클래스 상수로 확인 — 실패했던
         # 바로 그 스트리밍 읽기 경로를 덮는다. 스파크 task 재시도(local[N,8])와 멱등 재실행이
         # 그 아래 두 겹의 안전망이라, "N 번째 실패 = 손실" 인 지점이 없다.
-        f"spark.sql.catalog.{catalog}.s3.retry.num-retries": "10",
-        f"spark.sql.catalog.{catalog}.s3.retry.min-wait-ms": "200",
-        f"spark.sql.catalog.{catalog}.s3.retry.max-wait-ms": "30000",
+        f"spark.sql.catalog.{catalog}.s3.retry.num-retries": str(read["num_retries"]),
+        f"spark.sql.catalog.{catalog}.s3.retry.min-wait-ms": str(read["min_wait_ms"]),
+        f"spark.sql.catalog.{catalog}.s3.retry.max-wait-ms": str(read["max_wait_ms"]),
     }
     # 토큰 발급처는 준 경우에만 넣는다. 여섯 개 job 은 카탈로그 주소에서 만들어 넣었고 한
     # 개는 넣지 않았는데, 후자는 빠뜨린 것이 아니라 "이 정적 토큰 방식에는 발급처가 없다"고

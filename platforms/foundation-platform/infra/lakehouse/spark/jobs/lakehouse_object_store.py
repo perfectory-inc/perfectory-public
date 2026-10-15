@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from lakehouse_engine import s3a_read_settings
+
 ENDPOINT_ENV = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT"
 ACCESS_KEY_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"
 SECRET_KEY_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
@@ -108,6 +110,9 @@ def object_store_settings(lookup: Any = os.getenv) -> dict[str, str]:
         # R2 has one region and rejects a signature computed for another. The value is not
         # read from the environment because there is nothing to choose.
         "spark.hadoop.fs.s3a.endpoint.region": "auto",
+        # A reset read is reopened and retried as every R2 read is (root ADR-0102); the numbers
+        # are the engine contract's, never spelled here.
+        **s3a_read_settings(),
     }
 
 
