@@ -20,22 +20,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getComplexByLakehouseId"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/v1/complexes/{id}": {
         parameters: {
             query?: never;
@@ -744,7 +728,9 @@ export interface components {
             gold_pointer?: null | components["schemas"]["IndustrialComplexGoldPointerResponse"];
             /**
              * Format: uuid
-             * @description Stable foundation-platform identifier for the complex.
+             * @description The complex's one id: the `UUIDv5` derived from its official code, the same value `complex`
+             *     vector tiles publish as their feature id and Gold artifact keys are computed from
+             *     (root ADR-0250).
              */
             id: string;
             /** @description Industry types the complex set out to attract, in the source's own words. */
@@ -759,15 +745,6 @@ export interface components {
              *     (registered through this API) or was loaded before the words were kept.
              */
             kind_raw?: string | null;
-            /**
-             * Format: uuid
-             * @description Identifier the same complex carries in the lakehouse, when it was sourced from there.
-             *
-             *     Unrelated to `id`: that one is minted locally, this one is derived and is what Gold
-             *     artifact object keys are computed from. A client that wants the complex's Gold profile
-             *     object needs this value, not `id`. `null` for a complex registered through this API.
-             */
-            lakehouse_complex_id?: string | null;
             lot_sales_status?: null | components["schemas"]["IndustrialComplexLotSalesStatusValue"];
             /** @description The source's own words for `lot_sales_status` (for example `분양계획`). */
             lot_sales_status_raw?: string | null;
@@ -1720,35 +1697,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IndustrialComplexResponse"];
                 };
-            };
-        };
-    };
-    getComplexByLakehouseId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Lakehouse industrial-complex id (UUIDv5), as published in Gold artifact keys and `complex` vector tile feature ids */
-                lakehouse_complex_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IndustrialComplexResponse"];
-                };
-            };
-            /** @description No canonical complex carries that lakehouse id */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

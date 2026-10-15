@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use catalog_application::ports::CatalogRepository as _;
 use catalog_infrastructure::PgCatalogRepository;
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use lakehouse_application::PublishIndustrialComplexGoldPointer;
 use lakehouse_infrastructure::PgLakehousePublicationUnitOfWork;
 use sqlx::PgPool;
@@ -76,18 +76,18 @@ pub async fn run() -> anyhow::Result<()> {
         .context("failed to connect to database for industrial-complex Gold pointer publish")?;
     let catalog_repository = PgCatalogRepository::new(pool.clone());
     let mut resolved_complex_ids =
-        resolve_catalog_complex_ids(&catalog_repository, &[config.claim.lakehouse_complex_id])
+        resolve_catalog_complex_ids(&catalog_repository, &[config.claim.artifact_complex_id])
             .await?;
     let complex_id = resolved_complex_ids
         .pop()
-        .context("one Gold artifact identity did not produce one Catalog identity")?;
+        .context("one Gold artifact id did not resolve to one Catalog complex")?;
 
     let store = ProfileObjectStore::open(&config.store)?;
     let verified = VerifiedGoldProfileArtifact::verify(&store, config.claim).await?;
 
     tracing::info!(
         complex_id = %complex_id,
-        lakehouse_complex_id = %verified.lakehouse_complex_id(),
+        artifact_complex_id = %verified.artifact_complex_id(),
         profile_object_key = verified.object_key(),
         profile_storage_driver = store.storage_driver(),
         profile_bucket = store.bucket().unwrap_or("(local)"),
@@ -154,7 +154,7 @@ impl PublishIndustrialComplexGoldPointerConfig {
             database_url,
             store,
             claim: ClaimedGoldProfileArtifact {
-                lakehouse_complex_id: LakehouseComplexId::new(complex_id),
+                artifact_complex_id: ComplexId::new(complex_id),
                 current_version: required_lookup_value(&mut lookup, CURRENT_VERSION_ENV)?,
                 object_key: required_lookup_value(&mut lookup, PROFILE_OBJECT_KEY_ENV)?,
                 checksum_sha256: required_lookup_value(&mut lookup, PROFILE_CHECKSUM_SHA256_ENV)?,
@@ -188,13 +188,13 @@ impl PublishIndustrialComplexGoldPointerConfig {
 
 /// The one capability the pointer publisher needs from the Catalog projection.
 ///
-/// This stays narrow so both publish commands share one translation boundary while the Catalog
-/// repository remains the source of the actual lookup definition.
+/// A Gold artifact's complex id is the Catalog id (root ADR-0250); this only proves the complex
+/// exists before any pointer is written. Both publish commands share it.
 #[async_trait]
 trait ArtifactComplexIdentityResolver: Send + Sync {
     async fn find_catalog_complex_id(
         &self,
-        lakehouse_complex_id: LakehouseComplexId,
+        artifact_complex_id: ComplexId,
     ) -> anyhow::Result<Option<ComplexId>>;
 }
 
@@ -202,12 +202,12 @@ trait ArtifactComplexIdentityResolver: Send + Sync {
 impl ArtifactComplexIdentityResolver for PgCatalogRepository {
     async fn find_catalog_complex_id(
         &self,
-        lakehouse_complex_id: LakehouseComplexId,
+        artifact_complex_id: ComplexId,
     ) -> anyhow::Result<Option<ComplexId>> {
-        self.find_complex_by_lakehouse_id(lakehouse_complex_id)
+        self.find_complex(artifact_complex_id)
             .await
             .map(|complex| complex.map(|complex| complex.id))
-            .context("failed to find a Catalog complex by its lakehouse id")
+            .context("failed to find the Catalog complex a Gold artifact names")
     }
 }
 
@@ -217,24 +217,24 @@ impl ArtifactComplexIdentityResolver for PgCatalogRepository {
 /// caller receives no partial result when even one identity is absent.
 async fn resolve_catalog_complex_ids<R>(
     resolver: &R,
-    lakehouse_complex_ids: &[LakehouseComplexId],
+    artifact_complex_ids: &[ComplexId],
 ) -> anyhow::Result<Vec<ComplexId>>
 where
     R: ArtifactComplexIdentityResolver + ?Sized,
 {
-    let mut resolved = Vec::with_capacity(lakehouse_complex_ids.len());
+    let mut resolved = Vec::with_capacity(artifact_complex_ids.len());
     let mut missing = Vec::new();
-    for &lakehouse_complex_id in lakehouse_complex_ids {
+    for &artifact_complex_id in artifact_complex_ids {
         match resolver
-            .find_catalog_complex_id(lakehouse_complex_id)
+            .find_catalog_complex_id(artifact_complex_id)
             .await
             .with_context(|| {
                 format!(
-                    "failed to resolve lakehouse complex id {lakehouse_complex_id} to its Catalog id"
+                    "failed to look up Gold artifact complex id {artifact_complex_id} in Catalog"
                 )
             })? {
             Some(complex_id) => resolved.push(complex_id),
-            None => missing.push(lakehouse_complex_id),
+            None => missing.push(artifact_complex_id),
         }
     }
 
@@ -245,7 +245,7 @@ where
             .collect::<Vec<_>>()
             .join(", ");
         bail!(
-            "{} Gold artifact complex ids do not map to catalog.industrial_complex.id: {missing_ids}",
+            "{} Gold artifact complex ids are not in catalog.industrial_complex: {missing_ids}",
             missing.len()
         );
     }
@@ -318,27 +318,27 @@ mod tests {
     use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
     use async_trait::async_trait;
     use chrono::{DateTime, SecondsFormat, Utc};
-    use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+    use foundation_shared_kernel::ids::ComplexId;
     use std::collections::{BTreeMap, HashMap};
     use std::path::PathBuf;
     use uuid::Uuid;
 
     struct FakeArtifactComplexIdentityResolver {
-        matches: HashMap<LakehouseComplexId, ComplexId>,
+        matches: HashMap<ComplexId, ComplexId>,
     }
 
     #[async_trait]
     impl ArtifactComplexIdentityResolver for FakeArtifactComplexIdentityResolver {
         async fn find_catalog_complex_id(
             &self,
-            lakehouse_complex_id: LakehouseComplexId,
+            artifact_complex_id: ComplexId,
         ) -> anyhow::Result<Option<ComplexId>> {
-            Ok(self.matches.get(&lakehouse_complex_id).copied())
+            Ok(self.matches.get(&artifact_complex_id).copied())
         }
     }
 
-    fn lakehouse_id(raw: &str) -> anyhow::Result<LakehouseComplexId> {
-        Ok(LakehouseComplexId::new(Uuid::parse_str(raw)?))
+    fn lakehouse_id(raw: &str) -> anyhow::Result<ComplexId> {
+        Ok(ComplexId::new(Uuid::parse_str(raw)?))
     }
 
     fn catalog_id(raw: &str) -> anyhow::Result<ComplexId> {
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn parses_gold_pointer_publish_config() -> anyhow::Result<()> {
-        let lakehouse_complex_id = "001533c1-8504-5651-bd49-d9df4e87bc37";
+        let artifact_complex_id = "001533c1-8504-5651-bd49-d9df4e87bc37";
         let mut values = minimal();
         values.insert(CURRENT_VERSION_ENV, "0196e7e0-3c20-7000-8000-100000000002");
         values.insert(
@@ -414,8 +414,8 @@ mod tests {
 
         assert_eq!(config.database_url, "postgres://example");
         assert_eq!(
-            config.claim.lakehouse_complex_id.as_uuid().to_string(),
-            lakehouse_complex_id
+            config.claim.artifact_complex_id.as_uuid().to_string(),
+            artifact_complex_id
         );
         assert_eq!(
             config.claim.current_version,

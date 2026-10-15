@@ -228,8 +228,6 @@ impl CatalogIndustrialComplexGoldPointer {
 pub struct CatalogIndustrialComplexResponse {
     /// The complex's id, echoed back by the provider (root ADR-0250).
     pub id: String,
-    /// Lakehouse identity of the complex, echoed back by the provider.
-    pub lakehouse_complex_id: Option<String>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.

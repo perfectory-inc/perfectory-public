@@ -18,8 +18,8 @@ use catalog_domain::{
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
-    ComplexId, LakehouseComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId,
-    VectorTileBuildJobId, VectorTileDataRevisionId, VectorTileReleaseId,
+    ComplexId, NoticeId, ParcelId, PostgisProjectionRevisionId, StaffId, VectorTileBuildJobId,
+    VectorTileDataRevisionId, VectorTileReleaseId,
 };
 use uuid::Uuid;
 
@@ -580,11 +580,6 @@ pub trait ParcelMarkerAnchorRebuildPort: Send + Sync {
 /// Command for creating or updating a Catalog industrial complex by official source code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpsertIndustrialComplexCommand {
-    /// Lakehouse identifier of the same complex, or `None` when the writer has no snapshot.
-    ///
-    /// The value to store, like every other field on this command: `None` clears it. Only a loader
-    /// reading a Gold snapshot can supply one.
-    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -704,18 +699,6 @@ pub trait CatalogRepository: Send + Sync {
     /// # Errors
     /// Returns `CatalogError` when repository access fails.
     async fn find_complex(&self, id: ComplexId) -> Result<Option<IndustrialComplex>, CatalogError>;
-
-    /// Finds an industrial complex by the lakehouse spelling of its id.
-    ///
-    /// Since root ADR-0250 this answers exactly what [`Self::find_complex`] answers for the same
-    /// value; it goes with the `by-lakehouse-id` route once its last caller has moved.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when repository access fails.
-    async fn find_complex_by_lakehouse_id(
-        &self,
-        lakehouse_complex_id: LakehouseComplexId,
-    ) -> Result<Option<IndustrialComplex>, CatalogError>;
 
     /// Lists notices attached to one industrial complex.
     ///

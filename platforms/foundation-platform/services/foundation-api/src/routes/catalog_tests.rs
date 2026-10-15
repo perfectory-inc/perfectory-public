@@ -323,7 +323,6 @@ fn unsourced_complex() -> IndustrialComplex {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: None,
         area_m2: 0,
-        lakehouse_complex_id: None,
         status: None,
         sido_code: None,
         sigungu_code: None,

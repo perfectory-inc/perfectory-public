@@ -60,9 +60,6 @@ function ComplexDetail({ client, complexId, onClose }: { client: DawneerClient; 
         <Row name="Foundation id">
           <span className="font-mono text-xs">{c.id}</span>
         </Row>
-        <Row name="레이크하우스 id">
-          {c.lakehouse_complex_id ? <span className="font-mono text-xs">{c.lakehouse_complex_id}</span> : null}
-        </Row>
         <Row name="마지막 변경">
           {new Date(c.updated_at).toLocaleString("ko-KR")} · 판 {c.version}
         </Row>
