@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Postgres integration job's production-shape step (root ADR-0259 §5).
+# The Postgres integration job's production-shape step (root ADR-0259 §8).
 #
 #   foundation-postgres-production-shape.sh <database url> <base commit>
 #

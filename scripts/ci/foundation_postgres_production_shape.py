@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A pull request's new migrations run onto a database shaped like production (root ADR-0259 §5).
+"""A pull request's new migrations run onto a database shaped like production (root ADR-0259 §8).
 
   postgres_production_shape.py --database-url URL --base SHA --head SHA [--repository DIR]
 

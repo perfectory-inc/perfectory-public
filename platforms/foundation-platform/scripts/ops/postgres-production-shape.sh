@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints config/postgres-production-shape.json for the running database (root ADR-0259 §5): which
+# Prints config/postgres-production-shape.json for the running database (root ADR-0259 §8): which
 # tables hold rows, by name, no value. Read-only (`select exists` per table). Run as root on the
 # host, where the runtime compose wrapper can read its environment file, and commit the output:
 #   sudo bash scripts/ops/postgres-production-shape.sh > config/postgres-production-shape.json
@@ -21,7 +21,7 @@ from datetime import date
 rows = sorted(line.split()[0] for line in sys.stdin if line.split()[-1:] == ["true"])
 print(json.dumps({
     "schema_version": "foundation-platform.postgres_production_shape.v1",
-    "decision": "root ADR-0259 §5",
+    "decision": "root ADR-0259 §8",
     "captured_by": "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh",
     "captured_at": date.today().isoformat(),
     "tables_with_rows": rows,

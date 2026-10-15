@@ -432,7 +432,7 @@ jobs:
           fi
           psql --version
 
-      # Root ADR-0259 §5: a change's new migrations run onto main's schema holding a synthetic row
+      # Root ADR-0259 §8: a change's new migrations run onto main's schema holding a synthetic row
       # in every table production holds rows in, not only onto the empty database below.
       - name: Apply new migrations onto production-shaped rows
         working-directory: ${{ github.workspace }}

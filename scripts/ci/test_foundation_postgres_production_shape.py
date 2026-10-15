@@ -1,4 +1,4 @@
-"""The production-shape seed reads a CHECK's own values and keeps its gap list honest (root ADR-0259 §5).
+"""The production-shape seed reads a CHECK's own values and keeps its gap list honest (root ADR-0259 §8).
 
 The database half runs in the Postgres integration job, where a planted migration that adds a
 required column must fail on the seeded rows; these are the parts that need no database.
