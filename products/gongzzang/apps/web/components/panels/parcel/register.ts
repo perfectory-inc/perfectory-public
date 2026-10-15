@@ -13,7 +13,6 @@ import { ParcelFloorsCard } from "./floors";
 import { ParcelListingsCard } from "./listings";
 import { ParcelEmptyCard, ParcelErrorCard, ParcelLoadingSkeleton } from "./skeletons";
 import { ParcelSummaryCard } from "./summary";
-import { unitPricesQuery } from "./unit-prices";
 
 defineKind({
   kind: "parcel",
@@ -28,9 +27,8 @@ defineKind({
     buildings: defineView<"parcel", BuildingsResponse>({
       component: ParcelBuildingsCard,
       fetcher: (id, signal) => fetchBuildings(id, signal),
-      // The units' prices go out with the buildings, not after them; for a parcel without units
-      // that costs one 404 from the edge.
-      prefetch: (id, client) => void client.prefetchQuery(unitPricesQuery(id)),
+      // The units' prices are one document per building (root ADR-0204), named by the building ids
+      // this fetch returns, so the card asks them all at once when it arrives.
       staleTime: 5 * 60_000,
       links: [],
     }),
