@@ -734,3 +734,28 @@ export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string
   }
   return findDocument(reads, plan, section, pnu);
 }
+
+/// A synthetic two-entry pack's head, parsed and searched for a hit and a miss: the isolate's
+/// startup runs the pack read path's first calls instead of its first request (root ADR-0233).
+/// `true` when the search found the document and missed the absent key.
+export function warmPackPath(pnu: string): boolean {
+  const encoder = new TextEncoder();
+  const next = `${pnu.slice(0, -1)}1`;
+  const header = encoder.encode(JSON.stringify({ compression: "gzip", entry_count: 2, body_length: 2 }));
+  const bytes = new Uint8Array(PREFIX_BYTES + header.length + 2 * INDEX_ENTRY_BYTES + 2);
+  const view = new DataView(bytes.buffer);
+  bytes.set(magic, 0);
+  view.setUint16(8, packPolicy.format_version, true);
+  view.setUint32(12, header.length, true);
+  view.setUint32(16, 2 * INDEX_ENTRY_BYTES, true);
+  bytes.set(header, PREFIX_BYTES);
+  for (const [i, key] of [pnu, next].entries()) {
+    const at = PREFIX_BYTES + header.length + i * INDEX_ENTRY_BYTES;
+    bytes.set(encoder.encode(key), at);
+    view.setUint32(at + PNU_BYTES, i, true);
+    view.setUint32(at + PNU_BYTES + 4, 1, true);
+    bytes[at + PNU_BYTES + 8] = STATE_DOCUMENT;
+  }
+  const head = parseHead(bytes.subarray(0, headLength(bytes)), "warm-up");
+  return head !== null && findEntry(head, pnu) !== null && findEntry(head, `${pnu.slice(0, -1)}9`) === null;
+}
