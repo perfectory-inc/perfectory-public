@@ -116,6 +116,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--deadline-minutes", type=float, required=True,
                         help="Start no group after this many minutes; the next run continues")
     parser.add_argument("--work-dir", required=True, help="Where the pinned input documents are written")
+    parser.add_argument("--parcel-editions", required=True,
+                        help="The Bronze ledger's parcel editions (the publisher's vworld-parcel-editions, root ADR-0224)")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-namespace", default="silver")
@@ -150,7 +152,7 @@ def producer_argv(args: argparse.Namespace, contract: dict[str, Any], pair: tupl
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    contract = editions.load()
+    contract = editions.load(editions_path=args.parcel_editions)
     from pyspark.sql import SparkSession  # noqa: PLC0415
 
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")

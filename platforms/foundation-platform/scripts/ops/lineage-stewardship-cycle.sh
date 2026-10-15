@@ -90,7 +90,9 @@ load_legal_dong_code_handoffs
 # 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
 # silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
 # 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
+parcel_editions > "${work}/parcel-editions.json"
 spark parcel_lineage_scheduled.py --allow-non-smoke-write \
+  --parcel-editions "${container_work}/parcel-editions.json" \
   --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
   --summary-output "${container_work}/derive-summary.json"
 derive_refused="$(json_field "${work}/derive-summary.json" '["refused"]')"
