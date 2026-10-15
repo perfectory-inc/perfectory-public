@@ -647,7 +647,7 @@ fn is_positive_decimal(value: &str) -> bool {
 
 /// Whether the text is a lowercase canonical UUID whose version nibble is 5.
 ///
-/// The same shape `catalog.industrial_complex_lakehouse_complex_id_is_uuid_v5` refuses in SQL, and
+/// The same shape `complex_boundary_publication_complex_id_is_uuid_v5` refuses in SQL, and
 /// stated here so the publish fails on the file rather than 1,343 inserts later on a CHECK.
 fn is_uuid_v5(value: &str) -> bool {
     let bytes = value.as_bytes();
