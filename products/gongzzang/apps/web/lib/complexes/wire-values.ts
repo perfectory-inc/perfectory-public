@@ -6,31 +6,18 @@
 // Both surfaces that show a complex — the list row and the `complex` panel's summary card — have to
 // say `national` as 국가산업단지 and `operating` as 운영중. Two copies of that mapping is a defect on
 // its own terms (root AGENTS.md ★ 2): the copies drift, and nothing decides which one is right.
-// So the value sets live here and the message keys live under one i18n namespace, `complexValues`.
+// So the labels live here and the message keys live under one i18n namespace, `complexValues`.
 //
 // A value outside the known set falls through to the source's own string rather than rendering a
 // message-key path. Showing what the source said is honest; inventing a label for it is not.
 
-/** Canonical industrial-complex classifications, as `catalog_domain::IndustrialComplexKind`. */
-export const COMPLEX_KINDS = ["national", "general", "agricultural", "urban_high_tech"] as const;
+// The value sets are the Foundation domain's, generated from the pinned Catalog OpenAPI document
+// (`products/gongzzang/scripts/generate-catalog-values.ts`) — never listed here by hand. `unknown` is in the status
+// set on purpose: per the Catalog contract it means the source stated a lifecycle the contract does
+// not recognize, while an absent status means it stated none.
+import { COMPLEX_KINDS, COMPLEX_STATUSES, LOT_SALES_STATUSES } from "./catalog-values.generated";
 
-/**
- * Development lifecycle values, as `catalog_domain::IndustrialComplexStatus`.
- *
- * `unknown` is in the set on purpose: per the Catalog contract it means the source stated a
- * lifecycle this contract does not recognize, while an absent status means it stated none.
- */
-export const COMPLEX_STATUSES = [
-  "planned",
-  "developing",
-  "operating",
-  "changed",
-  "abolished",
-  "unknown",
-] as const;
-
-/** Lot sale/lease progress values, as `catalog_domain::IndustrialComplexLotSalesStatus`. */
-export const LOT_SALES_STATUSES = ["planned", "in_progress", "completed"] as const;
+export { COMPLEX_KINDS, COMPLEX_STATUSES, LOT_SALES_STATUSES };
 
 export type ComplexKind = (typeof COMPLEX_KINDS)[number];
 export type ComplexStatus = (typeof COMPLEX_STATUSES)[number];

@@ -2,18 +2,19 @@
 
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, BuildingResponse, ComplexNoticeResponse,
-    DigitalTwinAssetResponse, FileAssetResponse, IndustrialComplexGoldPointerResponse,
-    IndustrialComplexListResponse, IndustrialComplexResponse, IndustryGroupMemberResponse,
-    IndustryGroupResponse, ManufacturerResponse, MapEditRequest, MapEditResponse,
-    MarkerTileContractResponse, ParcelCharacteristicResponse, ParcelForestLedgerResponse,
-    ParcelIndustryAssignmentResponse, ParcelLandRightResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, ParcelPriceResponse, ParcelResponse,
-    ParcelTransferEventResponse, ParcelZoningResponse, PromoteFileAssetRequest,
-    PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest,
-    RegisterComplexRequest, RollbackVectorTileManifestRequest, SpatialLayerResponse,
-    UnitOfficialPriceResponse, UnitResponse, UpdateComplexRequest, VectorTileArtifactResponse,
-    VectorTileDynamicPostgisResponse, VectorTileLineageResponse, VectorTileManifestResponse,
-    VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
+    DigitalTwinAssetResponse, FileAssetResponse, IndustrialComplexDevelopmentStageValue,
+    IndustrialComplexGoldPointerResponse, IndustrialComplexKindValue,
+    IndustrialComplexListResponse, IndustrialComplexLotSalesStatusValue, IndustrialComplexResponse,
+    IndustrialComplexStatusValue, IndustryGroupMemberResponse, IndustryGroupResponse,
+    ManufacturerResponse, MapEditRequest, MapEditResponse, MarkerTileContractResponse,
+    ParcelCharacteristicResponse, ParcelForestLedgerResponse, ParcelIndustryAssignmentResponse,
+    ParcelLandRightResponse, ParcelMarkerAnchorRebuildRequest, ParcelMarkerAnchorRebuildResponse,
+    ParcelPriceResponse, ParcelResponse, ParcelTransferEventResponse, ParcelZoningResponse,
+    PromoteFileAssetRequest, PromoteSourceRecordRequest, PromoteVectorTileArtifactRequest,
+    PromoteVectorTileManifestRequest, RegisterComplexRequest, RollbackVectorTileManifestRequest,
+    SpatialLayerResponse, UnitOfficialPriceResponse, UnitResponse, UpdateComplexRequest,
+    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
+    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
     VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
     VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
 };
@@ -60,6 +61,11 @@ use super::{HealthResponse, ReadinessResponse};
         super::catalog::promote_vector_tile_manifest
     ),
     components(schemas(
+        // The industrial-complex value lists, so a consumer generates them from this document.
+        IndustrialComplexKindValue,
+        IndustrialComplexStatusValue,
+        IndustrialComplexDevelopmentStageValue,
+        IndustrialComplexLotSalesStatusValue,
         ArchiveComplexRequest,
         BlueprintResponse,
         BuildingResponse,
