@@ -27,10 +27,10 @@ lives in the loader:
                then both sequences DESC — moved_at and parcel_history_seq compare as text,
                exactly like the Postgres columns.
   land_rights  dong/floor/ho/room NULL becomes '' before anything else (ADR-0093 key
-               normalization); dedup on the six-part key by the loader's order; array is
-               the first 200 by (right_serial_no, dong_name, floor_name, ho_name,
-               room_name) as text ASC, land_right_total counts the full set — the API's
-               page bound.
+               normalization); dedup on the six-part key by the loader's order; sorted by
+               (right_serial_no, dong_name, floor_name, ho_name, room_name) as text ASC. The
+               panel serves the first 200 and land_right_total counts the full set — the old
+               API's page bound; the land-rights kind carries the whole list (ADR-0193 §5).
 
 What this job deliberately does NOT reproduce, stated as refusals instead of drift:
 
@@ -88,6 +88,7 @@ from platform_contracts import (
     partition_column_names,
     required_column_names,
     sort_order,
+    spark_sql_type,
 )
 
 
@@ -786,13 +787,18 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
             """
         ).alias("sorted_entries")
     )
+    # The whole sorted list: the land-rights kind carries it all (root ADR-0193 §5); the panel pages
+    # it to the old API's LAND_RIGHT_PAGE_BOUND with the full count until it retires (land_rights_page).
     return aggregated.select(
         "pnu",
-        F.to_json(F.slice(F.col("sorted_entries"), 1, LAND_RIGHT_PAGE_BOUND)).alias(
-            "land_rights_json"
-        ),
+        F.col("sorted_entries").alias("land_rights"),
         F.size(F.col("sorted_entries")).cast(T.LongType()).alias("land_right_total"),
     )
+
+
+def land_rights_page(entries: F.Column) -> F.Column:
+    """The panel's page of a PNU's sorted land rights, as the panel serves it."""
+    return F.to_json(F.slice(entries, 1, LAND_RIGHT_PAGE_BOUND))
 
 
 @dataclass(frozen=True)
@@ -807,12 +813,27 @@ class Section:
     name: str
     inputs: tuple[str, ...]
     build: Callable[[dict[str, DataFrame], SparkSession, argparse.Namespace, dict[str, int]], DataFrame]
+    # Where the panel serves the section in another shape than its kind (a page of a whole list):
+    # the panel's columns, and the kind's Gold turned into them for the kind's parity check.
+    panel_columns: tuple[str, ...] = ()
+    as_panel: Callable[[DataFrame], DataFrame] | None = None
     # False for a section that is the lineage itself: a predecessor's edges are not its successor's.
     carried: bool = True
 
     @property
     def via_column(self) -> str:
         return f"{self.name}_via"
+
+
+def _land_rights_as_panel(gold: DataFrame) -> DataFrame:
+    """The land-rights kind's whole lists as the panel's page and count."""
+    types = {c["name"]: c["logical_type"] for c in load_lakehouse_contract(LAND_RIGHT_SOURCE)["columns"]}
+    no_rows = gold.sparkSession.createDataFrame(
+        [], ", ".join(f"{c} {spark_sql_type(types[c])}" for c in BUILD_COLUMNS[LAND_RIGHT_SOURCE]))
+    entry = build_land_rights(no_rows).schema["land_rights"].dataType
+    entries = F.from_json("land_rights_json", entry)
+    return gold.select("pnu", land_rights_page(entries).alias("land_rights_json"),
+                       F.size(entries).cast(T.LongType()).alias("land_right_total"), "attached_via")
 
 
 SECTIONS: tuple[Section, ...] = (
@@ -827,7 +848,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("transfer_history", (TRANSFER_SOURCE,), lambda frames, spark, args, counters: build_transfer_history(
         frames[TRANSFER_SOURCE])),
     Section("land_rights", (LAND_RIGHT_SOURCE,), lambda frames, spark, args, counters: build_land_rights(
-        frames[LAND_RIGHT_SOURCE])),
+        frames[LAND_RIGHT_SOURCE]), ("land_rights_json", "land_right_total"), _land_rights_as_panel),
     # Reads the lineage only when the run carries it (`--no-carry-lineage` leaves it empty), so the
     # table stays the optional input it is to the planner, not a required one.
     Section("lineage", (), lambda frames, spark, args, counters: build_lineage(
@@ -948,7 +969,7 @@ def build_gold_panel_frame(
         F.col("characteristics_json"),
         F.col("forest_ledger_json"),
         F.coalesce(F.col("transfer_history_json"), F.lit("[]")).alias("transfer_history_json"),
-        F.coalesce(F.col("land_rights_json"), F.lit("[]")).alias("land_rights_json"),
+        F.coalesce(land_rights_page(F.col("land_rights")), F.lit("[]")).alias("land_rights_json"),
         F.coalesce(F.col("land_right_total"), F.lit(0)).cast(T.LongType()).alias(
             "land_right_total"
         ),

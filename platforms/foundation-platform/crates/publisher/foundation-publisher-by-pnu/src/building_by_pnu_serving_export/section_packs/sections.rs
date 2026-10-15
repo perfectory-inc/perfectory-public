@@ -323,9 +323,7 @@ mod tests {
     fn the_documents_section_holds_the_served_bytes() -> anyhow::Result<()> {
         let document = fixture_document()?;
         assert!(!document.buildings[0].floors.is_empty());
-        assert!(!document.buildings[0].units[0]
-            .official_price_history
-            .is_empty());
+        assert!(!document.buildings[0].units.is_empty());
         let bytes = fragment(&pack_document(&document)?, DOCUMENTS)?;
         assert_eq!(bytes, document.to_bytes()?);
         join(ByPnuLane::Building, &[(DOCUMENTS, bytes.as_slice())])?;

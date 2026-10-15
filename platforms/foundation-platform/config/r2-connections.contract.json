@@ -502,7 +502,11 @@
     "parcel-characteristics": {"host": "parcel_by_pnu_gateway", "kind": "characteristics", "section": "characteristics", "columns": ["characteristics_json"]},
     "parcel-forest-ledger": {"host": "parcel_by_pnu_gateway", "kind": "forest-ledger", "section": "forest_ledger", "columns": ["forest_ledger_json"]},
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
-    "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
+    "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json"],
+      "retired_columns": ["land_right_total"],
+      "retired_columns_reason": "the kind carries the whole list (root ADR-0193 §5): a count beside a page was the old API's page shape, and the list's length is the count. The deploy's lakehouse migration drops the column from the live table (Iceberg metadata only, earlier snapshots keep it)"},
+    "building-titles": {"host": "building_by_pnu_gateway", "kind": "titles", "section": "titles", "columns": ["buildings_json"]},
+    "building-floors": {"host": "building_by_pnu_gateway", "kind": "floors", "section": "floors", "documents_follow_lane": "building-titles", "columns": ["floors_json"]},
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

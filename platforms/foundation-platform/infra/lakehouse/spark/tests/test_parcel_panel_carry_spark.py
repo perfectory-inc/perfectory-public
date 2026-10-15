@@ -50,7 +50,7 @@ class PanelCarrySparkTest(unittest.TestCase):
             "characteristics": "pnu string, characteristics_json string",
             "forest_ledger": "pnu string, forest_ledger_json string",
             "transfer_history": "pnu string, transfer_history_json string",
-            "land_rights": "pnu string, land_rights_json string, land_right_total long",
+            "land_rights": "pnu string, land_rights array<string>, land_right_total long",
             "lineage": "pnu string, lineage_json string",
         }
         sections = {name: spark.createDataFrame([], schema) for name, schema in empty.items()}

@@ -210,6 +210,16 @@ class Plan(unittest.TestCase):
             rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11", "silver.lineage": "31"}),
                          {"silver.a": table(A1), "silver.lineage": None})
 
+    def test_an_input_the_table_no_longer_reads_rebuilds_in_full(self):
+        """ADR-0190 took the unit prices out of the building panel: its Gold still carries them."""
+        decision = rebuild.plan("gold.x", {**ENTRY, "incremental": {}}, INPUTS,
+                                gold({"silver.a": "11", "silver.b": "21", "silver.gone": "41"}),
+                                {"silver.a": table(A1), "silver.b": table(B1)})
+        self.assertEqual(decision["action"], "rebuild")
+        self.assertIn("silver.gone", decision["reasons"][0])
+        self.assertEqual(decision["mode"], "full")
+        self.assertEqual(decision["source_snapshots"], {"silver.a": "11", "silver.b": "21"})
+
     def test_a_table_without_gold_is_built_with_no_row_floor(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, None, {"silver.a": table(A1), "silver.b": table(B1)})
         self.assertEqual(decision["action"], "rebuild")
@@ -349,9 +359,10 @@ class Contract(unittest.TestCase):
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
-        # A kind reads the lineage at its host panel's pins, so it takes the panel's leave to go without.
-        accepted = contract["tables"]["gold.parcel_panel"].get("absent_inputs_accepted", {})
+        # A kind reads at its host panel's pins, so it takes that panel's leave to go without an input
+        # (the parcel panel's lineage leave is not a building kind's).
         for kind in kinds.values():
+            accepted = contract["tables"][kind.host_panel].get("absent_inputs_accepted", {})
             self.assertEqual(contract["tables"][kind.gold_table]["absent_inputs_accepted"], accepted)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
@@ -374,7 +385,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(contract["tables"]["gold.unit_price"]["pins_from"]["gold_table"], "gold.building_panel")
         # While a panel is the reference, each kind is its section: every input pinned to it, checked on
         # every PNU (root ADR-0193 §3, §6-2), and its line is its whole entry: the producer run, its lane.
-        self.assertGreaterEqual(len(kinds), 6)
+        self.assertGreaterEqual(len(kinds), 8)
         for lane, kind in kinds.items():
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
@@ -382,8 +393,12 @@ class Contract(unittest.TestCase):
             self.assertEqual(entry["pins_from"]["inputs"], "all")
             self.assertEqual(entry["pins_from"]["parity_argument"], "--parity-panel-snapshot-id")
             required, _, anchor = rebuild.producer_inputs(kinds_job, entry)
-            self.assertEqual(anchor, parcel.PARCEL_SOURCE)
-            self.assertLessEqual(set(required), set(parcel.ALL_SOURCES))
+            host = parcel if kind.host == "parcel_by_pnu_gateway" else building
+            self.assertEqual(anchor, rebuild.producer_inputs(host)[2])
+            self.assertLessEqual(set(required), set(host.ALL_SOURCES))
+            # The lineage is unmeasured only where a kind can read it.
+            self.assertEqual(set(entry["unmeasured_inputs"]),
+                             {parcel.LINEAGE_SOURCE} if host is parcel else set())
         # A table the contract writes by hand cannot also be a kind line's.
         import tempfile
         raw = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))

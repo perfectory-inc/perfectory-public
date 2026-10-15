@@ -32,11 +32,8 @@
   (`gold-panel-rebuild.contract.json` `unmeasured_inputs`).
 - 필지 묶음은 법정동 묶음 중앙값 1.67 MB, 256 KiB 이하가 3% 뿐이라 첫 읽기 지연 관문(나)을 통과하지 못했고 면제로
   열었다(ADR-0162).
-- 화면은 이미 종류별로 나뉘어 있다. 첫 화면(`summary.tsx`)은 지목·용도지역 첫 이름·공시지가 셋만 그린다
-  (`lib/api/parcels.ts` `toParcelInfo`). 건물·층은 버튼을 눌러야 열리는 별도 보기이고, 호 목록과 호 가격은 접힌
-  `<details>` 안이다. 그런데 응답은 묶음이라 첫 화면이 대지권 200행·토지이동이력 전부까지 내려받고, 건물 보기와 층
-  보기는 같은 건물 문서를 두 번 받는다(쿼리 키가 다르다). 토지이동이력·대지권·임야대장은 지금 화면 어디에도 그려지지
-  않는다.
+- 묶음 문서는 읽는 쪽이 종류 하나만 원해도 모든 종류를 싣는다: 지목 하나를 읽으려 해도 대지권 200행·토지이동이력
+  전부가 함께 온다.
 
 소유자 결정(2026-10-12): 자료 종류마다 전체 PNU 에 걸친 자기 Gold 표와 법정동 묶음 by-PNU 레인을 갖는다. 바뀌면 그
 종류의 바뀐 행만 다시 만들고 그 종류의 바뀐 동 묶음만 다시 굽는다. 화면은 종류별로 따로 부른다. 새 레인에 PNU 당
@@ -46,19 +43,19 @@
 
 크기는 직렬화 JSON(압축 전) 추정이다. 근거: 입력 열 목록(`BUILD_COLUMNS`)과 행 수. 측정은 결정 6항의 첫 PR 이 한다.
 
-| 종류 | Silver 입력 | 갱신 주기(근거) | PNU 당 크기 추정(보통 / 최대) | 첫 화면 |
-|---|---|---|---|---|
-| 용도지역 판정 | `land_use_plan`(약 2.6억 행 추정, PNU 당 6.5 행) + `land_use_zone_code`(1,270 행) | 월간 빈티지(`vworld-land-use-plan-source-objects.json`) | 0.3 KB / 수 KB (포함코드 1·2 만) | 예(첫 이름) |
-| 공시지가 | `land_individual_price`(빈티지당 약 4천만) | 연 1–2 회(ADR-0085: 빈티지 2) | 0.1 KB / 0.1 KB | 예 |
-| 토지특성 | `land_characteristic` | 비정기(ADR-0087: 빈티지 3) | 0.2 KB / 0.2 KB | 예(지목) |
-| 임야대장 | `land_forest_ledger` | 월간(ADR-0088: 12 빈티지) | 0.15 KB, 임야 PNU 만 | 아니오(미표시) |
-| 토지이동이력 | `land_transfer_history`(1.21억 행, PNU 당 약 3) | 월간(ADR-0089: 9 빈티지) | 0.6 KB / 상한 없음(수백 건 PNU 존재) | 아니오(미표시) |
-| 대지권 | `land_right_registration`(2,780만 행, 42.8만 PNU) | 월간(ADR-0091: 12 빈티지) | 약 12 KB(평균 65 행) / 200 행 상한 약 36 KB | 아니오(미표시) |
-| 건물 표제부 | `building_register_titles`(806만) | 월간(HUB) | 0.4 KB × 동 수 | 아니오(건물 보기) |
-| 층 | `building_register_floors` | 월간(HUB) | 동당 층 수 × 50 B | 아니오(층 보기) |
-| 호 | `building_register_units`(1,940만) + `building_register_unit_areas`(1.14억) | 월간(HUB) | 0.35 KB × 호 수, 대단지 MB 단위 | 아니오(접힘) |
-| 호 공시가격 | `unit_official_price`(빈티지당 약 1.9억) | 월간(HUB) | 호당 약 10 건 × 40 B; 묶음 행 최대 1,270만 자의 주성분 | 아니오(접힘) — ADR-0190 |
-| 계보 이어받기 | `parcel_lineage` | 필지 판과 함께 | 섹션별 출처 PNU | 해당 종류에 붙음 |
+| 종류 | Silver 입력 | 갱신 주기(근거) | PNU 당 크기 추정(보통 / 최대) |
+|---|---|---|---|
+| 용도지역 판정 | `land_use_plan`(약 2.6억 행 추정, PNU 당 6.5 행) + `land_use_zone_code`(1,270 행) | 월간 빈티지(`vworld-land-use-plan-source-objects.json`) | 0.3 KB / 수 KB (포함코드 1·2 만) |
+| 공시지가 | `land_individual_price`(빈티지당 약 4천만) | 연 1–2 회(ADR-0085: 빈티지 2) | 0.1 KB / 0.1 KB |
+| 토지특성 | `land_characteristic` | 비정기(ADR-0087: 빈티지 3) | 0.2 KB / 0.2 KB |
+| 임야대장 | `land_forest_ledger` | 월간(ADR-0088: 12 빈티지) | 0.15 KB, 임야 PNU 만 |
+| 토지이동이력 | `land_transfer_history`(1.21억 행, PNU 당 약 3) | 월간(ADR-0089: 9 빈티지) | 0.6 KB / 상한 없음(수백 건 PNU 존재) |
+| 대지권 | `land_right_registration`(2,780만 행, 42.8만 PNU) | 월간(ADR-0091: 12 빈티지) | 약 12 KB(평균 65 행) / 200 행 상한 약 36 KB |
+| 건물 표제부 | `building_register_titles`(806만) | 월간(HUB) | 0.4 KB × 동 수 |
+| 층 | `building_register_floors` | 월간(HUB) | 동당 층 수 × 50 B |
+| 호 | `building_register_units`(1,940만) + `building_register_unit_areas`(1.14억) | 월간(HUB) | 0.35 KB × 호 수, 대단지 MB 단위 |
+| 호 공시가격 | `unit_official_price`(빈티지당 약 1.9억) | 월간(HUB) | 호당 약 10 건 × 40 B; 묶음 행 최대 1,270만 자의 주성분 — ADR-0190 |
+| 계보 이어받기 | `parcel_lineage` | 필지 판과 함께 | 섹션별 출처 PNU |
 
 토지대장은 Silver 표가 없다(오픈 API 전용, `public-source-endpoint-catalog.v1.json`). 이 결정의 대상이 아니다.
 
@@ -68,11 +65,10 @@
    레인 하나를 둔다. 같은 사실은 정확히 한 종류, 한 레인에만 있다(같은 값을 두 레인에 싣지 않는다).
    - 묶음으로 남기는 예외는 둘이고 이유를 남긴다:
      - **호 = 호 + 호 면적.** 전용면적은 호의 속성이고 같은 목록 줄에 그려진다. 둘 다 HUB 월간이고 같은 등록 키로
-       묶인다. 나누면 화면이 호 id 로 다시 합쳐야 한다.
+       묶인다. 나누면 읽는 쪽이 호 id 로 다시 합쳐야 한다.
      - **용도지역 판정 = 용도지역 원장 + 코드표.** 판정은 두 입력의 함수다. 코드표만의 레인은 사실이 아니다.
-   - 첫 화면용 "요약 레인"(지목·용도지역·공시지가를 한 문서로)은 만들지 않는다. 같은 값이 요약과 원 종류에 두 번
-     있게 되고, 주기가 다른 세 종류가 서로를 다시 굽게 만든다. 첫 화면은 세 레인을 병렬로 부른다(4항). 첫 화면
-     p95 가 목표(7항)를 넘는 것이 측정되면 다시 연다.
+   - 여러 종류를 한 문서로 합친 "요약 레인"은 만들지 않는다. 같은 값이 요약과 원 종류에 두 번 있게 되고, 주기가
+     다른 종류가 서로를 다시 굽게 만든다.
 2. **종류 목록과 이름.** 키는 모두 `pnu`, 법정동(PNU 앞 10 자리) 묶음, ADR-0163 조각 규칙 그대로.
 
    | 레인(`by_pnu_lanes` 키) | `host` | `kind` | Gold 표 | 문서 본문 칸 | PNU 범위 |
@@ -82,7 +78,7 @@
    | `parcel-characteristics` | parcel | `characteristics` | `gold.parcel_characteristics` | `characteristics` | 특성이 있는 PNU |
    | `parcel-forest-ledger` | parcel | `forest-ledger` | `gold.parcel_forest_ledger` | `forest_ledger` | 임야 PNU |
    | `parcel-transfer-history` | parcel | `transfer-history` | `gold.parcel_transfer_history` | `transfer_history` | 이력이 있는 PNU |
-   | `parcel-land-rights` | parcel | `land-rights` | `gold.parcel_land_rights` | `land_rights`, `land_right_total` | 대지권이 있는 PNU |
+   | `parcel-land-rights` | parcel | `land-rights` | `gold.parcel_land_rights` | `land_rights`(전체 목록) | 대지권이 있는 PNU |
    | `building-titles` | building | `titles` | `gold.building_titles` | `buildings`(층·호 없음) | 표제부가 있는 PNU |
    | `building-floors` | building | `floors` | `gold.building_floors` | `floors`(건물 id 별) | 층이 있는 PNU |
    | `building-units` | building | `units` | `gold.building_units` | `units`, `unlinked_units` | 호가 놓인 PNU |
@@ -106,9 +102,9 @@
    묶음 생산자는 퇴역 전까지 같은 함수를 부른다. 재생성 계약(`gold-panel-rebuild.contract.json`)에 종류마다 표를 하나씩
    올린다. 계획기(ADR-0139)가 입력이 안 바뀐 종류는 건너뛰므로 **안 바뀐 종류의 비용은 0** 이다.
    - `silver.land_use_zone_code` 의 `WHOLE_TABLE_INPUTS` 전량 재생성은 `gold.parcel_zoning` 에만 걸린다.
-   - **같은 화면에서 합쳐지는 종류는 같은 입력 스냅숏에서 만든다(`pins_from`, ADR-0190).** 종류 표는 따로 다시
-     만들어지므로 그대로 두면 서로 다른 Silver 스냅숏 위에 선다. 웹은 레인을 PNU·건물 id·호 id 로 합치므로, 표제부
-     레인이 옛 판인데 호 레인이 새 판이면 새 건물의 호가 건물 없이 그려진다(고아 호). 그래서 재생성 계약에서:
+   - **건물 id·호 id 로 서로를 가리키는 종류는 같은 입력 스냅숏에서 만든다(`pins_from`, ADR-0190).** 종류 표는
+     따로 다시 만들어지므로 그대로 두면 서로 다른 Silver 스냅숏 위에 선다. 표제부 레인이 옛 판인데 호 레인이 새
+     판이면 호가 아직 없는 건물을 가리킨다(고아 호). 그래서 재생성 계약에서:
      - 건물 쪽: `gold.building_floors`·`gold.building_units`·`gold.unit_price_panel` 은
        `silver.building_register_titles`·`silver.building_register_units` 를 `gold.building_titles` 가 만들어진
        스냅숏에 고정한다(`pins_from.gold_table`). `all` 에서 표제부가 먼저 돈다.
@@ -154,8 +150,8 @@
      기준일이 든 연간 빈티지는 어차피 전량 세대이므로 그 때에 맞추면 추가 비용이 없다. 웹이 새 경로로 옮긴 뒤 옛
      호스트·뿌리를 한 달 서빙하고 Worker 와 객체를 내린다(삭제는 별도 승인).
    - **레인 사이 발행 순서(`documents_follow_lane`, ADR-0190).** 3항의 고정은 Gold 를 맞추고 이 값은 서빙을 맞춘다.
-     따르는 레인은 기준 레인 다음에 굽고, 같은 실행에서 기준 레인의 굽기가 실패하면 굽지 않는다. 그래서 웹이 합치는
-     두 레인이 서로 다른 Gold 스냅숏을 서빙하는 시간이 한 굽기 실행 안으로 줄어든다.
+     따르는 레인은 기준 레인 다음에 굽고, 같은 실행에서 기준 레인의 굽기가 실패하면 굽지 않는다. 그래서 서로를
+     가리키는 두 레인이 서로 다른 Gold 스냅숏을 서빙하는 시간이 한 굽기 실행 안으로 줄어든다.
      - `building-floors`·`building-units`·`unit-price` → `building-titles`. 호 레인이 표제부 레인보다 먼저 새 건물의
        호를 내지 않는다.
      - 다른 필지 종류 다섯 → `parcel-zoning`.
@@ -167,15 +163,16 @@
      종류에 새 PNU 를 더하면 그 PNU 는 최대 한 시간(`max-age`) "자료 없음" 으로 보일 수 있다. 오늘 문서가 바뀐 PNU 도
      같은 시간만큼 옛 문서를 보이므로 같은 크기의 지연이고, 받아들인다. 지워진 PNU(tombstone)는 지금처럼 `no-store`.
    - 문서: `{schema_version, pnu, source: {table, snapshot}, <본문>}`.
-5. **화면 조립(gongzzang web).**
-   - 쿼리 키는 `["by-pnu", lane, pnu]` 하나로 통일한다. 보기마다 키를 따로 두지 않으므로 건물 보기와 층 보기가 같은
-     문서를 두 번 받지 않는다. `staleTime` 30 분.
-   - 첫 화면(`summary`): `parcel-zoning`·`parcel-price`·`parcel-characteristics` 세 요청을 병렬로, 각 줄은 자기 응답이
-     오면 그린다. 404 absent 는 "자료 없음" 으로 그리고 오류로 다루지 않는다.
-   - 건물 보기: `building-titles`. 동의 호 `<details>` 를 처음 열 때 `building-units`. 호의 가격 `<details>` 를 처음
-     열 때 ADR-0190 레인(PNU 하나에 한 번).
-   - 층 보기: `building-titles`(지상·지하 층수) + `building-floors`.
-   - 토지이동이력·대지권·임야대장 보기는 지금 없다. 레인은 서빙하되 화면 추가는 제품 결정으로 따로 한다.
+5. **화면은 이 ADR 의 대상이 아니다(소유자 원칙 2026-10-14: 데이터 쪽은 부품을 주고, 웹이 조립한다).** 플랫폼은
+   종류마다 문서를 서빙할 뿐이고, 어떤 화면이 어떤 종류를 언제 부르고 어떻게 그리는지는 gongzzang 웹의 결정이다
+   (gongzzang 쪽 ADR). 그래서 종류 문서는 원천의 값만 싣는다: 표시 문구(예: "지하 1층", "옥탑", 이어 붙인 용도
+   문자열)는 만들지 않고, 그 문구를 만드는 원천 값(층 구분·층 번호, 용도 목록)을 싣는다(9항). 옛 API 의 페이지
+   (앞 N 행 + 개수)도 싣지 않는다: 목록은 통째로, 자르는 것은 읽는 쪽이다.
+   - 되돌아오지 못하게 하는 검사: `scripts/guard/data-knows-no-screen.sh`. 금지 모양(표시용 이름, 이어 붙인 문자열,
+     페이지 상한과 그 옆 개수, 화면 개념)과 그 검사 범위(Gold 열, 종류 줄, Gold 생산자, 플랫폼 계약, ADR 목표 표의
+     행)와 기한이 있는 예외는 한 곳 `platforms/foundation-platform/config/data-knows-no-screen.contract.json` 에만
+     있다. 예외는 퇴역할 묶음 패널뿐이고, 아무것도 맞추지 않게 된 예외는 그 자체로 거부된다. 자기 시험이 모양마다
+     위반을 하나씩 심어 거부를 확인한다.
 6. **전환은 종류 하나씩, 옛 묶음과 나란히.** 각 종류는 아래 순서를 다 거친 뒤에만 다음 종류로 간다.
    1. 측정(첫 PR, 읽기 전용): 묶음 Gold 의 섹션마다 PNU 당 직렬화 크기(원문·gzip) p50/p95/max, 비어 있지 않은 PNU 수,
       동 묶음 크기 분포를 내는 작업. 7항 목표의 크기 칸을 측정치로 바꾼다.
@@ -188,7 +185,6 @@
       종류 표를 둘 다 만든다 — 그 기간의 계산 비용은 감수한다.
    - 순서: 건물 쪽은 ADR-0190(호 가격)이 먼저다. 그 다음 **호 → 표제부 → 층 → 건물 묶음 퇴역**. 필지 쪽은 Gold 계산이
      무거운 순서로 **용도지역 판정 → 토지이동이력 → 대지권 → 임야대장 → 공시지가 → 토지특성 → 필지 묶음 퇴역**.
-     첫 화면 셋(용도지역·공시지가·토지특성)이 다 나온 뒤에 첫 화면을 바꾼다.
 7. **종류마다 측정 목표.** 운영 규모로 재고, 못 맞추면 그 종류의 전환을 멈추고 원인을 ADR 로 남긴다. 목표마다
    그것을 재는 실행 로그 한 줄이 있다. 아직 없는 줄은 그 종류의 2단계(Gold)·3단계(굽기) PR 이 넣고 같은 줄로 잰다.
 
@@ -200,8 +196,7 @@
    | 굽기 전량 세대 | ≤ 30 분 | `pack-bake <레인> mode=generation seconds= packs= max_pack_bytes=` |
    | 굽기 패치 | ≤ 15 분 | `pack-bake <레인> mode=patch seconds= packs= max_pack_bytes=` |
    | 묶음 크기 | 조각 후 최대 ≤ 256 KiB(ADR-0163 조각 규칙. 최대가 지키면 ADR-0151 통째 읽기 경로의 상한도 지켜진다) | 같은 줄의 `max_pack_bytes=`; 전환 전에는 6-1 의 `kind-size` 요약 |
-   | 첫 화면 크기 | 세 요청 합 gzip p95 ≤ 2 KB | 6-1 의 `kind-size` 요약 |
-   | 첫 화면 지연 | 첫 읽기 p50 ≤ 오늘 필지 레인의 관문 (나) 기준 | 첫 발행 관문(ADR-0190)의 판정 보고 |
+   | 레인 지연 | 첫 읽기 p95 ≤ `by_pnu_lane_rule.latency_p95_max_ms` | 첫 발행 관문(ADR-0190)의 판정 보고 |
 
    - PNU 문서 하나가 gzip 256 KiB 를 넘는 종류는 굽기가 거부한다 — 측정(6-1)에서 넘는 PNU 가 나오면 그 종류는 문서
      키를 좁힌다(예: 호를 `pnu` + 건물 id 로) 그리고 이 ADR 을 개정한다.
@@ -236,13 +231,30 @@
    (`test_every_kind_line_is_wired_into_the_data_map_and_both_jobs`)가 줄마다 빠진 것을 이름으로 거부한다.
    종류의 지도 입력은 Silver 가 아니라 호스트 패널이다: 종류는 패널의 핀에 고정되고 패널과 대조되므로, 패널이
    바뀌어야 종류가 바뀐다.
+   건물 종류(표제부·층·호)도 같은 세 줄이다: 건물 패널의 조립을 표제부 행·건물별 층·건물별 호(와 건물에 붙지
+   않은 호)의 부품으로 나누고, 패널은 그 부품을 지금과 같은 바이트로 합치며, 종류는 필요한 부품만 쓰고 검사도
+   그 부품의 입력만 한다. 건물 종류의 대등성은 패널 JSON 을 종류의 모양으로 읽어(`from_json`, 종류가 싣지 않는
+   칸은 버린다) 비교한다. 층·호 레인은 표제부 레인을 따른다(`documents_follow_lane`): 건물 id 로 표제부를 가리킨다.
+   - **종류는 원천 값만 싣는다(5항).** 패널이 만들던 표시 문구는 종류로 옮기지 않는다: 호는 `floor_label`
+     ("지하 N층"/"옥탑"/"N층") 대신 원천의 `floor_kind`·`floor_number` 를, 층은 Silver 의 `floor_display_ko` 없이
+     원천 칸만, 표제부의 `rooftop_usage` 는 " · " 로 이은 문자열 대신 문자열 목록을 싣는다. 묶음 패널은 퇴역까지 지금
+     문서 그대로다. 그래서 그 칸들은 대등성 검사에서 양쪽 모두 뺀다(섹션의 `parity_ignores`); 나머지 칸은 그대로
+     모든 PNU 에서 같아야 한다.
+   - **대지권은 전체 목록이다.** 묶음 패널의 앞 200 행 + `land_right_total` 은 옛 API 한 페이지의 모양이다. 종류는
+     정렬된 목록 전부를 싣고 페이지는 읽는 쪽이 나눈다. 실측(2026-10-14): 대지권 있는 PNU 422,592, 200 행 초과
+     30,461, 최대 10,134 행 = 원문 약 2.2 MB, gzip 약 48 KB 로 문서 상한(256 KiB)의 1/5 이라 키를 좁히지 않는다.
+     묶음 패널은 퇴역까지 페이지와 개수 그대로다(같은 정렬 목록을 패널은 자르고 종류는 통째로 쓴다); 대등성은
+     섹션의 `as_panel` 이 종류의 목록을 패널의 페이지·개수로 바꿔 모든 PNU 에서 비교한다.
+   - **종류 줄이 열을 내릴 때(`retired_columns` + 이유).** 이미 운영에 있는 종류 표에서 열을 빼면 배포의 레이크하우스
+     이동(`lakehouse_schema_migrate`, ADR-0124)이 모르는 열로 보고 배포를 멈춘다. 줄의 `retired_columns` 에 적힌 열은
+     그 이동이 거부하지 않고 `DROP COLUMN` 한다(Iceberg 메타데이터만, 이전 스냅숏은 그 열을 지닌다). 손 DDL·임시 drift
+     항목 없이 배포가 한다; 이미 없는 열은 할 일이 없고, 그 밖의 모르는 열은 여전히 배포를 멈춘다.
 
 ## Consequences
 
 - 월간 릴리스 하나가 그 종류의 Gold·굽기만 부른다. 가장 무거운 행(호 가격, 대단지 호 목록)이 다른 종류의 재계산을
   끌고 다니지 않는다. Gold 표가 묶음 2개에서 종류 9개(+ ADR-0190)로 늘고, 레인도 그만큼 늘어난다 — manifest·관문·감시는
   계약의 레인 목록을 돌므로 레인당 손 작업은 계약 한 줄이어야 한다(ADR-0190 의 공용 관문이 전제).
-- 첫 화면 요청이 하나에서 셋이 된다. HTTP/2 한 연결 위의 병렬 요청이고 각 문서는 수백 바이트다.
 - 퇴역 전까지 두 체계를 함께 만든다: Gold 계산·R2 저장이 일시적으로 늘어난다.
 - 레인이 늘면 Worker 의 manifest 읽기가 레인 수만큼 는다(각 60 초 엣지 캐시). 측정 대상이다.
 - 레인 사이 고정(3항)과 발행 순서(4항) 때문에 기준 종류(표제부·용도지역 판정)의 Gold 나 굽기가 실패하면 같은
@@ -255,7 +267,7 @@
   무거운 종류가 정한다. 2026-10-11/12 OOM 의 원인이 그대로다.
 - **Worker 에서 종류를 합쳐 한 응답으로**: ADR-0151 이 4 섹션 합치기를 측정으로 기각했다(503 276 건, CPU p99 19.8 ms).
 - **PNU 당 객체**: 레인 하나 전량에 4천만 PUT. 소유자가 금지했다.
-- **첫 화면 요약 레인**: 1항.
+- **요약 레인**: 1항.
 - **레인마다 Worker 와 호스트**: 레인 9개면 배포·도메인·감시가 9벌이다. 경로로 고른다.
 
 ### 참고한 사례
@@ -266,7 +278,6 @@
 - Stripe API `expand` — 기본 객체는 가볍게, 무거운 하위 객체는 요청할 때만. <https://docs.stripe.com/expand>
 - PMTiles v3 — 한 파일 안의 색인 + 범위 읽기, 객체 수를 묶음 수로 줄인다(ADR-0147 의 묶음과 같은 발상).
   <https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md>
-- RFC 9113 (HTTP/2) §5 — 한 연결 위의 병렬 스트림. 첫 화면 세 요청의 근거. <https://www.rfc-editor.org/rfc/rfc9113>
 - Apache Iceberg `MERGE INTO`(copy-on-write) — 종류 표마다 바뀐 행만 합친다(ADR-0180).
   <https://iceberg.apache.org/docs/latest/spark-writes/>
 - Cloudflare R2 가격표(Class A 쓰기 단위 과금) — 묶음 수가 비용을 정한다. <https://developers.cloudflare.com/r2/pricing/>

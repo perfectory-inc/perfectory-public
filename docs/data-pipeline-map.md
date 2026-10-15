@@ -39,9 +39,9 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
-| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
 | ↳ 장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>필지 서빙본 (`gold.parcel_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정<br>필지 경계 서빙 | 필지 지도 타일<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
@@ -58,10 +58,10 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | ↳ AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지권리등록 | 1 endpoint | 필지별 대지권 등록 (`silver.land_right_registration`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
 | ↳ AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다. | | | | |
-| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | 공짱 지도·상세 패널 |
-| 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`) | — | 공짱 지도·상세 패널 |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건물 호별 정보 (`silver.building_register_units`) | — | 공짱 지도·상세 패널 |
-| 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호별 전유·공용 면적 (`silver.building_register_unit_areas`) | — | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 표제부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건물 표제부 (`silver.building_register_titles`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>건물 표제부 by-PNU 표 (`gold.building_titles`)<br>건물 층 by-PNU 표 (`gold.building_floors`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 필지 계보 스튜어드 결정 | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 층별개요 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>건물 층별 정보 (`silver.building_register_floors`)<br>건물 표제부 by-PNU 표 (`gold.building_titles`)<br>건물 층 by-PNU 표 (`gold.building_floors`) | — | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건물 호별 정보 (`silver.building_register_units`)<br>건물 표제부 by-PNU 표 (`gold.building_titles`)<br>건물 층 by-PNU 표 (`gold.building_floors`) | — | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유공용면적 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호별 전유·공용 면적 (`silver.building_register_unit_areas`)<br>건물 표제부 by-PNU 표 (`gold.building_titles`)<br>건물 층 by-PNU 표 (`gold.building_floors`) | — | 공짱 지도·상세 패널 |
 | 산업입지정보 산업단지: ILIS 산업단지 목록<br>ILIS 산업단지 고시 목록<br>ILIS 산업단지 상세 | 3 endpoint | 산업단지 기본 정보 (`silver.industrial_complexes`)<br>산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 제공용 프로필 (`gold.complex_catalog`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지<br>산업단지 프로필 포인터<br>산업단지 경계 서빙 | 산업단지 지도 타일<br>카탈로그 조회 API<br>산업단지 프로필 게이트웨이<br>공짱 지도·상세 패널 |
 | ↳ ILIS 목록·고시·상세는 산업단지 주소 해석의 근거이다. 프로필 본문은 브이월드에서 온다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 산업단지 경계 | 1 endpoint | 산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지 경계 서빙 | 산업단지 지도 타일<br>공짱 지도·상세 패널 |
@@ -294,6 +294,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 임야대장 by-PNU 묶음 파일 (`parcel-forest-ledger-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_forest_ledger 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/forest-ledger/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 필지 토지이동이력 by-PNU 묶음 파일 (`parcel-transfer-history-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_transfer_history 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/transfer-history/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 필지 대지권 by-PNU 묶음 파일 (`parcel-land-rights-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_land_rights 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/land-rights/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
+| 건물 표제부 by-PNU 묶음 파일 (`building-titles-by-pnu-section-packs`) | 실행 경로 있음 | gold.building_titles 의 PNU 문서를 법정동 묶음으로만 굽는다. 건물 호스트의 Worker 가 /buildings/titles/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
+| 건물 층 by-PNU 묶음 파일 (`building-floors-by-pnu-section-packs`) | 실행 경로 있음 | gold.building_floors 의 PNU 문서를 법정동 묶음으로만 굽는다. 건물 호스트의 Worker 가 /buildings/floors/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
 | 스튜어드 검토 화면 (`steward-review-surface`) | 예정 | 사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항). |
 
@@ -305,7 +307,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건물 층별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 호별 전유·공용 면적 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
-| 세대별 기준일 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 표제부 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 세대별 기준일 공시가격 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
@@ -385,6 +386,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 by-PNU 묶음 파일 → 공짱 지도·상세 패널 | `products/gongzzang/apps/web/lib/api/parcels.ts` |
 | 호 공시가격 by-PNU 패널 → 호 공시가격 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 필지 by-PNU 제공용 패널 → 필지 by-PNU 서빙 문서 | `export-parcel-by-pnu-serving`<br>`platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export.rs` |
+| 건물 표제부 by-PNU 표 → 건물 표제부 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
+| 건물 층 by-PNU 표 → 건물 층 by-PNU 묶음 파일 | `platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs` |
 | 지도 편집 저장소 → 지도 편집 원장 | `export-map-edit-handoff`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 지도 편집 원장 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
 | 산업단지 경계 → 산업단지 경계 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py` |
@@ -396,6 +399,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 경계 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 지도 편집 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
+| 건물·층·호 by-PNU 제공용 패널 → 건물 표제부 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
+| 건물·층·호 by-PNU 제공용 패널 → 건물 층 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |

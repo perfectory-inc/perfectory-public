@@ -17,7 +17,8 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         from pyspark.sql import SparkSession, functions as F
         import building_panel_silver_to_gold as gold
         import unit_official_price as silver
-        cls.F, cls.gold = F, gold
+        import unit_price_panel_silver_to_gold as prices
+        cls.F, cls.gold, cls.price_panel = F, gold, prices
         cls.spark = (SparkSession.builder.master("local[2]").appName("unit-reference-date-fixture")
                      .config("spark.sql.shuffle.partitions", "2")
                      .config("spark.ui.enabled", "false").getOrCreate())
@@ -84,22 +85,33 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), "synthetic-source-a")
             self.assertEqual(mixed.count(), 6, "older Silver rows remain available")
-            frames = {self.gold.PRICE_SOURCE: prices, self.gold.UNIT_SOURCE: self.units,
-                      self.gold.TITLE_SOURCE: self.titles, self.gold.AREA_SOURCE: self.areas,
-                      self.gold.FLOOR_SOURCE: self.floors}
+            frames = {self.gold.UNIT_SOURCE: self.units, self.gold.TITLE_SOURCE: self.titles,
+                      self.gold.AREA_SOURCE: self.areas, self.gold.FLOOR_SOURCE: self.floors}
             frame = self.gold.build_gold_panel_frame(frames, "synthetic-source-a", "2099-01-01T00:00:00Z", {})
             row = frame.first().asDict()
             fixture = Path(__file__).parent / "fixtures" / "building_panel_gold_row.json"
             if os.environ.get("UPDATE_BUILDING_PRICE_FIXTURE") == "1":
                 fixture.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.assertEqual(row, json.loads(fixture.read_text(encoding="utf-8")))
-            self.assertEqual(json.loads(row["buildings_json"])[0]["units"][0]["official_price_history"], [
-                {"base_date": "20100601", "price_won": 35000000},
-                {"base_date": "20100101", "price_won": 36000000},
-            ])
-            self.assertEqual(json.loads(row["unlinked_units_json"])[0]["official_price_history"], [
-                {"base_date": "20100601", "price_won": 100},
-            ])
+            # The units' prices are their own panel (root ADR-0190), under the PNU the building
+            # document carries each unit: the linked one's building's, the unlinked one's own.
+            building = json.loads(row["buildings_json"])[0]
+            linked, unlinked = building["units"][0]["id"], json.loads(row["unlinked_units_json"])[0]["id"]
+            frames = {self.gold.UNIT_SOURCE: self.units, self.gold.TITLE_SOURCE: self.titles,
+                      self.gold.PRICE_SOURCE: prices}
+            counters = {}
+            panel = self.price_panel.build_gold_frame(frames, "synthetic-source-a", "2099-01-01T00:00:00Z", counters)
+            rows = [r.asDict() for r in panel.collect()]
+            # One row per building of the PNU, the unlinked units under the nil building id (ADR-0204).
+            self.assertEqual(sorted((r["pnu"], r["building_id"]) for r in rows),
+                             sorted([(self.pnu, building["id"]), (self.pnu, "00000000-0000-0000-0000-000000000000")]))
+            units = {unit["id"]: unit["official_price_history"] for r in rows for unit in json.loads(r["units_json"])}
+            self.assertEqual(units, {
+                linked: [{"base_date": "20100601", "price_won": 35000000},
+                         {"base_date": "20100101", "price_won": 36000000}],
+                unlinked: [{"base_date": "20100601", "price_won": 100}],
+            })
+            self.assertEqual(counters["unplaced_price_unit_count"], 0)
 
     def test_the_panel_reads_the_newest_vintages_batch_of_the_append_only_table(self):
         # Root ADR-0182: every vintage stays in the table; the panel serves the newest one.
@@ -122,7 +134,6 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), older)
 
     def test_duplicate_dates_invalid_dates_and_negative_values_fail_closed(self):
-        titles = self.titles.withColumn("id", self.gold.canonical_id("building", self.F.col("mgm_bldrgst_pk")))
         invalid_frames = [
             self.prices.unionByName(self.prices),
             self.prices.withColumn("base_date", self.F.lit("2010-01-01")),
@@ -131,7 +142,7 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         ]
         for index, prices in enumerate(invalid_frames):
             with self.subTest(case=index), self.assertRaises(ValueError):
-                self.gold.build_units(self.units, titles, self.areas, prices)
+                self.price_panel.checked_prices(prices)
 
 
 if __name__ == "__main__":

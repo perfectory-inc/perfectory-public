@@ -19,6 +19,42 @@ def contract(*columns: tuple[str, bool]) -> dict:
     return {"columns": [{"name": name, "logical_type": "string", "required": required} for name, required in columns]}
 
 
+class RetiredKindColumns(unittest.TestCase):
+    """A by-PNU kind line's retired column is dropped by the deploy, never refused (root ADR-0193 §9)."""
+
+    # gold.parcel_land_rights as production holds it (2026-10-13, written from the contract before
+    # the land-rights kind carried its whole list): the deploy must not stop on it.
+    PRODUCTION = ("pnu", "land_rights_json", "land_right_total", "attached_via", "row_digest",
+                  "source_snapshot_id", "published_at_utc")
+    TYPES = {"pnu": "string", "land_rights_json": "string", "land_right_total": "bigint", "attached_via": "string",
+             "row_digest": "string", "source_snapshot_id": "string", "published_at_utc": "string"}
+
+    def contract(self) -> dict:
+        from platform_contracts import load_lakehouse_artifact
+
+        return load_lakehouse_artifact()["contracts"]["gold.parcel_land_rights"]
+
+    def test_the_production_shape_is_planned_as_one_drop(self) -> None:
+        self.assertIn("land_right_total", migrate.retired_columns("gold.parcel_land_rights"))
+        plan = migrate.plan_table(self.contract(), self.PRODUCTION, True, "gold.parcel_land_rights",
+                                  actual_types=self.TYPES)
+        self.assertEqual(plan["drop"], ["land_right_total"])
+        self.assertEqual((plan["add"], plan["backfill"], plan["reorder"]), ([], [], False))
+
+    def test_after_the_drop_the_table_matches(self) -> None:
+        dropped = tuple(name for name in self.PRODUCTION if name != "land_right_total")
+        plan = migrate.plan_table(self.contract(), dropped, True, "gold.parcel_land_rights")
+        self.assertNotIn("drop", plan)
+        self.assertEqual((plan["add"], plan["backfill"], plan["reorder"]), ([], [], False))
+
+    def test_any_other_undeclared_column_still_stops_the_deploy(self) -> None:
+        with self.assertRaises(migrate.MigrationBlocked):
+            migrate.plan_table(self.contract(), (*self.PRODUCTION, "unmerged"), True, "gold.parcel_land_rights")
+
+    def test_a_table_without_a_kind_line_retires_nothing(self) -> None:
+        self.assertEqual(migrate.retired_columns("gold.parcel_panel"), ())
+
+
 class PlanTable(unittest.TestCase):
     def test_planning_imports_without_spark_even_in_a_fresh_process(self) -> None:
         result = subprocess.run(
