@@ -169,6 +169,19 @@ class SparkTmpOnTheDataDisk(unittest.TestCase):
         release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
         self.assertRegex(release, r'install -d -m 1777 "\$\(python3 -I -c .*\["spark_tmp"\]')
 
+    def migrate_makes_it_before_the_unit_starts(self, release):
+        body = re.search(r"^migrate_lakehouse\(\) \{\n(.*?)^\}", release, re.M | re.S).group(1)
+        made = body.find("prepare_spark_tmp")
+        return made != -1 and made < body.find("systemctl start foundation-lakehouse-migrate.service")
+
+    def test_the_migration_has_it_before_its_init_check_runs(self):
+        # 2026-10-15: made only in `timers`, after migrate; Docker made it root 0755 and every deploy stopped.
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertTrue(self.migrate_makes_it_before_the_unit_starts(release))
+        planted = release.replace("  prepare_spark_tmp\n  systemctl daemon-reload\n", "  systemctl daemon-reload\n")
+        self.assertNotEqual(planted, release)
+        self.assertFalse(self.migrate_makes_it_before_the_unit_starts(planted))
+
 
 if __name__ == "__main__":
     unittest.main()
