@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 geo-types = { workspace = true }
 regex = { workspace = true }
+utoipa = { workspace = true }
 
 
 [lints]

@@ -1,3 +1,4 @@
+import { listingTypeValues, transactionTypeValues } from "@gongzzang/api-types";
 import { z } from "zod";
 import { apiProxyClient } from "@/lib/api/api-proxy-client.generated";
 import type { ListingFilters } from "@/lib/listings/filters";
@@ -6,15 +7,8 @@ import { toSearchParams } from "@/lib/listings/filters";
 export const ListingCardSchema = z.object({
   id: z.string(),
   title: z.string(),
-  listing_type: z.enum([
-    "factory",
-    "warehouse",
-    "office",
-    "knowledge_industry_center",
-    "industrial_land",
-    "logistics_center",
-  ]),
-  transaction_type: z.enum(["sale", "monthly_rent", "jeonse"]),
+  listing_type: z.enum(listingTypeValues),
+  transaction_type: z.enum(transactionTypeValues),
   price_krw: z.number().int(),
   deposit_krw: z.number().int().nullish(),
   monthly_rent_krw: z.number().int().nullish(),
