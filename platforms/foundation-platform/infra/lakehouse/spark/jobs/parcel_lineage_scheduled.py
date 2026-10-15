@@ -47,6 +47,16 @@ def edition_pairs(contract: dict[str, Any]) -> list[tuple[str, str]]:
     return list(zip(names, names[1:]))
 
 
+def awaits_load(before: set[str], after: set[str]) -> bool:
+    """The later edition is in the source contract but not yet in silver.parcel_boundaries.
+
+    An edition enters the contract first and is loaded into Silver after, from a release that holds
+    it (runbook vworld-parcel-editions.md §4). Until then its pair waits: it is not a partial load,
+    and failing the stewardship unit every day for it would page for a step that is simply next.
+    """
+    return bool(before) and not after
+
+
 def sido_groups(before: set[str], after: set[str]) -> list[tuple[str, str]]:
     """(from prefixes, to prefixes) per derivation: the renumbered prefixes together first, then each
     shared prefix alone."""
@@ -173,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
                     f"WHERE source_snapshot_id = '{editions.snapshot_id(contract, name)}'").collect()}
                 for name in pair
             )
+            if awaits_load(before, after):
+                summary["pairs"].append({"from": pair[0], "to": pair[1], "waiting": "not loaded into silver.parcel_boundaries"})
+                print(f"parcel-lineage-waiting {pair[0]}->{pair[1]}: {pair[1]} is not loaded into silver.parcel_boundaries yet")
+                continue
             exists = spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{args.iceberg_namespace}.{args.iceberg_table}")
             from_id, to_id = (editions.snapshot_id(contract, name) for name in pair)
 
@@ -183,16 +197,17 @@ def main(argv: list[str] | None = None) -> int:
             summary["pairs"].append({"from": pair[0], "to": pair[1], "pins": pins, **outcome})
     finally:
         spark.stop()
-    summary["derived"] = sum(len(p["derived"]) for p in summary["pairs"])
-    summary["deferred"] = sum(len(p["deferred"]) for p in summary["pairs"])
-    summary["refused"] = sum(len(p["refused"]) for p in summary["pairs"])
+    summary["derived"] = sum(len(p.get("derived", [])) for p in summary["pairs"])
+    summary["deferred"] = sum(len(p.get("deferred", [])) for p in summary["pairs"])
+    summary["refused"] = sum(len(p.get("refused", [])) for p in summary["pairs"])
+    summary["waiting"] = [f"{p['from']}->{p['to']}" for p in summary["pairs"] if "waiting" in p]
     if args.summary_output:
         Path(args.summary_output).write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                                              encoding="utf-8")
     print("parcel-lineage-scheduled-json " + json.dumps(
-        {k: summary[k] for k in ("derived", "deferred", "refused", "rules_version")}, sort_keys=True))
+        {k: summary[k] for k in ("derived", "deferred", "refused", "waiting", "rules_version")}, sort_keys=True))
     for pair in summary["pairs"]:
-        for group in pair["refused"]:
+        for group in pair.get("refused", []):
             print(f"parcel-lineage-refused {pair['from']}->{pair['to']} {group['from_sido']}->{group['to_sido']}: "
                   f"{group['reason'][:300]}")
     return 0

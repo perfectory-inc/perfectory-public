@@ -27,6 +27,14 @@ class Plan(unittest.TestCase):
         self.assertEqual(job.sido_groups({"98", "97", "96"}, {"98", "95"}), [("96,97", "95"), ("98", "98")])
         self.assertEqual(job.sido_groups({"98"}, {"98"}), [("98", "98")])
 
+    def test_an_edition_in_the_contract_but_not_loaded_yet_waits(self):
+        # 2026-10-15: edition 202610 entered the contract before its Silver load; the pair waits
+        # instead of failing the stewardship unit every day (sido_groups would refuse it).
+        self.assertTrue(job.awaits_load({"98", "97"}, set()))
+        self.assertFalse(job.awaits_load({"98"}, {"98"}))
+        self.assertFalse(job.awaits_load(set(), {"98"}), "an older edition missing is not a later one waiting")
+        self.assertFalse(job.awaits_load(set(), set()))
+
     def test_a_sido_held_by_one_edition_without_a_counterpart_is_refused(self):
         for before, after in (({"98", "97"}, {"98"}), ({"98"}, {"98", "97"}), (set(), {"98"}), ({"98"}, set())):
             with self.subTest(before=before, after=after), self.assertRaises(ValueError):
