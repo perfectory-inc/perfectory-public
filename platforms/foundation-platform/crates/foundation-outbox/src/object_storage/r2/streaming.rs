@@ -17,7 +17,8 @@ use tokio::runtime::Handle;
 use crate::errors::PublishError;
 use crate::object_storage::requests::{MAX_MULTIPART_PARTS, MAX_MULTIPART_PART_BYTES};
 
-use super::{r2_range_header, R2ObjectStorage, R2_RANGE_READ_MAX_ATTEMPTS};
+use super::read_retry::{self, R2ReadPolicy, ReadRequest};
+use super::{r2_range_header, R2ObjectStorage};
 
 const MIN_MULTIPART_PART_BYTES: usize = 5 * 1024 * 1024;
 
@@ -212,6 +213,7 @@ struct R2RangeBackend {
     e_tag: Option<String>,
     handle: Handle,
     metrics: R2ReadRequestMetrics,
+    policy: R2ReadPolicy,
 }
 
 impl RangeBackend for R2RangeBackend {
@@ -225,55 +227,26 @@ impl RangeBackend for R2RangeBackend {
         let end = i64::try_from(end)
             .map_err(|_| io::Error::other("R2 byte range end does not fit i64"))?;
         let range = r2_range_header(start, end).map_err(publish_io_error)?;
-        for attempt in 1..=R2_RANGE_READ_MAX_ATTEMPTS {
+        // The crate's one read policy, waits included: this loop used to ask again at once
+        // (root ADR-0102), which is no help against a connection R2 just reset.
+        let request = ReadRequest {
+            key: &self.key,
+            range: Some(&range),
+            if_match: self.e_tag.as_deref(),
+        };
+        let count = || {
             self.metrics.get_requests.fetch_add(1, Ordering::Relaxed);
-            let mut request = self
-                .client
-                .get_object()
-                .bucket(&self.bucket)
-                .key(&self.key)
-                .range(range.clone());
-            if let Some(e_tag) = &self.e_tag {
-                request = request.if_match(e_tag);
-            }
-            let result = self.handle.block_on(request.send());
-            match result {
-                Ok(output) => match self.handle.block_on(output.body.collect()) {
-                    Ok(body) => return Ok(body.into_bytes().to_vec()),
-                    Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
-                        tracing::warn!(
-                            key = self.key,
-                            range,
-                            attempt,
-                            error = %error,
-                            "retrying bounded R2 stream body"
-                        );
-                    }
-                    Err(error) => {
-                        return Err(io::Error::other(format!(
-                            "failed to read R2 stream body {} {range}: {error}",
-                            self.key
-                        )))
-                    }
-                },
-                Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
-                    tracing::warn!(
-                        key = self.key,
-                        range,
-                        attempt,
-                        error = %error,
-                        "retrying bounded R2 stream range"
-                    );
-                }
-                Err(error) => {
-                    return Err(io::Error::other(format!(
-                        "failed to read R2 stream range {} {range}: {error}",
-                        self.key
-                    )))
-                }
-            }
-        }
-        Err(io::Error::other("R2 range retry loop ended unexpectedly"))
+        };
+        read_retry::read_blocking(
+            &self.handle,
+            &self.client,
+            &self.bucket,
+            &self.policy,
+            request,
+            &count,
+        )
+        .map(|answer| answer.bytes)
+        .map_err(publish_io_error)
     }
 }
 
@@ -563,6 +536,7 @@ impl R2ObjectStorage {
             e_tag: head.e_tag().map(ToOwned::to_owned),
             handle: Handle::current(),
             metrics: metrics.clone(),
+            policy: self.read_policy,
         });
         R2SeekableObjectReader::from_r2_backend(backend, chunk_bytes, metrics)
     }
