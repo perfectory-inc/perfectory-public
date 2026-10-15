@@ -1,8 +1,8 @@
 // deploy.sh runs this before it asks for a token: node --test common.test.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 const common = fileURLToPath(new URL("./common.sh", import.meta.url));
 
