@@ -204,7 +204,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 |---|---|---|
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
-| `gold.parcel_boundary_served` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_bridge` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -396,7 +395,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 행정경계 서빙본 → 행정경계 지도 타일 | `bake-lakehouse-tiles`<br>`platforms/foundation-platform/scripts/ops/map-edit-fold.sh` |
 | 필지 경계 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 지도 편집 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
-| 필지 서빙본 → 필지 지도 타일 | `bake-lakehouse-tiles` |
+| 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |

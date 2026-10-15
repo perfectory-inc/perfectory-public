@@ -460,6 +460,7 @@
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
+        "parcel_tile_bake",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1434,6 +1435,58 @@
       ]
     },
     {
+      "id": "parcel_tile_bake",
+      "producers": [
+        "map_edit_fold_admin",
+        "map_edit_fold_complex",
+        "vworld_parcel_edition"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_boundary_served,PROD)",
+          "node_id": "gold-parcel-boundary-served",
+          "title": "필지 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.map_edit_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.map_edit_ledger,PROD)",
+          "node_id": "silver-map-edit-ledger",
+          "title": "지도 편집 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_boundary_served,PROD)",
+          "node_id": "gold-parcel-boundary-served",
+          "title": "필지 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "perfectory://parcel-tiles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-tiles,PROD)",
+          "node_id": "parcel-tiles",
+          "title": "필지 지도 타일",
+          "kind": "serving_surface",
+          "surface_kind": "tiles"
+        }
+      ]
+    },
+    {
       "id": "gold_kind_rebuild",
       "producers": [
         "gold_panel_rebuild"
@@ -1525,6 +1578,7 @@
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
+        "parcel_tile_bake",
         "gold_kind_rebuild"
       ],
       "reads": [

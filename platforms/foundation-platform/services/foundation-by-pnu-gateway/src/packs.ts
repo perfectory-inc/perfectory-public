@@ -325,16 +325,6 @@ function headLength(prefix: Uint8Array): number {
   return PREFIX_BYTES + view.getUint32(12, true) + view.getUint32(16, true);
 }
 
-function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  let at = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, at);
-    at += chunk.byteLength;
-  }
-  return bytes;
-}
-
 class AttemptTimeout extends Error {}
 
 /// Why an R2 attempt failed, in the words the logs use: `timeout`, or R2's five-digit error code.
@@ -410,10 +400,11 @@ async function withRetry<T>(
   throw new PackReadUnavailable(`${what.section} ${what.phase}: R2 unavailable (${lastClass})`);
 }
 
-/// One pack's head: isolate memory, then one GET of R2. The GET names no range, so a pack shorter
-/// than any fixed first read is never asked past its end (no reliance on R2 clamping a range); it
-/// is read only as far as its head reaches and the rest of its body is cancelled unread, whatever
-/// the pack's size (root ADR-0233: one read rule; the head is copied once, into its own buffer).
+/// One pack's head: isolate memory, then R2 (root ADR-0233: one read rule). The head comes from one
+/// ranged GET of the pack's first `HEAD_READ_BYTES`, handed over by the runtime as one buffer, and a
+/// head longer than that from one more ranged GET of the rest. On 2026-10-14 the head streamed in
+/// chunks a JavaScript loop copied cost CPU in step with its size (heads of 200-500 KB: p90 10 ms,
+/// p99 up to 23 ms); one ranged read measured p90 4 ms whatever the size, at the same latency.
 /// `null` when the pack does not exist.
 ///
 /// No pack goes to the edge cache (ADR-0154): with the Worker placed beside the bucket an R2 read
@@ -436,35 +427,32 @@ export async function readPack(reads: PackReads, section: string, key: string): 
   return copy;
 }
 
+/// The bytes the first head read asks for: the head of 97% of the served packs ends within them
+/// (2026-10-14 sample). A `Range` header, not an offset and length, so a pack shorter than this is
+/// served whole as HTTP ranges are.
+const HEAD_READ_BYTES = 262144;
+
 async function fetchPack(bucket: Pick<R2Bucket, "get">, key: string): Promise<PackCopy | null> {
-  const object = await bucket.get(key);
+  const object = await bucket.get(key, { range: new Headers({ Range: `bytes=0-${HEAD_READ_BYTES - 1}` }) });
   if (object === null) return null;
   if (!("body" in object)) throw new PackFormatError("pack read returned no body");
-  const reader = object.body.getReader();
-  const prefix: Uint8Array[] = [];
-  let head: Uint8Array | null = null;
-  let length = 0;
-  try {
-    while (head === null || length < head.byteLength) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (head === null) {
-        prefix.push(value);
-        length += value.byteLength;
-        if (length < PREFIX_BYTES) continue;
-        // The head's length is known: its bytes go into one buffer of that length, and no more.
-        const first = joined(prefix, length);
-        head = new Uint8Array(headLength(first));
-        head.set(first.subarray(0, Math.min(length, head.byteLength)));
-      } else {
-        head.set(value.subarray(0, Math.min(value.byteLength, head.byteLength - length)), length);
-        length += value.byteLength;
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
+  const first = new Uint8Array(await object.arrayBuffer());
+  if (first.byteLength < PREFIX_BYTES) throw new PackFormatError("short pack");
+  const wanted = headLength(first);
+  if (wanted > object.size) throw new PackFormatError("pack head is shorter than declared");
+  if (wanted <= first.byteLength) {
+    const parsed = parseHead(first.slice(0, wanted), object.etag);
+    if (parsed === null) throw new PackFormatError("pack head is shorter than declared");
+    return { head: parsed };
   }
-  if (head === null || length < head.byteLength) throw new PackFormatError("pack head is shorter than declared");
+  const rest = await bucket.get(key, { range: { offset: first.byteLength, length: wanted - first.byteLength } });
+  if (rest === null || !("body" in rest) || rest.etag !== object.etag) {
+    // Pack keys are create-only: never join one version's head to another's.
+    throw new PackFormatError("pack changed or vanished under its head read");
+  }
+  const head = new Uint8Array(wanted);
+  head.set(first);
+  head.set(new Uint8Array(await rest.arrayBuffer()), first.byteLength);
   const parsed = parseHead(head, object.etag);
   if (parsed === null) throw new PackFormatError("pack head is shorter than declared");
   return { head: parsed };
