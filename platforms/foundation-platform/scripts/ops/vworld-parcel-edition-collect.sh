@@ -113,6 +113,10 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH="${work}/ingest-evidence.json"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
+# 판마다 같은 파일 번호를 다시 쓰므로 키는 내용이다(root ADR-0152): 번호 키는 앞 판이 남긴 객체와 부딪히거나(R2 502)
+# 그 옛 객체를 "이미 있음"으로 읽는다(2026-10-14). 본문은 해시를 재는 동안 실행 폴더의 spool 에 두고 파일마다 지운다.
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 "${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
 "${PY[@]}" - "${work}/ingest-evidence.json" "${files}" > "${work}/keys.txt" <<'PY'
 import json, sys
