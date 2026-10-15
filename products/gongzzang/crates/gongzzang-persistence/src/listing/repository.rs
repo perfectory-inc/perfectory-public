@@ -211,7 +211,8 @@ impl ListingRepository for PgListingRepository {
             SET admin_code = $2,
                 parcel_land_use_type = $3,
                 parcel_zoning = $4,
-                parcel_lookup_at = now()
+                parcel_source_contract = $5,
+                parcel_source_snapshot_id = $6
             WHERE id = $1
             ",
         )
@@ -219,6 +220,8 @@ impl ListingRepository for PgListingRepository {
         .bind(denormalize.admin_code.as_str())
         .bind(denormalize.land_use_type.as_str())
         .bind(denormalize.zoning.as_ref().map(|z| z.as_str()))
+        .bind(&denormalize.source_contract)
+        .bind(&denormalize.source_snapshot_id)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
