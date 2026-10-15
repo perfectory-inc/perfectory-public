@@ -1,7 +1,7 @@
 [package]
 name = "foundation-publisher-parcel-anchor"
 version = "0.1.0"
-description = "The outbox-publisher parcel marker anchor lane: anchor artifact export, PBF artifact build and manifest promotion, streaming rebuild, parcel boundary handoff (root ADR-0200)."
+description = "The outbox-publisher parcel marker anchor lane: anchor artifact export, PBF artifact build, streaming rebuild, parcel boundary handoff (root ADR-0200)."
 edition.workspace = true
 rust-version.workspace = true
 license-file.workspace = true
@@ -13,9 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-catalog-application = { workspace = true }
 catalog-domain = { workspace = true }
-catalog-infrastructure = { workspace = true }
 chrono = { workspace = true }
 foundation-outbox = { workspace = true }
 foundation-publisher-core = { workspace = true }

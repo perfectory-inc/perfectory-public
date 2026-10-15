@@ -40,8 +40,6 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE
     serving_postgis.spatial_projection_load,
     serving_postgis.parcel_boundary_publication
     FROM foundation_api;
-GRANT EXECUTE ON FUNCTION catalog.publish_parcel_identifier(uuid, text, date, uuid, uuid, text, uuid)
-    TO foundation_api;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE foundation_migrator IN SCHEMA catalog, serving_postgis
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO foundation_api;

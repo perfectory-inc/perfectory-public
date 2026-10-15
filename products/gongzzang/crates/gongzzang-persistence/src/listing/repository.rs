@@ -182,12 +182,11 @@ impl ListingRepository for PgListingRepository {
     }
 
     #[instrument(skip(self), fields(listing_id = %id.as_str()))]
-    async fn increment_view_count(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError> {
+    async fn record_view(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError> {
         let result = sqlx::query(
             r"
-            UPDATE listing
-            SET view_count = view_count + 1, updated_at = now()
-            WHERE id = $1
+            INSERT INTO listing_view_event (listing_id)
+            SELECT id FROM listing WHERE id = $1
             ",
         )
         .bind(id.as_str())

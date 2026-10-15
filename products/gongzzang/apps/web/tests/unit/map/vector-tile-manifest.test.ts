@@ -29,6 +29,7 @@ const anchorManifestFixture = {
   schema_version: 1,
   current_version: "019e5f6f-1e74-74f3-b5e4-3add804b4bae",
   previous_version: "019e5e71-c352-7c40-9621-4b34475c79eb",
+  source_snapshot_id: "gold:parcels:1",
   tiles_url_template: "https://static.example.com/{object_key_prefix}/{z}/{x}/{y}.pbf",
   published_at: "2026-05-27T00:00:00Z",
   artifacts: {

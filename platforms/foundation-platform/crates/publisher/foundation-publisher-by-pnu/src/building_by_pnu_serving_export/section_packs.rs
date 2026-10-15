@@ -2,6 +2,7 @@
 //!
 //! | command                                          | does                                    |
 //! |--------------------------------------------------|-----------------------------------------|
+//! | `plan-building-by-pnu-pack-shards`               | a bake's shards, from the manifests     |
 //! | `export-building-by-pnu-section-packs`           | Gold → packs, a base or a patch         |
 //! | `verify-building-by-pnu-section-pack-equality`   | gate (가): every PNU, packs = objects    |
 //! | `probe-building-by-pnu-section-pack-latency`     | gate (나): cold first read, live vs pack |
@@ -9,6 +10,7 @@
 //! | `inspect-building-by-pnu-section-packs`          | one PNU's fragments and answer          |
 //! | `check-building-gateway-version-health`          | one canary step's verdict, from analytics |
 //! | `monitor-building-by-pnu-serving`                | the hourly synthetic read of the live host |
+//! | `retire-building-superseded-pack-generations`    | deletes generations replaced a week ago |
 //!
 //! Each command exists for every lane, with the lane's name in place of `building`
 //! (`export-parcel-by-pnu-section-packs`, `check-unit-price-gateway-version-health`, ...): the
@@ -29,6 +31,7 @@ mod load;
 mod monitor;
 mod publish;
 mod read;
+mod retire;
 pub mod sections;
 
 #[cfg(test)]
@@ -41,6 +44,7 @@ mod tests;
 /// What a section pack command does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackCommandKind {
+    PlanShards,
     Export,
     VerifyEquality,
     ProbeLatency,
@@ -50,6 +54,7 @@ pub enum PackCommandKind {
     Monitor,
     /// `show-<lane>-by-pnu-serving-state`, for the lanes `main` does not name itself.
     ShowState,
+    Retire,
 }
 
 /// One section pack command of one lane.
@@ -63,7 +68,8 @@ impl PackCommand {
     /// The command a name spells, if it is one of these, for any lane: the parcel and building
     /// lanes and every lane the contract's `by_pnu_lanes` names (root ADR-0190).
     pub fn parse(name: &str) -> Option<Self> {
-        const KINDS: [(&str, &str, PackCommandKind); 8] = [
+        const KINDS: [(&str, &str, PackCommandKind); 10] = [
+            ("plan-", "-by-pnu-pack-shards", PackCommandKind::PlanShards),
             ("export-", "-by-pnu-section-packs", PackCommandKind::Export),
             (
                 "verify-",
@@ -92,6 +98,11 @@ impl PackCommand {
             ),
             ("monitor-", "-by-pnu-serving", PackCommandKind::Monitor),
             ("show-", "-by-pnu-serving-state", PackCommandKind::ShowState),
+            (
+                "retire-",
+                "-superseded-pack-generations",
+                PackCommandKind::Retire,
+            ),
         ];
         let lanes = ByPnuLane::all().ok()?;
         KINDS.into_iter().find_map(|(verb, object, kind)| {
@@ -111,6 +122,7 @@ impl PackCommand {
     pub async fn run(self) -> anyhow::Result<()> {
         let lane = self.lane;
         match self.kind {
+            PackCommandKind::PlanShards => bake::plan_shards(lane).await,
             PackCommandKind::Export => bake::run(lane).await,
             PackCommandKind::VerifyEquality => equality::run(lane).await,
             PackCommandKind::ProbeLatency => latency::run(lane).await,
@@ -119,6 +131,7 @@ impl PackCommand {
             PackCommandKind::CheckVersionHealth => health::run(lane).await,
             PackCommandKind::Monitor => monitor::run(lane).await,
             PackCommandKind::ShowState => crate::by_pnu_serving_state::run(lane).await,
+            PackCommandKind::Retire => retire::run(lane).await,
         }
     }
 }

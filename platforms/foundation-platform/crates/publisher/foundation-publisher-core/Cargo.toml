@@ -12,7 +12,8 @@ publish.workspace = true
 workspace = true
 
 [features]
-# Builders the publisher's own tests use to stand up approved building links; never on in a release build.
+# What the publisher's own tests share (approved-link builders, the embedded migrator, the environment
+# lock); switched on from dev-dependencies only, never in a release build.
 test-fixtures = []
 
 [dependencies]
@@ -37,7 +38,10 @@ parquet = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres", "migrate"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "v7"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }

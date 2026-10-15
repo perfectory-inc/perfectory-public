@@ -232,17 +232,23 @@ require(set(rules) == {
 # open pull request after each merge; the two must change together.
 # Properties, not a copy of the ruleset's numbers: the ruleset file is the one source of the
 # values, and the guard refuses only what would weaken the queue.
+# HEADGREEN (root ADR-0211): a group merges when its head commit is green. The head's tree is
+# main plus every pull request in the group, so main never takes an untested tree;
+# a batch may hold more pull requests than the queue builds at once.
 queue = rules["merge_queue"].get("parameters") or {}
 require(set(queue) == {
     "check_response_timeout_minutes", "grouping_strategy", "max_entries_to_build",
     "max_entries_to_merge", "merge_method", "min_entries_to_merge", "min_entries_to_merge_wait_minutes",
-} and queue["merge_method"] == "SQUASH" and queue["grouping_strategy"] == "ALLGREEN"
+} and queue["merge_method"] == "SQUASH" and queue["grouping_strategy"] in {"ALLGREEN", "HEADGREEN"}
         and isinstance(queue["max_entries_to_build"], int) and 1 <= queue["max_entries_to_build"] <= 5
-        and isinstance(queue["max_entries_to_merge"], int) and 1 <= queue["max_entries_to_merge"] <= queue["max_entries_to_build"]
+        and isinstance(queue["max_entries_to_merge"], int) and 1 <= queue["max_entries_to_merge"] <= 10
         and queue["min_entries_to_merge"] == 1
+        and isinstance(queue["min_entries_to_merge_wait_minutes"], int)
+        and 0 <= queue["min_entries_to_merge_wait_minutes"] <= 30
         and isinstance(queue["check_response_timeout_minutes"], int) and queue["check_response_timeout_minutes"] >= 60,
-        "merge queue must squash, require every grouped pull request green, bound concurrent builds and "
-        "give the required checks at least an hour")
+        "merge queue must squash, merge only a group whose tested head is green, bound concurrent builds "
+        "and batch size, never stall a lone pull request past half an hour, and give the required checks "
+        "at least an hour")
 pr = rules["pull_request"].get("parameters")
 require(pr == {
     "allowed_merge_methods": ["squash"],
@@ -518,11 +524,9 @@ for needle in (
     "scripts/ci/reuse-lint.sh",
     "scripts/ci/lychee-docs.sh",
     "scripts/ci/gitleaks-scan.sh tree",
-    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh products/gongzzang",
-    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/foundation-platform",
-    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/identity-platform",
-    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh platforms/intelligence-platform",
-    "PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh consoles/dawneer",
+    "tools/areas.contract.json)\"",
+    'for area in $areas; do',
+    'PERFECTORY_CLEAN_VERIFY=1 bash scripts/verify/cargo-verify.sh "$area"',
     "scripts/verify/frontend-test.sh",
     'control_legal_validator="$root/scripts/github/validate-legal-publication.sh"',
     'candidate_legal_validator="$source_root/scripts/github/validate-legal-publication.sh"',

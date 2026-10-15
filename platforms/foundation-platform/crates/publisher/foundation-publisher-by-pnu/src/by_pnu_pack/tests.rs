@@ -125,6 +125,76 @@ fn the_writer_refuses_what_the_format_cannot_hold() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Bytes gzip cannot shrink, so a document's member is about as long as the document.
+fn incompressible(length: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..length)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
+/// Root ADR-0233: every pack writer holds a document to what one request may copy, whatever the
+/// lane, so a new kind of document past it is refused at the bake and never served.
+#[test]
+fn a_document_past_the_request_budget_is_refused() -> anyhow::Result<()> {
+    let bound = usize::try_from(
+        section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .document_max_bytes,
+    )?;
+    let mut writer = PackWriter::new(identity(None))?;
+    writer.push_document(PNU_A, &incompressible(bound / 2))?;
+    let refused = writer
+        .push_document(PNU_B, &incompressible(bound + 1))
+        .err()
+        .context("a document past the budget was written")?;
+    assert!(
+        refused.to_string().contains("document_max_bytes"),
+        "{refused:#}"
+    );
+    // The refused document left nothing behind: the pack holds the one before it.
+    let pack = Pack::read(&writer.finish()?)?;
+    assert_eq!(pack.entries.len(), 1);
+    Ok(())
+}
+
+/// Root ADR-0233: a pack whose head (what every read of it copies) is past the budget is refused,
+/// so a dong of more entries than one read may copy never reaches the gateway.
+#[test]
+fn a_pack_head_past_the_request_budget_is_refused() -> anyhow::Result<()> {
+    let bound = usize::try_from(
+        section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .pack_head_max_bytes,
+    )?;
+    let entries = |count: usize| -> anyhow::Result<PackWriter> {
+        let mut writer = PackWriter::new(identity(None))?;
+        for n in 0..count {
+            writer.push_document(&format!("{UNIT}{n:09}"), b"{}")?;
+        }
+        Ok(writer)
+    };
+    // 28 index bytes an entry: one more than the bound holds.
+    let over = bound / 28 + 1;
+    let refused = entries(over)?
+        .finish()
+        .err()
+        .context("a head past the budget was written")?;
+    assert!(
+        refused.to_string().contains("pack_head_max_bytes"),
+        "{refused:#}"
+    );
+    entries(over / 2)?.finish()?;
+    Ok(())
+}
+
 #[test]
 fn the_reader_refuses_a_corrupt_pack() -> anyhow::Result<()> {
     let bytes = sample_patch()?;

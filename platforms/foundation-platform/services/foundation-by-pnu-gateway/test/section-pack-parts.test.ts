@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { fetchByPnu } from "../src/index";
+import { fetchByPnu, forgetPlans } from "../src/index";
 import { fnv1a32, forgetPacks, parseSectionPacks, partsKey, partUnit } from "../src/packs";
 
 // Parts of a large dong (root ADR-0163): the Worker reads a section generation's parts index once,
@@ -12,6 +12,25 @@ import { fnv1a32, forgetPacks, parseSectionPacks, partsKey, partUnit } from "../
 // at which unit a pack was written for, so a golden pack placed under a part's key stands for that
 // part. The Worker is driven in Node over an in-memory bucket and edge cache (as in
 // pack-read-path.test.ts). PNUs sit in the repository-reserved synthetic namespace.
+
+/// What a client reads: the member decoded, as the edge or the browser does (root ADR-0233: the
+/// Worker hands every client the stored gzip member).
+async function text(response: Response): Promise<string> {
+  if (response.headers.get("content-encoding") !== "gzip" || response.body === null) return response.text();
+  return new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).text();
+}
+
+
+/// The bytes a ranged read returns: an offset and length exactly, a `Range` header as HTTP serves it
+/// (clamped to the object), and the whole object without a range.
+function rangeOf(stored: Uint8Array, range: { offset: number; length: number } | Headers | undefined): Uint8Array {
+  if (range === undefined) return stored;
+  if (range instanceof Headers) {
+    const [, from = "0", to = "0"] = /^bytes=(\d+)-(\d+)$/.exec(range.get("Range") ?? "") ?? [];
+    return stored.slice(Number(from), Math.min(Number(to) + 1, stored.byteLength));
+  }
+  return stored.slice(range.offset, range.offset + range.length);
+}
 const PNU_A = "9999900000100000000";
 const PNU_B = "9999900000100010000";
 const DONG = "9999900000";
@@ -179,13 +198,15 @@ describe("a parted section generation, served (root ADR-0163)", () => {
 
   /// R2 as the Worker reads it: every key it was given, by its bytes, under one entity tag.
   const bucket = {
-    async get(key: string) {
+    async get(key: string, options?: { range?: { offset: number; length: number } | Headers }) {
       asked.push(key);
-      const bytes = objects.get(key);
-      if (bytes === undefined) return null;
+      const stored = objects.get(key);
+      if (stored === undefined) return null;
+      const range = options?.range;
+      const bytes = rangeOf(stored, range);
       return {
         key,
-        size: bytes.byteLength,
+        size: stored.byteLength,
         etag: "0123456789abcdef0123456789abcdef",
         httpEtag: '"0123456789abcdef0123456789abcdef"',
         body: new Blob([bytes]).stream(),
@@ -248,11 +269,28 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     serve(sectionPacks());
     const answer = await get(PNU_A);
     expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(documents.base[PNU_A]);
+    expect(await text(answer)).toBe(documents.base[PNU_A]);
     // B's part has no pack: the golden pack under A's part is never asked for B.
     expect((await get(PNU_B)).status).toBe(404);
     expect(asked).toContain(packKey(PART_B));
     expect(asked).not.toContain(packKey(DONG));
+  });
+
+  // Root ADR-0233: the live route parsed the manifest (its patch unit lists grow with the data) on
+  // every request; an isolate now parses one manifest version once.
+  it("a manifest copy of a version this isolate parsed is not parsed again", async () => {
+    forgetPlans();
+    serve(sectionPacks({ patches: [{ patch: 1, units: [PART_B] }] }));
+    put(packKey(PART_B, 1), await golden("g1-p1-documents.pack"));
+    expect((await get(PNU_A)).status).toBe(200);
+    const parsed = vi.spyOn(Response.prototype, "json");
+    expect((await get(PNU_A)).status).toBe(200);
+    expect((await get(PNU_B)).status).toBe(404);
+    expect(parsed).not.toHaveBeenCalled();
+    // A new isolate parses the edge copy once.
+    forgetPlans();
+    expect((await get(PNU_A)).status).toBe(200);
+    expect(parsed).toHaveBeenCalledTimes(1);
   });
 
   it("an unparted dong of a parted generation is read under its dong", async () => {
@@ -261,7 +299,7 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     put(packKey(DONG), await golden("g1-documents.pack"));
     const answer = await get(PNU_B);
     expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(documents.base[PNU_B]);
+    expect(await text(answer)).toBe(documents.base[PNU_B]);
   });
 
   it("reads the parts index once per isolate, and says so apart from the pack reads", async () => {
@@ -270,8 +308,8 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     expect(first.status).toBe(200);
     const timing = first.headers.get("server-timing") ?? "";
     expect(timing).toMatch(new RegExp(`parts-${SECTION};dur=\\d+;desc="r2 gets=1"`));
-    // The pack read is still one GET: the index is not a cost of the PNU's first read.
-    expect(timing).toMatch(/r2;dur=\d+;desc="gets=1 retries=0"/);
+    // The pack reads are still its head and the document: the index is not a cost of the PNU's first read.
+    expect(timing).toMatch(/r2;dur=\d+;desc="gets=2 retries=0"/);
     const second = await get(PNU_B, "", preview);
     expect(second.status).toBe(404);
     expect(second.headers.get("server-timing")).toContain(`parts-${SECTION};dur=0;desc="memory gets=0"`);
@@ -315,7 +353,7 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     put(packKey(PART_A, 1), await golden("g1-p1-documents.pack"));
     put(packKey(PART_B, 1), await golden("g1-p1-documents.pack"));
     serve(sectionPacks({ patches: [{ patch: 1, units: [PART_A, PART_B] }] }));
-    expect(await (await get(PNU_A)).text()).toBe(documents.patched[PNU_A]);
+    expect(await text(await get(PNU_A))).toBe(documents.patched[PNU_A]);
     const deleted = await get(PNU_B);
     expect(deleted.status).toBe(404);
     expect(await deleted.json()).toEqual({ error: "deleted", pnu: PNU_B });
@@ -324,7 +362,7 @@ describe("a parted section generation, served (root ADR-0163)", () => {
   it("a patch naming only another part leaves a PNU to its base", async () => {
     put(packKey(PART_B, 1), await golden("g1-p1-documents.pack"));
     serve(sectionPacks({ patches: [{ patch: 1, units: [PART_B] }] }));
-    expect(await (await get(PNU_A)).text()).toBe(documents.base[PNU_A]);
+    expect(await text(await get(PNU_A))).toBe(documents.base[PNU_A]);
     expect(asked).not.toContain(packKey(PART_B, 1));
   });
 
@@ -339,7 +377,7 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     serve(undefined);
     const answer = await get(PNU_A, "?packs=g1", preview);
     expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(documents.base[PNU_A]);
+    expect(await text(answer)).toBe(documents.base[PNU_A]);
     expect(answer.headers.get("server-timing")).toContain('desc="r2 gets=1"');
     expect((await get(PNU_B, "?packs=g1", preview)).status).toBe(404);
   });
@@ -349,7 +387,7 @@ describe("a parted section generation, served (root ADR-0163)", () => {
     serve(undefined, null);
     const answer = await get(PNU_B, "?packs=g1", preview);
     expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(documents.base[PNU_B]);
+    expect(await text(answer)).toBe(documents.base[PNU_B]);
     expect(answer.headers.get("server-timing")).toContain('desc="absent gets=1"');
   });
 

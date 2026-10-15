@@ -13,8 +13,10 @@ import {
   flowView,
   jobStates,
   jobTitle,
+  nodeStatus,
   problemRows,
   problemSentence,
+  registryNote,
   schedulerUrl,
   statusNote,
   strongest,
@@ -252,6 +254,22 @@ describe("what a dataset and an edge show", () => {
     expect(datasetState(node("silver-a"), states)?.status).toBe("running");
     expect(datasetState(node("source"), states)?.status).toBe("done");
     expect(flowStatus(datasetState(node("scheduler"), states))).toBe("manual");
+  });
+
+  it("says no automatic job only for a dataset that should have one (root ADR-0234)", () => {
+    const shown = (node: PipelineGraph["nodes"][number]) => nodeStatus(node, null);
+    expect(shown({ id: "s", type: "silver_table" })).toBe("manual");
+    expect(shown({ id: "s", type: "silver_table", unscheduled: "needs_job" })).toBe("manual");
+    expect(shown({ id: "s", type: "silver_table", unscheduled: "on_event" })).toBe("on_event");
+    expect(shown({ id: "g", type: "gold_table", unscheduled: "not_started" })).toBe("not_started");
+    expect(shown({ id: "f", type: "serving_surface", surface_kind: "tiles" })).toBe("manual");
+    expect(shown({ id: "p", type: "serving_group" })).toBe("store");
+    const plan = { id: "d", type: "serving_surface", surface_kind: "dashboard_panel", status: "planned" };
+    expect(shown(plan)).toBe("outside");
+    expect(registryNote(plan, "outside")).toBe("계획");
+    expect(shown({ id: "o", type: "source_group" })).toBe("outside");
+    // A job's state always wins over the registry's words.
+    expect(nodeStatus({ id: "s", type: "silver_table", unscheduled: "on_event" }, states.get("load_a") ?? null)).toBe("running");
   });
 
   it("shows the state of the job that carries an edge", () => {

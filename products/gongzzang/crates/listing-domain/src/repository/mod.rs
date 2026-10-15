@@ -25,9 +25,9 @@ pub use marker_tile::{
     ListingMarkerCount, ListingMarkerDeltas, ListingMarkerMask, ListingMarkerMaskEncoding,
     ListingMarkerMaskQuery, ListingMarkerOverlayTileQuery, ListingMarkerRegisteredFilter,
     ListingMarkerTile, ListingMarkerTileQuery, ListingMarkerTileQueryError,
-    ListingMarkerTombstones, LISTING_MARKER_DELTA_TILE_LAYER, LISTING_MARKER_TILE_CONTENT_TYPE,
-    LISTING_MARKER_TILE_EXACT_MIN_ZOOM, LISTING_MARKER_TILE_LAYER, LISTING_MARKER_TILE_MAX_ZOOM,
-    LISTING_MARKER_TILE_MIN_ZOOM,
+    ListingMarkerTombstones, LISTING_MARKER_DELTA_TILE_LAYER, LISTING_MARKER_ID_PROPERTY,
+    LISTING_MARKER_TILE_CONTENT_TYPE, LISTING_MARKER_TILE_EXACT_MIN_ZOOM,
+    LISTING_MARKER_TILE_LAYER, LISTING_MARKER_TILE_MAX_ZOOM, LISTING_MARKER_TILE_MIN_ZOOM,
 };
 pub use read_models::{
     ListingCardSummary, ListingDetail, ListingParcelDenormalize, ListingPhotoSummary,
@@ -180,13 +180,14 @@ pub trait ListingRepository: Send + Sync {
         viewer_user_id: &Id<UserMarker>,
     ) -> Result<Option<ListingDetail>, RepoError>;
 
-    /// Increment the listing view counter.
+    /// Append one view event for the listing. Views are counted by readers, never stored on
+    /// the aggregate, so recording one neither touches `version` nor `updated_at`.
     ///
     /// # Errors
     ///
     /// Returns [`RepoError::NotFound`] when the listing is absent and [`RepoError::Database`] when
     /// the backing repository fails.
-    async fn increment_view_count(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError>;
+    async fn record_view(&self, id: &Id<ListingIdMarker>) -> Result<(), RepoError>;
 
     /// Update PNU lookup denormalized fields on the listing row.
     ///

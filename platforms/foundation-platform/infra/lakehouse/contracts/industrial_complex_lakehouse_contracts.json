@@ -2240,6 +2240,11 @@
           "required": true
         },
         {
+          "name": "lineage_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "attached_via_json",
           "logical_type": "string",
           "required": false

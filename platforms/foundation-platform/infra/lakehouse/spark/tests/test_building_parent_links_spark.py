@@ -17,9 +17,7 @@ class BuildingParentLinksTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import building_panel_silver_to_gold as gold
-        import building_register_units_parcel_handoff as handoff
-        cls.gold, cls.handoff = gold, handoff
-        handoff.load_pyspark()
+        cls.gold = gold
         cls.spark = (SparkSession.builder.master("local[2]")
                      .appName("synthetic-building-parent-links")
                      .config("spark.ui.enabled", "false")
@@ -41,13 +39,6 @@ class BuildingParentLinksTest(unittest.TestCase):
                 .withColumn("building_link_input_sha256", F.lit("a" * 64))
                 .withColumn("building_link_reason", F.lit(None).cast("string"))
                 .withColumn("normalization_application_id", F.lit(None).cast("string")))
-
-    def test_catalog_handoff_does_not_promote_name_inference(self):
-        units = self.units("canonical_dong").withColumnRenamed("mgm_bldrgst_pk", "register_pk")
-        areas = self.spark.createDataFrame([], "register_pk string,exclusive_area_m2 double,usage_name string,structure_name string")
-        row = self.handoff.build_handoff_frame(units, areas, ["register_pk", "building_register_pk"]).first()
-        self.assertEqual(row.register_pk, "UNIT-1")
-        self.assertIsNone(row.building_register_pk)
 
     def test_explicit_parent_is_not_lost_when_the_unit_states_another_parcel(self):
         titles = self.spark.createDataFrame([
@@ -126,35 +117,6 @@ class BuildingParentLinksTest(unittest.TestCase):
         self.assertEqual(metrics["invalid_building_link_evidence_count"], 1)
         with self.assertRaisesRegex(ValueError, "building link lacks"):
             ingest.assert_quality_metrics(frame, contract, metrics, F)
-
-    def test_emitted_gzip_rows_keep_named_evidence_and_explicit_null_parent(self):
-        import gzip
-        import json
-        from types import SimpleNamespace
-        from unittest.mock import patch
-        import building_unit_building_link_handoff as recovery
-        from building_link_evidence import verified_building_links
-
-        recovery.load_pyspark()
-        units = self.units().withColumnRenamed("mgm_bldrgst_pk", "register_pk")
-        null_unit = (units.withColumn("register_pk", F.lit("UNIT-2"))
-                     .withColumn("building_mgm_bldrgst_pk", F.lit(None).cast("string")))
-        units = units.unionByName(null_unit)
-        areas = self.spark.createDataFrame([], "register_pk string,exclusive_area_m2 double,usage_name string,structure_name string")
-        catalog = self.handoff.build_handoff_frame(units, areas, self.handoff.load_handoff_contract()["columns"])
-        pairs = verified_building_links(units).withColumnRenamed("building_mgm_bldrgst_pk", "building_register_pk")
-        for job, frame, args in [(self.handoff, catalog, []),
-                                 (recovery, pairs, [recovery.load_handoff_contract()["columns"]])]:
-            captured = []
-            client = SimpleNamespace(put_object=lambda **kwargs: captured.append(kwargs))
-            with self.subTest(job=job.__name__), patch.dict("sys.modules", {"boto3": SimpleNamespace(client=lambda *a, **k: client)}):
-                manifest = job.write_objects(frame, {}, "synthetic", "synthetic", ".jsonl.gz", *args)
-                self.assertEqual(sum(row["rows"] for row in manifest), 2)
-                rows = [json.loads(line) for line in gzip.decompress(captured[0]["Body"]).splitlines()]
-                for row in rows:
-                    self.assertIsInstance(row["building_link_evidence"], dict)
-                    self.assertEqual(row["building_link_evidence"]["building_link_input_sha256"], "a" * 64)
-                self.assertIsNone(next(row for row in rows if row["register_pk"] == "UNIT-2")["building_register_pk"])
 
 
 if __name__ == "__main__":

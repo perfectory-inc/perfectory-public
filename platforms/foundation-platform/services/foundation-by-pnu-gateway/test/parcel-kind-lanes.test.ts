@@ -142,6 +142,29 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
     expect([404, 503]).toContain(live.status);
   });
 
+  it("a probe run's token scopes the preview's edge copies, so each run's first read is an R2 read", async () => {
+    // 2026-10-13: gate (b) timed the zoning lane's R2 reads against the parcel preview's answers,
+    // 9,502 of 9,505 of them edge copies an earlier probe run had left.
+    runtime = await start(true);
+    await put(packKey(ZONING!.packRoot), await pack());
+    const source = async (query: string) => {
+      const response = await runtime!.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}${query}`, {
+        headers: { "Accept-Encoding": "gzip" },
+      });
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
+      return response.headers.get("server-timing") ?? "";
+    };
+    expect(await source("?packs=g1-ra1")).not.toContain("edge-answer");
+    // The same run reads it again: its warm read is the edge copy.
+    expect(await source("?packs=g1-ra1")).toContain("edge-answer");
+    // A later run starts cold.
+    expect(await source("?packs=g1-rb2")).not.toContain("edge-answer");
+    // A token outside the grammar is no canonical request.
+    const bad = await runtime.dispatchFetch(`https://catalog.example.test${ZONING!.prefix}${PNU}?packs=g1-rX!`);
+    expect(bad.status).toBe(404);
+  });
+
   it("never answers one lane from another lane's packs or edge copies", async () => {
     runtime = await start();
     // Both lanes at the same generation, so their served states would share a bare fingerprint.

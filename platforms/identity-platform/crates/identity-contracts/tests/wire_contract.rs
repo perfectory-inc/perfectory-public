@@ -3,9 +3,10 @@
 use chrono::Utc;
 use identity_contracts::{
     AssignStaffRoleRequest, IdentityEventDeliveryV1, IdentityEventV1, PolicyDecisionRequest,
-    PolicyDecisionResponse, PrincipalId, ResourceAction, StaffInvitedV1, StaffRoleAssignedV1,
-    StaffRoleResponse, StaffSessionRevokedV1, VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE,
-    POLICY_DECISION_ROUTE, VERIFY_STAFF_SESSION_ROUTE,
+    PolicyDecisionResponse, PrincipalId, ResourceAction, ServiceCapabilityChangedV1,
+    StaffInvitedV1, StaffRoleAssignedV1, StaffRoleResponse, StaffSessionRevokedV1,
+    VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE, POLICY_DECISION_ROUTE,
+    VERIFY_STAFF_SESSION_ROUTE,
 };
 use uuid::Uuid;
 
@@ -104,6 +105,8 @@ fn identity_events_use_identity_v1_names_and_preserve_payload_fields(
             revoked_at: timestamp,
             reason: "logout".to_owned(),
         }),
+        IdentityEventV1::ServiceCapabilityGranted(capability_change(principal_id, timestamp)),
+        IdentityEventV1::ServiceCapabilityRevoked(capability_change(principal_id, timestamp)),
     ];
 
     let event_types = events
@@ -120,9 +123,24 @@ fn identity_events_use_identity_v1_names_and_preserve_payload_fields(
             "identity.staff.invited.v1".to_owned(),
             "identity.staff.role_assigned.v1".to_owned(),
             "identity.staff.session_revoked.v1".to_owned(),
+            "identity.service_principal.capability_granted.v1".to_owned(),
+            "identity.service_principal.capability_revoked.v1".to_owned(),
         ])
     );
     Ok(())
+}
+
+fn capability_change(
+    service_principal_id: PrincipalId,
+    changed_at: chrono::DateTime<Utc>,
+) -> ServiceCapabilityChangedV1 {
+    ServiceCapabilityChangedV1 {
+        schema_version: 1,
+        service_principal_id,
+        capability: "foundation.catalog:read".to_owned(),
+        changed_at,
+        policy_sha256: "0".repeat(64),
+    }
 }
 
 #[test]

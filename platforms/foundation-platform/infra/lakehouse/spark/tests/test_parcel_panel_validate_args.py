@@ -165,7 +165,7 @@ class ParcelPanelLineageTest(unittest.TestCase):
                     frame, spark = mock.MagicMock(), mock.MagicMock()
                     for name in ("read_source", "filtered_by_region", "with_lineage_sources",
                                  "build_zonings", "build_price", "build_characteristics",
-                                 "build_forest_ledger", "build_transfer_history", "build_land_rights",
+                                 "build_forest_ledger", "build_transfer_history", "build_land_rights", "build_lineage",
                                  "carry_section", "build_gold_panel_frame"):
                         stack.enter_context(mock.patch.object(job, name, return_value=frame))
                     stack.enter_context(mock.patch.object(job, "build_spark_session", return_value=spark))

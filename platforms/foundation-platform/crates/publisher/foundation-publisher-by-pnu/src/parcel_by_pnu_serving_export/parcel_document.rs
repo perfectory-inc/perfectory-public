@@ -18,7 +18,7 @@ use foundation_contracts::catalog::{
     ParcelCharacteristicResponse, ParcelForestLedgerResponse, ParcelLandRightResponse,
     ParcelPriceResponse, ParcelTransferEventResponse, ParcelZoningResponse,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
@@ -73,6 +73,26 @@ struct ParcelByPnuDocument<'a> {
     /// (root ADR-0113 §6).
     #[serde(skip_serializing_if = "Option::is_none")]
     attached_via: Option<BTreeMap<String, String>>,
+    /// The parcel's lineage edges, both directions (root ADR-0113 §1): values only, codes as the
+    /// lineage table holds them. Absent when it has none, so documents without lineage stay
+    /// byte-identical to before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lineage: Option<Vec<ParcelLineageEdge>>,
+}
+
+/// One `silver.parcel_lineage` edge as `gold.parcel_panel.lineage_json` carries it.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ParcelLineageEdge {
+    /// Null for a `pending` edge: a parcel whose predecessor is not known.
+    predecessor_pnu: Option<String>,
+    successor_pnu: String,
+    /// `code_change`, `jurisdiction_transfer`, `registration_conversion`, `merge`, `split`,
+    /// `resurvey` or `other`.
+    relation: String,
+    cardinality: Option<String>,
+    effective_date: Option<String>,
+    grade: String,
 }
 
 /// Section names `attached_via` may name — the document's own section fields.
@@ -113,6 +133,7 @@ pub fn build(
         land_rights: required_section(row, "land_rights_json")?,
         land_right_total: required_u64(row, "land_right_total")?,
         attached_via: attached_via(row)?,
+        lineage: optional_section(row, "lineage_json")?,
     };
 
     let mut body = serde_json::to_vec_pretty(&document)
@@ -296,6 +317,48 @@ mod tests {
             build(&provenance(), &row())?,
             "a null path column is the same document as no column"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn lineage_edges_are_values_and_absent_without_lineage() -> anyhow::Result<()> {
+        let mut linked = row();
+        linked.insert(
+            "lineage_json".to_owned(),
+            JsonValue::String(
+                "[{\"predecessor_pnu\":\"9999900000100000000\",\"successor_pnu\":\"9999900000100010000\",\"relation\":\"split\",\"cardinality\":\"1:N\",\"effective_date\":\"2099-08-02\",\"grade\":\"official\"},{\"successor_pnu\":\"9999900000100000000\",\"relation\":\"other\",\"grade\":\"pending\"}]"
+                    .to_owned(),
+            ),
+        );
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &linked)?.body)?;
+        assert_eq!(document["lineage"][0]["relation"], "split");
+        assert_eq!(
+            document["lineage"][0]["successor_pnu"],
+            "9999900000100010000"
+        );
+        assert_eq!(document["lineage"][1]["predecessor_pnu"], JsonValue::Null);
+        assert_eq!(document["lineage"][1]["grade"], "pending");
+
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &row())?.body)?;
+        assert!(
+            document.get("lineage").is_none(),
+            "a row without lineage must not grow a field"
+        );
+        let mut null = row();
+        null.insert("lineage_json".to_owned(), JsonValue::Null);
+        assert_eq!(build(&provenance(), &null)?, build(&provenance(), &row())?);
+
+        // Display text or evidence beyond the edge's values is refused, not passed through.
+        let mut extra = row();
+        extra.insert(
+            "lineage_json".to_owned(),
+            JsonValue::String(
+                "[{\"successor_pnu\":\"9999900000100000000\",\"relation\":\"split\",\"grade\":\"official\",\"label\":\"x\"}]"
+                    .to_owned(),
+            ),
+        );
+        let error = build(&provenance(), &extra).expect_err("an unknown edge field must refuse");
+        assert!(error.to_string().contains("lineage_json"), "{error}");
         Ok(())
     }
 

@@ -3,7 +3,7 @@
 # Local/CI/staging/production may change endpoints, credentials, tenancy, and capacity,
 # but a different runtime version requires an explicit migration ADR.
 #
-# The JS manifest pins are not spelled here: they live once in
+# The JS manifest pins and the Rust toolchain pin are not spelled here: they live once in
 # tools/technology-versions.contract.json and this guard reads them (root ADR-0097). The pin
 # values are read from the guard's own repository, so the self-test's fixture repositories are
 # checked against the real pins rather than fixture copies.
@@ -30,6 +30,16 @@ PY
 }
 
 node_pin="$(read_pin node)"
+rust_pin="$(python3 - "$version_pins_contract" <<'PY' | tr -d '\r'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("rust_toolchain")
+if not isinstance(value, str) or value.strip() == "":
+    raise SystemExit("rust_toolchain must be a non-empty string")
+print(value)
+PY
+)"
 
 root="${1:-$script_repo_root}"
 cd "$root"
@@ -137,6 +147,50 @@ if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
     fail=1
   fi
 fi
+
+# Rust toolchain (ADR-0001 §3): one pin, read from the contract above. rustup prefers the CLOSEST
+# rust-toolchain file, so an area-local one would silently shadow the root pin.
+toolchain_channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml 2>/dev/null | tr -d '\r')
+if [ "$toolchain_channel" != "$rust_pin" ]; then
+  echo "FAIL technology-version: rust-toolchain.toml channel must be $rust_pin (found '${toolchain_channel}')" >&2
+  fail=1
+fi
+stray_toolchains=$(git ls-files 'products/**/rust-toolchain' 'products/**/rust-toolchain.toml' \
+  'platforms/**/rust-toolchain' 'platforms/**/rust-toolchain.toml' \
+  'consoles/**/rust-toolchain' 'consoles/**/rust-toolchain.toml' \
+  'tools/**/rust-toolchain' 'tools/**/rust-toolchain.toml')
+if [ -n "$stray_toolchains" ]; then
+  echo 'FAIL technology-version: area-local toolchain files shadow the root rust-toolchain.toml:' >&2
+  printf '%s\n' "$stray_toolchains" >&2
+  fail=1
+fi
+# Docker builders cannot COPY the root toolchain file, so their base tag carries the pin.
+rust_bases=$(git grep -n "FROM rust:" -- ':(glob)**/Dockerfile*' || true)
+if [ -n "$rust_bases" ] && printf '%s\n' "$rust_bases" | grep -Fv "rust:$rust_pin-" >/dev/null; then
+  echo "FAIL technology-version: Dockerfile rust base images must pin rust:$rust_pin-*:" >&2
+  printf '%s\n' "$rust_bases" | grep -Fv "rust:$rust_pin-" >&2 || true
+  fail=1
+fi
+# Cargo cannot inherit across workspaces, so each workspace root states rust-version once and
+# member crates inherit it; a literal anywhere else is a second copy that can drift.
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  manifest=${line%%:*}
+  case "$line" in
+    *'rust-version.workspace'*|*'workspace = true'*) continue ;;
+  esac
+  value=$(printf '%s\n' "$line" | sed -n 's/.*rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ "$value" != "$rust_pin" ]; then
+    echo "FAIL technology-version: rust-version must be $rust_pin:" >&2
+    echo "  $line" >&2
+    fail=1
+  fi
+  if ! grep -q '^\[workspace\]' "$manifest"; then
+    echo "FAIL technology-version: a member crate must inherit with rust-version.workspace = true:" >&2
+    echo "  $line" >&2
+    fail=1
+  fi
+done < <(git grep -n -E '^[[:space:]]*rust-version[[:space:]]*[.=]' -- ':(glob)**/Cargo.toml' | tr -d '\r' || true)
 
 if [ "$fail" -eq 0 ]; then
   echo 'OK technology-version-consistency'

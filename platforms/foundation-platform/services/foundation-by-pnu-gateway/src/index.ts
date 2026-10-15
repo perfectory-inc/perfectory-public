@@ -62,13 +62,19 @@ interface ServingPlan {
   packs?: PackPlan;
 }
 
-/// A canonical request: the PNU, and the unpublished pack generation a preview asks for.
+/// A canonical request: the PNU, and the unpublished pack generation a preview asks for, with the
+/// probe run it is read in (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate
+/// run's first read of a document is an R2 read on both sides (2026-10-13: a baseline answered from
+/// edge copies an earlier run left was timed against R2 reads).
 interface CanonicalRequest {
   pnu: string;
   previewGeneration: number | null;
+  previewRun: string | null;
 }
 
-const previewPattern = new RegExp(`^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})$`);
+const previewPattern = new RegExp(
+  `^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})(?:-r([0-9a-z]{1,16}))?$`,
+);
 
 function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | null {
   // The exact schema query separates v2 browser/edge caches from year-only documents; the preview
@@ -83,7 +89,11 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
   const candidate = url.pathname.slice(prefix.length);
   if (!pnuPattern.test(candidate)) return null;
   if (url.pathname !== `${prefix}${candidate}`) return null;
-  return { pnu: candidate, previewGeneration: preview === null ? null : Number(preview[1]) };
+  return {
+    pnu: candidate,
+    previewGeneration: preview === null ? null : Number(preview[1]),
+    previewRun: preview?.[2] ?? null,
+  };
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -207,15 +217,38 @@ function parseManifest(raw: unknown, lane: ServedLane = OWN): ServingPlan | null
   return { ...plan, packs, fingerprint: `${plan.fingerprint}-${packs.fingerprint}` };
 }
 
+/// The plan this isolate last parsed for each lane, by the R2 entity tag of the manifest bytes it
+/// was parsed from (root ADR-0233): a request whose manifest copy carries the same tag reuses it
+/// instead of parsing the manifest again, whose patch unit lists grow with the data (2026-10-14:
+/// 1.5-5.7 ms per request for the parcel manifest's 16,000 units). Freshness is still the edge
+/// copy's: a new manifest arrives with a new tag.
+const planMemory = new Map<string, { version: string; plan: ServingPlan }>();
+const MANIFEST_VERSION_HEADER = "X-Manifest-Etag";
+
+/// Forgets every parsed plan (tests, to stand for a new isolate).
+function forgetPlans(): void {
+  planMemory.clear();
+}
+
 async function resolvePlan(
   bucket: Pick<R2Bucket, "get">,
   ctx: ExecutionContext,
   lane: ServedLane,
 ): Promise<ServingPlan | null> {
+  const known = planMemory.get(lane.manifestObject);
   const cached = await caches.default.match(manifestCacheUrl(lane));
   if (cached !== undefined) {
+    const version = cached.headers.get(MANIFEST_VERSION_HEADER);
+    if (version !== null && version === known?.version) {
+      // The copy's bytes are not read; cancelling them is not waited on (a teed body waits for its twin).
+      void cached.body?.cancel().catch(() => undefined);
+      return known.plan;
+    }
     const plan = parseManifest(await cached.json().catch(() => null), lane);
-    if (plan !== null) return plan;
+    if (plan !== null) {
+      if (version !== null) planMemory.set(lane.manifestObject, { version, plan });
+      return plan;
+    }
   }
   const object = await bucket.get(lane.manifestObject);
   if (object === null || !("body" in object)) return null;
@@ -227,10 +260,12 @@ async function resolvePlan(
     plan = null;
   }
   if (plan === null) return null;
+  planMemory.set(lane.manifestObject, { version: object.etag, plan });
   const response = new Response(text, {
     headers: {
       "Cache-Control": `max-age=${policy.manifest_edge_cache_seconds}`,
       "Content-Type": policy.content_type,
+      [MANIFEST_VERSION_HEADER]: object.etag,
     },
   });
   ctx.waitUntil(caches.default.put(manifestCacheUrl(lane), response));
@@ -399,12 +434,11 @@ async function packResponse(
     );
   }
   // The member is the served document's gzip, exactly as the object lane served it uncompressed:
-  // it goes out as it is, nothing decompressed or parsed (root ADR-0151). A client that does not
-  // accept gzip gets it decompressed here, the one path that spends CPU on the body.
-  // The two are different representations (RFC 9110 §8.8.3): each has its own strong tag, so a
-  // cache or client never takes the gzip bytes for the identity ones under one validator.
-  const gzip = acceptsGzip(request);
-  const etag = gzip ? `"${resolved.etag}"` : `"${resolved.etag}-identity"`;
+  // it goes out as it is, nothing decompressed or parsed (root ADR-0151), to every client. One that
+  // does not accept gzip is answered by the edge's own conversion, which weakens the tag of what
+  // it converts: the Worker spends no CPU on a body, whose size it does not bound (root ADR-0233;
+  // a building document reaches 11.5 MB decompressed, 5.8 ms of gunzip per MB).
+  const etag = `"${resolved.etag}"`;
   const headers = corsHeaders(origin, allowed);
   headers.set("Cache-Control", policy.cache_control);
   headers.set("Content-Type", policy.content_type);
@@ -414,37 +448,10 @@ async function packResponse(
   if (matchesEtag(request, etag)) {
     return timed(new Response(null, { status: 304, headers }), "not-modified");
   }
-  if (gzip) {
-    headers.set("Content-Encoding", "gzip");
-    headers.set("Content-Length", resolved.member.byteLength.toString());
-    const body = request.method === "HEAD" ? null : resolved.member;
-    return timed(new Response(body, { status: 200, headers, encodeBody: "manual" }), "document");
-  }
-  const plain = new Response(new Blob([resolved.member]).stream().pipeThrough(new DecompressionStream("gzip")));
-  const bytes = new Uint8Array(await plain.arrayBuffer());
-  headers.set("Content-Length", bytes.byteLength.toString());
-  return timed(
-    new Response(request.method === "HEAD" ? null : bytes, { status: 200, headers }),
-    "document-decompressed",
-  );
-}
-
-/// Whether the client takes `Content-Encoding: gzip` (RFC 9110 §12.5.3): named with a nonzero
-/// weight, or covered by `*`. The edge rewrites a Worker's incoming `Accept-Encoding` to
-/// `br, gzip` and keeps the client's own in `cf.clientAcceptEncoding`; that is the one asked, so
-/// the representation (and its entity tag) is the one the client gets, not one the edge converts.
-function acceptsGzip(request: Request): boolean {
-  const client = (request as { cf?: { clientAcceptEncoding?: unknown } }).cf?.clientAcceptEncoding;
-  const raw = typeof client === "string" ? client : (request.headers.get("Accept-Encoding") ?? "");
-  const accepted = new Map<string, number>();
-  for (const field of raw.split(",")) {
-    const [coding, ...parameters] = field.trim().toLowerCase().split(";");
-    if (coding === undefined || coding === "") continue;
-    const weight = parameters.map((parameter) => parameter.trim()).find((parameter) => parameter.startsWith("q="));
-    accepted.set(coding, weight === undefined ? 1 : Number(weight.slice(2)));
-  }
-  const gzip = accepted.get("gzip") ?? accepted.get("x-gzip") ?? accepted.get("*");
-  return gzip !== undefined && gzip > 0;
+  headers.set("Content-Encoding", "gzip");
+  headers.set("Content-Length", resolved.member.byteLength.toString());
+  const body = request.method === "HEAD" ? null : resolved.member;
+  return timed(new Response(body, { status: 200, headers, encodeBody: "manual" }), "document");
 }
 
 function capabilities(lane: ServedLane): Response {
@@ -497,7 +504,7 @@ async function answerByPnu(
   }
   const canonical = canonicalRequest(url, lane);
   if (canonical === null) return new Response(null, { status: 404 });
-  const { pnu, previewGeneration } = canonical;
+  const { pnu, previewGeneration, previewRun } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
       status: 405,
@@ -543,7 +550,7 @@ async function answerByPnu(
   // 2026-10-13 every zoning probe read answered 503 here, the manifest read failing first.
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null && timing !== null) {
-    const preview = previewPlan(previewGeneration, workerVersion(env), lane);
+    const preview = previewPlan(previewGeneration, workerVersion(env), lane, previewRun);
     return packResponse(request, bucket, ctx, preview, pnu, origin, allowed, timing);
   }
 
@@ -651,6 +658,7 @@ export default {
 
 export {
   canonicalPnu,
+  forgetPlans,
   canonicalRequest,
   corsHeaders,
   fetchByPnu,

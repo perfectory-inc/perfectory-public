@@ -31,20 +31,28 @@ async fn provisioning_is_idempotent_exact_and_transactional(
     )?;
     provision(&pool, &initial).await?;
     let first_state = grant_state(&pool, principal_id).await?;
+    assert_eq!(ledger(&pool, principal_id).await?, (2, 0, 2, 0));
     provision(&pool, &initial).await?;
     assert_eq!(grant_state(&pool, principal_id).await?, first_state);
+    // An unchanged policy appends nothing: no record, no event.
+    assert_eq!(ledger(&pool, principal_id).await?, (2, 0, 2, 0));
 
     let reduced = principal_manifest(principal_id, &subject, &["foundation.catalog:read"])?;
     provision(&pool, &reduced).await?;
     let reduced_state = grant_state(&pool, principal_id).await?;
     assert_eq!(reduced_state.len(), 1);
     assert_eq!(reduced_state[0].0, "foundation.catalog:read");
+    // The dropped capability is a revoke record and a revoke event; nothing was deleted.
+    assert_eq!(ledger(&pool, principal_id).await?, (2, 1, 2, 1));
 
     let revoked = principal_manifest(principal_id, &subject, &[])?;
     provision(&pool, &revoked).await?;
     assert!(grant_state(&pool, principal_id).await?.is_empty());
     provision(&pool, &revoked).await?;
     assert!(grant_state(&pool, principal_id).await?.is_empty());
+    assert_eq!(ledger(&pool, principal_id).await?, (2, 2, 2, 2));
+
+    assert_ledger_refuses_rewrites(&pool, principal_id).await;
 
     let occupied_id = Uuid::new_v4();
     let occupied_subject = format!("occupied-{occupied_id}");
@@ -108,8 +116,10 @@ async fn provisioning_is_idempotent_exact_and_transactional(
     .await?;
     assert!(rolled_back);
 
-    sqlx::query("DELETE FROM identity.service_principal WHERE id = ANY($1::uuid[])")
-        .bind(vec![principal_id, occupied_id])
+    // The contract principal keeps its grant history (the ledger refuses deletes); only the
+    // occupied principal, which never received a grant, is removed.
+    sqlx::query("DELETE FROM identity.service_principal WHERE id = $1")
+        .bind(occupied_id)
         .execute(&pool)
         .await?;
     Ok(())
@@ -127,6 +137,43 @@ async fn grant_state(
     )
     .bind(principal_id)
     .fetch_all(pool)
+    .await
+}
+
+/// The ledger refuses rewriting history, whoever asks.
+async fn assert_ledger_refuses_rewrites(pool: &sqlx::PgPool, principal_id: Uuid) {
+    for statement in [
+        "UPDATE identity.service_capability_grant_record SET change = 'granted'          WHERE service_principal_id = $1",
+        "DELETE FROM identity.service_capability_grant_record WHERE service_principal_id = $1",
+    ] {
+        assert!(sqlx::query(statement)
+            .bind(principal_id)
+            .execute(pool)
+            .await
+            .is_err());
+    }
+}
+
+/// (granted records, revoked records, granted events, revoked events) for one principal.
+async fn ledger(
+    pool: &sqlx::PgPool,
+    principal_id: Uuid,
+) -> Result<(i64, i64, i64, i64), sqlx::Error> {
+    sqlx::query_as(
+        "SELECT \
+           (SELECT count(*) FROM identity.service_capability_grant_record \
+            WHERE service_principal_id = $1 AND change = 'granted'), \
+           (SELECT count(*) FROM identity.service_capability_grant_record \
+            WHERE service_principal_id = $1 AND change = 'revoked'), \
+           (SELECT count(*) FROM identity.outbox_event \
+            WHERE type = 'identity.service_principal.capability_granted.v1' \
+              AND payload->>'service_principal_id' = $1::text), \
+           (SELECT count(*) FROM identity.outbox_event \
+            WHERE type = 'identity.service_principal.capability_revoked.v1' \
+              AND payload->>'service_principal_id' = $1::text)",
+    )
+    .bind(principal_id)
+    .fetch_one(pool)
     .await
 }
 

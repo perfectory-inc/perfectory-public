@@ -70,6 +70,7 @@ from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_icebe
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
 from parcel_attribute_carry import carry_candidates
+from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
 from lakehouse_engine import (
@@ -118,7 +119,7 @@ CONTENT_DIGEST_COLUMNS: tuple[str, ...] = tuple(
 # Content columns the fingerprint takes only when they hold a value. `concat_ws` skips a NULL,
 # so a row whose every section is its own keeps the digest it had before this column existed —
 # widening the contract must not mark forty million rows as changed (root ADR-0113 §6).
-NULL_SKIPPED_DIGEST_COLUMNS: tuple[str, ...] = ("attached_via_json",)
+NULL_SKIPPED_DIGEST_COLUMNS: tuple[str, ...] = ("lineage_json", "attached_via_json")
 
 PARCEL_SOURCE = "silver.parcel_boundaries"
 ZONING_SOURCE = "silver.land_use_plan"
@@ -153,10 +154,13 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
     LAND_RIGHT_SOURCE: ("pnu", "right_serial_no", "building_name", "dong_name", "floor_name",
                         "ho_name", "room_name", "right_ratio", "closure_kind_name", "closure_kind_code"),
     ZONE_CODE_SOURCE: ("ucode", "parent_ucode"),
+    LINEAGE_SOURCE: ("predecessor_pnu", "successor_pnu", "relation", "cardinality", "effective_date", "grade",
+                     "evidence_kind", "evidence_ref"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs: a zone code's anchor reaches
 # every parcel zoned under it. A change to one rebuilds whole (root ADR-0180).
-WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE,)
+# A lineage edge is keyed by two PNUs, not one, and lands in both parcels' lineage section.
+WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE, LINEAGE_SOURCE)
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -803,6 +807,8 @@ class Section:
     name: str
     inputs: tuple[str, ...]
     build: Callable[[dict[str, DataFrame], SparkSession, argparse.Namespace, dict[str, int]], DataFrame]
+    # False for a section that is the lineage itself: a predecessor's edges are not its successor's.
+    carried: bool = True
 
     @property
     def via_column(self) -> str:
@@ -822,9 +828,13 @@ SECTIONS: tuple[Section, ...] = (
         frames[TRANSFER_SOURCE])),
     Section("land_rights", (LAND_RIGHT_SOURCE,), lambda frames, spark, args, counters: build_land_rights(
         frames[LAND_RIGHT_SOURCE])),
+    # Reads the lineage only when the run carries it (`--no-carry-lineage` leaves it empty), so the
+    # table stays the optional input it is to the planner, not a required one.
+    Section("lineage", (), lambda frames, spark, args, counters: build_lineage(
+        frames.get(LINEAGE_SOURCE), spark), carried=False),
 )
 SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
-SECTION_VIA_COLUMNS: dict[str, str] = {section.name: section.via_column for section in SECTIONS}
+SECTION_VIA_COLUMNS: dict[str, str] = {section.name: section.via_column for section in SECTIONS if section.carried}
 
 
 def read_carry_candidates(
@@ -914,7 +924,7 @@ def build_gold_panel_frame(
     base = parcels.select("pnu").distinct()
     sections = {
         name: frame
-        if SECTION_VIA_COLUMNS[name] in frame.columns
+        if name not in SECTION_VIA_COLUMNS or SECTION_VIA_COLUMNS[name] in frame.columns
         else frame.withColumn(SECTION_VIA_COLUMNS[name], F.lit(None).cast(T.StringType()))
         for name, frame in sections.items()
     }
@@ -925,6 +935,7 @@ def build_gold_panel_frame(
         .join(sections["forest_ledger"], on="pnu", how="left")
         .join(sections["transfer_history"], on="pnu", how="left")
         .join(sections["land_rights"], on="pnu", how="left")
+        .join(sections["lineage"], on="pnu", how="left")
     )
     return joined.select(
         F.col("pnu"),
@@ -941,6 +952,8 @@ def build_gold_panel_frame(
         F.coalesce(F.col("land_right_total"), F.lit(0)).cast(T.LongType()).alias(
             "land_right_total"
         ),
+        # NULL, not "[]", for a parcel without lineage: the digest skips it (NULL_SKIPPED_DIGEST_COLUMNS).
+        F.col("lineage_json"),
         attached_via_json(),
         F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(published_at_utc).alias("published_at_utc"),
@@ -1218,6 +1231,11 @@ def column_lineage(carry_lineage: bool = True) -> list[dict[str, Any]]:
             "foundation-platform.job_arguments", "published_at_utc", "literal"
         ),
     }
+    lineage_map["lineage_json"] = (
+        one(LINEAGE_SOURCE, ",".join(LINEAGE_EDGE_COLUMNS) + ",evidence_kind,evidence_ref", "steward_resolved_edges_json")
+        if carry_lineage
+        else one("foundation-platform.job_arguments", "carry_lineage", "literal_null_when_disabled")
+    )
     # A path exists only when a section has no own value and an eligible predecessor holds it.
     # Reuse section dependencies: filtering a source row can change that presence decision.
     lineage_map["attached_via_json"] = (
@@ -1309,9 +1327,13 @@ def read_inputs(
             )
     if ZONE_CODE_SOURCE in inputs:
         frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
+    if args.carry_lineage and any(not section.carried for section in sections):
+        frames[LINEAGE_SOURCE] = read_source(spark, args, LINEAGE_SOURCE, pins)
     if source_snapshots is not None:
+        # The lineage is appended run after run, so it holds many batches by design.
         for name, frame in frames.items():
-            source_snapshots[name] = assert_single_snapshot(frame, name)
+            if name != LINEAGE_SOURCE:
+                source_snapshots[name] = assert_single_snapshot(frame, name)
     return incremental.project_build_inputs(frames, BUILD_COLUMNS), candidates
 
 
@@ -1323,6 +1345,7 @@ def build_panel(
 
     sections = {
         section.name: carry_section(section.build(frames, spark, args, counters), section.via_column, candidates)
+        if section.carried else section.build(frames, spark, args, counters)
         for section in SECTIONS
     }
     return build_gold_panel_frame(
@@ -1372,8 +1395,9 @@ def restrict_inputs(
     restricted = {
         PARCEL_SOURCE: incremental.rows_matching_any(frames[PARCEL_SOURCE], [("pnu", keys, "pnu", False)]),
     }
-    if ZONE_CODE_SOURCE in frames:
-        restricted[ZONE_CODE_SOURCE] = frames[ZONE_CODE_SOURCE]
+    for name in WHOLE_TABLE_INPUTS:
+        if name in frames:
+            restricted[name] = frames[name]
     for name in ATTRIBUTE_SOURCES:
         if name in frames:
             restricted[name] = incremental.rows_matching_any(frames[name], [("pnu", sources, "pnu", False)])

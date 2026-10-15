@@ -7,16 +7,10 @@ use sqlx::PgPool;
 use staff_identity_application::ports::EffectiveRoleReader;
 use staff_identity_domain::StaffIdentityError;
 
+/// `identity.staff_role` is the only place a staff role lives (root ADR-0213).
 const READ_EFFECTIVE_ROLES_SQL: &str = "SELECT role_code
-    FROM (
-        SELECT primary_role_code AS role_code
-        FROM identity.staff
-        WHERE id = $1
-        UNION ALL
-        SELECT role_code
-        FROM identity.staff_role
-        WHERE staff_id = $1
-    ) AS effective_roles
+    FROM identity.staff_role
+    WHERE staff_id = $1
     ORDER BY role_code";
 
 /// `PostgreSQL` reader for a staff account's effective Identity roles.
@@ -71,11 +65,10 @@ mod tests {
     use staff_identity_domain::StaffIdentityError;
 
     #[test]
-    fn effective_role_sql_reads_primary_and_granted_roles() {
-        assert!(READ_EFFECTIVE_ROLES_SQL.contains("identity.staff"));
-        assert!(READ_EFFECTIVE_ROLES_SQL.contains("primary_role_code"));
-        assert!(READ_EFFECTIVE_ROLES_SQL.contains("identity.staff_role"));
-        assert!(READ_EFFECTIVE_ROLES_SQL.contains("UNION ALL"));
+    fn effective_roles_come_only_from_staff_role() {
+        assert!(READ_EFFECTIVE_ROLES_SQL.contains("FROM identity.staff_role"));
+        assert!(!READ_EFFECTIVE_ROLES_SQL.contains("FROM identity.staff\n"));
+        assert!(!READ_EFFECTIVE_ROLES_SQL.contains("primary_role_code"));
     }
 
     #[test]

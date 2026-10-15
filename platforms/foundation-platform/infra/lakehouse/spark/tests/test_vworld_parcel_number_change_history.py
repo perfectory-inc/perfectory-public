@@ -14,6 +14,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -53,7 +54,8 @@ def text(*rows, header=HEADER):
 def zipped(body, member=MEMBER):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr(member, body.encode("utf-8"))
+        # A fixed member time: writestr(name) stamps the current second, so two calls could differ.
+        archive.writestr(zipfile.ZipInfo(member, date_time=(2099, 1, 1, 0, 0, 0)), body.encode("utf-8"))
     return buffer.getvalue()
 
 
@@ -169,6 +171,16 @@ def item(file_no, name, updated_at="2099-09-15", size_kib="3"):
     return {"svc_cde": selector["svc_cde"], "ds_id": selector["ds_id"], "download_ds_id": DOWNLOAD_ID,
             "file_no": file_no, "provider_file_name": name, "updated_at": updated_at, "base_ym": "2099-09",
             "size_kib": size_kib}
+
+
+class ZippedFixtureTest(unittest.TestCase):
+    def test_the_same_body_zips_to_the_same_bytes_at_any_time(self):
+        # The handoff test compares the sha256 of two zipped() calls; a second boundary between them
+        # failed CI (2026-10-13).
+        with mock.patch("time.time", return_value=2_000_000_000.0):
+            first = zipped(SAMPLE)
+        with mock.patch("time.time", return_value=2_000_000_003.0):
+            self.assertEqual(zipped(SAMPLE), first)
 
 
 class HandoffTest(unittest.TestCase):

@@ -10,6 +10,7 @@ incomplete; run this script for a local copy, or read the docs workflow's job su
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -28,11 +29,12 @@ ROOT_DOC_NAMES = {
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
 }
-OWNER_NAMES = {
-    "foundation-platform": "Foundation Platform",
-    "identity-platform": "Identity Platform",
-    "intelligence-platform": "Intelligence Platform",
-    "gongzzang": "Gongzzang 제품",
+# Area dir -> owner name, from the one area registry (scripts/guard/area-registry.sh).
+AREA_OWNERS = {
+    area["dir"]: area["title"]
+    for area in json.loads((ROOT / "tools/areas.contract.json").read_text(encoding="utf-8"))[
+        "areas"
+    ]
 }
 
 
@@ -63,10 +65,9 @@ def tracked_paths() -> list[Path]:
 
 def owner_for(path: Path) -> str:
     parts = path.parts
-    if len(parts) >= 2 and parts[0] == "platforms":
-        return OWNER_NAMES.get(parts[1], parts[1])
-    if len(parts) >= 2 and parts[0] == "products":
-        return OWNER_NAMES.get(parts[1], parts[1])
+    area = "/".join(parts[:2])
+    if area in AREA_OWNERS:
+        return AREA_OWNERS[area]
     if parts[0] == "tools":
         return "Repository tooling"
     if parts[0] == ".github":

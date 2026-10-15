@@ -1,4 +1,20 @@
 import { z } from "zod";
+import type { components } from "@/lib/api/foundation-catalog.generated";
+
+type Contract = components["schemas"];
+type SameKeys<A, B> = [Exclude<keyof A, keyof B> | Exclude<keyof B, keyof A>] extends [never]
+  ? unknown
+  : never;
+
+/**
+ * Ties a trust-boundary schema to its type generated from the pinned Catalog OpenAPI snapshot: the
+ * parsed output must be assignable to the contract type and name exactly its fields, so a contract
+ * field added, removed or retyped fails `tsc` instead of drifting silently.
+ */
+function contract<Generated>() {
+  return <S extends z.ZodType<Generated>>(schema: S & SameKeys<z.output<S>, Generated>): S =>
+    schema;
+}
 
 export const CORE_VECTOR_TILE_LAYER = "parcels" as const;
 export const OPTIONAL_VECTOR_TILE_LAYERS = ["admin", "complex"] as const;
@@ -50,12 +66,14 @@ const runtimeTilesUrlTemplateSchema = z
     }
   });
 
-const VectorTileLineageSchema = z.object({
-  source_record_id: uuidSchema,
-  manifest_file_asset_id: uuidSchema,
-  tilejson_file_asset_id: uuidSchema,
-  source_file_asset_ids: z.array(uuidSchema),
-});
+const VectorTileLineageSchema = contract<Contract["VectorTileLineageResponse"]>()(
+  z.object({
+    source_record_id: uuidSchema,
+    manifest_file_asset_id: uuidSchema,
+    tilejson_file_asset_id: uuidSchema,
+    source_file_asset_ids: z.array(uuidSchema),
+  }),
+);
 
 const zoomSchema = z.number().int().min(0).max(24);
 const martinIdentifierSchema = z
@@ -64,35 +82,38 @@ const martinIdentifierSchema = z
   .max(128)
   .regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "Martin identifiers must be stable safe names");
 
-const VectorTileArtifactSchema = z
-  .object({
-    source_layer: z.string().min(1),
-    tile_min_zoom: zoomSchema,
-    tile_max_zoom: zoomSchema,
-    render_min_zoom: zoomSchema,
-    render_max_zoom: zoomSchema,
-    tilejson_object_key: z.string().min(1),
-    object_key_prefix: z.string().min(1),
-    flat_tile_count: z.number().int().min(1),
-    flat_tile_total_bytes: z.number().int().min(1),
-    lineage: VectorTileLineageSchema,
-  })
-  .superRefine((artifact, ctx) => {
-    if (artifact.tile_min_zoom > artifact.tile_max_zoom) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "tile_min_zoom must be <= tile_max_zoom",
-        path: ["tile_min_zoom"],
-      });
-    }
-    if (artifact.render_min_zoom > artifact.render_max_zoom) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "render_min_zoom must be <= render_max_zoom",
-        path: ["render_min_zoom"],
-      });
-    }
-  });
+const VectorTileArtifactSchema = contract<Contract["VectorTileArtifactResponse"]>()(
+  z
+    .object({
+      source_layer: z.string().min(1),
+      tile_min_zoom: zoomSchema,
+      tile_max_zoom: zoomSchema,
+      render_min_zoom: zoomSchema,
+      render_max_zoom: zoomSchema,
+      tilejson_object_key: z.string().min(1),
+      object_key_prefix: z.string().min(1),
+      flat_tile_count: z.number().int().min(1),
+      flat_tile_total_bytes: z.number().int().min(1),
+      lineage: VectorTileLineageSchema,
+      feature_filter_properties: z.record(z.string(), z.string()).optional(),
+    })
+    .superRefine((artifact, ctx) => {
+      if (artifact.tile_min_zoom > artifact.tile_max_zoom) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "tile_min_zoom must be <= tile_max_zoom",
+          path: ["tile_min_zoom"],
+        });
+      }
+      if (artifact.render_min_zoom > artifact.render_max_zoom) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "render_min_zoom must be <= render_max_zoom",
+          path: ["render_min_zoom"],
+        });
+      }
+    }),
+);
 
 const tilesTemplateSchema = z
   .string()
@@ -101,18 +122,21 @@ const tilesTemplateSchema = z
     message: "tiles_url_template must contain {object_key_prefix}, {z}, {x}, and {y}",
   });
 
-const VectorTileManifestSchema = z.object({
-  schema_version: z.number().int().min(1),
-  current_version: uuidSchema,
-  previous_version: uuidSchema,
-  tiles_url_template: tilesTemplateSchema,
-  published_at: z.string().datetime({ offset: true }),
-  artifacts: z
-    .record(z.string(), VectorTileArtifactSchema)
-    .refine((artifacts) => Object.keys(artifacts).length > 0, {
-      message: "foundation-platform vector tile manifest must include at least one artifact",
-    }),
-});
+const VectorTileManifestSchema = contract<Contract["VectorTileManifestResponse"]>()(
+  z.object({
+    schema_version: z.number().int().min(1),
+    current_version: uuidSchema,
+    previous_version: uuidSchema,
+    source_snapshot_id: z.string().min(1),
+    tiles_url_template: tilesTemplateSchema,
+    published_at: z.string().datetime({ offset: true }),
+    artifacts: z
+      .record(z.string(), VectorTileArtifactSchema)
+      .refine((artifacts) => Object.keys(artifacts).length > 0, {
+        message: "foundation-platform vector tile manifest must include at least one artifact",
+      }),
+  }),
+);
 
 export type VectorTileManifest = z.infer<typeof VectorTileManifestSchema> & {
   readonly [manifestUrlSymbol]?: string;
@@ -127,117 +151,135 @@ export type VectorTileSource = {
   promoteId?: string;
 };
 
-const RuntimeTileLayerSchema = z
-  .object({
-    source_layer: z
-      .string()
-      .min(1)
-      .regex(/^[A-Za-z][A-Za-z0-9_-]{0,127}$/, "source_layer must be a Martin identifier"),
-    feature_id_property: z
-      .string()
-      .min(1)
-      .regex(/^[a-z][a-z0-9_]*$/, "feature_id_property must be lower-case"),
-    tile_min_zoom: zoomSchema,
-    tile_max_zoom: zoomSchema,
-    render_min_zoom: zoomSchema,
-    render_max_zoom: zoomSchema,
-    feature_filter_properties: z.record(z.string(), z.string()),
-  })
-  .strict()
-  .superRefine((layer, ctx) => {
-    if (layer.tile_min_zoom > layer.tile_max_zoom) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "tile zoom range is inverted" });
-    }
-    if (layer.render_min_zoom > layer.render_max_zoom) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "render zoom range is inverted" });
-    }
-  });
+const RuntimeTileLayerSchema = contract<Contract["VectorTileRuntimeLayerResponse"]>()(
+  z
+    .object({
+      source_layer: z
+        .string()
+        .min(1)
+        .regex(/^[A-Za-z][A-Za-z0-9_-]{0,127}$/, "source_layer must be a Martin identifier"),
+      feature_id_property: z
+        .string()
+        .min(1)
+        .regex(/^[a-z][a-z0-9_]*$/, "feature_id_property must be lower-case"),
+      tile_min_zoom: zoomSchema,
+      tile_max_zoom: zoomSchema,
+      render_min_zoom: zoomSchema,
+      render_max_zoom: zoomSchema,
+      feature_filter_properties: z.record(z.string(), z.string()),
+    })
+    .strict()
+    .superRefine((layer, ctx) => {
+      if (layer.tile_min_zoom > layer.tile_max_zoom) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "tile zoom range is inverted" });
+      }
+      if (layer.render_min_zoom > layer.render_max_zoom) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "render zoom range is inverted" });
+      }
+    }),
+);
 
-const DynamicPostgisSourceSchema = z
-  .object({
-    kind: z.literal("dynamic_postgis"),
-    martin_source_id: martinIdentifierSchema,
-    tiles_url_template: runtimeTilesUrlTemplateSchema,
-    cache_policy: z.literal("no_store"),
-  })
-  .strict()
-  .superRefine((source, ctx) => {
-    if (/[?#]/.test(source.tiles_url_template)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "dynamic PostGIS tile URLs must not use query/hash cache selectors",
-        path: ["tiles_url_template"],
-      });
-    }
-  });
-
-const StaticPmtilesSourceSchema = z
-  .object({
-    kind: z.literal("static_pmtiles"),
-    martin_source_id: martinIdentifierSchema,
-    tiles_url_template: runtimeTilesUrlTemplateSchema,
-    pmtiles_object_key: z.string().min(1),
-    pmtiles_file_asset_id: uuidSchema,
-    pmtiles_sha256: z.string().regex(/^[0-9a-f]{64}$/),
-    pmtiles_bytes: z.number().int().positive(),
-  })
-  .strict();
-
-const RuntimeLineageSchema = z
-  .object({
-    source_record_id: uuidSchema,
-    source_file_asset_ids: z.array(uuidSchema).min(1),
-  })
-  .strict();
-
-const RuntimePublicationUnitSchema = z
-  .object({
-    data_revision: uuidSchema,
-    serving_generation: safeGenerationSchema,
-    active_release_id: uuidSchema,
-    canonical_iceberg_snapshot_id: z.string().regex(/^[1-9][0-9]*$/),
-    source: z.discriminatedUnion("kind", [DynamicPostgisSourceSchema, StaticPmtilesSourceSchema]),
-    layers: z
-      .record(z.string().min(1), RuntimeTileLayerSchema)
-      .refine((value) => Object.keys(value).length > 0),
-    lineage: RuntimeLineageSchema,
-  })
-  .strict();
-
-const VectorTileRuntimeManifestSchema = z
-  .object({
-    schema_version: z.literal(2),
-    current_version: uuidSchema,
-    manifest_generation: safeGenerationSchema,
-    refresh_after_seconds: z.literal(4),
-    published_at: z.string().datetime({ offset: true }),
-    publication_units: z
-      .record(z.string().min(1), RuntimePublicationUnitSchema)
-      .refine((units) => Object.keys(units).length > 0),
-  })
-  .strict()
-  .superRefine((manifest, ctx) => {
-    const sourceIds = new Set<string>();
-    for (const [unitName, unit] of Object.entries(manifest.publication_units)) {
-      if (!martinIdentifierSchema.safeParse(unitName).success) {
+const DynamicPostgisSourceSchema = contract<
+  Extract<Contract["VectorTileRuntimeSourceResponse"], { kind: "dynamic_postgis" }>
+>()(
+  z
+    .object({
+      kind: z.literal("dynamic_postgis"),
+      martin_source_id: martinIdentifierSchema,
+      tiles_url_template: runtimeTilesUrlTemplateSchema,
+      cache_policy: z.literal("no_store"),
+    })
+    .strict()
+    .superRefine((source, ctx) => {
+      if (/[?#]/.test(source.tiles_url_template)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "publication unit names must be safe Martin identifiers",
-          path: ["publication_units", unitName],
+          message: "dynamic PostGIS tile URLs must not use query/hash cache selectors",
+          path: ["tiles_url_template"],
         });
       }
-      validateRuntimePublicationUnit(unitName, unit, ctx);
-      if (sourceIds.has(unit.source.martin_source_id)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Martin source ids must be globally unique",
-          path: ["publication_units", unitName, "source", "martin_source_id"],
-        });
-      } else {
-        sourceIds.add(unit.source.martin_source_id);
+    }),
+);
+
+const StaticPmtilesSourceSchema = contract<
+  Extract<Contract["VectorTileRuntimeSourceResponse"], { kind: "static_pmtiles" }>
+>()(
+  z
+    .object({
+      kind: z.literal("static_pmtiles"),
+      martin_source_id: martinIdentifierSchema,
+      tiles_url_template: runtimeTilesUrlTemplateSchema,
+      pmtiles_object_key: z.string().min(1),
+      pmtiles_file_asset_id: uuidSchema,
+      pmtiles_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      pmtiles_bytes: z.number().int().positive(),
+    })
+    .strict(),
+);
+
+const RuntimeLineageSchema = contract<Contract["VectorTileRuntimeLineageResponse"]>()(
+  z
+    .object({
+      source_record_id: uuidSchema,
+      source_file_asset_ids: z.array(uuidSchema).min(1),
+    })
+    .strict(),
+);
+
+const RuntimePublicationUnitSchema = contract<Contract["VectorTilePublicationUnitResponse"]>()(
+  z
+    .object({
+      data_revision: uuidSchema,
+      serving_generation: safeGenerationSchema,
+      active_release_id: uuidSchema,
+      canonical_iceberg_snapshot_id: z.string().regex(/^[1-9][0-9]*$/),
+      source: z.discriminatedUnion("kind", [DynamicPostgisSourceSchema, StaticPmtilesSourceSchema]),
+      layers: z
+        .record(z.string().min(1), RuntimeTileLayerSchema)
+        .refine((value) => Object.keys(value).length > 0),
+      lineage: RuntimeLineageSchema,
+    })
+    .strict(),
+);
+
+const VectorTileRuntimeManifestSchema = contract<Contract["VectorTileRuntimeManifestResponse"]>()(
+  z
+    .object({
+      schema_version: z.literal(2),
+      current_version: uuidSchema,
+      manifest_generation: safeGenerationSchema,
+      // OpenAPI can only say "integer >= 0"; GZ-ADR-0036 fixes the value at 4. The poller reads it
+      // from here, so this is the one place the client states it.
+      refresh_after_seconds: z.literal(4),
+      published_at: z.string().datetime({ offset: true }),
+      publication_units: z
+        .record(z.string().min(1), RuntimePublicationUnitSchema)
+        .refine((units) => Object.keys(units).length > 0),
+    })
+    .strict()
+    .superRefine((manifest, ctx) => {
+      const sourceIds = new Set<string>();
+      for (const [unitName, unit] of Object.entries(manifest.publication_units)) {
+        if (!martinIdentifierSchema.safeParse(unitName).success) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "publication unit names must be safe Martin identifiers",
+            path: ["publication_units", unitName],
+          });
+        }
+        validateRuntimePublicationUnit(unitName, unit, ctx);
+        if (sourceIds.has(unit.source.martin_source_id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Martin source ids must be globally unique",
+            path: ["publication_units", unitName, "source", "martin_source_id"],
+          });
+        } else {
+          sourceIds.add(unit.source.martin_source_id);
+        }
       }
-    }
-  });
+    }),
+);
 
 function validateRuntimePublicationUnit(
   unitName: string,

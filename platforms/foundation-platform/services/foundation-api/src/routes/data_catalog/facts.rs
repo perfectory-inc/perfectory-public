@@ -182,9 +182,16 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
     // Only a job past its scheduled start's time limit can be told apart by a queued or running
     // run, so the scheduler is asked for those only while there is one.
     let timeouts = list.timeouts();
+    let enabled_since = list.enabled_since();
     let overdue = statuses.iter().any(|status| {
         let timeout = timeouts.get(&status.job_id).copied().unwrap_or(0);
-        late(status, timeout, read_at).is_some()
+        late(
+            status,
+            timeout,
+            enabled_since.get(&status.job_id).copied(),
+            read_at,
+        )
+        .is_some()
     });
     if !ask.is_empty() || overdue {
         ask_scheduler(previous, &mut scheduler, &ask, overdue, read_at).await;

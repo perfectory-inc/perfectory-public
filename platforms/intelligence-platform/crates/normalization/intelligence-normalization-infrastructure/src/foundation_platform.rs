@@ -160,27 +160,27 @@ fn invalid_workload_token_source() -> FoundationSubmissionError {
 }
 
 fn parse_secure_foundation_url(raw: &str) -> Result<reqwest::Url, FoundationSubmissionError> {
-    let url = reqwest::Url::parse(raw).map_err(|_| FoundationSubmissionError::InvalidResponse {
-        message: "foundation-platform base_url is invalid".to_string(),
-    })?;
+    parse_secure_base_url(raw, "foundation-platform")
+        .map_err(|message| FoundationSubmissionError::InvalidResponse { message })
+}
+
+/// Parses a peer base URL: HTTPS (plain HTTP only on loopback) and no embedded credentials.
+pub(crate) fn parse_secure_base_url(raw: &str, peer: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|_| format!("{peer} base_url is invalid"))?;
     let host = url
         .host_str()
-        .ok_or_else(|| FoundationSubmissionError::InvalidResponse {
-            message: "foundation-platform base_url must include a host".to_string(),
-        })?;
+        .ok_or_else(|| format!("{peer} base_url must include a host"))?;
     let loopback = host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|address| address.is_loopback());
     if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
-        return Err(FoundationSubmissionError::InvalidResponse {
-            message: "foundation-platform base_url must use HTTPS except for loopback".to_string(),
-        });
+        return Err(format!(
+            "{peer} base_url must use HTTPS except for loopback"
+        ));
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err(FoundationSubmissionError::InvalidResponse {
-            message: "foundation-platform base_url must not contain credentials".to_string(),
-        });
+        return Err(format!("{peer} base_url must not contain credentials"));
     }
     Ok(url)
 }

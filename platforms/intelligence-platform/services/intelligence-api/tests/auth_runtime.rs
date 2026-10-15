@@ -240,7 +240,41 @@ async fn response_body_json(response: axum::response::Response) -> Value {
 }
 
 #[test]
-fn non_loopback_bind_allowed_with_shared_token() {
+fn non_loopback_bind_allowed_with_identity_mode() {
+    let values = std::collections::BTreeMap::from([
+        ("INTELLIGENCE_API_BIND", "0.0.0.0:8010"),
+        ("INTELLIGENCE_INBOUND_AUTH_MODE", "identity"),
+        ("INTELLIGENCE_IDENTITY_BASE_URL", "https://identity.example"),
+    ]);
+
+    let config = intelligence_api::state::api_runtime_config_from_lookup(|key| {
+        values.get(key).map(|value| value.to_string())
+    })
+    .unwrap();
+
+    assert!(config.inbound_auth.required);
+    assert!(config.inbound_auth.identity_policy.is_some());
+    assert!(config.inbound_auth.shared_token.is_none());
+}
+
+#[test]
+fn identity_mode_refuses_a_missing_or_plain_http_identity_url() {
+    for base_url in [None, Some("http://identity.example")] {
+        let mut values =
+            std::collections::BTreeMap::from([("INTELLIGENCE_INBOUND_AUTH_MODE", "identity")]);
+        if let Some(base_url) = base_url {
+            values.insert("INTELLIGENCE_IDENTITY_BASE_URL", base_url);
+        }
+        let error = intelligence_api::auth::inbound_auth_config_from_lookup(|key| {
+            values.get(key).map(|value| value.to_string())
+        })
+        .expect_err("identity mode must not start without a secure Identity URL");
+        assert!(error.to_string().contains("INTELLIGENCE_IDENTITY_BASE_URL"));
+    }
+}
+
+#[test]
+fn non_loopback_bind_refuses_shared_token() {
     let values = std::collections::BTreeMap::from([
         ("INTELLIGENCE_API_BIND", "0.0.0.0:8010"),
         ("INTELLIGENCE_INBOUND_AUTH_MODE", "shared-token"),
@@ -260,13 +294,14 @@ fn non_loopback_bind_allowed_with_shared_token() {
         ),
     ]);
 
-    let config = intelligence_api::state::api_runtime_config_from_lookup(|key| {
+    let error = intelligence_api::state::api_runtime_config_from_lookup(|key| {
         values.get(key).map(|value| value.to_string())
     })
-    .unwrap();
+    .expect_err("a shared token is loopback-only local development");
 
-    assert!(config.inbound_auth.required);
-    assert_eq!(config.bind_address.to_string(), "0.0.0.0:8010");
+    assert!(error
+        .to_string()
+        .contains("INTELLIGENCE_INBOUND_AUTH_MODE=identity"));
 }
 
 #[test]

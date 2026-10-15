@@ -38,11 +38,10 @@ enum FoundationPlatformComplexReaderError {
     },
     #[error("Foundation Platform complex lookup returned status {status}")]
     Status { status: reqwest::StatusCode },
-    /// The provider answered with a complex carrying a different lakehouse id than was asked for.
+    /// The provider answered with a complex whose `id` is not the one asked for.
     ///
-    /// Checked rather than assumed: the whole reason this route is keyed on the lakehouse id is
-    /// that two id spaces name the same complex, and a silently mismatched answer is exactly the
-    /// failure that motivated the key.
+    /// Checked rather than assumed: a silently mismatched answer shows the user a different complex
+    /// than the one clicked, which is the failure two id spaces used to cause (root ADR-0250).
     #[error(
         "Foundation Platform complex lookup identity mismatch: requested={requested} response={response}"
     )]
@@ -84,7 +83,7 @@ impl ComplexCatalogReader for FoundationPlatformComplexCatalogReader {
         Box::pin(async move {
             let response = self
                 .catalog_client
-                .get_complex_by_lakehouse_id_response(lakehouse_complex_id.as_str())
+                .get_complex_response(lakehouse_complex_id.as_str())
                 .await
                 .map_err(|source| Box::new(source) as ComplexCatalogError)?;
             let status = response.status();
@@ -195,14 +194,11 @@ fn complex_record_from_response(
     requested: &LakehouseComplexId,
     response: CatalogIndustrialComplexResponse,
 ) -> Result<ComplexCatalogRecord, FoundationPlatformComplexReaderError> {
-    match response.lakehouse_complex_id.as_deref() {
-        Some(answered) if answered == requested.as_str() => {}
-        other => {
-            return Err(FoundationPlatformComplexReaderError::IdentityMismatch {
-                requested: requested.as_str().to_owned(),
-                response: other.unwrap_or("null").to_owned(),
-            })
-        }
+    if response.id != requested.as_str() {
+        return Err(FoundationPlatformComplexReaderError::IdentityMismatch {
+            requested: requested.as_str().to_owned(),
+            response: response.id,
+        });
     }
 
     Ok(ComplexCatalogRecord {
@@ -364,29 +360,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lookup_rejects_a_response_carrying_no_lakehouse_id() {
-        // A complex registered through the write API carries `lakehouse_complex_id: null`. Such a
-        // row cannot be the answer to a lakehouse-id lookup, so accepting it would mean serving a
-        // different complex than the one clicked.
-        let base_url = spawn_foundation_response(
-            "HTTP/1.1 200 OK",
-            r#"{"lakehouse_complex_id":null,"official_complex_code":"111010","name":"x","kind":"national","area_m2":1}"#,
-        );
-        let reader = FoundationPlatformComplexCatalogReader::new(&base_url, None).unwrap();
-
-        let error = reader
-            .find_by_lakehouse_id(&requested())
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("identity mismatch"),
-            "unexpected error: {error}"
-        );
-    }
-
-    #[tokio::test]
-    async fn lookup_requests_the_published_by_lakehouse_id_path() {
+    async fn lookup_requests_the_published_complex_path() {
         let (base_url, requests) =
             spawn_foundation_response_capture("HTTP/1.1 200 OK", &complex_json(REQUEST_ID, ""));
         let reader = FoundationPlatformComplexCatalogReader::new(&base_url, None).unwrap();
@@ -397,9 +371,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("captured request");
         assert!(
-            request.starts_with(&format!(
-                "GET /catalog/v1/complexes/by-lakehouse-id/{REQUEST_ID} "
-            )),
+            request.starts_with(&format!("GET /catalog/v1/complexes/{REQUEST_ID} ")),
             "request path mismatch: {request}"
         );
     }
@@ -437,11 +409,11 @@ mod tests {
         (format!("http://{addr}"), rx)
     }
 
-    fn complex_json(lakehouse_complex_id: &str, extra_fields: &str) -> String {
+    fn complex_json(complex_id: &str, extra_fields: &str) -> String {
         format!(
             r#"{{
-                "id":"01a0136d-2b3c-7e61-8f90-a1b2c3d4e5f6",
-                "lakehouse_complex_id":"{lakehouse_complex_id}",
+                "id":"{complex_id}",
+                "lakehouse_complex_id":"{complex_id}",
                 "official_complex_code":"111010",
                 "name":"테스트산업단지",
                 "kind":"national",

@@ -19,6 +19,12 @@ pub enum IdentityEventV1 {
     /// A staff session was revoked.
     #[serde(rename = "identity.staff.session_revoked.v1")]
     StaffSessionRevoked(StaffSessionRevokedV1),
+    /// A capability was granted to a service principal by the workload policy.
+    #[serde(rename = "identity.service_principal.capability_granted.v1")]
+    ServiceCapabilityGranted(ServiceCapabilityChangedV1),
+    /// A capability was revoked from a service principal by the workload policy.
+    #[serde(rename = "identity.service_principal.capability_revoked.v1")]
+    ServiceCapabilityRevoked(ServiceCapabilityChangedV1),
 }
 
 /// Event emitted when a staff account is invited.
@@ -64,4 +70,21 @@ pub struct StaffSessionRevokedV1 {
     pub revoked_at: DateTime<Utc>,
     /// Revoke reason. Wire values are `logout`, `admin_revoke`, `role_changed`, or `security`.
     pub reason: String,
+}
+
+/// Event emitted when the workload policy grants or revokes one service capability.
+///
+/// The event type says which; the payload is the same appended grant record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ServiceCapabilityChangedV1 {
+    /// Payload schema version. Always `1` for this event type.
+    pub schema_version: u32,
+    /// Service principal whose capability changed.
+    pub service_principal_id: PrincipalId,
+    /// Exact `resource:action` capability.
+    pub capability: String,
+    /// UTC timestamp when the change was recorded.
+    pub changed_at: DateTime<Utc>,
+    /// Lowercase hex SHA-256 of the compiled workload policy that caused the change.
+    pub policy_sha256: String,
 }

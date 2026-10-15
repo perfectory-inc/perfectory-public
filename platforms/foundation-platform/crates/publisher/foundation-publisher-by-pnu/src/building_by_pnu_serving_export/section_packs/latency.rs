@@ -28,8 +28,9 @@
 //! to hand the stored member out as it is, so a pack answer without `Content-Encoding: gzip` is a
 //! failure (`pack:not-gzip`), and the evidence records which encoding each side answered in and
 //! which path the preview took (its `Server-Timing` outcome). A further `no_gzip_sample_size` of
-//! the sample is then read from the preview with `Accept-Encoding: identity`, the one path where
-//! the Worker decompresses: each must answer 200, uncompressed, with the live route's content.
+//! the sample is then read from the preview with `Accept-Encoding: identity`, which the edge
+//! answers by decoding the member the Worker handed out (root ADR-0233): each must answer 200,
+//! uncompressed, with the live route's content.
 //!
 //! The preview Worker's CPU over the probe window is read from Workers analytics: the account's
 //! plan cuts a request off past its CPU limit (error 1102, an HTTP 503), so the gate demands no
@@ -88,6 +89,9 @@ pub struct LatencyConfig {
     pub sample_units: Vec<String>,
     /// A pack-only lane's comparison (root ADR-0190); `None` for a lane with an object path.
     pub baseline: Option<Baseline>,
+    /// This probe run's token in the preview query (`g{N}-r{run}`): the preview keys its edge
+    /// copies by it, so a run never reads copies an earlier run left on either side.
+    pub run: String,
 }
 
 /// What a pack-only lane is measured against: it has no object path of its own, so its preview is
@@ -99,6 +103,11 @@ pub struct Baseline {
     pub lane: ByPnuLane,
     /// The baseline lane's request path prefix, under `live_base_url`.
     pub prefix: String,
+    /// The pack generation the baseline lane serves, read from its manifest before the probe: the
+    /// baseline is read as its own pack route at that generation, scoped to this run, so both
+    /// sides' first reads are R2 reads (2026-10-13: the baseline's live route answered 9,502 of
+    /// 9,505 cold reads from edge copies an earlier run left, against the kind lane's R2 reads).
+    pub generation: Option<u64>,
     /// Each sampled PNU's document as the packs hold it; filled before the probe.
     pub expected: HashMap<String, [u8; 32]>,
 }
@@ -135,6 +144,7 @@ impl LatencyConfig {
                 Some(Baseline {
                     lane: baseline,
                     prefix: baseline.policy()?.request_path.prefix.clone(),
+                    generation: None,
                     expected: HashMap::new(),
                 })
             }
@@ -186,6 +196,7 @@ impl LatencyConfig {
             no_gzip_sample_size: gate.no_gzip_sample_size,
             sample_units: Vec::new(),
             baseline,
+            run: format!("{:x}", Utc::now().timestamp()),
         })
     }
 }
@@ -202,6 +213,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     if let Some(baseline) = &mut config.baseline {
         baseline.expected =
             expected_documents(lane, config.generation, &pnus, config.concurrency).await?;
+        baseline.generation = Some(served_generation(lane, baseline.lane).await?);
     }
     let evidence = probe(&config, &pnus).await?;
     write_evidence(&config.evidence_path, &evidence)?;
@@ -318,7 +330,7 @@ fn is_stand_in(base_url: &str) -> bool {
 pub enum Accept {
     /// What browsers send: the pack path answers with the stored member as it is.
     Gzip,
-    /// A client without gzip: the Worker decompresses the member.
+    /// A client without gzip: the edge decodes the member the Worker handed out (root ADR-0233).
     Identity,
 }
 
@@ -415,26 +427,86 @@ pub fn cold_reads(pnus: &[String], units: &[String]) -> anyhow::Result<Vec<bool>
         .collect()
 }
 
+/// The pack generation `baseline` serves now, by its manifest in the store `lane` writes to.
+///
+/// # Errors
+/// Returns an error when the manifest cannot be read or names no pack generation.
+pub async fn served_generation(lane: ByPnuLane, baseline: ByPnuLane) -> anyhow::Result<u64> {
+    let env = |name: &str| optional_env(&lane.env(name));
+    let output = crate::industrial_complex_gold_profile_store::ProfileStoreConfig::parse(
+        env("OUTPUT_STORAGE_DRIVER")?
+            .unwrap_or_else(|| "local".to_owned())
+            .as_str(),
+        crate::by_pnu_serving_store::local_root(env("OUTPUT_ROOT")?),
+    )?;
+    let store = crate::by_pnu_serving_store::ByPnuServingStore::open(baseline, &output)?;
+    let manifest = crate::by_pnu_serving_manifest::ServedManifest::parse(
+        baseline,
+        &store.read_manifest().await?.0,
+    )?;
+    let anchor = &baseline.section_packs()?.anchor_section;
+    manifest
+        .section_packs
+        .as_ref()
+        .and_then(|packs| {
+            packs
+                .sections
+                .iter()
+                .find(|section| &section.name == anchor)
+        })
+        .map(|section| section.generation)
+        .with_context(|| {
+            format!(
+                "the {} lane serves no pack generation to time a pack-only lane against",
+                baseline.noun()
+            )
+        })
+}
+
+/// The query that names `generation` on a preview, scoped to this probe run: the preview's edge
+/// copies are keyed by it, so each run's first read of a document is an R2 read on both sides.
+fn preview_query(config: &LatencyConfig, parameter: &str, generation: u64) -> String {
+    format!("?{parameter}=g{generation}-r{}", config.run)
+}
+
 /// The preview's URL for the key `pnu` at the probed generation.
-fn preview_url(config: &LatencyConfig, prefix: &str, parameter: &str, pnu: &str) -> String {
+pub(super) fn preview_url(
+    config: &LatencyConfig,
+    prefix: &str,
+    parameter: &str,
+    pnu: &str,
+) -> String {
     format!(
-        "{}{prefix}{}?{parameter}=g{}",
+        "{}{prefix}{}{}",
         config.preview_base_url.trim_end_matches('/'),
         by_pnu_packs::request_path_of(pnu),
-        config.generation
+        preview_query(config, parameter, config.generation)
     )
 }
 
 /// The live URL gate (나) compares against for the key `pnu`: the lane's own, or its baseline
 /// lane's for the key's PNU (root ADR-0190, ADR-0204: the baseline knows PNUs only).
-fn live_url(config: &LatencyConfig, live_prefix: &str, pnu: &str) -> String {
-    let path = if config.baseline.is_some() {
-        by_pnu_packs::pnu_of(pnu).to_owned()
-    } else {
-        by_pnu_packs::request_path_of(pnu)
+pub(super) fn live_url(
+    config: &LatencyConfig,
+    live_prefix: &str,
+    parameter: &str,
+    pnu: &str,
+) -> String {
+    // A pack-only lane's baseline is the baseline lane's own pack route at the generation it
+    // serves, read through its preview in this run's scope: pack route against pack route, both
+    // cold on their first read. A lane with an object path is timed against that path.
+    let (path, query) = match &config.baseline {
+        Some(baseline) => (
+            by_pnu_packs::pnu_of(pnu).to_owned(),
+            baseline
+                .generation
+                .map(|generation| preview_query(config, parameter, generation))
+                .unwrap_or_default(),
+        ),
+        None => (by_pnu_packs::request_path_of(pnu), String::new()),
     };
     format!(
-        "{}{live_prefix}{path}",
+        "{}{live_prefix}{path}{query}",
         config.live_base_url.trim_end_matches('/')
     )
 }
@@ -464,7 +536,7 @@ pub async fn probe(config: &LatencyConfig, pnus: &[String]) -> anyhow::Result<La
         .zip(cold)
         .enumerate()
         .map(|(index, (pnu, cold))| {
-            let live_url = live_url(config, &live_prefix, pnu);
+            let live_url = live_url(config, &live_prefix, &policy.preview_query_parameter, pnu);
             let pack_url = preview_url(config, &prefix, &policy.preview_query_parameter, pnu);
             (index, cold, live_url, pack_url)
         })
@@ -922,7 +994,7 @@ fn request_class(error: &reqwest::Error, phase: &str) -> String {
 /// description of every `pack-{section}` metric.
 #[derive(Debug, Default, PartialEq)]
 pub struct ParsedServerTiming {
-    /// The path the Worker took (`document`, `document-decompressed`, `r2-unavailable`, …).
+    /// The path the Worker took (`document`, `r2-unavailable`, …).
     pub outcome: Option<String>,
     pub total_ms: Option<f64>,
     pub r2_ms: Option<f64>,
