@@ -1382,6 +1382,10 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
     # ADR-0194 5). Its unit names this path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
+    # Every Spark container's /tmp (config/host-layout.contract.json spark_tmp): its spill stays off
+    # the system disk. 1777: the container's uid is 185 or the caller's, and each run owns its files.
+    install -d -m 1777 "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["spark_tmp"])' \
+      "${release_root}/current/config/host-layout.contract.json")"
     install_host_retention
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
