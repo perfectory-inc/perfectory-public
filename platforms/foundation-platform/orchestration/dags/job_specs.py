@@ -108,19 +108,29 @@ def asset_uri(dataset):
     return f"{namespace}://{name}"
 
 
+def outcome_line(output):
+    """The last `foundation-job-outcome` line in the tail of what a run printed (bytes or text), or None.
+
+    The host runner asks this of the run's journal (`--outcome-line`) and fails a successful run
+    that has none (root ADR-0260 §2); the DAG asks it of what the runner printed.
+    """
+    if output is None:
+        return None
+    if isinstance(output, str):
+        output = output.encode("utf-8", "replace")
+    found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
+    return "foundation-job-outcome " + found[-1].decode("utf-8", "replace") if found else None
+
+
 def job_outcome(output):
     """`changed`, `unchanged`, `waiting` or `failed`, from the tail of what a run printed (bytes or text).
 
     The last `foundation-job-outcome` line decides; its reason is not kept. No line counts as
-    `changed`: a job that does not say yet, or whose last lines the journal follower missed, still
-    starts what reads its outputs, which then finds nothing to do.
+    `changed`: the host runner already failed a successful run without one (root ADR-0260 §2), and
+    repeats the line it decided on last, so what is left is output the scheduler cut short.
     """
-    if output is None:
-        return "changed"
-    if isinstance(output, str):
-        output = output.encode("utf-8", "replace")
-    found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
-    return found[-1].decode().split(" ", 1)[0] if found else "changed"
+    line = outcome_line(output)
+    return line.split(" ", 2)[1] if line else "changed"
 
 
 def service_unit_file(service):
@@ -610,5 +620,10 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--check-dependencies"]:
         if DEPENDENCIES.read_bytes() != rendered_dependencies().encode("utf-8"):
             sys.exit(f"{DEPENDENCIES} is stale; run: python orchestration/dags/job_specs.py --write-dependencies")
+    elif sys.argv[1:] == ["--outcome-line"]:
+        # Reads a run's journal on stdin; prints its outcome line, or nothing (root ADR-0260 §2).
+        line = outcome_line(sys.stdin.buffer.read())
+        if line:
+            print(line)
     else:
-        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies")
+        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --outcome-line")

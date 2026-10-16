@@ -12,8 +12,10 @@
 # beside it has not started since the deferred job last did. Airflow alone would let a light job
 # take the free slot again and again while a heavier one waits for all of them (root ADR-0138).
 #
-# The service's journal ends with its `foundation-job-outcome changed|unchanged` line, which the
-# DAG reads to decide whether the run's outputs start the jobs that read them (root ADR-0171).
+# The service's journal ends with its `foundation-job-outcome` line: `changed`, `unchanged`,
+# `waiting <reason>` or `failed <reason>`. The DAG reads it to decide whether the run's outputs
+# start the jobs that read them (root ADR-0171); a run without it, or that says `failed`, is
+# failed here even when systemd counted it a success (root ADR-0260).
 set -uo pipefail
 
 jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/orchestration/jobs.v1.json}"
@@ -116,5 +118,24 @@ kill "${follower}" 2>/dev/null
 wait "${follower}" 2>/dev/null
 
 result="$(state Result)"
+# The run says how it ended (root ADR-0260 §2): its last outcome line, read from this invocation's
+# own journal, not from what the follower happened to print. A run systemd counts as a success
+# that said nothing, or said `failed`, is a failed run. The line decided on is repeated before the
+# result line, inside the frame the data flow map reads a failure's cause from.
+verdict=0
+if [[ "${result}" == success ]]; then
+  job_specs="$(dirname "${BASH_SOURCE[0]}")/../../orchestration/dags/job_specs.py"
+  outcome="$(journalctl --no-pager -o cat -n 2000 "_SYSTEMD_INVOCATION_ID=${invocation}" \
+    | python3 -I -B "${job_specs}" --outcome-line)" || outcome=""
+  if [[ -z "${outcome}" ]]; then
+    outcome="foundation-job-outcome failed no outcome reported"
+    verdict=1
+  elif [[ "${outcome}" == "foundation-job-outcome failed "* ]]; then
+    verdict=1
+  fi
+  printf '%s\n' "${outcome}"
+else
+  verdict=1
+fi
 printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
-[[ "${result}" == success ]]
+exit "${verdict}"
