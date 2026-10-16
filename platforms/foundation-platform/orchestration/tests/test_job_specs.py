@@ -976,7 +976,7 @@ class EveryJobWritesInsideItsSandbox(unittest.TestCase):
     def test_a_state_root_taken_from_an_environment_file_is_refused(self):
         # The 2026-10-16 failure: map-edit-fold.env sets FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT.
         script = (job_specs.PLATFORM_ROOT / "scripts/ops/parcel-registry-cycle.sh").read_text(encoding="utf-8")
-        planted = script.replace("${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_STATE_ROOT:-",
+        planted = script.replace("${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_ROOT:-",
                                  "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-", 1)
         self.assertNotEqual(planted, script)
         problems = self.problems(files={"parcel-registry-cycle.sh": planted})
