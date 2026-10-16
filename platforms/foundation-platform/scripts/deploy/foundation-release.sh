@@ -40,6 +40,7 @@ usage:
   foundation-release.sh migrate
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
+  foundation-release.sh datahub
   foundation-release.sh rollback
   foundation-release.sh prune
   foundation-release.sh host-retention
@@ -1213,6 +1214,35 @@ migrate_lakehouse() {
   fi
 }
 
+# The data catalog's containers follow the release (root ADR-0117 §7): DataHub is its own Compose
+# project, run by datahub-runtime.sh from secrets only root reads, so a merged change to
+# infra/datahub/compose.yml used to wait for someone with sudo (2026-10-16, #628). This recreates
+# the services whose rendered config differs from their container's (the hash Compose itself
+# compares). Compose keeps the order it owns: a changed GMS brings its system-update one-shot
+# first, as DataHub's own `up` does (the-deploy-does-not-restate-the-compose-chain). Nothing
+# changed: nothing is touched. datahub-runtime.sh waits until the UI and GMS answer.
+apply_datahub() {
+  assert_current_release
+  local runtime="${release_root}/current/scripts/deploy/datahub-runtime.sh" work changed
+  # The state is the contract's datahub.state_dir; a host installed elsewhere is adopted once.
+  python3 -I -B "${release_root}/current/scripts/deploy/datahub_state.py" adopt
+  work="$(mktemp -d)"
+  "${runtime}" config --hash '*' >"${work}/config"
+  docker ps -a --filter label=com.docker.compose.project=datahub     --format '{{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.config-hash"}}' >"${work}/running"
+  changed="$(python3 -I -B "${release_root}/current/scripts/deploy/datahub_changes.py" "${work}/config" "${work}/running")"
+  rm -rf "${work}"
+  if [[ -z "${changed}" ]]; then
+    printf 'datahub: every service already runs its rendered config
+'
+    return 0
+  fi
+  printf 'datahub: recreating %s
+' "$(tr '
+' ' ' <<<"${changed}")"
+  # shellcheck disable=SC2086 # one service name per word
+  "${runtime}" up -d ${changed}
+}
+
 # The staging smoke (root ADR-0177): the installed, not yet current, release runs a few real inputs
 # under the staging namespace before the switch. scripts/ops/staging-smoke.sh does the work, as the
 # service account, in a transient unit that loads exactly the environment files the runtime-secrets
@@ -1289,6 +1319,10 @@ case "${command}" in
   verify)
     [[ "$#" == 1 ]] || usage
     verify_runtime_schema
+    ;;
+  datahub)
+    [[ "$#" == 1 ]] || usage
+    apply_datahub
     ;;
   timers)
     # The release installs and enables its own systemd timers (root ADR-0077). The unit files
