@@ -498,14 +498,32 @@ def catalog_tables(spark: Any, catalog: str, names: list[str]) -> list[str]:
 
 
 def read_rotation(path: str | None) -> dict[str, str]:
+    """When each table was last maintained. The file only orders the tables, so one that cannot be
+    read starts the order over (every table first-come) instead of failing every run after it."""
     if path is None or not Path(path).exists():
         return {}
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        rotation = json.loads(Path(path).read_text(encoding="utf-8"))
+    except ValueError as error:
+        print(f"maintenance-rotation-reset path={path} reason={type(error).__name__}: {error}", flush=True)
+        return {}
+    if not isinstance(rotation, dict):
+        print(f"maintenance-rotation-reset path={path} reason=not a JSON object", flush=True)
+        return {}
+    return rotation
 
 
 def write_rotation(path: str | None, rotation: dict[str, str]) -> None:
-    if path is not None:
-        Path(path).write_text(json.dumps(rotation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    """Replaces the file whole or not at all: a write that fails (2026-10-15: the disk was full)
+    leaves the previous file, never an empty one."""
+    if path is None:
+        return
+    temporary = Path(f"{path}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(rotation, indent=2, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
 
 
 def main() -> int:
