@@ -74,6 +74,7 @@ DRIVER = textwrap.dedent("""
     container_work="/workspace/target/lakehouse/runs/${RUN_ID}"
     mkdir -p "${work}"
     run_log="${work}/run.log"
+    publisher() { "${PUBLISHER_BIN}" "$@"; }
     spark() { printf '%s\\n' "$1" >> "${CALLS}"; python3 "${SPARK_STUB}" "${work}" "${container_work}" "$@"; }
     source "${LOAD}"
     load_legal_dong_code_handoffs

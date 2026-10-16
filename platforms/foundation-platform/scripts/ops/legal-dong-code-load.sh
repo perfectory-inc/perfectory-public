@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 법정동 코드 변경의 적재·짝 맞추기 절반 (root ADR-0143, ADR-0144). lineage-stewardship-cycle.sh 가 source 하고, 자기
-# 단계 앞에서 load_legal_dong_code_handoffs 를 부른다. 그 단위의 spark 자리(3)와 spark 함수, 작업 폴더를
+# 단계 앞에서 load_legal_dong_code_handoffs 를 부른다. 그 단위의 spark 자리(3)와 spark·publisher 함수, 작업 폴더를
 # 그대로 쓴다. 계보는 법정동 코드 변경의 소비자이므로 바로 앞에서 적재한다.
 #
 # 대기 넘김(수집 작업이 쓴 pending/<표 객체>/)마다, 오래된 것부터:
@@ -48,7 +48,7 @@ legal_dong_install() {
 # Writes the steward database's standing 법정동 approvals to $1 (root ADR-0263).
 legal_dong_export_steward_decisions() {
   FOUNDATION_PLATFORM_LEGAL_DONG_STEWARD_DECISIONS_OUTPUT="$1" \
-    "${PUBLISHER_BIN}" export-legal-dong-steward-decisions >> "${run_log}" 2>&1
+    publisher export-legal-dong-steward-decisions >> "${run_log}" 2>&1
 }
 
 # Succeeds when the steward database owes the pairing a run: it never received the steward list, or it
@@ -101,11 +101,11 @@ PY
   if [ "$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["decision_ids"]))' \
     "${out}/steward-fold.json")" != 0 ]; then
     FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${out}/steward-fold.json" \
-      "${PUBLISHER_BIN}" record-lineage-steward-folds >> "${run_log}" 2>&1
+      publisher record-lineage-steward-folds >> "${run_log}" 2>&1
   fi
   FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${out}/review-handoff.json" \
   FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
-    "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
+    publisher load-lineage-review-items >> "${run_log}" 2>&1
   printf '{"run": "%s", "snapshot_date": "%s"}\n' "${run_id}" "${snapshot_date}" \
     > "${LEGAL_DONG_STATE_ROOT}/steward-list-published.json"
 }
