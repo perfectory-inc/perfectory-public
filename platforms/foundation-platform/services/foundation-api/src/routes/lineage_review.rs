@@ -1,4 +1,5 @@
-//! Staff routes for deciding parcel-lineage review items (root ADR-0115).
+//! Staff routes for deciding review items (root ADR-0115): parcel lineage, and the pairs of
+//! abolished 법정동 codes as a second item kind on the same routes (root ADR-0263).
 //!
 //! Every route is staff-only and authorized by the Identity Platform: reading, claiming and deciding
 //! need `foundation.lineage:review`; ruling on a decision that needs a second person needs
@@ -17,8 +18,9 @@ use chrono::Utc;
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use foundation_contracts::lineage_review::{
     LineageApprovalRequest, LineageApprovalVerdict, LineageDecisionDisposition,
-    LineageDecisionOutcome, LineageDecisionRequest, LineageDecisionResponse, LineageReasonCode,
-    LineageReviewCandidate, LineageReviewClaim, LineageReviewItem, LineageReviewItemPage,
+    LineageDecisionOutcome, LineageDecisionRequest, LineageDecisionResponse,
+    LineageLegalDongCandidate, LineageLegalDongEvidence, LineageReasonCode, LineageReviewCandidate,
+    LineageReviewClaim, LineageReviewItem, LineageReviewItemPage, LineageReviewKind,
     LineageReviewStatus, LineageStewardDecision,
 };
 use serde::Deserialize;
@@ -26,7 +28,8 @@ use stewardship_application::{
     DecideCommand, DecideOutcome, DecisionRecord, ReviewItemFilter, ReviewItemView,
 };
 use stewardship_domain::{
-    Candidate, DecisionDraft, Outcome, ReasonCode, ReviewStatus, StewardshipError,
+    Candidate, DecisionDraft, ItemKind, LegalDongEvidence, Outcome, ReasonCode, ReviewStatus,
+    StewardshipError,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -47,7 +50,10 @@ const PAGE_LIMIT_DEFAULT: u32 = 50;
     components(schemas(
         LineageReviewItemPage,
         LineageReviewItem,
+        LineageReviewKind,
         LineageReviewCandidate,
+        LineageLegalDongEvidence,
+        LineageLegalDongCandidate,
         LineageReviewClaim,
         LineageReviewStatus,
         LineageStewardDecision,
@@ -62,7 +68,7 @@ const PAGE_LIMIT_DEFAULT: u32 = 50;
         InternalApiErrorResponse
     )),
     modifiers(&LineageReviewSecurity),
-    tags((name = "lineage-review", description = "Staff decisions on parcel lineage the evidence could not settle"))
+    tags((name = "lineage-review", description = "Staff decisions on parcel lineage and 법정동 code pairs the evidence could not settle"))
 )]
 pub(super) struct LineageReviewApiDoc;
 
@@ -130,9 +136,11 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
 #[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct ListQuery {
+    /// Only this kind.
+    kind: Option<LineageReviewKind>,
     /// Only this status.
     status: Option<LineageReviewStatus>,
-    /// Only parcels whose PNU starts with these digits (a sido or sigungu code).
+    /// Only subjects whose code starts with these digits (a sido or sigungu code).
     prefix: Option<String>,
     /// Only items without a standing decision on their current evidence.
     #[serde(default)]
@@ -157,7 +165,7 @@ struct DecideQuery {
     path = "/catalog/v1/lineage-review/items",
     params(ListQuery),
     responses(
-        (status = 200, description = "Review items in parcel order", body = LineageReviewItemPage),
+        (status = 200, description = "Review items in subject-code order", body = LineageReviewItemPage),
         (status = 400, description = "A filter is malformed", body = ApiErrorResponse),
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not review lineage"),
@@ -177,7 +185,7 @@ async fn list_items(
         }
     }
     if let Some(after) = query.after.as_deref() {
-        check_pnu(after, "after")?;
+        check_code(after, "after")?;
     }
     let limit = query.limit.unwrap_or(PAGE_LIMIT_DEFAULT);
     if limit == 0 || limit > PAGE_LIMIT_MAX {
@@ -187,6 +195,7 @@ async fn list_items(
         .lineage_stewardship
         .list_items(
             ReviewItemFilter {
+                kind: query.kind.map(domain_kind),
                 status: query.status.map(domain_status),
                 code_prefix: query.prefix,
                 undecided_only: query.undecided_only,
@@ -203,7 +212,7 @@ async fn list_items(
         .map(item_response)
         .collect::<Result<Vec<_>, _>>()?;
     let next_after = if full_page {
-        items.last().map(|item| item.subject_pnu.clone())
+        items.last().map(|item| item.subject_code.clone())
     } else {
         None
     };
@@ -307,11 +316,11 @@ async fn release_item(
     ),
     responses(
         (status = 200, description = "Recorded, replayed, or dry run passed", body = LineageDecisionResponse),
-        (status = 400, description = "The decision is malformed or names no candidate", body = ApiErrorResponse),
+        (status = 400, description = "The decision is malformed, names no candidate, or a 법정동 decision says no why", body = ApiErrorResponse),
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not review lineage"),
         (status = 404, description = "No such review item", body = ApiErrorResponse),
-        (status = 409, description = "Evidence changed, another steward holds the item, the key was reused with another body, or the predecessor is taken", body = ApiErrorResponse),
+        (status = 409, description = "Evidence changed, another steward holds the item, the key was reused with another body, the predecessor is taken, or the 법정동 item is the data's to decide (split, awaiting data)", body = ApiErrorResponse),
         (status = 500, description = "Internal persistence failure", body = InternalApiErrorResponse),
         (status = 503, description = "Identity authorization is unavailable")
     ),
@@ -336,8 +345,8 @@ async fn decide_item(
             "Idempotency-Key header is required".to_owned(),
         ));
     }
-    if let Some(pnu) = body.predecessor_pnu.as_deref() {
-        check_pnu(pnu, "predecessor_pnu")?;
+    if let Some(code) = body.candidate_code.as_deref() {
+        check_code(code, "candidate_code")?;
     }
     let supersedes_decision_id = body
         .supersedes_decision_id
@@ -351,7 +360,7 @@ async fn decide_item(
             item_id,
             draft: DecisionDraft {
                 outcome: domain_outcome(body.outcome),
-                predecessor_pnu: body.predecessor_pnu,
+                candidate_code: body.candidate_code,
                 reason_code: body.reason_code.map(domain_reason),
                 note: body.note,
                 evidence_etag: body.evidence_etag,
@@ -414,28 +423,65 @@ async fn rule_on_decision(
     Ok(Json(decision_view(record)))
 }
 
-fn check_pnu(value: &str, field: &str) -> Result<(), ApiError> {
-    if value.len() == 19 && value.bytes().all(|b| b.is_ascii_digit()) {
+/// A subject or candidate code of either kind: a 19-digit PNU or a 10-digit 법정동 code. The store
+/// checks the item's own kind.
+fn check_code(value: &str, field: &str) -> Result<(), ApiError> {
+    if ItemKind::Parcel.is_code(value) || ItemKind::LegalDong.is_code(value) {
         Ok(())
     } else {
-        Err(ApiError::BadRequest(format!("{field} is a 19-digit PNU")))
+        Err(ApiError::BadRequest(format!(
+            "{field} is a 19-digit PNU or a 10-digit 법정동 code"
+        )))
     }
 }
 
 fn item_response(view: ReviewItemView) -> Result<LineageReviewItem, ApiError> {
     let candidates = view.item.candidates().map_err(stewardship_api_error)?;
+    let legal_dong = legal_dong_response(&view.item).map_err(stewardship_api_error)?;
     Ok(LineageReviewItem {
         item_id: view.item.item_id.to_string(),
+        kind: contract_kind(view.item.kind),
         evidence_etag: view.item.evidence_etag(),
-        subject_pnu: view.item.subject_code,
+        subject_code: view.item.subject_code,
         status: contract_status(view.item.status),
         candidates: candidates.into_iter().map(candidate_response).collect(),
+        legal_dong,
         claim: view.claim.map(|claim| LineageReviewClaim {
             claimed_by: claim.claimed_by.to_string(),
             expires_at: claim.expires_at,
         }),
         decisions: view.decisions.into_iter().map(decision_view).collect(),
     })
+}
+
+fn legal_dong_response(
+    item: &stewardship_domain::ReviewItem,
+) -> Result<Option<LineageLegalDongEvidence>, StewardshipError> {
+    let Some(text) = item.evidence_json.as_deref() else {
+        return Ok(None);
+    };
+    let evidence: LegalDongEvidence = serde_json::from_str(text)
+        .map_err(|error| StewardshipError::InvalidItem(format!("evidence_json: {error}")))?;
+    Ok(Some(LineageLegalDongEvidence {
+        name: evidence.name,
+        level: evidence.level,
+        abolished_date: evidence.abolished_date,
+        rule: evidence.rule,
+        jibun: evidence.jibun,
+        split_into: evidence.split_into,
+        waiting_for: evidence.waiting_for,
+        official_history: evidence.official_history,
+        official_partial_moves: evidence.official_partial_moves,
+        candidates: item
+            .legal_dong_candidates()?
+            .into_iter()
+            .map(|candidate| LineageLegalDongCandidate {
+                code: candidate.code,
+                name: candidate.name,
+                created_date: candidate.created_date,
+            })
+            .collect(),
+    }))
 }
 
 fn candidate_response(candidate: Candidate) -> LineageReviewCandidate {
@@ -464,7 +510,9 @@ fn decision_view(record: DecisionRecord) -> LineageStewardDecision {
     LineageStewardDecision {
         decision_id: record.decision_id.to_string(),
         outcome: contract_outcome(record.outcome),
-        predecessor_pnu: record.predecessor_code,
+        candidate_code: record.candidate_code,
+        reason_code: record.reason_code.map(contract_reason),
+        note: record.note,
         decided_by: record.decided_by.to_string(),
         decided_at: record.decided_at,
         requires_approval: record.requires_approval,
@@ -473,11 +521,28 @@ fn decision_view(record: DecisionRecord) -> LineageStewardDecision {
     }
 }
 
+const fn domain_kind(kind: LineageReviewKind) -> ItemKind {
+    match kind {
+        LineageReviewKind::Parcel => ItemKind::Parcel,
+        LineageReviewKind::LegalDong => ItemKind::LegalDong,
+    }
+}
+
+const fn contract_kind(kind: ItemKind) -> LineageReviewKind {
+    match kind {
+        ItemKind::Parcel => LineageReviewKind::Parcel,
+        ItemKind::LegalDong => LineageReviewKind::LegalDong,
+    }
+}
+
 const fn domain_status(status: LineageReviewStatus) -> ReviewStatus {
     match status {
         LineageReviewStatus::NeedsReview => ReviewStatus::NeedsReview,
         LineageReviewStatus::Pending => ReviewStatus::Pending,
         LineageReviewStatus::Sample => ReviewStatus::Sample,
+        LineageReviewStatus::Steward => ReviewStatus::Steward,
+        LineageReviewStatus::Split => ReviewStatus::Split,
+        LineageReviewStatus::AwaitingData => ReviewStatus::AwaitingData,
     }
 }
 
@@ -486,6 +551,9 @@ const fn contract_status(status: ReviewStatus) -> LineageReviewStatus {
         ReviewStatus::NeedsReview => LineageReviewStatus::NeedsReview,
         ReviewStatus::Pending => LineageReviewStatus::Pending,
         ReviewStatus::Sample => LineageReviewStatus::Sample,
+        ReviewStatus::Steward => LineageReviewStatus::Steward,
+        ReviewStatus::Split => LineageReviewStatus::Split,
+        ReviewStatus::AwaitingData => LineageReviewStatus::AwaitingData,
     }
 }
 
@@ -518,6 +586,17 @@ const fn domain_reason(reason: LineageReasonCode) -> ReasonCode {
     }
 }
 
+const fn contract_reason(reason: ReasonCode) -> LineageReasonCode {
+    match reason {
+        ReasonCode::BuildingRegister => LineageReasonCode::BuildingRegister,
+        ReasonCode::OwnershipRecord => LineageReasonCode::OwnershipRecord,
+        ReasonCode::SiteSurvey => LineageReasonCode::SiteSurvey,
+        ReasonCode::OfficialDocument => LineageReasonCode::OfficialDocument,
+        ReasonCode::CadastralMap => LineageReasonCode::CadastralMap,
+        ReasonCode::Other => LineageReasonCode::Other,
+    }
+}
+
 fn stewardship_api_error(error: StewardshipError) -> ApiError {
     match error {
         StewardshipError::InvalidInput(message) | StewardshipError::InvalidState(message) => {
@@ -528,7 +607,8 @@ fn stewardship_api_error(error: StewardshipError) -> ApiError {
         StewardshipError::StaleEvidence { .. }
         | StewardshipError::ClaimedByAnother { .. }
         | StewardshipError::IdempotencyConflict
-        | StewardshipError::PredecessorTaken { .. } => ApiError::Conflict(error.to_string()),
+        | StewardshipError::PredecessorTaken { .. }
+        | StewardshipError::DataDecides { .. } => ApiError::Conflict(error.to_string()),
         StewardshipError::SelfApproval => ApiError::Forbidden(error.to_string()),
         StewardshipError::InvalidItem(detail) | StewardshipError::Persistence(detail) => {
             ApiError::Internal(detail)

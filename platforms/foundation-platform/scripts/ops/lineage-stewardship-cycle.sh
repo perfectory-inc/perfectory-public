@@ -74,6 +74,11 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# The release's publisher, for the sourced legal-dong load (root ADR-0263); output goes to the run log.
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
+
 # One line per refused lineage group, naming the 동 codes the code change table does not pair (Slack).
 lineage_refusal_text() {
   PYTHONIOENCODING=utf-8 python3 - "$1" <<'PY'

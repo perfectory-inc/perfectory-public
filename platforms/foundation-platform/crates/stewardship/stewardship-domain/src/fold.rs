@@ -10,6 +10,45 @@ use uuid::Uuid;
 
 use crate::{Candidate, Outcome, ReasonCode, StewardshipError};
 
+/// The only schema the pairing run reads its 법정동 decisions in (root ADR-0263).
+pub const LEGAL_DONG_DECISIONS_SCHEMA_VERSION: &str =
+    "foundation-platform.legal_dong_steward_decisions.v1";
+
+/// A standing 법정동 pair a steward approved, as the pairing run reads it (root ADR-0263).
+///
+/// The run checks it again against the full code table and its own steward list, then appends it
+/// to `reference.legal_dong_code_change` as a `steward:<decided_by>` row.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LegalDongDecision {
+    /// Decision id; the run reports it back so the fold is recorded.
+    pub decision_id: Uuid,
+    /// The abolished code.
+    pub old_code: String,
+    /// The code the steward paired it with.
+    pub new_code: String,
+    /// Who.
+    pub decided_by: Uuid,
+    /// When.
+    pub decided_at: DateTime<Utc>,
+    /// Why, as a code.
+    pub reason_code: Option<ReasonCode>,
+    /// Why, in words; the change row's `detail`.
+    pub note: String,
+}
+
+/// The file the pairing run reads its decisions from.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LegalDongDecisionExport {
+    /// Must be [`LEGAL_DONG_DECISIONS_SCHEMA_VERSION`].
+    pub schema_version: String,
+    /// How many 법정동 items the database holds: none means the steward list was never published.
+    pub review_items: usize,
+    /// How many decisions follow.
+    pub decision_count: usize,
+    /// Standing, unfolded approvals, oldest first.
+    pub decisions: Vec<LegalDongDecision>,
+}
+
 /// The only schema the fold job reads.
 pub const FOLD_HANDOFF_SCHEMA_VERSION: &str = "foundation-platform.lineage_steward_fold_handoff.v1";
 

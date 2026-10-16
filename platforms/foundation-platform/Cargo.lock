@@ -4555,6 +4555,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "foundation-disposable-database",
+ "serde_json",
  "sqlx",
  "stewardship-application",
  "stewardship-domain",
