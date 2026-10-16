@@ -143,7 +143,8 @@ def render(ledger: dict) -> str:
     return rendered
 
 
-def main() -> int:
+def capture() -> dict:
+    """The ledger of the production lakehouse now, from the catalog settings in the environment."""
     uri = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
     warehouse = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
     token = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN"]
@@ -178,15 +179,21 @@ def main() -> int:
             written = metadata.get("current-snapshot-id") not in (None, -1)
             files = live_file_shapes(trino_url, table_name) if written else []
             tables[table_name] = table_shape(metadata, files)
-    ledger = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
         "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
         "tables": tables,
     }
-    LEDGER.write_text(render(ledger), encoding="utf-8", newline="\n")
-    print(f"lakehouse-production-shape: {len(tables)} tables, {len(set(tables) & set(contracts))} of them contract tables")
+
+
+def main() -> int:
+    # --output <path>: write elsewhere than the tree's ledger (the host's check writes to its state).
+    output = Path(sys.argv[2]) if sys.argv[1:2] == ["--output"] else LEDGER
+    ledger = capture()
+    output.write_text(render(ledger), encoding="utf-8", newline="\n")
+    print(f"lakehouse-production-shape: {len(ledger['tables'])} tables written to {output}")
     return 0
 
 
