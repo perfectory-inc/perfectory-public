@@ -178,5 +178,10 @@ if ! "${control_root}/current/scripts/deploy/foundation-release-admission.py" ve
   exit 1
 fi
 
+log "8. the data catalog's containers follow the release (only services whose config changed)"
+# After the DAGs are back: a catalog that fails to come up fails the deploy and alerts, and no job
+# waits on it.
+"${release}" datahub
+
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"

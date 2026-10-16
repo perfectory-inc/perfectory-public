@@ -596,9 +596,20 @@ class TheWholeDeploy(unittest.TestCase):
         # The staging smoke runs on the installed release before anything of it is activated (root
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
-                         ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status"])
+                         ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
+                          "datahub"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
+
+    def test_a_catalog_that_does_not_come_up_fails_the_deploy_after_the_dags_are_back(self):
+        # The release applies infra/datahub itself (2026-10-16: #628 merged and waited for sudo).
+        # It runs last, so a catalog that fails alerts without holding any job.
+        result = self.deploy(FIXTURE_FAIL_AT="datahub")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released()[-2:], ["status", "datahub"])
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertNotIn("DONE: production runs", result.stdout)
 
     def test_a_failed_staging_smoke_refuses_the_release_and_leaves_the_schedule_as_it_was(self):
         # Root ADR-0177: the three incidents of 2026-10-09/10 each passed CI and failed on the first

@@ -97,3 +97,6 @@ Airflow 작업 `foundation_data_quality`(매일 07:20 UTC, `scripts/ops/data-qua
 
 `compose.yml` 을 새 판의 업스트림 파일로 바꾸고, 새 이미지를 받아 digest 로 다시 고정한 뒤 `up -d` 한다.
 `system-update` 컨테이너가 저장소 구조를 맞춘다.
+
+병합된 `compose.yml` 변경은 배포가 직접 적용한다: `foundation-deploy.sh` 8단계(`foundation-release.sh datahub`)가
+렌더링한 설정 해시가 실행 중 컨테이너와 다른 서비스만 `--no-deps` 로 다시 만든다. sudo 로 손수 `up -d` 할 일이 없다.
