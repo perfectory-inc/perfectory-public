@@ -1,0 +1,21 @@
+[package]
+name = "gongzzang-r2-object-storage"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+description = "공짱의 R2 클라이언트와 읽기가 사는 한 곳 — 리셋된 읽기는 새 요청으로 지터 백오프 뒤 다시 (루트 ADR-0102, ADR-0261)"
+
+[dependencies]
+aws-config = { version = "=1.8.17", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-credential-types = "=1.2.14"
+aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util"] }
+
+[lints]
+workspace = true
