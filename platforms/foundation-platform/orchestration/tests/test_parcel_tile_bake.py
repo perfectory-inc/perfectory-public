@@ -3,7 +3,8 @@
 A fake docker stands in for `docker compose ... spark-submit`: the matching gate refuses (exit 1 with a
 verdict that did not pass) or crashes (exit 1, no verdict), and the served Gold writes its summary. The
 release layout is the host's (root ADR-0134); its tile-bake contract points the work disk at a temporary
-directory. Edition ids come from the real source contract.
+directory. The fake publisher answers `vworld-parcel-editions` with synthetic ledger editions (root
+ADR-0224): the contract's served edition and a newer one, which a rehearsal must take.
 """
 
 import hashlib
@@ -67,7 +68,15 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\nexit 0\n")
+        sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/jobs"))
+        self.addCleanup(sys.path.remove, str(PLATFORM / "infra/lakehouse/spark/jobs"))
+        sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/tests"))
+        self.addCleanup(sys.path.remove, str(PLATFORM / "infra/lakehouse/spark/tests"))
+        import vworld_parcel_editions as editions  # noqa: PLC0415
+        from test_lakehouse_lineage_migration import ledger_editions  # noqa: PLC0415
+        ledger = self.root / "ledger-editions.json"
+        ledger.write_text(json.dumps(ledger_editions(editions.served(editions.load()), "209909")))
+        publisher.write_text(f'#!/bin/sh\n[ "$1" = vworld-parcel-editions ] && exec cat "{ledger}"\nexit 0\n')
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -86,12 +95,9 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
             "FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT": str(self.state),
             "DATABASE_URL": "postgres://synthetic", "INVOCATION_ID": "e" * 32,
         }
-        sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/jobs"))
-        self.addCleanup(sys.path.remove, str(PLATFORM / "infra/lakehouse/spark/jobs"))
-        import vworld_parcel_editions as editions  # noqa: PLC0415
-        contract = editions.load()
+        contract = editions.load(editions_path=ledger)
         self.served = editions.snapshot_id(contract, editions.served(contract))
-        self.newest = editions.snapshot_id(contract, max(contract["editions"]))
+        self.newest = editions.snapshot_id(contract, "209909")
 
     def run_half(self, mode, gate):
         result = subprocess.run(["bash", str(self.script), mode], env={**self.env, "FAKE_GATE": gate},
