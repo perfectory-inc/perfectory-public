@@ -590,6 +590,24 @@ class TheWholeDeploy(unittest.TestCase):
     def test_a_database_that_cannot_be_asked_stops_the_deploy_before_step_0(self):
         self.assert_refused_before_anything(self.deploy(FIXTURE_DB_DOWN="1"), "could not be asked")
 
+    def test_a_job_its_runner_deferred_while_the_release_built_is_started_once_unpaused(self):
+        # Root ADR-0260: a job due during the build was not started (start-scheduled-job.sh); nothing
+        # else would start it before its next scheduled slot, an hour or a day later.
+        deploy = self.root / "opt/foundation-platform/current/scripts/deploy"
+        (deploy / "job_units.py").write_bytes((PLATFORM / "scripts/deploy/job_units.py").read_bytes())
+        deferred = self.root / "deferred"
+        deferred.mkdir()
+        for job in ("map_edit_fold_admin", "vworld_parcel_edition"):  # the second is switched off
+            (deferred / job).write_text("0\n")
+        result = self.deploy(FOUNDATION_SCHEDULED_DEFERRED_DIR=str(deferred))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.root / "airflow.log").read_text().splitlines()
+        self.assertEqual([line for line in log if line.startswith("dags trigger")],
+                         ["dags trigger foundation_map_edit_fold_admin"])
+        self.assertLess(log.index("dags unpause foundation_map_edit_fold_admin"),
+                        log.index("dags trigger foundation_map_edit_fold_admin"))
+        self.assertIn("started foundation_map_edit_fold_admin", result.stdout)
+
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -600,6 +618,8 @@ class TheWholeDeploy(unittest.TestCase):
                           "datahub"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
+        # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).
+        self.assertNotIn("dags trigger", (self.root / "airflow.log").read_text())
 
     def test_a_catalog_that_does_not_come_up_fails_the_deploy_after_the_dags_are_back(self):
         # The release applies infra/datahub itself (2026-10-16: #628 merged and waited for sudo).

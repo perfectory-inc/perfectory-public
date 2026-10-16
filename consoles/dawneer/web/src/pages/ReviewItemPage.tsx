@@ -1,9 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { ApiError, type DawneerClient, type DecisionRequest } from "../api/client";
+import { ApiError, type DawneerClient, type DecisionRequest, type ReviewItem, type StewardDecision } from "../api/client";
 import type { components } from "../api/foundation";
-import { formatPnu, gradeLabel, OUTCOME_LABEL, REASON_LABEL, STATUS_LABEL } from "../lib/labels";
+import {
+  formatCode,
+  formatDay,
+  gradeLabel,
+  KIND_LABEL,
+  LEGAL_DONG_OUTCOME_LABEL,
+  legalDongRuleLabel,
+  levelLabel,
+  officialHistoryLabel,
+  OUTCOME_LABEL,
+  REASON_LABEL,
+  STATUS_LABEL,
+} from "../lib/labels";
 
 type Outcome = components["schemas"]["LineageDecisionOutcome"];
 type Reason = components["schemas"]["LineageReasonCode"];
@@ -19,13 +31,18 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** One parcel: what the derivation found, who holds it, and the decision form. */
+/** A 법정동 item only a steward may pair; a split or one awaiting data is the data's (root ADR-0144 §4). */
+function stewardMayPair(item: ReviewItem): boolean {
+  return item.kind === "parcel" || item.status === "steward";
+}
+
+/** One item: what the derivation found, who holds it, the decision form and the decision trail. */
 export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; itemId: string; me: string }) {
   const queries = useQueryClient();
   const item = useQuery({ queryKey: ["item", itemId], queryFn: () => client.getItem(itemId) });
   const [outcome, setOutcome] = useState<Outcome>("link");
-  const [predecessor, setPredecessor] = useState("");
-  const [reason, setReason] = useState<Reason>("building_register");
+  const [chosen, setChosen] = useState("");
+  const [reason, setReason] = useState<Reason | null>(null);
   const [note, setNote] = useState("");
   // One key per decision attempt: a retry after a network error replays instead of deciding twice.
   const [idempotencyKey, setIdempotencyKey] = useState(newKey);
@@ -35,15 +52,18 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
     void queries.invalidateQueries({ queryKey: ["item", itemId] });
     void queries.invalidateQueries({ queryKey: ["items"] });
   };
+  const legalDong = item.data?.kind === "legal_dong";
+  // A 법정동 pair is most often settled by an official document; a parcel by the building register.
+  const reasonCode: Reason = reason ?? (legalDong ? "official_document" : "building_register");
+  const writesLineage = outcome === "link" || outcome === "not_a_link";
   const draft = (): DecisionRequest | null => {
     if (!item.data) return null;
-    const writesLineage = outcome === "link" || outcome === "not_a_link";
     return {
       outcome,
       note,
       evidence_etag: item.data.evidence_etag,
-      ...(outcome === "link" ? { predecessor_pnu: predecessor } : {}),
-      ...(writesLineage ? { reason_code: reason } : {}),
+      ...(outcome === "link" ? { candidate_code: chosen } : {}),
+      ...(writesLineage ? { reason_code: reasonCode } : {}),
     };
   };
 
@@ -90,6 +110,14 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
   const data = item.data;
   const heldByOther = data.claim && data.claim.claimed_by !== me;
   const busy = decide.isPending || dryRun.isPending;
+  const outcomeLabel = legalDong ? LEGAL_DONG_OUTCOME_LABEL : OUTCOME_LABEL;
+  const mayPair = stewardMayPair(data);
+  const noteMissing = legalDong && writesLineage && !note.trim();
+  const blocked = (outcome === "link" && !chosen) || (writesLineage && !mayPair) || noteMissing;
+  const choose = (code: string) => {
+    setChosen(code);
+    setOutcome("link");
+  };
 
   return (
     <section className="space-y-6">
@@ -97,9 +125,12 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
         <a href="#/" className="text-sm text-blue-700 hover:underline">
           ← 목록
         </a>
-        <h1 className="mt-2 font-mono text-xl font-semibold">{formatPnu(data.subject_pnu)}</h1>
+        <h1 className="mt-2 text-xl font-semibold">
+          <span className="font-mono">{formatCode(data.kind, data.subject_code)}</span>
+          {data.legal_dong && <span className="ml-2">{data.legal_dong.name}</span>}
+        </h1>
         <p className="text-sm text-slate-600">
-          {STATUS_LABEL[data.status]} · 필지 번호 {data.subject_pnu}
+          {KIND_LABEL[data.kind]} · {STATUS_LABEL[data.status]}
         </p>
       </div>
 
@@ -124,48 +155,11 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
         </span>
       </div>
 
-      <div className="rounded-lg bg-white p-4 shadow-sm">
-        <h2 className="font-semibold">옛 번호 후보</h2>
-        {data.candidates.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">자동 도출이 찾은 후보가 없습니다. 원래 번호가 없으면 "원래 번호 없음"으로 결정합니다.</p>
-        ) : (
-          <table className="mt-2 w-full text-sm">
-            <thead className="text-left text-slate-500">
-              <tr>
-                <th className="py-1">선택</th>
-                <th>옛 필지</th>
-                <th>관계</th>
-                <th>등급</th>
-                <th>근거</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.candidates.map((c) => (
-                <tr key={c.predecessor_pnu} className="border-t border-slate-100">
-                  <td className="py-1">
-                    <input
-                      type="radio"
-                      name="predecessor"
-                      checked={predecessor === c.predecessor_pnu}
-                      onChange={() => {
-                        setPredecessor(c.predecessor_pnu);
-                        setOutcome("link");
-                      }}
-                    />
-                  </td>
-                  <td className="font-mono">{formatPnu(c.predecessor_pnu)}</td>
-                  <td>{c.relation}</td>
-                  <td>
-                    {gradeLabel(c.grade)}
-                    {c.in_effect && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800">현재 효력</span>}
-                  </td>
-                  <td className="text-slate-600">{c.evidence_kind}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {data.legal_dong ? (
+        <LegalDongPanel item={data} chosen={chosen} onChoose={choose} />
+      ) : (
+        <ParcelCandidates item={data} chosen={chosen} onChoose={choose} />
+      )}
 
       <form
         className="space-y-3 rounded-lg bg-white p-4 shadow-sm"
@@ -176,18 +170,23 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
         }}
       >
         <h2 className="font-semibold">결정</h2>
+        {!mayPair && (
+          <p className="text-sm text-amber-700">
+            {STATUS_LABEL[data.status]} 항목은 데이터가 정합니다. 승인·거절할 수 없고, 모르겠음·조정자에게 넘김만 남길 수 있습니다.
+          </p>
+        )}
         <div className="flex flex-wrap gap-4 text-sm">
-          {(Object.keys(OUTCOME_LABEL) as Outcome[]).map((code) => (
+          {(Object.keys(outcomeLabel) as Outcome[]).map((code) => (
             <label key={code} className="flex items-center gap-1">
               <input type="radio" name="outcome" checked={outcome === code} onChange={() => setOutcome(code)} />
-              {OUTCOME_LABEL[code]}
+              {outcomeLabel[code]}
             </label>
           ))}
         </div>
-        {(outcome === "link" || outcome === "not_a_link") && (
+        {writesLineage && (
           <label className="block text-sm">
             <span className="text-slate-500">이유</span>
-            <select className="ml-2 rounded border border-slate-300 px-2 py-1" value={reason} onChange={(e) => setReason(e.target.value as Reason)}>
+            <select className="ml-2 rounded border border-slate-300 px-2 py-1" value={reasonCode} onChange={(e) => setReason(e.target.value as Reason)}>
               {(Object.keys(REASON_LABEL) as Reason[]).map((code) => (
                 <option key={code} value={code}>
                   {REASON_LABEL[code]}
@@ -197,14 +196,16 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
           </label>
         )}
         <label className="block text-sm">
-          <span className="text-slate-500">메모</span>
+          <span className="text-slate-500">메모{legalDong && writesLineage ? " (필수: 왜 이렇게 정했는지)" : ""}</span>
           <textarea className="mt-1 w-full rounded border border-slate-300 p-2" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
-        {outcome === "link" && !predecessor && <p className="text-sm text-amber-700">위 후보 중 같은 땅을 고르세요.</p>}
+        {outcome === "link" && !chosen && (
+          <p className="text-sm text-amber-700">{legalDong ? "위에서 짝지을 새 코드를 고르세요." : "위 후보 중 같은 땅을 고르세요."}</p>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={busy || (outcome === "link" && !predecessor)}
+            disabled={busy || blocked}
             onClick={() => {
               setNotice(null);
               dryRun.mutate();
@@ -213,7 +214,7 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
           >
             미리 검사
           </button>
-          <button type="submit" disabled={busy || Boolean(heldByOther) || (outcome === "link" && !predecessor)} className="rounded bg-slate-900 px-4 py-1.5 text-sm text-white disabled:opacity-40">
+          <button type="submit" disabled={busy || Boolean(heldByOther) || blocked} className="rounded bg-slate-900 px-4 py-1.5 text-sm text-white disabled:opacity-40">
             결정 기록
           </button>
         </div>
@@ -222,33 +223,160 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h2 className="font-semibold">결정 이력</h2>
-        {data.decisions.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">아직 결정이 없습니다.</p>
-        ) : (
-          <ul className="mt-2 space-y-2 text-sm">
-            {data.decisions.map((d) => (
-              <li key={d.decision_id} className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-                <span className="font-medium">{OUTCOME_LABEL[d.outcome]}</span>
-                {d.predecessor_pnu && <span className="font-mono">{formatPnu(d.predecessor_pnu)}</span>}
-                <span className="text-slate-500">{new Date(d.decided_at).toLocaleString("ko-KR")}</span>
-                {d.requires_approval && (
-                  <span className="rounded bg-slate-100 px-1">{d.approval === "approved" ? "승인됨" : d.approval === "rejected" ? "거절됨" : "승인 대기"}</span>
-                )}
-                {d.requires_approval && !d.approval && (
-                  <span className="ml-auto flex gap-2">
-                    <button type="button" onClick={() => rule.mutate({ decisionId: d.decision_id, approve: true })} className="rounded border border-slate-300 px-2 py-0.5">
-                      승인
-                    </button>
-                    <button type="button" onClick={() => rule.mutate({ decisionId: d.decision_id, approve: false })} className="rounded border border-slate-300 px-2 py-0.5">
-                      거절
-                    </button>
-                  </span>
-                )}
+        <DecisionTrail item={data} onRule={(decisionId, approve) => rule.mutate({ decisionId, approve })} />
+      </div>
+    </section>
+  );
+}
+
+function ParcelCandidates({ item, chosen, onChoose }: { item: ReviewItem; chosen: string; onChoose: (code: string) => void }) {
+  return (
+    <div className="rounded-lg bg-white p-4 shadow-sm">
+      <h2 className="font-semibold">옛 번호 후보</h2>
+      {item.candidates.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500">자동 도출이 찾은 후보가 없습니다. 원래 번호가 없으면 "원래 번호 없음"으로 결정합니다.</p>
+      ) : (
+        <table className="mt-2 w-full text-sm">
+          <thead className="text-left text-slate-500">
+            <tr>
+              <th className="py-1">선택</th>
+              <th>옛 필지</th>
+              <th>관계</th>
+              <th>등급</th>
+              <th>근거</th>
+            </tr>
+          </thead>
+          <tbody>
+            {item.candidates.map((c) => (
+              <tr key={c.predecessor_pnu} className="border-t border-slate-100">
+                <td className="py-1">
+                  <input type="radio" name="candidate" checked={chosen === c.predecessor_pnu} onChange={() => onChoose(c.predecessor_pnu)} />
+                </td>
+                <td className="font-mono">{formatCode("parcel", c.predecessor_pnu)}</td>
+                <td>{c.relation}</td>
+                <td>
+                  {gradeLabel(c.grade)}
+                  {c.in_effect && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800">현재 효력</span>}
+                </td>
+                <td className="text-slate-600">{c.evidence_kind}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/** What the pairing run recorded for an abolished 법정동 code, and the new codes it offers. */
+export function LegalDongPanel({ item, chosen, onChoose }: { item: ReviewItem; chosen: string; onChoose: (code: string) => void }) {
+  const evidence = item.legal_dong;
+  if (!evidence) return null;
+  const split = Object.entries(evidence.split_into);
+  const rows: [string, string][] = [
+    ["옛 코드", `${item.subject_code} ${evidence.name}`],
+    ["단위", levelLabel(evidence.level)],
+    ["폐지일", formatDay(evidence.abolished_date)],
+    ["이름 규칙", legalDongRuleLabel(evidence.rule)],
+    ["지번 비교", evidence.jibun || "—"],
+    ["필지 번호 공식 이력 (30527)", officialHistoryLabel(evidence.official_history)],
+    ["공식 이력이 옮긴 필지 (짝은 아님)", evidence.official_partial_moves ? `${evidence.official_partial_moves}필지` : "—"],
+    ...(evidence.waiting_for ? ([["기다리는 데이터", evidence.waiting_for]] as [string, string][]) : []),
+  ];
+  return (
+    <div className="space-y-4 rounded-lg bg-white p-4 shadow-sm">
+      <h2 className="font-semibold">짝 맞추기가 기록한 근거</h2>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-slate-500">{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {split.length > 0 && (
+        <div className="text-sm">
+          <h3 className="font-medium">지번이 간 곳</h3>
+          <ul className="mt-1 font-mono">
+            {split.map(([code, count]) => (
+              <li key={code}>
+                {code} · {count}필지
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      <div className="text-sm">
+        <h3 className="font-medium">새 코드 후보</h3>
+        {evidence.candidates.length === 0 ? (
+          <label className="mt-1 block">
+            <span className="text-slate-500">짝 맞추기가 후보를 찾지 못했습니다. 짝지을 새 코드(10자리)를 적으면 다음 짝 맞추기가 전체 코드 표로 다시 확인합니다.</span>
+            <input
+              className="mt-1 block w-40 rounded border border-slate-300 px-2 py-1 font-mono"
+              inputMode="numeric"
+              value={chosen}
+              onChange={(e) => onChoose(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            />
+          </label>
+        ) : (
+          <table className="mt-1 w-full">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="py-1">선택</th>
+                <th>새 코드</th>
+                <th>이름</th>
+                <th>생성일</th>
+              </tr>
+            </thead>
+            <tbody>
+              {evidence.candidates.map((c) => (
+                <tr key={c.code} className="border-t border-slate-100">
+                  <td className="py-1">
+                    <input type="radio" name="candidate" checked={chosen === c.code} onChange={() => onChoose(c.code)} />
+                  </td>
+                  <td className="font-mono">{c.code}</td>
+                  <td>{c.name}</td>
+                  <td>{formatDay(c.created_date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-    </section>
+    </div>
+  );
+}
+
+/** Every decision on the item, newest first: who, when, what, why. */
+export function DecisionTrail({ item, onRule }: { item: ReviewItem; onRule: (decisionId: string, approve: boolean) => void }) {
+  if (item.decisions.length === 0) return <p className="mt-2 text-sm text-slate-500">아직 결정이 없습니다.</p>;
+  const labels = item.kind === "legal_dong" ? LEGAL_DONG_OUTCOME_LABEL : OUTCOME_LABEL;
+  return (
+    <ul className="mt-2 space-y-2 text-sm">
+      {item.decisions.map((d: StewardDecision) => (
+        <li key={d.decision_id} className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+          <span className="font-medium">{labels[d.outcome]}</span>
+          {d.candidate_code && <span className="font-mono">{formatCode(item.kind, d.candidate_code)}</span>}
+          {d.reason_code && <span className="text-slate-600">{REASON_LABEL[d.reason_code]}</span>}
+          {d.note && <span className="text-slate-700">“{d.note}”</span>}
+          <span className="text-slate-500">
+            {new Date(d.decided_at).toLocaleString("ko-KR")} · <span className="font-mono">{d.decided_by}</span>
+          </span>
+          {d.requires_approval && (
+            <span className="rounded bg-slate-100 px-1">{d.approval === "approved" ? "승인됨" : d.approval === "rejected" ? "거절됨" : "승인 대기"}</span>
+          )}
+          {d.requires_approval && !d.approval && (
+            <span className="ml-auto flex gap-2">
+              <button type="button" onClick={() => onRule(d.decision_id, true)} className="rounded border border-slate-300 px-2 py-0.5">
+                승인
+              </button>
+              <button type="button" onClick={() => onRule(d.decision_id, false)} className="rounded border border-slate-300 px-2 py-0.5">
+                거절
+              </button>
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

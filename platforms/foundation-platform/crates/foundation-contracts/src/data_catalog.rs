@@ -236,6 +236,84 @@ pub struct DatasetSnapshots {
     pub error: Option<String>,
 }
 
+/// One live hostname as the host in Korea reaches it (root ADR-0209).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct EdgeHostCheck {
+    /// The hostname, from the gateways' contract.
+    pub hostname: String,
+    /// The Cloudflare data centre most answers came from (`ICN` is Seoul).
+    pub colo: Option<String>,
+    /// The median answer time of `/cdn-cgi/trace`, each on a new connection.
+    pub p50_ms: Option<u64>,
+    /// The 95th percentile of the same.
+    pub p95_ms: Option<u64>,
+    /// Answers measured.
+    pub samples: u32,
+    /// Asks that failed.
+    pub failed_samples: u32,
+    /// Why nothing could be measured, when nothing could.
+    pub error: Option<String>,
+}
+
+/// How the live hostnames are reached from Korea.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct EdgeCheck {
+    /// When it was measured.
+    pub checked_at: DateTime<Utc>,
+    /// The data centre `cloudflare.com` itself answered from at the same time: where Korea should
+    /// enter.
+    pub reference_colo: Option<String>,
+    /// Every live catalog, buildings and tiles hostname.
+    pub hosts: Vec<EdgeHostCheck>,
+}
+
+/// One full UTC week of pull request CI wall time (root ADR-0203).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct CiWeek {
+    /// Its Monday, `YYYY-MM-DD`.
+    pub week_start: String,
+    /// Pull request attempts measured.
+    pub count: u32,
+    /// Median attempt, minutes.
+    pub p50: Option<f64>,
+    /// 90th percentile attempt, minutes.
+    pub p90: Option<f64>,
+    /// Longest attempt, minutes.
+    pub max: Option<f64>,
+    /// The workflow with the longest median.
+    pub worst_workflow: Option<String>,
+    /// That workflow's median, minutes.
+    pub worst_workflow_p50: Option<f64>,
+}
+
+/// The weekly pull request CI wall-time trend against its one budget.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct CiTimeTrend {
+    /// When it was last measured or tried.
+    pub attempted_at: DateTime<Utc>,
+    /// `tools/ci/ci-time-budget.contract.json` `pull_request_wall_minutes`.
+    pub budget_minutes: Option<f64>,
+    /// Oldest first.
+    pub weeks: Vec<CiWeek>,
+    /// Days of the trend's weeks whose runs are not fetched yet: those weeks are left out.
+    pub pending_days: Option<u32>,
+    /// Why the last fetch failed; the weeks are the ones the kept days give.
+    pub error: Option<String>,
+}
+
+/// The host's service checks (root ADR-0209): the edge path from Korea and the CI time trend.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ServiceChecks {
+    /// When the host last ran them.
+    pub checked_at: Option<DateTime<Utc>>,
+    /// The edge part.
+    pub edge: Option<EdgeCheck>,
+    /// The CI part.
+    pub ci: Option<CiTimeTrend>,
+    /// Why the checks' file could not be read, when it could not.
+    pub error: Option<String>,
+}
+
 /// What starts a scheduled job (the job list's `started_by`, root ADR-0171).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

@@ -26,6 +26,7 @@ members = [
     "crates/publisher/foundation-publisher-by-pnu",
     "crates/publisher/foundation-publisher-parcel-anchor",
     "crates/publisher/foundation-publisher-collection",
+    "crates/publisher/foundation-publisher-tiles",
     "services/foundation-api",
     "services/foundation-outbox-publisher",
     "crates/publisher/foundation-publisher-silver",
@@ -168,6 +169,7 @@ foundation-publisher-core   = { path = "crates/publisher/foundation-publisher-co
 foundation-publisher-by-pnu = { path = "crates/publisher/foundation-publisher-by-pnu" }
 foundation-publisher-parcel-anchor = { path = "crates/publisher/foundation-publisher-parcel-anchor" }
 foundation-publisher-collection = { path = "crates/publisher/foundation-publisher-collection" }
+foundation-publisher-tiles = { path = "crates/publisher/foundation-publisher-tiles" }
 
 [profile.release]
 lto = "thin"

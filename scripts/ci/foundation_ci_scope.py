@@ -121,9 +121,11 @@ RULES = {
     "static-release-toolchain-windows": {
         "exact": [
             "platforms/foundation-platform/config/static-release-toolchain.contract.json",
+            # The embedded verifier is built from the tile lane crate (root ADR-0200).
+            "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/Cargo.toml",
             "platforms/foundation-platform/services/foundation-outbox-publisher/Cargo.toml",
             "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
-            "platforms/foundation-platform/services/foundation-outbox-publisher/src/static_release_toolchain.rs",
+            "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
             "scripts/tiles/static_release_toolchain_contract.py",
         ],
         "prefixes": [
@@ -168,7 +170,7 @@ REQUIRED_WITNESSES = {
     "static-release-toolchain-windows": {
         "tool contract": "platforms/foundation-platform/config/static-release-toolchain.contract.json",
         "installer": "scripts/tiles/static_release_toolchain_contract.py",
-        "embedded verifier": "platforms/foundation-platform/services/foundation-outbox-publisher/src/static_release_toolchain.rs",
+        "embedded verifier": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
         "command entrypoint": "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
     },
 }

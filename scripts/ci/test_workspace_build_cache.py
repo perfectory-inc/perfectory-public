@@ -27,9 +27,10 @@ def write(path: Path, text: str) -> None:
 
 
 def touch_all_now(repo: Path) -> None:
-    """What a fresh checkout does to every tracked file."""
+    """What a fresh checkout does to every tracked file. Build output is not checked out: what
+    rust-cache restores keeps the mtimes it was saved with."""
     for path in repo.rglob("*"):
-        if ".git" not in path.parts:
+        if ".git" not in path.parts and "target" not in path.relative_to(repo).parts[:1]:
             os.utime(path)
 
 
@@ -48,18 +49,19 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         for path in ("app/src/lib.rs", "app/src/changed.rs"):
             os.utime(repo / path, ns=(OLD_NS, OLD_NS))
 
-        write(repo / "app/target/debug/deps/libdependency-1.rlib", "dependency")
-        snapshot_file = self.scratch / "snapshot.txt"
-        cache.snapshot(repo, ["app/target"], snapshot_file)
-        write(repo / "app/target/debug/deps/libapp-2.rlib", "workspace")
-        write(repo / "app/target/debug/.fingerprint/app-2/lib-app", "fingerprint")
+        app_hash, dependency_hash = "0123456789abcdef", "fedcba9876543210"
+        write(repo / f"app/target/debug/deps/libdependency-{dependency_hash}.rlib", "dependency")
+        write(repo / f"app/target/debug/deps/libapp-{app_hash}.rlib", "workspace")
+        write(repo / f"app/target/debug/.fingerprint/app-{app_hash}/lib-app", "fingerprint")
         write(repo / "app/target/debug/app", "uplifted")
 
         stash_dir = self.scratch / "stash"
-        self.assertEqual(cache.stash(repo, ["app/target"], snapshot_file, stash_dir), 0)
-        self.assertFalse((repo / "app/target/debug/deps/libapp-2.rlib").exists())
-        self.assertTrue((repo / "app/target/debug/deps/libdependency-1.rlib").exists())
-        self.assertFalse((stash_dir / cache.ARTIFACTS / "app/target/debug/deps/libdependency-1.rlib").exists())
+        self.assertEqual(cache.stash(repo, ["app/target"], stash_dir, names={"app"}), 0)
+        self.assertFalse((repo / f"app/target/debug/deps/libapp-{app_hash}.rlib").exists())
+        self.assertTrue((repo / f"app/target/debug/deps/libdependency-{dependency_hash}.rlib").exists())
+        self.assertFalse(
+            (stash_dir / cache.ARTIFACTS / f"app/target/debug/deps/libdependency-{dependency_hash}.rlib").exists()
+        )
         self.assertFalse((stash_dir / cache.ARTIFACTS / "app/target/debug/app").exists())
 
         # The next run: a new checkout with one file edited and one added.
@@ -72,7 +74,7 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         stats = cache.restore(repo, stash_dir)
 
         self.assertEqual(stats, {"artifacts": 2, "unchanged": 1, "changed": 2})
-        self.assertTrue((repo / "app/target/debug/deps/libapp-2.rlib").exists())
+        self.assertTrue((repo / f"app/target/debug/deps/libapp-{app_hash}.rlib").exists())
         self.assertEqual((repo / "app/src/lib.rs").stat().st_mtime_ns, OLD_NS)
         self.assertGreater((repo / "app/src/changed.rs").stat().st_mtime_ns, OLD_NS)
         self.assertGreater((repo / "app/src/added.rs").stat().st_mtime_ns, OLD_NS)
@@ -85,6 +87,25 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         git(repo, "commit", "-qm", "base")
         write(repo / "src/lib.rs", "pub fn a() { edited }\n")
         self.assertNotIn("src/lib.rs", cache.tracked_blobs(repo))
+
+    def test_only_units_named_after_the_workspace_are_the_workspaces(self) -> None:
+        names = {"foundation-api", "foundation_api", "deploy_contract"}
+        unit = "0123456789abcdef"
+        for path, expected in [
+            (f"t/debug/deps/libfoundation_api-{unit}.rlib", True),
+            (f"t/debug/deps/deploy_contract-{unit}", True),
+            (f"t/debug/deps/deploy_contract-{unit}.d", True),
+            (f"t/debug/.fingerprint/foundation-api-{unit}/lib-foundation_api", True),
+            (f"t/debug/build/foundation-api-{unit}/out/x", True),
+            # Dependencies, including one whose name a workspace name starts with.
+            (f"t/debug/deps/libserde-{unit}.rlib", False),
+            (f"t/debug/deps/libfoundation_api_extra-{unit}.rlib", False),
+            (f"t/debug/.fingerprint/foundation-api-extra-{unit}/x", False),
+            # No unit hash: not a unit this script can attribute.
+            ("t/debug/deps/libfoundation_api.rlib", False),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(cache.is_workspace_unit(path, names), expected)
 
     def test_restore_without_a_stash_changes_nothing(self) -> None:
         self.assertEqual(
@@ -118,13 +139,21 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         """Build a workspace, stash it, check it out anew with `change`, rebuild."""
         repo = self.scratch / "repo"
         members = ("kept", "edited", "migrated")
-        write(repo / "Cargo.toml", '[workspace]\nmembers = ["kept", "edited", "migrated"]\nresolver = "2"\n')
+        write(
+            repo / "Cargo.toml",
+            '[workspace]\nmembers = ["kept", "edited", "migrated"]\nexclude = ["vendor"]\nresolver = "2"\n',
+        )
         for name in members:
             write(
                 repo / name / "Cargo.toml",
                 f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n',
             )
             write(repo / name / "src/lib.rs", "pub fn f() -> u8 { 1 }\n")
+        # A dependency that is not a workspace member, as a crates.io one is to rust-cache.
+        write(repo / "vendor/outside/Cargo.toml", '[package]\nname = "outside"\nversion = "0.1.0"\nedition = "2021"\n')
+        write(repo / "vendor/outside/src/lib.rs", "pub fn g() -> u8 { 3 }\n")
+        with (repo / "kept/Cargo.toml").open("a", encoding="utf-8") as manifest:
+            manifest.write('\n[dependencies]\noutside = { path = "../vendor/outside" }\n')
         # The shape of every package that embeds the migration set.
         write(repo / "migrated/build.rs", 'fn main() { println!("cargo:rerun-if-changed=../migrations"); }\n')
         write(repo / "migrations/1_a.sql", "select 1;\n")
@@ -151,15 +180,21 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
             )
             return result.stderr
 
-        snapshot_file = self.scratch / "snapshot.txt"
-        cache.snapshot(repo, ["target"], snapshot_file)
         build()
         stash_dir = self.scratch / "stash"
-        self.assertEqual(cache.stash(repo, ["target"], snapshot_file, stash_dir), 0)
+        self.assertEqual(cache.stash(repo, ["target"], stash_dir), 0)
+        # The dependency stays where rust-cache saves it from; none of it rides in the stash.
+        left = [path for path in cache.artifact_files(repo, ["target"]) if "outside" in path]
+        self.assertTrue(left, "the dependency's artifacts must stay in the target directory")
+        stashed = [str(path) for path in (stash_dir / cache.ARTIFACTS).rglob("*") if "outside" in path.name]
+        self.assertEqual(stashed, [])
 
-        # A later run on another runner: a new checkout, after the stash was built.
+        # A later run on another runner: a new checkout, after the stash was built, with the
+        # dependency artifacts rust-cache restores and nothing else.
         time.sleep(1.1)
-        shutil.rmtree(repo / "target")
+        for path in cache.artifact_files(repo, ["target"]):
+            if "outside" not in path:
+                (repo / path).unlink()
         change(repo)
         git(repo, "add", "-A")
         touch_all_now(repo)
@@ -172,6 +207,7 @@ class WorkspaceBuildCacheTest(unittest.TestCase):
         log = self.cargo_after_change(lambda repo: write(repo / "edited/src/lib.rs", "pub fn f() -> u8 { 2 }\n"))
         self.assertIn("Fresh kept", log)
         self.assertIn("Fresh migrated", log)
+        self.assertIn("Fresh outside", log)
         self.assertIn("Compiling edited", log)
 
     @unittest.skipUnless(shutil.which("cargo") or os.environ.get("CI"), "cargo is not on PATH")

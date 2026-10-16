@@ -450,6 +450,11 @@ fn classify_key_with_bronze_evidence(
     }
 }
 
+/// Whether the audit keeps `key`; the R2 deleter refuses every such key (root ADR-0264).
+pub(crate) fn audit_keeps(key: &str) -> bool {
+    classify_key(key).action == "keep"
+}
+
 fn classify_key(key: &str) -> Classification {
     if key.starts_with('/') || key.contains("..") {
         return Classification {
@@ -470,6 +475,13 @@ fn classify_key(key: &str) -> Classification {
             name: "bronze_catalog_recovery_evidence",
             action: "keep",
             reason: "Immutable content-addressed evidence for a Bronze Catalog recovery apply.",
+        };
+    }
+    if key.starts_with("control/evidence/") {
+        return Classification {
+            name: "control_evidence",
+            action: "keep",
+            reason: "Evidence of an operation; evidence is never deleted.",
         };
     }
     if key == "gold/manifest.json" {
@@ -690,6 +702,7 @@ fn is_current_spatial_artifact(key: &str) -> bool {
         VECTOR_TILE_ARTIFACT_ROOT,
         VECTOR_TILE_MANIFEST_ROOT,
         PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
+        catalog_domain::STATIC_RELEASE_OBJECT_ROOT,
     ]
     .iter()
     .any(|root| has_path_root(key, root))

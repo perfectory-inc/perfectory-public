@@ -162,7 +162,7 @@ fn complex_page_from_response(page: CatalogIndustrialComplexListResponse) -> Com
             .into_iter()
             .map(|complex| ComplexCatalogListRecord {
                 // Foundation's `id` is the lakehouse complex id (root ADR-0250).
-                lakehouse_complex_id: Some(complex.id),
+                lakehouse_complex_id: complex.id,
                 official_complex_code: complex.official_complex_code,
                 name: complex.name,
                 kind: complex.kind,

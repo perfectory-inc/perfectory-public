@@ -69,7 +69,7 @@ LINEAGE = [
 class VerdictContractTest(unittest.TestCase):
     def test_the_bake_guards_read_the_schema_the_gate_writes(self):
         migration = next((PLATFORM / "migrations").glob("*_a_lakehouse_bake_binds_the_silver_snapshot_it_read.sql"))
-        verdict_rs = PLATFORM / "services/foundation-outbox-publisher/src/lakehouse_bake_verdict.rs"
+        verdict_rs = PLATFORM / "crates/publisher/foundation-publisher-tiles/src/lakehouse_bake_verdict.rs"
         for path in (migration, verdict_rs):
             with self.subTest(path=path.name):
                 self.assertIn(f'{job.VERDICT_SCHEMA_VERSION}', path.read_text(encoding="utf-8"))

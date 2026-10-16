@@ -66,7 +66,7 @@ class FoundationCiScopeTest(unittest.TestCase):
             "static-release-toolchain-windows": (
                 "platforms/foundation-platform/config/static-release-toolchain.contract.json",
                 "scripts/tiles/static_release_toolchain_contract.py",
-                "platforms/foundation-platform/services/foundation-outbox-publisher/src/static_release_toolchain.rs",
+                "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
                 "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
             ),
         }

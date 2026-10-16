@@ -69,6 +69,16 @@ if which == "enabled-consumers-first":
         print("\n".join(unpause_order()))
     else:
         print("\n".join(job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]))
+if which == "deferred":
+    # The enabled jobs the scheduler's runner did not start because a release build was running
+    # (root ADR-0260); job_units.py of the running release says where it recorded them.
+    import os
+    deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
+    if os.path.isfile(os.path.join(deploy, "job_units.py")):
+        sys.path.insert(0, deploy)
+        from job_units import deferred
+        enabled = {job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]}
+        print("\n".join(job for job in deferred() if job in enabled))
 PY
 }
 mapfile -t jobs < <(jobs_of enabled)

@@ -44,7 +44,7 @@ mod administrative_boundary_postgis_publish;
 mod administrative_boundary_runtime_promote;
 mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
-mod boundary_static_release_publish;
+use foundation_publisher_tiles::boundary_static_release_publish;
 mod bounded_live_ingestion_gate_check;
 use foundation_publisher_collection::bronze_catalog_recovery_execute;
 use foundation_publisher_collection::bronze_catalog_recovery_manifest;
@@ -107,8 +107,7 @@ use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 mod handoff_object_support;
-mod lakehouse_bake_verdict;
-mod lakehouse_tile_bake;
+use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
@@ -172,13 +171,11 @@ mod silver_gold_national_promotion_execution;
 mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
 mod staging_namespace;
-mod static_release_readdress;
-mod static_release_toolchain;
-mod static_release_url;
-mod tile_derivative_object_storage;
+use foundation_publisher_tiles::static_release_readdress;
+use foundation_publisher_tiles::static_release_toolchain;
+use foundation_publisher_tiles::tile_derivative_object_storage;
 mod trino_ready_wait;
 mod unit_official_price_projection_load;
-mod vector_tile_runtime_promote;
 use foundation_publisher_collection::vworld_bronze_catalog_recovery;
 use foundation_publisher_collection::vworld_cadastral_ingest;
 use foundation_publisher_collection::vworld_cadastral_silver_export;
@@ -190,6 +187,7 @@ use foundation_publisher_collection::vworld_dataset_file_inventory;
 use foundation_publisher_collection::vworld_land_register_ingest;
 use foundation_publisher_collection::vworld_ned_attribute_ingest;
 use foundation_publisher_collection::vworld_page_count_batch;
+use foundation_publisher_tiles::vector_tile_runtime_promote;
 
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -284,6 +282,7 @@ enum Command {
     MeasureBronzeObjectMembers,
     ClearStagingNamespace,
     ExportLineageStewardFold,
+    ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
     WriteParcelPublicationEvidence,
@@ -615,6 +614,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
+        Command::ExportLegalDongStewardDecisions => {
+            Box::pin(lineage_steward_fold::export_legal_dong())
+        }
         Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
         Command::SealParcelPublicationEvidence => {
             Box::pin(parcel_publication_evidence_sealer::run())
@@ -1214,6 +1216,7 @@ where
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
+        Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
         Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),

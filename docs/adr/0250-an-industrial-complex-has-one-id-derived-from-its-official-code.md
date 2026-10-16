@@ -1,9 +1,9 @@
 # ADR 0250: 산업단지의 id 는 하나다 — 공식 단지코드에서 유도한 UUIDv5
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 - Area: `platforms/foundation-platform`, `products/gongzzang`, `consoles/dawneer`
-- Supersedes: [ADR-0048](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md) §2 (`by-lakehouse-id` 조회구) — 3단계에서
+- Supersedes: [ADR-0048](./0048-a-published-feature-id-needs-a-read-keyed-on-it.md) §2 (`by-lakehouse-id` 조회구)
 - Related: [ADR-0043](./0043-a-canonical-id-is-read-not-recomputed.md), [ADR-0060](./0060-gold-artifact-identity-is-resolved-at-the-catalog-write-boundary.md), [ADR-0226](./0226-gongzzang-complex-target-id-is-the-lakehouse-complex-id.md)
 
 ## Context

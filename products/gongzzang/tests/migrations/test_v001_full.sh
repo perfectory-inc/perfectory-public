@@ -37,6 +37,7 @@ EXPECTED_TABLES=(
   business_verification_status_history
   listing_review_queue
   listing_report
+  listing_report_status_history
   featured_content
   system_alert
   listing_status_price_history

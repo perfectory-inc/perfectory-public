@@ -227,6 +227,8 @@ verify_provisioner_acl() {
     "DELETE FROM identity.service_principal WHERE false" \
     "DELETE FROM identity.service_capability_grant_record WHERE false" \
     "UPDATE identity.service_capability_grant_record SET capability = capability WHERE false" \
+    "DELETE FROM identity.service_principal_record WHERE false" \
+    "UPDATE identity.service_principal_record SET display_name = display_name WHERE false" \
     "CREATE TABLE identity.forbidden_probe(id integer)"; do
     if provisioner_psql "${statement}" >/dev/null 2>&1; then
       printf 'compose_smoke=FAIL service=identity-workload-provisioner reason=forbidden_sql_succeeded\n' >&2
