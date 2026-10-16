@@ -2,8 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-16
-- Builds on: [ADR-0243](./0243-the-parcel-registry-is-registered-region-by-region-by-a-scheduled-job.md),
-  [ADR-0265](./0265-the-matching-gate-waits-for-the-parcel-registry-it-reads.md)
+- Builds on: [ADR-0243](./0243-the-parcel-registry-is-registered-region-by-region-by-a-scheduled-job.md), ADR-0265 (PR #645, 대조 관문이 원장을 기다린다)
 
 ## Context
 
