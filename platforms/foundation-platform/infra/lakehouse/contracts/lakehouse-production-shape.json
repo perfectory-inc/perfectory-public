@@ -1,7 +1,7 @@
 {
  "schema_version": "foundation-platform.lakehouse_production_shape.v1",
  "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
- "captured_at": "2026-10-15T17:43:44Z",
+ "captured_at": "2026-10-16T08:54:18Z",
  "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
  "tables": {
   "gold.administrative_boundary_served": {
@@ -123,6 +123,22 @@
     [10, "published_at_utc", "timestamp", true]
    ],
    "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+   "earlier": []
+  },
+  "gold.lineage_review_queue": {
+   "has_rows": true,
+   "fields": [
+    [1, "unit", "string", true],
+    [2, "subject_code", "string", true],
+    [3, "item_id", "string", true],
+    [4, "status", "string", true],
+    [5, "candidates_json", "string", true],
+    [6, "evidence_etag", "string", true],
+    [7, "from_snapshot_id", "string", true],
+    [8, "to_snapshot_id", "string", true],
+    [9, "published_at_utc", "timestamp", true]
+   ],
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9],
    "earlier": []
   },
   "gold.parcel_boundary_served": {

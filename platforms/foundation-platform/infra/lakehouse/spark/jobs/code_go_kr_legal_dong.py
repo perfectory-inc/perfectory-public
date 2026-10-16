@@ -783,7 +783,11 @@ def pair_changes(
             missing = OFFICIAL_HISTORY_MISSING if official_links is None else ""
         else:
             seen = f"best {best} share {share:.4f}" + ("" if unique else " (tied)")
-            status = "split" if len(split_into) > 1 and unique else "steward"
+            # A split is two or more real destinations. A destination holding less than what the
+            # line leaves over (1 - min_share) is a stray same-land lot, not where the 동 went: a 동
+            # with one real destination below the line is a person's to confirm, with that candidate.
+            real = [new for new, held in split_into.items() if held >= (1 - min_share) * len(before)]
+            status = "split" if len(real) > 1 and unique else "steward"
         children = children_received(old)[0] if code_level(old) not in LEAF_LEVELS else {}
         if len(children) > 1:
             # Its own 동·리 went to several codes: a split, whatever the 지번 step saw at this level.

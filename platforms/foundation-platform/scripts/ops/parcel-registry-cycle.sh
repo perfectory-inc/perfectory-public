@@ -15,9 +15,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
-# Both roots under the job's state_paths (root ADR-0266); the *_STATE_ROOT overrides are the tests'.
+# Both roots under the job's state_paths in jobs.v1.json (root ADR-0266); the overrides are the tests'.
 STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_STATE_ROOT:-$(job_state_root parcel_registry)/parcel-registry}"
-LAKEHOUSE_STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_STATE_ROOT:-$(job_state_root parcel_registry)/lakehouse}"
+# Its own name, not FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT: map-edit-fold.env (which the unit loads for
+# the catalog) sets that one to the fold's folder, which this unit may not write; the first supervised
+# run failed on it (2026-10-16, "Read-only file system").
+LAKEHOUSE_STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_ROOT:-$(job_state_root parcel_registry)/lakehouse}"
 # 가장 큰 시도(약 600만 필지)도 이 뒤에 시작해서 유닛 상한(150 분) 안에 끝나야 한다.
 START_BUDGET_MINUTES="${FOUNDATION_PARCEL_REGISTRY_START_BUDGET_MINUTES:-100}"
 DRIVER_MEMORY="${FOUNDATION_PARCEL_REGISTRY_DRIVER_MEMORY:-16g}"

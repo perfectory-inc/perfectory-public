@@ -133,3 +133,15 @@ PR 자동 생성은 하지 않는다: 서버의 GitHub 경로는 익명 fetch �
 (`scripts/github/check-publication-authority.sh`). 자동화하려면 소유자가 이 저장소 한정 fine-grained 토큰(contents·pull
 requests 쓰기)을 만들어 `env-set` 으로 새 그룹에 두고, 이 작업이 `shape-ledger/refresh` 브랜치 하나를 밀고 그 PR 을 연다 —
 쓰기 자격을 서버에 두는 결정이므로 소유자 몫이다.
+
+## 2026-10-16 개정: 낡은 원장은 기다림이고, 갱신 PR 은 작업이 연다
+
+낡은 원장은 운영이 깨진 것이 아니라 사람이 들일 PR 하나다. `shape_ledger_check` 는 낡음을 처음 본 시각을 상태 디렉터리의
+`first-stale.json` 에 남기고, 48시간 안에는 `foundation-job-outcome waiting …` (ADR-0260, 알림 없음, 이유에 PR 링크),
+48시간이 지나면 `failed` 로 끝나 알린다. 원장이 다시 맞으면 기록을 지운다.
+
+갱신 PR 은 하나다: 브랜치 `shape-ledger/refresh` = main + 작업이 찍은 두 원장(손대지 않음). 내용이 같으면 커밋하지 않고,
+바뀌면 그 브랜치를 강제로 옮기며, 열린 PR 은 본문만 갱신한다. GitHub Git Data API 만 쓴다(서버에 git 쓰기·미러 쓰기 없음).
+자격은 저장소의 유일한 쓰기 계정(`scripts/github/check-publication-authority.sh`)이 만든 이 저장소 한정 fine-grained 토큰을
+`shape-ledger-pr` 그룹(`FOUNDATION_PLATFORM_SHAPE_LEDGER_GITHUB_TOKEN`, 선택)에 둔다 — 새 주체가 아니다. 토큰이 없으면 이유에
+"손으로 복사" 를 적고 같은 규칙으로 기다림·실패한다. 여러 열을 묶는 CHECK 를 가진 새 표의 seed 힌트는 사람 몫으로 남는다.

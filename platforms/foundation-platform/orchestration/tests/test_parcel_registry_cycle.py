@@ -48,7 +48,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         for part in ("infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
             shutil.copytree(PLATFORM / part, release / part, ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh", "job-state-root.sh"):
+        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
             (release / "scripts/ops" / name).chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
@@ -70,7 +70,9 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.script = base / "current/scripts/ops/parcel-registry-cycle.sh"
         self.env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log),
                     "FOUNDATION_PARCEL_REGISTRY_STATE_ROOT": str(self.state),
-                    "FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_STATE_ROOT": str(self.root / "lakehouse")}
+                    "FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_ROOT": str(self.root / "lakehouse"),
+                    # What map-edit-fold.env gives the unit: the fold's folder, not this job's.
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.root / "fold-only")}
 
     def run_job(self, missing, **env):
         result = subprocess.run(["bash", str(self.script)], env={**self.env, "FAKE_MISSING": json.dumps(missing), **env},
@@ -99,6 +101,17 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.assertIn("registered=98,99 remaining=0", lines[-2])
         journal = (self.state / "journal.log").read_text()
         self.assertIn("region=98 parcels=10 seconds=", journal)
+
+    def test_the_work_folder_is_this_jobs_own_whatever_the_fold_environment_says(self):
+        # 2026-10-16: the unit loads map-edit-fold.env, whose FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT
+        # names the fold's folder; the script took it and its first supervised run failed there.
+        (self.root / "fold-only").mkdir()
+        (self.root / "fold-only").chmod(0o555)
+        self.addCleanup((self.root / "fold-only").chmod, 0o755)
+        result, _ = self.run_job([])
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue((self.root / "lakehouse" / "parcel-registry").is_dir())
+        self.assertFalse(list((self.root / "fold-only").iterdir()))
 
     def test_nothing_missing_is_unchanged(self):
         result, calls = self.run_job([])

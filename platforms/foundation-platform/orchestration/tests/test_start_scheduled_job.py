@@ -206,9 +206,21 @@ class TheRunSaysHowItEnded(HostFixture):
         self.assertEqual(result.returncode, 1)
 
     def test_a_unit_systemd_failed_stays_failed_whatever_it_said(self):
+        # 2026-10-16: the by-PNU bake printed `changed` for the lane that published, then exited 1
+        # for the one that did not. The failed run's last outcome line must say failed.
         result, _ = self.start("fold", FIXTURE_RESULT="exit-code")
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout.splitlines()[-1], "start-scheduled-job: foundation-fold.service result=exit-code")
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "foundation-job-outcome failed systemd result=exit-code after the run said changed",
+            "start-scheduled-job: foundation-fold.service result=exit-code"])
+        self.assertEqual(self.outcome(result), "failed")
+
+    def test_a_failed_unit_that_said_nothing_or_failed_is_failed(self):
+        for journal in ("loaded\\n", "foundation-job-outcome failed shard 26\\n"):
+            result, _ = self.start("fold", FIXTURE_RESULT="exit-code", FIXTURE_JOURNAL=journal)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout.splitlines()[-2], "foundation-job-outcome failed systemd result=exit-code")
+            self.assertEqual(self.outcome(result), "failed")
 
 
 class AJobDueDuringAReleaseBuild(HostFixture):

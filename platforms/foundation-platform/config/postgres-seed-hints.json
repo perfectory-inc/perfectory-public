@@ -23,7 +23,12 @@
     "catalog.vector_tile_release.pmtiles_object_key": "null",
     "catalog.vector_tile_release.pmtiles_file_asset_id": "null",
     "catalog.vector_tile_release.pmtiles_sha256": "null",
-    "catalog.vector_tile_release.pmtiles_bytes": "null"
+    "catalog.vector_tile_release.pmtiles_bytes": "null",
+    "catalog.lineage_review_item.unit": "'parcel'",
+    "catalog.lineage_review_item.status": "'needs_review'",
+    "catalog.lineage_review_item.subject_code": "'9999910100100010000'",
+    "catalog.lineage_review_item.candidates_json": "'[]'",
+    "catalog.lineage_review_item.evidence_json": "null"
   },
   "not_yet_seeded": {
     "catalog.administrative_unit_parent": "the parent hierarchy trigger needs a second administrative unit of the parent kind",
