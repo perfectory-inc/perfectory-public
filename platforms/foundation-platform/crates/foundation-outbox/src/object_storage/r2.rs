@@ -5,6 +5,7 @@ mod copy;
 mod namespace;
 mod read_retry;
 mod streaming;
+mod write_retry;
 
 pub use conditional::ConditionalWrite;
 pub use namespace::{
@@ -815,30 +816,18 @@ impl EvidenceByteReader for R2ObjectStorage {
 #[async_trait]
 impl ObjectStorageService for R2ObjectStorage {
     async fn put_object(&self, request: PutObjectRequest) -> Result<(), PublishError> {
-        let key = request.key;
-        let mut builder = self
-            .client
-            .put_object()
-            .bucket(&self.bucket_name)
-            .key(&key)
-            .content_type(request.content_type)
-            .cache_control(request.cache_control)
-            .body(ByteStream::from(request.body));
-        // CreateOnly => S3/R2 conditional write: the PUT only succeeds when the key does
-        // not yet exist, and a colliding key returns `412 Precondition Failed`.
-        if matches!(request.write_mode, ObjectWriteMode::CreateOnly) {
-            builder = builder.if_none_match("*");
-        }
-        // Stamp `x-amz-meta-sha256` so a later CreateOnly collision can be reconciled by checksum
-        // via `head_object` (read_object_sha256) without re-downloading the body.
-        if let Some(sha256) = request.sha256 {
-            builder = builder.metadata(SHA256_METADATA_KEY, sha256);
-        }
-        builder
-            .send()
-            .await
-            .map_err(|error| map_r2_put_error(&key, &error, "write", request.write_mode))?;
-        Ok(())
+        // CreateOnly => S3/R2 conditional write (`If-None-Match: *`): a colliding key returns
+        // `412 Precondition Failed`. `x-amz-meta-sha256` lets a later collision be reconciled by
+        // checksum (read_object_sha256). Every whole-object write goes through the one R2 policy
+        // the reads use (root ADR-0102, ADR-0261).
+        write_retry::write(
+            &self.client,
+            &self.bucket_name,
+            &self.read_policy,
+            request,
+            SHA256_METADATA_KEY,
+        )
+        .await
     }
 
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError> {
@@ -1001,8 +990,8 @@ fn map_r2_put_error<E, R>(
     write_mode: ObjectWriteMode,
 ) -> PublishError
 where
-    E: std::fmt::Display + aws_sdk_s3::error::ProvideErrorMetadata,
-    R: R2HttpStatus,
+    E: std::error::Error + aws_sdk_s3::error::ProvideErrorMetadata + 'static,
+    R: R2HttpStatus + std::fmt::Debug,
 {
     let status = error.raw_response().map(R2HttpStatus::status_code);
     let service_error_code = error.as_service_error().and_then(|error| error.code());
@@ -1017,9 +1006,12 @@ where
     let service_error_message = error
         .as_service_error()
         .and_then(aws_sdk_s3::error::ProvideErrorMetadata::message);
+    // DisplayErrorContext, not Display: an SdkError displays as its kind alone ("dispatch
+    // failure"), and the cause (a reset, a closed connection, TLS) is only in its source chain.
     PublishError::Broadcaster(format!(
-        "failed to {verb} R2 object {key}: {error} \
-         (http_status={status:?} code={service_error_code:?} message={service_error_message:?})"
+        "failed to {verb} R2 object {key}: {} \
+         (http_status={status:?} code={service_error_code:?} message={service_error_message:?})",
+        aws_sdk_s3::error::DisplayErrorContext(error)
     ))
 }
 
@@ -1224,3 +1216,7 @@ mod body_retry_tests;
 #[cfg(test)]
 #[path = "r2/read_retry_tests.rs"]
 mod read_retry_tests;
+
+#[cfg(test)]
+#[path = "r2/write_retry_tests.rs"]
+mod write_retry_tests;
