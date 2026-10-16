@@ -771,6 +771,37 @@ class HandoffTest(unittest.TestCase):
 # --- steward decisions and reruns -------------------------------------------------------------
 
 
+class StrayLotTest(unittest.TestCase):
+    """A 동 with one real destination below the line is a person's, not a split (ADR-0113 §5, ADR-0144 §4).
+
+    Measured shape (2026-07, 서구 가정동): 94.9% of its 지번 under one new 동, and single same-land lots
+    scattered over many others. Counting every stray as a destination made it `split`, which no
+    steward may approve, and the lineage then refused the 동 every day.
+    """
+
+    def plan(self, after):
+        # 갑동 is renamed (no name match) and a 병동 is created beside it on the same day.
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 병동", parent="9911000000", created=DAY))
+        evidence = cg.JibunEvidence({"9811010100": lots(*range(1, 101))}, after, "b->a")
+        return cg.pair_changes(as_rows(table_html(rows)), FLOOR, jibun=evidence, min_share=MIN_SHARE)
+
+    def item(self, result):
+        return next(i for i in result.review if i["old_code"] == "9811010100")
+
+    def test_one_real_destination_and_a_stray_lot_is_a_stewards_with_that_candidate(self):
+        # 심은 위반 (the old rule): 94 lots under one 동 and 1 stray under another read as a split.
+        item = self.item(self.plan({"9911010100": lots(*range(1, 95)), "9911010300": lots(95)}))
+        self.assertEqual(item["status"], "steward")
+        self.assertIn("9911010100", item["candidates"])
+        self.assertEqual(item["split_into"], {"9911010100": 94, "9911010300": 1}, "the strays stay visible")
+
+    def test_two_real_destinations_are_a_split(self):
+        item = self.item(self.plan({"9911010100": lots(*range(1, 61)), "9911010300": lots(*range(61, 101))}))
+        self.assertEqual(item["status"], "split")
+
+
 class StewardOnlyRerunTest(unittest.TestCase):
     KEY = "bronze/source=codegokr__legal_dong_code_table/operation=regCodeL/regcode-x.html"
 

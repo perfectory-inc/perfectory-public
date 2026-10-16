@@ -775,7 +775,11 @@ def pair_changes(
             missing = OFFICIAL_HISTORY_MISSING if official_links is None else ""
         else:
             seen = f"best {best} share {share:.4f}" + ("" if unique else " (tied)")
-            status = "split" if len(split_into) > 1 and unique else "steward"
+            # A split is two or more real destinations. A destination holding less than what the
+            # line leaves over (1 - min_share) is a stray same-land lot, not where the 동 went: a 동
+            # with one real destination below the line is a person's to confirm, with that candidate.
+            real = [new for new, held in split_into.items() if held >= (1 - min_share) * len(before)]
+            status = "split" if len(real) > 1 and unique else "steward"
         dong_split = dong_links_by_old.get(old, set())
         official_split = {new: 1 for new in dong_split} if dong_split else dict(links_by_old.get(old, {}))
         if len(official_split) > 1 and status != "split":
