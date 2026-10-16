@@ -9,7 +9,9 @@ instead of storing its own copy:
 - `dong_predecessors`: which old 읍면동 each new one came from, for the administrative-boundary
   id (`administrative_boundaries_handoff_to_silver.py`, ADR-0113 §9);
 - `leaf_pairs`: the 동·리 pairs the parcel lineage carries lots across
-  (`parcel_lineage.dong_pairing_from_changes`).
+  (`parcel_lineage.dong_pairing_from_changes`);
+- `renumbered_into`: which code a parcel attribute keyed under one side of a renumbering is
+  served under (`parcel_panel_silver_to_gold.read_inputs`).
 
 Plain Python over plain rows, so the test lane without PySpark exercises every view. A row is a
 mapping with at least `kind`, `old_code`, `new_code`, `level`, `effective_date` and `source`, as the
@@ -132,3 +134,31 @@ def dong_predecessors(rows: Iterable[Mapping[str, Any]], lots_before: Mapping[st
             old_emd, carried = max(olds.items(), key=lambda item: (item[1], item[0]))
             best[new_emd] = (carried, old_emd)
     return {new: old for new, (_, old) in sorted(best.items())}
+
+
+def renumbered_into(rows: Iterable[Mapping[str, Any]], served_codes: Iterable[str]) -> dict[str, str]:
+    """{source 동·리 code: the served parcel edition's code for the same place}.
+
+    A Silver lane keys its rows by the codes of its own release, the map by the codes of the served
+    parcel edition; across a reorganization the two disagree (2026-07: 29·46 → 12). Only a 1:1
+    renumbering is translated, either way: its lots keep their numbers (ADR-0144 §3.1), so the rest
+    of the PNU still names the same parcel. A split or merged code, or one changed twice, is not
+    one place on both sides and is left for the parcel lineage (ADR-0113). A code the served
+    edition holds is never translated.
+    """
+
+    served = set(served_codes)
+    forward = leaf_pairs(rows)
+    backward: dict[str, set[str]] = {}
+    for old, news in forward.items():
+        for new in news:
+            backward.setdefault(new, set()).add(old)
+    into: dict[str, set[str]] = {}
+    for old, news in forward.items():
+        new = next(iter(news))
+        if len(news) != 1 or len(backward[new]) != 1:
+            continue
+        for source, target in ((old, new), (new, old)):
+            if target in served and source not in served:
+                into.setdefault(source, set()).add(target)
+    return {source: next(iter(targets)) for source, targets in sorted(into.items()) if len(targets) == 1}

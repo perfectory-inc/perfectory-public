@@ -10,6 +10,7 @@ synthetic (`99999…`); no R2 credentials are needed.
 """
 import json
 import os
+from datetime import datetime
 import sys
 import tempfile
 import unittest
@@ -46,7 +47,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
                      .config("spark.ui.enabled", "false")
                      .getOrCreate())
         cls.spark.sparkContext.setLogLevel("ERROR")
-        for namespace in (SILVER, "gold"):
+        for namespace in (SILVER, "gold", "reference"):
             cls.spark.sql(f"CREATE NAMESPACE IF NOT EXISTS proof.{namespace}")
 
     @classmethod
@@ -346,17 +347,26 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
                       "moved_at": "2020-01-01", "source_snapshot_id": "tr-v1"} for i in range(1, 41)]
         rights = [{"pnu": pnu(i), "right_serial_no": "1", "right_ratio": "1/2", "closure_kind_name": "open",
                    "source_snapshot_id": "lr-v1", "source_record_id": f"r{i}"} for i in range(1, 41, 4)]
+        # The land-right release already numbers the map's 동 9999900000 as 9999800000 (a 1:1
+        # renumbering the served edition predates): PNU 6's right is read under the served code.
+        renumbered = "9999800000" + pnu(6)[10:]
+        rights.append({**rights[0], "pnu": renumbered, "source_record_id": "r-renumbered"})
+        code_changes = [{"change_key": "c1", "kind": "pair", "old_code": "9999900000", "new_code": "9999800000",
+                         "level": "eupmyeondong", "effective_date": "20990101", "source": "synthetic",
+                         "derivation_run_id": "run", "recorded_at_utc": datetime(2099, 1, 1)}]
         # PNU 3 was renumbered from PNU 50: it shows PNU 50's price through the lineage.
         lineage = [{"predecessor_pnu": pnu(50), "successor_pnu": pnu(3), "relation": "code_change",
                     "grade": "code_derived", "evidence_kind": "code", "evidence_ref": "synthetic"}]
         data = {job.PARCEL_SOURCE: parcels, job.PRICE_SOURCE: prices, job.ZONING_SOURCE: zonings,
                 job.ZONE_CODE_SOURCE: zone_codes, job.CHARACTERISTIC_SOURCE: characteristics,
                 job.FOREST_SOURCE: forest, job.TRANSFER_SOURCE: transfers, job.LAND_RIGHT_SOURCE: rights,
-                job.LINEAGE_SOURCE: lineage}
+                job.LINEAGE_SOURCE: lineage, job.CODE_CHANGE_SOURCE: code_changes}
         pins1 = {name: self.put(name, rows) for name, rows in data.items()}
         self.run_job(job, pins1, "parcel_panel", "2099-01-01T00:00:00Z")
         before = self.rows("parcel_panel", job)
         self.assertIn('"price_per_m2":5000', before[pnu(3)].price_json, "the carried price")
+        self.assertEqual(before[pnu(6)].land_right_total, 1, "the renumbered right, under the served code")
+        self.assertNotIn(renumbered, before)
         self.files_before = self.files("parcel_panel")
         self.assertGreater(len(self.files_before), 1)
 

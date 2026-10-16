@@ -196,7 +196,8 @@ class BuildColumns(unittest.TestCase):
 
     def test_whole_table_inputs_are_inputs(self):
         # A lineage edge is keyed by two PNUs and lands in both parcels' lineage section.
-        whole = (parcel.ZONE_CODE_SOURCE, parcel.LINEAGE_SOURCE)
+        # A code pair re-keys every row under its code.
+        whole = (parcel.ZONE_CODE_SOURCE, parcel.LINEAGE_SOURCE, parcel.CODE_CHANGE_SOURCE)
         self.assertEqual(parcel.WHOLE_TABLE_INPUTS, whole)
         self.assertEqual(rebuild.producer_whole_table_inputs(parcel), whole)
         self.assertEqual(rebuild.producer_whole_table_inputs(building), ())
