@@ -230,7 +230,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 원천 등록부 | `catalog.source_catalog` |
 | 원천 기록 | `catalog.source_record` |
 | 파일 자산 | `catalog.file_asset` |
-| 수집 객체 원장 | `catalog.bronze_object`<br>`catalog.bronze_object_measurement`<br>`catalog.bronze_object_member` |
+| 수집 객체 원장 | `catalog.bronze_object`<br>`catalog.bronze_object_measurement`<br>`catalog.bronze_object_member`<br>`catalog.bronze_object_version` |
 | 수집 작업 | `catalog.collection_job` |
 | 수집 실행 | `catalog.ingestion_run` |
 | 레이크하우스 자산·버전 | `catalog.lakehouse_data_asset`<br>`catalog.lakehouse_dataset_version`<br>`catalog.lakehouse_object_artifact` |

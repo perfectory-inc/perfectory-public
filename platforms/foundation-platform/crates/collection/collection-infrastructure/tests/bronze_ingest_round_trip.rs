@@ -246,6 +246,40 @@ async fn bronze_dedupe_conflict_adopts_latest_object_key_and_run() {
         .expect("list bronze objects for first run");
     assert!(first_run_objects.is_empty());
 
+    // The first collection is not lost: the registry row it occupied is kept, whole (ADR-0264).
+    let kept: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT change, prior_row FROM catalog.bronze_object_version
+         WHERE bronze_object_id = $1 ORDER BY id",
+    )
+    .bind(original.id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .expect("read replaced bronze object rows");
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].0, "update");
+    assert_eq!(kept[0].1["object_key"], original.object_key.as_str());
+    assert_eq!(
+        kept[0].1["checksum_sha256"],
+        original.checksum_sha256.as_str()
+    );
+    assert_eq!(
+        kept[0].1["ingestion_run_id"],
+        first_run.id.as_uuid().to_string()
+    );
+    for rewrite in [
+        "UPDATE catalog.bronze_object_version SET change = 'delete' WHERE bronze_object_id = $1",
+        "DELETE FROM catalog.bronze_object_version WHERE bronze_object_id = $1",
+    ] {
+        let refused = sqlx::query(rewrite)
+            .bind(original.id.as_uuid())
+            .execute(&pool)
+            .await;
+        assert!(
+            refused.is_err(),
+            "the replaced-row ledger accepted: {rewrite}"
+        );
+    }
+
     cleanup(&pool, source.id).await;
 }
 
