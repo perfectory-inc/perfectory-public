@@ -69,7 +69,7 @@ legal_dong_pair() {
   if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
     mkdir -p "${out}/steward"
     cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${out}/steward/"
-    decisions=(--steward-decisions "${cout}/steward")
+    decisions+=(--steward-decisions "${cout}/steward")
   fi
   # The official history is read once the table holds rows: one of its handoffs was loaded here.
   local official=()

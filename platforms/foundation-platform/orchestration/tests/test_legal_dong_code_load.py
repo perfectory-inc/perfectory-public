@@ -38,7 +38,10 @@ SPARK = textwrap.dedent("""
         recorded = [d["decision_id"] for d in export["decisions"]]
         out("--review-handoff-output").write_text('{"items": []}')
         out("--steward-fold-summary-output").write_text(json.dumps({"derivation_run_id": "r", "decision_ids": recorded}))
-        out("--summary-output").write_text(json.dumps({"steward_decisions": {f"db:{i}": "recorded" for i in recorded}}))
+        verdicts = {f"db:{i}": "recorded" for i in recorded}
+        if "--steward-decisions" in opt:
+            verdicts.update({p.name: "recorded" for p in out("--steward-decisions").glob("*.json")})
+        out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts}))
     elif job == "vworld_parcel_number_change_history.py":
         out("--summary-output").write_text("{}")
     else:
@@ -270,6 +273,16 @@ class StewardDatabase(Harness):
         self.assertEqual(json.loads(self.db.read_text()), [], "the run recorded the approval it appended")
         self.run_cycle()
         self.assertEqual(self.jobs(), [])
+
+    def test_a_staged_file_and_a_database_approval_reach_the_same_run(self):
+        self.published()
+        self.db.write_text(json.dumps(["d-1"]))
+        (self.legal / "steward/pending").mkdir(parents=True)
+        (self.legal / "steward/pending/20990102T000000Z-steward-a.json").write_text("{}")
+        result = self.run_cycle()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(self.db.read_text()), [])
+        self.assertTrue((self.legal / "steward/recorded/20990102T000000Z-steward-a.json").exists())
 
     def test_a_failed_pairing_records_no_approval(self):
         self.published()
