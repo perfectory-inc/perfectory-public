@@ -54,6 +54,22 @@ async fn provisioning_is_idempotent_exact_and_transactional(
 
     assert_ledger_refuses_rewrites(&pool, principal_id).await;
 
+    // A rebinding and a rename overwrite the principal row; the values it held stay recorded
+    // (root ADR-0264). An unchanged principal appended nothing above.
+    assert_eq!(principal_records(&pool, principal_id).await?.len(), 1);
+    let rebound_subject = format!("{subject}-rebound");
+    let renamed =
+        named_principal_manifest(principal_id, &rebound_subject, "Renamed Contract", &[])?;
+    provision(&pool, &renamed).await?;
+    provision(&pool, &renamed).await?;
+    assert_eq!(
+        principal_records(&pool, principal_id).await?,
+        vec![
+            (subject.clone(), "Provisioning Contract".to_owned()),
+            (rebound_subject, "Renamed Contract".to_owned()),
+        ]
+    );
+
     let occupied_id = Uuid::new_v4();
     let occupied_subject = format!("occupied-{occupied_id}");
     sqlx::query(
@@ -140,11 +156,26 @@ async fn grant_state(
     .await
 }
 
-/// The ledger refuses rewriting history, whoever asks.
+/// (subject, display name) of every recorded value of one principal, oldest first.
+async fn principal_records(
+    pool: &sqlx::PgPool,
+    principal_id: Uuid,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT zitadel_subject, display_name FROM identity.service_principal_record          WHERE service_principal_id = $1 ORDER BY record_seq",
+    )
+    .bind(principal_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// The ledgers refuse rewriting history, whoever asks.
 async fn assert_ledger_refuses_rewrites(pool: &sqlx::PgPool, principal_id: Uuid) {
     for statement in [
         "UPDATE identity.service_capability_grant_record SET change = 'granted'          WHERE service_principal_id = $1",
         "DELETE FROM identity.service_capability_grant_record WHERE service_principal_id = $1",
+        "UPDATE identity.service_principal_record SET display_name = 'x' WHERE service_principal_id = $1",
+        "DELETE FROM identity.service_principal_record WHERE service_principal_id = $1",
     ] {
         assert!(sqlx::query(statement)
             .bind(principal_id)
@@ -182,6 +213,15 @@ fn principal_manifest(
     subject: &str,
     capabilities: &[&str],
 ) -> Result<ValidatedManifest, ManifestError> {
+    named_principal_manifest(principal_id, subject, "Provisioning Contract", capabilities)
+}
+
+fn named_principal_manifest(
+    principal_id: Uuid,
+    subject: &str,
+    display_name: &str,
+    capabilities: &[&str],
+) -> Result<ValidatedManifest, ManifestError> {
     resolve_manifest(
         parse_policy(
             &serde_json::json!({
@@ -189,7 +229,7 @@ fn principal_manifest(
                 "principals": [{
                     "service_slug": "provisioning-contract",
                     "principal_id": principal_id,
-                    "display_name": "Provisioning Contract",
+                    "display_name": display_name,
                     "capabilities": capabilities
                 }]
             })
