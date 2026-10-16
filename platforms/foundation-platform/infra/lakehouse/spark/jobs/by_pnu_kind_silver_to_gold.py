@@ -46,7 +46,7 @@ class KindSpec:
         self.gold_columns = column_names(self.contract)
         self.required_columns = required_column_names(self.contract)
         self.content_columns = tuple(c for c in self.gold_columns if c not in LINEAGE_COLUMNS)
-        self.sources = (ANCHOR_SOURCE, *self.section.inputs)
+        self.sources = panel.section_sources(self.section)
         self.build_columns = {name: panel.BUILD_COLUMNS[name] for name in self.sources}
         self.whole_table_inputs = tuple(n for n in panel.WHOLE_TABLE_INPUTS if n in self.sources)
         if self.content_columns != ("pnu", *self.kind.columns, "attached_via"):
@@ -59,7 +59,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     kind, for the rebuild planner (gold_rebuild.producer_inputs)."""
     kind = by_pnu_kinds.kind(lane)
     section = panel.SECTIONS_BY_NAME[kind.section]
-    sources = (ANCHOR_SOURCE, *section.inputs)
+    sources = panel.section_sources(section)
     return (sources, {LINEAGE_SOURCE: "--no-carry-lineage"}, ANCHOR_SOURCE,
             tuple(n for n in panel.WHOLE_TABLE_INPUTS if n in sources))
 

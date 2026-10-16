@@ -73,6 +73,7 @@ from parcel_attribute_carry import carry_candidates
 from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
+import legal_dong_code_change_views as code_change_views
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -130,6 +131,9 @@ FOREST_SOURCE = "silver.land_forest_ledger"
 TRANSFER_SOURCE = "silver.land_transfer_history"
 LAND_RIGHT_SOURCE = "silver.land_right_registration"
 LINEAGE_SOURCE = "silver.parcel_lineage"
+# The one record of region code changes (root ADR-0145): an attribute keyed under the other side of a
+# renumbering than the served parcel edition is read under the served code (`read_renumbering`).
+CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 ATTRIBUTE_SOURCES = (
     ZONING_SOURCE,
     PRICE_SOURCE,
@@ -138,7 +142,7 @@ ATTRIBUTE_SOURCES = (
     TRANSFER_SOURCE,
     LAND_RIGHT_SOURCE,
 )
-ALL_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE)
+ALL_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE, CODE_CHANGE_SOURCE)
 # The columns build_panel reads from each input, and the only ones it is handed: the incremental
 # rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a column the
 # build reads must be here or the build fails on it.
@@ -154,13 +158,15 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
     LAND_RIGHT_SOURCE: ("pnu", "right_serial_no", "building_name", "dong_name", "floor_name",
                         "ho_name", "room_name", "right_ratio", "closure_kind_name", "closure_kind_code"),
     ZONE_CODE_SOURCE: ("ucode", "parent_ucode"),
+    CODE_CHANGE_SOURCE: ("kind", "old_code", "new_code", "level"),
     LINEAGE_SOURCE: ("predecessor_pnu", "successor_pnu", "relation", "cardinality", "effective_date", "grade",
                      "evidence_kind", "evidence_ref"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs: a zone code's anchor reaches
 # every parcel zoned under it. A change to one rebuilds whole (root ADR-0180).
 # A lineage edge is keyed by two PNUs, not one, and lands in both parcels' lineage section.
-WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE, LINEAGE_SOURCE)
+# A code pair re-keys every row under its code.
+WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE, LINEAGE_SOURCE, CODE_CHANGE_SOURCE)
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -359,6 +365,12 @@ def source_table_name(contract_name: str) -> str:
     return contract_name.split(".", maxsplit=1)[1]
 
 
+def source_namespace(args: argparse.Namespace, contract_name: str) -> str:
+    """`--source-iceberg-namespace` for the Silver inputs; any other input lives in its own."""
+    namespace = contract_name.split(".", maxsplit=1)[0]
+    return args.source_iceberg_namespace if namespace == "silver" else namespace
+
+
 def read_source(
     spark: SparkSession, args: argparse.Namespace, contract_name: str, pins: dict[str, str]
 ) -> DataFrame:
@@ -369,7 +381,7 @@ def read_source(
         frame = spark.read.parquet(str(Path(args.input_root) / table))
     else:
         frame = read_pinned_iceberg(spark,
-            f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{table}", contract_name, pins)
+            f"{args.iceberg_catalog_name}.{source_namespace(args, contract_name)}.{table}", contract_name, pins)
     missing = sorted(set(expected_columns) - set(frame.columns))
     if missing:
         raise ValueError(f"{contract_name} input is missing columns: {', '.join(missing)}")
@@ -383,7 +395,8 @@ def filtered_by_region(frame: DataFrame, region_prefix: str | None) -> DataFrame
 
 
 def read_served_parcels(
-    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], source: dict[str, Any] | None = None
+    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], source: dict[str, Any] | None = None,
+    region: bool = True,
 ) -> DataFrame:
     """The parcels the panel is built from: the current rows of the served edition only.
 
@@ -402,12 +415,45 @@ def read_served_parcels(
         )
     source = source or parcel_editions.load()
     served_id = parcel_editions.snapshot_id(source, parcel_editions.served(source))
-    return filtered_by_region(
-        read_source(spark, args, PARCEL_SOURCE, pins)
-        .where(F.expr(predicate))
-        .where(F.expr(f"source_snapshot_id = '{served_id}'")),
-        args.region_prefix,
-    )
+    served = (read_source(spark, args, PARCEL_SOURCE, pins)
+              .where(F.expr(predicate))
+              .where(F.expr(f"source_snapshot_id = '{served_id}'")))
+    return filtered_by_region(served, args.region_prefix) if region else served
+
+
+def read_renumbering(
+    spark: SparkSession, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int]
+) -> tuple[DataFrame, DataFrame]:
+    """The code change table at its pin, and {source code -> served code} as a broadcast frame.
+
+    A Silver lane keys its rows by its own release's codes and the map by the served parcel
+    edition's. Across a reorganization the two disagree, and a join on the PNU silently drops every
+    parcel of a renumbered 동 (2026-10-16: the land rights of 시도 12 against the 202606 edition, which
+    still says 29 and 46). Which codes the served edition holds is read from the whole edition,
+    not the region, so a region run translates as the full run does.
+    """
+
+    changes = read_source(spark, args, CODE_CHANGE_SOURCE, pins)
+    rows = [row.asDict() for row in changes.select(*BUILD_COLUMNS[CODE_CHANGE_SOURCE]).collect()]
+    codes = sorted({code for old, news in code_change_views.leaf_pairs(rows).items() for code in (old, *news)})
+    served = []
+    if codes:
+        served = [row.code for row in read_served_parcels(spark, args, pins, region=False)
+                  .select(F.substring("pnu", 1, 10).alias("code")).where(F.col("code").isin(codes))
+                  .distinct().collect()]
+    renumbered = code_change_views.renumbered_into(rows, served)
+    counters["renumbered_codes"] = len(renumbered)
+    schema = "_renumbered_from string, _renumbered_to string"
+    return changes, F.broadcast(spark.createDataFrame(sorted(renumbered.items()), schema=schema))
+
+
+def renumbered(frame: DataFrame, renumbering: DataFrame) -> DataFrame:
+    """`frame` with each PNU under a renumbered code re-keyed to the served code, lot unchanged."""
+
+    joined = frame.join(renumbering, F.substring("pnu", 1, 10) == F.col("_renumbered_from"), "left")
+    pnu = F.when(F.col("_renumbered_to").isNull(), F.col("pnu")).otherwise(
+        F.concat(F.col("_renumbered_to"), F.substring("pnu", 11, 9)))
+    return joined.select(*[pnu.alias("pnu") if c == "pnu" else F.col(c) for c in frame.columns])
 
 
 def assert_single_snapshot(frame: DataFrame, contract_name: str) -> str:
@@ -834,6 +880,13 @@ SECTIONS: tuple[Section, ...] = (
         frames.get(LINEAGE_SOURCE), spark), carried=False),
 )
 SECTIONS_BY_NAME: dict[str, Section] = {section.name: section for section in SECTIONS}
+
+
+def section_sources(section: Section) -> tuple[str, ...]:
+    """The inputs one section is built from: the parcels, its own, and the code change table its
+    attribute rows are re-keyed by (`read_renumbering`)."""
+    renumbers = bool(set(section.inputs) & set(ATTRIBUTE_SOURCES))
+    return (PARCEL_SOURCE, *section.inputs, *((CODE_CHANGE_SOURCE,) if renumbers else ()))
 SECTION_VIA_COLUMNS: dict[str, str] = {section.name: section.via_column for section in SECTIONS if section.carried}
 
 
@@ -1158,7 +1211,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
         "additional_input_datasets": [
             {
                 "qualified_name": name,
-                "namespace": "silver",
+                "namespace": name.split(".", 1)[0],
                 "table": source_table_name(name),
                 "storage_format": args.input_mode,
             }
@@ -1320,10 +1373,12 @@ def read_inputs(
     frames = {PARCEL_SOURCE: read_served_parcels(spark, args, pins)}
     candidates = read_carry_candidates(spark, args, counters, pins)
     inputs = {name for section in sections for name in section.inputs}
+    if inputs & set(ATTRIBUTE_SOURCES):
+        frames[CODE_CHANGE_SOURCE], renumbering = read_renumbering(spark, args, pins, counters)
     for name in ATTRIBUTE_SOURCES:
         if name in inputs:
             frames[name] = with_lineage_sources(
-                read_source(spark, args, name, pins), args.region_prefix, candidates
+                renumbered(read_source(spark, args, name, pins), renumbering), args.region_prefix, candidates
             )
     if ZONE_CODE_SOURCE in inputs:
         frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
@@ -1332,7 +1387,7 @@ def read_inputs(
     if source_snapshots is not None:
         # The lineage is appended run after run, so it holds many batches by design.
         for name, frame in frames.items():
-            if name != LINEAGE_SOURCE:
+            if name not in (LINEAGE_SOURCE, CODE_CHANGE_SOURCE):
                 source_snapshots[name] = assert_single_snapshot(frame, name)
     return incremental.project_build_inputs(frames, BUILD_COLUMNS), candidates
 

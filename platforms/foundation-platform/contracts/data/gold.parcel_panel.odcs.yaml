@@ -110,6 +110,7 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "reference.legal_dong_code_change"
       - "silver.land_characteristic"
       - "silver.land_forest_ledger"
       - "silver.land_individual_price"

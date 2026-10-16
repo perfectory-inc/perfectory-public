@@ -134,5 +134,36 @@ class LeafPairWindowTest(unittest.TestCase):
         self.assertEqual(len(views.leaf_pairs(rows)), 5, "without a window every pair is a pair")
 
 
+class RenumberedIntoTest(unittest.TestCase):
+    """A 1:1 renumbering is translated into whichever side the served edition holds; nothing else is."""
+
+    ROWS = [change("9799910100", "9899910100", "eupmyeondong"),  # renumbered with its 시도
+            change("9799910221", "9899910221", "ri"),
+            change("9999910300", "9999920300", "eupmyeondong"),  # split in two
+            change("9999910300", "9999920400", "eupmyeondong"),
+            change("9999910500", "9999920500", "eupmyeondong"),  # merged into one
+            change("9999910600", "9999920500", "eupmyeondong"),
+            change("9999910700", "9999910700", "eupmyeondong"),
+            change("9999900000", "9999800000", "sigungu")]
+
+    def test_new_codes_go_back_to_an_old_served_edition(self):
+        served = {"9799910100", "9799910221", "9999910300", "9999910500", "9999910600"}
+        self.assertEqual(views.renumbered_into(self.ROWS, served),
+                         {"9899910100": "9799910100", "9899910221": "9799910221"})
+
+    def test_old_codes_go_forward_to_a_new_served_edition(self):
+        served = {"9899910100", "9899910221", "9999920300", "9999920400", "9999920500"}
+        self.assertEqual(views.renumbered_into(self.ROWS, served),
+                         {"9799910100": "9899910100", "9799910221": "9899910221"})
+
+    def test_a_code_the_served_edition_holds_is_kept(self):
+        served = {"9799910100", "9899910100"}
+        self.assertEqual(views.renumbered_into(self.ROWS, served), {})
+
+    def test_a_code_changed_twice_is_left_for_the_lineage(self):
+        rows = [change("9999911100", "9999921100", "eupmyeondong"), change("9999921100", "9999931100", "eupmyeondong")]
+        self.assertEqual(views.renumbered_into(rows, {"9999911100", "9999931100"}), {})
+
+
 if __name__ == "__main__":
     unittest.main()

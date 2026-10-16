@@ -1521,6 +1521,14 @@
       ],
       "reads": [
         {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.building_register_apartment_price",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price,PROD)",
           "node_id": "silver-building-register-apartment-price",
