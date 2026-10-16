@@ -1831,7 +1831,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     sort_order: &["complex_name_normalized", "official_complex_code"],
     write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
-        "(official_complex_code, source_snapshot_id) unique",
+        "(official_complex_code, source_snapshot_id, ingested_at_utc) unique",
         "complex_name non-empty",
         "complex_kind is a supported domain wire value",
         "official_area_sqm > 0 when present",
@@ -1839,7 +1839,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
         "development_progress_percent is between 0 and 100 when present",
         "business_period_start_month and business_period_end_month are present together",
         "business_period months are yyyy-MM",
-        "active rows for the same complex_id do not overlap",
+        "current_row_latest leaves one current row per official_complex_code",
     ],
     // 2026-09-01 실측: 1,442개 값이 한 객체에서 나왔다. 값은 접두사 + 객체키 + `#` + 단지코드다.
     load: LakehouseLoadUnit::Object {

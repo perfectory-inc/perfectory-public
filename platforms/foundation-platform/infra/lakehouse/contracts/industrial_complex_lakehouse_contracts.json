@@ -322,7 +322,7 @@
       ],
       "write_distribution": "hash",
       "quality_gates": [
-        "(official_complex_code, source_snapshot_id) unique",
+        "(official_complex_code, source_snapshot_id, ingested_at_utc) unique",
         "complex_name non-empty",
         "complex_kind is a supported domain wire value",
         "official_area_sqm > 0 when present",
@@ -330,7 +330,7 @@
         "development_progress_percent is between 0 and 100 when present",
         "business_period_start_month and business_period_end_month are present together",
         "business_period months are yyyy-MM",
-        "active rows for the same complex_id do not overlap"
+        "current_row_latest leaves one current row per official_complex_code"
       ],
       "load": {
         "unit": "object",
