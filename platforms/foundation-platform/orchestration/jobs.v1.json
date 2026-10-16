@@ -229,6 +229,7 @@
       "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
       "systemd_service": "foundation-shape-ledger-check.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "30 12 * * *",
       "started_by": "schedule",
       "timeout_minutes": 20,
