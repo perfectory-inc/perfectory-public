@@ -10,12 +10,15 @@ test harnesses, the crates that cost the most.
 
 This script adds the missing half on top of rust-cache:
 
-* ``snapshot`` (after rust-cache restores) lists the dependency artifacts it put
-  in place, so that everything else in the target directories is this
-  workspace's own output.
 * ``stash`` (on main, after the build) records every tracked source file's blob
   id and mtime, then moves the workspace's own artifacts into a directory that
-  actions/cache saves. Moving is a rename, so it costs no disk.
+  actions/cache saves. Moving is a rename, so it costs no disk. An artifact is
+  the workspace's when its unit is named after a workspace package or target
+  (`cargo metadata --no-deps`), the rule rust-cache uses to drop them. Every
+  dependency artifact stays for rust-cache to save (root ADR-0210): telling
+  them apart by "was it there after rust-cache restored" moved every dependency
+  a run compiled into this stash, so rust-cache saved ~130 MB and restored
+  nothing, and a lockfile change rebuilt all ~740 dependency units.
 * ``restore`` moves a stashed set back into the target directories and gives
   each tracked file whose blob is unchanged the mtime it had when that set was
   built. A changed, added or locally modified file keeps its checkout time, so
@@ -29,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -91,15 +95,49 @@ def tracked_children(paths: list[str]) -> dict[str, set[str]]:
     return children
 
 
-def snapshot(repo: Path, targets: list[str], out: Path) -> int:
-    files = artifact_files(repo, targets)
-    out.write_text("".join(f"{path}\n" for path in files), encoding="utf-8")
-    print(f"workspace-build-cache: {len(files)} dependency artifacts came from rust-cache")
-    return 0
+UNIT_HASH = re.compile(r"[0-9a-f]{16}")
 
 
-def stash(repo: Path, targets: list[str], snapshot_file: Path, stash_dir: Path) -> int:
-    from_dependencies = set(snapshot_file.read_text(encoding="utf-8").splitlines())
+def workspace_names(workspace: Path) -> set[str]:
+    """Every package and target name of the Cargo workspace at `workspace`, spelled both ways
+    cargo writes them in unit names (dashes for package directories, underscores for crates)."""
+    metadata = json.loads(
+        subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1", "--offline"],
+            cwd=workspace,
+            check=True,
+            capture_output=True,
+        ).stdout
+    )
+    names = set()
+    for package in metadata["packages"]:
+        for name in [package["name"], *(target["name"] for target in package["targets"])]:
+            names.update((name, name.replace("-", "_")))
+    return names
+
+
+def is_workspace_unit(path: str, names: set[str]) -> bool:
+    """Whether an artifact (`<target>/<profile>/<deps|.fingerprint|build>/<unit>...`) belongs to
+    a unit named after a workspace package or target. `<unit>` is `<name>-<16 hex>`, with `lib`
+    before a library's name and an extension after a file's; anything else is a dependency's."""
+    parts = path.split("/")
+    for index, part in enumerate(parts[:-1]):
+        if part in UNIT_DIRS:
+            stem = parts[index + 1].split(".", 1)[0]
+            name, dash, unit_hash = stem.rpartition("-")
+            if not dash or not UNIT_HASH.fullmatch(unit_hash):
+                return False
+            return name in names or (name.startswith("lib") and name[3:] in names)
+    return False
+
+
+def stash(
+    repo: Path, targets: list[str], stash_dir: Path, names: set[str] | None = None
+) -> int:
+    if names is None:
+        names = set()
+        for target in targets:
+            names |= workspace_names((repo / target).parent)
     if stash_dir.exists():
         shutil.rmtree(stash_dir)
     (stash_dir / ARTIFACTS).mkdir(parents=True)
@@ -116,8 +154,10 @@ def stash(repo: Path, targets: list[str], snapshot_file: Path, stash_dir: Path) 
     (stash_dir / MANIFEST).write_text("".join(lines), encoding="utf-8")
 
     moved = 0
+    kept = 0
     for path in artifact_files(repo, targets):
-        if path in from_dependencies:
+        if not is_workspace_unit(path, names):
+            kept += 1
             continue
         destination = stash_dir / ARTIFACTS / path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -125,7 +165,7 @@ def stash(repo: Path, targets: list[str], snapshot_file: Path, stash_dir: Path) 
         moved += 1
     print(
         f"workspace-build-cache: stashed {moved} workspace artifacts "
-        f"and {len(lines)} source mtimes"
+        f"and {len(lines)} source mtimes; left {kept} dependency artifacts for rust-cache"
     )
     if moved == 0:
         print("::error::workspace-build-cache: nothing to stash; the build produced no workspace artifacts")
@@ -244,13 +284,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     commands = parser.add_subparsers(dest="command", required=True)
 
-    snap = commands.add_parser("snapshot")
-    snap.add_argument("--target", action="append", required=True)
-    snap.add_argument("--out", type=Path, required=True)
-
     put = commands.add_parser("stash")
     put.add_argument("--target", action="append", required=True)
-    put.add_argument("--snapshot", type=Path, required=True)
     put.add_argument("--stash", type=Path, required=True)
 
     get = commands.add_parser("restore")
@@ -259,10 +294,8 @@ def main(argv: list[str]) -> int:
 
     args = parser.parse_args(argv)
     repo = args.repository.resolve()
-    if args.command == "snapshot":
-        return snapshot(repo, args.target, args.out)
     if args.command == "stash":
-        return stash(repo, args.target, args.snapshot, args.stash)
+        return stash(repo, args.target, args.stash)
     report_restore(restore(repo, args.stash), args.matched_key)
     return 0
 
