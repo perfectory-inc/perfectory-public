@@ -88,8 +88,8 @@ R2 Bronze write:
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET` | environment-specific Bronze bucket binding |
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID` | Cloudflare account ID |
 | `FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT` | R2 S3 endpoint; optional when derived from the account ID |
-| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID` | runtime access key |
-| `FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY` | runtime secret key |
+| `FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID` | runtime access key |
+| `FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY` | runtime secret key |
 
 live-write 사전 점검이 실패하면 제공기관 다운로드 전에 task를 실패시킨다. 활성 account·bucket·secret
 binding은 공개 런북 사실이 아니라 private 배포 상태다.

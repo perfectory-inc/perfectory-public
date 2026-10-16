@@ -92,10 +92,10 @@ ai-server 에서 돌린다. 두 단계 모두 같은 판 하나만 받는다. �
 ### 202609 (2026-10 첫 실행)
 
 ```bash
-# 0) 자격증명: 값을 찍지 않고 환경으로만. parcel-publication.env 하나가 카탈로그 넷, R2 버킷·끝점,
+# 0) 자격증명: 값을 찍지 않고 환경으로만. /etc/foundation-platform/parcel-publication.env(계약의 parcel-publication 그룹, 루트 ADR-0247) 하나가 카탈로그 넷, R2 버킷·끝점,
 #    읽기 키(적재)와 쓰기 키(변환)를 다 갖는다. 장부(Foundation DB)를 읽는 비밀번호는 recovery.env 에 있다. 이름만 골라 읽는다.
 docker run --rm -v /etc/foundation-platform:/t:ro alpine sh -c \
-  'grep -E "^FOUNDATION_PLATFORM_(LAKEHOUSE_(CATALOG_URI|WAREHOUSE|CATALOG_TOKEN|CATALOG_PROVIDER)|R2_LAKEHOUSE_(BUCKET|ENDPOINT|READER_ACCESS_KEY_ID|READER_SECRET_ACCESS_KEY|WRITER_ACCESS_KEY_ID|WRITER_SECRET_ACCESS_KEY))=" /t/parcel-publication.env; grep -E "^FOUNDATION_ADMIN_PASSWORD=" /t/recovery.env' > ~/.parcel-202609.env
+  'grep -E "^FOUNDATION_PLATFORM_(LAKEHOUSE_(CATALOG_URI|WAREHOUSE|CATALOG_WRITER_TOKEN|CATALOG_PROVIDER|READER_ACCESS_KEY_ID|READER_SECRET_ACCESS_KEY|WRITER_ACCESS_KEY_ID|WRITER_SECRET_ACCESS_KEY)|R2_LAKEHOUSE_(BUCKET|ENDPOINT))=" /t/parcel-publication.env; grep -E "^FOUNDATION_ADMIN_PASSWORD=" /t/recovery.env' > ~/.parcel-202609.env
 set -a; . ~/.parcel-202609.env; set +a; rm -f ~/.parcel-202609.env
 export FOUNDATION_PLATFORM_RELEASE_DIR=/opt/foundation-platform/current
 export FOUNDATION_PLATFORM_PUBLISHER_BIN=/opt/foundation-platform/artifacts/$(basename "$(readlink -f /opt/foundation-platform/current)")/foundation-outbox-publisher

@@ -182,8 +182,8 @@ pub(super) fn safe_runner_error_message(output: &[String]) -> String {
     for token in [
         "serviceKey",
         "DATA_GO_KR_SERVICE_KEY",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         "unit-test-key",
         "fake-vworld-key",
     ] {

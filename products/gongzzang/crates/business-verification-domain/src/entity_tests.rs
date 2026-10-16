@@ -472,3 +472,39 @@ fn serde_roundtrip_approved() {
     let back: BusinessVerification = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(business_verification, back);
 }
+
+#[test]
+fn revoke_after_approve_records_reviewer_and_note() {
+    let now = Utc::now();
+    let mut business_verification = make_pending(now);
+    business_verification
+        .approve(Id::new(), None, now + Duration::hours(1))
+        .expect("approve ok");
+    let reviewer = Id::<UserMarker>::new();
+    let later = now + Duration::hours(2);
+    business_verification
+        .revoke(reviewer.clone(), "폐업 확인".to_owned(), later)
+        .expect("revoke ok");
+    assert_eq!(
+        business_verification.status,
+        BusinessVerificationStatus::Revoked
+    );
+    assert_eq!(business_verification.reviewer_id, Some(reviewer));
+    assert_eq!(business_verification.reviewed_at, Some(later));
+    assert_eq!(business_verification.version, 3);
+}
+
+#[test]
+fn revoke_requires_approved_and_a_note() {
+    let now = Utc::now();
+    let mut pending = make_pending(now);
+    assert!(matches!(
+        pending.revoke(Id::new(), "note".to_owned(), now),
+        Err(BusinessVerificationError::InvalidTransition { .. })
+    ));
+    pending.approve(Id::new(), None, now).expect("approve ok");
+    assert!(matches!(
+        pending.revoke(Id::new(), "  ".to_owned(), now),
+        Err(BusinessVerificationError::EmptyReviewerNote { action: "revoke" })
+    ));
+}

@@ -25,7 +25,7 @@ use catalog_domain::{
 };
 use catalog_infrastructure::{PgCatalogRepository, PgCatalogUnitOfWork};
 use chrono::{NaiveDate, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -111,7 +111,6 @@ async fn rollback_path_official_code_conflict_leaves_no_partial_state() {
         .official_complex_code
         .clone_from(&first.official_complex_code);
     conflict.id = first.id;
-    conflict.lakehouse_complex_id = first.lakehouse_complex_id;
     let err = uow
         .create_complex(&conflict)
         .await
@@ -168,7 +167,6 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
     let created = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
-            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E imported complex".to_owned(),
             kind: IndustrialComplexKind::General,
             primary_bjdong_code: Some(first_primary_bjdong_code.clone()),
@@ -188,7 +186,6 @@ async fn upsert_by_official_code_creates_then_updates_existing_complex() {
     let updated = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
-            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E imported complex updated".to_owned(),
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: Some(second_primary_bjdong_code.clone()),
@@ -251,7 +248,6 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
     let complexes = uow
         .upsert_complexes_by_official_code(&[
             UpsertIndustrialComplexCommand {
-                lakehouse_complex_id: Some(derived_lakehouse_complex_id(&first_official_code)),
                 official_complex_code: first_official_code,
                 name: "E2E shared bjdong complex A".to_owned(),
                 kind: IndustrialComplexKind::General,
@@ -281,7 +277,6 @@ async fn upsert_by_official_code_allows_multiple_complexes_in_same_bjdong() {
                 lot_sales_status_raw: None,
             },
             UpsertIndustrialComplexCommand {
-                lakehouse_complex_id: Some(derived_lakehouse_complex_id(&second_official_code)),
                 official_complex_code: second_official_code,
                 name: "E2E shared bjdong complex B".to_owned(),
                 kind: IndustrialComplexKind::National,
@@ -339,7 +334,6 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
     let created = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
             official_complex_code: official_complex_code.clone(),
-            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             name: "E2E complex without a legal-dong code".to_owned(),
             kind: IndustrialComplexKind::Agricultural,
             primary_bjdong_code: None,
@@ -380,7 +374,6 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
     // A second identical command must change nothing rather than bump the version.
     let repeated = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
-            lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
             official_complex_code,
             name: "E2E complex without a legal-dong code".to_owned(),
             kind: IndustrialComplexKind::Agricultural,
@@ -400,7 +393,7 @@ async fn upsert_by_official_code_stores_a_complex_without_a_legal_dong_code() {
 
 /// Everything the Gold loader now writes must survive Postgres and come back unchanged.
 ///
-/// The write path spells eight description columns plus the lakehouse identity into two SQL
+/// The write path spells eight description columns plus the derived identity into two SQL
 /// statements and reads them back through a shared projection list. A column present in the
 /// migration and missed by one of those is a runtime failure, not a compile error, so the round
 /// trip is what pins it. The second half checks the other direction: a later snapshot that stops
@@ -413,9 +406,9 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     let uow = PgCatalogUnitOfWork::new(pool.clone());
     let repo = PgCatalogRepository::new(pool.clone());
     let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
-    let lakehouse_complex_id = derived_lakehouse_complex_id(&official_complex_code);
+    let complex_id = ComplexId::for_official_complex_code(&official_complex_code);
 
-    let sourced = fully_sourced_command(official_complex_code.clone(), lakehouse_complex_id);
+    let sourced = fully_sourced_command(official_complex_code.clone());
 
     let created = uow
         .upsert_complexes_by_official_code(std::slice::from_ref(&sourced))
@@ -433,7 +426,11 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
         .await
         .expect("find the stored complex")
         .expect("the complex exists");
-    assert_every_sourced_column_round_tripped(&stored, lakehouse_complex_id);
+    assert_eq!(
+        stored.id, complex_id,
+        "the id is the derivation of the code"
+    );
+    assert_every_sourced_column_round_tripped(&stored);
 
     // Re-applying the same snapshot must be a no-op, not a version bump.
     let repeated = uow
@@ -448,7 +445,6 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     // A snapshot that stopped carrying the values clears them.
     let cleared = uow
         .upsert_complexes_by_official_code(&[UpsertIndustrialComplexCommand {
-            lakehouse_complex_id: Some(lakehouse_complex_id),
             status: None,
             sido_code: None,
             sigungu_code: None,
@@ -480,7 +476,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
     assert_eq!(cleared.effect, UpsertIndustrialComplexEffect::Updated);
     let cleared = cleared.complex;
     assert_eq!(cleared.id, created.id, "the natural key must keep its id");
-    assert_eq!(cleared.id.as_uuid(), lakehouse_complex_id.as_uuid());
+    assert_eq!(cleared.id, complex_id);
     assert_eq!(cleared.status, None);
     assert_eq!(cleared.address_text, None);
     assert_eq!(cleared.designated_date, None);
@@ -504,11 +500,7 @@ async fn upsert_by_official_code_round_trips_every_sourced_column() {
 }
 
 /// Every column `fully_sourced_command` states, read back off the stored aggregate.
-fn assert_every_sourced_column_round_tripped(
-    stored: &IndustrialComplex,
-    lakehouse_complex_id: LakehouseComplexId,
-) {
-    assert_eq!(stored.lakehouse_complex_id, Some(lakehouse_complex_id));
+fn assert_every_sourced_column_round_tripped(stored: &IndustrialComplex) {
     assert_eq!(stored.status, Some(IndustrialComplexStatus::Operating));
     assert_eq!(stored.sido_code.as_deref(), Some("46"));
     assert_eq!(stored.sigungu_code.as_deref(), Some("46840"));
@@ -573,17 +565,13 @@ fn assert_every_sourced_column_round_tripped(
 }
 
 /// The command a Gold snapshot produces when every sourced column carries a value.
-fn fully_sourced_command(
-    official_complex_code: String,
-    lakehouse_complex_id: LakehouseComplexId,
-) -> UpsertIndustrialComplexCommand {
+fn fully_sourced_command(official_complex_code: String) -> UpsertIndustrialComplexCommand {
     UpsertIndustrialComplexCommand {
         official_complex_code,
         name: "E2E fully sourced complex".to_owned(),
         kind: IndustrialComplexKind::Agricultural,
         primary_bjdong_code: None,
         area_m2: 272_089,
-        lakehouse_complex_id: Some(lakehouse_complex_id),
         status: Some(IndustrialComplexStatus::Operating),
         sido_code: Some("46".to_owned()),
         sigungu_code: Some("46840".to_owned()),
@@ -625,7 +613,6 @@ const fn identity_only_command() -> UpsertIndustrialComplexCommand {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: None,
         area_m2: 0,
-        lakehouse_complex_id: None,
         status: None,
         sido_code: None,
         sigungu_code: None,
@@ -656,7 +643,6 @@ fn sample_complex() -> IndustrialComplex {
     let official_complex_code = format!("IC-{}", Uuid::new_v4().simple());
     IndustrialComplex {
         id: ComplexId::for_official_complex_code(&official_complex_code),
-        lakehouse_complex_id: Some(derived_lakehouse_complex_id(&official_complex_code)),
         official_complex_code,
         name: format!("E2E 테스트 산단 {}", Uuid::new_v4()),
         kind: IndustrialComplexKind::General,
@@ -724,12 +710,6 @@ async fn cleanup_by_complex_id(pool: &PgPool, complex_id: ComplexId) {
     .execute(pool)
     .await
     .expect("cleanup outbox");
-}
-
-/// The lakehouse id an upsert command carries for this code: the code's derivation, the same value
-/// as the complex id (root ADR-0250). The unit of work stores it as given, so a fixture states it.
-fn derived_lakehouse_complex_id(official_complex_code: &str) -> LakehouseComplexId {
-    LakehouseComplexId::new(ComplexId::for_official_complex_code(official_complex_code).as_uuid())
 }
 
 fn random_primary_bjdong_code() -> String {

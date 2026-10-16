@@ -7,6 +7,8 @@ OnFailure=foundation-unit-failed@%n.service
 
 [Service]
 Type=oneshot
+# Exit 3 is "a collected edition awaits its Silver load" (the script's AWAITING_LOAD): not a fault.
+SuccessExitStatus=3
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current

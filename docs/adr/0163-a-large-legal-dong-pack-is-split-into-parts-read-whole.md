@@ -1,6 +1,6 @@
 # ADR 0163: 큰 법정동 묶음은 한 번에 읽히는 크기의 조각으로 나눈다
 
-- Status: Accepted
+- Status: Superseded by ADR-0233
 - Date: 2026-10-09
 - Builds on: [ADR-0147](./0147-by-pnu-documents-are-served-from-section-packs.md)(법정동 묶음),
   [ADR-0151](./0151-building-packs-serve-each-document-whole.md)(문서 통째),

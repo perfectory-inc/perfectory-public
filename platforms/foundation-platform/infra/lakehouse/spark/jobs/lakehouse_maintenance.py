@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,15 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
     scheduled = contract["scheduled"]
     if set(scheduled["skip"]) - set(STEPS) or scheduled["deadline_minutes"] < 1:
         raise ValueError(f"scheduled must skip only {STEPS} and give a positive deadline: got {scheduled!r}")
+    retries = re.fullmatch(r"local\[\d+,\s*(\d+)\]", scheduled["spark"]["master"])
+    if retries is None or int(retries.group(1)) < 2:
+        raise ValueError(
+            f"scheduled.spark.master={scheduled['spark']['master']!r} must be local[N,maxFailures] with "
+            "maxFailures >= 2: plain local[N] ignores spark.task.maxFailures, so one R2 connection reset "
+            "aborts the job (root ADR-0102)"
+        )
+    if contract["compaction"]["partial_progress_max_commits"] < 1:
+        raise ValueError("compaction.partial_progress_max_commits must allow at least one commit")
     order = contract.get("order")
     if order != ["compaction", "snapshot_expiry", "orphan_cleanup"]:
         raise ValueError(
@@ -374,6 +384,21 @@ def run_snapshot_expiry(
     )
 
 
+def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any]) -> str:
+    """The compaction call. Each file group commits on its own (`partial-progress.enabled`): a
+    group that fails to read leaves the groups already rewritten in place instead of discarding them
+    all, and the next run takes what is left (2026-10-15: one R2 connection reset discarded the
+    whole of silver.parcel_boundaries's 152-file rewrite)."""
+    options = {
+        "min-input-files": compaction["min_input_files"],
+        "target-file-size-bytes": compaction["target_file_bytes"],
+        "partial-progress.enabled": "true",
+        "partial-progress.max-commits": compaction["partial_progress_max_commits"],
+    }
+    pairs = ",".join(f"'{key}','{value}'" for key, value in options.items())
+    return f"CALL {catalog}.system.rewrite_data_files(table => '{table}', options => map({pairs}))"
+
+
 def file_shape(spark: Any, qualified: str) -> tuple[int, int]:
     row = spark.sql(f"SELECT count(*) c, coalesce(sum(file_size_in_bytes), 0) b FROM {qualified}.files").collect()[0]
     return int(row.c), int(row.b)
@@ -433,12 +458,7 @@ def maintain_table(
     elif dry_run:
         print(f"maintenance-would step=compaction small_files={small}", flush=True)
     else:
-        result = spark.sql(
-            f"CALL {catalog}.system.rewrite_data_files(table => '{table}', "
-            f"options => map("
-            f"'min-input-files','{compaction['min_input_files']}',"
-            f"'target-file-size-bytes','{compaction['target_file_bytes']}'))"
-        ).collect()[0]
+        result = spark.sql(rewrite_data_files_sql(catalog, table, compaction)).collect()[0]
         print(f"maintenance-done step=compaction read={result[0]} wrote={result[1]}", flush=True)
 
     if "snapshot_expiry" in skip:

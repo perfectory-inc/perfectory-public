@@ -35,8 +35,9 @@ pub struct CardSearchQuery {
     pub viewer_user_id: Id<UserMarker>,
 }
 
-/// Card list sort order.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Card list sort order. The `snake_case` names are the `sort` query values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum CardSearchSort {
     /// Newest listings first.
     #[default]
@@ -49,4 +50,27 @@ pub enum CardSearchSort {
     AreaAsc,
     /// Largest area first.
     AreaDesc,
+}
+
+impl CardSearchSort {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::CreatedAtDesc,
+        Self::PriceAsc,
+        Self::PriceDesc,
+        Self::AreaAsc,
+        Self::AreaDesc,
+    ];
+
+    /// The `sort` query value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CreatedAtDesc => "created_at_desc",
+            Self::PriceAsc => "price_asc",
+            Self::PriceDesc => "price_desc",
+            Self::AreaAsc => "area_asc",
+            Self::AreaDesc => "area_desc",
+        }
+    }
 }

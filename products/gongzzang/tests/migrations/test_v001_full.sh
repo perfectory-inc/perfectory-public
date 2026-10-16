@@ -34,6 +34,7 @@ EXPECTED_TABLES=(
   outbox_event
   admin_action
   business_verification_queue
+  business_verification_status_history
   listing_review_queue
   listing_report
   featured_content
@@ -45,6 +46,7 @@ EXPECTED_TABLES=(
   listing_marker_tombstone_log
   listing_marker_delta_log
   listing_marker_dirty_tile_queue
+  listing_marker_state
   foundation_platform_event_inbox
   external_account
 )

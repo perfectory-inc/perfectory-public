@@ -857,7 +857,7 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
                 "perfectory-tiles-slice-proof"
             ),
             "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "warehouse-id",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": "sentinel-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "sentinel-secret",
             "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER": "r2_data_catalog",
         }
         configured = configure_spark_builder(
@@ -957,7 +957,7 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
         )
         base_values = {
             "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "warehouse-id",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": "sentinel-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "sentinel-secret",
             "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER": "r2_data_catalog",
         }
 
@@ -1011,7 +1011,7 @@ class SpatialTilePublicationWapTest(unittest.TestCase):
         stderr = io.StringIO()
         with patch.dict(
             os.environ,
-            {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": token},
+            {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": token},
             clear=False,
         ), patch.object(
             wap,

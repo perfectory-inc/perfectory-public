@@ -27,7 +27,27 @@ import runtime_secrets  # noqa: E402
 
 CONTRACT = AREA / "config/runtime-secrets.contract.json"
 NUMBER_CHANGE = "foundation-parcel-number-change.service"
-READER = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
+READER = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"
+READER_SECRET = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
+CATALOG_WRITER = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"
+# Names these credentials went by before root ADR-0247. Spelled in pieces: the credential-names guard
+# refuses a retired name written whole anywhere in the tree.
+OLD = {
+    READER: "FOUNDATION_PLATFORM_" + "R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
+    READER_SECRET: "FOUNDATION_PLATFORM_" + "R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+    CATALOG_WRITER: "FOUNDATION_PLATFORM_LAKEHOUSE_" + "CATALOG_TOKEN",
+}
+
+
+def plant_renames(contract):
+    """A contract whose tokens list the old names above as renamed_from (the rename mechanism's fixture;
+    the real contract lists none once a rename is complete)."""
+    for token in contract["cloudflare_tokens"]["tokens"]:
+        if token["name"] == "foundation-platform-lakehouse-reader-prod":
+            token["renamed_from"] = [OLD[READER], OLD[READER_SECRET]]
+        if token["name"] == "foundation-platform-lakehouse-catalog-writer-prod":
+            token["renamed_from"] = [OLD[CATALOG_WRITER]]
+    return contract
 
 
 class TheRepository(unittest.TestCase):
@@ -42,8 +62,8 @@ class TheRepository(unittest.TestCase):
     def test_a_unit_that_reads_bronze_back_gets_the_reader_pair_alone(self):
         contract = runtime_secrets.load(AREA)
         reader = contract.groups["lakehouse-reader"]
-        self.assertEqual(reader.holds, {READER, "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-                                        *contract.tokens["foundation-platform-lakehouse-reader-prod"]})
+        self.assertEqual(reader.holds, {READER, READER_SECRET})
+        self.assertEqual(contract.tokens["foundation-platform-lakehouse-reader-prod"], [READER, READER_SECRET])
         self.assertEqual(reader.mode, 0o600)
         lines = runtime_secrets.rendered_lines(contract, contract.consumer(NUMBER_CHANGE))
         self.assertEqual(lines[-1], reader.path)
@@ -65,12 +85,16 @@ class CloudflareTokens(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(runtime_secrets.ContractError):
                 runtime_secrets.derived_names(name, "api_token")
 
-    def test_every_old_name_maps_to_a_name_a_recorded_token_derives(self):
-        contract = runtime_secrets.load(AREA)
-        derived = {name for names in contract.tokens.values() for name in names}
-        self.assertEqual(contract.renamed["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"],
-                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN")
-        self.assertLessEqual(set(contract.renamed.values()), derived)
+    def test_renamed_from_maps_each_old_name_to_the_derived_name_in_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            area = pathlib.Path(temp)
+            shutil.copytree(AREA / "config", area / "config")
+            shutil.copytree(AREA / "infra/systemd", area / "infra/systemd")
+            path = area / "config/runtime-secrets.contract.json"
+            path.write_text(json.dumps(plant_renames(json.loads(path.read_text(encoding="utf-8")))), encoding="utf-8")
+            renamed = runtime_secrets.load(area).renamed
+        self.assertEqual(renamed, {OLD[READER]: READER, OLD[READER_SECRET]: READER_SECRET,
+                                   OLD[CATALOG_WRITER]: CATALOG_WRITER})
 
 
 
@@ -113,7 +137,7 @@ class PlantedDefects(unittest.TestCase):
         contract = self.contract()
         self.consumer(contract, "measure-building-section-packs")["needs"] = {}
         self.write_contract(contract)
-        self.assertIn("measure-building-section-packs: FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID is required by its script",
+        self.assertIn("measure-building-section-packs: FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID is required by its script",
                       self.findings())
 
     def test_a_hand_edited_environment_file_line(self):
@@ -159,12 +183,23 @@ class PlantedDefects(unittest.TestCase):
             runtime_secrets.check(self.area)
 
     def test_a_group_that_holds_an_old_name_without_its_derived_name(self):
-        contract = self.contract()
+        contract = plant_renames(self.contract())
         group = next(g for g in contract["groups"] if g["name"] == "lakehouse-reader")
-        group["holds"].remove("@token:foundation-platform-lakehouse-reader-prod")
+        group["holds"] = [OLD[READER], OLD[READER_SECRET]]
         self.write_contract(contract)
-        self.assertIn(f"group lakehouse-reader: holds {READER} but not FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
-                      self.findings())
+        self.assertIn(f"group lakehouse-reader: holds {OLD[READER]} but not {READER}", self.findings())
+
+    def test_a_runbook_that_names_a_host_file_the_contract_does_not_declare(self):
+        runbook = self.area / "docs/runbooks/vworld-parcel-editions.md"
+        runbook.write_text(runbook.read_text(encoding="utf-8") + "\n/etc/foundation-platform/planted.env\n", encoding="utf-8")
+        self.assertIn("/etc/foundation-platform/planted.env is not a group in", self.findings())
+
+    def test_the_parcel_publication_file_lives_in_the_contract(self):
+        """The manual parcel load's file was the one host file outside the contract (root ADR-0247)."""
+        contract = self.contract()
+        contract["groups"] = [g for g in contract["groups"] if g["name"] != "parcel-publication"]
+        self.write_contract(contract)
+        self.assertIn("/etc/foundation-platform/parcel-publication.env is not a group in", self.findings())
 
     def test_a_token_recorded_twice(self):
         contract = self.contract()
@@ -191,6 +226,7 @@ class TheHost(unittest.TestCase):
         for group in contract["groups"]:
             if "owner" in group:
                 group["owner"], group["group"] = self.user, self.group
+        plant_renames(contract)
         (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
         self.contract = runtime_secrets.load(self.area)
         used = {g.name for c in self.contract.consumers if c.kind == "unit" for g in self.contract.loaded(c)}
@@ -233,21 +269,44 @@ class TheHost(unittest.TestCase):
 
     def test_rename_gives_an_old_name_its_derived_name_with_the_same_value_and_mode(self):
         derived = self.contract.tokens["foundation-platform-lakehouse-reader-prod"]
-        self.reader.write_text(f"{READER}=planted-id\n"
-                               "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY=planted-secret-value", encoding="utf-8")
+        self.reader.write_text(f"{OLD[READER]}=planted-id\n{OLD[READER_SECRET]}=planted-secret-value", encoding="utf-8")
         self.reader.chmod(0o600)
         self.assertEqual(self.findings(), [f"/etc/foundation-platform/lakehouse-reader.env: does not hold {name}"
                                            for name in derived])
         changed = runtime_secrets.rename(self.area, self.root)
-        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {READER} -> {derived[0]}",
-                                   "/etc/foundation-platform/lakehouse-reader.env: "
-                                   f"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY -> {derived[1]}"])
+        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} -> {derived[0]}",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} -> {derived[1]}",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} removed",
+                                   f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} removed"])
         self.assertNotIn("planted", "\n".join(changed))
         lines = self.reader.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(lines[-2:], [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
+        self.assertEqual(lines, [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
         self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.findings(), [])
         self.assertEqual(runtime_secrets.rename(self.area, self.root), [], "a second run changes nothing")
+
+    def test_an_old_line_goes_when_its_value_is_under_another_held_name(self):
+        """The map's file held the reader token under the writer's old name (root ADR-0247 phase three)."""
+        operations_map = self.root / "etc/foundation-platform/operations-map.env"
+        old_catalog = OLD[CATALOG_WRITER]
+        operations_map.write_text(f"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=planted-uri\n{old_catalog}=planted-reader\n"
+                                  "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n", encoding="utf-8")
+        operations_map.chmod(0o640)
+        self.assertEqual(runtime_secrets.rename(self.area, self.root),
+                         [f"/etc/foundation-platform/operations-map.env: {old_catalog} removed"])
+        self.assertEqual(operations_map.read_text(encoding="utf-8"),
+                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=planted-uri\n"
+                         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=planted-reader\n")
+
+    def test_an_old_line_whose_value_is_nowhere_else_is_kept_and_named(self):
+        held = "".join(f"{name}=planted-secret-value\n" for name in sorted(self.contract.groups["lakehouse-reader"].holds))
+        self.reader.write_text(held + f"{OLD[READER]}=planted-different\n", encoding="utf-8")
+        before = self.reader.read_text(encoding="utf-8")
+        changed = runtime_secrets.rename(self.area, self.root)
+        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} kept, "
+                                   "its value is under no name the group holds"])
+        self.assertNotIn("planted", "\n".join(changed))
+        self.assertEqual(self.reader.read_text(encoding="utf-8"), before)
 
     def test_rename_leaves_a_file_that_already_holds_the_derived_name(self):
         before = self.reader.read_text(encoding="utf-8")
@@ -296,6 +355,14 @@ class TheHost(unittest.TestCase):
 
 
 class TheCommandLine(unittest.TestCase):
+    def test_every_command_runs_wherever_the_release_lives(self):
+        """The deploy's rename and host must not depend on how deep the release directory is: a
+        default computed from the script's own path once crashed every command at a shallow one."""
+        from unittest import mock  # noqa: PLC0415
+
+        with mock.patch.object(runtime_secrets, "AREA", pathlib.Path("/area")):
+            self.assertEqual(runtime_secrets.main(["--area", str(AREA), "names", NUMBER_CHANGE]), 0)
+
     def test_a_run_gets_its_systemd_run_properties_from_the_contract(self):
         contract = runtime_secrets.load(AREA)
         expected = " ".join(f"-p EnvironmentFile={line}"

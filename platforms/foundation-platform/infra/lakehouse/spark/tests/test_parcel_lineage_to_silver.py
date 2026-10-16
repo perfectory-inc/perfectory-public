@@ -14,7 +14,7 @@ sys.path.insert(0, str(JOBS_DIR))
 
 import parcel_lineage as pl  # noqa: E402
 from legal_dong_code_snapshot_to_reference import read_code_file, snapshot_rows  # noqa: E402
-from parcel_lineage_to_silver import derive, parse_args  # noqa: E402
+from parcel_lineage_to_silver import UnrecordedDongCodes, derive, parse_args  # noqa: E402
 
 # Synthetic codes in the reserved 99999 range. Old dongs 99999-1xx were renumbered to 99999-2xx on 2099-07-01; in the same
 # change one dong's land was partly transferred into another dong and re-lotted.
@@ -82,8 +82,11 @@ class DeriveTest(unittest.TestCase):
         # codes on its own (root ADR-0145 §2), and writing on would record no code_change link for
         # the dongs that vanished, silently.
         for changes, missing in (([], [OLD_A, OLD_B]), (CHANGES[:1], [OLD_B])):
-            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, rf"2099-06-01.*{missing}"):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, rf"2099-06-01.*{missing}") as refused:
                 self.run_derive(changes=changes)
+            # The codes ride on the refusal itself, so the alert names every one of them.
+            self.assertIsInstance(refused.exception, UnrecordedDongCodes)
+            self.assertEqual(refused.exception.codes, missing)
 
     def test_a_pair_outside_the_window_is_not_applied(self):
         # 99999-103 still holds its lots at the later snapshot: it was renumbered after --to-date, and

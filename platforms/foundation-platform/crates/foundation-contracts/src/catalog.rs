@@ -101,14 +101,10 @@ pub struct ArchiveComplexRequest {
 /// Canonical industrial complex response owned by foundation-platform Catalog.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct IndustrialComplexResponse {
-    /// Stable foundation-platform identifier for the complex.
+    /// The complex's one id: the `UUIDv5` derived from its official code, the same value `complex`
+    /// vector tiles publish as their feature id and Gold artifact keys are computed from
+    /// (root ADR-0250).
     pub id: Uuid,
-    /// Identifier the same complex carries in the lakehouse, when it was sourced from there.
-    ///
-    /// Unrelated to `id`: that one is minted locally, this one is derived and is what Gold
-    /// artifact object keys are computed from. A client that wants the complex's Gold profile
-    /// object needs this value, not `id`. `null` for a complex registered through this API.
-    pub lakehouse_complex_id: Option<Uuid>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.

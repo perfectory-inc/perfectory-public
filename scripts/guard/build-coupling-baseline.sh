@@ -259,7 +259,10 @@ BUILD_SCRIPT_BASELINE="${2:-6}"
 # 133 -> 134: root ADR-0223's listing integration test embeds the parcel-source migration and
 # replays its existing-row statements over an old-shape row, so the test runs the shipped SQL,
 # not a copy of it: a copy would pass while the migration left those listings unsaveable.
-COMPILE_TIME_READ_BASELINE="${3:-134}"
+# 134 -> 135: root ADR-0258's business-verification integration test embeds its migration and replays
+# the backfill section over old-shape user rows, so the test runs the shipped SQL, not a copy:
+# a copy could pass while the real migration dropped a verified business.
+COMPILE_TIME_READ_BASELINE="${3:-135}"
 
 cd "$repo_root"
 

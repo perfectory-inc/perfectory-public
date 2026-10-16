@@ -285,7 +285,7 @@ class TheEditionJobTest(unittest.TestCase):
         for retired in ("propose", "proposed/", "vworld_parcel_edition_members.py", "docker run"):
             self.assertNotIn(retired, code)
         members = (AREA / "scripts" / "ops" / "bronze-object-members.sh").read_text(encoding="utf-8")
-        self.assertIn("unset FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", members)
+        self.assertIn("unset FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID", members)
 
 
 class EachChangeReadsItsOwnEditionsTest(unittest.TestCase):

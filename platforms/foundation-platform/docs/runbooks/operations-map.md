@@ -10,6 +10,8 @@ last_reviewed: 2026-10-13
 루트 [ADR-0195](../../../../docs/adr/0195-dawneer-shows-every-jobs-health-on-the-data-flow-map.md)
 (지도가 작업마다 다섯 신호를 계산)와 [ADR-0208](../../../../docs/adr/0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md)
 (그 문제를 기존 Alertmanager 로 Slack 에 보냄)의 운영 절차다. 값은 여기에 적지 않는다. 이름과 경로만 적는다.
+작업이 성공했는지는 그 실행의 마지막 `foundation-job-outcome` 줄로 정한다 — 줄이 없으면 실패다
+([ADR-0260](../../../../docs/adr/0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md), 제안).
 
 ## 1. 서버에 만들 파일 하나 — `/etc/foundation-platform/operations-map.env`
 
@@ -47,14 +49,15 @@ FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER=r2_data_catalog
 
 만드는 순서. 파일은 손으로 편집하지 않는다 — `foundation-release.sh env-set` 이 계약의 `operations-map` 그룹이 담는
 이름만 받아 계약의 소유자·모드로 쓴다(루트 ADR-0247). 그룹이 담지 않는 이름(예: 쓰기 토큰)은 거부된다. 값은 출력되지
-않고, 셸 기록에도 남기지 않는다.
+않고, 셸 기록에도 남기지 않는다. 새 이름을 읽는 코드가 배포되기 **전에** 넣는다: `foundation-api` 컨테이너는
+만들어질 때만 이 파일을 읽으므로, 이름이 없던 때 만들어진 컨테이너는 다시 만들 때까지 카탈로그를 못 읽는다(2026-10-15 실측).
 
 ```bash
 # 노트북: 값을 찍지 않고 이름=값 줄만 0600 파일로 서버에 보낸다
 grep -E '^FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=' platforms/foundation-platform/.env.local \
   | tr -d '\r' | ssh <서버> 'umask 077; cat > ~/operations-map.set'
 # 서버: 계약을 거쳐 쓰고, 원본을 지우고, 지도를 다시 띄운다
-sudo -n /opt/foundation-platform/current/scripts/deploy/foundation-release.sh env-set operations-map ~/operations-map.set
+sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set operations-map ~/operations-map.set
 shred -u ~/operations-map.set
 /opt/foundation-platform/current/scripts/deploy/foundation-runtime.sh up -d foundation-api
 ```

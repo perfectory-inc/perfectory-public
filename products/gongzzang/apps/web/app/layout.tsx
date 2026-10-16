@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { Toaster } from "@gongzzang/ui";
+import { RumReporter } from "@/components/rum-reporter";
 import { preconnectDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
 import { QueryProvider } from "@/lib/query";
@@ -47,6 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <QueryProvider>
             {children}
             <Toaster />
+            <RumReporter />
           </QueryProvider>
         </NextIntlClientProvider>
       </body>

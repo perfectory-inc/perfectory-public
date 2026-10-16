@@ -10,33 +10,21 @@ fail=0
 foundation_env="platforms/foundation-platform/.env.example"
 contract="platforms/foundation-platform/config/r2-connections.contract.json"
 
+# Connection settings only. Credentials are named after their Cloudflare tokens and checked by
+# `runtime_secrets.py credentials` (scripts/guard/credential-names.sh, root ADR-0247), not listed here.
 canonical_keys=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX
-  FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY
   FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET
   FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST
-  FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY
 )
 
 for key in "${canonical_keys[@]}"; do
@@ -153,7 +141,7 @@ done
 #
 # Everything above is a deny-list: it rejects the specific legacy spellings we
 # already know about. That is fail-OPEN. A brand-new connection-like name nobody
-# thought to add — `FOUNDATION_PLATFORM_R2_ARCHIVE_SECRET_ACCESS_KEY`, say —
+# thought to add — `FOUNDATION_PLATFORM_R2_ARCHIVE_BUCKET`, say —
 # passes every check on this page. The plan that introduced this namespace asked
 # for the opposite shape: allow exactly the declared control families and reject
 # unlisted connection-like names.
@@ -181,8 +169,6 @@ connection_exceptions=(
   # Proof-only tile credentials. Loaded from TILES_SLICE_PROOF_ENV_FILE outside
   # the repository, never from the canonical Foundation profile.
   FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCOUNT_ID
-  FOUNDATION_PLATFORM_R2_TILE_PROOF_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_TILE_PROOF_SECRET_ACCESS_KEY
   FOUNDATION_PLATFORM_R2_TILE_PROOF_BUCKET
   FOUNDATION_PLATFORM_R2_TILE_PROOF_ENDPOINT
   # Live-smoke target selection. A bucket *name* chosen by the operator for a
@@ -253,6 +239,8 @@ while IFS= read -r name; do
   # (`FOUNDATION_PLATFORM_R2_LAKEHOUSE_`), not an environment name.
   case "$name" in
     *_) continue ;;
+    # A credential is named after its Cloudflare token; credential-names.sh owns that rule.
+    *_ACCESS_KEY_ID|*_SECRET_ACCESS_KEY|*_TOKEN) continue ;;
   esac
   if in_list "$name" "${canonical_keys[@]}"; then
     continue

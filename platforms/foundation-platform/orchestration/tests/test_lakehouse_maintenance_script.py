@@ -100,6 +100,20 @@ class LakehouseMaintenance(unittest.TestCase):
         self.assertIn("maintenance-summary tables=2", result.stdout)
         self.assertNotIn("spark noise", result.stdout)
 
+    def test_a_rotation_file_the_container_owns_does_not_stop_the_run(self):
+        """2026-10-15 05:04: rotation.json belonged to the container's uid 185; chmod-ing it failed the run."""
+        self.state.mkdir(exist_ok=True)
+        (self.state / "rotation.json").write_text("{}")
+        bin_dir = pathlib.Path(self.env["PATH"].split(":")[0])
+        (bin_dir / "chmod").write_text(
+            '#!/usr/bin/env bash\n'
+            'for a in "$@"; do [[ "$a" == */rotation.json ]] && { echo "chmod: Operation not permitted" >&2; exit 1; }; done\n'
+            'exec /bin/chmod "$@"\n')
+        (bin_dir / "chmod").chmod(0o755)
+        result, calls = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(calls), 1)
+
     def test_a_failed_table_fails_the_unit(self):
         result, _ = self.run_script(FAKE_EXIT="1")
         self.assertEqual(result.returncode, 1)

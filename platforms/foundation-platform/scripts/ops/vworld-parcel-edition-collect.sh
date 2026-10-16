@@ -31,10 +31,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 )
 missing=()
 for name in "${required_env[@]}"; do
@@ -111,6 +111,8 @@ if [ "${held}" = held ]; then
       "$(date -u +%FT%TZ)" "$(printf '%s\n' "${reuploads}" | wc -l)" "${edition}" "$(printf '%s' "${reuploads}" | tr '\n' ',')" \
       "${run_id}" | tee -a "${journal}" >&2
   fi
+  # Silver did not move: a run that does not say so counts as changed and starts what reads it (ADR-0171).
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 
@@ -150,4 +152,8 @@ job_journal "${journal}" \
   "vworld-parcel-edition provider=${edition} new: collected ${files} files, read from the ledger run=${run_id}"
 notify_slack "${message}"
 echo "new edition waiting for Silver load: edition ${edition} (runbook vworld-parcel-editions.md)" >&2
+# Not a fault: the unit counts this status as success (SuccessExitStatus), so systemd's failure notice and
+# the scheduler's red run stay for real failures; the notice above is the one this run sends. Silver is
+# loaded later by the runbook's manual step, so nothing downstream starts from this run.
+printf 'foundation-job-outcome unchanged\n'
 exit "${AWAITING_LOAD}"

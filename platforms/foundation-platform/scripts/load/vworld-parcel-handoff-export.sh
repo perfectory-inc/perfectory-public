@@ -63,8 +63,8 @@ ledger_editions() {
 # 만드는, 없느니만 못한 검사였다. 무엇이 필요한지는 `R2ObjectStorageConfig::from_env` 이
 # 정하고, 이 목록이 그것과 갈라지지 못하도록 시험이 두 파일을 대조한다.
 for v in FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \
-         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID \
-         FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY; do
+         FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID \
+         FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY; do
   if [ -z "${!v:-}" ]; then
     echo "필수 환경변수가 비어 있다: $v" >&2
     exit 1

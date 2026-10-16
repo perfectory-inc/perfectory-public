@@ -12,6 +12,11 @@ export const EDGES = {
   "map-edits": "map-edits.perfectory.io",
 };
 
+// The one write relayed: the real-user beacon (root ADR-0255, the contract's
+// `map_edit_gateway.real_user_metrics.path`). The gateway would read this Worker's colo as the
+// country, so the browser's own goes along by name.
+export const RUM = { edge: "map-edits", path: "/rum", countryHeader: "x-rum-viewer-country" };
+
 const RELAY = /^\/edge\/([a-z-]+)(\/.*)$/;
 const FORWARDED_HEADERS = ["accept", "if-none-match"];
 
@@ -20,6 +25,17 @@ export function relayRequest(request) {
   const url = new URL(request.url);
   const match = RELAY.exec(url.pathname);
   if (!match || !Object.hasOwn(EDGES, match[1])) return null;
+  if (request.method === "POST" && match[1] === RUM.edge && match[2] === RUM.path && !url.search) {
+    const headers = new Headers({ "content-type": "text/plain;charset=UTF-8" });
+    const country = request.cf?.country;
+    if (typeof country === "string") headers.set(RUM.countryHeader, country);
+    return new Request(`https://${EDGES[RUM.edge]}${RUM.path}`, {
+      method: "POST",
+      headers,
+      body: request.body,
+      duplex: "half",
+    });
+  }
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
   }

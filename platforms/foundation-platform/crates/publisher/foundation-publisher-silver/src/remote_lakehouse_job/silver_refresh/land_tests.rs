@@ -219,6 +219,44 @@ fn the_code_list_says_which_sido_a_day_has() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A row of the code list at any level (`region_cd` in full).
+fn region_row(
+    region: &str,
+    status: &str,
+    created: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut row = code_row("2099-12-01", "00", status, created, "");
+    row.insert("region_cd".to_owned(), region.into());
+    row
+}
+
+#[test]
+fn a_single_tier_city_is_a_sido_by_its_one_district_row() -> anyhow::Result<()> {
+    // 세종특별자치시 has no 3600000000 row, only 3611000000; leaving it out made every vintage of
+    // every land lane incomplete on 2026-10-15 (synthetic prefix 93 here).
+    let calendar = SidoCalendar::from_snapshot_rows(&[
+        code_row("2099-12-01", "97", "존재", "", ""),
+        region_row("9711000000", "존재", ""),
+        region_row("9311000000", "존재", "20990301"),
+    ])?;
+    assert_eq!(
+        calendar.on("20990228").into_iter().collect::<Vec<_>>(),
+        ["97"]
+    );
+    assert_eq!(
+        calendar.on("20990301").into_iter().collect::<Vec<_>>(),
+        ["93", "97"]
+    );
+    // Two district-level rows under a prefix with no 시도 row: which one is the 시도 is unknown.
+    let ambiguous = SidoCalendar::from_snapshot_rows(&[
+        code_row("2099-12-01", "97", "존재", "", ""),
+        region_row("9311000000", "존재", ""),
+        region_row("9312000000", "존재", ""),
+    ]);
+    assert!(ambiguous.is_err());
+    Ok(())
+}
+
 #[test]
 fn after_a_merger_the_fewer_sido_are_a_release_and_the_old_ones_are_not() -> anyhow::Result<()> {
     let measured = [
@@ -743,11 +781,9 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
         assert!(args
             .windows(2)
             .any(|w| w[0] == "--iceberg-branch" && w[1] == execute::load_branch("synthetic-load")));
-        assert!(args.windows(2).any(|w| w
-            == [
-                "-e",
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
-            ]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["-e", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]));
     }
     Ok(())
 }

@@ -14,8 +14,8 @@ use catalog_domain::{
 use chrono::{DateTime, Utc};
 use foundation_shared_kernel::ids::{
     BlueprintId, BuildingId, ComplexId, DigitalTwinAssetId, FileAssetId, IndustryAssignmentId,
-    IndustryGroupId, LakehouseComplexId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId,
-    VectorTileArtifactId, VectorTileManifestId,
+    IndustryGroupId, NoticeId, ParcelId, SourceRecordId, SpatialLayerId, VectorTileArtifactId,
+    VectorTileManifestId,
 };
 use foundation_shared_kernel::{ObjectKey, ObjectKeyPrefix};
 use sqlx::postgres::PgRow;
@@ -33,7 +33,7 @@ use uuid::Uuid;
 /// `numeric(5,2)` and this workspace has adopted no decimal type, so the alternative would be an
 /// `f64` that cannot hold `59.9` — a progress figure republished as one nobody stated. Postgres
 /// renders the exact decimal and the row carries that text unchanged.
-pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, lakehouse_complex_id, official_complex_code, \
+pub const INDUSTRIAL_COMPLEX_COLUMNS: &str = "id, official_complex_code, \
      name, kind, primary_bjdong_code, area_m2, status, sido_code, sigungu_code, address_text, \
      management_agency_name, developer_name, designated_date, construction_start_date, \
      completion_date, development_progress_percent::text AS development_progress_percent, \
@@ -73,10 +73,6 @@ pub fn row_to_complex(row: &PgRow) -> Result<IndustrialComplex, CatalogError> {
         .map_err(|error| CatalogError::Infrastructure(error.to_string()))?;
     Ok(IndustrialComplex {
         id: ComplexId::new(row.try_get::<Uuid, _>("id").map_err(map_sqlx)?),
-        lakehouse_complex_id: row
-            .try_get::<Option<Uuid>, _>("lakehouse_complex_id")
-            .map_err(map_sqlx)?
-            .map(LakehouseComplexId::new),
         official_complex_code: row.try_get("official_complex_code").map_err(map_sqlx)?,
         name: row.try_get("name").map_err(map_sqlx)?,
         kind,

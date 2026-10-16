@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "decision": "root ADR-0259 §4",
+  "rule": "A migration whose top-level DO block reads current_setting('<setting>', true) waits for an operator to set <setting> on the production database. Each such gate is named here with the day the setting was set in production; scripts/guard/migration-approval-gates.py refuses an undeclared gate, an entry without that day, and an entry whose migration no longer holds the gate.",
+  "gates": [
+    {
+      "migration": "platforms/foundation-platform/migrations/20261014021000_drop_the_catalog_parcel_building_and_unit_copies.sql",
+      "setting": "foundation.adr_0194_drop_approved",
+      "value": "yes",
+      "database": "foundation",
+      "set_in_production": "2026-10-14",
+      "how": "ALTER DATABASE foundation SET foundation.adr_0194_drop_approved = 'yes', after the owner approved the drop; then foundation-release.sh migrate"
+    }
+  ]
+}

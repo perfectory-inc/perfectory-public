@@ -157,19 +157,18 @@ pub async fn get_listings(
     };
 
     let sort = match q.sort.as_deref() {
-        Some("price_asc") => CardSearchSort::PriceAsc,
-        Some("price_desc") => CardSearchSort::PriceDesc,
-        Some("area_asc") => CardSearchSort::AreaAsc,
-        Some("area_desc") => CardSearchSort::AreaDesc,
-        Some("created_at_desc") | None => CardSearchSort::CreatedAtDesc,
-        Some(other) => {
-            return Err(problem(
-                "listings/invalid-filter",
-                "sort 값이 올바르지 않아요",
-                StatusCode::BAD_REQUEST,
-                Some(format!("unknown sort: {other}")),
-            ));
-        }
+        None => CardSearchSort::default(),
+        Some(raw) => CardSearchSort::ALL
+            .into_iter()
+            .find(|sort| sort.as_str() == raw)
+            .ok_or_else(|| {
+                problem(
+                    "listings/invalid-filter",
+                    "sort 값이 올바르지 않아요",
+                    StatusCode::BAD_REQUEST,
+                    Some(format!("unknown sort: {raw}")),
+                )
+            })?,
     };
 
     let page = q.page.unwrap_or(0);

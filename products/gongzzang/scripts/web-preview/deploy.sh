@@ -50,6 +50,8 @@ vars=(
   "NEXT_PUBLIC_BUILDING_EDGE_BASE_URL=${origin}/edge/buildings"
   "NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL=${origin}/edge/unit-prices"
   "NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL=${origin}/edge/map-edits"
+  # The preview's visitors are the team: every page view reports (root ADR-0255).
+  "NEXT_PUBLIC_RUM_SAMPLE_RATE=1"
   "ZITADEL_ISSUER=https://identity.gongzzang-preview.invalid"
   "ZITADEL_CLIENT_ID=gongzzang-web-preview"
   "ZITADEL_AUDIENCE=gongzzang-web-preview"

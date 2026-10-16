@@ -375,8 +375,8 @@ mod tests {
 
     #[test]
     fn a_row_without_a_lakehouse_id_omits_the_key_rather_than_nulling_it() {
-        // 정본 1,448행 중 6행이 이 모양이에요(쓰기 API 등록). 화면은 키의 부재로 "누를 수 없는
-        // 줄"을 판정하므로, `null` 로 실어 보내면 프런트가 그 판정을 문자열 비교로 하게 돼요.
+        // Foundation 은 이제 모든 단지에 id 를 줘요(root ADR-0250). 그래도 화면은 키의 부재로
+        // "누를 수 없는 줄"을 판정하므로, 값이 없을 때 `null` 이 아니라 키를 빼는 계약은 지켜요.
         let page = ComplexCatalogPage {
             complexes: vec![ComplexCatalogListRecord {
                 lakehouse_complex_id: None,

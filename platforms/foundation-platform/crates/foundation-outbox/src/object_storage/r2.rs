@@ -3,6 +3,7 @@
 mod conditional;
 mod copy;
 mod namespace;
+mod read_retry;
 mod streaming;
 
 pub use conditional::ConditionalWrite;
@@ -13,7 +14,7 @@ pub use streaming::{
     R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
 };
 
-use std::{env, time::Duration};
+use std::env;
 
 use async_trait::async_trait;
 use aws_credential_types::Credentials;
@@ -39,7 +40,6 @@ const R2_SMOKE_CONTENT_TYPE: &str = "application/json";
 const R2_SMOKE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const CANONICAL_MANIFEST_POINTER_OBJECT_KEY: &str = "gold/manifest.json";
 const R2_RANGE_READ_CHUNK_BYTES: i64 = 16 * 1024 * 1024;
-const R2_RANGE_READ_MAX_ATTEMPTS: usize = 5;
 
 /// Streaming writes at or above this size go multipart instead of a single `PutObject`.
 ///
@@ -179,8 +179,8 @@ impl R2ObjectStorageConfig {
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn from_env() -> Result<Self, PublishError> {
         Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )
     }
 
@@ -194,8 +194,8 @@ impl R2ObjectStorageConfig {
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn lakehouse_reader_from_env() -> Result<Self, PublishError> {
         Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
         )
     }
 
@@ -230,6 +230,8 @@ pub struct R2ObjectStorage {
     client: Client,
     bucket_name: String,
     namespace: R2KeyNamespace,
+    /// How every byte read retries (root ADR-0102; `read_retry.rs`).
+    read_policy: read_retry::R2ReadPolicy,
 }
 
 impl R2ObjectStorage {
@@ -267,6 +269,7 @@ impl R2ObjectStorage {
             client: Client::from_conf(storage_config),
             bucket_name: config.bucket_name,
             namespace: config.namespace,
+            read_policy: read_retry::R2ReadPolicy::ADR_0102,
         }
     }
 
@@ -342,45 +345,22 @@ impl R2ObjectStorage {
     ///
     /// # Errors
     ///
-    /// Returns `PublishError` when the provider rejects the read, or the body stream fails on
-    /// every one of `R2_RANGE_READ_MAX_ATTEMPTS` requests.
+    /// Returns `PublishError` when the provider refuses the read with an answer that will not change
+    /// (`404`, `403`), or the read fails on every attempt of the read policy.
     ///
     /// The SDK's retry ends when the response headers arrive; a body that breaks after them
     /// (`streaming error`, a reset connection) is asked for again with a new request, after the
     /// same backoff as a range read (root ADR-0102). On 2026-10-14 one such break stopped a by-PNU
     /// cut-over gate 28 minutes into its probe.
     pub async fn get_object_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
-        for attempt in 1..=R2_RANGE_READ_MAX_ATTEMPTS {
-            let output = self
-                .client
-                .get_object()
-                .bucket(&self.bucket_name)
-                .key(key)
-                .send()
-                .await
-                .map_err(|error| {
-                    PublishError::Broadcaster(format!("failed to read R2 object {key}: {error}"))
-                })?;
-            match output.body.collect().await {
-                Ok(body) => return Ok(body.into_bytes().to_vec()),
-                Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
-                    tracing::warn!(
-                        key,
-                        attempt,
-                        max_attempts = R2_RANGE_READ_MAX_ATTEMPTS,
-                        error = %error,
-                        "retrying R2 object body read after transient failure"
-                    );
-                }
-                Err(error) => {
-                    return Err(PublishError::Broadcaster(format!(
-                        "failed to read R2 object body {key}: {error}"
-                    )));
-                }
-            }
-            tokio::time::sleep(r2_range_read_retry_delay(attempt)).await;
-        }
-        unreachable!("R2 body retry loop always returns on success or final failure")
+        let request = read_retry::ReadRequest {
+            key,
+            range: None,
+            if_match: None,
+        };
+        read_retry::read(&self.client, &self.bucket_name, &self.read_policy, request)
+            .await
+            .map(|answer| answer.bytes)
     }
 
     /// Reads a large object from R2 with bounded byte-range retries.
@@ -467,57 +447,14 @@ impl R2ObjectStorage {
         end: i64,
     ) -> Result<Vec<u8>, PublishError> {
         let range = r2_range_header(start, end)?;
-        for attempt in 1..=R2_RANGE_READ_MAX_ATTEMPTS {
-            let result = self
-                .client
-                .get_object()
-                .bucket(&self.bucket_name)
-                .key(key)
-                .range(range.clone())
-                .send()
-                .await
-                .map_err(|error| {
-                    PublishError::Broadcaster(format!(
-                        "failed to read R2 object range {key} {range}: {error}"
-                    ))
-                });
-
-            match result {
-                Ok(output) => match output.body.collect().await {
-                    Ok(body) => return Ok(body.into_bytes().to_vec()),
-                    Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
-                        tracing::warn!(
-                            key,
-                            range,
-                            attempt,
-                            max_attempts = R2_RANGE_READ_MAX_ATTEMPTS,
-                            error = %error,
-                            "retrying R2 byte-range body read after transient failure"
-                        );
-                    }
-                    Err(error) => {
-                        return Err(PublishError::Broadcaster(format!(
-                            "failed to read R2 object range body {key} {range}: {error}"
-                        )));
-                    }
-                },
-                Err(error) if attempt < R2_RANGE_READ_MAX_ATTEMPTS => {
-                    tracing::warn!(
-                        key,
-                        range,
-                        attempt,
-                        max_attempts = R2_RANGE_READ_MAX_ATTEMPTS,
-                        error = %error,
-                        "retrying R2 byte-range request after transient failure"
-                    );
-                }
-                Err(error) => return Err(error),
-            }
-
-            tokio::time::sleep(r2_range_read_retry_delay(attempt)).await;
-        }
-
-        unreachable!("R2 range retry loop always returns on success or final failure")
+        let request = read_retry::ReadRequest {
+            key,
+            range: Some(&range),
+            if_match: None,
+        };
+        read_retry::read(&self.client, &self.bucket_name, &self.read_policy, request)
+            .await
+            .map(|answer| answer.bytes)
     }
 
     /// Lists one bounded page of R2 objects without mutating the bucket.
@@ -1280,15 +1217,10 @@ pub(super) fn r2_range_windows(
     Ok(windows)
 }
 
-const fn r2_range_read_retry_delay(attempt: usize) -> Duration {
-    match attempt {
-        0 | 1 => Duration::from_millis(250),
-        2 => Duration::from_millis(500),
-        3 => Duration::from_secs(1),
-        _ => Duration::from_secs(2),
-    }
-}
-
 #[cfg(test)]
 #[path = "r2/body_retry_tests.rs"]
 mod body_retry_tests;
+
+#[cfg(test)]
+#[path = "r2/read_retry_tests.rs"]
+mod read_retry_tests;

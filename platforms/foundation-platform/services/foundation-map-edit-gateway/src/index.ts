@@ -22,8 +22,19 @@ const minWriteTokenLength = 32;
 const maxEditsPage = 1000;
 
 interface Env {
-  [binding: string]: string | D1Database;
+  [binding: string]: string | D1Database | AnalyticsEngineDataset;
 }
+
+// Root ADR-0255: the Gongzzang web's real-user timings, one beacon per page view, written to
+// Workers Analytics Engine. The payload is a metric name, a lane and a number; nothing in it names a
+// parcel, a page or a person.
+const rum = policy.real_user_metrics;
+const rumMetrics: ReadonlySet<string> = new Set(rum.metrics);
+const rumLanePattern = new RegExp(`^(?:${rum.lane_pattern})$`);
+const countryPattern = /^[A-Z]{2}$/;
+/// A relay that fetches on the browser's behalf (the read-only web preview, root ADR-0249) names
+/// the browser's country here; Cloudflare's own value would be the relay's colo.
+const relayCountryHeader = "X-Rum-Viewer-Country";
 
 type Position = [number, number];
 type Ring = Position[];
@@ -170,11 +181,11 @@ function propertiesOf(unit: UnitKey, value: unknown): Record<string, string> {
   return out;
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+async function readJson(request: Request, maxBytes = policy.geometry.max_body_bytes): Promise<Record<string, unknown>> {
   const declared = Number(request.headers.get("Content-Length") ?? "0");
-  if (declared > policy.geometry.max_body_bytes) throw new Rejected(413, "body_too_large");
+  if (declared > maxBytes) throw new Rejected(413, "body_too_large");
   const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > policy.geometry.max_body_bytes) throw new Rejected(413, "body_too_large");
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Rejected(413, "body_too_large");
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -341,8 +352,52 @@ async function overlay(request: Request, env: Env, unit: UnitKey, headers: Heade
   return request.method === "HEAD" ? new Response(null, { status: 200, headers: response.headers }) : response;
 }
 
+interface RumPoint {
+  name: string;
+  lane: string;
+  value: number;
+}
+
+/// `{v: 1, m: [{n, l?, v}]}`: a lane only with `panel_data_ready`, which has one; one bad entry
+/// drops the beacon whole, so a client cannot slip a field past the check by mixing it in.
+function rumPoints(body: Record<string, unknown>): RumPoint[] {
+  const { v: version, m: metrics, ...extra } = body;
+  if (version !== 1 || Object.keys(extra).length > 0 || !Array.isArray(metrics) ||
+    metrics.length === 0 || metrics.length > rum.max_metrics) {
+    throw new Rejected(400, "invalid_rum");
+  }
+  return metrics.map((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new Rejected(400, "invalid_rum");
+    const { n: name, l: lane, v: value, ...rest } = entry as Record<string, unknown>;
+    const laned = name === "panel_data_ready";
+    if (Object.keys(rest).length > 0 || typeof name !== "string" || !rumMetrics.has(name) ||
+      (laned ? typeof lane !== "string" || !rumLanePattern.test(lane) : lane !== undefined) ||
+      typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > rum.max_value) {
+      throw new Rejected(400, "invalid_rum");
+    }
+    return { name, lane: laned ? (lane as string) : "", value };
+  });
+}
+
+async function recordRealUserMetrics(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
+  const dataset = env[rum.analytics_engine_binding];
+  if (typeof dataset !== "object" || !("writeDataPoint" in dataset)) throw new Rejected(500, "misconfigured");
+  const points = rumPoints(await readJson(request, rum.max_body_bytes));
+  const relayed = request.headers.get(relayCountryHeader) ?? "";
+  const cfCountry = (request as Request & { cf?: { country?: unknown } }).cf?.country;
+  const country = countryPattern.test(relayed) ? relayed
+    : typeof cfCountry === "string" && countryPattern.test(cfCountry) ? cfCountry : "XX";
+  for (const point of points) {
+    dataset.writeDataPoint({ indexes: [point.name], blobs: [point.name, point.lane, country], doubles: [point.value] });
+  }
+  // A beacon's answer is never read; no CORS headers are needed for one.
+  return new Response(null, { status: 204 });
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === rum.path && url.search === "" && url.hash === "") return recordRealUserMetrics(request, env);
   const [, resource, unitName, ...rest] = url.pathname.split("/");
   const unit = unitOf(unitName);
   if (unit === null || rest.length !== 0 || url.hash !== "") return json(404, { error: "not_found" });

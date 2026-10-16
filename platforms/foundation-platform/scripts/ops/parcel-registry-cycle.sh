@@ -9,7 +9,7 @@
 #
 # 판이 바뀐 뒤의 이어 붙이기(advance)는 계보 표(silver.parcel_lineage, lineage_stewardship 0b)를 읽는 별도 변경이고, 이 작업이 하지 않는다.
 # 마지막 줄은 `foundation-job-outcome changed|unchanged` 다(root ADR-0171).
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
@@ -45,7 +45,7 @@ spark() {
   docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark spark-submit --master 'local[4]' --driver-memory "${DRIVER_MEMORY}" \
     --jars "${SPARK_RELEASE_JARS}" "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }

@@ -584,3 +584,123 @@ fn inside_a_row_group_only_the_rows_under_the_prefix_are_decoded() -> anyhow::Re
     assert_eq!(seen, ["9999910200100010000"]);
     Ok(())
 }
+
+/// A `reference.legal_dong_code_snapshot` data file as the table first held it: the six columns of
+/// the 전체자료 file, before the code.go.kr table added six more (root ADR-0143 §2).
+fn legal_dong_file_before_its_columns_were_added() -> anyhow::Result<Vec<u8>> {
+    use arrow_array::{Date32Array, TimestampMicrosecondArray};
+    use arrow_schema::TimeUnit;
+    let schema = Arc::new(ArrowSchema::new(vec![
+        Field::new("region_cd", DataType::Utf8, true),
+        Field::new("full_name", DataType::Utf8, true),
+        Field::new("status", DataType::Utf8, true),
+        Field::new("snapshot_date", DataType::Date32, true),
+        Field::new("source_record_id", DataType::Utf8, true),
+        Field::new(
+            "ingested_at_utc",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            true,
+        ),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(StringArray::from(vec!["9999910100"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["합성도 합성구 합성동"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["존재"])) as ArrayRef,
+            Arc::new(Date32Array::from(vec![47_482])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["synthetic-source"])) as ArrayRef,
+            Arc::new(
+                TimestampMicrosecondArray::from(vec![4_102_444_800_000_000]).with_timezone("UTC"),
+            ) as ArrayRef,
+        ],
+    )?;
+    let mut writer = ArrowWriter::try_new(Vec::new(), schema, None)?;
+    writer.write(&batch)?;
+    Ok(writer.into_inner()?)
+}
+
+#[test]
+fn a_column_the_table_added_after_a_file_was_written_reads_as_null() -> anyhow::Result<()> {
+    // 2026-10-15: every VWorld land Silver refresh failed reading this table, because its older
+    // data files lack the six columns the contract gained later. Iceberg reads such a column as null.
+    let contract = lakehouse_domain::REFERENCE_LEGAL_DONG_CODE_SNAPSHOT;
+    let mut rows = Vec::new();
+    super::iceberg_scan::decode_rows(
+        &contract,
+        legal_dong_file_before_its_columns_were_added()?,
+        |row| {
+            rows.push(row);
+            true
+        },
+    )?;
+    let [row] = rows.as_slice() else {
+        anyhow::bail!("expected one row, got {}", rows.len());
+    };
+    assert_eq!(row["region_cd"], "9999910100");
+    assert_eq!(
+        row.len(),
+        contract.columns.len(),
+        "every contract column is in the row"
+    );
+    for added in [
+        "parent_cd",
+        "created_date",
+        "abolished_date",
+        "lowest_name",
+        "jumin_cd",
+        "jijuk_cd",
+    ] {
+        assert!(row[added].is_null(), "{added}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_file_lacking_a_required_column_or_holding_an_unknown_one_is_still_refused(
+) -> anyhow::Result<()> {
+    // Only the additive case is read: a required column absent, or a column the contract does not
+    // name (a rename or a drop the scan cannot map by name), still stops the scan.
+    let required = LakehouseTableContract {
+        columns: &[
+            LakehouseColumn {
+                name: "pnu",
+                logical_type: "string",
+                required: true,
+            },
+            LakehouseColumn {
+                name: "label",
+                logical_type: "string",
+                required: false,
+            },
+            LakehouseColumn {
+                name: "area",
+                logical_type: "string",
+                required: true,
+            },
+        ],
+        ..FIXTURE
+    };
+    let error =
+        super::iceberg_scan::decode_rows(&required, parquet(&["9999910100100010000"])?, |_| true)
+            .err()
+            .map(|error| format!("{error:#}"))
+            .unwrap_or_default();
+    assert!(error.contains("required but absent [\"area\"]"), "{error}");
+
+    let narrower = LakehouseTableContract {
+        columns: &[LakehouseColumn {
+            name: "pnu",
+            logical_type: "string",
+            required: true,
+        }],
+        ..FIXTURE
+    };
+    let error =
+        super::iceberg_scan::decode_rows(&narrower, parquet(&["9999910100100010000"])?, |_| true)
+            .err()
+            .map(|error| format!("{error:#}"))
+            .unwrap_or_default();
+    assert!(error.contains("unknown [\"label\"]"), "{error}");
+    Ok(())
+}

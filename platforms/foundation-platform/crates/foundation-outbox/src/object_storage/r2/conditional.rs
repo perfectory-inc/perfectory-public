@@ -36,39 +36,18 @@ impl R2ObjectStorage {
         &self,
         key: &str,
     ) -> Result<(Vec<u8>, String), PublishError> {
-        for attempt in 1..=super::R2_RANGE_READ_MAX_ATTEMPTS {
-            let output = self
-                .client
-                .get_object()
-                .bucket(&self.bucket_name)
-                .key(key)
-                .send()
-                .await
-                .map_err(|error| {
-                    PublishError::Broadcaster(format!("failed to read R2 object {key}: {error}"))
-                })?;
-            let e_tag = output.e_tag().map(ToOwned::to_owned).ok_or_else(|| {
-                PublishError::Broadcaster(format!("R2 read of {key} returned no ETag"))
-            })?;
-            match output.body.collect().await {
-                Ok(body) => return Ok((body.into_bytes().to_vec(), e_tag)),
-                Err(error) if attempt < super::R2_RANGE_READ_MAX_ATTEMPTS => {
-                    tracing::warn!(
-                        key,
-                        attempt,
-                        error = %error,
-                        "retrying R2 object body read after transient failure"
-                    );
-                }
-                Err(error) => {
-                    return Err(PublishError::Broadcaster(format!(
-                        "failed to read R2 object body {key}: {error}"
-                    )));
-                }
-            }
-            tokio::time::sleep(super::r2_range_read_retry_delay(attempt)).await;
-        }
-        unreachable!("R2 body retry loop always returns on success or final failure")
+        let request = super::read_retry::ReadRequest {
+            key,
+            range: None,
+            if_match: None,
+        };
+        let answer =
+            super::read_retry::read(&self.client, &self.bucket_name, &self.read_policy, request)
+                .await?;
+        let e_tag = answer.e_tag.ok_or_else(|| {
+            PublishError::Broadcaster(format!("R2 read of {key} returned no ETag"))
+        })?;
+        Ok((answer.bytes, e_tag))
     }
 
     /// Replaces an object only while its stored version is `expected_e_tag` (`If-Match`).
