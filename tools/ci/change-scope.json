@@ -247,6 +247,10 @@
         ]
       },
       {
+        "name": "migration-naming-self-test",
+        "paths": []
+      },
+      {
         "name": "migration-naming",
         "paths": [
           "products/*/migrations/**",

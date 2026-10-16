@@ -146,7 +146,7 @@ pub async fn check(
         };
         report.answered += 1;
         latency.push(answer.ms);
-        let live = normalized_digest(&answer.body)?;
+        let live = answer.content()?;
         let object = object_document(store, &served, pnu).await?;
         let served_bytes = if served.section_packs.is_some() {
             let inspected = inspect::inspect(store, pnu, None).await?;

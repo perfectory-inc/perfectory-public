@@ -102,7 +102,7 @@ sqlx migrate info --source migrations    # 적용 상태 확인
 
 ## 8. retention + archive
 
-- `audit_log` — RDS 1년, 이후 R2 IA 6년 (총 7년 — PIPA + ISMS-P 요구)
+- `audit_log` — 목표는 RDS 1년, 이후 R2 IA 6년 (총 7년 — PIPA + ISMS-P 요구). 보관 작업이 아직 없어서 지금은 어떤 역할도 지울 수 없어요 (`20261016160000`, root ADR-0264)
 - `outbox_event` — published 후 30일 후 삭제
 - `notification` — 365일 후 자동 삭제
 - `search_history` — 90일 후 user_id 가명화, 1년 후 삭제 (PIPA)

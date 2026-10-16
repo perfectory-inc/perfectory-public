@@ -48,6 +48,11 @@ SUDO = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sudo.log"
 touch "$FIXTURE_ROOT/started"
 """
+# Release admission's `release-build-running`: 75 while FIXTURE_BUILD says a build holds the lock.
+ADMISSION = """#!/bin/sh
+[ "$1" = release-build-running ] || exit 64
+[ -z "${FIXTURE_BUILD:-}" ] || exit 75
+"""
 # The run's journal: FIXTURE_JOURNAL, or a run that ended by saying it changed its outputs.
 JOURNALCTL = """#!/bin/sh
 printf '%b' "${FIXTURE_JOURNAL-loaded\\nfoundation-job-outcome changed\\n}"
@@ -65,12 +70,16 @@ class HostFixture(unittest.TestCase):
         (self.root / "jobs.json").write_text(json.dumps(JOBS))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL), ("sleep", SLEEP)):
+        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL), ("sleep", SLEEP),
+                           ("admission", ADMISSION)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
+        self.deferred = self.root / "deferred"
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "FIXTURE_ROOT": str(self.root), "FOUNDATION_SCHEDULED_JOBS_FILE": str(self.root / "jobs.json"),
-                    "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts)}
+                    "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts),
+                    "FOUNDATION_RELEASE_ADMISSION": str(bin_dir / "admission"),
+                    "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred)}
 
     def start(self, job, **env):
         for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log"):
@@ -200,6 +209,28 @@ class TheRunSaysHowItEnded(HostFixture):
         result, _ = self.start("fold", FIXTURE_RESULT="exit-code")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout.splitlines()[-1], "start-scheduled-job: foundation-fold.service result=exit-code")
+
+
+class AJobDueDuringAReleaseBuild(HostFixture):
+    """Root ADR-0260: a release build's lock is a designed wait, not a failed unit and its alert."""
+
+    def test_it_is_not_started_says_it_waits_and_is_recorded(self):
+        result, asked = self.start("fold", FIXTURE_BUILD="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(asked, "", "no unit starts, so no ExecStartPre refuses and no OnFailure alerts")
+        self.assertEqual(result.stdout.splitlines()[-1],
+                         "foundation-job-outcome waiting a release build is running; this job starts after it finishes")
+        sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
+        import job_specs  # noqa: E402
+        self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
+        self.assertEqual(sorted(path.name for path in self.deferred.iterdir()), ["fold"])
+
+    def test_the_record_goes_when_the_job_starts(self):
+        self.start("fold", FIXTURE_BUILD="1")
+        result, asked = self.start("fold triggered")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-fold.service", asked)
+        self.assertEqual(list(self.deferred.iterdir()), [])
 
 
 if __name__ == "__main__":

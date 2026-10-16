@@ -19,6 +19,7 @@ struct RecordedUpdate {
     id: ComplexId,
     expected_version: i64,
     mutation: ComplexMutation,
+    applied_by: StaffId,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +71,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
         id: ComplexId,
         expected_version: i64,
         mutation: ComplexMutation,
+        applied_by: StaffId,
     ) -> Result<IndustrialComplex, CatalogError> {
         self.updates
             .lock()
@@ -78,6 +80,7 @@ impl CatalogUnitOfWork for RecordingCatalogUnitOfWork {
                 id,
                 expected_version,
                 mutation: mutation.clone(),
+                applied_by,
             });
 
         Ok(IndustrialComplex {
@@ -282,12 +285,15 @@ async fn updates_name_and_area_with_expected_version() -> Result<(), CatalogErro
     let uow = std::sync::Arc::new(RecordingCatalogUnitOfWork::default());
     let use_case = UpdateIndustrialComplex::new(uow.clone());
 
+    let editor = StaffId::new(Uuid::now_v7());
+
     let updated_complex = use_case
         .execute(UpdateIndustrialComplexInput {
             complex_id,
             expected_version: 3,
             name: Some("Synthetic Industrial Complex Gamma".to_owned()),
             area_m2: Some(9_600_000),
+            applied_by: editor,
         })
         .await?;
 
@@ -305,6 +311,7 @@ async fn updates_name_and_area_with_expected_version() -> Result<(), CatalogErro
         Some("Synthetic Industrial Complex Gamma")
     );
     assert_eq!(update_records[0].mutation.area_m2, Some(9_600_000));
+    assert_eq!(update_records[0].applied_by, editor);
     Ok(())
 }
 
@@ -319,6 +326,7 @@ async fn rejects_empty_update_before_writing() -> Result<(), CatalogError> {
             expected_version: 3,
             name: None,
             area_m2: None,
+            applied_by: StaffId::new(Uuid::now_v7()),
         })
         .await;
 
@@ -341,6 +349,7 @@ async fn rejects_blank_name_before_writing() -> Result<(), CatalogError> {
             expected_version: 3,
             name: Some(" ".to_owned()),
             area_m2: Some(9_600_000),
+            applied_by: StaffId::new(Uuid::now_v7()),
         })
         .await;
 
@@ -363,6 +372,7 @@ async fn rejects_non_positive_expected_version_before_writing() -> Result<(), Ca
             expected_version: 0,
             name: Some("Synthetic Industrial Complex Gamma".to_owned()),
             area_m2: None,
+            applied_by: StaffId::new(Uuid::now_v7()),
         })
         .await;
 
@@ -385,6 +395,7 @@ async fn rejects_zero_area_before_writing() -> Result<(), CatalogError> {
             expected_version: 3,
             name: None,
             area_m2: Some(0),
+            applied_by: StaffId::new(Uuid::now_v7()),
         })
         .await;
 

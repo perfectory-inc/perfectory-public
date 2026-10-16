@@ -177,3 +177,50 @@ async fn the_user_row_copy_moves_into_the_queue_without_losing_a_row() {
     assert_eq!(user_columns, 0, "the second copy is gone");
     tx.rollback().await.unwrap();
 }
+
+/// Root ADR-0264: a resubmission overwrites the queue row's documents; the history keeps the
+/// documents of every submission and refuses DELETE as well as UPDATE.
+#[tokio::test]
+async fn a_resubmission_keeps_the_documents_it_replaced() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let user_id = seed_user(&pool, "zsub-bv-docs-1", "bvdocs1@example.com").await;
+    let reviewer = seed_user(&pool, "zsub-bv-docs-1r", "bvdocs1r@example.com").await;
+    let repo = PgBusinessVerificationRepository::new(pool.clone());
+    let now = Utc::now();
+
+    let mut bv = make_business_verification(user_id);
+    let first_documents = bv.submitted_documents.clone();
+    repo.save(&bv, test_ctx()).await.unwrap();
+    bv.request_more_info(reviewer, "사업자등록증 재제출".to_owned(), now)
+        .unwrap();
+    save_transition(&repo, &mut bv).await;
+    let second_documents =
+        serde_json::json!({"document_keys": ["business_verification/abc/v2.pdf"]});
+    bv.resubmit(second_documents.clone(), now + Duration::minutes(1))
+        .unwrap();
+    save_transition(&repo, &mut bv).await;
+
+    let history: Vec<(String, Option<serde_json::Value>)> = sqlx::query_as(
+        "select status, submitted_documents from business_verification_status_history \
+         where verification_id = $1 order by history_id",
+    )
+    .bind(bv.id.as_str())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        history,
+        vec![
+            ("pending".to_owned(), Some(first_documents.clone())),
+            ("needs_more_info".to_owned(), Some(first_documents)),
+            ("pending".to_owned(), Some(second_documents)),
+        ]
+    );
+
+    let err = sqlx::query("delete from business_verification_status_history")
+        .execute(&pool)
+        .await
+        .expect_err("history is append-only");
+    assert!(err.to_string().contains("append-only"), "{err}");
+}

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Prints config/postgres-production-shape.json for the running database (root ADR-0259 §8): which
-# tables hold rows, by name, no value. Read-only (`select exists` per table). Run as root on the
-# host, where the runtime compose wrapper can read its environment file, and commit the output:
-#   sudo bash scripts/ops/postgres-production-shape.sh > config/postgres-production-shape.json
+# tables hold rows, by name, no value. Read-only (`select exists` per table). Runs on the host as
+# any member of the docker group (the shape-ledger check job runs it as foundation-platform):
+#   bash scripts/ops/postgres-production-shape.sh > config/postgres-production-shape.json
 # The CI seed puts one synthetic row in each of these tables before a pull request's migrations.
 set -euo pipefail
 
-runtime="${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}/current/scripts/deploy/foundation-runtime.sh"
+# The runtime's database container, by its compose labels (the wrapper itself needs root).
+container="$(docker ps -q --filter label=com.docker.compose.project=foundation-platform-runtime   --filter label=com.docker.compose.service=postgres)"
+[[ "$(wc -w <<<"${container}")" == 1 ]] || { echo "postgres-production-shape: no single runtime postgres container" >&2; exit 1; }
 # \gexec runs each generated statement; each prints "<schema.table> true|false".
-"${runtime}" exec -T postgres sh -c 'psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL' |
+docker exec -i "${container}" sh -c 'psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL' |
 select format('select %L || '' '' || exists (select 1 from %I.%I)', n.nspname || '.' || c.relname, n.nspname, c.relname)
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where c.relkind in ('r', 'p') and not c.relispartition

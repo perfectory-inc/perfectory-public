@@ -116,7 +116,7 @@ async fn mutate_locked(
     })
 }
 
-async fn lock_industrial_complex(
+pub(crate) async fn lock_industrial_complex(
     tx: &mut Transaction<'_, Postgres>,
     complex_id: ComplexId,
 ) -> Result<IndustrialComplex, CatalogError> {
@@ -139,7 +139,7 @@ async fn lock_industrial_complex(
     Ok(complex)
 }
 
-const fn ensure_expected_version(
+pub(crate) const fn ensure_expected_version(
     before: &IndustrialComplex,
     expected_version: i64,
 ) -> Result<(), CatalogError> {
@@ -152,7 +152,7 @@ const fn ensure_expected_version(
     Ok(())
 }
 
-async fn update_industrial_complex(
+pub(crate) async fn update_industrial_complex(
     tx: &mut Transaction<'_, Postgres>,
     complex_id: ComplexId,
     mutation: &ComplexMutation,
@@ -177,7 +177,9 @@ async fn update_industrial_complex(
     row_to_complex(&row)
 }
 
-fn industrial_complex_snapshot(complex: &IndustrialComplex) -> IndustrialComplexSnapshot {
+pub(crate) fn industrial_complex_snapshot(
+    complex: &IndustrialComplex,
+) -> IndustrialComplexSnapshot {
     IndustrialComplexSnapshot(serde_json::json!({
         "id": complex.id.as_uuid(),
         "official_complex_code": complex.official_complex_code,

@@ -76,21 +76,13 @@ describe("ComplexRow", () => {
   });
 
   it("does not offer to open a complex whose id the panel cannot accept", () => {
-    // Feeding the row the catalog `id` for the same complex — the id-space mix-up root ADR-0048
-    // exists to prevent. The row must not become a click that 404s.
+    // Feeding the row a retired `now_v7()` id of the same complex (root ADR-0250). The row must
+    // not become a click that 404s.
     renderRow(row({ lakehouse_complex_id: CATALOG_ID }));
 
     expect(screen.queryByTestId("complex-row")).toBeNull();
     expect(screen.getByTestId("complex-row-unopenable")).toBeTruthy();
     expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it("renders a complex with no lakehouse identity as a row that says so", () => {
-    renderRow(row({ lakehouse_complex_id: null }));
-
-    expect(screen.queryByTestId("complex-row")).toBeNull();
-    expect(screen.getByText("반월특수지역")).toBeTruthy();
-    expect(screen.getByText(koMessages.complexes.row.noDetail)).toBeTruthy();
   });
 
   it("shows a wire value it has no Korean label for rather than a message key", () => {

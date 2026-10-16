@@ -47,6 +47,7 @@ def load_lakehouse_contract(table_name: str) -> dict[str, Any]:
     if not isinstance(contract, dict):
         raise ValueError(f"lakehouse contract artifact is missing {table_name}")
     current_row_predicate(contract)
+    current_row_latest(contract)
     return contract
 
 
@@ -265,6 +266,71 @@ def current_row_predicate(contract: dict[str, Any]) -> str | None:
             "current_row_predicate must be null or a nonblank string"
         )
     return value
+
+
+@dataclass(frozen=True)
+class CurrentRowLatest:
+    """The current row of a key in an append-only table: the newest by ``newest_first``."""
+
+    key: tuple[str, ...]
+    newest_first: tuple[str, ...]
+
+
+def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
+    """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""
+
+    table = contract.get("table_name")
+    if "current_row_latest" not in contract:
+        raise ValueError(f"lakehouse contract {table} is missing the current_row_latest key")
+    value = contract["current_row_latest"]
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"lakehouse contract {table} current_row_latest must be null or an object")
+    names = {column["name"] for column in columns(contract)}
+    parts: dict[str, tuple[str, ...]] = {}
+    for part in ("key", "newest_first"):
+        listed = value.get(part)
+        if not isinstance(listed, list) or not listed or not all(
+            isinstance(name, str) and name in names for name in listed
+        ):
+            raise ValueError(
+                f"lakehouse contract {table} current_row_latest.{part} must list its own columns"
+            )
+        parts[part] = tuple(listed)
+    return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"])
+
+
+def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
+    """The rows of ``frame`` the contract calls current; the one way a reader selects them.
+
+    First the contract's predicate, then, when it declares one, the newest row per key. Two rows of
+    one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
+    function does not have (root ADR-0267).
+    """
+
+    from pyspark.sql import Window, functions as F
+
+    predicate = current_row_predicate(contract)
+    if predicate is not None:
+        frame = frame.where(F.expr(predicate))
+    latest = current_row_latest(contract)
+    if latest is None:
+        return frame
+
+    order = [F.col(name).desc_nulls_last() for name in latest.newest_first]
+    ranked = frame.withColumn(
+        "_current_row_rank", F.rank().over(Window.partitionBy(*latest.key).orderBy(*order))
+    ).where(F.col("_current_row_rank") == 1)
+    tied = ranked.groupBy(*latest.key).count().where(F.col("count") > 1)
+    tied_count = int(tied.count())
+    if tied_count:
+        samples = [str(sample) for sample in tied.limit(5).toJSON().collect()]
+        raise ValueError(
+            f"{contract.get('table_name')} has {tied_count} keys whose newest rows tie on "
+            f"{list(latest.newest_first)}, so no row is current. samples={samples}"
+        )
+    return ranked.drop("_current_row_rank")
 
 
 def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:

@@ -38,7 +38,7 @@ from typing import Any
 import spatial_silver_handoff as shared
 from platform_contracts import (
     column_names,
-    current_row_predicate,
+    current_rows,
     declared_geometry_srid,
     load_lakehouse_contract,
     required_column_names,
@@ -213,10 +213,7 @@ def read_complexes(spark: Any, args: argparse.Namespace) -> Any:
             f"{COMPLEXES_CONTRACT_NAME} is missing columns: {', '.join(missing_columns)}"
         )
 
-    predicate = current_row_predicate(COMPLEXES_CONTRACT)
-    if predicate is not None:
-        frame = frame.where(F.expr(predicate))
-    return frame.select(
+    return current_rows(frame, COMPLEXES_CONTRACT).select(
         F.trim(F.col("official_complex_code")).alias("official_complex_code"),
         F.trim(F.col("complex_id")).alias("complex_id"),
         F.trim(F.col("sido_code")).alias("sido_code"),
@@ -226,11 +223,9 @@ def read_complexes(spark: Any, args: argparse.Namespace) -> Any:
 def assert_one_row_per_complex(complexes: Any) -> None:
     """Refuse an ambiguous complex list rather than picking a row.
 
-    `silver.industrial_complexes` declares no `current_row_predicate`, so this job has no
-    contract-stated way to choose between two rows for one code. Inventing one — "the latest
-    `valid_from_utc`", say — would put a versioning rule in a boundary loader, where nobody would
-    look for it. When the table starts carrying history, the predicate belongs in the contract and
-    this check is what will say so.
+    The complex table keeps every appended version, and `read_complexes` takes the current one
+    through the contract's rule (root ADR-0267). Two rows left for one code after that are two
+    complexes sharing a code, which no rule here may resolve.
     """
 
     duplicates = complexes.groupBy("official_complex_code").count().where(F.col("count") > 1)
@@ -239,11 +234,10 @@ def assert_one_row_per_complex(complexes: Any) -> None:
         return
 
     samples = [str(sample) for sample in duplicates.limit(5).toJSON().collect()]
-    predicate = current_row_predicate(COMPLEXES_CONTRACT)
     raise ValueError(
         f"{COMPLEXES_CONTRACT_NAME} holds {duplicate_count} official_complex_code values with more "
-        f"than one row (current_row_predicate={predicate!r}), so this job cannot say which row a "
-        f"boundary belongs to. samples={samples}"
+        f"than one current row, so this job cannot say which row a boundary belongs to. "
+        f"samples={samples}"
     )
 
 
