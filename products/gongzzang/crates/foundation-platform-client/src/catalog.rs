@@ -55,6 +55,21 @@ pub struct CatalogParcelResponse {
     /// Total registered land-right rows, independent of the published page bound (root ADR-0093).
     #[serde(default)]
     pub land_right_total: u64,
+    /// Contract the edge document was written under (root ADR-0096), e.g.
+    /// `foundation-platform.parcel_by_pnu_profile.v1`. Absent on the retired API shape.
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    /// Gold snapshot the edge document was baked from — the as-of of every value in it
+    /// (root ADR-0223). Absent on the retired API shape.
+    #[serde(default)]
+    pub source: Option<CatalogParcelSource>,
+}
+
+/// Which Gold snapshot a parcel edge document was baked from (root ADR-0096 `source`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct CatalogParcelSource {
+    /// Iceberg snapshot of the Gold table the document represents.
+    pub iceberg_snapshot_id: String,
 }
 
 /// One raw registered unit-level land right carried by the Foundation Catalog.
@@ -213,8 +228,6 @@ impl CatalogIndustrialComplexGoldPointer {
 pub struct CatalogIndustrialComplexResponse {
     /// The complex's id, echoed back by the provider (root ADR-0250).
     pub id: String,
-    /// Lakehouse identity of the complex, echoed back by the provider.
-    pub lakehouse_complex_id: Option<String>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -485,7 +498,7 @@ const PARCEL_BY_PNU_EDGE_PATH: &str = "parcels/by-pnu/";
 /// This is the CDN serving surface, not the authenticated `catalog/v1` API: no
 /// version prefix and no workload auth. The object is the same
 /// [`CatalogParcelResponse`] the API contract carries — the edge adds
-/// `schema_version`/`source`, which that DTO ignores — so a caller reuses the same
+/// `schema_version`/`source`, which that DTO reads as optional provenance — so a caller reuses the same
 /// mapper no matter which surface answered. foundation-api no longer serves parcel
 /// detail (root ADR-0109); the R2 edge is the single serving surface for it.
 pub struct CatalogParcelEdgeClient {

@@ -20,22 +20,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getComplexByLakehouseId"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/v1/complexes/{id}": {
         parameters: {
             query?: never;
@@ -599,6 +583,8 @@ export interface components {
             status: string;
             version: string;
         };
+        /** @enum {string} */
+        IndustrialComplexDevelopmentStageValue: "site_completed" | "site_in_progress" | "preparing" | "compensating";
         /** @description Thin pointer to R2/Iceberg Gold industrial-complex data. */
         IndustrialComplexGoldPointerResponse: {
             /** @description Active Gold artifact version. */
@@ -638,6 +624,8 @@ export interface components {
             /** @description Provider-neutral object key for the optional spatial locator artifact. */
             spatial_locator_object_key?: string | null;
         };
+        /** @enum {string} */
+        IndustrialComplexKindValue: "national" | "general" | "agricultural" | "urban_high_tech";
         /**
          * @description One page of canonical industrial complexes.
          *
@@ -666,6 +654,8 @@ export interface components {
              */
             total: number;
         };
+        /** @enum {string} */
+        IndustrialComplexLotSalesStatusValue: "planned" | "in_progress" | "completed";
         /** @description Canonical industrial complex response owned by foundation-platform Catalog. */
         IndustrialComplexResponse: {
             /**
@@ -734,24 +724,19 @@ export interface components {
             development_progress_percent?: string | null;
             /** @description Stated purpose the complex was developed for, in the source's own words. */
             development_purpose_raw?: string | null;
-            /**
-             * @description How far site formation has got, one value per word the source states (root ADR-0121).
-             *
-             *     Wire values: `site_completed` (조성완료), `site_in_progress` (조성중), `preparing` (준비중),
-             *     `compensating` (보상중). `null` when the complex has no source row or was loaded before
-             *     the column existed.
-             */
-            development_stage?: string | null;
+            development_stage?: null | components["schemas"]["IndustrialComplexDevelopmentStageValue"];
             gold_pointer?: null | components["schemas"]["IndustrialComplexGoldPointerResponse"];
             /**
              * Format: uuid
-             * @description Stable foundation-platform identifier for the complex.
+             * @description The complex's one id: the `UUIDv5` derived from its official code, the same value `complex`
+             *     vector tiles publish as their feature id and Gold artifact keys are computed from
+             *     (root ADR-0250).
              */
             id: string;
             /** @description Industry types the complex set out to attract, in the source's own words. */
             invited_industries_raw?: string | null;
             /** @description Industrial complex kind as a public wire value. */
-            kind: string;
+            kind: components["schemas"]["IndustrialComplexKindValue"];
             /**
              * @description The source's own words for `kind` (for example `농공`), trimmed and otherwise verbatim.
              *
@@ -760,22 +745,7 @@ export interface components {
              *     (registered through this API) or was loaded before the words were kept.
              */
             kind_raw?: string | null;
-            /**
-             * Format: uuid
-             * @description Identifier the same complex carries in the lakehouse, when it was sourced from there.
-             *
-             *     Unrelated to `id`: that one is minted locally, this one is derived and is what Gold
-             *     artifact object keys are computed from. A client that wants the complex's Gold profile
-             *     object needs this value, not `id`. `null` for a complex registered through this API.
-             */
-            lakehouse_complex_id?: string | null;
-            /**
-             * @description How far the complex has got in selling or leasing its lots.
-             *
-             *     Wire values: `planned`, `in_progress`, `completed`. Independent of `status`, which is about
-             *     building the complex: a complex can be `operating` with lots still on sale.
-             */
-            lot_sales_status?: string | null;
+            lot_sales_status?: null | components["schemas"]["IndustrialComplexLotSalesStatusValue"];
             /** @description The source's own words for `lot_sales_status` (for example `분양계획`). */
             lot_sales_status_raw?: string | null;
             /** @description Organization that manages the complex. */
@@ -823,6 +793,8 @@ export interface components {
              */
             version: number;
         };
+        /** @enum {string} */
+        IndustrialComplexStatusValue: "planned" | "developing" | "operating" | "changed" | "abolished" | "unknown";
         /** @description Single industry code inside an industry group. */
         IndustryGroupMemberResponse: {
             /** @description Industry code value, for example a KSIC code. */
@@ -1304,7 +1276,7 @@ export interface components {
              */
             area_m2: number;
             /** @description Industrial complex kind. Wire values: `national`, `general`, `agricultural`, `urban_high_tech`. */
-            kind: string;
+            kind: components["schemas"]["IndustrialComplexKindValue"];
             /** @description Human-readable industrial complex name. */
             name: string;
             /** @description Source-side official industrial-complex code. */
@@ -1725,35 +1697,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IndustrialComplexResponse"];
                 };
-            };
-        };
-    };
-    getComplexByLakehouseId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Lakehouse industrial-complex id (UUIDv5), as published in Gold artifact keys and `complex` vector tile feature ids */
-                lakehouse_complex_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IndustrialComplexResponse"];
-                };
-            };
-            /** @description No canonical complex carries that lakehouse id */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

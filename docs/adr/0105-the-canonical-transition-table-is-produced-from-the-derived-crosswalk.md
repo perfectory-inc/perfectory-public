@@ -1,6 +1,6 @@
 # ADR 0105: 정본 전이표는 도출된 크로스워크에서 나온다
 
-- Status: Accepted
+- Status: Superseded by ADR-0145
 - Date: 2026-09-14
 - 관련: [ADR-0103 장소의 정체성은 행정코드 변경보다 오래 산다](./0103-place-identity-outlives-administrative-code-changes.md), [ADR-0104 권위 API가 현행뿐이라 크로스워크는 스냅숏 차이에서 나온다](./0104-the-authority-api-is-current-only-so-the-crosswalk-comes-from-snapshot-diffs.md)
 

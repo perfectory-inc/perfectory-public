@@ -25,17 +25,21 @@ use crate::r2_layout::by_pnu;
 const SNAPSHOT: &str = "999990000000000001";
 const PNU_A: &str = "9999900000100000000";
 const PNU_B: &str = "9999900000100010000";
+/// Two buildings: a unit price document is one building of one PNU (root ADR-0204).
+const BUILDING_1: &str = "00000000-0000-0000-0000-000000000001";
+const BUILDING_2: &str = "00000000-0000-0000-0000-000000000002";
 
 fn lane() -> anyhow::Result<ByPnuLane> {
     ByPnuLane::named("unit-price")?.context("the contract names the unit-price lane")
 }
 
-fn row(pnu: &str, price: u64) -> JsonMap<String, JsonValue> {
+fn row(pnu: &str, building: &str, price: u64) -> JsonMap<String, JsonValue> {
     let units = format!(
         r#"[{{"id":"00000000-0000-8000-8000-000000000001","official_price_history":[{{"base_date":"20250101","price_won":{price}}}]}}]"#
     );
     JsonMap::from_iter([
         ("pnu".to_owned(), json!(pnu)),
+        ("building_id".to_owned(), json!(building)),
         ("units_json".to_owned(), json!(units)),
         ("row_digest".to_owned(), json!("a".repeat(64))),
         ("source_snapshot_id".to_owned(), json!("synthetic")),
@@ -116,7 +120,7 @@ fn a_contract_lane_has_every_command_and_its_names_by_rule() -> anyhow::Result<(
     );
     assert_eq!(
         super::sections::gold_table(lane).table_name,
-        "gold.unit_price_panel"
+        "gold.unit_price"
     );
     for name in [
         "plan-unit-price-by-pnu-pack-shards",
@@ -157,7 +161,17 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         root: dirs.root.clone(),
     };
     let store = ByPnuServingStore::open(lane, &output)?;
-    let rows = vec![row(PNU_A, 100), row(PNU_B, 200)];
+    // PNU A holds two buildings: two documents under one PNU, each its own key.
+    let rows = vec![
+        row(PNU_A, BUILDING_1, 100),
+        row(PNU_A, BUILDING_2, 150),
+        row(PNU_B, BUILDING_1, 200),
+    ];
+    let keys = [
+        format!("{PNU_A}{BUILDING_1}"),
+        format!("{PNU_A}{BUILDING_2}"),
+        format!("{PNU_B}{BUILDING_1}"),
+    ];
     let config = BakeConfig {
         lane,
         output: output.clone(),
@@ -172,7 +186,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         sample_candidates_per_million: None,
     };
     let provenance = PackProvenance {
-        table: "gold.unit_price_panel".to_owned(),
+        table: "gold.unit_price".to_owned(),
         iceberg_snapshot_id: SNAPSHOT.to_owned(),
         metadata_location: "s3://fixture/metadata.json".to_owned(),
         manifest_list_location: "s3://fixture/manifest.avro".to_owned(),
@@ -185,7 +199,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         &Renderer::load(lane).await?,
     )
     .await?;
-    assert_eq!(summary.exported_row_count, 2);
+    assert_eq!(summary.exported_row_count, 3);
     let summaries = dirs.work.join("summaries");
     std::fs::create_dir_all(&summaries)?;
     std::fs::write(summaries.join("0.json"), serde_json::to_vec(&summary)?)?;
@@ -193,7 +207,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         lane,
         summary_dir: summaries.clone(),
         generation: 1,
-        expected_documents: 2,
+        expected_documents: 3,
         evidence_path: dirs.work.join("equality.json"),
     };
     let evidence = equality::verify(&equality_config)?;
@@ -222,7 +236,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         output: output.clone(),
         summary_dir: Some(summaries.clone()),
         expected_gold_snapshot: SNAPSHOT.to_owned(),
-        gold_record_count: Some(2),
+        gold_record_count: Some(3),
         installed_jobs: jobs.clone(),
         equality_evidence: Some(equality_config.evidence_path.clone()),
         latency_evidence: Some(latency),
@@ -268,21 +282,24 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     );
 
     let state = publish::publish(&publish_config(against), &store, &gateway.uri()).await?;
-    assert_eq!(state.document_count, 2);
+    assert_eq!(state.document_count, 3);
     let live = ServedManifest::parse(lane, &store.read_manifest().await?.0)?;
     assert_eq!(live.unit, "unit-price-by-pnu");
     assert_eq!((live.object_count, live.base_object_count), (0, 0));
-    assert_eq!(live.gold_table, "gold.unit_price_panel");
+    assert_eq!(live.gold_table, "gold.unit_price");
     assert!(live.section_packs.is_some());
 
     // Once cut over, the hourly monitor holds the live answers to the packs alone: the lane never
     // had an object to read.
     let live_host = MockServer::start().await;
     let prefix = lane.policy()?.request_path.prefix.clone();
-    for pnu in [PNU_A, PNU_B] {
-        let inspected = super::inspect::inspect(&store, pnu, None).await?;
+    for key in &keys {
+        let inspected = super::inspect::inspect(&store, key, None).await?;
         Mock::given(method("GET"))
-            .and(path(format!("{prefix}{pnu}")))
+            .and(path(format!(
+                "{prefix}{}",
+                crate::r2_layout::by_pnu_packs::request_path_of(key)
+            )))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_bytes(serde_json::to_vec(&inspected["document"])?),
@@ -290,18 +307,37 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
             .mount(&live_host)
             .await;
     }
-    let pnus = [PNU_A.to_owned(), PNU_B.to_owned()];
-    let report = super::monitor::check(&store, &live_host.uri(), &pnus, 3000.0).await?;
+    let report = super::monitor::check(&store, &live_host.uri(), &keys, 3000.0).await?;
     assert!(report.passed, "{report:?}");
-    assert_eq!(report.objects_not_compared, 2);
+    assert_eq!(report.objects_not_compared, 3);
     // And a live answer that is not the packs' document is a breach.
     let drifted = MockServer::start().await;
     Mock::given(method("GET"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"units": []})))
         .mount(&drifted)
         .await;
-    let report = super::monitor::check(&store, &drifted.uri(), &pnus, 3000.0).await?;
+    let report = super::monitor::check(&store, &drifted.uri(), &keys, 3000.0).await?;
     assert!(!report.passed);
-    assert_eq!(report.drifted_from_served.len(), 2);
+    assert_eq!(report.drifted_from_served.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn a_keyed_lane_takes_keys_and_a_pnu_lane_takes_pnus() -> anyhow::Result<()> {
+    // Root ADR-0204: a patch list and the operator's inspect name the lane's keys.
+    use crate::r2_layout::by_pnu::check_key;
+    let lane = lane()?;
+    check_key(lane, &format!("{PNU_A}{BUILDING_1}"))?;
+    assert!(check_key(lane, PNU_A).is_err(), "a bare PNU");
+    assert!(
+        check_key(lane, &format!("{PNU_A}x")).is_err(),
+        "a suffix outside the pattern"
+    );
+    assert!(
+        check_key(lane, &format!("{PNU_A}/{BUILDING_1}")).is_err(),
+        "the request path form"
+    );
+    check_key(ByPnuLane::Parcel, PNU_A)?;
+    assert!(check_key(ByPnuLane::Parcel, &format!("{PNU_A}{BUILDING_1}")).is_err());
     Ok(())
 }

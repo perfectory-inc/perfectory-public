@@ -33,6 +33,10 @@ sudo bash /opt/foundation-platform/current/scripts/ops/host-docker-data-root.sh 
 
 1. `dry-run`(root 불필요): 사전 점검, 크기, 데이터 디스크 여유, 멈췄다가 되살릴 DAG, 쓸 `daemon.json`·`config.toml`.
    지금 돌릴 수 없으면 이유를 말하고 0 이 아닌 코드로 끝난다.
+   실행 직전에는 **root 로** 한 번 더 돌린다: `ssh -t ai-server "sudo bash /opt/foundation-platform/current/scripts/ops/host-docker-data-root.sh dry-run"`.
+   root 만 하는 점검(release admission, `du`)과 실행이 기록하는 것(돌던 컨테이너, healthy 목록, 배포자 계정으로
+   부르는 Airflow DAG 목록)을 실행과 같은 코드로 임시 디렉터리에 기록해 본다. 2026-10-15 첫 실행은 이 기록 단계에서
+   멈췄다(healthy 목록 함수의 종료 코드).
 2. 소유자가 자기 PowerShell 에서 한 줄로 실행한다(root 가 필요하다).
 
    ```powershell
@@ -48,7 +52,13 @@ sudo bash /opt/foundation-platform/current/scripts/ops/host-docker-data-root.sh 
 3. 소유자가 서비스를 직접 확인한 뒤에 `delete-old` 로 옛 트리(`<트리>.old`)를 지운다. 그 전까지는 시스템 디스크에
    남아 있어 되돌릴 수 있다: `sudo bash …/host-docker-data-root.sh rollback`.
 
-실행 기록(전에 돌던 컨테이너, 재개할 DAG, 원래 설정 파일)은 `/var/lib/foundation-host-layout/<시각>` 에 남는다.
+실행 기록(전에 돌던 컨테이너, 재개할 DAG, 원래 설정 파일)과 실행의 모든 출력(`run.log`, 누구나 읽기 가능)은
+`/var/lib/foundation-host-layout/<시각>` 에 남는다.
+
+엔진을 멈춘 동안에는 아무것도 그것을 다시 띄우지 못한다: foundation 타이머를 멈추고(기록해 두었다 다시 켠다)
+`docker.socket`·`docker.service`·`containerd.service` 를 이번 부팅 동안만(`--runtime`) mask 한다. 2026-10-15 14:05 의
+두 번째 실행은 자동배포 타이머 유닛의 `Requires=docker.service` 가 멈춘 지 7초 만에 엔진을 옛 경로로 다시 띄워,
+멈춘 복사 뒤 확인 패스가 바뀐 파일을 보고 되돌렸다. 두 번째 복사 직전에 세 유닛이 모두 멈췄는지 다시 확인한다.
 
 ## 이후
 

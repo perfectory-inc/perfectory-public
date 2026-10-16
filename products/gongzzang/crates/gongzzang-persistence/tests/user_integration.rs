@@ -52,8 +52,6 @@ fn make_user(zsub: &str, email: &str) -> User {
         None, // phone_kr_hash
         "Test User",
         UserKind::Individual,
-        None, // business_number
-        None, // business_verified_at
         None, // broker_license_number
         None, // broker_verified_at
         vec![UserRole::Buyer, UserRole::Seller],

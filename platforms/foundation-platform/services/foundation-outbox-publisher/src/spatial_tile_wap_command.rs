@@ -46,7 +46,7 @@ const FOUNDATION_SPARK_JOB_PATH: &str =
 const CATALOG_ENV_NAMES: [&str; 3] = [
     "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
     "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
 ];
 const OFFLINE_CAPABILITY: &str = "not_proven_offline";
 const OFFLINE_CAPABILITY_LINE: &str = "provider_capability=not_proven_offline";
@@ -822,7 +822,7 @@ mod tests {
                 "-e",
                 "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
                 "-e",
-                "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+                "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
                 "spark",
                 "spark-submit",
                 "--conf",
@@ -883,7 +883,7 @@ mod tests {
                 SENTINEL_WAREHOUSE.to_owned(),
             ),
             (
-                "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN".to_owned(),
+                "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN".to_owned(),
                 SENTINEL_TOKEN.to_owned(),
             ),
         ]);

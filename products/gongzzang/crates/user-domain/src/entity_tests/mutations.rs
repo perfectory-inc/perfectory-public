@@ -4,57 +4,9 @@
 use chrono::Utc;
 
 use super::super::UserRole;
-use super::fixtures::{sample_broker_license, sample_business_number, sample_user};
+use super::fixtures::{sample_broker_license, sample_user};
 
 // ── Domain mutation methods (T9) ──────────────────────────────────────────
-
-#[test]
-fn verify_business_sets_fields_and_bumps_version() {
-    let now = Utc::now();
-    let mut user = sample_user(now);
-    let later = now + chrono::Duration::seconds(60);
-    let bn = sample_business_number();
-
-    user.verify_business(bn.clone(), later);
-
-    assert_eq!(user.business_number, Some(bn));
-    assert_eq!(user.business_verified_at, Some(later));
-    assert_eq!(user.version, 2);
-    assert_eq!(user.updated_at, later);
-}
-
-#[test]
-fn verify_business_idempotent_updates_to_latest() {
-    let now = Utc::now();
-    let mut user = sample_user(now);
-    let bn = sample_business_number();
-    let t1 = now + chrono::Duration::seconds(60);
-    let t2 = now + chrono::Duration::seconds(120);
-
-    user.verify_business(bn.clone(), t1);
-    user.verify_business(bn, t2);
-
-    assert_eq!(user.business_verified_at, Some(t2));
-    assert_eq!(user.version, 3);
-    assert_eq!(user.updated_at, t2);
-}
-
-#[test]
-fn revoke_business_verification_clears_timestamp_and_bumps() {
-    let now = Utc::now();
-    let mut user = sample_user(now);
-    let bn = sample_business_number();
-    user.verify_business(bn, now + chrono::Duration::seconds(30));
-
-    let revoke_at = now + chrono::Duration::seconds(60);
-    user.revoke_business_verification(revoke_at);
-
-    assert_eq!(user.business_verified_at, None);
-    // business_number는 보존 (재검증 가능).
-    assert!(user.business_number.is_some());
-    assert_eq!(user.version, 3);
-    assert_eq!(user.updated_at, revoke_at);
-}
 
 #[test]
 fn verify_broker_sets_license_and_bumps() {
@@ -246,20 +198,6 @@ fn is_active_reflects_deleted_at() {
     user.soft_delete(now + chrono::Duration::seconds(60));
 
     assert!(!user.is_active());
-}
-
-#[test]
-fn is_business_verified_reflects_timestamp() {
-    let now = Utc::now();
-    let mut user = sample_user(now);
-    assert!(!user.is_business_verified());
-
-    user.verify_business(
-        sample_business_number(),
-        now + chrono::Duration::seconds(60),
-    );
-
-    assert!(user.is_business_verified());
 }
 
 #[test]

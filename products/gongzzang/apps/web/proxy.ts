@@ -1,14 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
+import { connectSrcDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
 import { problem } from "@/lib/http/problem";
 import { tStatic } from "@/lib/i18n/static";
-import { resolveVectorTileAllowedOrigins } from "@/lib/map/vector-tile-manifest";
 import {
   GENERATED_AUTH_RATE_ROUTE_POLICIES,
   GENERATED_PAGE_ROUTE_POLICIES,
   GENERATED_PUBLIC_MAP_ROUTE_POLICIES,
 } from "@/lib/policies/traffic-auth-policy.generated";
+import { isReadOnlyPreview, isReadOnlyPreviewPage } from "@/lib/preview";
 import { checkRate } from "@/lib/ratelimit";
 import { API, AUTH_PATH_PREFIX, ROUTES } from "@/lib/routes";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
@@ -261,20 +262,9 @@ function buildCspHeader(hostname: string, nonce: string): string {
   const imgSrc = allowLocalHttpMapRuntime
     ? "'self' data: blob: http: https:"
     : "'self' data: blob: https://*.map.naver.com https://map.naver.com https://*.map.naver.net https://map.naver.net https://*.pstatic.net";
-  // ADR 0036 / foundation-platform ADR 0004: Gongzzang은 manifest consumer only.
-  // Manifest는 foundation-platform Catalog 또는 public R2/CDN manifest URL에서 읽고,
-  // 실제 tile URL은 manifest.tiles_url_template이 결정한다.
-  const tileOrigins = resolveVectorTileAllowedOrigins().join(" ");
-  // The admin edit overlay (root ADR-0112) is read by the browser alongside the tiles.
-  const mapEditOrigin = new URL(env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL).origin;
-  // The panels read the by-PNU edges directly from the browser: parcels, buildings and the units'
-  // prices, each its own lane (root ADR-0190).
-  const edgeOrigins = [
-    env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL,
-    env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
-    env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL,
-  ].map((url) => new URL(url).origin);
-  const tileConnectSrc = ` ${[tileOrigins, mapEditOrigin, ...edgeOrigins].filter(Boolean).join(" ")}`;
+  // The map and panel data hosts the browser reads directly; the layout's preconnect hints read
+  // the same list (lib/browser-data-origins.ts).
+  const tileConnectSrc = ` ${connectSrcDataOrigins().filter(Boolean).join(" ")}`;
   const connectSrc = allowLocalHttpMapRuntime
     ? `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} http: https:${tileConnectSrc}`
     : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com https://*.pstatic.net${tileConnectSrc}`;
@@ -334,6 +324,10 @@ function redirectToLogin(req: NextRequest, pathname: string): NextResponse {
 export async function proxy(req: NextRequest) {
   const url = req.nextUrl;
 
+  if (isReadOnlyPreview()) {
+    return readOnlyPreviewProxy(req);
+  }
+
   // 1. Rate limit
   const rateBlocked = await checkAuthRateLimit(req);
   if (rateBlocked) return rateBlocked;
@@ -376,6 +370,22 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL(ROUTES.forbidden, req.url));
   }
 
+  return nextWithSecurityHeaders(reqHeaders, cspHeader);
+}
+
+/** The read-only preview never reaches the session store or the rate limiter (both Redis). */
+function readOnlyPreviewProxy(req: NextRequest): NextResponse {
+  const url = req.nextUrl;
+  const nonce = randomBytes(16).toString("base64");
+  const cspHeader = buildCspHeader(url.hostname, nonce);
+  if (url.pathname === ROUTES.home) {
+    return redirectWithSecurityHeaders(new URL(ROUTES.listings.index, req.url), cspHeader);
+  }
+  if (!isReadOnlyPreviewPage(url.pathname)) {
+    return notFoundWithSecurityHeaders(cspHeader);
+  }
+  const reqHeaders = new Headers(req.headers);
+  reqHeaders.set("x-csp-nonce", nonce);
   return nextWithSecurityHeaders(reqHeaders, cspHeader);
 }
 

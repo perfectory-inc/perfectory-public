@@ -48,7 +48,7 @@ class TheHelper(unittest.TestCase):
         lines = [f"downloaded file {n}" for n in range(100)] + [
             "connect postgres://foundation_admin:planted-password@127.0.0.1:15434/foundation failed",
             "upstream refused bearer planted-token",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=planted-secret",
             "foundation-job-outcome changed",
             "x" * 1000,
             "progress 10%\rprogress 100%",
@@ -111,6 +111,34 @@ TAIL_COPY = re.compile(r'^\s*(?:trap .*; )?tail -5 "\$\{run_log\}" >> "\$\{journ
 def job_scripts():
     return sorted(path for path in OPS.glob("*.sh") if path.name != HELPER.name
                   and "${journal}" in path.read_text(encoding="utf-8"))
+
+
+ERR_TRAP = re.compile(r"^\s*trap .*\bERR\b", re.M)
+
+
+class AFailureInAFunctionReachesTheTrap(unittest.TestCase):
+    """2026-10-15: lineage-stewardship-cycle.sh failed inside its `spark` function and the unit's
+    journal showed only "exit 1". Bash runs an ERR trap inside a function only under errtrace
+    (`set -E`); without it `set -e` exits from the function and the trap that would have printed
+    the failed line and the run log's end never runs."""
+
+    SCRIPT = "trap 'echo \"trapped at $LINENO\" >&2' ERR; step() { false; }; step; echo unreachable"
+
+    def test_without_errtrace_the_trap_is_skipped_and_with_it_the_trap_runs(self):
+        for flags, trapped in (("-euo pipefail", False), ("-Eeuo pipefail", True)):
+            with self.subTest(flags=flags):
+                result = subprocess.run(["bash", "-c", f"set {flags}; {self.SCRIPT}"],
+                                        capture_output=True, text=True, timeout=60, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("unreachable", result.stdout)
+                self.assertEqual("trapped at" in result.stderr, trapped, result.stderr)
+
+    def test_every_script_with_an_err_trap_sets_errtrace(self):
+        missing = [path.name for path in sorted(OPS.glob("*.sh"))
+                   if ERR_TRAP.search(text := path.read_text(encoding="utf-8"))
+                   and not re.search(r"^set -[a-zA-Z]*E[a-zA-Z]*", text, re.M)]
+        self.assertEqual(missing, [], "these scripts' ERR trap never runs for a failure inside a function; "
+                                      "use set -Eeuo pipefail")
 
 
 class EveryJobUsesIt(unittest.TestCase):

@@ -9,7 +9,7 @@
 # 감시: 오버레이가 응답하지 않거나, 접히지 않은 편집이 너무 오래 남았거나, 어느 단계든
 # 실패하면 슬랙 #alerts 가 안다. 아무 일도 없던 시간에도 journal 에 한 줄을 남긴다 —
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다.
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
@@ -105,6 +105,7 @@ if [ "${oldest_age_hours}" -ge "${MAX_PENDING_AGE_HOURS}" ]; then
 fi
 if [ "${pending}" = "0" ] && [ "${FOUNDATION_MAP_EDIT_FOLD_FORCE:-0}" != "1" ]; then
   job_journal "${journal}" "fold unit=${UNIT} pending=0 overlay=${overlay_status} skipped"
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 
@@ -127,7 +128,7 @@ FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFOR
 docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark-small spark-submit --master 'local[4]' --driver-memory 4g \
   --jars "${SPARK_RELEASE_JARS}" \
   "/workspace/infra/lakehouse/spark/jobs/${SERVED_JOB}" \
@@ -148,3 +149,5 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="map-edit-fold-$
 result="$(grep -o 'lakehouse-tile-bake-ok.*' "${run_log}" | tail -1)"
 job_journal "${journal}" "fold unit=${UNIT} pending=${pending} ${result}"
 notify_slack "🗺️ 지도 편집 ${pending}건을 ${UNIT} 타일에 접었다 — ${result}"
+# The run's last line (root ADR-0171, ADR-0260): the edits are folded into the served tiles.
+printf 'foundation-job-outcome changed\n'

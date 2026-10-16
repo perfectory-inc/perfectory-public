@@ -10,10 +10,12 @@ import {
   previewPlan,
   resolvePacks,
   type PackPlan,
-  type ReadTrace,
+  packKey,
+  ReadTrace,
+  warmPackPath,
   type Resolved,
 } from "./packs";
-import { cacheOrigin, laneOfPath, lanePacks, OWN, policy, type ServedLane } from "./lane";
+import { cacheOrigin, laneOfPath, LANES, lanePacks, OWN, policy, type ServedLane } from "./lane";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
@@ -62,10 +64,11 @@ interface ServingPlan {
   packs?: PackPlan;
 }
 
-/// A canonical request: the PNU, and the unpublished pack generation a preview asks for, with the
-/// probe run it is read in (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate
-/// run's first read of a document is an R2 read on both sides (2026-10-13: a baseline answered from
-/// edge copies an earlier run left was timed against R2 reads).
+/// A canonical request: the key (a PNU, or a PNU and the lane's key suffix, root ADR-0204), and
+/// the unpublished pack generation a preview asks for, with the probe run it is read in
+/// (`g{N}-r{run}`): a preview keys its edge copies by the run, so each gate run's first read of a
+/// document is an R2 read on both sides (2026-10-13: a baseline answered from edge copies an
+/// earlier run left was timed against R2 reads).
 interface CanonicalRequest {
   pnu: string;
   previewGeneration: number | null;
@@ -87,13 +90,18 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
   const prefix = lane.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
+  const previewGeneration = preview === null ? null : Number(preview[1]);
+  const previewRun = preview?.[2] ?? null;
+  if (lane.keySuffix !== null) {
+    // `<pnu>/<suffix>`: the key is the two joined, as the bake writes it (root ADR-0204).
+    const [pnu, suffix, ...rest] = candidate.split("/");
+    if (pnu === undefined || suffix === undefined || rest.length > 0) return null;
+    if (!pnuPattern.test(pnu) || !lane.keySuffix.test(suffix)) return null;
+    return { pnu: `${pnu}${suffix}`, previewGeneration, previewRun };
+  }
   if (!pnuPattern.test(candidate)) return null;
   if (url.pathname !== `${prefix}${candidate}`) return null;
-  return {
-    pnu: candidate,
-    previewGeneration: preview === null ? null : Number(preview[1]),
-    previewRun: preview?.[2] ?? null,
-  };
+  return { pnu: candidate, previewGeneration, previewRun };
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -650,6 +658,37 @@ async function answerByPnu(
   return objectTimed(withCors(response, origin, allowed), "r2-object");
 }
 
+/// The request path's pure steps, run once per isolate at startup (root ADR-0233): global scope
+/// has its own startup CPU limit, so a request's CPU no longer carries their first calls. A
+/// measuring Worker, same hour, about 600 fresh isolates a side (2026-10-15): the isolate's first
+/// document request p50/p90/p99 9/14/19 ms before, 7/13/17 ms after, mean 9.8 -> 8.3 ms; warm
+/// requests unchanged. The I/O a first request also pays (first R2 and cache use) cannot run here.
+/// `true` when every step answered as it does for a request.
+function warmRequestPath(): boolean {
+  // The reserved region (99999): never a real parcel.
+  const pnu = "9999910100100010000";
+  let answered = warmPackPath(pnu);
+  for (const lane of LANES) {
+    const url = new URL(`${cacheOrigin}${lane.prefix}${pnu}?${packPolicy.preview_query_parameter}=g1-rwarm`);
+    answered &&= laneOfPath(url.pathname) === lane && canonicalRequest(url, lane)?.pnu === pnu;
+    const plan = previewPlan(1, "warm-up", lane, "warm");
+    answerCacheUrl(plan.fingerprint, pnu);
+    servingCacheUrl(url.href, plan);
+    for (const section of plan.sections) packKey(section, null, pnu.slice(0, plan.unitLength), lane.packRoot);
+  }
+  const allowed = parseAllowedOrigins("https://warm-up.invalid");
+  answered &&= allowed !== null && corsHeaders("https://warm-up.invalid", allowed).has("Access-Control-Allow-Origin");
+  serverTiming(new ReadTrace(), Date.now(), "document");
+  new Response(new Uint8Array(1), { headers: { "Content-Encoding": "gzip", ETag: '"warm-up"' } });
+  return answered;
+}
+
+try {
+  warmRequestPath();
+} catch {
+  // A warm-up that fails never stops the Worker: its first request pays the first calls instead.
+}
+
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return fetchByPnu(request, env, ctx);
@@ -666,4 +705,5 @@ export {
   parseAllowedOrigins,
   parseManifest,
   servingCacheUrl,
+  warmRequestPath,
 };

@@ -1,6 +1,6 @@
 # ADR 0096: 필지 속성은 R2 미리구운 객체로 서빙한다
 
-- Status: Accepted
+- Status: Superseded by ADR-0147 (필지마다 객체 하나 대신 구역 묶음; R2 에 미리 굽는 방향은 그대로다)
 - Date: 2026-09-08
 
 ## Context

@@ -272,9 +272,9 @@ impl SearchFixture {
         for (index, row) in self.rows().into_iter().enumerate() {
             sqlx::query(
                 "INSERT INTO catalog.industrial_complex
-                 (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, sido_code,
+                 (id, official_complex_code, name, kind, area_m2, sido_code,
                   status, version)
-                 VALUES ($1, $1, $2, $3, $4, 1000, $5, $6, 1)",
+                 VALUES ($1, $2, $3, $4, 1000, $5, $6, 1)",
             )
             .bind(self.ids[index])
             .bind(&self.codes[index])

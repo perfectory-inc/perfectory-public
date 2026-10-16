@@ -30,7 +30,7 @@ fn parses_r2_data_catalog_configuration() -> Result<(), LakehouseCatalogConfigEr
             "foundation-platform",
         ),
         (
-            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
             "secret-token",
         ),
     ]))?;
@@ -42,6 +42,45 @@ fn parses_r2_data_catalog_configuration() -> Result<(), LakehouseCatalogConfigEr
     );
     assert_eq!(config.warehouse, "foundation-platform");
     assert_eq!(config.catalog_token.as_deref(), Some("secret-token"));
+    Ok(())
+}
+
+/// The operations map reads with the read-only token and never falls back to the writer's
+/// (root ADR-0247): a process that holds both still gets the reader, and one that holds only the
+/// writer gets no token at all.
+#[test]
+fn the_reader_configuration_takes_only_the_read_only_token(
+) -> Result<(), LakehouseCatalogConfigError> {
+    let base = [
+        (
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER",
+            "r2_data_catalog",
+        ),
+        (
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
+            "https://catalog.example.test/account/catalog",
+        ),
+        (
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
+            "foundation-platform",
+        ),
+        (
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
+            "writer-token",
+        ),
+    ];
+    let mut both = base.to_vec();
+    both.push((
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN",
+        "reader-token",
+    ));
+
+    let reader = LakehouseCatalogConfig::reader_from_vars(&vars(&both))?;
+    assert_eq!(reader.catalog_token.as_deref(), Some("reader-token"));
+    let writer = LakehouseCatalogConfig::from_vars(&vars(&both))?;
+    assert_eq!(writer.catalog_token.as_deref(), Some("writer-token"));
+    let writer_only = LakehouseCatalogConfig::reader_from_vars(&vars(&base))?;
+    assert_eq!(writer_only.catalog_token, None);
     Ok(())
 }
 
@@ -104,7 +143,7 @@ fn debug_output_redacts_catalog_token() -> Result<(), LakehouseCatalogConfigErro
             "foundation-platform",
         ),
         (
-            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
             "secret-token",
         ),
     ]))?;

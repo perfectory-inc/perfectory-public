@@ -48,6 +48,17 @@ export interface ServedLane {
   /// Prefixed to every served-state fingerprint, so two lanes' edge copies never share a key. The
   /// Worker's own lane keeps the bare fingerprint (and the edge copies it already has).
   cacheScope: string;
+  /// A lane keyed narrower than a PNU (root ADR-0204, contract `document_key_suffix`): what follows
+  /// the PNU in its key, requested as `<prefix><pnu>/<suffix>`. `null` for a lane keyed by PNU.
+  keySuffix: RegExp | null;
+}
+
+/// The contract's `document_key_suffix.pattern` of an entry, anchored; `null` when it names none.
+export function keySuffixOf(entry: unknown): RegExp | null {
+  const suffix = (entry as { document_key_suffix?: { pattern?: unknown } }).document_key_suffix;
+  if (suffix === undefined) return null;
+  if (typeof suffix.pattern !== "string") throw new Error("document_key_suffix names no pattern");
+  return new RegExp(`^(?:${suffix.pattern})$`);
 }
 
 /// `path` with `{kind}/` inserted before its last `segment` segment (the publisher's `with_kind`).
@@ -60,7 +71,7 @@ function withKind(path: string, segment: string, kind: string): string {
 }
 
 /// The paths of a lane derived from `host` (root ADR-0193 §4; the publisher's `resolve_lane_entry`).
-export function resolveLane(name: string, host: Gateway, kind: string): ServedLane {
+export function resolveLane(name: string, host: Gateway, kind: string, keySuffix: RegExp | null = null): ServedLane {
   return {
     name,
     unit: `${name}-by-pnu`,
@@ -71,6 +82,7 @@ export function resolveLane(name: string, host: Gateway, kind: string): ServedLa
     manifestObject: withKind(host.object_key.manifest_object, "by-pnu", kind),
     packRoot: withKind(host.section_packs.root, "packs", kind),
     cacheScope: `${name}:`,
+    keySuffix,
   };
 }
 
@@ -85,11 +97,12 @@ export const OWN: ServedLane = {
   manifestObject: policy.object_key.manifest_object,
   packRoot: lanePacks.root,
   cacheScope: "",
+  keySuffix: keySuffixOf(policy),
 };
 
 const derived = Object.entries(connectionContract.by_pnu_lanes as Record<string, Record<string, unknown>>)
   .filter(([, entry]) => entry.host === `${LANE}_by_pnu_gateway`)
-  .map(([name, entry]) => resolveLane(name, policy, String(entry.kind)));
+  .map(([name, entry]) => resolveLane(name, policy, String(entry.kind), keySuffixOf(entry)));
 
 /// Every lane this Worker serves, its own first.
 export const LANES: readonly ServedLane[] = [OWN, ...derived];

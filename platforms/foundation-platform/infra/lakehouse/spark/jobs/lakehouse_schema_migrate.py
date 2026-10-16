@@ -167,6 +167,64 @@ def plan_table(
     return plan
 
 
+PRODUCTION_SHAPE_PATH = Path(__file__).resolve().parents[2] / "contracts" / "lakehouse-production-shape.json"
+PRODUCTION_SHAPE_SCHEMA = "foundation-platform.lakehouse_production_shape.v1"
+
+
+def load_production_shape(path: Path = PRODUCTION_SHAPE_PATH) -> dict[str, dict]:
+    """The production tables' shapes, captured by scripts/ops/lakehouse-production-shape.py."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema_version") != PRODUCTION_SHAPE_SCHEMA:
+        raise ValueError(f"{path.name} schema_version is not {PRODUCTION_SHAPE_SCHEMA}")
+    return document["tables"]
+
+
+def production_shape_refusals(contracts: dict[str, dict], shapes: dict[str, dict]) -> list[str]:
+    """What would stop the deploy's migration of the tables as production holds them (root ADR-0259).
+
+    The same `plan_table` the deploy runs, on each table's live columns, types, nullability and
+    whether it holds rows, as the shape ledger records them. The ledger holds every table of the
+    contracts' namespaces; a table it lacks is one production does not hold, which the deploy
+    leaves to the load that creates it.
+    """
+    refusals = []
+    for table_name, contract in sorted(contracts.items()):
+        shape = shapes.get(table_name)
+        if shape is None:
+            continue
+        fields = {field[0]: field for field in shape["fields"]}
+        live = [fields[field_id] for field_id in shape["columns"]]
+        try:
+            plan_table(
+                contract, tuple(name for _, name, _, _ in live), shape["has_rows"], table_name,
+                actual_types={name: live_spark_type(kind) for _, name, kind, _ in live},
+                actual_nullability={name: nullable for _, name, _, nullable in live},
+            )
+        except MigrationBlocked as error:
+            refusals.append(str(error))
+    return refusals
+
+
+def shape_ledger_drift(table_name: str, shape: dict | None, live: tuple[str, ...] | None) -> list[str]:
+    """How the table the deploy found differs from the ledger CI gated it on (None: absent)."""
+    if shape is None:
+        return [] if live is None else [f"{table_name}: present, the ledger lacks it"]
+    if live is None:
+        return [f"{table_name}: absent, the ledger holds it"]
+    fields = {field[0]: field[1] for field in shape["fields"]}
+    recorded = tuple(fields[field_id] for field_id in shape["columns"])
+    return [] if recorded == tuple(live) else [f"{table_name}: columns {list(live)}, the ledger {list(recorded)}"]
+
+
+def live_spark_type(logical_type: str) -> str:
+    """A ledger type as `inspect_table` reads it from Spark; a type outside the contracts' vocabulary
+    stays as captured, which no contract type equals."""
+    try:
+        return spark_sql_type(logical_type).lower()
+    except ValueError:
+        return logical_type
+
+
 def reorder_to_contract(spark: SparkSession, quoted: str, contract: dict, actual: tuple[str, ...]) -> None:
     """Put the present contract columns in contract order: a metadata change, no rows rewritten."""
 
@@ -285,9 +343,10 @@ def main() -> int:
     spark.sparkContext.setLogLevel("WARN")
     assert_iceberg_runtime_loaded(spark, args.iceberg_packages)
     catalog = args.iceberg_catalog_name
-    report, blocked = {}, []
+    report, blocked, stale = {}, [], []
     try:
         contracts = load_lakehouse_artifact()["contracts"]
+        shapes = load_production_shape()
         known_drift = load_known_drift()
         unknown_entries = sorted(set(known_drift) - set(contracts))
         if unknown_entries:
@@ -299,9 +358,11 @@ def main() -> int:
             if not spark.catalog.tableExists(f"{catalog}.{table_name}"):
                 if table_name in known_drift:
                     raise MigrationBlocked(f"{table_name}: remove the temporary exception; the table is absent")
+                stale += shape_ledger_drift(table_name, shapes.get(table_name), None)
                 report[table_name] = {"state": "absent"}
                 print(f"lakehouse-migrate {table_name}: absent (its load creates it)")
                 continue
+            stale += shape_ledger_drift(table_name, shapes.get(table_name), iceberg_table_columns(spark, quoted))
             try:
                 plan = inspect_table(spark, quoted, contract, table_name)
             except MigrationBlocked as error:
@@ -327,12 +388,17 @@ def main() -> int:
     finally:
         if args.summary_output:
             with open(args.summary_output, "w", encoding="utf-8") as handle:
-                json.dump({"mode": args.mode, "tables": report, "blocked": blocked}, handle, ensure_ascii=False, indent=2)
+                json.dump({"mode": args.mode, "tables": report, "blocked": blocked, "shape_ledger_stale": stale},
+                          handle, ensure_ascii=False, indent=2)
         spark.stop()
     counts = {}
     for entry in report.values():
         counts[entry["state"]] = counts.get(entry["state"], 0) + 1
     print(f"lakehouse-migrate {args.mode}: {json.dumps(counts)}")
+    if stale:
+        # Not a refusal: the deploy goes on. CI gated this release on a shape production no longer
+        # holds; refresh the ledger with scripts/ops/lakehouse-production-shape.py (root ADR-0259).
+        print(f"lakehouse-migrate shape-ledger stale: {json.dumps(stale, ensure_ascii=False)}")
     return 1 if blocked else 0
 
 

@@ -16,7 +16,7 @@
 
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use lakehouse_application::PublishIndustrialComplexGoldPointerInput;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -40,7 +40,7 @@ struct StoredProfileIdentity {
 /// point: a value of this type is evidence that the read happened.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct VerifiedGoldProfileArtifact {
-    lakehouse_complex_id: LakehouseComplexId,
+    artifact_complex_id: ComplexId,
     current_version: String,
     object_key: String,
     checksum_sha256: String,
@@ -51,7 +51,7 @@ pub(crate) struct VerifiedGoldProfileArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaimedGoldProfileArtifact {
     /// Lakehouse identity stated by the Gold artifact.
-    pub(crate) lakehouse_complex_id: LakehouseComplexId,
+    pub(crate) artifact_complex_id: ComplexId,
     /// Artifact version the pointer will publish as current.
     pub(crate) current_version: String,
     /// Object key the pointer will name.
@@ -84,7 +84,7 @@ impl VerifiedGoldProfileArtifact {
             .with_context(|| {
                 format!(
                     "the pointer for complex {} names {}, which could not be read",
-                    claim.lakehouse_complex_id.as_uuid(),
+                    claim.artifact_complex_id.as_uuid(),
                     claim.object_key
                 )
             })?;
@@ -119,7 +119,7 @@ impl VerifiedGoldProfileArtifact {
             identity.artifact_id,
             claim.current_version
         );
-        let stored_complex_id = claim.lakehouse_complex_id.as_uuid().to_string();
+        let stored_complex_id = claim.artifact_complex_id.as_uuid().to_string();
         ensure!(
             identity.complex_id == stored_complex_id,
             "profile object {} describes complex {} but the pointer is for {stored_complex_id}",
@@ -128,7 +128,7 @@ impl VerifiedGoldProfileArtifact {
         );
 
         Ok(Self {
-            lakehouse_complex_id: claim.lakehouse_complex_id,
+            artifact_complex_id: claim.artifact_complex_id,
             current_version: claim.current_version,
             object_key: claim.object_key,
             checksum_sha256: claim.checksum_sha256,
@@ -137,8 +137,8 @@ impl VerifiedGoldProfileArtifact {
     }
 
     /// Industrial complex this artifact describes.
-    pub(crate) const fn lakehouse_complex_id(&self) -> LakehouseComplexId {
-        self.lakehouse_complex_id
+    pub(crate) const fn artifact_complex_id(&self) -> ComplexId {
+        self.artifact_complex_id
     }
 
     /// Object key that was read.

@@ -35,7 +35,34 @@ pub fn fields(lane: &PackLane) -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
-/// `lane`'s document of one Gold row, and the PNU it answers for.
+/// The key `row` answers for in `lane`: its PNU, then its key suffix when the lane has one (root
+/// ADR-0204). The bake selects, groups and writes by this key.
+///
+/// # Errors
+/// Refuses a row without a PNU, or without a suffix of the lane's pattern.
+pub fn key(lane: &PackLane, row: &JsonMap<String, JsonValue>) -> anyhow::Result<String> {
+    let pnu = row
+        .get("pnu")
+        .and_then(JsonValue::as_str)
+        .filter(|pnu| is_pnu(pnu))
+        .with_context(|| format!("a {} row has no PNU", lane.gold.table_name))?;
+    let Some(suffix) = &lane.key_suffix else {
+        return Ok(pnu.to_owned());
+    };
+    let value = row
+        .get(suffix.column)
+        .and_then(JsonValue::as_str)
+        .filter(|value| suffix.admits(value))
+        .with_context(|| {
+            format!(
+                "{pnu}: {} is not a {} key suffix",
+                suffix.column, lane.gold.table_name
+            )
+        })?;
+    Ok(format!("{pnu}{value}"))
+}
+
+/// `lane`'s document of one Gold row, and the key it answers for.
 ///
 /// # Errors
 /// Refuses a row without a PNU of the lane's grammar, and a content column that is absent or not
@@ -46,12 +73,8 @@ pub fn render(
     iceberg_snapshot_id: &str,
     row: &JsonMap<String, JsonValue>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
-    let pnu = row
-        .get("pnu")
-        .and_then(JsonValue::as_str)
-        .filter(|pnu| is_pnu(pnu))
-        .with_context(|| format!("a {} row has no PNU", lane.gold.table_name))?
-        .to_owned();
+    let key = key(lane, row)?;
+    let pnu = key[..19].to_owned();
     let mut document = Vec::with_capacity(256);
     document.extend_from_slice(b"{\"schema_version\":");
     serde_json::to_writer(&mut document, &lane.document_schema_version)?;
@@ -87,7 +110,7 @@ pub fn render(
         serde_json::to_writer(&mut document, &value)?;
     }
     document.push(b'}');
-    Ok((pnu, document))
+    Ok((key, document))
 }
 
 /// Checks that `bytes` is a document of `lane`: its schema, a PNU, its source and every field.
@@ -107,7 +130,13 @@ pub fn check(lane: &PackLane, bytes: &[u8]) -> anyhow::Result<()> {
             && document.get("source").is_some_and(JsonValue::is_object)
             && fields(lane)
                 .iter()
-                .all(|(field, _)| document.get(*field).is_some()),
+                .all(|(field, _)| document.get(*field).is_some())
+            && lane.key_suffix.as_ref().is_none_or(|suffix| {
+                document
+                    .get(suffix.column)
+                    .and_then(JsonValue::as_str)
+                    .is_some_and(|value| suffix.admits(value))
+            }),
         "the documents fragment is not a {} document",
         lane.document_schema_version
     );
@@ -129,9 +158,13 @@ mod tests {
             .context("the contract names the unit-price lane")
     }
 
+    /// A building id of the unit-price lane's key suffix (root ADR-0204).
+    const BUILDING: &str = "00000000-0000-0000-0000-00000000000b";
+
     fn row(units: &str) -> JsonMap<String, JsonValue> {
         let mut row = JsonMap::new();
         row.insert("pnu".to_owned(), "9999900000100000000".into());
+        row.insert("building_id".to_owned(), BUILDING.into());
         row.insert("units_json".to_owned(), units.into());
         row.insert("row_digest".to_owned(), "a".repeat(64).into());
         row.insert("source_snapshot_id".to_owned(), "synthetic".into());
@@ -142,32 +175,59 @@ mod tests {
     #[test]
     fn a_row_renders_its_content_columns_by_rule_and_the_same_bytes_twice() -> anyhow::Result<()> {
         let lane = lane()?;
-        assert_eq!(fields(lane), vec![("units", "units_json")]);
+        assert_eq!(
+            fields(lane),
+            vec![("building_id", "building_id"), ("units", "units_json")]
+        );
         let units =
             r#"[{"id":"u","official_price_history":[{"base_date":"20250101","price_won":7}]}]"#;
-        let (pnu, bytes) = render(
-            lane,
-            "gold.unit_price_panel",
-            "999990000000000001",
-            &row(units),
-        )?;
-        assert_eq!(pnu, "9999900000100000000");
+        let (key, bytes) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
+        // Root ADR-0204: the key is the PNU then the building id; the document names both.
+        assert_eq!(key, format!("9999900000100000000{BUILDING}"));
         assert_eq!(
             String::from_utf8(bytes.clone())?,
             format!(
                 "{{\"schema_version\":\"{}\",\"pnu\":\"9999900000100000000\",\"source\":{{\"table\":\
-                 \"gold.unit_price_panel\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\"units\":{units}}}",
+                 \"gold.unit_price\",\"iceberg_snapshot_id\":\"999990000000000001\"}},\
+                 \"building_id\":\"{BUILDING}\",\"units\":{units}}}",
                 lane.document_schema_version
             )
         );
-        let (_, again) = render(
-            lane,
-            "gold.unit_price_panel",
-            "999990000000000001",
-            &row(units),
-        )?;
+        let (_, again) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         assert_eq!(bytes, again);
         check(lane, &bytes)
+    }
+
+    #[test]
+    fn a_keyed_lane_refuses_a_row_or_a_document_without_its_suffix() -> anyhow::Result<()> {
+        // Root ADR-0204: a unit-price row without a building id, or with one outside the
+        // contract's pattern (a slash would split the request path), has no key.
+        let lane = lane()?;
+        for bad in [
+            JsonValue::Null,
+            "".into(),
+            "not-a-building".into(),
+            format!("{BUILDING}/x").into(),
+        ] {
+            let mut row = row("[]");
+            row.insert("building_id".to_owned(), bad.clone());
+            assert!(key(lane, &row).is_err(), "{bad}");
+            assert!(render(lane, "t", "1", &row).is_err(), "{bad}");
+        }
+        let (_, bytes) = render(lane, "t", "1", &row("[]"))?;
+        let mut without: JsonValue = serde_json::from_slice(&bytes)?;
+        without
+            .as_object_mut()
+            .context("a document is an object")?
+            .insert("building_id".to_owned(), JsonValue::Null);
+        assert!(check(lane, &serde_json::to_vec(&without)?).is_err());
+        // A lane keyed by PNU alone keeps the PNU as its key.
+        let zoning = ByPnuLane::named("parcel-zoning")?
+            .and_then(ByPnuLane::pack_lane)
+            .context("the contract names the zoning lane")?;
+        assert!(zoning.key_suffix.is_none());
+        assert_eq!(key(zoning, &row("[]"))?, "9999900000100000000");
+        Ok(())
     }
 
     #[test]

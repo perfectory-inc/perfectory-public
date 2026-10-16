@@ -49,7 +49,7 @@ env = os.environ
 seen = {"command": command, "runtime_env": env.get("FOUNDATION_PLATFORM_RUNTIME_ENV"),
         "database": env.get("DATABASE_URL", "").rsplit("/", 1)[-1],
         "threshold": env.get("FOUNDATION_PLATFORM_R2_STAGING_MULTIPART_THRESHOLD_BYTES"),
-        "writer": bool(env.get("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID")),
+        "writer": bool(env.get("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID")),
         "inventory": env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"),
         "bronze_key": env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY"),
         "sources": env.get("FOUNDATION_PLATFORM_BRONZE_MEMBER_SOURCES")}
@@ -268,10 +268,10 @@ class StagingSmoke(unittest.TestCase):
 
     def test_a_missing_setting_refuses_before_any_side_effect(self):
         env = dict(self.env)
-        del env["FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"]
+        del env["FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]
         result = self.run_smoke(env)
         self.assertEqual(result.returncode, 78)
-        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID", result.stderr)
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID", result.stderr)
         self.assertEqual((self.lines("calls.jsonl"), self.lines("docker.jsonl")), ([], []))
 
     def test_no_secret_reaches_the_output(self):

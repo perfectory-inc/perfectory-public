@@ -74,6 +74,12 @@ pub fn vector_tile_runtime_manifest_object_key(manifest_id: VectorTileRuntimeMan
     format!("gold/vector-tiles/manifests/{manifest_id}.json")
 }
 
+/// The object the tile edge serves as the active v2 runtime manifest (root ADR-0254): the same
+/// bytes as the immutable copy under `vector_tile_runtime_manifest_object_key`, rewritten on every
+/// publication.
+pub const VECTOR_TILE_RUNTIME_MANIFEST_POINTER_OBJECT_KEY: &str =
+    "gold/vector-tiles/runtime-manifest.json";
+
 /// Event emitted after a complete v2 runtime manifest and its selected unit releases are durable.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VectorTileRuntimeManifestPublishedV2 {

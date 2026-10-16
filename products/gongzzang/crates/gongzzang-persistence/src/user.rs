@@ -10,7 +10,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use shared_kernel::broker_license::BrokerLicense;
-use shared_kernel::business_number::BusinessNumber;
 use shared_kernel::email::Email;
 use shared_kernel::id::{AuditLogMarker, ExternalAccountMarker, Id, OutboxEventMarker, UserMarker};
 use shared_kernel::mutation::MutationContext;
@@ -50,7 +49,7 @@ impl PgUserRepository {
 /// 모든 `user` 조회의 `select ... from` — Zitadel subject 는 `external_account` 가 유일한
 /// 출처 (루트 ADR-0232). 뒤에 `where` 절만 붙여 써요.
 const SELECT_USER: &str = r#"select u.id, ea.external_id as zitadel_sub, u.email, u.phone_kr_hash,
-    u.display_name, u.user_kind, u.business_number, u.business_verified_at,
+    u.display_name, u.user_kind,
     u.broker_license_number, u.broker_verified_at, u.roles, u.nice_verified_at,
     u.marketing_consent_at, u.created_at, u.updated_at, u.last_login_at, u.deleted_at, u.version
     from "user" u
@@ -64,8 +63,6 @@ struct UserRow {
     phone_kr_hash: Option<String>,
     display_name: String,
     user_kind: String,
-    business_number: Option<String>,
-    business_verified_at: Option<DateTime<Utc>>,
     broker_license_number: Option<String>,
     broker_verified_at: Option<DateTime<Utc>>,
     roles: Vec<String>,
@@ -97,12 +94,6 @@ fn pg_row_to_user_row(row: &PgRow) -> Result<UserRow, RepoError> {
             .map_err(|e| RepoError::Database(e.to_string()))?,
         user_kind: row
             .try_get("user_kind")
-            .map_err(|e| RepoError::Database(e.to_string()))?,
-        business_number: row
-            .try_get("business_number")
-            .map_err(|e| RepoError::Database(e.to_string()))?,
-        business_verified_at: row
-            .try_get("business_verified_at")
             .map_err(|e| RepoError::Database(e.to_string()))?,
         broker_license_number: row
             .try_get("broker_license_number")
@@ -150,8 +141,6 @@ fn user_row_to_user(row: UserRow) -> Result<User, RepoError> {
         phone_kr_hash,
         display_name,
         user_kind: user_kind_str,
-        business_number: business_number_str,
-        business_verified_at,
         broker_license_number: broker_license_str,
         broker_verified_at,
         roles: roles_strs,
@@ -177,12 +166,6 @@ fn user_row_to_user(row: UserRow) -> Result<User, RepoError> {
             )));
         }
     };
-    let business_number = business_number_str
-        .map(|s| {
-            BusinessNumber::try_new(&s)
-                .map_err(|e| RepoError::Database(format!("malformed business_number in DB: {e}")))
-        })
-        .transpose()?;
     let broker_license_number = broker_license_str
         .map(|s| {
             BrokerLicense::try_new(&s)
@@ -216,8 +199,6 @@ fn user_row_to_user(row: UserRow) -> Result<User, RepoError> {
         phone_kr_hash,
         display_name,
         user_kind,
-        business_number,
-        business_verified_at,
         broker_license_number,
         broker_verified_at,
         roles,
@@ -288,19 +269,16 @@ impl UserRepository for PgUserRepository {
             r#"
             insert into "user" (
                 id, email, phone_kr_hash, display_name, user_kind,
-                business_number, business_verified_at,
                 broker_license_number, broker_verified_at,
                 roles, nice_verified_at, marketing_consent_at,
                 created_at, updated_at, last_login_at, deleted_at, version
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             on conflict (id) do update set
                 email = excluded.email,
                 phone_kr_hash = excluded.phone_kr_hash,
                 display_name = excluded.display_name,
                 user_kind = excluded.user_kind,
-                business_number = excluded.business_number,
-                business_verified_at = excluded.business_verified_at,
                 broker_license_number = excluded.broker_license_number,
                 broker_verified_at = excluded.broker_verified_at,
                 roles = excluded.roles,
@@ -310,7 +288,7 @@ impl UserRepository for PgUserRepository {
                 last_login_at = excluded.last_login_at,
                 deleted_at = excluded.deleted_at,
                 version = "user".version + 1
-            where "user".version = $17
+            where "user".version = $15
             "#,
         )
         .bind(user.id.as_str())
@@ -318,8 +296,6 @@ impl UserRepository for PgUserRepository {
         .bind(user.phone_kr_hash.as_ref())
         .bind(&user.display_name)
         .bind(kind_str)
-        .bind(user.business_number.as_ref().map(BusinessNumber::as_str))
-        .bind(user.business_verified_at)
         .bind(
             user.broker_license_number
                 .as_ref()

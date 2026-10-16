@@ -120,19 +120,6 @@ id_newtype!(
     "Lakehouse Registry object artifact identifier."
 );
 id_newtype!(
-    LakehouseComplexId,
-    "Industrial complex id as a lakehouse producer handed it over (Silver `complex_id`).\n\n\
-     Since root ADR-0250 it equals the complex's `ComplexId`; Catalog checks that equality when it\n\
-     accepts a row instead of trusting it. The type goes when `lakehouse_complex_id` is retired.\n\n\
-     ```compile_fail,E0308\n\
-     use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};\n\
-     use uuid::Uuid;\n\n\
-     fn requires_lakehouse_id(_: LakehouseComplexId) {}\n\n\
-     let complex_id = ComplexId::new(Uuid::nil());\n\
-     requires_lakehouse_id(complex_id);\n\
-     ```"
-);
-id_newtype!(
     PrincipalId,
     "Opaque Foundation-local identifier for an authorized principal.\n\n\
      A Catalog entity identifier cannot be used where a principal is required.\n\n\

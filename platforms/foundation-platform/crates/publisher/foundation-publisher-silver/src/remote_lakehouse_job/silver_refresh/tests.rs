@@ -625,7 +625,7 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
     assert!(args.windows(2).any(|w| w
         == [
             "-e",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"
         ]));
     assert!(
         !args.iter().any(|a| a.contains('=') && a.contains("SECRET")),

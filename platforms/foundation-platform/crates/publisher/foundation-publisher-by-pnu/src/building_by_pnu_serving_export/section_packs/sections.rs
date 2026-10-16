@@ -101,6 +101,22 @@ impl Renderer {
         }
     }
 
+    /// The key a row answers for: its PNU, or for a lane keyed narrower than a PNU its PNU and
+    /// key suffix (root ADR-0204). The bake selects and refuses duplicates by it.
+    ///
+    /// # Errors
+    /// Refuses a row without a PNU, or without the lane's key suffix.
+    pub(crate) fn key(&self, row: &JsonMap<String, JsonValue>) -> anyhow::Result<String> {
+        match self {
+            Self::Pack(lane) => pack_lane_document::key(lane, row),
+            Self::Building(_) | Self::Parcel => row
+                .get("pnu")
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned)
+                .context("a Gold row is missing pnu"),
+        }
+    }
+
     /// One row's served document.
     ///
     /// # Errors

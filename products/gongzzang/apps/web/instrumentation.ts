@@ -9,7 +9,12 @@
 // 같이.
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
+  // The read-only preview (lib/preview.ts) has no collector. The flag is spelled out, not called, so
+  // the bundler folds it and drops the SDK (gRPC included) to fit the free Worker size.
+  if (
+    process.env.NEXT_RUNTIME === "nodejs" &&
+    process.env.NEXT_PUBLIC_GONGZZANG_READ_ONLY_PREVIEW !== "1"
+  ) {
     const { NodeSDK } = await import("@opentelemetry/sdk-node");
     const { FetchInstrumentation } = await import("@opentelemetry/instrumentation-fetch");
     const sdk = new NodeSDK({

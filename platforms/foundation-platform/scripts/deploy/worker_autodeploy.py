@@ -48,7 +48,9 @@ from typing import Any
 
 PLATFORM = "platforms/foundation-platform"
 CREDENTIAL_GROUP = "cloudflare-deploy"
-CREDENTIAL_NAMES = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID")
+# The token goes by the name derived from its Cloudflare name (root ADR-0247); worker-wrangler.sh hands it to
+# wrangler as CLOUDFLARE_API_TOKEN, the one name wrangler reads.
+CREDENTIAL_NAMES = ("FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN", "CLOUDFLARE_ACCOUNT_ID")
 VERSION_ID = re.compile(r"Version ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 # Cloudflare's answer for a script the account does not have (2026-10-12, the unit-price Worker).
 WORKER_ABSENT = "[code: 10007]"

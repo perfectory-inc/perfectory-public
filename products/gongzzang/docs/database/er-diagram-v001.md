@@ -33,6 +33,7 @@ erDiagram
     user ||--o{ analysis_report : owns
     user ||--o{ notification : receives
     user ||--o{ business_verification_queue : submits
+    business_verification_queue ||--o{ business_verification_status_history : records
     user ||--o{ listing_report : reports
     user ||--o{ admin_action : performs
     user ||--|{ external_account : signs_in_with
@@ -49,7 +50,6 @@ erDiagram
     user {
         char_30 id PK
         varchar email UK
-        varchar_12 business_number
         text_array roles
         timestamptz deleted_at
     }
@@ -139,7 +139,13 @@ erDiagram
     business_verification_queue {
         char_30 id PK
         char_30 user_id FK
+        varchar_12 business_number "sole source of business verification (ADR-0258)"
         varchar status
+    }
+    business_verification_status_history {
+        bigint history_id PK
+        char_30 verification_id FK
+        varchar status "append-only"
     }
     listing_review_queue {
         char_30 id PK

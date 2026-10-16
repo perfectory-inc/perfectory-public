@@ -10,7 +10,9 @@ use thiserror::Error;
 const PROVIDER_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER";
 const CATALOG_URI_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI";
 const WAREHOUSE_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE";
-const TOKEN_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN";
+const TOKEN_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN";
+/// The read-only catalog token (`foundation-platform-lakehouse-catalog-reader-prod`, root ADR-0247).
+const READER_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN";
 
 /// Default read-only Iceberg table used by live lakehouse smoke tests.
 pub const DEFAULT_LAKEHOUSE_SMOKE_TABLE: &str = "silver.industrial_complexes";
@@ -77,10 +79,37 @@ impl LakehouseCatalogConfig {
     /// # Errors
     /// Returns `LakehouseCatalogConfigError` when required values are missing or invalid.
     pub fn from_vars(vars: &BTreeMap<String, String>) -> Result<Self, LakehouseCatalogConfigError> {
+        Self::with_token(vars, TOKEN_ENV)
+    }
+
+    /// Reads the catalog settings with the read-only token, for a reader that must never hold a
+    /// write credential (the operations map, root ADR-0247). The writer token is not a fallback.
+    ///
+    /// # Errors
+    /// Returns `LakehouseCatalogConfigError` when required values are missing or invalid.
+    pub fn reader_from_env() -> Result<Self, LakehouseCatalogConfigError> {
+        let vars = std::env::vars().collect::<BTreeMap<_, _>>();
+        Self::reader_from_vars(&vars)
+    }
+
+    /// [`Self::reader_from_env`] over a provided key-value map.
+    ///
+    /// # Errors
+    /// Returns `LakehouseCatalogConfigError` when required values are missing or invalid.
+    pub fn reader_from_vars(
+        vars: &BTreeMap<String, String>,
+    ) -> Result<Self, LakehouseCatalogConfigError> {
+        Self::with_token(vars, READER_TOKEN_ENV)
+    }
+
+    fn with_token(
+        vars: &BTreeMap<String, String>,
+        token_env: &'static str,
+    ) -> Result<Self, LakehouseCatalogConfigError> {
         let provider = required_env(vars, PROVIDER_ENV)?;
         let catalog_uri = required_env(vars, CATALOG_URI_ENV)?;
         let warehouse = required_env(vars, WAREHOUSE_ENV)?;
-        let catalog_token = optional_env(vars, TOKEN_ENV);
+        let catalog_token = optional_env(vars, token_env);
 
         Ok(Self {
             provider: LakehouseCatalogProvider::from_wire(provider)?,

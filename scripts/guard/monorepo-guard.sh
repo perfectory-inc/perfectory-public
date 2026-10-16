@@ -33,6 +33,7 @@ for g in hook-isolation-self-test \
          foundation-kafka-contract \
          backend-profile-consistency backend-profile-consistency-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
+         r2-reads-have-one-path-self-test r2-reads-have-one-path \
          environment-variable-naming-self-test environment-variable-naming \
          technology-version-consistency-self-test migration-naming \
          unique-package-names health-route-conformance \
@@ -50,6 +51,7 @@ for g in hook-isolation-self-test \
          container-runtime-policy-self-test container-runtime-policy \
          every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
          runtime-secrets-contract-self-test runtime-secrets-contract \
+         credential-names-self-test credential-names \
          container-images-match-the-contract-self-test container-images-match-the-contract \
          workflow-policy-self-test github-policy-json-self-test \
          rust-ci-setup-self-test rust-ci-setup \
@@ -72,6 +74,7 @@ for g in hook-isolation-self-test \
          region-code-pairs-have-one-home-self-test region-code-pairs-have-one-home \
          area-registry-self-test area-registry \
          a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
+         migration-approval-gates-self-test migration-approval-gates \
          the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
          the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \
          identity-endpoints-match-the-contract-self-test identity-endpoints-match-the-contract \

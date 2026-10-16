@@ -164,8 +164,8 @@ class BatchLoadScriptTest(unittest.TestCase):
 
         for name in (
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
         ):
             self.assertIn(f"-e {name}", code, f"{name} 을 컨테이너에 넘겨야 한다")
 
@@ -176,8 +176,8 @@ class BatchLoadScriptTest(unittest.TestCase):
         """
         code = self._code()
 
-        self.assertNotIn("R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID", code)
-        self.assertNotIn("R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", code)
+        self.assertNotIn("LAKEHOUSE_WRITER_ACCESS_KEY_ID", code)
+        self.assertNotIn("LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", code)
 
     def test_the_cache_directory_exists_before_the_container_wants_it(self) -> None:
         """붙일 폴더가 없으면 도커가 root 소유로 만들고, 컨테이너 사용자는 못 쓴다.

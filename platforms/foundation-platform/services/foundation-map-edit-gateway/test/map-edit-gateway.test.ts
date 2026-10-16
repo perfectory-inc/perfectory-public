@@ -241,3 +241,67 @@ describe("the store itself refuses what the worker must never do", () => {
     await expect(db.prepare("DELETE FROM map_edit").run()).rejects.toThrow(/not folded/);
   });
 });
+
+describe("real-user metrics (root ADR-0255)", () => {
+  const rum = policy.real_user_metrics;
+  let written: AnalyticsEngineDataPoint[];
+
+  beforeEach(() => {
+    written = [];
+    env[rum.analytics_engine_binding] = {
+      writeDataPoint: (point?: AnalyticsEngineDataPoint) => written.push(point ?? {}),
+    } as never;
+  });
+
+  function beacon(body: unknown, headers: Record<string, string> = {}): Promise<Response> {
+    return call(rum.path, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8", Origin: origin, ...headers },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  it("writes one data point per metric: name, lane, country and the value, nothing else", async () => {
+    const response = await beacon(
+      { v: 1, m: [{ n: "LCP", v: 1234.5 }, { n: "panel_data_ready", l: "parcel.unit-prices", v: 812 }] },
+      { "X-Rum-Viewer-Country": "KR" },
+    );
+    expect(response.status).toBe(204);
+    expect(written).toEqual([
+      { indexes: ["LCP"], blobs: ["LCP", "", "KR"], doubles: [1234.5] },
+      { indexes: ["panel_data_ready"], blobs: ["panel_data_ready", "parcel.unit-prices", "KR"], doubles: [812] },
+    ]);
+  });
+
+  it("records an unknown country when neither a relay nor Cloudflare names one", async () => {
+    expect((await beacon({ v: 1, m: [{ n: "CLS", v: 0.02 }] }, { "X-Rum-Viewer-Country": "Korea" })).status).toBe(204);
+    expect(written[0]?.blobs?.[2]).toBe("XX");
+  });
+
+  it("drops the whole beacon when any entry carries more than a metric, a lane and a value", async () => {
+    const lcp = { n: "LCP", v: 900 };
+    for (const body of [
+      { v: 1, m: [lcp, { n: "panel_data_ready", l: "parcel.buildings", v: 10, pnu: "9999900000100000000" }] },
+      { v: 1, m: [lcp], page: "/listings" },
+      { v: 1, m: [lcp, { n: "FID", v: 10 }] },
+      { v: 1, m: [{ n: "LCP", l: "parcel.summary", v: 10 }] },
+      { v: 1, m: [{ n: "panel_data_ready", v: 10 }] },
+      { v: 1, m: [{ n: "panel_data_ready", l: "parcel.9999900000100000000", v: 10 }] },
+      { v: 1, m: [{ n: "LCP", v: -1 }] },
+      { v: 1, m: [{ n: "LCP", v: rum.max_value + 1 }] },
+      { v: 1, m: Array.from({ length: rum.max_metrics + 1 }, () => lcp) },
+      { v: 1, m: [] },
+      { v: 2, m: [lcp] },
+      "not json",
+    ]) {
+      expect((await beacon(body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await beacon({ v: 1, m: [{ ...lcp, l: "x".repeat(rum.max_body_bytes) }] })).status).toBe(413);
+    expect(written).toEqual([]);
+  });
+
+  it("takes beacons only by POST", async () => {
+    expect((await call(rum.path)).status).toBe(405);
+    expect(written).toEqual([]);
+  });
+});

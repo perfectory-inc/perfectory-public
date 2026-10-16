@@ -167,6 +167,13 @@ pub enum ScheduledJobProblem {
         /// The median of what the recent runs before it added.
         typical_rows: u64,
     },
+    /// Its latest run ended waiting for something it named, not failed (root ADR-0260).
+    Waiting {
+        /// What it waits for, as its run said; absent when the log could not be read.
+        reason: Option<String>,
+        /// The scheduler's id of that run, for its log.
+        scheduler_run_id: Option<String>,
+    },
 }
 
 /// Where staff open the scheduler's and the data catalog's own screens, when configured.

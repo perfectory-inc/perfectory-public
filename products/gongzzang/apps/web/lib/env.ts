@@ -160,6 +160,8 @@ const PublicEnvSchema = z.object({
   NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL: requiredProductionPublicUrl.default(
     "https://map-edits.perfectory.io",
   ),
+  // The share of page views that send real-user timings (root ADR-0255).
+  NEXT_PUBLIC_RUM_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
 });
 
 /**
@@ -195,6 +197,7 @@ const parsed = Schema.safeParse({
   NEXT_PUBLIC_BUILDING_EDGE_BASE_URL: process.env.NEXT_PUBLIC_BUILDING_EDGE_BASE_URL,
   NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL: process.env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL,
   NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL: process.env.NEXT_PUBLIC_MAP_EDIT_OVERLAY_BASE_URL,
+  NEXT_PUBLIC_RUM_SAMPLE_RATE: process.env.NEXT_PUBLIC_RUM_SAMPLE_RATE,
   ZITADEL_ISSUER: process.env.ZITADEL_ISSUER,
   ZITADEL_CLIENT_ID: process.env.ZITADEL_CLIENT_ID,
   ZITADEL_AUDIENCE: process.env.ZITADEL_AUDIENCE,

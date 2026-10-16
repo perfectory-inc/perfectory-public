@@ -79,7 +79,7 @@ fn reads_the_publish_inputs_the_export_wrote() -> anyhow::Result<()> {
 
     let artifact = &summary.artifacts[0];
     assert_eq!(
-        artifact.lakehouse_complex_id.to_string(),
+        artifact.artifact_complex_id.to_string(),
         LAKEHOUSE_COMPLEX_ID
     );
     assert_eq!(

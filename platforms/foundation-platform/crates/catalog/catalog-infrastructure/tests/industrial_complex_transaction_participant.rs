@@ -9,7 +9,7 @@ use catalog_application::{
 use catalog_domain::{CatalogError, IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogUnitOfWork, PgIndustrialComplexTransactionParticipant};
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -341,7 +341,6 @@ async fn a_reloaded_archived_code_refreshes_the_archived_row() -> TestResult {
                 kind: IndustrialComplexKind::General,
                 primary_bjdong_code: Some("1111010100".to_owned()),
                 area_m2: 100_000,
-                lakehouse_complex_id: complex.lakehouse_complex_id,
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
@@ -426,7 +425,6 @@ async fn create_complex(pool: &PgPool) -> TestResult<IndustrialComplex> {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("1111010100".to_owned()),
         area_m2: 95_000,
-        lakehouse_complex_id: Some(LakehouseComplexId::new(id.as_uuid())),
         status: None,
         sido_code: None,
         sigungu_code: None,

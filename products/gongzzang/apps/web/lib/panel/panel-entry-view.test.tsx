@@ -14,6 +14,9 @@ vi.mock("./telemetry", () => ({
   reportUrlDecodeFailed: vi.fn(),
 }));
 
+const recordPanelDataReady = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/rum", () => ({ recordPanelDataReady }));
+
 // Mock usePanelStack to avoid Next.js navigation
 vi.mock("./use-panel-stack", () => ({
   usePanelStack: () => ({
@@ -159,5 +162,32 @@ describe("PanelEntryView error handling", () => {
       expect(screen.getByTestId("panel-error-card")).toHaveTextContent("ERROR: panel fetch failed");
     });
     expect(screen.queryByText("registry view rendered")).not.toBeInTheDocument();
+  });
+});
+
+describe("PanelEntryView real-user timing (root ADR-0255)", () => {
+  it("reports click-to-data for a fetched panel and nothing for one opened on cached data", async () => {
+    makeRegistry({ summaryComponent: () => <div>summary rendered</div> });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const entry: PanelStackEntry = { kind: "parcel", id: "9999900501107370000", view: "summary" };
+    const view = (
+      <NextIntlClientProvider locale="ko" messages={messages}>
+        <QueryClientProvider client={qc}>
+          <PanelEntryView entry={entry} depth={1} />
+        </QueryClientProvider>
+      </NextIntlClientProvider>
+    );
+
+    const first = render(view);
+    await screen.findByText("summary rendered");
+    await waitFor(() =>
+      expect(recordPanelDataReady).toHaveBeenCalledWith("parcel.summary", expect.any(Number)),
+    );
+    first.unmount();
+    recordPanelDataReady.mockClear();
+
+    render(view);
+    await screen.findByText("summary rendered");
+    expect(recordPanelDataReady).not.toHaveBeenCalled();
   });
 });

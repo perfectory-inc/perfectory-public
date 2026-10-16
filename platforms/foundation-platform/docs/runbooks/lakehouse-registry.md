@@ -110,8 +110,8 @@ cargo run -p foundation-outbox-publisher -- inventory-lakehouse
 설정과 다음 lakehouse reader 자격증명이 있어야 한다.
 
 ```text
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
+FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 ```
 
 커맨드는 `lakehouse-domain/src/lakehouse.rs`의 계약 slice를 직접 순회한다. `row_count`와 `bytes`는
