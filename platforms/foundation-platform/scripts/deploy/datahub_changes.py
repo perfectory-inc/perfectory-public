@@ -7,8 +7,8 @@
 ("<service> <hash>" per line); <running-file> is what the host runs, from every container of the
 `datahub` project: "<service> <config-hash label>" per line. Prints the services whose rendered
 config differs from their container's, or that have no container, one per line, in compose order.
-These are the hashes `docker compose up` itself compares; naming only them (with --no-deps) keeps
-an unchanged one-shot (system-update) from being run again on every deploy.
+These are the hashes `docker compose up` itself compares; a deploy where none differs touches
+no container.
 """
 
 from __future__ import annotations

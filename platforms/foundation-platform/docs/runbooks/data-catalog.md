@@ -99,4 +99,5 @@ Airflow 작업 `foundation_data_quality`(매일 07:20 UTC, `scripts/ops/data-qua
 `system-update` 컨테이너가 저장소 구조를 맞춘다.
 
 병합된 `compose.yml` 변경은 배포가 직접 적용한다: `foundation-deploy.sh` 8단계(`foundation-release.sh datahub`)가
-렌더링한 설정 해시가 실행 중 컨테이너와 다른 서비스만 `--no-deps` 로 다시 만든다. sudo 로 손수 `up -d` 할 일이 없다.
+렌더링한 설정 해시가 실행 중 컨테이너와 다른 서비스만 `up -d` 로 다시 만든다(의존 순서는 compose 가 지킨다:
+GMS 가 바뀌면 `system-update` 가 먼저 돈다). 바뀐 것이 없으면 아무것도 건드리지 않는다. sudo 로 손수 `up -d` 할 일이 없다.

@@ -1217,9 +1217,10 @@ migrate_lakehouse() {
 # The data catalog's containers follow the release (root ADR-0117 §7): DataHub is its own Compose
 # project, run by datahub-runtime.sh from secrets only root reads, so a merged change to
 # infra/datahub/compose.yml used to wait for someone with sudo (2026-10-16, #628). This recreates
-# exactly the services whose rendered config differs from their container's (the hash Compose
-# itself compares), with --no-deps so an unchanged one-shot (system-update) is not run again.
-# Nothing changed: nothing is touched. datahub-runtime.sh waits until the UI and GMS answer.
+# the services whose rendered config differs from their container's (the hash Compose itself
+# compares). Compose keeps the order it owns: a changed GMS brings its system-update one-shot
+# first, as DataHub's own `up` does (the-deploy-does-not-restate-the-compose-chain). Nothing
+# changed: nothing is touched. datahub-runtime.sh waits until the UI and GMS answer.
 apply_datahub() {
   assert_current_release
   local runtime="${release_root}/current/scripts/deploy/datahub-runtime.sh" work changed
@@ -1239,7 +1240,7 @@ apply_datahub() {
 ' "$(tr '
 ' ' ' <<<"${changed}")"
   # shellcheck disable=SC2086 # one service name per word
-  "${runtime}" up -d --no-deps ${changed}
+  "${runtime}" up -d ${changed}
 }
 
 # The staging smoke (root ADR-0177): the installed, not yet current, release runs a few real inputs

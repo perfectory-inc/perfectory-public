@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -34,7 +37,8 @@ class ChangedServices(unittest.TestCase):
         self.assertEqual(datahub_changes.changed_services(CONFIG, running), ["frontend-quickstart"])
 
     def test_an_exited_one_shot_with_its_config_unchanged_is_not_run_again(self):
-        # docker ps -a lists the exited system-update with its label; same hash, so it is left alone.
+        # docker ps -a lists the exited system-update with its label; same hash, so it is not named
+        # (compose still runs it first when a service that depends on it is recreated).
         self.assertNotIn("system-update-quickstart", datahub_changes.changed_services(CONFIG, CONFIG.replace("ccc", "x")))
 
 
@@ -44,12 +48,13 @@ class TheReleaseStep(unittest.TestCase):
     def body(self):
         return re.search(r"(?ms)^apply_datahub\(\) \{\n(.*?)^\}", self.release).group(1)
 
-    def test_it_compares_composes_own_hashes_and_recreates_only_those_without_their_dependencies(self):
+    def test_it_compares_composes_own_hashes_and_recreates_only_those(self):
         body = self.body()
         self.assertIn("config --hash '*'", body)
         self.assertIn('{{.Label "com.docker.compose.config-hash"}}', body)
         self.assertIn("datahub_changes.py", body)
-        self.assertRegex(body, r'up -d --no-deps \$\{changed\}')
+        self.assertRegex(body, r'up -d \$\{changed\}')
+        self.assertNotIn("--no-deps", body, "compose owns the order (the-deploy-does-not-restate-the-compose-chain)")
         self.assertIn("return 0", body, "nothing changed: nothing is touched")
 
     def test_the_release_and_the_deploy_name_the_step(self):
@@ -72,6 +77,22 @@ class TheStateIsOneFact(unittest.TestCase):
     def test_the_release_adopts_before_it_asks_compose(self):
         body = re.search(r"(?ms)^apply_datahub\(\) \{\n(.*?)^\}", TheReleaseStep.release).group(1)
         self.assertLess(body.index('datahub_state.py" adopt'), body.index("config --hash"))
+
+    @unittest.skipUnless(shutil.which("docker"), "docker compose renders the config (present on the CI runner)")
+    def test_the_rendered_frontend_mounts_user_props_from_the_contracts_state_dir(self):
+        runtime = (PLATFORM / "scripts/deploy/datahub-runtime.sh").read_text(encoding="utf-8")
+        self.assertIn('user_props="${runtime_dir}/user.props"', runtime)
+        self.assertIn('DATAHUB_USER_PROPS_FILE="${user_props}" docker compose', runtime)
+        compose = PLATFORM / "infra/datahub/compose.yml"
+        user_props = f"{datahub_state.load()['state_dir']}/user.props"
+        secrets = {name: "/placeholder" for name in set(re.findall(r"\$\{([A-Z0-9_]+):\?", compose.read_text(encoding="utf-8")))}
+        rendered = json.loads(subprocess.run(
+            ["docker", "compose", "-p", "datahub-config-check", "--project-directory", str(compose.parent),
+             "-f", str(compose), "config", "--format", "json"],
+            capture_output=True, text=True, check=True,
+            env={**os.environ, **secrets, "DATAHUB_USER_PROPS_FILE": user_props}).stdout)
+        mounts = {v["target"]: v["source"] for v in rendered["services"]["frontend-quickstart"]["volumes"]}
+        self.assertEqual(mounts["/datahub-frontend/conf/user.props"], user_props)
 
     def adopt(self, state, old):
         return datahub_state.adopt(state, [old], owner=None)
