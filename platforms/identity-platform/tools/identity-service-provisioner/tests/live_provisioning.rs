@@ -54,21 +54,7 @@ async fn provisioning_is_idempotent_exact_and_transactional(
 
     assert_ledger_refuses_rewrites(&pool, principal_id).await;
 
-    // A rebinding and a rename overwrite the principal row; the values it held stay recorded
-    // (root ADR-0264). An unchanged principal appended nothing above.
-    assert_eq!(principal_records(&pool, principal_id).await?.len(), 1);
-    let rebound_subject = format!("{subject}-rebound");
-    let renamed =
-        named_principal_manifest(principal_id, &rebound_subject, "Renamed Contract", &[])?;
-    provision(&pool, &renamed).await?;
-    provision(&pool, &renamed).await?;
-    assert_eq!(
-        principal_records(&pool, principal_id).await?,
-        vec![
-            (subject.clone(), "Provisioning Contract".to_owned()),
-            (rebound_subject, "Renamed Contract".to_owned()),
-        ]
-    );
+    assert_rebinding_is_recorded(&pool, principal_id, &subject).await?;
 
     let occupied_id = Uuid::new_v4();
     let occupied_subject = format!("occupied-{occupied_id}");
@@ -154,6 +140,30 @@ async fn grant_state(
     .bind(principal_id)
     .fetch_all(pool)
     .await
+}
+
+/// A rebinding and a rename overwrite the principal row; the values it held stay recorded
+/// (root ADR-0264).
+async fn assert_rebinding_is_recorded(
+    pool: &sqlx::PgPool,
+    principal_id: Uuid,
+    subject: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // An unchanged principal appended nothing.
+    assert_eq!(principal_records(pool, principal_id).await?.len(), 1);
+    let rebound_subject = format!("{subject}-rebound");
+    let renamed =
+        named_principal_manifest(principal_id, &rebound_subject, "Renamed Contract", &[])?;
+    provision(pool, &renamed).await?;
+    provision(pool, &renamed).await?;
+    assert_eq!(
+        principal_records(pool, principal_id).await?,
+        vec![
+            (subject.to_owned(), "Provisioning Contract".to_owned()),
+            (rebound_subject, "Renamed Contract".to_owned()),
+        ]
+    );
+    Ok(())
 }
 
 /// (subject, display name) of every recorded value of one principal, oldest first.
