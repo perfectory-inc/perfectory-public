@@ -33,6 +33,20 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      # A tree's own guards cannot see another open pull request: on 2026-10-16 ADR numbers collided
+      # four times and a migration version once. One GraphQL read of the open pull requests' added
+      # paths with this job's read-only token (public data), and main's tree, a second or two.
+      - name: ADR numbers and migration versions no other change holds
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NUMBERING_BASE: ${{ github.event.pull_request.base.sha }}
+          NUMBERING_PULL_REQUEST: ${{ github.event.pull_request.number }}
+          NUMBERING_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/ci/test_numbering_collisions.py
+          python3 scripts/ci/numbering_collisions.py --repository "$NUMBERING_REPOSITORY" \
+            --pull-request "$NUMBERING_PULL_REQUEST" --base "$NUMBERING_BASE"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
