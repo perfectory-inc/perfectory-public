@@ -24,6 +24,8 @@
 # 그 앞에 필지고유번호변동연혁 수집 작업(parcel-number-change-collect.sh)이 쓴 대기 넘김을 먼저
 # silver.parcel_number_change_history 에 쌓는다(파일 하나가 한 번의 적재). 새 공식 이력이 들어왔는데 법정동 표
 # 넘김이 없으면 최신 스냅숏으로 짝 맞추기만 다시 돈다: 판단 대기였던 동을 이력이 정할 수 있다.
+# 짝 맞추기 규칙(작업 코드·계약)이 마지막 짝 맞추기 때와 다르면(last-pairing.json 의 rules_version) 다시 맞춘다:
+# 고친 규칙이 새 데이터를 기다리지 않고 배포한 날 기록에 닿는다.
 # 대기 넘김이 없어도 대기 중인 스튜어드 결정(DB 의 기록 안 된 승인, 또는 아직 은퇴 전인 파일)이 있거나 DB 가
 # 스튜어드 목록을 받은 적이 없으면(steward-list-published.json 없음) 최신 스냅숏으로 짝 맞추기만 돈다. 모두
 # 없으면 그렇게 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
@@ -39,6 +41,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 LEGAL_DONG_STATE_ROOT="${FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT:-/var/lib/foundation-platform/legal-dong-code}"
 PARCEL_NUMBER_CHANGE_STATE_ROOT="${FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT:-/var/lib/foundation-platform/parcel-number-change}"
+LEGAL_DONG_JOBS="${FOUNDATION_LEGAL_DONG_JOBS_DIR:-${RELEASE_ROOT:-}/infra/lakehouse/spark/jobs}"
 
 legal_dong_install() {
   cp "$1" "$2.tmp"
@@ -176,14 +179,27 @@ PY
   fi
 }
 
-# The owed pairing is paid — its append and installs succeeded on snapshot $1: records that, then drops the marker.
+# Succeeds when the deployed pairing rules are not the ones the last pairing ran with (root ADR-0144): a fixed
+# rule must reach the record on the day it is deployed, not wait for new data. A last pairing recorded before
+# versions were recorded owes one re-pairing; a version that cannot be computed owes one too.
+legal_dong_rules_changed() {
+  [ -f "${LEGAL_DONG_STATE_ROOT}/last-pairing.json" ] || return 1
+  local current recorded
+  current="$(python3 -E -s "${LEGAL_DONG_JOBS}/legal_dong_code_change_pairs.py" rules-version 2>/dev/null)" || current=""
+  recorded="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("rules_version", ""))'     "${LEGAL_DONG_STATE_ROOT}/last-pairing.json")"
+  [ -z "${current}" ] || [ "${current}" != "${recorded}" ]
+}
+
+# The owed pairing is paid — its append and installs succeeded on snapshot $1: records that, with the rules version
+# the pairing ran with (its summary), then drops the marker.
 legal_dong_pairing_paid() {
-  python3 -I - "${LEGAL_DONG_STATE_ROOT}" "${run_id}" "$1" <<'PY'
+  python3 -I - "${LEGAL_DONG_STATE_ROOT}" "${run_id}" "$1" "${work}/legal-dong/pairs-summary.json" <<'PY'
 import datetime, json, pathlib, sys
 legal = pathlib.Path(sys.argv[1])
 marker = legal / "pairing-owed.json"
 done = {"run": sys.argv[2], "snapshot_date": sys.argv[3],
-        "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "rules_version": json.load(open(sys.argv[4], encoding="utf-8")).get("rules_version", "")}
 if marker.exists():
     done["paid"] = json.load(open(marker, encoding="utf-8"))
 tmp = legal / "last-pairing.json.tmp"
@@ -230,6 +246,8 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
     reason="steward decisions"
   elif [ -f "${LEGAL_DONG_STATE_ROOT}/pairing-owed.json" ]; then
     reason="pairing owed"
+  elif legal_dong_rules_changed; then
+    reason="pairing rules changed"
   elif legal_dong_steward_database_owes_pairing; then
     reason="steward database"
   else

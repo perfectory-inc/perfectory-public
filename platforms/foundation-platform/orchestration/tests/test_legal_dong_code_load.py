@@ -41,7 +41,7 @@ SPARK = textwrap.dedent("""
         verdicts = {f"db:{i}": "recorded" for i in recorded}
         if "--steward-decisions" in opt:
             verdicts.update({p.name: "recorded" for p in out("--steward-decisions").glob("*.json")})
-        out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts}))
+        out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts, "rules_version": os.environ["RULES_VERSION"]}))
     elif job == "vworld_parcel_number_change_history.py":
         out("--summary-output").write_text("{}")
     else:
@@ -93,6 +93,10 @@ class Harness(unittest.TestCase):
         (self.root / "spark.py").write_text(SPARK)
         (self.root / "driver.sh").write_text(DRIVER)
         (self.root / "publisher.py").write_text(PUBLISHER)
+        # Stands in for the pairing job's `rules-version`: the deployed rules are whatever RULES_VERSION says.
+        (self.root / "jobs").mkdir()
+        (self.root / "jobs/legal_dong_code_change_pairs.py").write_text("import os\nprint(os.environ['RULES_VERSION'])\n")
+        self.rules = "v1"
         publisher = self.root / "publisher.sh"
         publisher.write_text(f'#!/usr/bin/env bash\nexec python3 "{(self.root / "publisher.py").as_posix()}" "$@"\n')
         publisher.chmod(0o755)
@@ -112,7 +116,8 @@ class Harness(unittest.TestCase):
                "FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT": str(self.legal),
                "FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT": str(self.parcel),
                "PUBLISHER_BIN": str(self.root / "publisher.sh"), "DB_DECISIONS": str(self.db),
-               "PUBLISHER_CALLS": str(self.publisher_calls)}
+               "PUBLISHER_CALLS": str(self.publisher_calls), "RULES_VERSION": self.rules,
+               "FOUNDATION_LEGAL_DONG_JOBS_DIR": str(self.root / "jobs")}
         if fail_pairing:
             env["FAIL_PAIRING"] = "1"
         return subprocess.run(["bash", str(self.root / "driver.sh")], env=env, capture_output=True, text=True,
@@ -154,7 +159,7 @@ class Harness(unittest.TestCase):
 class PairingOwed(Harness):
     def test_a_failed_pairing_after_official_history_is_owed_and_the_next_run_pays_it(self):
         self.latest_snapshot()
-        (self.legal / "last-pairing.json").write_text("{}")
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
         self.stage_parcel_number_change("pnch-20990702T000000Z")
 
         failed = self.run_cycle(fail_pairing=True)
@@ -204,7 +209,7 @@ class PairingOwed(Harness):
     def test_nothing_owed_runs_nothing(self):
         self.latest_snapshot()
         self.published()
-        (self.legal / "last-pairing.json").write_text("{}")
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
         (self.legal / "loaded/table-20990701").mkdir(parents=True)
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -251,7 +256,7 @@ class StewardDatabase(Harness):
     def setUp(self):
         super().setUp()
         self.latest_snapshot()
-        (self.legal / "last-pairing.json").write_text("{}")
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
 
     def test_a_list_the_database_never_received_is_paired_and_published_once(self):
         result = self.run_cycle()
@@ -291,6 +296,35 @@ class StewardDatabase(Harness):
         self.assertNotEqual(self.run_cycle(fail_pairing=True).returncode, 0)
         self.assertNotIn("record-lineage-steward-folds", self.publisher())
         self.assertEqual(json.loads(self.db.read_text()), ["d-1"], "an approval the run did not append stays standing")
+
+
+class RulesVersion(Harness):
+    """A deploy that changes the pairing rules owes one re-pairing (the 2026-10-16 fix waited for data)."""
+
+    def setUp(self):
+        super().setUp()
+        self.latest_snapshot()
+        self.published()
+
+    def test_new_rules_are_paired_once_and_recorded(self):
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
+        self.run_cycle()
+        self.assertEqual(self.jobs(), [], "the rules the last pairing ran with: nothing owed")
+        self.rules = "v2"
+        result = self.run_cycle()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
+        self.assertTrue(any("re-paired (pairing rules changed)" in line for line in self.journal_lines()))
+        self.assertEqual(json.loads((self.legal / "last-pairing.json").read_text())["rules_version"], "v2")
+        self.run_cycle()
+        self.assertEqual(self.jobs(), [], "paired once")
+
+    def test_a_pairing_recorded_before_versions_were_recorded_is_paired_once(self):
+        (self.legal / "last-pairing.json").write_text("{}")
+        self.run_cycle()
+        self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
+        self.run_cycle()
+        self.assertEqual(self.jobs(), [])
 
 
 if __name__ == "__main__":
