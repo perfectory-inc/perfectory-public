@@ -245,7 +245,7 @@ def build_gold_catalog_frame(
     boundary_object_key: str | None,
 ) -> DataFrame:
     # Which row is current is the contract's rule, the same one every reader of this table uses
-    # (root ADR-0265), not a window this job keeps for itself.
+    # (root ADR-0267), not a window this job keeps for itself.
     latest = current_rows(silver, SILVER_CONTRACT)
 
     return latest.select(

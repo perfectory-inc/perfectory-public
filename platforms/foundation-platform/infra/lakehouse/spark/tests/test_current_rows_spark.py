@@ -1,4 +1,4 @@
-"""`current_rows` on a Spark runtime (root ADR-0265): an append-only `silver.industrial_complexes`
+"""`current_rows` on a Spark runtime (root ADR-0267): an append-only `silver.industrial_complexes`
 that holds several versions of each complex yields exactly the contract's current row per code, and
 the boundary export joins one complex per boundary rather than one per version.
 

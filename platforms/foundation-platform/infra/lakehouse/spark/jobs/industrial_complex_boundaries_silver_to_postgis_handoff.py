@@ -385,7 +385,7 @@ def project(current_boundaries: Any, complexes: Any, F: Any) -> Any:
     """
 
     # The contract's current-row rule, not a local filter: the table keeps every appended version
-    # of a complex, and a filter that let two through would double the boundary (root ADR-0265).
+    # of a complex, and a filter that let two through would double the boundary (root ADR-0267).
     current_complexes = (
         current_rows(complexes, COMPLEXES_CONTRACT)
         .select("complex_id", "official_complex_code")

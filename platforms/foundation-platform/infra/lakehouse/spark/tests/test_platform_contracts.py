@@ -147,7 +147,7 @@ class PlatformContractsTest(unittest.TestCase):
 
 class CurrentRowRuleTest(unittest.TestCase):
     """`silver.industrial_complexes` keeps every appended version; the contract says which is current
-    (root ADR-0265), and every reader takes it through `current_rows`, not a filter of its own."""
+    (root ADR-0267), and every reader takes it through `current_rows`, not a filter of its own."""
 
     COMPLEX_READERS = (
         "industrial_complex_boundaries_handoff_to_silver.py",

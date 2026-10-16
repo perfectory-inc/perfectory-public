@@ -277,7 +277,7 @@ class CurrentRowLatest:
 
 
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
-    """The contract's newest-per-key rule (root ADR-0265), or ``None`` for an unversioned table."""
+    """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""
 
     table = contract.get("table_name")
     if "current_row_latest" not in contract:
@@ -306,7 +306,7 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
 
     First the contract's predicate, then, when it declares one, the newest row per key. Two rows of
     one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
-    function does not have (root ADR-0265).
+    function does not have (root ADR-0267).
     """
 
     from pyspark.sql import Window, functions as F

@@ -265,7 +265,7 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
     );
 }
 
-/// The versioned tables, and only they, say which row is current (root ADR-0265).
+/// The versioned tables, and only they, say which row is current (root ADR-0267).
 #[test]
 fn only_versioned_tables_define_a_current_row_rule() {
     for contract in industrial_complex_lakehouse_contracts() {

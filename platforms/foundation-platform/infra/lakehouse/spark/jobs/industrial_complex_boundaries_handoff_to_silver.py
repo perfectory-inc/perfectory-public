@@ -224,7 +224,7 @@ def assert_one_row_per_complex(complexes: Any) -> None:
     """Refuse an ambiguous complex list rather than picking a row.
 
     The complex table keeps every appended version, and `read_complexes` takes the current one
-    through the contract's rule (root ADR-0265). Two rows left for one code after that are two
+    through the contract's rule (root ADR-0267). Two rows left for one code after that are two
     complexes sharing a code, which no rule here may resolve.
     """
 

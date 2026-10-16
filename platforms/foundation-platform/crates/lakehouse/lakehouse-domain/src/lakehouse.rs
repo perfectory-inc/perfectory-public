@@ -74,7 +74,7 @@ pub struct LakehouseTableContract {
     pub current_row_predicate: Option<&'static str>,
     /// For an append-only table that keeps every version, which surviving row is current: the
     /// newest per key. Applied after `current_row_predicate`; readers take both through one helper
-    /// (`platform_contracts.current_rows`), never by hand (root ADR-0265).
+    /// (`platform_contracts.current_rows`), never by hand (root ADR-0267).
     pub current_row_latest: Option<LakehouseCurrentRowLatest>,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
@@ -1815,7 +1815,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     current_row_predicate: Some("valid_to_utc IS NULL"),
     // Every load appends a whole version and leaves the earlier ones (append-only); a re-load of
     // the same source snapshot is a newer version of the same row, not a second complex
-    // (root ADR-0265).
+    // (root ADR-0267).
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["official_complex_code"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
