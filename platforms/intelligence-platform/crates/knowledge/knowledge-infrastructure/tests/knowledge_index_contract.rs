@@ -342,7 +342,19 @@ where
 
     let release_2 = ReleaseRef::new(scope.clone(), "release-2");
     index
-        .index_chunks(&release_2, vec![chunk("doc-2", 0, "용적률", "용적률 산정")])
+        .index_chunks(
+            &release_2,
+            vec![IndexedChunk {
+                chunk: KnowledgeChunk::new(
+                    "doc-2",
+                    0,
+                    vec!["용적률".to_owned(), "산정 > 예외".to_owned()],
+                    "용적률 산정",
+                )
+                .expect("fixture chunk must be valid"),
+                ..chunk("doc-2", 0, "", "용적률 산정")
+            }],
+        )
         .await
         .expect("index must succeed");
     index
@@ -358,13 +370,12 @@ where
             .is_empty(),
         "이전 release는 교체 후 검색되지 않는다"
     );
+    let hits = index.search(&scope, "용적률", 5).await.expect("search");
+    assert_eq!(hits.len(), 1);
     assert_eq!(
-        index
-            .search(&scope, "용적률", 5)
-            .await
-            .expect("search")
-            .len(),
-        1
+        hits[0].headings,
+        ["용적률", "산정 > 예외"],
+        "제목은 목록 그대로 돌아온다 — 구분자를 담은 제목도 쪼개지지 않는다"
     );
 
     let other = TenantScope::new("tenant:production", "product-1");
@@ -393,7 +404,7 @@ where
 
 pub fn chunk(source_id: &str, ordinal: i32, heading: &str, body: &str) -> IndexedChunk {
     IndexedChunk {
-        chunk: KnowledgeChunk::new(source_id, ordinal, heading, body)
+        chunk: KnowledgeChunk::new(source_id, ordinal, vec![heading.to_owned()], body)
             .expect("fixture chunk must be valid"),
         source_snapshot_id: "3333333333333333333333333333333333333333333333333333333333333333"
             .to_string(),
