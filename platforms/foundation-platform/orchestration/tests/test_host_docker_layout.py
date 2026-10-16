@@ -7,6 +7,7 @@ engine runs after the move without anyone having decided it.
 
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -115,11 +116,71 @@ class TheContract(unittest.TestCase):
             with self.assertRaises(ValueError):
                 layout.load_layout(path)
 
+    def test_a_spark_tmp_off_the_data_disk_is_refused(self):
+        shipped = layout.load_layout()
+        shipped["spark_tmp"] = "/var/tmp/spark"
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "layout.json"
+            path.write_text(json.dumps(shipped), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                layout.load_layout(path)
+
     def test_the_script_parses_and_refuses_an_unknown_mode(self):
         script = PLATFORM / "scripts/ops/host-docker-data-root.sh"
         self.assertEqual(subprocess.run(["bash", "-n", script.as_posix()]).returncode, 0)
         refused = subprocess.run(["bash", script.as_posix(), "move"], capture_output=True, text=True)
         self.assertEqual(refused.returncode, 64)
+
+
+def compose_services(text: str) -> dict[str, str]:
+    """Each top-level service of a compose file and its body, comments dropped."""
+    services = {}
+    body = text.split("\nservices:\n", 1)[1] + "\nend:\n"
+    for match in re.finditer(r"(?ms)^  ([a-z][a-z0-9-]*):\n(.*?)(?=^\S|^  \S)", body):
+        services[match.group(1)] = "\n".join(
+            line for line in match.group(2).splitlines() if not line.lstrip().startswith("#"))
+    return services
+
+
+class SparkTmpOnTheDataDisk(unittest.TestCase):
+    """Spark's spill never lands in a container layer on the system disk (2026-10-15 ENOSPC)."""
+
+    def mount(self):
+        return "${FOUNDATION_PLATFORM_SPARK_TMP:-" + layout.load_layout()["spark_tmp"] + "}:/tmp"
+
+    def spark_services_without_it(self, text):
+        return sorted(name for name, body in compose_services(text).items()
+                      if "image: apache/spark:" in body and "- " + self.mount() + "\n" not in body + "\n")
+
+    def test_every_spark_container_and_its_check_mount_the_contract_path_at_tmp(self):
+        text = (PLATFORM / "compose.lakehouse.yml").read_text(encoding="utf-8")
+        services = compose_services(text)
+        self.assertLessEqual({"spark", "spark-small"}, set(services))
+        self.assertEqual(self.spark_services_without_it(text), [])
+        self.assertIn("- " + self.mount() + "\n", services["lakehouse-target-init"] + "\n")
+        self.assertIn("test -w /tmp", services["lakehouse-target-init"], "the init check proves /tmp is writable")
+
+    def test_a_spark_service_without_it_is_found(self):
+        text = (PLATFORM / "compose.lakehouse.yml").read_text(encoding="utf-8")
+        planted = text.replace("      - " + self.mount() + "\n", "")
+        self.assertEqual(self.spark_services_without_it(planted), ["spark", "spark-small"])
+
+    def test_the_release_creates_it_from_the_contract(self):
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertRegex(release, r'install -d -m 1777 "\$\(python3 -I -c .*\["spark_tmp"\]')
+
+    def migrate_makes_it_before_the_unit_starts(self, release):
+        body = re.search(r"^migrate_lakehouse\(\) \{\n(.*?)^\}", release, re.M | re.S).group(1)
+        made = body.find("prepare_spark_tmp")
+        return made != -1 and made < body.find("systemctl start foundation-lakehouse-migrate.service")
+
+    def test_the_migration_has_it_before_its_init_check_runs(self):
+        # 2026-10-15: made only in `timers`, after migrate; Docker made it root 0755 and every deploy stopped.
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertTrue(self.migrate_makes_it_before_the_unit_starts(release))
+        planted = release.replace("  prepare_spark_tmp\n  systemctl daemon-reload\n", "  systemctl daemon-reload\n")
+        self.assertNotEqual(planted, release)
+        self.assertFalse(self.migrate_makes_it_before_the_unit_starts(planted))
 
 
 if __name__ == "__main__":

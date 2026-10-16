@@ -41,17 +41,19 @@ class SourceObjectContractTest(unittest.TestCase):
                 held = {g: sum(1 for o in edition["objects"] if o["granularity"] == g) for g in ("sido", "sigungu")}
                 self.assertEqual(edition["granularity_counts"], held)
 
-    def test_the_two_coverings_are_of_the_same_country(self) -> None:
-        """판마다 시군구 코드의 앞 두 자리 집합이 시도 코드 집합과 같아야 한다.
+    def test_every_province_object_has_its_district_objects(self) -> None:
+        """판마다 시도 객체가 덮는 시도는 시군구 객체도 덮는다(검증기 `vworld_parcel_editions` 와 같은 규칙).
 
-        이것이 "두 벌"의 근거다. 다르면 두 데이터셋이지 두 벌이 아니며, 그때는 하나만
-        싣는 선택이 데이터를 버리는 것이 된다.
+        이것이 "두 벌"의 근거다: 싣는 것은 시군구 벌이므로, 시도 객체만 있고 시군구가 없는 시도가 있으면
+        하나만 싣는 선택이 데이터를 버리는 것이 된다. 반대 방향은 요구하지 않는다 — 큰 시도 파일은 RAON
+        전용이라 받지 않는다(202610 은 시도 10·시군구 256; 202609 는 우연히 같았다).
         """
         for name, edition in self.editions.items():
             sido = {o["region_code"] for o in edition["objects"] if o["granularity"] == "sido"}
             sigungu = {o["region_code"][:2] for o in edition["objects"] if o["granularity"] == "sigungu"}
             with self.subTest(edition=name):
-                self.assertEqual(sido, sigungu)
+                self.assertTrue(sigungu)
+                self.assertLessEqual(sido, sigungu)
 
     def test_every_object_is_classified_and_of_its_edition(self) -> None:
         """알갱이를 모르는 객체, 다른 판의 파일을 담은 객체가 있으면 그것은 조용히 빠지거나 섞인다."""

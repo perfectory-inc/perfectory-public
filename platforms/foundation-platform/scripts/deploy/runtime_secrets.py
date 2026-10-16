@@ -378,8 +378,8 @@ def check(area: Path = AREA) -> list[str]:
 def credentials(repo: Path, area: Path = AREA) -> list[str]:
     """Every credential-shaped name in the repository's tracked files that a recorded Cloudflare token
     does not derive and `cloudflare_tokens.not_cloudflare` does not name (root ADR-0247). Accepted
-    ADRs keep the names of their day (they are immutable); the contract's own `renamed_from` is
-    where retired names live until no host file holds them."""
+    ADRs keep the names of their day (they are immutable); during a rename, the contract's own
+    `renamed_from` lists the retired names until no host file holds them."""
 
     contract = load(area)
     allowed = {name for names in contract.tokens.values() for name in names} | set(contract.not_cloudflare)

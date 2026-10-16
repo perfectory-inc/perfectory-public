@@ -228,7 +228,7 @@ export interface JobState {
 }
 
 /** The problem kinds, worst first. */
-export const PROBLEM_ORDER: ScheduledJobProblem["kind"][] = ["failed", "blocked", "late", "slow", "volume"];
+export const PROBLEM_ORDER: ScheduledJobProblem["kind"][] = ["failed", "blocked", "late", "slow", "volume", "waiting"];
 
 /** Each job's state at `now`; `runsReadable` false when the data catalog did not answer. */
 export function jobStates(jobs: ScheduledJobStatus[], now: Date, runsReadable = true): Map<string, JobState> {
@@ -254,7 +254,7 @@ export function jobStates(jobs: ScheduledJobStatus[], now: Date, runsReadable = 
                   ? "slow"
                   : outcome === "running"
                     ? "running"
-                    : waiting.has(job.job_id)
+                    : waiting.has(job.job_id) || has("waiting")
                       ? "waiting"
                       : has("late")
                         ? "late"
@@ -372,6 +372,9 @@ export function statusNote(state: JobState | null, titleOf: (jobId: string) => s
       return state.status === "retry" ? "곧 다시 해요" : state.finishedAt ? agoWords(state.finishedAt, now) : null;
     }
     case "waiting": {
+      // The job's own run said what it waits for (root ADR-0260); otherwise it waits on a job upstream.
+      const said = state.problems.find((problem) => problem.kind === "waiting");
+      if (said && !state.waiting) return problemSentence(said, titleOf, now);
       const names = (state.waiting?.on ?? []).map(titleOf).join(", ");
       return state.waiting?.startsAfter ? `앞 단계가 끝나면 시작해요 (${names})` : `앞 단계가 일하는 중이에요 (${names})`;
     }
@@ -477,6 +480,8 @@ export function problemSentence(problem: ScheduledJobProblem, titleOf: (jobId: s
       return `보통 ${durationLabel(problem.typical_seconds)}인데 ${durationLabel(problem.seconds)}${problem.running ? "째 도는 중" : " 걸렸어요"}`;
     case "volume":
       return `보통 ${problem.typical_rows.toLocaleString("ko-KR")}행인데 이번엔 ${problem.rows.toLocaleString("ko-KR")}행`;
+    case "waiting":
+      return problem.reason ? `기다리는 중 · ${problem.reason}` : "기다리는 중 · 로그를 못 읽어 무엇을 기다리는지 몰라요";
   }
 }
 
