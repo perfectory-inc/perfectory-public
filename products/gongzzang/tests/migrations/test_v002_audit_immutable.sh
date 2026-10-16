@@ -53,14 +53,14 @@ if [ "$READER_INS" != "f" ]; then
   echo "FAIL: reader has INSERT on audit_log (expected denied)" >&2; exit 1
 fi
 
-# 4. audit_archiver has SELECT + DELETE on audit_log
+# 4. audit_archiver has SELECT only on audit_log: nothing archives it, so nothing may delete it
 ARC_SEL=$(psql "$DATABASE_URL" -t -A -c "select has_table_privilege('gongzzang_audit_archiver', 'audit_log', 'SELECT');")
 if [ "$ARC_SEL" != "t" ]; then
   echo "FAIL: audit_archiver missing SELECT on audit_log" >&2; exit 1
 fi
 ARC_DEL=$(psql "$DATABASE_URL" -t -A -c "select has_table_privilege('gongzzang_audit_archiver', 'audit_log', 'DELETE');")
-if [ "$ARC_DEL" != "t" ]; then
-  echo "FAIL: audit_archiver missing DELETE on audit_log" >&2; exit 1
+if [ "$ARC_DEL" != "f" ]; then
+  echo "FAIL: audit_archiver has DELETE on audit_log with no archive (expected denied)" >&2; exit 1
 fi
 ARC_INS=$(psql "$DATABASE_URL" -t -A -c "select has_table_privilege('gongzzang_audit_archiver', 'audit_log', 'INSERT');")
 if [ "$ARC_INS" != "f" ]; then
@@ -94,12 +94,17 @@ if ! echo "$DELETE_OUTPUT" | grep -qE 'SQLSTATE 45000|is immutable'; then
   exit 1
 fi
 
-# 7. SET ROLE audit_archiver THEN delete — should succeed
-psql "$DATABASE_URL" -c "set role gongzzang_audit_archiver; delete from audit_log where id='aud_test12345678901234567890AB'; reset role;"
+# 7. No role is exempt from the triggers, not even with the DELETE privilege granted back
+psql "$DATABASE_URL" -c "grant delete on audit_log to gongzzang_audit_archiver;"
+EXEMPT_OUTPUT=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c "set role gongzzang_audit_archiver; delete from audit_log where id='aud_test12345678901234567890AB';" 2>&1 || true)
+psql "$DATABASE_URL" -c "revoke delete on audit_log from gongzzang_audit_archiver;"
+if ! echo "$EXEMPT_OUTPUT" | grep -qE 'SQLSTATE 45000|is immutable'; then
+  echo "FAIL: audit_archiver DELETE was not refused by the trigger. Output: $EXEMPT_OUTPUT" >&2; exit 1
+fi
 REMAINING=$(psql "$DATABASE_URL" -t -A -c "select count(*) from audit_log where id='aud_test12345678901234567890AB';")
-if [ "$REMAINING" != "0" ]; then
-  echo "FAIL: audit_archiver could not DELETE audit_log row (count=$REMAINING)" >&2; exit 1
+if [ "$REMAINING" != "1" ]; then
+  echo "FAIL: audit_log row was deleted (count=$REMAINING)" >&2; exit 1
 fi
 
-echo "PASS: V002 — 3 roles + audit_log immutable (writer blocked, archiver allowed)"
+echo "PASS: V002 — 3 roles + audit_log immutable (no role may update or delete)"
 exit 0
