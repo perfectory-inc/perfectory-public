@@ -3,6 +3,8 @@
 
     job_units.py services <jobs.v1.json>       every registered job's systemd service, one per line
     job_units.py running <unit|pattern>...     each matching service that runs, "<unit> <ActiveState>"
+    job_units.py deferred-dir                  where the runner records a job a release build deferred
+    job_units.py deferred                      the job ids recorded there, one per line
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -19,12 +21,32 @@ caller may read as "nothing runs".
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
 
 # Every ActiveState that is not one of these is a unit at work: activating, active, deactivating,
 # reloading, refreshing, maintenance, or one systemd adds later.
 STOPPED_STATES = frozenset({"inactive", "failed"})
+# Where the scheduler's runner (start-scheduled-job.sh) records a job it did not start because a
+# release build was running, one file per job id; the deploy starts each such job once it gives the
+# schedule back, and the runner removes the file when the job starts (root ADR-0260).
+DEFERRED_DIR = "/var/lib/foundation-scheduler/deferred"
+JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def deferred_dir() -> str:
+    return os.environ.get("FOUNDATION_SCHEDULED_DEFERRED_DIR") or DEFERRED_DIR
+
+
+def deferred() -> list[str]:
+    """The ids of the jobs deferred while a release built and not started since."""
+    try:
+        names = os.listdir(deferred_dir())
+    except FileNotFoundError:
+        return []
+    return sorted(name for name in names if JOB_ID.fullmatch(name))
 
 
 def is_running(active_state: str) -> bool:
@@ -69,7 +91,14 @@ def main(argv) -> int:
         for unit, state in sorted(units.items()):
             print(unit, state)
         return 0
-    print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>...", file=sys.stderr)
+    if argv == ["deferred-dir"]:
+        print(deferred_dir())
+        return 0
+    if argv == ["deferred"]:
+        print("\n".join(deferred()))
+        return 0
+    print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred",
+          file=sys.stderr)
     return 64
 
 
