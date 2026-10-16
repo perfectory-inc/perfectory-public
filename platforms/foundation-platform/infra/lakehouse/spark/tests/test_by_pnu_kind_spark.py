@@ -67,6 +67,11 @@ class ParcelKindSparkTest(unittest.TestCase):
             types = {c["name"]: c["logical_type"] for c in load_lakehouse_contract(name)["columns"]}
             schema = ", ".join(f"{c} {spark_sql_type(types[c])}" for c in panel.BUILD_COLUMNS[name])
             frames[name] = spark.createDataFrame(rows, schema)
+        # The lineage section's own input: the edge the carry candidates above were made from.
+        lineage = {c["name"]: c["logical_type"] for c in load_lakehouse_contract(panel.LINEAGE_SOURCE)["columns"]}
+        frames[panel.LINEAGE_SOURCE] = spark.createDataFrame(
+            [(pnu(OLD, 1), pnu(NEW, 2), "code_change", "1:1", "2099-07-01", "code_derived", "legal_dong_code", None)],
+            ", ".join(f"{c} {spark_sql_type(lineage[c])}" for c in panel.BUILD_COLUMNS[panel.LINEAGE_SOURCE]))
         args = argparse.Namespace(published_at_utc="2099-09-01T00:00:00Z", allow_intra_snapshot_duplicates=False)
         panel_rows = panel.build_panel(spark, args, frames, cand, {}, "snap")
         return args, frames, cand, panel_rows
@@ -76,7 +81,7 @@ class ParcelKindSparkTest(unittest.TestCase):
         import by_pnu_kinds
 
         lanes = [lane for lane, kind in by_pnu_kinds.kinds().items() if kind.host == "parcel_by_pnu_gateway"]
-        self.assertGreaterEqual(len(lanes), 6)
+        self.assertGreaterEqual(len(lanes), 7)
         return job, [job.KindSpec(lane) for lane in lanes]
 
     def test_every_kind_equals_its_panel_section_on_every_pnu(self):
@@ -84,9 +89,16 @@ class ParcelKindSparkTest(unittest.TestCase):
         job, specs = self.kinds()
         for spec in specs:
             with self.subTest(lane=spec.kind.lane):
-                gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources}, cand, {}, "snap")
+                gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.frame_sources}, cand, {}, "snap")
                 self.assertEqual(job.parity_mismatches(spec, gold, panel_rows).count(), 0)
                 rows = {r.pnu: r for r in gold.collect()}
+                if not spec.section.carried:
+                    # The lineage itself: only NEW 2 has an edge, and nothing is carried onto it.
+                    self.assertEqual(sorted(rows), [pnu(NEW, 2)])
+                    self.assertIsNone(rows[pnu(NEW, 2)].attached_via)
+                    self.assertEqual(json.loads(rows[pnu(NEW, 2)].lineage_json)[0]["predecessor_pnu"], pnu(OLD, 1))
+                    self.assertEqual(job.validate_gold_frame(spec, gold, 1)[0], 1)
+                    continue
                 # Only PNUs that have the section; NEW 2 carries OLD 1's and names the path.
                 self.assertEqual(sorted(rows), [pnu(NEW, 1), pnu(NEW, 2)])
                 self.assertIsNone(rows[pnu(NEW, 1)].attached_via)
@@ -101,13 +113,15 @@ class ParcelKindSparkTest(unittest.TestCase):
         job, specs = self.kinds()
         for spec in specs:
             with self.subTest(lane=spec.kind.lane):
-                gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources}, cand, {}, "snap")
+                gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.frame_sources}, cand, {}, "snap")
                 first = spec.kind.columns[0]
-                drifted = panel_rows.withColumn(first, F.when(F.col("pnu") == pnu(NEW, 1), F.lit("[]"))
+                own = pnu(NEW, 1) if spec.section.carried else pnu(NEW, 2)
+                drifted = panel_rows.withColumn(first, F.when(F.col("pnu") == own, F.lit("[]"))
                                                 .otherwise(F.col(first)))
-                self.assertEqual([r.pnu for r in job.parity_mismatches(spec, gold, drifted).collect()], [pnu(NEW, 1)])
+                self.assertEqual([r.pnu for r in job.parity_mismatches(spec, gold, drifted).collect()], [own])
                 unpathed = panel_rows.withColumn("attached_via_json", F.lit(None).cast("string"))
-                self.assertEqual([r.pnu for r in job.parity_mismatches(spec, gold, unpathed).collect()], [pnu(NEW, 2)])
+                self.assertEqual([r.pnu for r in job.parity_mismatches(spec, gold, unpathed).collect()],
+                                 [pnu(NEW, 2)] if spec.section.carried else [])
 
     def test_the_digest_ignores_lineage_columns(self):
         from pyspark.sql import functions as F
@@ -115,7 +129,7 @@ class ParcelKindSparkTest(unittest.TestCase):
         args, frames, cand, _ = self.frames()
         job, specs = self.kinds()
         spec = specs[0]
-        gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources}, cand, {}, "snap")
+        gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.frame_sources}, cand, {}, "snap")
         first = {r.pnu: r.row_digest for r in gold.collect()}
         relabeled = (gold.drop("row_digest")
                      .withColumn("source_snapshot_id", F.concat(F.col("source_snapshot_id"), F.lit("x")))
@@ -126,7 +140,7 @@ class ParcelKindSparkTest(unittest.TestCase):
         args, frames, cand, _ = self.frames()
         job, specs = self.kinds()
         spec = next(s for s in specs if s.kind.lane == "parcel-zoning")
-        rows = {r.pnu: r for r in job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources},
+        rows = {r.pnu: r for r in job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.frame_sources},
                                                        cand, {}, "snap").collect()}
         self.assertEqual(json.loads(rows[pnu(NEW, 1)].zonings_json),
                          [{"zone_code": "UQA110", "zone_name": "제1종", "anchor_code": "UQA100", "inclusion_code": "1"}])

@@ -47,8 +47,11 @@ class KindSpec:
         self.required_columns = required_column_names(self.contract)
         self.content_columns = tuple(c for c in self.gold_columns if c not in LINEAGE_COLUMNS)
         self.sources = (ANCHOR_SOURCE, *self.section.inputs)
-        self.build_columns = {name: panel.BUILD_COLUMNS[name] for name in self.sources}
-        self.whole_table_inputs = tuple(n for n in panel.WHOLE_TABLE_INPUTS if n in self.sources)
+        # The frames the build reads: a section that is the lineage itself also reads the optional
+        # lineage input, which stays optional to the planner (lane_inputs).
+        self.frame_sources = (*self.sources, *(() if self.section.carried else (LINEAGE_SOURCE,)))
+        self.build_columns = {name: panel.BUILD_COLUMNS[name] for name in self.frame_sources}
+        self.whole_table_inputs = tuple(n for n in panel.WHOLE_TABLE_INPUTS if n in self.frame_sources)
         if self.content_columns != ("pnu", *self.kind.columns, "attached_via"):
             raise ValueError(f"{self.kind.gold_table} columns {self.content_columns} are not the kind line's "
                              f"{self.kind.columns} (lakehouse contract artifact out of date?)")
@@ -135,7 +138,7 @@ def read_inputs(spark, args, spec: KindSpec, pins, counters, snapshots=None):
     """The parcels and the section's inputs at `pins` reduced to their build columns, and the
     lineage's carry candidates: the panel's own reader, for this one section."""
     frames, candidates = panel.read_inputs(spark, args, pins, counters, snapshots, sections=(spec.section,))
-    return {name: frames[name] for name in spec.sources}, candidates
+    return {name: frames[name] for name in spec.frame_sources if name in frames}, candidates
 
 
 def present(column: str) -> F.Column:
@@ -150,7 +153,8 @@ def row_digest_column(spec: KindSpec) -> F.Column:
 
 def build_gold_frame(spark, args, spec: KindSpec, frames, candidates, counters, source_snapshot_id) -> DataFrame:
     built = spec.section.build(frames, spark, args, counters)
-    carried = panel.carry_section(built, "attached_via", candidates)
+    carried = (panel.carry_section(built, "attached_via", candidates) if spec.section.carried
+               else built.withColumn("attached_via", F.lit(None).cast("string")))
     parcels = frames[ANCHOR_SOURCE].select("pnu").distinct()
     gold = parcels.join(carried, "pnu").where(present(spec.kind.columns[0])).select(
         *spec.content_columns,
@@ -209,7 +213,7 @@ def assert_parity(spark, args, spec: KindSpec, gold: DataFrame) -> dict[str, int
 def restrict_inputs(spec: KindSpec, frames, keys, candidates):
     """The input rows the Gold rows of `keys` are built from: the panel's map, for this section."""
     restricted = panel.restrict_inputs(frames, keys, candidates)
-    return {name: restricted[name] for name in spec.sources}
+    return {name: restricted[name] for name in spec.frame_sources if name in restricted}
 
 
 def build_session(args) -> SparkSession:
@@ -311,13 +315,15 @@ def column_lineage(spec: KindSpec, carry_lineage: bool) -> list[dict[str, Any]]:
     def one(dataset: str, column: str, transform: str) -> list[dict[str, str]]:
         return [{"dataset": dataset, "column": column, "transform": transform}]
 
+    inputs = (*spec.section.inputs, *((LINEAGE_SOURCE,) if carry_lineage and not spec.section.carried else ()))
     section = [{"dataset": name, "column": ",".join(panel.BUILD_COLUMNS[name]), "transform": f"panel_section:{spec.section.name}"}
-               for name in spec.section.inputs]
+               for name in inputs] or one("foundation-platform.job_arguments", "carry_lineage", "literal_null_when_disabled")
     lineage = {"pnu": one(ANCHOR_SOURCE, "pnu", "identity"),
                **{c: section for c in spec.kind.columns},
                "attached_via": one(LINEAGE_SOURCE, "predecessor_pnu,successor_pnu,relation,grade",
-                                   "steward_resolved_nearest_holder_path") if carry_lineage
-               else one("foundation-platform.job_arguments", "carry_lineage", "literal_null_when_disabled"),
+                                   "steward_resolved_nearest_holder_path") if carry_lineage and spec.section.carried
+               else one("foundation-platform.job_arguments", "carry_lineage",
+                        "literal_null_when_disabled" if spec.section.carried else "literal_null_not_carried"),
                "source_snapshot_id": one(ANCHOR_SOURCE, "source_snapshot_id", "identity"),
                "published_at_utc": one("foundation-platform.job_arguments", "published_at_utc", "literal")}
     lineage["row_digest"] = [{**s, "transform": f"sha256_content:{s['transform']}"}

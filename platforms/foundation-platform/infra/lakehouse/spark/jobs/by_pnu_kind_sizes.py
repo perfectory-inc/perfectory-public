@@ -102,6 +102,7 @@ def parcel_kinds(row: dict[str, Any]) -> dict[str, str]:
         "parcel-characteristics": row.get("characteristics_json"),
         "parcel-forest-ledger": row.get("forest_ledger_json"),
         "parcel-transfer-history": row.get("transfer_history_json"),
+        "parcel-lineage": row.get("lineage_json"),
     }
     if not is_empty(row.get("land_rights_json")):
         bodies["parcel-land-rights"] = (
