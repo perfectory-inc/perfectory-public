@@ -139,5 +139,789 @@
         "platforms/foundation-platform/**"
       ]
     }
+  },
+  "guards": {
+    "$comment": "The one ordered list of guards scripts/guard/monorepo-guard.sh runs (root ADR-0207). `paths`: what can change the guard's verdict; its own script and .py, every repository file its scripts name (followed through named scripts), and for <guard>-self-test the scripts of <guard>, reads, are inputs without being listed. `always`: the guard reads every change, and why. A pull request runs the guards whose inputs it touches; main, the merge queue, the daily run, a manual or local run, an unknown comparison, or a change to the runner, scripts/guard/lib, this file or a selector run every guard. Checked by scripts/ci/test_guard_scope.py.",
+    "run": [
+      {
+        "name": "hook-isolation-self-test",
+        "always": "Re-runs fixture-building self-tests under a poisoned GIT_DIR; any guard change can break isolation."
+      },
+      {
+        "name": "no-subdir-github",
+        "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`."
+      },
+      {
+        "name": "technology-version-consistency",
+        "paths": [
+          "tools/technology-versions.contract.json",
+          "tools/container-images.env",
+          "tools/verify-image/**",
+          "**/.nvmrc",
+          "**/package.json",
+          ".github/workflows/**",
+          "**/*compose*.yml",
+          "**/*compose*.yaml",
+          "**/Dockerfile*"
+        ]
+      },
+      {
+        "name": "static-release-toolchain-ssot-self-test",
+        "paths": [
+          "scripts/tiles/**",
+          "platforms/foundation-platform/config/static-release-toolchain.contract.json"
+        ]
+      },
+      {
+        "name": "static-release-toolchain-ssot",
+        "always": "Any tracked file may restate a pinned static-release tool version or digest."
+      },
+      {
+        "name": "foundation-kafka-contract",
+        "paths": [
+          "platforms/foundation-platform/crates/collection/**",
+          "platforms/foundation-platform/crates/foundation-outbox/**",
+          "platforms/foundation-platform/schemas/**",
+          "tools/xtask/**",
+          ".github/workflows/foundation-ci.yml",
+          "scripts/verify/**"
+        ]
+      },
+      {
+        "name": "backend-profile-consistency",
+        "paths": [
+          "platforms/foundation-platform/**",
+          ".github/workflows/foundation-ci.yml",
+          "docs/technology-stack.md"
+        ]
+      },
+      {
+        "name": "backend-profile-consistency-self-test",
+        "paths": []
+      },
+      {
+        "name": "r2-env-namespace-consistency",
+        "paths": [
+          "platforms/**",
+          "scripts/**",
+          "docs/**",
+          "tools/**",
+          ".github/**"
+        ]
+      },
+      {
+        "name": "r2-env-namespace-consistency-self-test",
+        "paths": [
+          "platforms/foundation-platform/config/**",
+          "platforms/foundation-platform/.env.example"
+        ]
+      },
+      {
+        "name": "r2-reads-have-one-path-self-test",
+        "paths": []
+      },
+      {
+        "name": "r2-reads-have-one-path",
+        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file."
+      },
+      {
+        "name": "environment-variable-naming-self-test",
+        "paths": [
+          "platforms/foundation-platform/config/**"
+        ]
+      },
+      {
+        "name": "environment-variable-naming",
+        "paths": [
+          "platforms/foundation-platform/**",
+          "scripts/**",
+          ".github/**",
+          "tools/**",
+          "docs/**"
+        ]
+      },
+      {
+        "name": "technology-version-consistency-self-test",
+        "paths": [
+          "tools/technology-versions.contract.json"
+        ]
+      },
+      {
+        "name": "migration-naming-self-test",
+        "paths": []
+      },
+      {
+        "name": "migration-naming",
+        "paths": [
+          "products/*/migrations/**",
+          "platforms/*/migrations/**"
+        ]
+      },
+      {
+        "name": "unique-package-names",
+        "paths": [
+          "**/Cargo.toml"
+        ]
+      },
+      {
+        "name": "health-route-conformance",
+        "paths": [
+          "products/*/services/**",
+          "platforms/*/services/**"
+        ]
+      },
+      {
+        "name": "intelligence-no-vector-provider-self-test",
+        "paths": [
+          "platforms/intelligence-platform/**/Cargo.toml"
+        ]
+      },
+      {
+        "name": "intelligence-no-vector-provider",
+        "paths": [
+          "platforms/intelligence-platform/**/Cargo.toml"
+        ]
+      },
+      {
+        "name": "utility-library-policy-self-test",
+        "paths": []
+      },
+      {
+        "name": "utility-library-policy",
+        "paths": [
+          "**/package.json",
+          "docs/technology-stack.md"
+        ]
+      },
+      {
+        "name": "hand-rolled-error-boundary-self-test",
+        "paths": []
+      },
+      {
+        "name": "hand-rolled-error-boundary",
+        "paths": [
+          "**/*.js",
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.mjs"
+        ]
+      },
+      {
+        "name": "no-adhoc-cargo-lint",
+        "paths": [
+          ".github/workflows/**",
+          "scripts/**"
+        ]
+      },
+      {
+        "name": "foundation-parcel-current-selector-self-test",
+        "paths": []
+      },
+      {
+        "name": "foundation-parcel-current-selector",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
+        ]
+      },
+      {
+        "name": "xtask-path-coverage-self-test",
+        "paths": [
+          ".github/workflows/**"
+        ]
+      },
+      {
+        "name": "xtask-path-coverage",
+        "paths": [
+          ".github/workflows/**"
+        ]
+      },
+      {
+        "name": "lefthook-advisory-policy-self-test",
+        "paths": [
+          "lefthook.yml"
+        ]
+      },
+      {
+        "name": "lefthook-advisory-policy",
+        "paths": [
+          "lefthook.yml"
+        ]
+      },
+      {
+        "name": "lefthook-time-budget-self-test",
+        "paths": [
+          "lefthook.yml"
+        ]
+      },
+      {
+        "name": "lefthook-time-budget",
+        "paths": [
+          "lefthook.yml",
+          "scripts/**",
+          ".github/workflows/**",
+          "tools/xtask/src/**"
+        ]
+      },
+      {
+        "name": "package-publication-policy-self-test",
+        "paths": []
+      },
+      {
+        "name": "public-fixture-safety-self-test",
+        "paths": []
+      },
+      {
+        "name": "public-doc-boundary-self-test",
+        "paths": []
+      },
+      {
+        "name": "tracked-blob-sizes-self-test",
+        "paths": []
+      },
+      {
+        "name": "public-repository-safety",
+        "always": "Public-tree hygiene: any tracked path or content may leak private evidence."
+      },
+      {
+        "name": "tracked-paths-are-portable-self-test",
+        "paths": []
+      },
+      {
+        "name": "tracked-paths-are-portable",
+        "always": "Every tracked path must check out on every OS; any change can add a path."
+      },
+      {
+        "name": "container-runtime-policy-self-test",
+        "paths": [
+          "scripts/tiles/**",
+          "platforms/foundation-platform/config/static-release-toolchain.contract.json",
+          "tools/container-images.env"
+        ]
+      },
+      {
+        "name": "container-runtime-policy",
+        "always": "Every compose file, Dockerfile and shell script in any area may pull an image or publish a port."
+      },
+      {
+        "name": "every-container-has-a-memory-cap-self-test",
+        "paths": [
+          "tools/host-memory-budget.contract.json"
+        ]
+      },
+      {
+        "name": "every-container-has-a-memory-cap",
+        "always": "Walks the whole tree for compose files; any area may add a service."
+      },
+      {
+        "name": "runtime-secrets-contract-self-test",
+        "paths": []
+      },
+      {
+        "name": "runtime-secrets-contract",
+        "paths": [
+          "platforms/foundation-platform/config/**",
+          "platforms/foundation-platform/infra/systemd/**",
+          "platforms/foundation-platform/scripts/**",
+          "platforms/foundation-platform/docs/**",
+          "platforms/foundation-platform/orchestration/**"
+        ]
+      },
+      {
+        "name": "credential-names-self-test",
+        "paths": [
+          "platforms/foundation-platform/config/runtime-secrets.contract.json",
+          "platforms/foundation-platform/scripts/deploy/runtime_secrets.py"
+        ]
+      },
+      {
+        "name": "credential-names",
+        "always": "Reads every tracked file for a credential-shaped FOUNDATION_PLATFORM_ name."
+      },
+      {
+        "name": "container-images-match-the-contract-self-test",
+        "paths": [
+          "scripts/catalog/**",
+          "tools/technology-versions.contract.json"
+        ]
+      },
+      {
+        "name": "container-images-match-the-contract",
+        "always": "Any tracked file may carry an image digest; the contract must match all of them."
+      },
+      {
+        "name": "workflow-policy-self-test",
+        "paths": [
+          ".github/workflows/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "github-policy-json-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**",
+          "products/gongzzang/apps/web/public/fonts/**",
+          "LICENSES/**",
+          ".gitattributes",
+          "THIRD_PARTY_NOTICES.md"
+        ]
+      },
+      {
+        "name": "rust-ci-setup-self-test",
+        "paths": [
+          "scripts/ci/**",
+          "rust-toolchain.toml"
+        ]
+      },
+      {
+        "name": "rust-ci-setup",
+        "paths": [
+          ".github/workflows/**",
+          "rust-toolchain.toml"
+        ]
+      },
+      {
+        "name": "pinned-downloads-self-test",
+        "paths": [
+          "scripts/ci/**",
+          "tools/pinned-artifacts.json"
+        ]
+      },
+      {
+        "name": "pinned-downloads",
+        "always": "Any script in any area may download a release outside the pinned fetcher."
+      },
+      {
+        "name": "repository-identity-policy-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**",
+          "products/gongzzang/apps/web/public/fonts/**",
+          "LICENSES/**",
+          "LICENSE",
+          "REUSE.toml",
+          ".gitattributes",
+          "THIRD_PARTY_NOTICES.md"
+        ]
+      },
+      {
+        "name": "legal-publication-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**",
+          "products/gongzzang/apps/web/public/fonts/**",
+          "LICENSES/**",
+          "LICENSE",
+          "REUSE.toml",
+          ".gitattributes",
+          "THIRD_PARTY_NOTICES.md"
+        ]
+      },
+      {
+        "name": "third-party-artifact-policy-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**",
+          "products/gongzzang/apps/web/public/fonts/**",
+          "LICENSES/**",
+          "LICENSE",
+          "REUSE.toml",
+          ".gitattributes",
+          "THIRD_PARTY_NOTICES.md"
+        ]
+      },
+      {
+        "name": "gitleaks-policy-self-test",
+        "paths": [
+          ".gitleaks.toml"
+        ]
+      },
+      {
+        "name": "osv-vulnerability-ratchet-self-test",
+        "paths": [
+          "scripts/ci/osv-vulnerability-gate.sh",
+          "tools/osv-vulnerability-baseline.tsv"
+        ]
+      },
+      {
+        "name": "npm-security-overrides-self-test",
+        "paths": [
+          "tools/npm/**"
+        ]
+      },
+      {
+        "name": "npm-security-overrides",
+        "paths": [
+          "tools/npm/**",
+          "tools/technology-versions.contract.json",
+          "**/package.json",
+          "**/pnpm-lock.yaml"
+        ]
+      },
+      {
+        "name": "npm-advisory-fix-guards-self-test",
+        "paths": [
+          "tools/npm/**"
+        ]
+      },
+      {
+        "name": "actions-cache-controls-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "billing-budgets-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "tiles-slice-proof-env-self-test",
+        "paths": [
+          "scripts/tiles/**"
+        ]
+      },
+      {
+        "name": "foundation-ci-scope-self-test",
+        "paths": [
+          "scripts/ci/**",
+          ".github/workflows/foundation-ci.yml"
+        ]
+      },
+      {
+        "name": "ci-time-budget-self-test",
+        "paths": [
+          "scripts/ci/**",
+          "tools/ci/**"
+        ]
+      },
+      {
+        "name": "live-lane-completeness-self-test",
+        "paths": [
+          "tools/xtask/**",
+          "scripts/catalog/**"
+        ]
+      },
+      {
+        "name": "live-lane-completeness",
+        "paths": [
+          "tools/xtask/**",
+          "platforms/**",
+          "products/**",
+          "consoles/**",
+          "tools/**",
+          "scripts/**",
+          ".github/workflows/**"
+        ]
+      },
+      {
+        "name": "build-coupling-baseline-self-test",
+        "paths": []
+      },
+      {
+        "name": "build-coupling-baseline",
+        "paths": [
+          "**/*.rs"
+        ]
+      },
+      {
+        "name": "lineage-is-derived-not-passed-self-test",
+        "paths": []
+      },
+      {
+        "name": "lineage-is-derived-not-passed",
+        "paths": [
+          "**/*.sh",
+          "**/*.rs"
+        ]
+      },
+      {
+        "name": "every-table-declares-its-load-self-test",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/contracts/**"
+        ]
+      },
+      {
+        "name": "every-table-declares-its-load",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/contracts/**"
+        ]
+      },
+      {
+        "name": "pipeline-graph-covers-every-dataset-self-test",
+        "paths": [
+          "scripts/catalog/**",
+          "platforms/foundation-platform/docs/catalog/**",
+          "platforms/foundation-platform/infra/lakehouse/**",
+          "platforms/foundation-platform/migrations/**"
+        ]
+      },
+      {
+        "name": "pipeline-graph-covers-every-dataset",
+        "paths": [
+          "scripts/catalog/**",
+          "platforms/foundation-platform/docs/catalog/**",
+          "platforms/foundation-platform/infra/lakehouse/**",
+          "platforms/foundation-platform/migrations/**",
+          "platforms/foundation-platform/services/**",
+          "platforms/foundation-platform/crates/**",
+          "platforms/foundation-platform/scripts/**",
+          "platforms/foundation-platform/orchestration/**"
+        ]
+      },
+      {
+        "name": "region-code-pairs-have-one-home-self-test",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/contracts/**"
+        ]
+      },
+      {
+        "name": "region-code-pairs-have-one-home",
+        "always": "Walks every source and contract file for a second home of a region-code pair."
+      },
+      {
+        "name": "area-registry-self-test",
+        "paths": []
+      },
+      {
+        "name": "area-registry",
+        "always": "Walks every tracked non-prose file for a hand-written copy of the area list."
+      },
+      {
+        "name": "a-deploy-verifies-the-schema-it-left-self-test",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "a-deploy-verifies-the-schema-it-left",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "migration-approval-gates-self-test",
+        "paths": [
+          "tools/ci/migration-approval-gates.contract.json"
+        ]
+      },
+      {
+        "name": "migration-approval-gates",
+        "paths": [
+          "tools/ci/migration-approval-gates.contract.json",
+          "**/migrations/**"
+        ]
+      },
+      {
+        "name": "the-deploy-does-not-restate-the-compose-chain-self-test",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**",
+          "platforms/foundation-platform/docker-compose.yml"
+        ]
+      },
+      {
+        "name": "the-deploy-does-not-restate-the-compose-chain",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**",
+          "platforms/foundation-platform/docker-compose.yml",
+          "platforms/foundation-platform/compose*.yml"
+        ]
+      },
+      {
+        "name": "the-contract-names-where-its-objects-live-self-test",
+        "paths": []
+      },
+      {
+        "name": "the-contract-names-where-its-objects-live",
+        "paths": [
+          "platforms/foundation-platform/**"
+        ]
+      },
+      {
+        "name": "identity-endpoints-match-the-contract-self-test",
+        "paths": [
+          "platforms/identity-platform/**",
+          "platforms/foundation-platform/compose.identity-bridge.yml",
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "identity-endpoints-match-the-contract",
+        "paths": [
+          "platforms/identity-platform/**",
+          "platforms/foundation-platform/compose.identity-bridge.yml",
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "assert-runtime-migrations-self-test",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "assert-runtime-environment-self-test",
+        "paths": [
+          "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "bootstrap-creates-what-it-grants-on-self-test",
+        "paths": [
+          "platforms/foundation-platform/infra/compose/**"
+        ]
+      },
+      {
+        "name": "bootstrap-creates-what-it-grants-on",
+        "paths": [
+          "platforms/foundation-platform/infra/compose/**"
+        ]
+      },
+      {
+        "name": "no-silent-test-skip-self-test",
+        "paths": []
+      },
+      {
+        "name": "no-silent-test-skip",
+        "paths": [
+          "**/*.rs"
+        ]
+      },
+      {
+        "name": "no-env-access-in-domain-layers-self-test",
+        "paths": []
+      },
+      {
+        "name": "no-env-access-in-domain-layers",
+        "paths": [
+          "platforms/**",
+          "products/**"
+        ]
+      },
+      {
+        "name": "area-ci-input-coverage-self-test",
+        "paths": []
+      },
+      {
+        "name": "area-ci-input-coverage",
+        "paths": [
+          ".github/workflows/**",
+          "platforms/**",
+          "products/**",
+          "consoles/**",
+          "docs/**",
+          "tools/**",
+          "scripts/**"
+        ]
+      },
+      {
+        "name": "document-contract-markers-self-test",
+        "paths": []
+      },
+      {
+        "name": "document-contract-markers",
+        "paths": [
+          "**/*.md",
+          "**/*.py",
+          "**/*.rs"
+        ]
+      },
+      {
+        "name": "roadmap-owns-recorded-debt-self-test",
+        "paths": []
+      },
+      {
+        "name": "roadmap-owns-recorded-debt",
+        "paths": [
+          "docs/roadmap/**",
+          "**/adr/*.md"
+        ]
+      },
+      {
+        "name": "judgment-position-exit-codes-self-test",
+        "paths": []
+      },
+      {
+        "name": "judgment-position-exit-codes",
+        "paths": [
+          "**/*.sh",
+          ".github/workflows/**"
+        ]
+      },
+      {
+        "name": "publication-authority-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "cargo-verify-isolation-self-test",
+        "paths": [
+          "scripts/verify/**",
+          "tools/container-images.env"
+        ]
+      },
+      {
+        "name": "public-tree-snapshot-self-test",
+        "paths": [
+          "scripts/ci/**",
+          "tools/github/**",
+          "LICENSES/**",
+          "products/gongzzang/apps/web/public/fonts/**",
+          ".gitattributes",
+          "REUSE.toml",
+          "LICENSE",
+          "THIRD_PARTY_NOTICES.md",
+          "CONTRIBUTING.md",
+          "tools/container-images.env"
+        ]
+      },
+      {
+        "name": "frontend-test-isolation-self-test",
+        "paths": [
+          "scripts/verify/**"
+        ]
+      },
+      {
+        "name": "safe-git-transport-self-test",
+        "paths": [
+          "scripts/github/**"
+        ]
+      },
+      {
+        "name": "repository-identity-capture-self-test",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "public-github-policy",
+        "always": "Pins the GitHub desired state and the publication machinery, which names every area's verification."
+      },
+      {
+        "name": "public-root-builder",
+        "paths": [
+          "scripts/github/**",
+          "tools/github/**"
+        ]
+      },
+      {
+        "name": "public-root-publisher-self-test",
+        "paths": [
+          "scripts/github/**"
+        ]
+      },
+      {
+        "name": "import-private-feature-diff-self-test",
+        "paths": [
+          "scripts/github/**"
+        ]
+      }
+    ]
   }
 }

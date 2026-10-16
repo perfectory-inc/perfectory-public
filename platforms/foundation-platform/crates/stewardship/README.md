@@ -2,26 +2,28 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-16
 ---
 
 # Foundation 스튜어드십
 
-자동 도출이 가르지 못한 필지 계보 항목을 사람이 결정하는 경계다. 화면은 더니어가 맡고
-(루트 ADR-0114), 이 영역은 결정의 규칙과 저장을 소유한다.
+자동 도출이 가르지 못한 항목을 사람이 결정하는 경계다. 항목은 두 종류(`unit`)다: 필지 계보(`parcel`)와
+폐지된 법정동 코드의 짝(`legal_dong`, 루트 ADR-0263). 화면은 더니어가 맡고(루트 ADR-0114), 이 영역은 결정의 규칙과
+저장을 소유한다.
 
 - 결정: [`docs/adr/0115`](../../../../docs/adr/0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md)
 - `stewardship-domain` — 순수 규칙: 근거 지문, 결정 검사, 두 사람 승인, 멱등 키, 맡기 만료
 - `stewardship-application` — 저장소 포트(`LineageStewardshipStore`)
 - `stewardship-infrastructure` — `PostgreSQL` 구현. 결정마다 항목을 잠그고 규칙을 다시 돈다
-- 표: `migrations/20260930120000_lineage_stewardship.sql` — 결정·승인·접힘은 append-only, 자기 승인은 트리거가 거부
+- 표: `migrations/20260930120000_lineage_stewardship.sql` — 결정·승인·접힘은 append-only, 자기 승인은 트리거가 거부.
+  `20261016120000_steward_review_items_have_a_kind.sql` — unit 별 코드 형식·상태, 법정동 근거(`evidence_json`)
 - 검증: `cargo test -p stewardship-domain`, Postgres 시험은 `-- --ignored`
 
 ## API (`services/foundation-api`, 직원 토큰만)
 
 | 경로 | 권한 | 하는 일 |
 |---|---|---|
-| `GET /catalog/v1/lineage-review/items` | `foundation.lineage:review` | 목록(상태·PNU 앞자리·미결정만·커서) |
+| `GET /catalog/v1/lineage-review/items` | `foundation.lineage:review` | 목록(종류·상태·코드 앞자리·미결정만·커서) |
 | `GET /catalog/v1/lineage-review/items/{id}` | `review` | 후보·근거 지문·맡은 사람·결정 이력 |
 | `POST .../items/{id}/claim`, `.../release` | `review` | 30분 맡기, 반납 |
 | `POST .../items/{id}/decisions[?dry_run=true]` | `review` | 결정. `Idempotency-Key` 필수(미리 검사 제외) |
@@ -37,6 +39,11 @@ last_reviewed: 2026-09-30
 2. `lineage_steward_fold_to_silver.py --input <파일> --summary-output <요약>` — `silver.parcel_lineage` 에 한 번만 덧붙인다
    (결정 id 로 만든 run id 라 재실행해도 두 번 쌓이지 않는다).
 3. `foundation-outbox-publisher record-lineage-steward-folds` — 요약을 읽어 접힘을 기록한다.
+
+법정동 짝(ADR-0263)은 `export-legal-dong-steward-decisions` 가 서 있는 승인을 내보내고, 짝 맞추기
+(`legal_dong_code_change_pairs.py --steward-decision-export`)가 다시 검사해 `reference.legal_dong_code_change` 에
+쌓은 뒤, 같은 `record-lineage-steward-folds` 로 접힘을 기록한다. 목록은 짝 맞추기의 `--review-handoff-output` 을
+`load-lineage-review-items` 가 적재한다(`scripts/ops/legal-dong-code-load.sh`).
 
 계보를 읽는 넷(검토 목록·검문·패널 속성 붙이기·필지 ID 원장)은 모두 `lineage_review_queue.steward_resolved` 로 읽는다:
 근거가 그대로인 결정은 그 필지의 도출 행을 대신하고, 근거가 바뀐 결정은 효력을 잃어 필지가 검토 목록에 다시 오른다.

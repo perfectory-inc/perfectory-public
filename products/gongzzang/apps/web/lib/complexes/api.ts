@@ -13,12 +13,10 @@ export const COMPLEX_PAGE_SIZE = 20;
  * in the row handles both spellings of "the source did not state this". Zod's default object mode
  * strips undeclared keys, so a column the API grows tomorrow reaches no row until it is named here.
  *
- * `lakehouse_complex_id` is optional because it genuinely is: six of the 1,448 canonical complexes
- * were registered through the write API and carry none. That is what makes a row unopenable, and it
- * is the reason this is a nullish field rather than a required one — see `complex-row.tsx`.
+ * `lakehouse_complex_id` is required: every complex has one (root ADR-0250).
  */
 export const ComplexListItemSchema = z.object({
-  lakehouse_complex_id: z.string().nullish(),
+  lakehouse_complex_id: z.string(),
   official_complex_code: z.string(),
   name: z.string(),
   kind: z.string(),

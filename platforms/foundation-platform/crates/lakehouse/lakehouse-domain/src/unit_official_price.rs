@@ -12,6 +12,7 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: &[
         LakehouseColumn {
             name: "mgm_bldrgst_pk",

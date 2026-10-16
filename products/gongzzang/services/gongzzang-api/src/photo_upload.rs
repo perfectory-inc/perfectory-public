@@ -3,11 +3,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use aws_credential_types::Credentials;
-use aws_sdk_s3::config::{
-    BehaviorVersion, Builder as S3ConfigBuilder, Region, RequestChecksumCalculation,
-    ResponseChecksumValidation,
-};
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::Client as S3Client;
 use listing_photo_domain::entity::PhotoContentType;
@@ -43,35 +38,19 @@ impl ListingPhotoUploadConfig {
     }
 
     #[must_use]
-    pub fn endpoint_url(&self) -> String {
-        format!("https://{}.r2.cloudflarestorage.com", self.account_id)
-    }
-
-    #[must_use]
     pub fn s3_client(&self) -> S3Client {
-        let creds = Credentials::new(
-            &self.access_key,
-            &self.secret_key,
-            None,
-            None,
-            "api-listing-photo-upload",
-        );
-        let s3_config = S3ConfigBuilder::default()
-            .behavior_version(BehaviorVersion::latest())
-            .region(Region::new("auto"))
-            .endpoint_url(self.endpoint_url())
-            .credentials_provider(creds)
-            .force_path_style(true)
-            .request_checksum_calculation(RequestChecksumCalculation::WhenRequired)
-            .response_checksum_validation(ResponseChecksumValidation::WhenRequired)
-            .retry_config(aws_config::retry::RetryConfig::standard().with_max_attempts(1))
-            .timeout_config(
-                aws_config::timeout::TimeoutConfig::builder()
-                    .operation_attempt_timeout(Duration::from_secs(15))
-                    .build(),
-            )
-            .build();
-        S3Client::from_conf(s3_config)
+        gongzzang_r2_object_storage::client(
+            &gongzzang_r2_object_storage::R2Account {
+                account_id: self.account_id.clone(),
+                access_key: self.access_key.clone(),
+                secret_key: self.secret_key.clone(),
+            },
+            gongzzang_r2_object_storage::ClientProfile {
+                app_name: "api-listing-photo-upload",
+                sdk_attempts: 1,
+                attempt_timeout: Duration::from_secs(15),
+            },
+        )
     }
 }
 

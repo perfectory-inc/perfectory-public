@@ -7,11 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use aws_credential_types::Credentials;
-use aws_sdk_s3::config::{
-    BehaviorVersion, Builder as S3ConfigBuilder, Region, RequestChecksumCalculation,
-    ResponseChecksumValidation,
-};
 use aws_sdk_s3::Client as S3Client;
 use gongzzang_outbox::{Sink, SinkError};
 use outbox_event_domain::entity::OutboxEvent;
@@ -148,35 +143,19 @@ impl ListingPhotoR2ReadConfig {
     }
 
     #[must_use]
-    fn endpoint_url(&self) -> String {
-        format!("https://{}.r2.cloudflarestorage.com", self.account_id)
-    }
-
-    #[must_use]
     fn s3_client(&self) -> S3Client {
-        let creds = Credentials::new(
-            &self.access_key,
-            &self.secret_key,
-            None,
-            None,
-            "outbox-listing-photo-lakehouse",
-        );
-        let s3_config = S3ConfigBuilder::default()
-            .behavior_version(BehaviorVersion::latest())
-            .region(Region::new("auto"))
-            .endpoint_url(self.endpoint_url())
-            .credentials_provider(creds)
-            .force_path_style(true)
-            .request_checksum_calculation(RequestChecksumCalculation::WhenRequired)
-            .response_checksum_validation(ResponseChecksumValidation::WhenRequired)
-            .retry_config(aws_config::retry::RetryConfig::standard().with_max_attempts(2))
-            .timeout_config(
-                aws_config::timeout::TimeoutConfig::builder()
-                    .operation_attempt_timeout(Duration::from_secs(30))
-                    .build(),
-            )
-            .build();
-        S3Client::from_conf(s3_config)
+        gongzzang_r2_object_storage::client(
+            &gongzzang_r2_object_storage::R2Account {
+                account_id: self.account_id.clone(),
+                access_key: self.access_key.clone(),
+                secret_key: self.secret_key.clone(),
+            },
+            gongzzang_r2_object_storage::ClientProfile {
+                app_name: "outbox-listing-photo-lakehouse",
+                sdk_attempts: 2,
+                attempt_timeout: Duration::from_secs(30),
+            },
+        )
     }
 }
 
@@ -188,30 +167,27 @@ impl ListingPhotoObjectReader for R2ListingPhotoObjectReader {
         expected_content_type: &str,
     ) -> Result<ObjectDigest, ObjectReadError> {
         validate_listing_photo_object_key(object_key)?;
-        let output =
-            self.client
-                .get_object()
-                .bucket(&self.bucket)
-                .key(object_key)
-                .send()
-                .await
-                .map_err(|error| {
-                    if error.as_service_error().is_some_and(
-                        aws_sdk_s3::operation::get_object::GetObjectError::is_no_such_key,
-                    ) {
-                        return ObjectReadError::NotFound;
-                    }
-                    ObjectReadError::Read(format!(
-                        "{}",
-                        aws_sdk_s3::error::DisplayErrorContext(&error)
-                    ))
-                })?;
+        // Through gongzzang's one R2 read (root ADR-0261): a body that breaks after the headers is
+        // asked for again with a new request after jittered backoff (root ADR-0102). It used to fail
+        // the event on the first reset.
+        let object = gongzzang_r2_object_storage::read_object(
+            &self.client,
+            &self.bucket,
+            object_key,
+            &gongzzang_r2_object_storage::ReadPolicy::ADR_0102,
+        )
+        .await
+        .map_err(|error| match error {
+            gongzzang_r2_object_storage::ReadError::NotFound => ObjectReadError::NotFound,
+            gongzzang_r2_object_storage::ReadError::Failed(message) => {
+                ObjectReadError::Read(message)
+            }
+        })?;
 
-        let expected_size = positive_content_length(output.content_length())?;
-        let content_type = output
-            .content_type()
-            .ok_or(ObjectReadError::MissingContentType)?
-            .to_owned();
+        let expected_size = positive_content_length(object.content_length)?;
+        let content_type = object
+            .content_type
+            .ok_or(ObjectReadError::MissingContentType)?;
         if content_type != expected_content_type {
             return Err(ObjectReadError::ContentTypeMismatch {
                 expected: expected_content_type.to_owned(),
@@ -219,22 +195,11 @@ impl ListingPhotoObjectReader for R2ListingPhotoObjectReader {
             });
         }
 
-        let mut stream = output.body;
+        let actual_size = u64::try_from(object.bytes.len()).map_err(|error| {
+            ObjectReadError::Read(format!("object size conversion failed: {error}"))
+        })?;
         let mut hasher = Sha256::new();
-        let mut actual_size = 0_u64;
-        while let Some(chunk) = stream
-            .try_next()
-            .await
-            .map_err(|error| ObjectReadError::Read(error.to_string()))?
-        {
-            actual_size = actual_size
-                .checked_add(u64::try_from(chunk.len()).map_err(|error| {
-                    ObjectReadError::Read(format!("chunk length conversion failed: {error}"))
-                })?)
-                .ok_or_else(|| ObjectReadError::Read("object size overflow".to_owned()))?;
-            hasher.update(&chunk);
-        }
-
+        hasher.update(&object.bytes);
         if actual_size != expected_size {
             return Err(ObjectReadError::SizeMismatch {
                 expected: expected_size,

@@ -1,11 +1,12 @@
 //! `PgListingReportRepository` 통합 테스트 — no OCC + transactional + anonymous
 //! reporter (SP5-iii T8).
 //!
-//! 4 시나리오:
+//! 5 시나리오:
 //! 1. `save` (INSERT) — `listing_report` + `audit_log` 1행 (`resource_kind = 'listing_report'`)
 //! 2. anonymous reporter (`reporter_id` `None`) round-trip
 //! 3. `find_open` — terminal (`Confirmed`) 제외, `Open` 만 잔존 검증
 //! 4. `find_by_listing` — listing FK 로 모든 신고 조회 (terminal 포함)
+//! 5. 상태·처리자 이력 — 덮어써도 `listing_report_status_history` 에 남고 수정·삭제 거부
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 #![cfg(feature = "integration")]
@@ -284,5 +285,73 @@ async fn find_by_listing_returns_all_reports() {
     // 모두 같은 listing_id
     for r in &all {
         assert_eq!(r.listing_id.as_str(), listing_id.as_str());
+    }
+}
+
+/// Root ADR-0264: the upsert overwrites status, handler and note, so the history keeps each
+/// state — including when the report was taken up and by whom — and refuses rewrites.
+#[tokio::test]
+async fn every_status_and_its_handler_are_kept() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let (reporter_id, listing_id) =
+        seed_listing_with_owner(&pool, "zsub-rep-hist", "rephist@example.com").await;
+    let admin_id = seed_admin(&pool, "zsub-rep-hist-admin", "rephistadmin@example.com").await;
+    let repo = PgListingReportRepository::new(pool.clone());
+
+    let mut report = ListingReport::try_new(
+        listing_id,
+        Some(reporter_id),
+        ListingReportReason::FakeListing,
+        None,
+        Utc::now(),
+    )
+    .expect("report");
+    repo.save(&report, test_ctx()).await.unwrap();
+    report
+        .mark_investigating(admin_id.clone(), Utc::now())
+        .expect("investigating");
+    repo.save(&report, test_ctx()).await.unwrap();
+    // Saving the same state again records nothing new.
+    repo.save(&report, test_ctx()).await.unwrap();
+    report
+        .mark_confirmed(admin_id.clone(), "verified".to_owned(), Utc::now())
+        .expect("confirmed");
+    repo.save(&report, test_ctx()).await.unwrap();
+
+    let history: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "select status, handler_id, handler_note from listing_report_status_history \
+         where report_id = $1 order by history_id",
+    )
+    .bind(report.id.as_str())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        history,
+        vec![
+            ("open".to_owned(), None, None),
+            (
+                "investigating".to_owned(),
+                Some(admin_id.as_str().to_owned()),
+                None
+            ),
+            (
+                "confirmed".to_owned(),
+                Some(admin_id.as_str().to_owned()),
+                Some("verified".to_owned())
+            ),
+        ]
+    );
+
+    for rewrite in [
+        "update listing_report_status_history set status = 'open'",
+        "delete from listing_report_status_history",
+    ] {
+        let err = sqlx::query(rewrite)
+            .execute(&pool)
+            .await
+            .expect_err("history is append-only");
+        assert!(err.to_string().contains("append-only"), "{err}");
     }
 }

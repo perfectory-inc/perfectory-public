@@ -225,6 +225,21 @@
       "started_once_after_deploy": true
     },
     {
+      "id": "shape_ledger_check",
+      "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
+      "systemd_service": "foundation-shape-ledger-check.service",
+      "systemd_timer": null,
+      "schedule": "30 12 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 20,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-16T00:00:00Z",
+      "started_once_after_deploy": true
+    },
+    {
       "id": "silver_refresh_building_register_titles",
       "description": "Silver refresh of the 표제부 lane `building-register-titles` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_titles already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-titles.service",

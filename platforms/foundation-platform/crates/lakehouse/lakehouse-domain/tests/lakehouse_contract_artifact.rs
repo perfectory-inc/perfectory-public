@@ -104,6 +104,10 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         "physical_format": format!("{:?}", contract.physical_format),
         "serving_role": format!("{:?}", contract.serving_role),
         "current_row_predicate": contract.current_row_predicate,
+        "current_row_latest": contract.current_row_latest.map(|latest| serde_json::json!({
+            "key": latest.key,
+            "newest_first": latest.newest_first
+        })),
         "columns": contract.columns.iter().map(|column| {
             serde_json::json!({
                 "name": column.name,

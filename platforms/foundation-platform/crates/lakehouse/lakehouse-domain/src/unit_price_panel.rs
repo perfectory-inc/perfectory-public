@@ -45,6 +45,7 @@ pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: COLUMNS,
     partition_spec: &["source_snapshot_id"],
     sort_order: &["pnu", "building_id"],

@@ -771,6 +771,50 @@ class HandoffTest(unittest.TestCase):
 # --- steward decisions and reruns -------------------------------------------------------------
 
 
+class SigunguSplitTest(unittest.TestCase):
+    def test_a_sigungu_whose_dongs_went_to_two_sigungu_is_a_split_not_a_stewards(self):
+        # The shape of a real 2026-07 reorganization, on synthetic codes: one 시군구 is abolished and its
+        # two 동 are recorded into two different new 시군구. No name matches, and the 지번 step holds no
+        # parcels under a 시군구 code itself. 심은 위반 (the old classifier): `steward` with no candidate, a
+        # pair a person was asked to choose, which would map the whole 시군구 onto one new code.
+        rows = [
+            row("9800000000", "합성도", "폐지", "0000000000", abolished=DAY),
+            row("9900000000", "합성특별시", parent="0000000000", created=DAY),
+            row("9811000000", "합성도 가구", "폐지", "9800000000", abolished=DAY),
+            row("9912000000", "합성특별시 나구", parent="9900000000", created=DAY),
+            row("9913000000", "합성특별시 다구", parent="9900000000", created=DAY),
+            row("9811010100", "합성도 가구 갑동", "폐지", "9811000000", abolished=DAY),
+            row("9811010200", "합성도 가구 을동", "폐지", "9811000000", abolished=DAY),
+            row("9912010100", "합성특별시 나구 갑동", parent="9912000000", created=DAY),
+            row("9913010100", "합성특별시 다구 을동", parent="9913000000", created=DAY),
+        ]
+        table = as_rows(table_html(rows))
+        recorded = [
+            pairs_job.change_row("pair", "official:parcel-history", old, new, "seed", NOW, level="eupmyeondong",
+                                 rule_verdict="official_parcel_history")
+            for old, new in (("9811010100", "9912010100"), ("9811010200", "9913010100"))
+        ]
+        plan = pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run", NOW,
+                                         cg.JibunEvidence({}, {"9912010100": lots(1)}, "b->a"))
+        item = next(i for i in plan["review"] if i["old_code"] == "9811000000")
+        self.assertEqual((item["status"], item["split_into"]), ("split", {"9912000000": 1, "9913000000": 1}))
+        with self.assertRaisesRegex(ValueError, "the data decides it"):
+            pairs_job.steward_rows(plan["review"], ["9811000000=9912000000"], "steward-a", "추정", None, "s", NOW)
+
+    def test_a_sigungu_whose_dongs_all_went_to_one_sigungu_is_still_paired_by_the_rollup(self):
+        rows = merged_table()
+        rows[3] = row("9911000000", "합성특별시 새가구", parent="9900000000", created=DAY)  # no name match
+        recorded = [
+            pairs_job.change_row("pair", "official:parcel-history", old, new, "seed", NOW, level="eupmyeondong",
+                                 rule_verdict="official_parcel_history")
+            for old, new in (("9811010100", "9911010100"), ("9811010200", "9911010200"))
+        ]
+        plan = pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run", NOW,
+                                         cg.JibunEvidence({}, {}, "b->a"))
+        self.assertIn(("9811000000", "9911000000"), {(p["old_code"], p["new_code"]) for p in plan["fresh_changes"]})
+        self.assertNotIn("9811000000", {i["old_code"] for i in plan["review"]})
+
+
 class StewardOnlyRerunTest(unittest.TestCase):
     KEY = "bronze/source=codegokr__legal_dong_code_table/operation=regCodeL/regcode-x.html"
 
