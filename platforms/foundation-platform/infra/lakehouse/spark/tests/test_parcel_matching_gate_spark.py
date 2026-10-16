@@ -75,6 +75,24 @@ class VerdictContractTest(unittest.TestCase):
                 self.assertIn(f'{job.VERDICT_SCHEMA_VERSION}', path.read_text(encoding="utf-8"))
 
 
+class RegistryStateTest(unittest.TestCase):
+    """Root ADR-0265: the gate does not run before silver.parcel_registry exists."""
+
+    def test_an_absent_registry_makes_the_job_wait_and_a_rehearsal_record_it(self):
+        self.assertEqual(job.registry_state(no_registry=False, when_present=False, exists=False), "wait")
+        self.assertEqual(job.registry_state(no_registry=False, when_present=True, exists=False), "absent")
+        self.assertEqual(job.registry_state(no_registry=False, when_present=False, exists=True), "checked")
+        self.assertEqual(job.registry_state(no_registry=False, when_present=True, exists=True), "checked")
+        self.assertEqual(job.registry_state(no_registry=True, when_present=False, exists=True), "skipped")
+        self.assertEqual(job.INPUT_ABSENT, 3)
+
+    def test_no_registry_and_registry_when_present_do_not_go_together(self):
+        with patch.object(job.editions, "served_reader_id", lambda value, *_: value), \
+                patch.object(job.editions, "edition_reader_id", lambda value, *_: value), \
+                patch("sys.stderr"), self.assertRaises(SystemExit):
+            job.parse_args(["--snapshot-id", "s", "--sido", "11", "--no-registry", "--registry-when-present"])
+
+
 @unittest.skipUnless(has_pyspark(), "requires pyspark")
 class ParcelGateSparkTest(unittest.TestCase):
     @classmethod

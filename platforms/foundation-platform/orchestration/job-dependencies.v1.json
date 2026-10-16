@@ -1439,7 +1439,8 @@
       "producers": [
         "map_edit_fold_admin",
         "map_edit_fold_complex",
-        "vworld_parcel_edition"
+        "vworld_parcel_edition",
+        "parcel_registry"
       ],
       "reads": [
         {
@@ -1455,6 +1456,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
           "node_id": "silver-parcel-boundaries",
           "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
+          "node_id": "silver-parcel-registry",
+          "title": "필지 ID 원장",
           "kind": "silver_table",
           "surface_kind": null
         }

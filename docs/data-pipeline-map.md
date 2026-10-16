@@ -395,6 +395,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 행정경계 서빙본 → 행정경계 지도 타일 | `bake-lakehouse-tiles`<br>`platforms/foundation-platform/scripts/ops/map-edit-fold.sh` |
 | 필지 경계 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 지도 편집 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
+| 필지 ID 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py` |
 | 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |

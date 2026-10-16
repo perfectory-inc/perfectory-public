@@ -16,7 +16,7 @@
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
 #   by-pnu-pack-operator.sh job start|status <disabled job id>
-#   by-pnu-pack-operator.sh parcel-tiles rehearse gold|bake | parcel-tiles status
+#   by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
 #
@@ -48,10 +48,11 @@
 # supervised first run before the job is enabled; `status` shows the unit and the end of its journal.
 # The lanes are the jobs.v1.json jobs whose service is that template; nothing else is accepted.
 #
-# `parcel-tiles rehearse gold|bake` starts one half of the parcel tile rehearsal (root ADR-0253):
-# foundation-parcel-tile-bake@rehearsal-<half>.service, which bakes the newest edition the source
-# contract holds and serves nothing. `gold` first, then `bake` once it finished; like a spark-pool
-# job, never during the autodeploy, beside the Gold rebuilds, a Silver lane or another half.
+# `parcel-tiles rehearse gold <YYYYMM>` starts the Gold half of the parcel tile rehearsal (root
+# ADR-0253, ADR-0265) for that edition of the source contract, as
+# foundation-parcel-tile-bake@rehearsal-gold-<YYYYMM>.service; `rehearse bake` then bakes what it made
+# ready (@rehearsal-bake). Nothing is served. Like a spark-pool job, never during the autodeploy,
+# beside the Gold rebuilds, a Silver lane or another instance of the bake.
 # `status` shows the four instances and the end of the bake's journal.
 #
 # `job` is the same supervised first run for any other job that jobs.v1.json lists as off
@@ -84,7 +85,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold|bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -305,21 +306,25 @@ PY
 fi
 
 if [[ "${LANE}" == parcel-tiles ]]; then
-  TILE_UNITS=(foundation-parcel-tile-bake@gold.service foundation-parcel-tile-bake@bake.service
-    foundation-parcel-tile-bake@rehearsal-gold.service foundation-parcel-tile-bake@rehearsal-bake.service)
   case "${ACTION}" in
     rehearse)
       HALF="${1:-}"
-      (($# == 1)) && [[ "${HALF}" == gold || "${HALF}" == bake ]] || refuse "parcel-tiles rehearse takes gold or bake"
-      refuse_while_active "${TILE_UNITS[@]}" foundation-autodeploy.service "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
+      if [[ "${HALF}" == gold ]]; then
+        (($# == 2)) && [[ "${2}" =~ ^20[0-9]{2}(0[1-9]|1[0-2])$ ]] || refuse "parcel-tiles rehearse gold takes one edition, YYYYMM"
+        INSTANCE="rehearsal-gold-${2}"
+      else
+        (($# == 1)) && [[ "${HALF}" == bake ]] || refuse "parcel-tiles rehearse takes gold <YYYYMM> or bake"
+        INSTANCE="rehearsal-bake"
+      fi
+      refuse_while_active 'foundation-parcel-tile-bake@*.service' foundation-autodeploy.service "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
       running="$(running_units 'foundation-silver-refresh@*.service')"
       [[ -z "${running}" ]] || refuse "a Silver refresh lane is running" 75
-      log "starting foundation-parcel-tile-bake@rehearsal-${HALF}.service; follow it with: parcel-tiles status"
-      exec systemctl start --no-block "foundation-parcel-tile-bake@rehearsal-${HALF}.service"
+      log "starting foundation-parcel-tile-bake@${INSTANCE}.service; follow it with: parcel-tiles status"
+      exec systemctl start --no-block "foundation-parcel-tile-bake@${INSTANCE}.service"
       ;;
     status)
       (($# == 0)) || refuse "parcel-tiles status takes nothing after it"
-      systemctl status --no-pager --lines=0 "${TILE_UNITS[@]}" || true
+      systemctl status --no-pager --lines=0 'foundation-parcel-tile-bake@*.service' || true
       exec journalctl -u 'foundation-parcel-tile-bake@*' --no-pager -o short-iso -n 40
       ;;
     *) refuse "${USAGE}" ;;

@@ -9,6 +9,11 @@ Checks, from the lakehouse only:
   (c) every attribute named with --attribute (e.g. `silver.land_individual_price`) is attached to
       each parcel whose sources hold it, following `silver.parcel_lineage` for renumbered parcels.
 Writes the verdict JSON and exits 1 when the gate refuses, so a bake behind it does not start.
+Check (b) reads `silver.parcel_registry`, which the `parcel_registry` job creates (root ADR-0243). When
+that table does not exist yet the gate does not run: it writes a verdict naming the absent input and
+exits `INPUT_ABSENT` (3), so the job behind it waits (root ADR-0265). `--registry-when-present` (a
+rehearsal) skips check (b) instead and records `registry: absent`; `--no-registry` records `skipped`.
+A bake binds only to a verdict whose registry was `checked`.
 
 The checks are the ones `map_matching_gate` states over plain Python values, run here as counts and
 anti-joins on the executors: a national snapshot is forty million parcels, and no PNU set, code
@@ -42,6 +47,8 @@ JOB_NAME = "parcel_matching_gate"
 VERDICT_SCHEMA_VERSION = "foundation-platform.parcel_matching_verdict.v1"
 QUALIFIED = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
 PNU_SHAPE = "^[0-9]{19}$"
+INPUT_ABSENT = 3
+REGISTRY_TABLE = "silver.parcel_registry"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -52,7 +59,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sido", required=True, help="Comma-separated sido prefixes")
     parser.add_argument("--lineage-from-snapshot-id", help="Earlier snapshot of the lineage that reaches this one")
     parser.add_argument("--attribute", action="append", default=[], help="namespace.table:column_for_year=value, e.g. silver.land_individual_price:base_year=2026")
-    parser.add_argument("--no-registry", action="store_true", help="The region has no parcel registry yet; skip check (b)")
+    registry = parser.add_mutually_exclusive_group()
+    registry.add_argument("--no-registry", action="store_true", help="The region has no parcel registry yet; skip check (b)")
+    registry.add_argument("--registry-when-present", action="store_true",
+                          help=f"Skip check (b) only when {REGISTRY_TABLE} does not exist yet (a rehearsal); without it the gate waits")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
@@ -61,6 +71,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.snapshot_id = editions.served_reader_id(args.snapshot_id, allow, "--snapshot-id")
     args.lineage_from_snapshot_id = editions.edition_reader_id(args.lineage_from_snapshot_id, allow, "--lineage-from-snapshot-id")
     return args
+
+
+def registry_state(no_registry: bool, when_present: bool, exists: bool) -> str:
+    """How check (b) runs (root ADR-0265): `checked`, `skipped` (--no-registry), `absent` (a rehearsal
+    without the table) or `wait` (the table does not exist yet: the gate must not run)."""
+
+    if no_registry:
+        return "skipped"
+    if exists:
+        return "checked"
+    return "absent" if when_present else "wait"
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -233,6 +254,15 @@ def main(argv: list[str] | None = None) -> int:
         "sido": args.sido,
     }
     try:
+        state = registry_state(args.no_registry, args.registry_when_present,
+                               spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{REGISTRY_TABLE}"))
+        verdict["registry"] = state
+        if state == "wait":
+            verdict.update(passed=False, inputs_absent=[REGISTRY_TABLE])
+            if args.summary_output:
+                Path(args.summary_output).write_text(json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            print("parcel-matching-gate-json " + json.dumps(verdict, ensure_ascii=False, sort_keys=True))
+            return INPUT_ABSENT
         snapshot = f"{cat}.`silver`.`parcel_boundaries` WHERE source_snapshot_id = '{args.snapshot_id}'"
         verdict["snapshot_parcel_count"] = spark.sql(f"SELECT count(DISTINCT pnu) AS n FROM {snapshot}").collect()[0]["n"]
         parcels = spark.sql(
@@ -245,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         admin_codes = spark.sql(f"SELECT canonical_code FROM {cat}.`gold`.`administrative_boundary_served`")
         current = None
-        if not args.no_registry:
+        if state == "checked":
             current = current_ids(
                 spark.sql(
                     f"SELECT parcel_id, pnu, status, valid_from, valid_to FROM {cat}.`silver`.`parcel_registry` "

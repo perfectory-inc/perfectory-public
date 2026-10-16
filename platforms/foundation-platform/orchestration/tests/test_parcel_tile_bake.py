@@ -36,6 +36,9 @@ summary = host(job_args[job_args.index("--summary-output") + 1])
 if script.endswith("parcel_matching_gate.py"):
     if os.environ["FAKE_GATE"] == "crash":
         sys.exit(1)
+    if os.environ["FAKE_GATE"] == "no-registry":
+        summary.write_text(json.dumps({"passed": False, "registry": "wait", "inputs_absent": ["silver.parcel_registry"]}))
+        sys.exit(3)
     summary.write_text(json.dumps({"passed": os.environ["FAKE_GATE"] == "pass"}))
     sys.exit(0 if os.environ["FAKE_GATE"] == "pass" else 1)
 host(job_args[job_args.index("--output-dir") + 1]).mkdir(parents=True)
@@ -91,7 +94,8 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         import vworld_parcel_editions as editions  # noqa: PLC0415
         contract = editions.load()
         self.served = editions.snapshot_id(contract, editions.served(contract))
-        self.newest = editions.snapshot_id(contract, max(contract["editions"]))
+        self.rehearsed = sorted(contract["editions"])[0]
+        self.newest = editions.snapshot_id(contract, self.rehearsed)
 
     def run_half(self, mode, gate):
         result = subprocess.run(["bash", str(self.script), mode], env={**self.env, "FAKE_GATE": gate},
@@ -100,11 +104,12 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         return result, calls
 
     def test_a_rehearsal_records_the_gates_refusal_and_builds_the_newest_editions_gold(self):
-        result, calls = self.run_half("rehearsal-gold", "refuse")
+        result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "refuse")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
         for call in calls:
             self.assertIn("--allow-non-served-edition", call["args"], call["job"])
+        self.assertIn("--registry-when-present", calls[0]["args"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.newest)
         self.assertEqual((self.state / "rehearsal-ready").read_text().split()[0], self.newest)
         self.assertFalse((self.state / "ready").exists(), "a rehearsal never readies the job's bake")
@@ -112,7 +117,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
 
     def test_a_gate_that_crashed_stops_a_rehearsal_before_the_gold(self):
         # 2026-10-15: the gate refused its arguments with exit 1 and no verdict, and was read as a refusal.
-        result, calls = self.run_half("rehearsal-gold", "crash")
+        result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "crash")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
         self.assertFalse((self.state / "rehearsal-ready").exists())
@@ -123,6 +128,21 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
         self.assertNotIn("--allow-non-served-edition", calls[0]["args"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.served)
+
+    def test_the_jobs_gold_half_waits_while_the_gates_registry_does_not_exist(self):
+        # Root ADR-0265: the gate exits 3 before it reads anything; nothing is built or readied.
+        result, calls = self.run_half("gold", "no-registry")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertNotIn("--registry-when-present", calls[0]["args"])
+        self.assertFalse((self.state / "ready").exists())
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome unchanged")
+        self.assertIn("silver.parcel_registry", (self.state / "journal.log").read_text())
+
+    def test_a_rehearsal_of_an_edition_the_contract_does_not_hold_is_refused(self):
+        result, calls = self.run_half("rehearsal-gold-209912", "refuse")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
 
     def test_the_jobs_gold_half_readies_the_bake_when_the_gate_passes(self):
         result, calls = self.run_half("gold", "pass")
