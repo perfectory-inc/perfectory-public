@@ -15,7 +15,7 @@ use foundation_normalization_application::{
 };
 use foundation_normalization_domain::{NormalizationError, NormalizationTargetKind};
 use foundation_normalization_infrastructure::PgNormalizationUnitOfWork;
-use foundation_shared_kernel::ids::PrincipalId;
+use foundation_shared_kernel::ids::{PrincipalId, StaffId};
 use serde_json::{json, Value as JsonValue};
 use sqlx::Row;
 use uuid::Uuid;
@@ -580,6 +580,7 @@ async fn industrial_complex_rollback_rejects_external_change_after_partial_unwin
                         name: None,
                         area_m2: Some(777_777),
                     },
+                    StaffId::new(fixture.principal_id.as_uuid()),
                 )
                 .await?;
             let before = load_complex_scope_state(&pool, fixture.complex.id.to_string()).await?;

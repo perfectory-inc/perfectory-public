@@ -720,6 +720,19 @@ def pair_changes(
             weight[code] = max(1, len(ev.before.get(code, {}))) if ev is not None else 1
         return weight[code]
 
+    def children_received(old: str) -> tuple[dict[str, int], int]:
+        """Where a 시도's or 시군구's own 동·리 went: ({new code at its level: weight of the leaves paired
+        into it}, total weight of its abolished leaves). The rollup pairs it from this; when the leaves
+        went to two or more codes it is a split, the data's to record (ADR-0144 §4), not a steward's."""
+
+        level = code_level(old)
+        leaves = [code for code in abolished if code_level(code) in LEAF_LEVELS and _under(code, old)]
+        received: dict[str, int] = {}
+        for code in leaves:
+            for new in successors.get(code, ()):
+                received[_parent_at(new, level)] = received.get(_parent_at(new, level), 0) + leaf_weight(code)
+        return received, sum(leaf_weight(code) for code in leaves)
+
     while True:
         before_round = len(result.pairs)
         unsettled = sorted((old for old in olds if old not in successors), key=order)
@@ -739,12 +752,7 @@ def pair_changes(
             if level in LEAF_LEVELS:
                 settle_leaf(old)
                 continue
-            leaves = [code for code in abolished if code_level(code) in LEAF_LEVELS and _under(code, old)]
-            total = sum(leaf_weight(code) for code in leaves)
-            received: dict[str, int] = {}
-            for code in leaves:
-                for new in successors.get(code, ()):
-                    received[_parent_at(new, level)] = received.get(_parent_at(new, level), 0) + leaf_weight(code)
+            received, total = children_received(old)
             if total and received:  # 4
                 parent, got = max(received.items(), key=lambda item: (item[1], item[0]))
                 if parent != old and parent in alive and got / total >= min_share:
@@ -780,6 +788,10 @@ def pair_changes(
             # with one real destination below the line is a person's to confirm, with that candidate.
             real = [new for new, held in split_into.items() if held >= (1 - min_share) * len(before)]
             status = "split" if len(real) > 1 and unique else "steward"
+        children = children_received(old)[0] if code_level(old) not in LEAF_LEVELS else {}
+        if len(children) > 1:
+            # Its own 동·리 went to several codes: a split, whatever the 지번 step saw at this level.
+            seen, status, split_into, missing = f"{seen}; its 동·리 went to {len(children)} codes", "split", children, ""
         dong_split = dong_links_by_old.get(old, set())
         official_split = {new: 1 for new in dong_split} if dong_split else dict(links_by_old.get(old, {}))
         if len(official_split) > 1 and status != "split":

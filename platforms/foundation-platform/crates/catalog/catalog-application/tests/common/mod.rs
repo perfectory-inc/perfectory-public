@@ -213,6 +213,7 @@ impl CatalogUnitOfWork for $double {
             _id: ComplexId,
             _expected_version: i64,
             _mutate: ComplexMutation,
+            _applied_by: StaffId,
         ) -> Result<IndustrialComplex, CatalogError> {
             Err(unused("update_complex"))
         }

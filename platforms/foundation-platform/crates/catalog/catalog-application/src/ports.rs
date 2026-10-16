@@ -822,7 +822,8 @@ pub trait CatalogUnitOfWork: Send + Sync {
         commands: &[UpsertIndustrialComplexCommand],
     ) -> Result<Vec<UpsertIndustrialComplexOutcome>, CatalogError>;
 
-    /// Updates an industrial complex and emits its update event in the same transaction.
+    /// Updates an industrial complex, records the edit with its before and after state and its
+    /// editor, and emits its update event in the same transaction.
     ///
     /// # Errors
     /// Returns `CatalogError` when the expected version is stale or persistence fails.
@@ -831,6 +832,7 @@ pub trait CatalogUnitOfWork: Send + Sync {
         id: ComplexId,
         expected_version: i64,
         mutate: ComplexMutation,
+        applied_by: StaffId,
     ) -> Result<IndustrialComplex, CatalogError>;
 
     /// Archives an industrial complex and emits its archive event in the same transaction.

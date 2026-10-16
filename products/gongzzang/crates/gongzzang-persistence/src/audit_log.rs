@@ -24,8 +24,8 @@ use crate::error_map::map_sqlx_err;
 /// `AuditLog` Aggregate 의 `Postgres` 저장소.
 ///
 /// 본 저장소는 `INSERT`-only 이며, `V002` immutable 트리거가 `UPDATE`/`DELETE`
-/// 를 DB 레벨에서 차단해요 (정상 운영 경로의 `gongzzang_audit_archiver` 만 retention
-/// 후 `DELETE` 가능).
+/// 를 DB 레벨에서 모든 역할에 대해 차단해요. 보관(archive) 작업이 생기기 전까지는
+/// 어떤 역할도 지울 수 없어요 (root ADR-0264).
 #[derive(Debug, Clone)]
 pub struct PgAuditLogRepository {
     pool: PgPool,

@@ -120,6 +120,7 @@ pub const SILVER_LAND_RIGHT_REGISTRATION: LakehouseTableContract = LakehouseTabl
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: SILVER_LAND_RIGHT_REGISTRATION_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "right_serial_no"],

@@ -19,6 +19,7 @@ notification-domain = { path = "../../crates/notification-domain", version = "0.
 parcel-lookup = { path = "../../crates/parcel-lookup", version = "0.1.0" }
 gongzzang-persistence = { path = "../../crates/gongzzang-persistence", version = "0.1.0" }
 circuit-breaker = { path = "../../crates/circuit-breaker", version = "0.1.0" }
+gongzzang-r2-object-storage = { path = "../../crates/gongzzang-r2-object-storage", version = "0.1.0" }
 axum = { workspace = true }
 deadpool-redis = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
@@ -38,8 +39,6 @@ sentry = { workspace = true }
 sentry-tracing = { workspace = true }
 subtle = "2"
 # Used by listing photo upload/download presigning.
-aws-config = { version = "=1.8.17", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
-aws-credential-types = "=1.2.14"
 aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
 aws-smithy-types = "=1.4.9"
 utoipa = { workspace = true }

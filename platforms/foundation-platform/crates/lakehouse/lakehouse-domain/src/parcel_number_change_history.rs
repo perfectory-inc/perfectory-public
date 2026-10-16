@@ -97,6 +97,7 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["changed_on", "old_pnu"],

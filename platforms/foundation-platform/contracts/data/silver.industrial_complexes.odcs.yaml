@@ -210,7 +210,7 @@ schema:
         required: true
     quality:
       - type: "text"
-        description: "(official_complex_code, source_snapshot_id) unique"
+        description: "(official_complex_code, source_snapshot_id, ingested_at_utc) unique"
       - type: "text"
         description: "complex_name non-empty"
       - type: "text"
@@ -226,7 +226,7 @@ schema:
       - type: "text"
         description: "business_period months are yyyy-MM"
       - type: "text"
-        description: "active rows for the same complex_id do not overlap"
+        description: "current_row_latest leaves one current row per official_complex_code"
 customProperties:
   - property: "pipelineGraphNode"
     value: "silver-industrial-complexes"

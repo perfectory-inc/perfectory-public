@@ -45,6 +45,10 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+use crate::industrial_complex_transaction::{
+    ensure_expected_version, industrial_complex_snapshot, lock_industrial_complex,
+    update_industrial_complex,
+};
 use crate::row_map::{
     is_unique_violation_code, map_sqlx, row_to_complex, row_to_vector_tile_artifact,
     row_to_vector_tile_manifest, u64_to_i64, INDUSTRIAL_COMPLEX_COLUMNS,
@@ -185,53 +189,31 @@ impl CatalogUnitOfWork for PgCatalogUnitOfWork {
         id: ComplexId,
         expected_version: i64,
         mutate: ComplexMutation,
+        applied_by: StaffId,
     ) -> Result<IndustrialComplex, CatalogError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
 
-        let area_i64 = mutate.area_m2.map(u64_to_i64).transpose()?;
+        let before = lock_industrial_complex(&mut tx, id).await?;
+        ensure_expected_version(&before, expected_version)?;
+        let updated = update_industrial_complex(&mut tx, id, &mutate).await?;
 
-        let row = sqlx::query(&format!(
-            "UPDATE catalog.industrial_complex
-             SET name      = COALESCE($3, name),
-                 area_m2   = COALESCE($4, area_m2),
-                 updated_at = now(),
-                 version   = version + 1
-             WHERE id = $1 AND version = $2 AND archived_at IS NULL
-             RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
-        ))
+        // The row keeps only the new values; the ledger keeps what they replaced (ADR-0023).
+        sqlx::query(
+            "INSERT INTO catalog.catalog_edit (
+                 id, command_type, target_kind, target_id, expected_version,
+                 before_snapshot, after_snapshot, applied_by_principal_id
+             ) VALUES ($1, 'catalog.industrial_complex.update', 'industrial_complex',
+                       $2, $3, $4, $5, $6)",
+        )
+        .bind(Uuid::now_v7())
         .bind(id.as_uuid())
         .bind(expected_version)
-        .bind(mutate.name.as_deref())
-        .bind(area_i64)
-        .fetch_optional(&mut *tx)
+        .bind(industrial_complex_snapshot(&before).as_json())
+        .bind(industrial_complex_snapshot(&updated).as_json())
+        .bind(applied_by.as_uuid())
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-
-        let updated = if let Some(r) = row {
-            row_to_complex(&r)?
-        } else {
-            // 진단 조회: row 가 존재하는데 version 만 다른가, 아예 없는가?
-            let current: Option<(i64, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
-                "SELECT version, archived_at FROM catalog.industrial_complex WHERE id = $1",
-            )
-            .bind(id.as_uuid())
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-            return Err(current.map_or_else(
-                || CatalogError::ComplexNotFound(id.to_string()),
-                |(current_version, archived_at)| {
-                    if archived_at.is_some() {
-                        CatalogError::ComplexAlreadyArchived(id.to_string())
-                    } else {
-                        CatalogError::ComplexVersionConflict {
-                            expected: expected_version,
-                            current: current_version,
-                        }
-                    }
-                },
-            ));
-        };
 
         let event = CatalogEvent::IndustrialComplexUpdated(updated.updated_event(&mutate));
         insert_outbox_event(&mut tx, &event).await?;
