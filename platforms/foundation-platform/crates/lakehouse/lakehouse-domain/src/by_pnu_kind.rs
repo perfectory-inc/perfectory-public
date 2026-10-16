@@ -113,6 +113,7 @@ fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableCon
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Projection,
         current_row_predicate: None,
+        current_row_latest: None,
         columns: Box::leak(columns.into_boxed_slice()),
         partition_spec: &["source_snapshot_id"],
         sort_order: &["pnu"],

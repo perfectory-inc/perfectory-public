@@ -155,6 +155,7 @@ pub const SILVER_LAND_CHARACTERISTIC: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: SILVER_LAND_CHARACTERISTIC_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "data_reference_date"],
