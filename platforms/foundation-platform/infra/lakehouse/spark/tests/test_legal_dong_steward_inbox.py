@@ -145,5 +145,33 @@ class ValidateOnlyRunTest(unittest.TestCase):
         self.assertNotIn("9811010100", {i["subject_code"] for i in handoff["items"]})
 
 
+
+class RulesVersionTest(unittest.TestCase):
+    """The load owes a re-pairing when this value changes (scripts/ops/legal-dong-code-load.sh)."""
+
+    def test_the_host_and_the_spark_run_compute_the_same_version(self):
+        before = pairs_job.rules_version()
+        import lakehouse_ingest  # noqa: F401,PLC0415 - a sibling the Spark path loads and the host does not
+        self.assertEqual(pairs_job.rules_version(), before)
+        self.assertRegex(before, "^[0-9a-f]{64}$")
+
+    def test_a_changed_rule_input_changes_the_version(self):
+        before = pairs_job.rules_version()
+        with tempfile.TemporaryDirectory() as tmp:
+            changed = Path(tmp) / "vworld-parcel-source-objects.json"
+            changed.write_bytes(pairs_job.editions.contract_path().read_bytes() + b" ")
+            with mock.patch.object(pairs_job.editions, "contract_path", return_value=changed):
+                self.assertNotEqual(pairs_job.rules_version(), before)
+
+    def test_the_rules_reach_every_module_the_pairing_imports(self):
+        # The walk follows `from x import y` too: the 지번 step's land rules live in parcel_land.
+        parcel_land = Path(pairs_job.__file__).with_name("parcel_land.py")
+        original = parcel_land.read_bytes()
+        before = pairs_job.rules_version()
+        real_read = Path.read_bytes
+        with mock.patch.object(Path, "read_bytes", lambda path: real_read(path) + (b"#" if path.name == "parcel_land.py" else b"")):
+            self.assertNotEqual(pairs_job.rules_version(), before)
+        self.assertEqual(parcel_land.read_bytes(), original)
+
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import re
 import sys
@@ -272,6 +273,35 @@ def steward_rows(
     if not rows:
         raise ValueError("a steward decision needs at least one --approve")
     return rows
+
+
+def rules_version() -> str:
+    """The version of the rules a pairing applies: SHA-256 over every module this job loaded from its own
+    directory (its whole import closure: this job, the pairing rules, the views, the edition and
+    official-history readers) and the two contracts it reads. A deploy that changes any of them owes a
+    re-pairing (`scripts/ops/legal-dong-code-load.sh`), so a fixed rule reaches the record the same day,
+    not only when new data arrives. Walked from this module's own top-level imports, so the host and
+    the Spark run compute the same value and a new import is covered by itself.
+    """
+
+    here = Path(__file__).resolve().parent
+    seen: dict[str, Path] = {}
+    todo = [sys.modules[__name__]]
+    while todo:  # the modules this one imports at its top, and theirs, within this directory
+        module = todo.pop()
+        path = Path(module.__file__).resolve()
+        if path.parent != here or module.__name__ in seen:
+            continue
+        seen[module.__name__] = path
+        for value in vars(module).values():
+            owner = value if isinstance(value, type(sys)) else sys.modules.get(getattr(value, "__module__", "") or "")
+            if owner is not None and getattr(owner, "__file__", None) and owner.__name__ not in seen:
+                todo.append(owner)
+    modules = set(seen.values())
+    digest = hashlib.sha256()
+    for path in sorted(modules) + [cg.CONTRACT_PATH.resolve(), editions.contract_path().resolve()]:
+        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 # --- steward decisions ------------------------------------------------------------------------
@@ -686,12 +716,15 @@ def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, n
     _write_json(args.review_handoff_output,
                 review_handoff(plan["review"], rows, official_read, plan["counts"]["official_partial_moves"], now))
     _write_json(args.steward_fold_summary_output, fold_summary(summary.get("steward_decisions", {}), summary["run_id"]))
-    _write_json(args.summary_output, summary)
+    _write_json(args.summary_output, {**summary, "rules_version": rules_version()})
     print("legal-dong-code-change-pairs-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str))
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["rules-version"]:
+        print(rules_version())
+        return 0
     if argv[:1] == ["stage-steward-decision"]:
         return stage_steward_decision(argv[1:])
     args = parse_args(argv)
