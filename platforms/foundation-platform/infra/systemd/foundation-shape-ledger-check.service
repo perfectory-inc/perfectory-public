@@ -11,6 +11,7 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
+EnvironmentFile=-/etc/foundation-platform/shape-ledger-pr.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/shape-ledger-check.py
 StateDirectory=foundation-shape-ledger
 TimeoutStartSec=15m

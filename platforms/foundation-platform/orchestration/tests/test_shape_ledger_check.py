@@ -1,6 +1,8 @@
 """The shape ledger check fails on every way production can leave a committed ledger (root ADR-0259)."""
 
 import importlib.util
+import tempfile
+import unittest.mock
 import json
 import pathlib
 import unittest
@@ -41,6 +43,85 @@ class Differences(unittest.TestCase):
         job = next(job for job in jobs if job["id"] == "shape_ledger_check")
         self.assertTrue(job["enabled"] and job["started_once_after_deploy"])
         self.assertEqual(job["systemd_service"], "foundation-shape-ledger-check.service")
+
+
+class WaitingThenFailed(unittest.TestCase):
+    """A stale ledger waits on its refresh pull request, and pages once it has waited 48 hours."""
+
+    NOW = check.datetime(2026, 10, 16, 12, 0, tzinfo=check.timezone.utc)
+
+    def test_within_48_hours_the_run_waits_and_names_the_pull_request(self):
+        first = self.NOW - check.timedelta(hours=47)
+        line, status = check.verdict(self.NOW, first, 2, "https://github.com/o/r/pull/9")
+        self.assertEqual(status, 0)
+        self.assertTrue(line.startswith("foundation-job-outcome waiting shape ledgers stale for 2 tables"))
+        self.assertIn("pull/9", line)
+
+    def test_after_48_hours_the_run_fails(self):
+        line, status = check.verdict(self.NOW, self.NOW - check.timedelta(hours=48), 2, "pr")
+        self.assertEqual(status, 1)
+        self.assertTrue(line.startswith("foundation-job-outcome failed"))
+
+    def test_first_seen_is_kept_across_runs_and_cleared_when_current(self):
+        with tempfile.TemporaryDirectory() as state:
+            with unittest.mock.patch.object(check, "STATE", pathlib.Path(state)):
+                first = check.first_seen_at(self.NOW, True)
+                later = check.first_seen_at(self.NOW + check.timedelta(hours=5), True)
+                self.assertEqual(first, later)
+                self.assertIsNone(check.first_seen_at(self.NOW, False))
+                self.assertFalse((pathlib.Path(state) / check.FIRST_SEEN).exists())
+
+
+class FakeGitHub:
+    """Answers the calls refresh_pull_request makes; a tree's sha is its content."""
+
+    def __init__(self, branch_tree=None, open_pr=False):
+        self.calls, self.branch_tree, self.open_pr = [], branch_tree, open_pr
+
+    def __call__(self, token, method, path, body=None):
+        self.calls.append((method, path.split("?")[0]))
+        if path.endswith("/git/ref/heads/main"):
+            return {"object": {"sha": "main"}}
+        if path.endswith(f"/git/ref/heads/{check.BRANCH}"):
+            return {"object": {"sha": "branch"}} if self.branch_tree else None
+        if "/git/commits/" in path:
+            return {"tree": {"sha": "base" if path.endswith("/main") else self.branch_tree}}
+        if path.endswith("/git/trees"):
+            return {"sha": json.dumps(body["tree"], sort_keys=True)}
+        if path.endswith("/git/commits"):
+            return {"sha": "new"}
+        if "/pulls" in path and method == "GET":
+            return [{"number": 7, "html_url": "https://github.com/o/r/pull/7"}] if self.open_pr else []
+        if path.endswith("/pulls"):
+            return {"html_url": "https://github.com/o/r/pull/8"}
+        return {}
+
+
+class TheRefreshPullRequest(unittest.TestCase):
+    FILES = {"platforms/foundation-platform/config/postgres-production-shape.json": "{}\n"}
+
+    def run_with(self, fake):
+        with unittest.mock.patch.object(check, "github", fake):
+            return check.refresh_pull_request("t", "o/r", self.FILES, ["postgres x: now holds rows"])
+
+    def test_a_first_stale_run_creates_the_branch_and_opens_the_pull_request(self):
+        fake = FakeGitHub()
+        self.assertEqual(self.run_with(fake), "https://github.com/o/r/pull/8")
+        self.assertIn(("POST", "/repos/o/r/git/refs"), fake.calls)
+        self.assertIn(("POST", "/repos/o/r/pulls"), fake.calls)
+
+    def test_the_same_capture_again_adds_no_commit_and_updates_the_open_pull_request(self):
+        tree = json.dumps([{"path": path, "mode": "100644", "type": "blob", "content": content}
+                           for path, content in self.FILES.items()], sort_keys=True)
+        fake = FakeGitHub(branch_tree=tree, open_pr=True)
+        self.assertEqual(self.run_with(fake), "https://github.com/o/r/pull/7")
+        self.assertNotIn(("POST", "/repos/o/r/git/commits"), fake.calls)
+        self.assertIn(("PATCH", "/repos/o/r/pulls/7"), fake.calls)
+
+    def test_a_new_capture_force_moves_the_one_branch(self):
+        fake = FakeGitHub(branch_tree="older", open_pr=True)
+        self.run_with(fake)
+        self.assertIn(("PATCH", f"/repos/o/r/git/refs/heads/{check.BRANCH}"), fake.calls)
 
 
 if __name__ == "__main__":
