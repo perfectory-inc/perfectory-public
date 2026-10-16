@@ -37,9 +37,9 @@ async fn administrative_aliases_are_stable_and_merges_keep_their_predecessors(
 
     sqlx::query(
         "INSERT INTO catalog.industrial_complex
-         (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
+         (id, official_complex_code, name, kind, primary_bjdong_code,
           area_m2, version)
-         VALUES ($1, $1, $2, 'Boundary identity fixture', 'general', '9999900101', 1, 1)",
+         VALUES ($1, $2, 'Boundary identity fixture', 'general', '9999900101', 1, 1)",
     )
     .bind(complex_id)
     .bind(&complex_code)

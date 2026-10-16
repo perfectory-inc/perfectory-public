@@ -37,7 +37,8 @@ pub(super) fn iceberg_table(dataset: &str) -> Option<&str> {
     dataset.strip_prefix("iceberg://")
 }
 
-/// What a failed run's scheduler log says, read for one data catalog run.
+/// What the scheduler log of a run that did not succeed says (it failed, or it ended waiting), read
+/// for one data catalog run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct FailedRunLog {
     /// The data catalog run it was read for.
@@ -45,6 +46,8 @@ pub(super) struct FailedRunLog {
     pub scheduler_run_id: Option<String>,
     pub cause: FailureCause,
     pub cause_line: Option<String>,
+    /// What the run said it waits for: its last `foundation-job-outcome waiting` line (root ADR-0260).
+    pub waiting: Option<String>,
 }
 
 /// The facts the signals read besides the job statuses.
@@ -85,6 +88,8 @@ pub(super) fn annotate(statuses: &mut [ScheduledJobStatus], facts: &HealthFacts<
         }
         let mut problems = Vec::new();
         problems.extend(failed(status, facts.failures));
+        // A wait is shown with what it waits for, and is not also late: the run came and said so.
+        problems.extend(waiting(status, facts.failures));
         if let Some(upstream_job_ids) = blocked.get(&status.job_id) {
             problems.push(ScheduledJobProblem::Blocked {
                 upstream_job_ids: upstream_job_ids.clone(),
@@ -187,6 +192,25 @@ fn failed(
     Some(ScheduledJobProblem::Failed {
         cause: log.map(|log| log.cause),
         cause_line: log.and_then(|log| log.cause_line.clone()),
+        scheduler_run_id: log.and_then(|log| log.scheduler_run_id.clone()),
+    })
+}
+
+/// Waiting: the latest run ended skipped, which the DAG does to a run that said it waits (root
+/// ADR-0260, `orchestration/dags/foundation_jobs.py`).
+fn waiting(
+    status: &ScheduledJobStatus,
+    logs: &BTreeMap<String, FailedRunLog>,
+) -> Option<ScheduledJobProblem> {
+    let run = status
+        .last_run
+        .as_ref()
+        .filter(|run| run.outcome == ScheduledJobRunOutcome::Skipped)?;
+    let log = logs
+        .get(&status.dag_id)
+        .filter(|log| log.run_urn == run.run_urn);
+    Some(ScheduledJobProblem::Waiting {
+        reason: log.and_then(|log| log.waiting.clone()),
         scheduler_run_id: log.and_then(|log| log.scheduler_run_id.clone()),
     })
 }
@@ -424,6 +448,7 @@ mod tests {
                 ScheduledJobProblem::Late { .. } => "late",
                 ScheduledJobProblem::Slow { .. } => "slow",
                 ScheduledJobProblem::Volume { .. } => "volume",
+                ScheduledJobProblem::Waiting { .. } => "waiting",
             })
             .collect()
     }
@@ -484,6 +509,7 @@ mod tests {
                 scheduler_run_id: Some("scheduled__x".to_owned()),
                 cause: FailureCause::OutOfMemory,
                 cause_line: Some("result=oom-kill".to_owned()),
+                waiting: None,
             },
         )]);
         annotate_at(
@@ -518,6 +544,62 @@ mod tests {
             "{:?}",
             statuses[3].problems
         );
+    }
+
+    #[test]
+    fn a_run_that_ended_waiting_shows_what_it_waits_for_and_is_neither_late_nor_blocking() {
+        // Root ADR-0260: a fold due while a release built was refused, failed and alerted; it now
+        // ends waiting, the DAG skips it, and the map says why.
+        use ScheduledJobRunOutcome::{Skipped, Succeeded};
+        let mut statuses = vec![
+            job(
+                "fold",
+                &[],
+                vec![ran("run-f", "2026-01-02T06:00:00Z", 1, Skipped)],
+            ),
+            job(
+                "bake",
+                &["fold"],
+                vec![ran("run-b", "2026-01-02T06:00:00Z", 5, Succeeded)],
+            ),
+        ];
+        let logs = BTreeMap::from([(
+            "synthetic_fold".to_owned(),
+            FailedRunLog {
+                run_urn: "run-f".to_owned(),
+                scheduler_run_id: Some("scheduled__f".to_owned()),
+                cause: FailureCause::Other,
+                cause_line: None,
+                waiting: Some("a release build is running".to_owned()),
+            },
+        )]);
+        // Well past the slot and its time limit, with no success since: a failure would be late.
+        annotate_at(
+            &mut statuses,
+            &BTreeMap::new(),
+            &logs,
+            "2026-01-02T09:00:00Z",
+        );
+        assert_eq!(
+            statuses[0].problems,
+            vec![ScheduledJobProblem::Waiting {
+                reason: Some("a release build is running".to_owned()),
+                scheduler_run_id: Some("scheduled__f".to_owned()),
+            }]
+        );
+        assert!(
+            statuses[1].problems.is_empty(),
+            "{:?}",
+            statuses[1].problems
+        );
+        // A log not yet read still shows the wait, without its reason.
+        annotate_at(
+            &mut statuses,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            "2026-01-02T09:00:00Z",
+        );
+        assert_eq!(kinds(&statuses[0]), vec!["waiting"]);
     }
 
     #[test]
@@ -562,6 +644,7 @@ mod tests {
                 scheduler_run_id: None,
                 cause: FailureCause::TimedOut,
                 cause_line: None,
+                waiting: None,
             },
         )]);
         annotate_at(

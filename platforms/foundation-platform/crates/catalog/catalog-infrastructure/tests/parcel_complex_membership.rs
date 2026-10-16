@@ -91,9 +91,8 @@ impl Fixture {
         ] {
             sqlx::query(
                 "INSERT INTO catalog.industrial_complex
-                 (id, lakehouse_complex_id, official_complex_code, name, kind, primary_bjdong_code,
-                  area_m2, version)
-                 VALUES ($1, $1, $2, $3, 'general', '9999900101', 1, 1)",
+                 (id, official_complex_code, name, kind, primary_bjdong_code, area_m2, version)
+                 VALUES ($1, $2, $3, 'general', '9999900101', 1, 1)",
             )
             .bind(id)
             .bind(code)
@@ -893,6 +892,83 @@ async fn a_lakehouse_id_that_is_not_the_derivation_stops_the_migration() -> Test
             .await
             .expect_err("a disagreeing lakehouse id must stop the migration");
         assert!(format!("{refused:#}").contains("ADR-0250"), "{refused:#}");
+        Ok(())
+    })
+    .await
+}
+
+/// Version of the root ADR-0250 step 3b migration that drops the mirrored lakehouse column.
+const LAKEHOUSE_COLUMN_DROP_MIGRATION_VERSION: i64 = 20_261_016_090_000;
+
+/// The production shape after step 1 (every row's `lakehouse_complex_id` equal to its derived id,
+/// an editorial child keyed on it) comes through the drop with every row, every id and the child
+/// intact, and without the column.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn dropping_the_lakehouse_column_keeps_every_complex_and_its_id() -> TestResult {
+    run_in_disposable_database("complex_lakehouse_column_drop", |pool| async move {
+        migrations_up_to(LAKEHOUSE_COLUMN_DROP_MIGRATION_VERSION - 1)
+            .run(&pool)
+            .await?;
+        let mut ids = Vec::new();
+        for code in ["000000", "000001"] {
+            let id = ComplexId::for_official_complex_code(code).as_uuid();
+            sqlx::query(
+                "INSERT INTO catalog.industrial_complex
+                 (id, lakehouse_complex_id, official_complex_code, name, kind, area_m2, version)
+                 VALUES ($1, $1, $2, 'Column-drop fixture', 'general', 1, 1)",
+            )
+            .bind(id)
+            .bind(code)
+            .execute(&pool)
+            .await?;
+            ids.push(id);
+        }
+        sqlx::query(
+            "INSERT INTO catalog.complex_notice (id, complex_id, notice_type, title)
+             VALUES ($1, $2, 'notice', 'Column-drop fixture notice')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(ids[0])
+        .execute(&pool)
+        .await?;
+
+        migrations_up_to(LAKEHOUSE_COLUMN_DROP_MIGRATION_VERSION)
+            .run(&pool)
+            .await?;
+
+        let mut after: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM catalog.industrial_complex")
+            .fetch_all(&pool)
+            .await?;
+        after.sort();
+        ids.sort();
+        assert_eq!(after, ids, "every complex keeps its id");
+        let notice_complex: Uuid =
+            sqlx::query_scalar("SELECT complex_id FROM catalog.complex_notice")
+                .fetch_one(&pool)
+                .await?;
+        assert!(
+            ids.contains(&notice_complex),
+            "the notice keeps its complex"
+        );
+        let column_left: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = 'catalog' AND table_name = 'industrial_complex'
+                              AND column_name = 'lakehouse_complex_id')",
+        )
+        .fetch_one(&pool)
+        .await?;
+        assert!(!column_left, "the mirrored column is gone");
+        // The derivation CHECK still guards the key after the mirror is gone.
+        let minted = sqlx::query(
+            "INSERT INTO catalog.industrial_complex
+             (id, official_complex_code, name, kind, area_m2, version)
+             VALUES ($1, '000002', 'Minted', 'general', 1, 1)",
+        )
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await;
+        assert!(minted.is_err(), "a minted id is still refused");
         Ok(())
     })
     .await

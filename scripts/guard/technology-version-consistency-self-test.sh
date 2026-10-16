@@ -78,6 +78,24 @@ printf '%s\n' '[toolchain]' "channel = \"$rust_pin\"" > "$fixture/products/gongz
 expect_refused 'an area-local rust-toolchain.toml'
 rm "$fixture/products/gongzzang/rust-toolchain.toml"
 
+utoipa_requirement="$(python3 - "$root/tools/technology-versions.contract.json" <<'PY' | tr -d '\r'
+import json
+import sys
+
+print(json.load(open(sys.argv[1], encoding="utf-8"))["cargo_version_requirements"]["utoipa"])
+PY
+)"
+printf '%s\n' '' '[workspace.dependencies]' "utoipa = { version = \"$utoipa_requirement\", features = [\"chrono\"] }" >> "$fixture/products/gongzzang/Cargo.toml"
+printf '%s\n' '' '[dependencies]' 'utoipa = { workspace = true }' >> "$fixture/products/gongzzang/crates/member/Cargo.toml"
+git -C "$fixture" add -A
+bash "$checker" "$fixture" >/dev/null
+sed -i "s/utoipa = { version = \"$utoipa_requirement\"/utoipa = { version = \"0.0.1\"/" "$fixture/products/gongzzang/Cargo.toml"
+expect_refused 'a shared crate requirement off the contract'
+sed -i "s/utoipa = { version = \"0.0.1\"/utoipa = { version = \"$utoipa_requirement\"/" "$fixture/products/gongzzang/Cargo.toml"
+printf '%s\n' 'utoipa = "0.0.1"' >> "$fixture/products/gongzzang/crates/member/Cargo.toml"
+expect_refused 'a member crate restating a shared crate requirement'
+sed -i '$d' "$fixture/products/gongzzang/crates/member/Cargo.toml"
+
 printf '%s\n' 'FROM rust:0.0.1-bookworm' > "$fixture/products/gongzzang/Dockerfile"
 expect_refused 'a Dockerfile rust base off the pin'
 rm "$fixture/products/gongzzang/Dockerfile"

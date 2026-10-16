@@ -49,6 +49,8 @@ pub use object_storage::{
 };
 pub use outbox_raw_written_sink::OutboxRawWrittenSink;
 pub use postgres_jobbus::PostgresJobBus;
-pub use vector_tile_manifest::{CatalogEventBroadcaster, PgVectorTileManifestReader};
+pub use vector_tile_manifest::{
+    CatalogEventBroadcaster, PgVectorTileManifestReader, RuntimeManifestReader,
+};
 pub use webhook::WebhookBroadcaster;
 pub use worker::{OutboxScope, OutboxWorker};

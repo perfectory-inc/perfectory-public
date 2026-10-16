@@ -24,8 +24,16 @@ class Plan(unittest.TestCase):
         self.assertEqual(job.edition_pairs({**CONTRACT, "editions": {"209906": {}}}), [])
 
     def test_a_shared_sido_is_its_own_group_and_the_renumbered_ones_go_together(self):
-        self.assertEqual(job.sido_groups({"98", "97", "96"}, {"98", "95"}), [("98", "98"), ("96,97", "95")])
+        self.assertEqual(job.sido_groups({"98", "97", "96"}, {"98", "95"}), [("96,97", "95"), ("98", "98")])
         self.assertEqual(job.sido_groups({"98"}, {"98"}), [("98", "98")])
+
+    def test_an_edition_in_the_contract_but_not_loaded_yet_waits(self):
+        # 2026-10-15: edition 202610 entered the contract before its Silver load; the pair waits
+        # instead of failing the stewardship unit every day (sido_groups would refuse it).
+        self.assertTrue(job.awaits_load({"98", "97"}, set()))
+        self.assertFalse(job.awaits_load({"98"}, {"98"}))
+        self.assertFalse(job.awaits_load(set(), {"98"}), "an older edition missing is not a later one waiting")
+        self.assertFalse(job.awaits_load(set(), set()))
 
     def test_a_sido_held_by_one_edition_without_a_counterpart_is_refused(self):
         for before, after in (({"98", "97"}, {"98"}), ({"98"}, {"98", "97"}), (set(), {"98"}), ({"98"}, set())):
@@ -52,6 +60,32 @@ class RunGroups(unittest.TestCase):
                                  deadline_seconds=50, clock=lambda: next(ticks))
         self.assertEqual(derived, ["98"])
         self.assertEqual([g["from_sido"] for g in outcome["deferred"]], ["97", "96"])
+
+    def test_a_refused_group_is_recorded_and_the_next_groups_go_on(self):
+        def derive(f, t):
+            if f == "97":
+                raise ValueError("2 legal dong codes held parcels and none later; record the change")
+            return {"rows": 1}
+
+        outcome = job.run_groups(self.GROUPS, lambda f, t: False, derive, deadline_seconds=60)
+        self.assertEqual([g["from_sido"] for g in outcome["derived"]], ["98", "96"])
+        self.assertEqual(outcome["refused"], [{"from_sido": "97", "to_sido": "97",
+                                               "reason": "2 legal dong codes held parcels and none later; record the change",
+                                               "unpaired_codes": []}])
+
+    def test_a_refusal_naming_unpaired_codes_records_them(self):
+        def derive(f, t):
+            raise producer.UnrecordedDongCodes("no pair recorded", ["9999910200", "9999910800"])
+
+        outcome = job.run_groups([("98", "98")], lambda f, t: False, derive, deadline_seconds=60)
+        self.assertEqual(outcome["refused"][0]["unpaired_codes"], ["9999910200", "9999910800"])
+
+    def test_anything_but_a_refusal_stops_the_run(self):
+        def derive(f, t):
+            raise RuntimeError("the driver ran out of memory")
+
+        with self.assertRaises(RuntimeError):
+            job.run_groups(self.GROUPS, lambda f, t: False, derive, deadline_seconds=60)
 
     def test_a_held_group_is_reported_held_even_past_the_deadline(self):
         outcome = job.run_groups([("98", "98")], lambda f, t: True, lambda f, t: {}, deadline_seconds=0)

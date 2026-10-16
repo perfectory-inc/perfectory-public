@@ -506,20 +506,33 @@ fn select_rows<'a>(
     allowlist: Option<&BTreeSet<String>>,
     pnu_prefix: Option<&str>,
 ) -> anyhow::Result<Vec<&'a JsonMap<String, JsonValue>>> {
+    select_rows_by(rows, allowlist, pnu_prefix, |row| {
+        row.get("pnu")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned)
+            .context("gold.building_panel row is missing pnu")
+    })
+}
+
+/// [`select_rows`] by each row's key: its PNU, or a PNU and a key suffix (root ADR-0204), so the
+/// allowlist and the duplicate check speak the key the packs are written by.
+pub(crate) fn select_rows_by<'a>(
+    rows: &'a [JsonMap<String, JsonValue>],
+    allowlist: Option<&BTreeSet<String>>,
+    pnu_prefix: Option<&str>,
+    key_of: impl Fn(&JsonMap<String, JsonValue>) -> anyhow::Result<String>,
+) -> anyhow::Result<Vec<&'a JsonMap<String, JsonValue>>> {
     let mut seen = BTreeSet::new();
     let mut selected = Vec::new();
     for row in rows {
-        let pnu = row
-            .get("pnu")
-            .and_then(JsonValue::as_str)
-            .context("gold.building_panel row is missing pnu")?;
-        ensure!(
-            seen.insert(pnu.to_owned()),
-            "Gold snapshot carries more than one row for building {pnu}"
-        );
-        if allowlist.is_none_or(|list| list.contains(pnu)) {
+        let pnu = key_of(row)?;
+        if allowlist.is_none_or(|list| list.contains(&pnu)) {
             selected.push(row);
         }
+        ensure!(
+            seen.insert(pnu.clone()),
+            "Gold snapshot carries more than one row for {pnu}"
+        );
     }
     if let Some(list) = allowlist {
         let missing = list

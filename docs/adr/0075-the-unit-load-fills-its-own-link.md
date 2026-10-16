@@ -1,6 +1,6 @@
 # ADR 0075: 호 적재는 연결을 스스로 채운다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (호 적재기와 `load-building-unit-building-link` 를 지웠다)
 - Date: 2026-09-03
 
 ## Context

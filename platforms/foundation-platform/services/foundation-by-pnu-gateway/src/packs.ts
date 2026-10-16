@@ -11,8 +11,9 @@ import { cacheOrigin, lanePacks, OWN, type ServedLane } from "./lane";
 
 const packPolicy = connectionContract.by_pnu_section_packs;
 const PREFIX_BYTES = 20;
-const INDEX_ENTRY_BYTES = 28;
 const PNU_BYTES = 19;
+/// Bytes after an index entry's key: offset u32, length u32, state u8.
+const ENTRY_TAIL_BYTES = 9;
 const STATE_DOCUMENT = 1;
 const STATE_TOMBSTONE = 2;
 /// The read path's bounds (root ADR-0147 Revision, ADR-0233): how much an
@@ -170,6 +171,8 @@ export function previewPlan(
 export interface PackHead {
   index: Uint8Array;
   entryCount: number;
+  /// Bytes of every key: 19 (a PNU) in format 1, the header's `key_length` in format 2 (root ADR-0204).
+  keyLength: number;
   bodyStart: number;
   bodyLength: number;
   /// The pack's R2 `etag`, unquoted: what every later read of the same key must return.
@@ -291,29 +294,54 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
     if (bytes[i] !== magic[i]) throw new PackFormatError("not a section pack");
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint16(8, true) !== packPolicy.format_version || view.getUint16(10, true) !== 0) {
+  const version = view.getUint16(8, true);
+  if (
+    (version !== packPolicy.format_version && version !== packPolicy.wide_key_format_version) ||
+    view.getUint16(10, true) !== 0
+  ) {
     throw new PackFormatError("unknown pack format");
   }
   const headerLength = view.getUint32(12, true);
   const indexLength = view.getUint32(16, true);
-  if (indexLength % INDEX_ENTRY_BYTES !== 0) throw new PackFormatError("torn index");
   const headLength = PREFIX_BYTES + headerLength + indexLength;
   if (bytes.length < headLength) return null;
   const header = JSON.parse(
     new TextDecoder().decode(bytes.subarray(PREFIX_BYTES, PREFIX_BYTES + headerLength)),
   ) as Record<string, unknown>;
-  const entryCount = indexLength / INDEX_ENTRY_BYTES;
-  if (header.compression !== "gzip" || header.entry_count !== entryCount || !isCount(header.body_length)) {
+  // Format 1 keys are PNUs; format 2 states its key length (root ADR-0204), as the publisher reads it.
+  const keyLength = keyLengthOf(version, header);
+  const entryBytes = keyLength + ENTRY_TAIL_BYTES;
+  if (indexLength % entryBytes !== 0) throw new PackFormatError("torn index");
+  const entryCount = indexLength / entryBytes;
+  if (
+    header.format_version !== version ||
+    header.compression !== "gzip" ||
+    header.entry_count !== entryCount ||
+    !isCount(header.body_length)
+  ) {
     throw new PackFormatError("pack header disagrees with its index");
   }
   return {
     // A view, not a copy: the caller decides which bytes behind it are kept.
     index: bytes.subarray(PREFIX_BYTES + headerLength, headLength),
     entryCount,
+    keyLength,
     bodyStart: headLength,
     bodyLength: header.body_length,
     etag,
   };
+}
+
+function keyLengthOf(version: number, header: Record<string, unknown>): number {
+  if (version === packPolicy.format_version) {
+    if (header.key_length !== undefined) throw new PackFormatError("a format 1 pack states a key length");
+    return PNU_BYTES;
+  }
+  const length = header.key_length;
+  if (typeof length !== "number" || !Number.isInteger(length) || length <= PNU_BYTES || length > packPolicy.max_key_bytes) {
+    throw new PackFormatError("a format 2 pack states no key length");
+  }
+  return length;
 }
 
 /// The length of a pack's head (prefix, header JSON and index) from its first 20 bytes.
@@ -588,30 +616,34 @@ interface Entry {
   length: number;
 }
 
-function comparePnu(index: Uint8Array, at: number, pnu: Uint8Array): number {
-  for (let i = 0; i < PNU_BYTES; i += 1) {
-    const difference = (index[at + i] ?? 0) - (pnu[i] ?? 0);
+function compareKey(index: Uint8Array, at: number, key: Uint8Array, keyLength: number): number {
+  for (let i = 0; i < keyLength; i += 1) {
+    const difference = (index[at + i] ?? 0) - (key[i] ?? 0);
     if (difference !== 0) return difference;
   }
   return 0;
 }
 
-/// Binary search over the sorted index.
-export function findEntry(head: PackHead, pnu: string): Entry | null {
-  const target = new TextEncoder().encode(pnu);
+/// Binary search over the sorted index for `key`: a PNU, or a PNU and its lane's suffix (root
+/// ADR-0204). A key of another length than the pack's is in no entry.
+export function findEntry(head: PackHead, key: string): Entry | null {
+  const target = new TextEncoder().encode(key);
+  if (target.length !== head.keyLength) return null;
+  const entryBytes = head.keyLength + ENTRY_TAIL_BYTES;
   const view = new DataView(head.index.buffer, head.index.byteOffset, head.index.byteLength);
   let low = 0;
   let high = head.entryCount - 1;
   while (low <= high) {
     const middle = (low + high) >>> 1;
-    const at = middle * INDEX_ENTRY_BYTES;
-    const order = comparePnu(head.index, at, target);
+    const at = middle * entryBytes;
+    const order = compareKey(head.index, at, target, head.keyLength);
     if (order === 0) {
-      const state = head.index[at + 27];
+      const tail = at + head.keyLength;
+      const state = head.index[tail + 8];
       if (state !== STATE_DOCUMENT && state !== STATE_TOMBSTONE) {
         throw new PackFormatError("unknown entry state");
       }
-      const entry = { state, offset: view.getUint32(at + 19, true), length: view.getUint32(at + 23, true) } as Entry;
+      const entry = { state, offset: view.getUint32(tail, true), length: view.getUint32(tail + 4, true) } as Entry;
       if (entry.offset + entry.length > head.bodyLength) throw new PackFormatError("entry past the body");
       return entry;
     }
@@ -733,4 +765,29 @@ export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string
     throw new PackFormatError("a plan serves exactly the contract's one documents section");
   }
   return findDocument(reads, plan, section, pnu);
+}
+
+/// A synthetic two-entry pack's head, parsed and searched for a hit and a miss: the isolate's
+/// startup runs the pack read path's first calls instead of its first request (root ADR-0233).
+/// `true` when the search found the document and missed the absent key.
+export function warmPackPath(pnu: string): boolean {
+  const encoder = new TextEncoder();
+  const next = `${pnu.slice(0, -1)}1`;
+  const header = encoder.encode(JSON.stringify({ format_version: packPolicy.format_version, compression: "gzip", entry_count: 2, body_length: 2 }));
+  const bytes = new Uint8Array(PREFIX_BYTES + header.length + 2 * (PNU_BYTES + ENTRY_TAIL_BYTES) + 2);
+  const view = new DataView(bytes.buffer);
+  bytes.set(magic, 0);
+  view.setUint16(8, packPolicy.format_version, true);
+  view.setUint32(12, header.length, true);
+  view.setUint32(16, 2 * (PNU_BYTES + ENTRY_TAIL_BYTES), true);
+  bytes.set(header, PREFIX_BYTES);
+  for (const [i, key] of [pnu, next].entries()) {
+    const at = PREFIX_BYTES + header.length + i * (PNU_BYTES + ENTRY_TAIL_BYTES);
+    bytes.set(encoder.encode(key), at);
+    view.setUint32(at + PNU_BYTES, i, true);
+    view.setUint32(at + PNU_BYTES + 4, 1, true);
+    bytes[at + PNU_BYTES + 8] = STATE_DOCUMENT;
+  }
+  const head = parseHead(bytes.subarray(0, headLength(bytes)), "warm-up");
+  return head !== null && findEntry(head, pnu) !== null && findEntry(head, `${pnu.slice(0, -1)}9`) === null;
 }

@@ -103,7 +103,7 @@ it("says the prices could not be loaded when the lane fails and the document has
   expect(screen.queryByText("기준일별 공시가격")).toBeNull();
 });
 
-it("asks for the prices only when a building's units are first shown", async () => {
+it("has the prices on their way before a building's units are opened", async () => {
   fetchUnitPrices.mockResolvedValue(new Map());
   renderCard({
     buildings: [
@@ -118,12 +118,25 @@ it("asks for the prices only when a building's units are first shown", async () 
     ],
     unlinked_units: [],
   });
-  const details = screen.getByText("호실 보기").closest("details");
-  expect(fetchUnitPrices).not.toHaveBeenCalled();
-  if (!details) throw new Error("the units are not in a details element");
-  details.open = true;
-  fireEvent(details, new Event("toggle"));
   await waitFor(() => expect(fetchUnitPrices).toHaveBeenCalledWith(PNU, expect.anything()));
+});
+
+it("asks for no prices for a parcel without units", async () => {
+  renderCard({
+    buildings: [
+      {
+        id: "00000000-0000-8000-8000-000000000003",
+        name: "",
+        purpose: null,
+        total_area_m2: null,
+        approved_at: null,
+        units: [],
+      },
+    ],
+    unlinked_units: [],
+  });
+  expect(await screen.findByText("호실 보기")).toBeInTheDocument();
+  expect(fetchUnitPrices).not.toHaveBeenCalled();
 });
 
 it("holds the price row while the prices are on their way", async () => {

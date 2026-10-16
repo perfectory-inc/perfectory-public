@@ -31,10 +31,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 )
 missing=()
 for name in "${required_env[@]}"; do
@@ -85,6 +85,7 @@ changed="$(history changed-files --inventory "${work}/inventory.json" --state-di
 if [ "${changed}" = 0 ]; then
   job_journal "${journal}" "parcel-number-change unchanged run=${run_id}"
   echo '{"status": "unchanged", "files": 0}'
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 
@@ -105,8 +106,8 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 # The pinned reference tools/technology-versions.contract.json lists.
 AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
 while read -r file_key object_key; do
-  AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
-  AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \
+  AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
+  AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \
   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=auto \
     -v "${work}/downloads:/w" "${AWS_IMAGE}" s3 cp --only-show-errors \
     --endpoint-url "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}" \
@@ -116,3 +117,10 @@ result="$(history stage-handoff --inventory "${work}/inventory-changed.json" --e
   --download-dir "${work}/downloads" --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
 rm -rf "${work}/downloads" # the handoff holds its own copy
 job_journal "${journal}" "parcel-number-change collect ok run=${run_id} ${result}"
+# The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0260).
+status="$("${PY[@]}" -c 'import json, sys; print(json.loads(sys.stdin.read().splitlines()[-1])["status"])' <<<"${result}")"
+if [ "${status}" = staged ]; then
+  printf 'foundation-job-outcome changed\n'
+else
+  printf 'foundation-job-outcome unchanged\n'
+fi

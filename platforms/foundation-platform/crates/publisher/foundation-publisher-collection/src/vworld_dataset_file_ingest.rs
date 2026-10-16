@@ -70,6 +70,7 @@ pub async fn run() -> anyhow::Result<()> {
     config.cookie_header = resolve_vworld_dataset_cookie_header(&config, &selected_files).await?;
 
     let live_write = live_write_enabled(config.live_write.as_deref());
+    refuse_provider_file_id_live_write(live_write, config.bronze_key)?;
     let mut indexed_reports = if live_write {
         // Fail fast (and log the resolved target) before any provider file body streams to the
         // first put, instead of discovering a misconfigured R2 target mid-download.
@@ -292,6 +293,19 @@ enum BronzeKeyForm {
 
 const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
 const SPOOL_DIR_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR";
+
+/// A live write keys by content (root ADR-0152). The provider reuses a file number for each new
+/// upload, so a number key either collides with the object an earlier edition left under it (the
+/// bucket refuses the overwrite: R2 502) or reads that older object as "already held"; the parcel
+/// edition collector did both on 2026-10-14 until it named its key form.
+fn refuse_provider_file_id_live_write(live_write: bool, form: BronzeKeyForm) -> anyhow::Result<()> {
+    if live_write && form == BronzeKeyForm::ProviderFileId {
+        bail!(
+            "a live VWorld dataset file ingest keys by content: set {BRONZE_KEY_ENV}=content_addressed and {SPOOL_DIR_ENV} (root ADR-0152)"
+        );
+    }
+    Ok(())
+}
 
 fn parse_bronze_key_form(raw: Option<&str>) -> anyhow::Result<BronzeKeyForm> {
     match raw.map(str::trim) {

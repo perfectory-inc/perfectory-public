@@ -64,6 +64,13 @@
         "products/gongzzang/package.json",
         "products/gongzzang/pnpm-lock.yaml",
         "products/gongzzang/biome.json",
+        "products/gongzzang/**/*.ts",
+        "products/gongzzang/**/*.tsx",
+        "products/gongzzang/**/*.js",
+        "products/gongzzang/**/*.mjs",
+        "products/gongzzang/**/*.json",
+        "products/gongzzang/**/*.jsonc",
+        "products/gongzzang/**/*.css",
         "products/gongzzang/**/*.md",
         "products/gongzzang/.markdownlint.json",
         "products/gongzzang/.markdownlint-cli2.jsonc",
@@ -208,6 +215,14 @@
           "platforms/foundation-platform/config/**",
           "platforms/foundation-platform/.env.example"
         ]
+      },
+      {
+        "name": "r2-reads-have-one-path-self-test",
+        "paths": []
+      },
+      {
+        "name": "r2-reads-have-one-path",
+        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file."
       },
       {
         "name": "environment-variable-naming-self-test",
@@ -406,6 +421,17 @@
           "platforms/foundation-platform/docs/**",
           "platforms/foundation-platform/orchestration/**"
         ]
+      },
+      {
+        "name": "credential-names-self-test",
+        "paths": [
+          "platforms/foundation-platform/config/runtime-secrets.contract.json",
+          "platforms/foundation-platform/scripts/deploy/runtime_secrets.py"
+        ]
+      },
+      {
+        "name": "credential-names",
+        "always": "Reads every tracked file for a credential-shaped FOUNDATION_PLATFORM_ name."
       },
       {
         "name": "container-images-match-the-contract-self-test",
@@ -670,6 +696,19 @@
         "name": "a-deploy-verifies-the-schema-it-left",
         "paths": [
           "platforms/foundation-platform/scripts/deploy/**"
+        ]
+      },
+      {
+        "name": "migration-approval-gates-self-test",
+        "paths": [
+          "tools/ci/migration-approval-gates.contract.json"
+        ]
+      },
+      {
+        "name": "migration-approval-gates",
+        "paths": [
+          "tools/ci/migration-approval-gates.contract.json",
+          "**/migrations/**"
         ]
       },
       {

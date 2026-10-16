@@ -294,6 +294,10 @@ describe("problems (root ADR-0195)", () => {
     problems: [{ kind: "volume", node_id: "files", rows: 500, typical_rows: 1000 }],
   });
   const all = [lateSweep, slowA, failedB, blockedRebuild, smallBake];
+  // Root ADR-0260: a run that ended waiting is skipped, and says for what; it is not a failure.
+  const waitingSweep = ran(sweep, run("skipped", "2026-01-02T10:00:00Z", "2026-01-02T10:00:05Z"), {
+    problems: [{ kind: "waiting", reason: "a release build is running", scheduler_run_id: "scheduled__w" }],
+  });
   const states = jobStates(all, NOW);
 
   it("gives each problem its own status, a problem over the plain state it is about", () => {
@@ -314,6 +318,16 @@ describe("problems (root ADR-0195)", () => {
     expect(note("load_a")).toBe("보통 30분인데 2시간째 도는 중");
     expect(note("bake")).toBe("보통 1,000행인데 이번엔 500행");
     expect(problemSentence({ kind: "failed", cause: null }, titleOf, NOW)).toBe("실패 · 로그를 못 읽어 원인을 몰라요");
+  });
+
+  it("shows a run that ended waiting as waiting, with what it waits for, last in the list", () => {
+    const waited = jobStates([waitingSweep], NOW).get("sweep") ?? null;
+    expect(waited?.status).toBe("waiting");
+    expect(statusNote(waited, titleOf, NOW)).toBe("기다리는 중 · a release build is running");
+    expect(problemSentence({ kind: "waiting", reason: null }, titleOf, NOW)).toBe(
+      "기다리는 중 · 로그를 못 읽어 무엇을 기다리는지 몰라요",
+    );
+    expect(problemRows([waitingSweep, failedB]).map((row) => row.problem.kind)).toEqual(["failed", "waiting"]);
   });
 
   it("lists every problem worst first, each with the dataset to open", () => {

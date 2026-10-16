@@ -1,6 +1,6 @@
 # ADR 0076: 건물은 자기 호를 답한다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (`/catalog/v1/buildings/*` 경로를 지웠다)
 - Date: 2026-09-03
 
 ## Context

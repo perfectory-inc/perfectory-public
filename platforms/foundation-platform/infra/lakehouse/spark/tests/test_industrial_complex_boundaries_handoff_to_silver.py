@@ -32,7 +32,7 @@ from spatial_silver_handoff import (  # noqa: E402
 ICEBERG_ENV = {
     "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI": "https://catalog.invalid",
     "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "warehouse",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN": "token",
+    "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "token",
 }
 
 

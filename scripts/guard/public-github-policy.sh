@@ -667,7 +667,7 @@ public_policy = Path("scripts/guard/public-github-policy.sh").read_text(encoding
 runtime_policy = public_policy.split("\nPY\n", 1)[1]
 # The runner starts the identity and legal wrappers before its loop (asserted above),
 # and the loop's self-tests run each prepare checker on the real prepare script.
-# This guard starts neither again (scripts/guard/each-guard-runs-once.py).
+# This guard starts neither again (scripts/ci/guard_scope.py check refuses a guard run twice).
 prepare_check = 'python3 "$prepare_checker" scripts/github/prepare-public-root.sh'
 require(prepare_check in Path("scripts/guard/legal-publication-self-test.sh").read_text(
             encoding="utf-8")

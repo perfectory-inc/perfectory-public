@@ -17,3 +17,5 @@ fi
 
 export FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER="${FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER:-r2}"
 "${PUBLISHER_BIN}" publish-outbox-once
+# A tick that published (or found nothing pending) ran to its end (root ADR-0260).
+printf 'foundation-job-outcome changed\n'

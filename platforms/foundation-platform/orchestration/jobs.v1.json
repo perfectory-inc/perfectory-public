@@ -412,7 +412,7 @@
     },
     {
       "id": "gold_panel_rebuild",
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price_panel (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "schedule": "45 8 * * *",
@@ -506,24 +506,41 @@
       "disabled_reason": "New (root ADR-0240). Off until its first supervised run on the data host (runbook complex-boundary-release.md) has answered `unchanged reason=already_loaded` for the file Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
-      "id": "parcel_tile_bake",
-      "description": "Bake the parcel map tiles nationally from the lakehouse (root ADR-0133 §7, ADR-0194 5): when the source contract's served cadastral edition is not the one this job last baked, run the ADR-0113 §7 matching gate over every 시도 of it, build gold.parcel_boundary_served and its handoff parts, and bake, gate and promote them with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh). The first lakehouse release must pass the first-release equivalence gate against the active one (ADR-0133 §4, ADR-0135). Nothing reads PostGIS. Otherwise nothing to do.",
-      "systemd_service": "foundation-parcel-tile-bake.service",
+      "id": "parcel_served_gold",
+      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",
+      "systemd_service": "foundation-parcel-tile-bake@gold.service",
       "systemd_timer": null,
       "schedule": "30 7 * * *",
       "started_by": "schedule",
-      "timeout_minutes": 165,
+      "timeout_minutes": 120,
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 1,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-parcel-boundaries-to-gold-parcel-boundary-served",
-        "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "parcel_tile_bake",
+      "description": "The second half of the national parcel tile bake (root ADR-0133 §7, ADR-0253): take the served Gold run parcel_served_gold made ready and bake, gate and promote it with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh bake): GDAL and tippecanoe in their capped containers, the maxzoom id gate, the first-release equivalence gate against the active release (ADR-0133 §4, ADR-0135, ADR-0251), the create-only upload and the promotion. Started when the Gold half reports a ready run, and daily as the fallback; with none waiting, nothing to do. Nothing reads PostGIS.",
+      "systemd_service": "foundation-parcel-tile-bake@bake.service",
+      "systemd_timer": null,
+      "schedule": "45 8 * * *",
+      "started_by": "inputs",
+      "timeout_minutes": 120,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
         "gold-parcel-boundary-served-to-parcel-tiles"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0194 5.2). Off until its first supervised national run on the data host (runbook parcel-tile-bake.md) has passed the matching and equivalence gates, promoted, and measured its time, memory and disk within the unit's 160-minute limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it."
     },
     {
       "id": "gold_kind_rebuild",

@@ -21,7 +21,7 @@ const unitId = "00000000-0000-8000-8000-000000000002";
 const document = () => ({
   schema_version: "foundation-platform.unit_price_by_pnu.v1",
   pnu,
-  source: { table: "gold.unit_price_panel", iceberg_snapshot_id: "999990000000000001" },
+  source: { table: "gold.unit_price", iceberg_snapshot_id: "999990000000000001" },
   units: [
     {
       id: unitId,

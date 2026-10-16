@@ -455,7 +455,7 @@ pub fn stop_lakehouse_maintenance() -> anyhow::Result<()> {
     invocation_cleanup::run(invocation_cleanup::Job::LakehouseMaintenance)
 }
 
-/// `ExecStopPost` of foundation-parcel-tile-bake.service: remove the Spark container a timed-out
+/// `ExecStopPost` of foundation-parcel-tile-bake@.service: remove the Spark container a timed-out
 /// or killed bake left behind (root ADR-0133 §7).
 pub fn stop_parcel_tile_bake() -> anyhow::Result<()> {
     invocation_cleanup::run(invocation_cleanup::Job::ParcelTileBake)
@@ -829,8 +829,8 @@ fn build_building_register_floor_pipeline_script(
   -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID \\
   -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \\
   -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION \\
-  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID \\
-  -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY \\
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID \\
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY \\
   lakehouse-control stage-building-register-floor-inputs\n"
         )
     } else {
@@ -937,12 +937,12 @@ if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET:-}}\" ]; then
   echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
   exit 2
 fi
 if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}}\" ]; then
@@ -967,8 +967,8 @@ stage_bronze_object() {{
   source_object=\"$2\"
   docker run --rm \\
     --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\" \\
-    -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
-    -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
+    -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
+    -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
     -e AWS_DEFAULT_REGION=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}\" \\
     -v \"$PWD/target/lakehouse/bronze/source=${{source_slug}}:/stage\" \\
     amazon/aws-cli:2.17.62 s3 sync \\
@@ -1115,12 +1115,12 @@ if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET:-}}\" ]; then
   echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID in remote lakehouse env file' >&2
   exit 2
 fi
-if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
-  echo 'missing FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
+if [ -z \"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY:-}}\" ]; then
+  echo 'missing FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY in remote lakehouse env file' >&2
   exit 2
 fi
 if [ -z \"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT:-}}\" ]; then
@@ -1138,8 +1138,8 @@ docker run --rm --entrypoint sh \\
   -c \"mkdir -p \\\"/lakehouse/bronze/source={source_slug}\\\" /lakehouse/silver_handoff && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" \\\"/lakehouse/bronze/source={source_slug}\\\" && chown \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /lakehouse /lakehouse/silver_handoff\"
 docker run --rm \\
   --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\" \\
-  -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
-  -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
+  -e AWS_ACCESS_KEY_ID=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID}}\" \\
+  -e AWS_SECRET_ACCESS_KEY=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}}\" \\
   -e AWS_DEFAULT_REGION=\"${{FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION:-auto}}\" \\
   -v \"$PWD/target/lakehouse/bronze/source={source_slug}:/stage\" \\
   amazon/aws-cli:2.17.62 s3 sync \\

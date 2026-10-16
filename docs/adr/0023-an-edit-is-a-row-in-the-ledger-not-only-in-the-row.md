@@ -7,7 +7,7 @@ last_reviewed: 2026-08-10
 
 # ADR 0023: 편집은 원장의 행이지, 고쳐진 행에만 남는 것이 아니다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (`PATCH /catalog/v1/parcels/{id}/kind` 와 `catalog.parcel` 이 없어져 `catalog.catalog_edit` 에 쓰는 곳이 없다)
 - Date: 2026-08-10
 - 관련: [ADR-0006 기준 데이터는 객체 저장소 우선](./0006-object-storage-first-serving.md) (§투영 재구성), [ADR-0019 소속은 기간을 가진 사실이다](./0019-membership-is-a-dated-fact-not-a-column.md), [ADR-0022 "현재"는 오늘이다](./0022-current-means-today-and-one-view-says-so.md)
 - 마이그레이션: `20260810000003_parcel_edits_enter_the_ledger.sql`

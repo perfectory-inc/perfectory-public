@@ -162,8 +162,6 @@ mod tests {
             UserKind::Individual,
             None,
             None,
-            None,
-            None,
             vec![],
             None,
             None,

@@ -19,14 +19,17 @@ last_reviewed: 2026-10-10
 `platforms/foundation-platform/.env.local` 에 있는 계정 토큰과 계정 id 를 값이 화면에 나오지 않게 옮긴다.
 분석 토큰 파일(`cloudflare-analytics.env`)은 쓰지 않는다. 저장소 루트(main 의 체크아웃)에서:
 
+호스트 파일에서 토큰은 토큰 이름 `foundation-platform-workers-writer-prod` 에서 만든 이름
+`FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN` 으로 둔다(루트 ADR-0247). wrangler 에게는 `worker-wrangler.sh` 가
+`CLOUDFLARE_API_TOKEN` 으로 건넨다. 파일은 손으로 편집하지 않고 `foundation-release.sh env-set` 으로 쓴다.
+
 ```bash
-# 1) 두 줄만 골라 서버의 홈에 남만 못 읽는 임시 파일로 보낸다(값은 어디에도 출력되지 않는다).
-grep -E '^(CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)=' platforms/foundation-platform/.env.local \
+# 1) 두 줄만 골라 이름을 바꿔 서버의 홈에 남만 못 읽는 임시 파일로 보낸다(값은 어디에도 출력되지 않는다).
+grep -E '^(CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)=' platforms/foundation-platform/.env.local | tr -d '\r' \
+  | sed 's/^CLOUDFLARE_API_TOKEN=/FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=/' \
   | ssh ai-server 'umask 077 && cat > ~/.cloudflare-deploy.env'
-# 2) root:root 0600 으로 설치하고 임시 파일을 지운다(sudo 비밀번호는 -t 로 묻는다).
-ssh -t ai-server 'sudo install -o root -g root -m 0600 ~/.cloudflare-deploy.env /etc/foundation-platform/cloudflare-deploy.env && shred -u ~/.cloudflare-deploy.env'
-# 3) 이름만 확인한다: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN 두 줄이 나와야 한다.
-ssh -t ai-server "sudo sed -n 's/=.*//p' /etc/foundation-platform/cloudflare-deploy.env | sort"
+# 2) 계약의 cloudflare-deploy 그룹으로 쓰고(root:root 0600) 임시 파일을 지운다. 출력은 이름뿐이다.
+ssh ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set cloudflare-deploy ~/.cloudflare-deploy.env && shred -u ~/.cloudflare-deploy.env'
 ```
 
 토큰에 필요한 권한: 계정의 Workers Scripts 편집(업로드·버전·배포·롤백), D1 편집(지도 편집의 마이그레이션), 사용자

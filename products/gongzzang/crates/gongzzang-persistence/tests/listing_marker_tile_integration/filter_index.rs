@@ -208,3 +208,114 @@ async fn listing_marker_deltas_returns_recent_public_features_for_loaded_tile() 
         Some("snapshot-test-v1")
     );
 }
+
+async fn all_active_marker_version(repo: &PgListingRepository) -> i64 {
+    let all_active = ListingMarkerFilterSpec {
+        types: vec![],
+        transactions: vec![],
+        min_area_m2: None,
+        max_area_m2: None,
+        min_price_krw: None,
+        max_price_krw: None,
+    }
+    .try_normalized()
+    .expect("all-active filter");
+    repo.count_listing_markers(all_active)
+        .await
+        .unwrap()
+        .projection_version
+        .expect("marker version")
+}
+
+#[tokio::test]
+async fn listing_marker_version_rises_for_a_new_listing_and_its_delta_is_found_since_the_old_one() {
+    let _guard = lock_marker_tile_tests().await;
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let owner = seed_owner(
+        &pool,
+        "zsub-marker-version-new",
+        "marker-version-new@example.com",
+    )
+    .await;
+    let repo = PgListingRepository::new(pool.clone());
+    let first_pnu = "9999900101100220000";
+    let second_pnu = "9999900101100230000";
+    seed_anchor(&pool, first_pnu).await;
+    seed_anchor(&pool, second_pnu).await;
+
+    let mut first = make_listing(owner.clone(), first_pnu, "Version first listing");
+    activate_listing(&repo, &mut first, &owner).await;
+    let before = all_active_marker_version(&repo).await;
+
+    let mut second = make_listing(owner.clone(), second_pnu, "Version second listing");
+    activate_listing(&repo, &mut second, &owner).await;
+    let after = all_active_marker_version(&repo).await;
+    assert!(
+        after > before,
+        "a new listing must raise the marker version: {before} -> {after}"
+    );
+
+    let deltas = repo
+        .find_listing_marker_deltas(
+            ListingMarkerOverlayTileQuery::try_new(0, 0, 0, Some(before)).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        deltas.feature_count, 1,
+        "the delta since {before} holds the new listing"
+    );
+}
+
+#[tokio::test]
+async fn listing_marker_version_rises_when_the_newest_listing_is_withdrawn() {
+    let _guard = lock_marker_tile_tests().await;
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let owner = seed_owner(
+        &pool,
+        "zsub-marker-version-out",
+        "marker-version-out@example.com",
+    )
+    .await;
+    let repo = PgListingRepository::new(pool.clone());
+    let first_pnu = "9999900101100240000";
+    let second_pnu = "9999900101100250000";
+    seed_anchor(&pool, first_pnu).await;
+    seed_anchor(&pool, second_pnu).await;
+
+    let mut first = make_listing(owner.clone(), first_pnu, "Withdraw first listing");
+    activate_listing(&repo, &mut first, &owner).await;
+    let mut second = make_listing(owner.clone(), second_pnu, "Withdraw second listing");
+    activate_listing(&repo, &mut second, &owner).await;
+    let before = all_active_marker_version(&repo).await;
+
+    second.mark_sold(chrono::Utc::now()).unwrap();
+    repo.save(
+        &second,
+        shared_kernel::mutation::MutationContext::new_user_action(
+            owner.clone(),
+            "corr-marker-version-out",
+            "mark_sold",
+        ),
+    )
+    .await
+    .unwrap();
+    let after = all_active_marker_version(&repo).await;
+    assert!(
+        after > before,
+        "a withdrawal must raise the marker version: {before} -> {after}"
+    );
+
+    let tombstones = repo
+        .find_listing_marker_tombstones(
+            ListingMarkerOverlayTileQuery::try_new(0, 0, 0, Some(before)).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        tombstones.marker_ids,
+        vec![format!("lm_{}", second.id.as_str())]
+    );
+}

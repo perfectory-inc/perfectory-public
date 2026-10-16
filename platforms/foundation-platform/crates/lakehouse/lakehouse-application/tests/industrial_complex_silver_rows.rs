@@ -159,7 +159,6 @@ fn sample_complex() -> TestResult<IndustrialComplex> {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some("9999900101".to_owned()),
         area_m2: 123_456,
-        lakehouse_complex_id: None,
         status: None,
         sido_code: None,
         sigungu_code: None,

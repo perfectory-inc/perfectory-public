@@ -21,7 +21,7 @@ pre-commit:
         - run: "! command -v gitleaks >/dev/null 2>&1"
     gz-biome:
       root: "products/gongzzang/"
-      glob: "*.{ts,tsx,js,jsx,json,jsonc,css}"
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
       run: pnpm biome check --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
       skip:

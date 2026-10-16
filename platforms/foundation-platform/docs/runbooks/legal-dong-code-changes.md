@@ -174,7 +174,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
   0. 수집 단위는 Bronze 되읽기용 읽기 키를 전용 파일 `/etc/foundation-platform/lakehouse-reader.env` 에서 받는다
      (계약 `config/runtime-secrets.contract.json` 의 그룹 `lakehouse-reader`, 루트 ADR-0153). root 가 한 번 만든다:
-     읽기 키 두 이름(`FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID`, `..._READER_SECRET_ACCESS_KEY`)만,
+     읽기 키 두 이름(`FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID`, `..._READER_SECRET_ACCESS_KEY`)만,
      `root:root 0600`. 값은 기존 `parcel-publication.env` 의 같은 이름에서 옮긴다(셸에 찍지 않는다).
      그다음 `sudo python3 /opt/foundation-platform/current/scripts/deploy/runtime_secrets.py host` 가 `OK` 여야
      한다(이름만 출력). 배포의 `verify`·`timers` 도 같은 확인을 하고, 맞지 않으면 멈춘다.

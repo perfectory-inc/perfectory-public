@@ -24,6 +24,10 @@ describe("generated Wrangler configuration", () => {
       d1_databases: [{
         binding: gateway.d1_binding, database_name: gateway.d1_database_name, migrations_dir: "migrations",
       }],
+      analytics_engine_datasets: [{
+        binding: gateway.real_user_metrics.analytics_engine_binding,
+        dataset: gateway.real_user_metrics.analytics_engine_dataset,
+      }],
     });
     expect(text).not.toMatch(/database_id|account_id|secret|token/i);
     expect(gateway.cors).toEqual(connectionContract.vector_tile_gateway.cors);

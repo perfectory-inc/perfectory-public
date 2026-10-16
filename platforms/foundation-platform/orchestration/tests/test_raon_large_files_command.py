@@ -255,7 +255,7 @@ class RaonLargeFiles(unittest.TestCase):
                       "the release's own publisher, read-only")
         self.assertIn("host", run["args"][run["args"].index("--network") + 1])
         self.assertIn("DATABASE_URL", run["env_file_lines"])
-        self.assertIn("FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", run["env_file_lines"])
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY", run["env_file_lines"])
         self.assertIn(VWORLD_LOGIN["password"]["canonical"], run["env_file_lines"])
         self.assertTrue(all("=" not in line for line in run["env_file_lines"]), "names only, never values")
         everything = json.dumps(self.log("docker.log")) + result.stdout + result.stderr

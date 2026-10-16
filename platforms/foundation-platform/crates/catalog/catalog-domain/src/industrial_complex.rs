@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use foundation_shared_kernel::events::catalog_v1::{
     IndustrialComplexArchivedV1, IndustrialComplexCreatedV3, IndustrialComplexUpdatedV1,
 };
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -22,6 +22,14 @@ pub enum IndustrialComplexKind {
 }
 
 impl IndustrialComplexKind {
+    /// Every kind. The published contract lists its wire values from here.
+    pub const ALL: [Self; 4] = [
+        Self::National,
+        Self::General,
+        Self::Agricultural,
+        Self::UrbanHighTech,
+    ];
+
     /// Returns the stable wire value used by DB rows, outbox payloads, and HTTP DTOs.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -38,13 +46,10 @@ impl IndustrialComplexKind {
     /// # Errors
     /// Returns `ParseIndustrialComplexKindError::Unknown` for unsupported wire values.
     pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexKindError> {
-        match raw {
-            "national" => Ok(Self::National),
-            "general" => Ok(Self::General),
-            "agricultural" => Ok(Self::Agricultural),
-            "urban_high_tech" => Ok(Self::UrbanHighTech),
-            other => Err(ParseIndustrialComplexKindError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexKindError::Unknown(raw.to_owned()))
     }
 }
 
@@ -83,6 +88,16 @@ pub enum IndustrialComplexStatus {
 }
 
 impl IndustrialComplexStatus {
+    /// Every status. The published contract lists its wire values from here.
+    pub const ALL: [Self; 6] = [
+        Self::Planned,
+        Self::Developing,
+        Self::Operating,
+        Self::Changed,
+        Self::Abolished,
+        Self::Unknown,
+    ];
+
     /// Returns the stable wire value used by DB rows and HTTP DTOs.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -101,15 +116,10 @@ impl IndustrialComplexStatus {
     /// # Errors
     /// Returns `ParseIndustrialComplexStatusError::Unknown` for unsupported wire values.
     pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexStatusError> {
-        match raw {
-            "planned" => Ok(Self::Planned),
-            "developing" => Ok(Self::Developing),
-            "operating" => Ok(Self::Operating),
-            "changed" => Ok(Self::Changed),
-            "abolished" => Ok(Self::Abolished),
-            "unknown" => Ok(Self::Unknown),
-            other => Err(ParseIndustrialComplexStatusError::Unknown(other.to_owned())),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|status| status.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexStatusError::Unknown(raw.to_owned()))
     }
 }
 
@@ -143,6 +153,9 @@ pub enum IndustrialComplexLotSalesStatus {
 }
 
 impl IndustrialComplexLotSalesStatus {
+    /// Every lot-sales status. The published contract lists its wire values from here.
+    pub const ALL: [Self; 3] = [Self::Planned, Self::InProgress, Self::Completed];
+
     /// Returns the stable wire value used by DB rows, lakehouse columns, and HTTP DTOs.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -158,14 +171,10 @@ impl IndustrialComplexLotSalesStatus {
     /// # Errors
     /// Returns `ParseIndustrialComplexLotSalesStatusError::Unknown` for unsupported wire values.
     pub fn from_wire(raw: &str) -> Result<Self, ParseIndustrialComplexLotSalesStatusError> {
-        match raw {
-            "planned" => Ok(Self::Planned),
-            "in_progress" => Ok(Self::InProgress),
-            "completed" => Ok(Self::Completed),
-            other => Err(ParseIndustrialComplexLotSalesStatusError::Unknown(
-                other.to_owned(),
-            )),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|status| status.wire_name() == raw)
+            .ok_or_else(|| ParseIndustrialComplexLotSalesStatusError::Unknown(raw.to_owned()))
     }
 }
 
@@ -240,10 +249,6 @@ pub enum ParseIndustrialComplexDevelopmentStageError {
 pub struct IndustrialComplex {
     /// The complex's one id, derived from its official code (root ADR-0250).
     pub id: ComplexId,
-    /// The same value as [`Self::id`]; Postgres refuses a row where they differ.
-    ///
-    /// Kept only until its readers move to [`Self::id`] and the column is retired (root ADR-0250).
-    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.

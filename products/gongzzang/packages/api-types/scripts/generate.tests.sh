@@ -23,25 +23,20 @@ elif [[ "$node_bin" == *".exe" && "$package_dir" =~ ^/mnt/([a-zA-Z])/(.*)$ ]]; t
   node_package_dir="${drive^^}:/${rest}"
 fi
 
-set +e
-output="$("$node_bin" "$node_package_dir/node_modules/tsx/dist/cli.mjs" "$node_package_dir/scripts/generate.ts" 2>&1)"
-status=$?
-set -e
-
-if [ "$status" -eq 0 ]; then
-  printf 'not ok - generate must fail when services/gongzzang-api/openapi.json is missing\n%s\n' "$output" >&2
-  exit 1
-fi
-
-if [[ "$output" != *"OpenAPI spec not found"* ]]; then
-  printf 'not ok - missing OpenAPI failure message should be explicit\n%s\n' "$output" >&2
-  exit 1
-fi
-
 schema_file="${package_dir}/generated/schema.ts"
-if grep -Eq 'Placeholder|minimal stub|"/healthz"' "$schema_file"; then
-  printf 'not ok - generated schema must not contain fake placeholder paths\n' >&2
-  grep -En 'Placeholder|minimal stub|"/healthz"' "$schema_file" >&2
+committed="$(mktemp)"
+trap 'rm -f "$committed"' EXIT
+cp "$schema_file" "$committed"
+
+if ! output="$("$node_bin" "$node_package_dir/node_modules/tsx/dist/cli.mjs" "$node_package_dir/scripts/generate.ts" 2>&1)"; then
+  printf 'not ok - generate must succeed from services/gongzzang-api/openapi.json\n%s\n' "$output" >&2
+  exit 1
+fi
+
+# The web derives its listing value lists from this file; a stale copy is a stale web.
+if ! cmp -s "$committed" "$schema_file"; then
+  printf 'not ok - generated/schema.ts is stale: run `pnpm --filter @gongzzang/api-types generate` and commit it\n' >&2
+  diff "$committed" "$schema_file" >&2 || true
   exit 1
 fi
 

@@ -310,7 +310,7 @@ pub const REQUIRED_SECRETS: &[(&str, &[&str])] = &[
         &["ProductionOrchestrator"],
     ),
     (
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
         &["ProductionOrchestrator"],
     ),
     (
@@ -322,11 +322,11 @@ pub const REQUIRED_SECRETS: &[(&str, &[&str])] = &[
         &["ProductionOrchestrator"],
     ),
     (
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
         &["ProductionOrchestrator"],
     ),
     (
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         &["ProductionOrchestrator"],
     ),
     (

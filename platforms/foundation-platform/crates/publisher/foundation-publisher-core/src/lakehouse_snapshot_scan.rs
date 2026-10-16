@@ -7,6 +7,8 @@
 
 pub mod iceberg_scan;
 #[cfg(test)]
+mod production_shape_tests;
+#[cfg(test)]
 mod pruning_tests;
 pub mod shard_plan;
 

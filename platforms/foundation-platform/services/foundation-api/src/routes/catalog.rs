@@ -24,10 +24,9 @@ use catalog_application::{
     update_complex::UpdateIndustrialComplexInput,
 };
 use catalog_domain::{
-    ActiveTileSource, Blueprint, CatalogError, ComplexNotice, DigitalTwinAsset, FileAsset,
-    IndustrialComplex, IndustrialComplexKind, IndustryGroup, IndustryGroupMember,
-    MarkerTileRequest, ParcelIndustryAssignment, SpatialLayer, VectorTileArtifact,
-    VectorTileManifest, VectorTileRuntimeManifest,
+    Blueprint, CatalogError, ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
+    IndustrialComplexKind, IndustryGroup, IndustryGroupMember, MarkerTileRequest,
+    ParcelIndustryAssignment, SpatialLayer, VectorTileArtifact, VectorTileManifest,
 };
 use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, ComplexNoticeResponse, DigitalTwinAssetResponse,
@@ -37,12 +36,10 @@ use foundation_contracts::catalog::{
     ParcelMarkerAnchorRebuildResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
     PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
     RollbackVectorTileManifestRequest, SpatialLayerResponse, UpdateComplexRequest,
-    VectorTileArtifactResponse, VectorTileDynamicPostgisResponse, VectorTileLineageResponse,
-    VectorTileManifestResponse, VectorTilePublicationUnitResponse, VectorTileRuntimeLayerResponse,
-    VectorTileRuntimeLineageResponse, VectorTileRuntimeManifestResponse,
-    VectorTileRuntimeSourceResponse, VectorTileStaticPmtilesResponse,
+    VectorTileArtifactResponse, VectorTileLineageResponse, VectorTileManifestResponse,
+    VectorTileRuntimeManifestResponse,
 };
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
 use lakehouse_application::RecordLakehouseBatchRunInput;
 use lakehouse_domain::IndustrialComplexGoldPointer;
 use lakehouse_domain::LakehouseError;
@@ -91,7 +88,6 @@ pub async fn register_complex(
 
     let resp = IndustrialComplexResponse {
         id: result.id.as_uuid(),
-        lakehouse_complex_id: result.lakehouse_complex_id.map(|id| id.as_uuid()),
         official_complex_code: result.official_complex_code,
         name: result.name,
         kind: result.kind.wire_name().to_owned(),
@@ -147,38 +143,6 @@ pub async fn get_complex(
         .find_complex(ComplexId::new(id))
         .await?
         .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
-    let gold_pointer = state
-        .industrial_complex_gold_pointer_reader
-        .find_industrial_complex_gold_pointer(complex.id)
-        .await?;
-
-    Ok(Json(industrial_complex_response(complex, gold_pointer)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
-    operation_id = "getComplexByLakehouseId",
-    params((
-        "lakehouse_complex_id" = Uuid,
-        Path,
-        description = "Lakehouse industrial-complex id (UUIDv5), as published in Gold artifact keys and `complex` vector tile feature ids",
-        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    )),
-    responses(
-        (status = 200, body = IndustrialComplexResponse),
-        (status = 404, description = "No canonical complex carries that lakehouse id")
-    )
-)]
-pub async fn get_complex_by_lakehouse_id(
-    State(state): State<Arc<AppState>>,
-    Path(lakehouse_complex_id): Path<Uuid>,
-) -> Result<Json<IndustrialComplexResponse>, ApiError> {
-    let complex = state
-        .catalog_repo
-        .find_complex_by_lakehouse_id(LakehouseComplexId::new(lakehouse_complex_id))
-        .await?
-        .ok_or_else(|| ApiError::NotFound(lakehouse_complex_id.to_string()))?;
     let gold_pointer = state
         .industrial_complex_gold_pointer_reader
         .find_industrial_complex_gold_pointer(complex.id)
@@ -490,10 +454,9 @@ pub async fn get_vector_tile_runtime_manifest(
         )
             .into_response());
     }
-    let body =
-        serde_json::to_vec(&vector_tile_runtime_manifest_response(manifest)).map_err(|error| {
-            ApiError::Internal(format!("failed to serialize runtime manifest: {error}"))
-        })?;
+    let body = serde_json::to_vec(&VectorTileRuntimeManifestResponse::from(manifest)).map_err(
+        |error| ApiError::Internal(format!("failed to serialize runtime manifest: {error}")),
+    )?;
     let etag_header = HeaderValue::from_str(&etag)
         .map_err(|error| ApiError::Internal(format!("invalid runtime manifest ETag: {error}")))?;
     Ok((
@@ -719,7 +682,6 @@ fn industrial_complex_response(
 ) -> IndustrialComplexResponse {
     IndustrialComplexResponse {
         id: complex.id.as_uuid(),
-        lakehouse_complex_id: complex.lakehouse_complex_id.map(|id| id.as_uuid()),
         official_complex_code: complex.official_complex_code,
         name: complex.name,
         kind: complex.kind.wire_name().to_owned(),
@@ -916,89 +878,6 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
         source_snapshot_id: manifest.source_snapshot_id,
         published_at: manifest.published_at,
         artifacts,
-    }
-}
-
-fn vector_tile_runtime_manifest_response(
-    manifest: VectorTileRuntimeManifest,
-) -> VectorTileRuntimeManifestResponse {
-    let publication_units = manifest
-        .publication_units
-        .into_iter()
-        .map(|(unit_key, unit)| {
-            let source = match unit.source {
-                ActiveTileSource::DynamicPostgis(source) => {
-                    VectorTileRuntimeSourceResponse::DynamicPostgis(
-                        VectorTileDynamicPostgisResponse {
-                            martin_source_id: source.martin_source_id,
-                            tiles_url_template: source.tiles_url_template.as_str().to_owned(),
-                            cache_policy: source.cache_policy,
-                        },
-                    )
-                }
-                ActiveTileSource::StaticPmtiles(source) => {
-                    VectorTileRuntimeSourceResponse::StaticPmtiles(
-                        VectorTileStaticPmtilesResponse {
-                            martin_source_id: source.martin_source_id,
-                            tiles_url_template: source.tiles_url_template.as_str().to_owned(),
-                            pmtiles_object_key: source.pmtiles_object_key,
-                            pmtiles_file_asset_id: source.pmtiles_file_asset_id.as_uuid(),
-                            pmtiles_sha256: source.pmtiles_sha256,
-                            pmtiles_bytes: source.pmtiles_bytes,
-                        },
-                    )
-                }
-            };
-            let layers = unit
-                .layers
-                .into_iter()
-                .map(|(layer_id, layer)| {
-                    (
-                        layer_id,
-                        VectorTileRuntimeLayerResponse {
-                            source_layer: layer.source_layer,
-                            feature_id_property: layer.feature_id_property.as_str().to_owned(),
-                            tile_min_zoom: layer.tile_min_zoom,
-                            tile_max_zoom: layer.tile_max_zoom,
-                            render_min_zoom: layer.render_min_zoom,
-                            render_max_zoom: layer.render_max_zoom,
-                            feature_filter_properties: layer.feature_filter_properties,
-                        },
-                    )
-                })
-                .collect();
-            (
-                unit_key,
-                VectorTilePublicationUnitResponse {
-                    data_revision: unit.data_revision.as_uuid(),
-                    serving_generation: unit.serving_generation.value(),
-                    active_release_id: unit.active_release_id.as_uuid(),
-                    canonical_iceberg_snapshot_id: unit
-                        .canonical_iceberg_snapshot_id
-                        .as_str()
-                        .to_owned(),
-                    source,
-                    layers,
-                    lineage: VectorTileRuntimeLineageResponse {
-                        source_record_id: unit.lineage.source_record_id.as_uuid(),
-                        source_file_asset_ids: unit
-                            .lineage
-                            .source_file_asset_ids
-                            .into_iter()
-                            .map(|id| id.as_uuid())
-                            .collect(),
-                    },
-                },
-            )
-        })
-        .collect();
-    VectorTileRuntimeManifestResponse {
-        schema_version: 2,
-        current_version: manifest.current_version.as_uuid(),
-        manifest_generation: manifest.manifest_generation.value(),
-        refresh_after_seconds: manifest.refresh_after_seconds,
-        published_at: manifest.published_at,
-        publication_units,
     }
 }
 

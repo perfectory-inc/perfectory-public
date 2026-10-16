@@ -11,7 +11,7 @@ use catalog_domain::{
     IndustrialComplexLotSalesStatus, IndustrialComplexStatus,
 };
 use chrono::NaiveDate;
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 
 use crate::industrial_complex_input::{
     validate_clean_required, validate_optional_business_period_months,
@@ -26,8 +26,9 @@ use crate::ports::{
 /// Source-side row that establishes canonical industrial-complex identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IndustrialComplexCatalogRow {
-    /// Lakehouse identifier of the same complex, when the producer read one.
-    pub lakehouse_complex_id: Option<LakehouseComplexId>,
+    /// The `complex_id` the producer read from Silver, when it read one. Checked against the
+    /// official code's derivation, never stored as given (root ADR-0250).
+    pub complex_id: Option<ComplexId>,
     /// Source-side official industrial-complex code. The natural key of the upsert.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.
@@ -203,18 +204,16 @@ fn catalog_row_to_upsert_command(
     // The id is the official code's derivation (root ADR-0250). A producer that read a different
     // `complex_id` derived it differently, and storing it would split the complex in two again.
     let complex_id = ComplexId::for_official_complex_code(&row.official_complex_code);
-    let lakehouse_complex_id = LakehouseComplexId::new(complex_id.as_uuid());
     if row
-        .lakehouse_complex_id
-        .is_some_and(|supplied| supplied != lakehouse_complex_id)
+        .complex_id
+        .is_some_and(|supplied| supplied != complex_id)
     {
         return Err(CatalogError::InvalidIndustrialComplexInput(format!(
-            "lakehouse_complex_id is not the id derived from official_complex_code {}",
+            "complex_id is not the id derived from official_complex_code {}",
             row.official_complex_code
         )));
     }
     Ok(UpsertIndustrialComplexCommand {
-        lakehouse_complex_id: Some(lakehouse_complex_id),
         official_complex_code: row.official_complex_code.clone(),
         name: row.name.clone(),
         kind: row.kind,
@@ -249,7 +248,7 @@ fn catalog_row_to_upsert_command(
 mod tests {
     use super::{catalog_row_to_upsert_command, IndustrialComplexCatalogRow};
     use catalog_domain::{CatalogError, IndustrialComplexKind};
-    use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+    use foundation_shared_kernel::ids::ComplexId;
     use uuid::Uuid;
 
     fn row(primary_bjdong_code: Option<&str>) -> IndustrialComplexCatalogRow {
@@ -259,7 +258,7 @@ mod tests {
             kind: IndustrialComplexKind::National,
             primary_bjdong_code: primary_bjdong_code.map(ToOwned::to_owned),
             area_m2: 3_708_451,
-            lakehouse_complex_id: None,
+            complex_id: None,
             status: None,
             sido_code: None,
             sigungu_code: None,
@@ -285,31 +284,15 @@ mod tests {
         }
     }
 
-    /// A seed-import row carries no lakehouse id; it still gets the derived one (root ADR-0250).
     #[test]
-    fn a_row_without_a_lakehouse_id_gets_the_derived_one() -> Result<(), CatalogError> {
-        let command = catalog_row_to_upsert_command(&row(None))?;
-        assert_eq!(
-            command
-                .lakehouse_complex_id
-                .map(|id| id.to_string())
-                .as_deref(),
-            Some("7df3859c-768f-51fa-a78d-6398acd5f052")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_lakehouse_id_that_is_not_the_derivation_is_refused() {
+    fn a_complex_id_that_is_not_the_derivation_is_refused() {
         let mut candidate = row(None);
-        candidate.lakehouse_complex_id = Some(LakehouseComplexId::new(Uuid::nil()));
+        candidate.complex_id = Some(ComplexId::new(Uuid::nil()));
         assert!(matches!(
             catalog_row_to_upsert_command(&candidate),
             Err(CatalogError::InvalidIndustrialComplexInput(_))
         ));
-        candidate.lakehouse_complex_id = Some(LakehouseComplexId::new(
-            ComplexId::for_official_complex_code("111010").as_uuid(),
-        ));
+        candidate.complex_id = Some(ComplexId::for_official_complex_code("111010"));
         assert!(catalog_row_to_upsert_command(&candidate).is_ok());
     }
 

@@ -3405,14 +3405,19 @@
         "unit": "derived"
       }
     },
-    "gold.unit_price_panel": {
-      "table_name": "gold.unit_price_panel",
+    "gold.unit_price": {
+      "table_name": "gold.unit_price",
       "physical_format": "Parquet",
       "serving_role": "Projection",
       "current_row_predicate": null,
       "columns": [
         {
           "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "building_id",
           "logical_type": "string",
           "required": true
         },
@@ -3441,11 +3446,12 @@
         "source_snapshot_id"
       ],
       "sort_order": [
-        "pnu"
+        "pnu",
+        "building_id"
       ],
       "write_distribution": "range",
       "quality_gates": [
-        "one row per pnu",
+        "one row per (pnu, building_id)",
         "pnu matches the cadastral grammar",
         "every row has a priced unit",
         "row_digest contains content only",
