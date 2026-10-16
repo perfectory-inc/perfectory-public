@@ -61,12 +61,14 @@ def main() -> int:
         json.loads((RELEASE / POSTGRES).read_text(encoding="utf-8")), json.loads(postgres_text), "tables_with_rows")]
     if not found:
         print("shape-ledger-check: production holds the shapes the release's ledgers record")
+        print("foundation-job-outcome unchanged")  # root ADR-0260: the run's last line
         return 0
     for line in found:
         print(f"shape-ledger-check: STALE {line}")
     print(f"shape-ledger-check: CI gates pull requests on a shape production no longer holds. Copy "
           f"{STATE}/{Path(LAKEHOUSE).name} to platforms/foundation-platform/{LAKEHOUSE} and "
           f"{STATE}/{Path(POSTGRES).name} to platforms/foundation-platform/{POSTGRES} in one pull request.")
+    print(f"foundation-job-outcome failed shape ledgers stale for {len(found)} tables")
     return 1
 
 
