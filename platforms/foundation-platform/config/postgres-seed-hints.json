@@ -6,7 +6,6 @@
   },
   "values": {
     "catalog.industrial_complex.id": "catalog.industrial_complex_id_for('synthetic')",
-    "catalog.industrial_complex.lakehouse_complex_id": "catalog.industrial_complex_id_for('synthetic')",
     "catalog.administrative_unit_identifier.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "catalog.administrative_unit_parent.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "serving_postgis.administrative_unit_boundary_publication.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",

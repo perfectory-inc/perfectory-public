@@ -88,11 +88,9 @@ SET
 
 -- The id is derived from the code, never written by hand (root ADR-0250).
 INSERT INTO catalog.industrial_complex
-    (id, lakehouse_complex_id, name, kind, primary_bjdong_code, area_m2, official_complex_code,
-     version)
+    (id, name, kind, primary_bjdong_code, area_m2, official_complex_code, version)
 VALUES
     (
-        catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
         catalog.industrial_complex_id_for('IC-SYNTHETIC-001'),
         'Synthetic Industrial Complex',
         'general',

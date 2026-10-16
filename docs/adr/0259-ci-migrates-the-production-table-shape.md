@@ -98,6 +98,14 @@ CI 의 표는 매번 빈 스키마에서 새로 만든 것이라, 운영 표가 
 - 남은 일: Postgres 마이그레이션 체인을 운영 행이 있는 상태로 한 단계씩 적용하는 시험(운영 표별 행 유무 원장 +
   합성 행). 이 ADR 의 4 는 승인 관문만 다룬다.
 
+## 2026-10-16 개정: §4 의 선언은 배포가 확인한다
+
+`foundation-deploy.sh` 는 0단계(DAG 정지) **앞에서** 배포할 커밋의 마이그레이션·관문 검출기·계약을 꺼내, 운영 DB 가 아직
+적용하지 않은 관문 마이그레이션마다 그 설정의 실제 값(`current_setting`)을 읽는다
+(`scripts/deploy/migration-approval-preflight.py`). 값이 계약과 다르거나 DB 에 못 물으면 설정 이름과 실행할
+`ALTER DATABASE` 한 줄로 멈춘다 — DAG 도 컨테이너도 건드리지 않는다. #465 는 4단계 `activate` 가 API 를 다시 만든 뒤에
+거부돼 API 가 30분 내려갔다. 이로써 `set_in_production` 은 선언이자 배포 전 확인이 된다.
+
 ## 2026-10-16 개정: §8 Postgres 마이그레이션은 운영처럼 행이 든 표 위에서 돈다
 
 위 "남은 일"의 결정이다. `platforms/foundation-platform/config/postgres-production-shape.json` 은 운영 DB 에서 행이 있는

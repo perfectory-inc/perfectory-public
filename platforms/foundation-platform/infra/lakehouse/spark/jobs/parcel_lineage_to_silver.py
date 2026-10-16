@@ -51,6 +51,15 @@ PREFIX = re.compile(r"^[0-9]{2}$")
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
+class UnrecordedDongCodes(ValueError):
+    """동 codes that held parcels before and none after, which the code change table does not pair
+    in the window: the derivation refuses (ADR-0145 §2). `codes` names them all, for the alert."""
+
+    def __init__(self, message: str, codes: list[str]):
+        super().__init__(message)
+        self.codes = codes
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from-snapshot-id", required=True,
@@ -161,10 +170,11 @@ def derive(
     pairing = pl.dong_pairing_from_changes(changes, lots_before, lots_after, from_date, to_date)
     if pairing.unrecorded:
         # Writing on would carry none of their lots by code and still report a run (ADR-0145 §2).
-        raise ValueError(
+        raise UnrecordedDongCodes(
             f"{len(pairing.unrecorded)} legal dong codes held parcels at {from_date} and none at {to_date}, and the "
             f"code change table records no pair for them effective in that window: {pairing.unrecorded[:10]}. "
-            "Record the change (legal_dong_code_change_pairs.py) before deriving the lineage."
+            "Record the change (legal_dong_code_change_pairs.py) before deriving the lineage.",
+            sorted(pairing.unrecorded),
         )
     code_links, vanished, appeared = pl.carry_over(before, after, pairing)
     history = pl.history_links(events, from_date, to_date, pairing)

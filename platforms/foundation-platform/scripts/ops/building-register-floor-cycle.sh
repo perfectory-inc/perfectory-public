@@ -43,5 +43,6 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   export DATABASE_URL
 fi
 
-exec "${publisher}" \
-  run-building-register-floor-cycle
+"${publisher}" run-building-register-floor-cycle
+# Reached only when the cycle exited 0 (set -e): it ran to its end (root ADR-0171, ADR-0260).
+printf 'foundation-job-outcome changed\n'

@@ -62,3 +62,14 @@ env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
 result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" stage-handoff --collect-dir "${work}/collect" \
   --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
 job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
+# The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0260).
+status="$("${PY[@]}" -c '
+import json, sys
+prefix = "legal-dong-code-stage-json "
+print(next(json.loads(line[len(prefix):])["status"] for line in sys.stdin if line.startswith(prefix)))
+' <<<"${result}")"
+if [ "${status}" = staged ]; then
+  printf 'foundation-job-outcome changed\n'
+else
+  printf 'foundation-job-outcome unchanged\n'
+fi

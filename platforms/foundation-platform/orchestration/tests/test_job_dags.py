@@ -198,10 +198,21 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                 self.assertEqual(run.run_ssh_client_command(None, spec.job_id, context={"ti": ti}), b"")
                 ti.xcom_push.assert_called_once_with(key="outcome", value=expected)
 
+    def test_a_run_that_ended_waiting_is_skipped_not_failed_nor_succeeded(self):
+        # Root ADR-0260: skipped is what the data flow map reads as waiting, with the reason from the log.
+        spec = next(spec for spec in self.specs if spec.job_id == "map_edit_fold_complex")
+        run = self.tasks(spec)["run"]
+        ti = mock.Mock()
+        run.output = b"foundation-job-outcome waiting a release build is running; this job starts after it finishes\n"
+        with self.assertRaises(SkipRun):
+            run.run_ssh_client_command(None, spec.job_id, context={"ti": ti})
+        ti.xcom_push.assert_called_once_with(key="outcome", value="waiting")
+
     def test_an_unchanged_run_publishes_nothing(self):
         spec = next(spec for spec in self.specs if spec.job_id == "gold_panel_rebuild")
         publish = self.tasks(spec)["publish_outputs"]
-        for outcome, skipped in [("unchanged", True), ("changed", False), (None, False)]:
+        for outcome, skipped in [("unchanged", True), ("waiting", True), ("failed", True), ("changed", False),
+                                 (None, False)]:
             with self.subTest(outcome=outcome):
                 ti = mock.Mock()
                 ti.xcom_pull.return_value = outcome

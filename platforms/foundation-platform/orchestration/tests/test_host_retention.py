@@ -18,6 +18,7 @@ import sys
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 AREA = pathlib.Path(__file__).resolve().parents[2]
 HOST = AREA / "infra" / "host"
@@ -255,9 +256,19 @@ class TheImageStore(unittest.TestCase):
                              pathlib.Path("/var/lib/containerd"))
 
     def test_a_path_not_made_yet_is_measured_on_its_parent(self):
+        # A fixed answer, not a second live reading: free space moves between two calls (CI saw 4096
+        # bytes on #585). What is under test is which path gets measured.
+        asked = []
+
+        def disk_usage(path):
+            asked.append(pathlib.Path(path))
+            return shutil._ntuple_diskusage(total=1000, used=400, free=600)
+
         with tempfile.TemporaryDirectory() as directory:
             missing = pathlib.Path(directory) / "not" / "made"
-            self.assertEqual(host_retention.free_bytes(missing), shutil.disk_usage(directory).free)
+            with mock.patch.object(host_retention.shutil, "disk_usage", disk_usage):
+                self.assertEqual(host_retention.free_bytes(missing), 600)
+            self.assertEqual(asked, [pathlib.Path(directory)])
 
 
 if __name__ == "__main__":
