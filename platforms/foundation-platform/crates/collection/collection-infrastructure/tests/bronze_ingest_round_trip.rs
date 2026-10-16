@@ -280,6 +280,47 @@ async fn bronze_dedupe_conflict_adopts_latest_object_key_and_run() {
         );
     }
 
+    // Current-row rule: earlier collections live only in bronze_object_version, so the registry
+    // every reader queries still holds exactly one row per key however many versions exist.
+    let third_run = uow
+        .create_ingestion_run(&BronzeFixture::run(source.id))
+        .await
+        .expect("create third ingestion run");
+    let mut third = fixture.bronze_object(source.id, third_run.id, Uuid::now_v7());
+    third.object_key = ObjectKey::parse(&format!("{}-third", third.object_key.as_str()))
+        .expect("valid third object key");
+    uow.record_bronze_object(&third)
+        .await
+        .expect("record third bronze object");
+    let (current, versions): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM catalog.bronze_object
+                 WHERE source_catalog_id = $1 AND dedupe_key = $2),
+                (SELECT count(*) FROM catalog.bronze_object_version
+                 WHERE source_catalog_id = $1 AND dedupe_key = $2)",
+    )
+    .bind(source.id.as_uuid())
+    .bind(&third.dedupe_key)
+    .fetch_one(&pool)
+    .await
+    .expect("count current and replaced rows");
+    assert_eq!((current, versions), (1, 2));
+    let third_run_objects = repo
+        .list_bronze_objects_by_run(third_run.id)
+        .await
+        .expect("list bronze objects for third run");
+    assert_eq!(third_run_objects.len(), 1);
+    assert_eq!(
+        third_run_objects[0].object_key.as_str(),
+        third.object_key.as_str()
+    );
+    for run in [first_run.id, second_run.id] {
+        assert!(repo
+            .list_bronze_objects_by_run(run)
+            .await
+            .expect("list bronze objects for a replaced run")
+            .is_empty());
+    }
+
     cleanup(&pool, source.id).await;
 }
 
