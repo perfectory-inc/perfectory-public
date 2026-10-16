@@ -1180,6 +1180,14 @@ install_host_retention() {
   [[ "${journald_before}" == "${journald_after}" ]] || systemctl restart systemd-journald
 }
 
+# Every Spark container's /tmp (config/host-layout.contract.json spark_tmp): its spill stays off
+# the system disk. 1777: the container's uid is 185 or the caller's, and each run owns its files.
+# install -d also resets a directory Docker made first, as root 0755, when a container mounted it.
+prepare_spark_tmp() {
+  install -d -m 1777 "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["spark_tmp"])' \
+    "${release_root}/current/config/host-layout.contract.json")"
+}
+
 install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
@@ -1190,6 +1198,8 @@ install_lakehouse_migration_unit() {
 migrate_lakehouse() {
   assert_current_release
   install_lakehouse_migration_unit
+  # The migration's lakehouse-target-init checks /tmp is writable; it is made before, not in `timers`.
+  prepare_spark_tmp
   systemctl daemon-reload
   # A oneshot's start returns when it has finished, with its result.
   if systemctl start foundation-lakehouse-migrate.service; then
@@ -1382,7 +1392,11 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
     # ADR-0194 5). Its unit names this path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
+    prepare_spark_tmp
     install_host_retention
+    # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
+    # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
@@ -1394,6 +1408,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
       foundation-identity-restore-drill.timer
     # Like the backup, the root disk's retention is host infrastructure (root ADR-0198).
     systemctl enable --now foundation-host-retention.timer
+    # The operations map's service checks (root ADR-0209): a host check too.
+    systemctl enable --now foundation-service-checks.timer
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off

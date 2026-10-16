@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use foundation_shared_kernel::events::catalog_v1::{
     IndustrialComplexArchivedV1, IndustrialComplexCreatedV3, IndustrialComplexUpdatedV1,
 };
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -249,10 +249,6 @@ pub enum ParseIndustrialComplexDevelopmentStageError {
 pub struct IndustrialComplex {
     /// The complex's one id, derived from its official code (root ADR-0250).
     pub id: ComplexId,
-    /// The same value as [`Self::id`]; Postgres refuses a row where they differ.
-    ///
-    /// Kept only until its readers move to [`Self::id`] and the column is retired (root ADR-0250).
-    pub lakehouse_complex_id: Option<LakehouseComplexId>,
     /// Source-side official industrial-complex code.
     pub official_complex_code: String,
     /// Human-readable industrial complex name.

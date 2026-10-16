@@ -39,7 +39,7 @@ use foundation_contracts::catalog::{
     VectorTileArtifactResponse, VectorTileLineageResponse, VectorTileManifestResponse,
     VectorTileRuntimeManifestResponse,
 };
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, ParcelId, StaffId};
+use foundation_shared_kernel::ids::{ComplexId, ParcelId, StaffId};
 use lakehouse_application::RecordLakehouseBatchRunInput;
 use lakehouse_domain::IndustrialComplexGoldPointer;
 use lakehouse_domain::LakehouseError;
@@ -88,7 +88,6 @@ pub async fn register_complex(
 
     let resp = IndustrialComplexResponse {
         id: result.id.as_uuid(),
-        lakehouse_complex_id: result.lakehouse_complex_id.map(|id| id.as_uuid()),
         official_complex_code: result.official_complex_code,
         name: result.name,
         kind: result.kind.wire_name().to_owned(),
@@ -144,38 +143,6 @@ pub async fn get_complex(
         .find_complex(ComplexId::new(id))
         .await?
         .ok_or_else(|| ApiError::NotFound(id.to_string()))?;
-    let gold_pointer = state
-        .industrial_complex_gold_pointer_reader
-        .find_industrial_complex_gold_pointer(complex.id)
-        .await?;
-
-    Ok(Json(industrial_complex_response(complex, gold_pointer)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/catalog/v1/complexes/by-lakehouse-id/{lakehouse_complex_id}",
-    operation_id = "getComplexByLakehouseId",
-    params((
-        "lakehouse_complex_id" = Uuid,
-        Path,
-        description = "Lakehouse industrial-complex id (UUIDv5), as published in Gold artifact keys and `complex` vector tile feature ids",
-        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    )),
-    responses(
-        (status = 200, body = IndustrialComplexResponse),
-        (status = 404, description = "No canonical complex carries that lakehouse id")
-    )
-)]
-pub async fn get_complex_by_lakehouse_id(
-    State(state): State<Arc<AppState>>,
-    Path(lakehouse_complex_id): Path<Uuid>,
-) -> Result<Json<IndustrialComplexResponse>, ApiError> {
-    let complex = state
-        .catalog_repo
-        .find_complex_by_lakehouse_id(LakehouseComplexId::new(lakehouse_complex_id))
-        .await?
-        .ok_or_else(|| ApiError::NotFound(lakehouse_complex_id.to_string()))?;
     let gold_pointer = state
         .industrial_complex_gold_pointer_reader
         .find_industrial_complex_gold_pointer(complex.id)
@@ -715,7 +682,6 @@ fn industrial_complex_response(
 ) -> IndustrialComplexResponse {
     IndustrialComplexResponse {
         id: complex.id.as_uuid(),
-        lakehouse_complex_id: complex.lakehouse_complex_id.map(|id| id.as_uuid()),
         official_complex_code: complex.official_complex_code,
         name: complex.name,
         kind: complex.kind.wire_name().to_owned(),

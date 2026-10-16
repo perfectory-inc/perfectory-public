@@ -23,7 +23,7 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, SecondsFormat, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use lakehouse_application::ports::IndustrialComplexGoldPointerReader as _;
 use lakehouse_application::PublishIndustrialComplexGoldPointer;
 use lakehouse_domain::LakehouseError;
@@ -89,7 +89,7 @@ struct ExportSummary {
 #[derive(Debug, Deserialize)]
 struct ExportedArtifact {
     #[serde(rename = "complex_id")]
-    lakehouse_complex_id: LakehouseComplexId,
+    artifact_complex_id: ComplexId,
     current_version: String,
     profile_object_key: String,
     profile_size_bytes: u64,
@@ -186,13 +186,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .await
         .context("failed to connect to database for industrial-complex Gold pointer publish")?;
     let catalog_repository = PgCatalogRepository::new(pool.clone());
-    let lakehouse_complex_ids = summary
+    let artifact_complex_ids = summary
         .artifacts
         .iter()
-        .map(|artifact| artifact.lakehouse_complex_id)
+        .map(|artifact| artifact.artifact_complex_id)
         .collect::<Vec<_>>();
     let complex_ids =
-        resolve_catalog_complex_ids(&catalog_repository, &lakehouse_complex_ids).await?;
+        resolve_catalog_complex_ids(&catalog_repository, &artifact_complex_ids).await?;
     let reader = PgIndustrialComplexGoldPointerReader::new(pool.clone());
     let use_case = PublishIndustrialComplexGoldPointer::new(Arc::new(
         PgLakehousePublicationUnitOfWork::new(pool),
@@ -207,7 +207,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             .with_context(|| {
                 format!(
                     "failed to read the existing pointer for complex {}",
-                    artifact.lakehouse_complex_id
+                    artifact.artifact_complex_id
                 )
             })?
             .map(|pointer| pointer.current_version);
@@ -230,10 +230,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| {
             format!(
                 "failed to publish the Gold pointer for complex {} (artifacts[{index}])",
-                artifact.lakehouse_complex_id
+                artifact.artifact_complex_id
             )
         })?;
-        published_complex_ids.push(artifact.lakehouse_complex_id.to_string());
+        published_complex_ids.push(artifact.artifact_complex_id.to_string());
     }
 
     let published_count =
@@ -283,7 +283,7 @@ async fn publish_one(
     let verified = VerifiedGoldProfileArtifact::verify(
         store,
         ClaimedGoldProfileArtifact {
-            lakehouse_complex_id: artifact.lakehouse_complex_id,
+            artifact_complex_id: artifact.artifact_complex_id,
             current_version: artifact.current_version.clone(),
             object_key: artifact.profile_object_key.clone(),
             checksum_sha256: artifact.profile_checksum_sha256.clone(),

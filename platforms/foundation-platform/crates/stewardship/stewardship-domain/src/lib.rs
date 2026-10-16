@@ -1,7 +1,9 @@
-//! Pure rules for stewards deciding parcel-lineage review items (root ADR-0115).
+//! Pure rules for stewards deciding review items (root ADR-0115, ADR-0263).
 //!
-//! A review item is a parcel the lineage derivation could not settle (root ADR-0113 §10). A steward
-//! decides it through one API; this crate owns what that API may accept. It has no database, HTTP,
+//! A review item is what an automatic derivation could not settle: a parcel's lineage (root
+//! ADR-0113 §10, kind [`ItemKind::Parcel`]) or the pair of an abolished 법정동 code (root ADR-0144 §3,
+//! kind [`ItemKind::LegalDong`]). A steward decides it through one API; this crate owns what that API
+//! may accept. It has no database, HTTP,
 //! clock, or lakehouse dependency: time comes in as an argument and every rule is a function.
 
 use std::fmt;
@@ -36,6 +38,72 @@ pub enum ReviewStatus {
     Pending,
     /// An automatic link sent to a person as a quality sample (ADR-0115 §10).
     Sample,
+    /// A 법정동 change the data did not pair; a steward may pair it (ADR-0144 §3.4).
+    Steward,
+    /// A 법정동 split into several codes: the data's to record, never a steward's (ADR-0144 §4).
+    Split,
+    /// A 법정동 change waiting for the data that decides it (ADR-0144 §4).
+    AwaitingData,
+}
+
+/// What kind of thing a review item decides; the `unit` column (ADR-0263).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemKind {
+    /// Where a parcel came from: the subject is the newer PNU, a candidate an older one.
+    Parcel,
+    /// Where an abolished 법정동 code went: the subject is the old code, a candidate a new one.
+    LegalDong,
+}
+
+impl ItemKind {
+    /// The `unit` value stored for this kind.
+    #[must_use]
+    pub const fn wire(self) -> &'static str {
+        match self {
+            Self::Parcel => "parcel",
+            Self::LegalDong => "legal_dong",
+        }
+    }
+
+    /// The kind a stored `unit` names.
+    ///
+    /// # Errors
+    /// Returns [`StewardshipError::InvalidItem`] for an unknown unit.
+    pub fn from_wire(unit: &str) -> Result<Self, StewardshipError> {
+        match unit {
+            "parcel" => Ok(Self::Parcel),
+            "legal_dong" => Ok(Self::LegalDong),
+            other => Err(StewardshipError::InvalidItem(format!(
+                "unknown unit {other}"
+            ))),
+        }
+    }
+
+    /// Whether `code` is a well-formed subject or candidate of this kind.
+    #[must_use]
+    pub fn is_code(self, code: &str) -> bool {
+        let digits = match self {
+            Self::Parcel => 19,
+            Self::LegalDong => 10,
+        };
+        code.len() == digits && code.bytes().all(|b| b.is_ascii_digit())
+    }
+
+    /// Whether `status` belongs to this kind.
+    #[must_use]
+    pub const fn has_status(self, status: ReviewStatus) -> bool {
+        match self {
+            Self::Parcel => matches!(
+                status,
+                ReviewStatus::NeedsReview | ReviewStatus::Pending | ReviewStatus::Sample
+            ),
+            Self::LegalDong => matches!(
+                status,
+                ReviewStatus::Steward | ReviewStatus::Split | ReviewStatus::AwaitingData
+            ),
+        }
+    }
 }
 
 /// What a steward decided (ADR-0115 §2).
@@ -96,25 +164,82 @@ pub struct Candidate {
     pub in_effect: bool,
 }
 
+/// One new code the pairing run offers for an abolished 법정동 code (ADR-0263).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegalDongCandidate {
+    /// The new 10-digit code.
+    pub code: String,
+    /// Its full name in the code table.
+    pub name: String,
+    /// The day the code table says it was created, `YYYYMMDD` or empty.
+    pub created_date: String,
+}
+
+/// What the pairing run recorded about an abolished 법정동 code, stored as the item's
+/// `evidence_json` (root ADR-0263). `legal_dong_code_change_pairs.review_handoff` writes it.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegalDongEvidence {
+    /// The old code's full name in the code table.
+    pub name: String,
+    /// `sido`, `sigungu`, `eupmyeondong` or `ri`.
+    pub level: String,
+    /// The day the code table says it was abolished, `YYYYMMDD` or empty.
+    pub abolished_date: String,
+    /// Why the date + name rule did not pair it: `ambiguous_name_match` or `no_candidate`.
+    pub rule: String,
+    /// What the 지번 step saw.
+    pub jibun: String,
+    /// Where its 지번 went when it split: new code → how many.
+    pub split_into: std::collections::BTreeMap<String, u64>,
+    /// The evidence it waits for, when awaiting data.
+    pub waiting_for: String,
+    /// Whether the run read the official parcel-number history (`VWorld` 30527): `read` or
+    /// `not_collected`.
+    pub official_history: String,
+    /// How many of its parcels the official rows move without deciding the pair.
+    pub official_partial_moves: u64,
+}
+
 /// A review item as the API sees it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewItem {
-    /// Stable per parcel: `UUIDv5` of `lineage-review:<unit>:<pnu>`.
+    /// Stable per subject: `UUIDv5` of `lineage-review:<unit>:<subject_code>`.
     pub item_id: Uuid,
-    /// The parcel to decide.
+    /// What the item decides.
+    pub kind: ItemKind,
+    /// The parcel (newer PNU) or the abolished 법정동 code to decide.
     pub subject_code: String,
     /// Why it is on the queue.
     pub status: ReviewStatus,
     /// The candidates exactly as the queue wrote them.
     pub candidates_json: String,
+    /// [`ItemKind::LegalDong`] only: the evidence the pairing run recorded, a JSON object.
+    pub evidence_json: Option<String>,
 }
 
 impl ReviewItem {
-    /// The candidates, parsed.
+    /// The parcel candidates, parsed; a 법정동 item has none of this shape.
     ///
     /// # Errors
     /// Returns [`StewardshipError::InvalidItem`] when the stored JSON is not a candidate list.
     pub fn candidates(&self) -> Result<Vec<Candidate>, StewardshipError> {
+        if self.kind != ItemKind::Parcel {
+            return Ok(Vec::new());
+        }
+        serde_json::from_str(&self.candidates_json)
+            .map_err(|error| StewardshipError::InvalidItem(format!("candidates_json: {error}")))
+    }
+
+    /// The 법정동 candidates, parsed; a parcel item has none of this shape.
+    ///
+    /// # Errors
+    /// Returns [`StewardshipError::InvalidItem`] when the stored JSON is not a candidate list.
+    pub fn legal_dong_candidates(&self) -> Result<Vec<LegalDongCandidate>, StewardshipError> {
+        if self.kind != ItemKind::LegalDong {
+            return Ok(Vec::new());
+        }
         serde_json::from_str(&self.candidates_json)
             .map_err(|error| StewardshipError::InvalidItem(format!("candidates_json: {error}")))
     }
@@ -144,7 +269,28 @@ const fn status_wire(status: ReviewStatus) -> &'static str {
         ReviewStatus::NeedsReview => "needs_review",
         ReviewStatus::Pending => "pending",
         ReviewStatus::Sample => "sample",
+        ReviewStatus::Steward => "steward",
+        ReviewStatus::Split => "split",
+        ReviewStatus::AwaitingData => "awaiting_data",
     }
+}
+
+/// The status a stored value names.
+///
+/// # Errors
+/// Returns [`StewardshipError::InvalidItem`] for an unknown status.
+pub fn status_from_wire(value: &str) -> Result<ReviewStatus, StewardshipError> {
+    [
+        ReviewStatus::NeedsReview,
+        ReviewStatus::Pending,
+        ReviewStatus::Sample,
+        ReviewStatus::Steward,
+        ReviewStatus::Split,
+        ReviewStatus::AwaitingData,
+    ]
+    .into_iter()
+    .find(|status| status_wire(*status) == value)
+    .ok_or_else(|| StewardshipError::InvalidItem(format!("unknown status {value}")))
 }
 
 /// A decision as a steward submits it.
@@ -152,8 +298,10 @@ const fn status_wire(status: ReviewStatus) -> &'static str {
 pub struct DecisionDraft {
     /// What was decided.
     pub outcome: Outcome,
-    /// The candidate chosen; only for [`Outcome::Link`].
-    pub predecessor_pnu: Option<String>,
+    /// The candidate chosen; only for [`Outcome::Link`]. The older PNU of a parcel item, the new
+    /// code of a 법정동 item. Serialized under its first name so request hashes stay stable.
+    #[serde(rename = "predecessor_pnu")]
+    pub candidate_code: Option<String>,
     /// Why; required when the outcome writes lineage.
     pub reason_code: Option<ReasonCode>,
     /// Free text.
@@ -222,6 +370,14 @@ pub enum StewardshipError {
     /// A decider tried to approve their own decision.
     #[error("a decision cannot be approved by the steward who made it")]
     SelfApproval,
+    /// A 법정동 item the data decides (a split, or one awaiting data) cannot be paired by a person.
+    #[error("{subject} is {status}; the data decides it, not a steward (ADR-0144 §4)")]
+    DataDecides {
+        /// The abolished code.
+        subject: String,
+        /// Its status.
+        status: ReviewStatus,
+    },
     /// The older parcel is already decided to be another parcel's same land.
     #[error("{predecessor} is already the same land as {other}")]
     PredecessorTaken {
@@ -277,18 +433,23 @@ pub fn check_decision(
             "note is longer than {NOTE_MAX_CHARS} characters"
         )));
     }
+    if item.kind == ItemKind::LegalDong
+        && draft.outcome.writes_lineage()
+        && item.status != ReviewStatus::Steward
+    {
+        return Err(StewardshipError::DataDecides {
+            subject: item.subject_code.clone(),
+            status: item.status,
+        });
+    }
     let candidates = item.candidates()?;
-    match (draft.outcome, draft.predecessor_pnu.as_deref()) {
+    match (draft.outcome, draft.candidate_code.as_deref()) {
         (Outcome::Link, None) => {
             return Err(StewardshipError::InvalidInput(
                 "link names a candidate".to_owned(),
             ));
         }
-        (Outcome::Link, Some(pnu)) => {
-            if !candidates.iter().any(|c| c.predecessor_pnu == pnu) {
-                return Err(StewardshipError::NotACandidate(pnu.to_owned()));
-            }
-        }
+        (Outcome::Link, Some(code)) => check_candidate(item, &candidates, code)?,
         (_, Some(_)) => {
             return Err(StewardshipError::InvalidInput(
                 "only link names a candidate".to_owned(),
@@ -301,12 +462,40 @@ pub fn check_decision(
             "a lineage decision cites a reason".to_owned(),
         ));
     }
-    if draft.reason_code == Some(ReasonCode::Other) && draft.note.trim().is_empty() {
+    // A 법정동 decision says why in words, as the change table's `detail` records it (ADR-0263).
+    let note_required = draft.reason_code == Some(ReasonCode::Other)
+        || (item.kind == ItemKind::LegalDong && draft.outcome.writes_lineage());
+    if note_required && draft.note.trim().is_empty() {
         return Err(StewardshipError::InvalidInput(
-            "reason other needs a note".to_owned(),
+            "this decision needs a note saying why".to_owned(),
         ));
     }
     Ok(requires_approval(&candidates, draft))
+}
+
+/// A link names one of the item's candidates. A 법정동 item the run offered no candidate for takes
+/// any other well-formed code; the pairing run checks it against the full code table (ADR-0263).
+fn check_candidate(
+    item: &ReviewItem,
+    candidates: &[Candidate],
+    code: &str,
+) -> Result<(), StewardshipError> {
+    let listed = match item.kind {
+        ItemKind::Parcel => candidates.iter().any(|c| c.predecessor_pnu == code),
+        ItemKind::LegalDong => {
+            let offered = item.legal_dong_candidates()?;
+            if offered.is_empty() {
+                item.kind.is_code(code) && code != item.subject_code
+            } else {
+                offered.iter().any(|c| c.code == code)
+            }
+        }
+    };
+    if listed {
+        Ok(())
+    } else {
+        Err(StewardshipError::NotACandidate(code.to_owned()))
+    }
 }
 
 /// A decision against a link already in effect needs a second person (ADR-0115 §7).
@@ -318,7 +507,7 @@ pub fn requires_approval(candidates: &[Candidate], draft: &DecisionDraft) -> boo
     match draft.outcome {
         Outcome::NotALink => true,
         Outcome::Link => {
-            draft.predecessor_pnu.as_deref() != Some(effective.predecessor_pnu.as_str())
+            draft.candidate_code.as_deref() != Some(effective.predecessor_pnu.as_str())
         }
         Outcome::Unsure | Outcome::Escalate => false,
     }

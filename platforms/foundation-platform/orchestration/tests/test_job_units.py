@@ -139,5 +139,22 @@ class NothingElseAsks(unittest.TestCase):
         self.assertEqual(len(self.offenders([root])), len(forms))
 
 
+class TheDeferredJobs(unittest.TestCase):
+    """Root ADR-0260: where the runner records a job a release build kept from starting, and which."""
+
+    def ask(self, *argv, directory):
+        return subprocess.run([sys.executable, "-I", str(JOB_UNITS), *argv], capture_output=True, text=True,
+                              env={**os.environ, "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(directory)}, check=True)
+
+    def test_the_runner_and_the_deploy_read_one_place(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(self.ask("deferred-dir", directory=directory).stdout.strip(), directory)
+            self.assertEqual(self.ask("deferred", directory=pathlib.Path(directory) / "never-made").stdout.strip(), "")
+            for name in ("map_edit_fold_complex", "outbox_publish", "not a job", ".hidden"):
+                (pathlib.Path(directory) / name).write_text("0\n")
+            self.assertEqual(self.ask("deferred", directory=directory).stdout.split(),
+                             ["map_edit_fold_complex", "outbox_publish"])
+
+
 if __name__ == "__main__":
     unittest.main()

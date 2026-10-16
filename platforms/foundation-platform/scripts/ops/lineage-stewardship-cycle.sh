@@ -16,7 +16,7 @@
 #
 # "할 일 없음"과 "확인 안 함"은 구별되어야 한다: 계보 표가 아직 없으면 그렇다고 알리고, 어느 단계든
 # 실패하면 슬랙 #alerts 가 안다. 모든 산출물은 실행마다 새 작업 폴더에 남는다.
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
@@ -74,6 +74,26 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# The release's publisher, for the sourced legal-dong load (root ADR-0263); output goes to the run log.
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
+
+# One line per refused lineage group, naming the 동 codes the code change table does not pair (Slack).
+lineage_refusal_text() {
+  PYTHONIOENCODING=utf-8 python3 - "$1" <<'PY'
+import json, sys
+summary = json.load(open(sys.argv[1], encoding="utf-8"))
+lines = ["⛔ 필지 계보 도출 거부 — 코드 변경 표에 짝이 없는 법정동 코드:"]
+for pair in summary.get("pairs", []):
+    for group in pair.get("refused", []):
+        codes = ", ".join(group.get("unpaired_codes") or []) or "(코드 없음: " + group.get("reason", "")[:200] + ")"
+        lines.append(f"• {pair['from']}→{pair['to']} 시도 {group['from_sido']}→{group['to_sido']}: {codes}")
+lines.append("공식 변동연혁(30527)이 반영되면 다음 회차가 잇는다; 그 전엔 스튜어드 목록(ADR-0144 §3)으로만 정한다.")
+print("\n".join(lines))
+PY
+}
+
 json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2)" "$1"; }
 
 # 0a. 법정동 코드 변경 (root ADR-0143). 계보가 그 소비자이므로 계보 앞에서, 이 단위의 spark 자리로 적재하고
@@ -88,7 +108,7 @@ spark parcel_lineage_scheduled.py --allow-non-smoke-write \
   --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
   --summary-output "${container_work}/derive-summary.json"
 derive_refused="$(json_field "${work}/derive-summary.json" '["refused"]')"
-job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused}"
+job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused} waiting=$(json_field "${work}/derive-summary.json" '.get("waiting", [])')"
 # A refused group did not stop the others or the steps below; the unit still fails at the end.
 grep -a '^parcel-lineage-refused ' "${run_log}" >&2 || true
 
@@ -102,6 +122,7 @@ spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container
 if [ "${probe_rc}" = 3 ]; then
   job_journal "${journal}" "stewardship waiting: silver.parcel_lineage does not exist yet"
   notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
+  printf 'foundation-job-outcome waiting silver.parcel_lineage does not exist yet\n'
   exit 0
 elif [ "${probe_rc}" != 0 ]; then
   on_error "probe"
@@ -142,5 +163,10 @@ job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
+  # What a person acts on: which group, and which 동 codes the code change table does not pair.
+  notify_slack "$(lineage_refusal_text "${work}/derive-summary.json")"
+  printf 'foundation-job-outcome failed %s lineage groups refused\n' "${derive_refused}"
   exit 1
 fi
+# The run's last line (root ADR-0171, ADR-0260): it loaded the review queue and folded decisions.
+printf 'foundation-job-outcome changed\n'

@@ -178,10 +178,13 @@ class CollectCommand(unittest.TestCase):
                              "the handoff names each file by its bytes (root ADR-0152)")
         # The journal lines are the unit's lines too (root ADR-0174).
         self.assertIn("parcel-number-change collect ok run=", first.stdout)
+        # The last line is the run's outcome (root ADR-0171, ADR-0260): a handoff is a change.
+        self.assertEqual(first.stdout.splitlines()[-1], "foundation-job-outcome changed")
         second = self.run_job()
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertIn('"unchanged"', second.stdout)
         self.assertIn("parcel-number-change unchanged run=", second.stdout)
+        self.assertEqual(second.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertEqual(len(self.handoffs()), 1, "an unchanged listing hands off nothing")
         calls = (self.fake / "calls.log").read_text(encoding="utf-8").split()
         self.assertEqual(calls.count("ingest-vworld-dataset-files"), 1)
@@ -209,6 +212,7 @@ class CollectCommand(unittest.TestCase):
         self.listing(item("5", "ABPD_UNQ_NO_CHG_HIST_합성.zip", "2099-09-15"))
         result = self.run_job()
         self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("foundation-job-outcome", result.stdout, "a failed run never says it ended well")
         self.assertEqual(self.handoffs(), [])
         self.assertFalse((self.state / "accepted.json").exists())
         self.assertIn("FAILED", (self.state / "journal.log").read_text(encoding="utf-8"))

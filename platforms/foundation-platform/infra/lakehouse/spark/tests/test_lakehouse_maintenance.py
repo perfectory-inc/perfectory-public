@@ -12,8 +12,12 @@ Iceberg 는 셋 다 갖고 있었고, 우리가 부르지 않았을 뿐이다.
 
 from __future__ import annotations
 
+import io
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,10 +36,12 @@ from lakehouse_maintenance import (  # noqa: E402
     protected_snapshots,
     retention_tags,
     rewrite_data_files_sql,
+    read_rotation,
     rotation_order,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
+    write_rotation,
 )
 
 
@@ -305,6 +311,27 @@ class ScheduledRunTest(unittest.TestCase):
         self.assertEqual(
             rotation_order(["gold.a", "silver.b", "silver.c"], last), ["silver.c", "silver.b", "gold.a"]
         )
+
+    def test_an_empty_or_broken_rotation_file_starts_the_order_over(self) -> None:
+        """2026-10-15: a run that hit a full disk left rotation.json empty, and every run after it
+        failed reading it. The file only orders tables; it must not stop the job."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rotation.json"
+            for text in ("", "{", "[]"):
+                path.write_text(text, encoding="utf-8")
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.assertEqual(read_rotation(str(path)), {})
+                self.assertIn("maintenance-rotation-reset", out.getvalue())
+
+    def test_a_failed_write_keeps_the_previous_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "rotation.json")
+            write_rotation(path, {"gold.a": "2026-10-13T01:00:00+00:00"})
+            with mock.patch("lakehouse_maintenance.os.fsync", side_effect=OSError(28, "No space left on device")):
+                with self.assertRaises(OSError):
+                    write_rotation(path, {"gold.a": "2026-10-16T01:00:00+00:00"})
+            self.assertEqual(read_rotation(path), {"gold.a": "2026-10-13T01:00:00+00:00"})
 
     def test_a_table_rule_names_a_known_step_and_a_reason(self) -> None:
         contract = sound_contract()

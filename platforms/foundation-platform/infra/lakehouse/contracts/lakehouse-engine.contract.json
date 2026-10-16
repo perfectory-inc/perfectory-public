@@ -24,6 +24,16 @@
     "scala_binary_version": "2.12",
     "artifact_suffix_reason": "The Iceberg runtime artifact name embeds both, so the artifacts above are only valid for this pair."
   },
+  "r2_read": {
+    "num_retries": 10,
+    "min_wait_ms": 200,
+    "max_wait_ms": 30000,
+    "connection_ttl_ms": 60000,
+    "connection_max_idle_ms": 10000,
+    "task_max_failures": 8,
+    "decision": "docs/adr/0102-lakehouse-jobs-survive-r2-connection-resets.md",
+    "reason": "How every Spark and JVM read of R2 survives a reset connection, written once (root ADR-0102): drop pooled connections before R2 does (TTL, max idle), ask a broken read again after equal-jitter exponential backoff (retries, min and max wait), and let a failed task run again (local[N,task_max_failures], because plain local[N] ignores spark.task.maxFailures). lakehouse_engine reads it for the Iceberg S3FileIO catalog settings, the Hadoop s3a settings and the master URL; foundation-outbox's Rust read policy carries the same numbers and a test holds them equal."
+  },
   "execution_profile": {
     "memory_mib": 4096,
     "cpu_slots": 2,

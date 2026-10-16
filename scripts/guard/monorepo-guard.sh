@@ -26,72 +26,12 @@ repository_identity_gate="$root/scripts/guard/repository-identity-ci.sh"
 legal_gate="$root/scripts/guard/legal-publication-ci.sh"
 bash "$repository_identity_gate"
 bash "$legal_gate"
+# The ordered list of guards, and what each one reads, lives in
+# tools/ci/change-scope.json (root ADR-0207). On a pull request the selector keeps
+# the guards whose inputs changed; every other run is the whole list.
+guards="$(python3 "$root/scripts/ci/guard_scope.py" select)" || exit 1
 rc=0
-for g in hook-isolation-self-test \
-         no-subdir-github technology-version-consistency \
-         static-release-toolchain-ssot-self-test static-release-toolchain-ssot \
-         foundation-kafka-contract \
-         backend-profile-consistency backend-profile-consistency-self-test \
-         r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
-         r2-reads-have-one-path-self-test r2-reads-have-one-path \
-         environment-variable-naming-self-test environment-variable-naming \
-         technology-version-consistency-self-test migration-naming \
-         unique-package-names health-route-conformance \
-         intelligence-no-vector-provider-self-test intelligence-no-vector-provider \
-         utility-library-policy-self-test utility-library-policy \
-         hand-rolled-error-boundary-self-test hand-rolled-error-boundary \
-         no-adhoc-cargo-lint foundation-parcel-current-selector-self-test \
-         foundation-parcel-current-selector xtask-path-coverage-self-test xtask-path-coverage \
-         lefthook-advisory-policy-self-test lefthook-advisory-policy \
-         lefthook-time-budget-self-test lefthook-time-budget \
-         package-publication-policy-self-test public-fixture-safety-self-test \
-         public-doc-boundary-self-test \
-         tracked-blob-sizes-self-test public-repository-safety \
-         tracked-paths-are-portable-self-test tracked-paths-are-portable \
-         container-runtime-policy-self-test container-runtime-policy \
-         every-container-has-a-memory-cap-self-test every-container-has-a-memory-cap \
-         runtime-secrets-contract-self-test runtime-secrets-contract \
-         credential-names-self-test credential-names \
-         container-images-match-the-contract-self-test container-images-match-the-contract \
-         workflow-policy-self-test github-policy-json-self-test \
-         rust-ci-setup-self-test rust-ci-setup \
-         pinned-downloads-self-test pinned-downloads \
-         repository-identity-policy-self-test \
-         legal-publication-self-test \
-         third-party-artifact-policy-self-test \
-         gitleaks-policy-self-test \
-         osv-vulnerability-ratchet-self-test \
-         npm-security-overrides-self-test npm-security-overrides npm-advisory-fix-guards-self-test \
-         actions-cache-controls-self-test billing-budgets-self-test \
-         tiles-slice-proof-env-self-test \
-         foundation-ci-scope-self-test \
-         ci-time-budget-self-test \
-         live-lane-completeness-self-test live-lane-completeness \
-         build-coupling-baseline-self-test build-coupling-baseline \
-         lineage-is-derived-not-passed-self-test lineage-is-derived-not-passed \
-         every-table-declares-its-load-self-test every-table-declares-its-load \
-         pipeline-graph-covers-every-dataset-self-test pipeline-graph-covers-every-dataset \
-         region-code-pairs-have-one-home-self-test region-code-pairs-have-one-home \
-         area-registry-self-test area-registry \
-         a-deploy-verifies-the-schema-it-left-self-test a-deploy-verifies-the-schema-it-left \
-         the-deploy-does-not-restate-the-compose-chain-self-test the-deploy-does-not-restate-the-compose-chain \
-         the-contract-names-where-its-objects-live-self-test the-contract-names-where-its-objects-live \
-         identity-endpoints-match-the-contract-self-test identity-endpoints-match-the-contract \
-         assert-runtime-migrations-self-test \
-         assert-runtime-environment-self-test \
-         bootstrap-creates-what-it-grants-on-self-test bootstrap-creates-what-it-grants-on \
-         no-silent-test-skip-self-test no-silent-test-skip \
-         no-env-access-in-domain-layers-self-test no-env-access-in-domain-layers \
-         area-ci-input-coverage-self-test area-ci-input-coverage \
-         document-contract-markers-self-test document-contract-markers \
-         roadmap-owns-recorded-debt-self-test roadmap-owns-recorded-debt \
-         judgment-position-exit-codes-self-test judgment-position-exit-codes \
-         publication-authority-self-test \
-         cargo-verify-isolation-self-test public-tree-snapshot-self-test \
-         frontend-test-isolation-self-test safe-git-transport-self-test \
-         repository-identity-capture-self-test each-guard-runs-once-self-test \
-         public-github-policy public-root-builder public-root-publisher-self-test \
-         import-private-feature-diff-self-test; do
+for g in $guards; do
   bash "$dir/$g.sh" || rc=1
 done
 exit "$rc"

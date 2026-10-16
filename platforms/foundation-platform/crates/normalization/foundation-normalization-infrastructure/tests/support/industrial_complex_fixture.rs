@@ -12,7 +12,7 @@ use foundation_normalization_domain::{
     NormalizationProposalStatus, NormalizationReviewDecision, NormalizationTargetKind,
 };
 use foundation_normalization_infrastructure::PgNormalizationUnitOfWork;
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId, PrincipalId};
+use foundation_shared_kernel::ids::{ComplexId, PrincipalId};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -132,7 +132,6 @@ pub fn sample_complex() -> IndustrialComplex {
         kind: IndustrialComplexKind::General,
         primary_bjdong_code: Some(random_primary_bjdong_code()),
         area_m2: 123_456,
-        lakehouse_complex_id: Some(LakehouseComplexId::new(id.as_uuid())),
         status: None,
         sido_code: None,
         sigungu_code: None,

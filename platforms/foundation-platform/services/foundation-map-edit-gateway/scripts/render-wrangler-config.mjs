@@ -16,6 +16,12 @@ export function render(contract) {
       throw new Error(`map_edit_gateway.${key} must be a non-empty string`);
     }
   }
+  const rum = gateway.real_user_metrics;
+  for (const key of ["analytics_engine_binding", "analytics_engine_dataset"]) {
+    if (typeof rum?.[key] !== "string" || rum[key] === "") {
+      throw new Error(`map_edit_gateway.real_user_metrics.${key} must be a non-empty string`);
+    }
+  }
   // No database_id: Wrangler provisions the database on first deploy and keeps it linked, so no
   // account-specific identifier is committed. The write token is a secret and never rendered.
   return `${JSON.stringify(
@@ -33,6 +39,10 @@ export function render(contract) {
           database_name: gateway.d1_database_name,
           migrations_dir: "migrations",
         },
+      ],
+      // The Gongzzang web's real-user timings (root ADR-0255); the dataset is made on first write.
+      analytics_engine_datasets: [
+        { binding: rum.analytics_engine_binding, dataset: rum.analytics_engine_dataset },
       ],
     },
     null,

@@ -58,7 +58,8 @@ pub struct IndexedChunk {
 pub struct SearchHit {
     pub source_id: String,
     pub chunk_ordinal: i32,
-    pub heading_path: String,
+    /// 바깥부터 안쪽까지의 제목 목록. 잇는 방식은 보여 주는 쪽이 정한다.
+    pub headings: Vec<String>,
     /// 매치된 조각의 본문. **이웃 문맥을 여기 섞지 않는다** — 무엇이 맞았는지와
     /// 무엇이 곁에 있었는지는 구분되어야 한다.
     pub body: String,

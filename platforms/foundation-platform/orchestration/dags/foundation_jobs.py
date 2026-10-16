@@ -19,7 +19,7 @@ from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator,
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
-from job_specs import RETRY_DELAY_MINUTES, asset_uri, job_outcome, load_specs
+from job_specs import RETRY_DELAY_MINUTES, WITHHOLDS_EVENTS, asset_uri, job_outcome, load_specs
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
 # Defined by airflow-runtime.sh as AIRFLOW_CONN_FOUNDATION_HOST: the host, the scheduler account,
@@ -34,17 +34,22 @@ class RunJob(SSHOperator):
 
     def run_ssh_client_command(self, ssh_client, command, context=None):
         output = super().run_ssh_client_command(ssh_client, command, context=context)
-        context["ti"].xcom_push(key=OUTCOME_KEY, value=job_outcome(output))
+        outcome = job_outcome(output)
+        context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
+        if outcome == "waiting":
+            # Not a failure and not a success: skipped, which the data flow map shows as waiting with
+            # the reason from this log (root ADR-0260). publish_outputs is skipped with it.
+            raise AirflowSkipException("the run ended waiting; its last foundation-job-outcome line says for what")
         return b""
 
 
 class PublishOutputs(BaseOperator):
-    """Succeeds, and so records an event on each output asset, unless the run changed nothing."""
+    """Succeeds, and so records an event on each output asset, unless the run did not change them."""
 
     def execute(self, context):
         outcome = context["ti"].xcom_pull(task_ids="run", key=OUTCOME_KEY)
-        if outcome == "unchanged":
-            raise AirflowSkipException("the run changed none of its outputs: no asset events, nothing downstream starts")
+        if outcome in WITHHOLDS_EVENTS:
+            raise AirflowSkipException(f"the run reported {outcome}: no asset events, nothing downstream starts")
         self.log.info("the run reported %s: recording events on %d output assets", outcome or "nothing", len(self.outlets))
 
 

@@ -49,11 +49,14 @@ services:
       - sh
       - -c
       - >
-        test -w /workspace/target/lakehouse && test -r /home/spark/.ivy2 &&
+        test -w /workspace/target/lakehouse && test -w /tmp && test -r /home/spark/.ivy2 &&
         { test "${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}" = ro || test -w /home/spark/.ivy2; }
     volumes:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-./target/lakehouse}:/workspace/target/lakehouse
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
+      # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
+      # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
 
   spark:
     logging: *log-cap
@@ -87,6 +90,9 @@ services:
       # 띄우고 --rm 으로 지우므로, 이것이 컨테이너 안에 있으면 같은 jar 를 열여섯 번 내려받는다.
       # 등록된 운영 작업은 릴리스 빌드가 동결한 jar 폴더를 ro 로 붙인다(root ADR-0134 §3).
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
+      # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
+      # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
     environment:
       PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PYSPARK_PYTHON: python3
@@ -130,6 +136,9 @@ services:
       # 띄우고 --rm 으로 지우므로, 이것이 컨테이너 안에 있으면 같은 jar 를 열여섯 번 내려받는다.
       # 등록된 운영 작업은 릴리스 빌드가 동결한 jar 폴더를 ro 로 붙인다(root ADR-0134 §3).
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
+      # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
+      # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
     environment:
       PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PYSPARK_PYTHON: python3

@@ -30,7 +30,7 @@
 # 없었음"과 "확인 안 함"은 구별되어야 한다. 신규가 있거나 실패하면 슬랙 #alerts 가 안다.
 # Silver 반영은 이 스크립트가 하지 않는다(ADR-0077 §5). 마지막 줄 `foundation-job-outcome changed|unchanged`
 # 가 새 파일이 왔는지 말하고, changed 면 Airflow 가 이 원천을 읽는 Silver 레인을 시작한다(루트 ADR-0171).
-set -euo pipefail
+set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"

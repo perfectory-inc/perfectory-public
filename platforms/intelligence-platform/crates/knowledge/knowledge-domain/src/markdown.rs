@@ -67,16 +67,15 @@ fn push_chunk(
     if body.trim().is_empty() {
         return Ok(());
     }
-    let heading_path = heading_stack
+    let headings = heading_stack
         .iter()
         .filter(|part| !part.is_empty())
         .cloned()
-        .collect::<Vec<_>>()
-        .join(" > ");
+        .collect::<Vec<_>>();
     chunks.push(KnowledgeChunk::new(
         source_id,
         *ordinal,
-        heading_path,
+        headings,
         body.trim(),
     )?);
     *ordinal += 1;
@@ -129,9 +128,9 @@ mod tests {
         let chunks = split_markdown("doc-1", text).expect("split must succeed");
 
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].heading_path, "제목");
+        assert_eq!(chunks[0].headings, ["제목"]);
         assert!(chunks[0].body.contains("앞 문단"));
-        assert_eq!(chunks[1].heading_path, "제목 > 하위");
+        assert_eq!(chunks[1].headings, ["제목", "하위"]);
         assert!(chunks[1].body.contains("뒤 문단"));
         assert_eq!(chunks[0].chunk_ordinal, 0);
         assert_eq!(chunks[1].chunk_ordinal, 1);
@@ -161,7 +160,7 @@ mod tests {
         let chunks = split_markdown("doc-1", text).expect("split must succeed");
 
         assert_eq!(chunks.len(), 1, "본문 없는 제목은 청크가 되지 않는다");
-        assert_eq!(chunks[0].heading_path, "제목 > 바로 하위");
+        assert_eq!(chunks[0].headings, ["제목", "바로 하위"]);
         assert!(!chunks[0].body.contains("status: current"));
     }
 

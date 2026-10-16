@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@suspensive/react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
+import { recordPanelDataReady } from "@/lib/rum";
 import { PanelCard } from "./panel-card";
 import { getKindDefinition, getView } from "./registry";
 import { reportPanelOpened } from "./telemetry";
@@ -56,6 +57,15 @@ export function PanelEntryView({
     staleTime: viewDef?.staleTime ?? 5 * 60_000,
     enabled: Boolean(def && viewDef),
   });
+
+  // Root ADR-0255: click to rendered data, per lane. A panel that opened on cached data measured
+  // the cache, not the lane, so it is not reported.
+  const cachedAtMount = useRef(query.data !== undefined);
+  useEffect(() => {
+    if (query.isSuccess && !cachedAtMount.current) {
+      recordPanelDataReady(`${entry.kind}.${entry.view}`, performance.now() - startedAt.current);
+    }
+  }, [query.isSuccess, entry.kind, entry.view]);
 
   // Stable scalar deps — capture entry's discriminator scalars directly so
   // parent re-renders that produce a new `entry` object reference (URL

@@ -45,9 +45,9 @@ work="$(mktemp -d)"
 log="$work/tests.log"
 project="foundation-spark-runtime-$$"
 compose() {
-  # The service's state and Ivy mounts point into this run's temporary directory, not the tree.
+  # The service's state, Ivy and /tmp mounts point into this run's temporary directory, not the tree.
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="$work/state" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$work/ivy" \
-    docker compose -p "$project" --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
+    FOUNDATION_PLATFORM_SPARK_TMP="$work/tmp" docker compose -p "$project" --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
     --profile lakehouse-batch "$@"
 }
 cleanup() {
@@ -55,8 +55,9 @@ cleanup() {
   rm -rf "$work" 2>/dev/null || true
 }
 trap cleanup EXIT
-mkdir -p "$work/state" "$work/ivy"
+mkdir -p "$work/state" "$work/ivy" "$work/tmp"
 chmod 0777 "$work/state" "$work/ivy"
+chmod 1777 "$work/tmp"
 # Read-only source; Ivy, Spark's scratch and the tests' temporary tables live in the container's /tmp.
 SECONDS=0
 compose pull --quiet spark

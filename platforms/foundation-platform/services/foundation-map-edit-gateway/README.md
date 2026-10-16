@@ -26,6 +26,11 @@ last_reviewed: 2026-09-28
   GeoJSON FeatureCollection, 속성에 unit 의 id 속성 포함). ETag 는
   `{unit}-{folded_through_change_seq}-{latest_change_seq}` 이고 `If-None-Match` 가 맞으면 304 다.
   허용되지 않은 Origin 은 403, query 는 404.
+- `POST /rum` — 공개. 공짱 웹의 실사용자 시간 측정 beacon([ADR-0255](../../../../docs/adr/0255-gongzzang-web-real-user-speed-is-measured-in-analytics-engine.md)).
+  본문은 `{v: 1, m: [{n, l?, v}]}` 하나뿐이고, 지표 이름·레인 문법·크기 한도는 계약
+  `map_edit_gateway.real_user_metrics` 가 정본이다. 항목 하나라도 어긋나면 beacon 전체를 400 으로
+  버린다. 받은 값은 Workers Analytics Engine `gongzzang_web_rum` 에 (지표, 레인, 국가, 값)으로만 쓴다.
+  국가는 Cloudflare 값이며, 중계(웹 미리보기)가 붙인 `X-Rum-Viewer-Country` 가 있으면 그 값을 쓴다.
 - `POST /edits/{unit}` — 신뢰된 작성자(foundation-api) 전용. `Authorization: Bearer` 가 쓰기 토큰
   secret 과 같아야 하고 브라우저 Origin 이 붙으면 403 이다. 본문은
   `{feature_id, op: upsert|delete, geometry?, properties?, editor, idempotency_key}`. 구조 검사만

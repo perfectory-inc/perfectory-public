@@ -38,7 +38,7 @@ case "$*" in
     for last; do :; done
     [ -z "$state" ] || echo "$last loaded $state x fixture" ;;
   *InvocationID*) if [ -f "$root/started" ]; then echo new; else echo old; fi ;;
-  *Result*) echo success ;;
+  *Result*) echo "${FIXTURE_RESULT:-success}" ;;
 esac
 """
 SLEEP = """#!/bin/sh
@@ -48,10 +48,20 @@ SUDO = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sudo.log"
 touch "$FIXTURE_ROOT/started"
 """
-JOURNALCTL = "#!/bin/sh\nexit 0\n"
+# Release admission's `release-build-running`: 75 while FIXTURE_BUILD says a build holds the lock.
+ADMISSION = """#!/bin/sh
+[ "$1" = release-build-running ] || exit 64
+[ -z "${FIXTURE_BUILD:-}" ] || exit 75
+"""
+# The run's journal: FIXTURE_JOURNAL, or a run that ended by saying it changed its outputs.
+JOURNALCTL = """#!/bin/sh
+printf '%b' "${FIXTURE_JOURNAL-loaded\\nfoundation-job-outcome changed\\n}"
+"""
 
 
-class TakingTurns(unittest.TestCase):
+class HostFixture(unittest.TestCase):
+    """The script under stand-ins for sudo, systemctl, journalctl and sleep."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="start-scheduled-job-")
         self.addCleanup(self.temp.cleanup)
@@ -60,12 +70,16 @@ class TakingTurns(unittest.TestCase):
         (self.root / "jobs.json").write_text(json.dumps(JOBS))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL), ("sleep", SLEEP)):
+        for name, body in (("systemctl", SYSTEMCTL), ("sudo", SUDO), ("journalctl", JOURNALCTL), ("sleep", SLEEP),
+                           ("admission", ADMISSION)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
+        self.deferred = self.root / "deferred"
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "FIXTURE_ROOT": str(self.root), "FOUNDATION_SCHEDULED_JOBS_FILE": str(self.root / "jobs.json"),
-                    "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts)}
+                    "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts),
+                    "FOUNDATION_RELEASE_ADMISSION": str(bin_dir / "admission"),
+                    "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred)}
 
     def start(self, job, **env):
         for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log"):
@@ -79,13 +93,18 @@ class TakingTurns(unittest.TestCase):
         self.starts.mkdir(exist_ok=True)
         (self.starts / job).write_text(f"{seconds}\n")
 
+
+class TakingTurns(HostFixture):
+    """A `takes_turns` job starts at most once between starts of the jobs it blocks (ADR-0138)."""
+
     def test_the_first_start_of_a_turn_taking_job_runs_and_is_recorded(self):
         result, asked = self.start("bake")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
         self.assertTrue((self.starts / "bake").is_file())
-        # A run that starts says nothing of its own outcome: the unit's journal does.
-        self.assertNotIn("foundation-job-outcome", result.stdout)
+        # The run's outcome is the unit journal's line, repeated before the result line (ADR-0260).
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "foundation-job-outcome changed", "start-scheduled-job: foundation-bake.service result=success"])
 
     def test_the_run_is_followed_while_job_units_says_it_runs(self):
         # A oneshot is `activating` for its whole run; stopping or reloading it still runs. The wait is
@@ -148,6 +167,70 @@ class TakingTurns(unittest.TestCase):
         result, asked = self.start("fold")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("foundation-fold.service", asked)
+
+
+class TheRunSaysHowItEnded(HostFixture):
+    """Root ADR-0260 §2: success is what the run said at its end, not that its unit exited 0."""
+
+    def outcome(self, result):
+        sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
+        import job_specs  # noqa: E402
+        return job_specs.job_outcome(result.stdout)
+
+    def test_a_job_that_exits_0_without_an_outcome_is_failed(self):
+        # The unit ended `success`, but the run never said it reached its end: a gate that crashed
+        # and let the script fall through, an early `exit 0`, an ERR trap that did not fire.
+        result, _ = self.start("fold", FIXTURE_JOURNAL="baking 6 lanes\\nall six cut over\\n")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "foundation-job-outcome failed no outcome reported",
+            "start-scheduled-job: foundation-fold.service result=success"])
+        self.assertEqual(self.outcome(result), "failed")
+
+    def test_a_run_that_says_failed_is_failed_though_it_exited_0(self):
+        result, _ = self.start("fold", FIXTURE_JOURNAL="foundation-job-outcome failed gate crashed\\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("foundation-job-outcome failed gate crashed", result.stdout.splitlines()[-2])
+        self.assertEqual(self.outcome(result), "failed")
+
+    def test_a_run_that_waits_is_not_failed_and_starts_nothing(self):
+        result, _ = self.start("fold", FIXTURE_JOURNAL="foundation-job-outcome waiting edition awaits its contract\\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.outcome(result), "waiting")
+
+    def test_the_last_outcome_line_decides_and_a_bad_line_is_no_line(self):
+        result, _ = self.start("fold", FIXTURE_JOURNAL="foundation-job-outcome changed\\nfoundation-job-outcome unchanged\\n")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.outcome(result), "unchanged")
+        result, _ = self.start("fold", FIXTURE_JOURNAL="foundation-job-outcome finished\\n")
+        self.assertEqual(result.returncode, 1)
+
+    def test_a_unit_systemd_failed_stays_failed_whatever_it_said(self):
+        result, _ = self.start("fold", FIXTURE_RESULT="exit-code")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.splitlines()[-1], "start-scheduled-job: foundation-fold.service result=exit-code")
+
+
+class AJobDueDuringAReleaseBuild(HostFixture):
+    """Root ADR-0260: a release build's lock is a designed wait, not a failed unit and its alert."""
+
+    def test_it_is_not_started_says_it_waits_and_is_recorded(self):
+        result, asked = self.start("fold", FIXTURE_BUILD="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(asked, "", "no unit starts, so no ExecStartPre refuses and no OnFailure alerts")
+        self.assertEqual(result.stdout.splitlines()[-1],
+                         "foundation-job-outcome waiting a release build is running; this job starts after it finishes")
+        sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
+        import job_specs  # noqa: E402
+        self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
+        self.assertEqual(sorted(path.name for path in self.deferred.iterdir()), ["fold"])
+
+    def test_the_record_goes_when_the_job_starts(self):
+        self.start("fold", FIXTURE_BUILD="1")
+        result, asked = self.start("fold triggered")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-fold.service", asked)
+        self.assertEqual(list(self.deferred.iterdir()), [])
 
 
 if __name__ == "__main__":

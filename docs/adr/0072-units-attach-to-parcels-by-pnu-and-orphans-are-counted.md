@@ -1,6 +1,6 @@
 # ADR 0072: 호(戶)는 PNU 로 필지에 붙고, 못 붙는 행은 지어내지 않고 센다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (`catalog.building_unit` 과 그 적재기를 지웠다)
 - Date: 2026-09-03
 
 ## Context

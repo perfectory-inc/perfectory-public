@@ -13,9 +13,7 @@ use crate::r2_command_support::{
     canonical_path, env_bool, env_path, normalize_windows_verbatim_path, optional_env,
     r2_config_from_env_file, read_json, resolve_path, utc_now, write_json_file,
 };
-use crate::r2_layout::{
-    PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT, VECTOR_TILE_ARTIFACT_ROOT, VECTOR_TILE_MANIFEST_ROOT,
-};
+use crate::r2_inventory_audit::audit_keeps;
 
 const MANIFEST_SCHEMA_VERSION: &str = "foundation-platform.r2_delete_candidates.v1";
 const PLAN_SCHEMA_VERSION: &str = "foundation-platform.r2_delete_plan.v1";
@@ -288,26 +286,13 @@ fn normalize_allowed_prefixes(raw: &str) -> anyhow::Result<Vec<String>> {
     Ok(prefixes)
 }
 
+/// Everything the inventory audit keeps is refused here, from the audit's one classification:
+/// a second list in this file drifted and left replaced by-PNU manifests deletable (root
+/// ADR-0264). Iceberg files and contracted Bronze are refused even where the audit only reviews.
 fn is_protected_key(key: &str, is_legacy_date_partitioned_bronze: bool) -> bool {
-    key == "gold/manifest.json"
-        || key.starts_with("__r2_data_catalog/")
+    audit_keeps(key)
         || key.starts_with("warehouse/")
-        || is_current_spatial_artifact(key)
-        || key.starts_with("silver-handoff/")
         || (key.starts_with("bronze/source=") && !is_legacy_date_partitioned_bronze)
-}
-
-fn is_current_spatial_artifact(key: &str) -> bool {
-    [
-        VECTOR_TILE_ARTIFACT_ROOT,
-        VECTOR_TILE_MANIFEST_ROOT,
-        PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT,
-    ]
-    .iter()
-    .any(|root| {
-        key.strip_prefix(root)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-    })
 }
 
 fn is_legacy_date_partitioned_bronze_key(key: &str) -> bool {
@@ -375,6 +360,36 @@ mod tests {
         ] {
             assert!(assert_delete_candidate_object(&candidate(key, "stale"), &[]).is_err());
         }
+    }
+
+    #[test]
+    fn delete_plan_protects_every_versioned_copy_the_audit_keeps() -> anyhow::Result<()> {
+        use crate::by_pnu_gateway_contract::ByPnuLane;
+        use crate::r2_layout::by_pnu;
+
+        let sha256 = "a".repeat(64);
+        let mut keys = vec![
+            format!(
+                "{}/018f0000-0000-7000-8000-000000000004.pmtiles",
+                catalog_domain::STATIC_RELEASE_OBJECT_ROOT
+            ),
+            format!("control/evidence/parcel-publication/execution/sha256={sha256}.json"),
+            "gold/manifest.json".to_owned(),
+        ];
+        for lane in [ByPnuLane::Parcel, ByPnuLane::Building] {
+            keys.push(by_pnu::manifest_history_key(
+                lane,
+                "20261016T000000Z",
+                &sha256,
+            )?);
+        }
+        for key in keys {
+            assert!(
+                assert_delete_candidate_object(&candidate(&key, "stale"), &[]).is_err(),
+                "a kept versioned copy was deletable: {key}"
+            );
+        }
+        Ok(())
     }
 
     #[test]

@@ -453,6 +453,16 @@
       "max_body_bytes": 1048576
     },
     "max_pending_edits_per_unit": 5000,
+    "real_user_metrics": {
+      "path": "/rum",
+      "analytics_engine_binding": "GONGZZANG_WEB_RUM",
+      "analytics_engine_dataset": "gongzzang_web_rum",
+      "metrics": ["LCP", "INP", "CLS", "TTFB", "panel_data_ready"],
+      "lane_pattern": "[a-z][a-z-]{0,23}[.][a-z][a-z-]{0,23}",
+      "max_body_bytes": 4096,
+      "max_metrics": 32,
+      "max_value": 600000
+    },
     "overlay_cache_control": "public, max-age=0, must-revalidate",
     "content_type": "application/json; charset=utf-8",
     "cors": {

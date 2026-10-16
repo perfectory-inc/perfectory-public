@@ -69,6 +69,16 @@ if which == "enabled-consumers-first":
         print("\n".join(unpause_order()))
     else:
         print("\n".join(job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]))
+if which == "deferred":
+    # The enabled jobs the scheduler's runner did not start because a release build was running
+    # (root ADR-0260); job_units.py of the running release says where it recorded them.
+    import os
+    deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
+    if os.path.isfile(os.path.join(deploy, "job_units.py")):
+        sys.path.insert(0, deploy)
+        from job_units import deferred
+        enabled = {job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]}
+        print("\n".join(job for job in deferred() if job in enabled))
 PY
 }
 mapfile -t jobs < <(jobs_of enabled)
@@ -78,6 +88,24 @@ mapfile -t disabled < <(jobs_of disabled)
 # checkout it came from admits by. 0 nothing runs, 75 something does (listed), anything else: no answer.
 admission="${control_root}/current/scripts/deploy/foundation-release-admission.py"
 old="$(readlink -f "${release_root}/current")"; old="${old##*/}"
+
+log "pre-flight: the approval settings ${sha}'s pending migrations wait for are set (root ADR-0259 §4)"
+# Before step 0: a migration that would refuse in step 4 stops the deploy here, with no DAG paused
+# and no container recreated. On 2026-10-14 #465's refused after activate had recreated the API,
+# which stayed down about 30 minutes. The checker and its contract are the commit's own.
+/bin/bash "${control_root}/current/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \
+  fetch -q --no-tags "${repository}" +refs/heads/main:refs/heads/main
+git --git-dir="${mirror}" merge-base --is-ancestor "${sha}" refs/heads/main
+preflight="$(mktemp -d /var/lib/perfectory/preflight-XXXXXX)"
+git --git-dir="${mirror}" archive "${sha}" scripts/guard/migration-approval-gates.py \
+  tools/ci/migration-approval-gates.contract.json platforms/foundation-platform/migrations \
+  platforms/foundation-platform/scripts/deploy/migration-approval-preflight.py | tar -x -C "${preflight}"
+preflight_status=0
+python3 "${preflight}/platforms/foundation-platform/scripts/deploy/migration-approval-preflight.py" "${preflight}" -- \
+  "${release_root}/current/scripts/deploy/foundation-runtime.sh" exec -T postgres \
+  sh -c 'psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' || preflight_status=$?
+rm -rf "${preflight}"
+((preflight_status == 0)) || exit "${preflight_status}"
 
 log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
 # From here until step 7 the DAGs are paused. A deploy that stops before the release switch gives the
@@ -103,10 +131,7 @@ case "${running}" in
   *) echo "foundation-deploy: release admission cannot tell which registered jobs run (exit ${running})" >&2; exit 1 ;;
 esac
 
-log "1. control checkout at ${sha}"
-/bin/bash "${control_root}/current/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \
-  fetch -q --no-tags "${repository}" +refs/heads/main:refs/heads/main
-git --git-dir="${mirror}" merge-base --is-ancestor "${sha}" refs/heads/main
+log "1. control checkout at ${sha} (fetched by the pre-flight)"
 target="${control_root}/releases/${sha}"
 if [[ ! -e "${target}" ]]; then
   staging="$(mktemp -d "${control_root}/releases/.staging.XXXXXX")"

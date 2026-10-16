@@ -27,8 +27,17 @@ START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 JOBS = PLATFORM / "orchestration/jobs.v1.json"
 CURRENT = "a" * 40
 HEAD = "b" * 40
+PREFLIGHT = PLATFORM / "scripts/deploy/migration-approval-preflight.py"
+GATES_CHECKER = PLATFORM.parents[1] / "scripts/guard/migration-approval-gates.py"
+GATES_CONTRACT = PLATFORM.parents[1] / "tools/ci/migration-approval-gates.contract.json"
+GATED_MIGRATION = PLATFORM / "migrations/20261014021000_drop_the_catalog_parcel_building_and_unit_copies.sql"
+PLAIN_MIGRATION = PLATFORM / "migrations/20260719000001_foundation_platform_schema.sql"
 RECHECK_SECONDS = int(next(line for line in SCRIPT.read_text().splitlines()
                            if line.startswith("recheck_seconds=")).removeprefix("recheck_seconds="))
+
+def version(migration):
+    return migration.name.split("_", 1)[0]
+
 
 sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
@@ -401,6 +410,21 @@ class TheWholeDeploy(unittest.TestCase):
         (running / "scripts/deploy/airflow-runtime.sh").write_text(
             'if [[ "$1" == exec ]]; then shift 3; printf "%s\\n" "$*" >> "$FIXTURE_ROOT/airflow.log"\n'
             '  [[ -z "${FIXTURE_AIRFLOW_FAILS:-}" || "$*" != *"$FIXTURE_AIRFLOW_FAILS"* ]]; fi\n')
+        # The running release's compose wrapper stands in for psql on the production database: it
+        # answers the ledger from FIXTURE_ROOT/applied and a setting from FIXTURE_SETTING.
+        (running / "scripts/deploy/foundation-runtime.sh").write_text(
+            '#!/usr/bin/env bash\n[[ -z "${FIXTURE_DB_DOWN:-}" ]] || exit 2\nsql="$(cat)"\n'
+            'case "$sql" in *_sqlx_migrations*) cat "$FIXTURE_ROOT/applied" ;;\n'
+            '  *current_setting*) echo "${FIXTURE_SETTING:-}" ;; esac\n')
+        (running / "scripts/deploy/foundation-runtime.sh").chmod(0o755)
+        # The commit's tree: its approval gate checker and contract, its pre-flight, and the gated
+        # migration of #465 with one ordinary one. The database has applied both unless a test says.
+        commit = root / "commit"
+        for path in (GATES_CHECKER, GATES_CONTRACT, PREFLIGHT, GATED_MIGRATION, PLAIN_MIGRATION):
+            relative = path.relative_to(PLATFORM.parents[1])
+            (commit / relative).parent.mkdir(parents=True, exist_ok=True)
+            (commit / relative).write_bytes(path.read_bytes())
+        (root / "applied").write_text(f"{version(PLAIN_MIGRATION)}\n{version(GATED_MIGRATION)}\n")
         (release_root / "current").symlink_to(pathlib.Path("releases") / old)
         (release_root / "config" / old).mkdir(parents=True)
         (release_root / "config" / old / "building-register-floor.env").write_text(
@@ -448,6 +472,7 @@ class TheWholeDeploy(unittest.TestCase):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
+        text = text.replace("mktemp -d /var/lib/perfectory/", f"mktemp -d {root.as_posix()}/var/")
         self.assertNotIn("/var/lib/perfectory", text)
         scripts = root / "scripts"
         scripts.mkdir()
@@ -458,7 +483,9 @@ class TheWholeDeploy(unittest.TestCase):
         self.bin.mkdir()
         for name, body in (
             ("sudo", 'while [[ "$1" == -* ]]; do [[ "$1" == -u ]] && shift; shift; done\nexec "$@"\n'),
-            ("git", 'if [[ "$*" == *" -o "* ]]; then : > "${@: -2:1}"; fi\nexit 0\n'),
+            # `git archive <sha> <paths>` to stdout: the commit's tree (the pre-flight's input).
+            ("git", 'if [[ "$*" == *" -o "* ]]; then : > "${@: -2:1}"\n'
+                    'elif [[ "$2" == archive ]]; then tar -C "$FIXTURE_ROOT/commit" -cf - .; fi\nexit 0\n'),
             ("chown", "exit 0\n"),
             ("sleep", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/sleep.log"\n'),
             ("systemctl", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/systemctl.log"\n'
@@ -532,6 +559,55 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
 
+    def unapplied(self, migration):
+        applied = (self.root / "applied").read_text().split()
+        (self.root / "applied").write_text("\n".join(v for v in applied if v != version(migration)) + "\n")
+
+    def assert_refused_before_anything(self, result, text):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("REFUSED before anything was paused or restarted", result.stderr)
+        self.assertIn(text, result.stderr)
+        self.assertEqual(self.released(), [])  # nothing prepared, activated or migrated
+        self.assertFalse((self.root / "airflow.log").exists())  # no DAG paused
+
+    def test_a_pending_approval_migration_whose_setting_is_unset_stops_the_deploy_before_step_0(self):
+        # The replay of 2026-10-14 (#465): its drop migration waited for a setting nobody had set.
+        self.unapplied(GATED_MIGRATION)
+        result = self.deploy()
+        self.assert_refused_before_anything(result, "waits for foundation.adr_0194_drop_approved = 'yes'")
+        self.assertIn("ALTER DATABASE foundation SET foundation.adr_0194_drop_approved = 'yes'", result.stderr)
+
+    def test_a_pending_approval_migration_whose_setting_is_set_deploys(self):
+        self.unapplied(GATED_MIGRATION)
+        result = self.deploy(FIXTURE_SETTING="yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.released()[0], "prepare")
+
+    def test_an_applied_approval_migration_needs_its_setting_no_longer(self):
+        result = self.deploy(FIXTURE_SETTING="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_database_that_cannot_be_asked_stops_the_deploy_before_step_0(self):
+        self.assert_refused_before_anything(self.deploy(FIXTURE_DB_DOWN="1"), "could not be asked")
+
+    def test_a_job_its_runner_deferred_while_the_release_built_is_started_once_unpaused(self):
+        # Root ADR-0260: a job due during the build was not started (start-scheduled-job.sh); nothing
+        # else would start it before its next scheduled slot, an hour or a day later.
+        deploy = self.root / "opt/foundation-platform/current/scripts/deploy"
+        (deploy / "job_units.py").write_bytes((PLATFORM / "scripts/deploy/job_units.py").read_bytes())
+        deferred = self.root / "deferred"
+        deferred.mkdir()
+        for job in ("map_edit_fold_admin", "vworld_parcel_edition"):  # the second is switched off
+            (deferred / job).write_text("0\n")
+        result = self.deploy(FOUNDATION_SCHEDULED_DEFERRED_DIR=str(deferred))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.root / "airflow.log").read_text().splitlines()
+        self.assertEqual([line for line in log if line.startswith("dags trigger")],
+                         ["dags trigger foundation_map_edit_fold_admin"])
+        self.assertLess(log.index("dags unpause foundation_map_edit_fold_admin"),
+                        log.index("dags trigger foundation_map_edit_fold_admin"))
+        self.assertIn("started foundation_map_edit_fold_admin", result.stdout)
+
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -541,6 +617,8 @@ class TheWholeDeploy(unittest.TestCase):
                          ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
+        # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).
+        self.assertNotIn("dags trigger", (self.root / "airflow.log").read_text())
 
     def test_a_failed_staging_smoke_refuses_the_release_and_leaves_the_schedule_as_it_was(self):
         # Root ADR-0177: the three incidents of 2026-10-09/10 each passed CI and failed on the first

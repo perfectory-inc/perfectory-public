@@ -161,8 +161,8 @@
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-parcel-boundaries"
       ],
-      "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host (runbook vworld-parcel-editions.md, 'Turning it on') has answered 'held' for the edition the contract holds; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-16T01:00:00Z"
     },
     {
       "id": "parcel_number_change_history",
@@ -192,6 +192,21 @@
       "reads_data_contracts": true,
       "enabled": true,
       "enabled_since": "2026-10-01T14:51:40Z",
+      "started_once_after_deploy": true
+    },
+    {
+      "id": "shape_ledger_check",
+      "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
+      "systemd_service": "foundation-shape-ledger-check.service",
+      "systemd_timer": null,
+      "schedule": "30 12 * * *",
+      "started_by": "schedule",
+      "timeout_minutes": 20,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-16T00:00:00Z",
       "started_once_after_deploy": true
     },
     {

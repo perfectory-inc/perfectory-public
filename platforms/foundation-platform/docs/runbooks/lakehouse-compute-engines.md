@@ -505,8 +505,8 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 
 주소·상태·지정일·착공일·준공일·관리기관·시행자·시도/시군구 코드에 더해, 분양상태·조성진행률·
 사업기간(원문과 파생 두 달)·지정근거법·개발방식·조성목적·유치업종이 모두 신원 필드와 같은 Gold
-행에서 함께 적재된다(root ADR-0044). `lakehouse_complex_id` 도 함께 쓴다 — Gold 프로필 오브젝트
-키가 그 값에서 파생되므로, 그 칸이 없으면 canonical 행이 R2 의 어떤 오브젝트도 가리키지 못한다.
+행에서 함께 적재된다(root ADR-0044). Gold 행의 `complex_id` 는 공식 단지코드의 유도값과 같아야
+하고 그 값이 곧 canonical `id` 다(root ADR-0250) — 다르면 적재가 멈춘다.
 
 이 커맨드가 **쓰지 않는 것**을 요약이 스스로 적는다.
 

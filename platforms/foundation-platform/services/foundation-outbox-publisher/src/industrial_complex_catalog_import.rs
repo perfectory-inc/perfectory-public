@@ -105,7 +105,7 @@ impl RawIndustrialComplexCatalogRow {
             // A hand-written seed states identity. Everything below is sourced description that
             // only the Gold loader has a snapshot to read, so the seed asserts none of it rather
             // than inventing values a reviewer would have to trust.
-            lakehouse_complex_id: None,
+            complex_id: None,
             official_complex_code: self.official_complex_code,
             name: self.name,
             kind,

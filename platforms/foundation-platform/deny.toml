@@ -24,7 +24,18 @@ unsound = "all"
 # is semver-unreachable from any released SDK, not merely un-upgraded here. Dropping the
 # S3 SDK or pinning an unreleased revision would widen risk. Remove this entry once
 # `aws-sdk-s3` publishes a release that depends on `lru >= 0.18.2`.
+#
+# zip: on 2026-10-16 03:32-03:35 UTC upstream yanked every release line but 9.0.3, with no
+# advisory published (checked GitHub and OSV the same morning). Every PR's supply-chain gate then
+# failed on `yanked = "deny"`. 6.0.0 is a build-dependency of libduckdb-sys and 8.6.0 a dependency
+# of calamine; their newest releases (1.10506.0 and 0.36.1) still require `zip ^6` and `^8.6`, so no
+# released upgrade reaches 9.0.3. 2.4.2 is our own workspace dependency (`zip = "2"`); its move to
+# zip 9 is the follow-up pull request, which deletes that entry. Remove the other two when
+# libduckdb-sys and calamine release on zip 9, or at once if an advisory names these versions.
 ignore = [
+    { crate = "zip@2.4.2", reason = "yanked 2026-10-16 without an advisory; our own dependency, moving to zip 9 in the follow-up pull request" },
+    { crate = "zip@6.0.0", reason = "yanked 2026-10-16 without an advisory; build-dependency of libduckdb-sys, whose newest 1.10506.0 still requires zip ^6" },
+    { crate = "zip@8.6.0", reason = "yanked 2026-10-16 without an advisory; dependency of calamine, whose newest 0.36.1 still requires zip ^8.6" },
     { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23" },
     { id = "RUSTSEC-2026-0253", reason = "lru is reached only via aws-sdk-s3, whose every published release through 1.141.0 requires lru ^0.16.3 while the fix landed in 0.18.2, as of 2026-08-13" },
 ]

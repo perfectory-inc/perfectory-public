@@ -44,7 +44,7 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 
 ## 2. 켜기
 
-작업은 꺼진 채(`enabled: false`) 출시된다.
+작업은 꺼진 채(`enabled: false`) 출시됐고, 2026-10-16 감독 실행(`provider=202610 held`, 5 초) 뒤 켰다. 아래는 그때의 절차다.
 
 1. 릴리스가 `/var/lib/foundation-platform/vworld-parcel-edition` 을 만든다(`foundation-release.sh`). 없으면 단위가 시작하지 못한다.
 2. 감독 실행 한 번:

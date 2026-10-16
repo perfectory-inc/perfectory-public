@@ -48,10 +48,14 @@ ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
 STARTED_BY = ("schedule", "inputs")
-# The line a job's unit prints last to say whether its run changed its outputs (root ADR-0171 §3).
-# Only `unchanged` withholds the run's output events: a run that does not say counts as changed,
-# and the jobs it starts find nothing to do on their own.
-OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged)\r?$", re.MULTILINE)
+# The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
+# `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
+# output events; a run that does not say counts as changed, and the jobs it starts find nothing to
+# do on their own.
+OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiting|failed) \S[^\r\n]*)\r?$", re.MULTILINE)
+# The outcomes after which nothing downstream starts: nothing changed, the run waits on someone
+# else, or it failed.
+WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed")
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
 
@@ -104,19 +108,29 @@ def asset_uri(dataset):
     return f"{namespace}://{name}"
 
 
-def job_outcome(output):
-    """`changed` or `unchanged`, from the tail of what a run printed (bytes or text).
+def outcome_line(output):
+    """The last `foundation-job-outcome` line in the tail of what a run printed (bytes or text), or None.
 
-    The last `foundation-job-outcome` line decides. No line counts as `changed`: a job that does not
-    say yet, or whose last lines the journal follower missed, still starts what reads its outputs,
-    which then finds nothing to do.
+    The host runner asks this of the run's journal (`--outcome-line`) and fails a successful run
+    that has none (root ADR-0260 §2); the DAG asks it of what the runner printed.
     """
     if output is None:
-        return "changed"
+        return None
     if isinstance(output, str):
         output = output.encode("utf-8", "replace")
     found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
-    return found[-1].decode() if found else "changed"
+    return "foundation-job-outcome " + found[-1].decode("utf-8", "replace") if found else None
+
+
+def job_outcome(output):
+    """`changed`, `unchanged`, `waiting` or `failed`, from the tail of what a run printed (bytes or text).
+
+    The last `foundation-job-outcome` line decides; its reason is not kept. No line counts as
+    `changed`: the host runner already failed a successful run without one (root ADR-0260 §2), and
+    repeats the line it decided on last, so what is left is output the scheduler cut short.
+    """
+    line = outcome_line(output)
+    return line.split(" ", 2)[1] if line else "changed"
 
 
 def service_unit_file(service):
@@ -606,5 +620,10 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--check-dependencies"]:
         if DEPENDENCIES.read_bytes() != rendered_dependencies().encode("utf-8"):
             sys.exit(f"{DEPENDENCIES} is stale; run: python orchestration/dags/job_specs.py --write-dependencies")
+    elif sys.argv[1:] == ["--outcome-line"]:
+        # Reads a run's journal on stdin; prints its outcome line, or nothing (root ADR-0260 §2).
+        line = outcome_line(sys.stdin.buffer.read())
+        if line:
+            print(line)
     else:
-        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies")
+        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --outcome-line")
