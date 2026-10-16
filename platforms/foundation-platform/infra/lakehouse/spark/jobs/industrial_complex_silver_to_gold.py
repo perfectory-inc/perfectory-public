@@ -13,11 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 from pyspark.storagelevel import StorageLevel
 
+from industrial_complex_current import current_complex_rows
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -243,15 +244,7 @@ def build_gold_catalog_frame(
     published_at_utc: str,
     boundary_object_key: str | None,
 ) -> DataFrame:
-    active = silver.where(F.col("valid_to_utc").isNull())
-    window = Window.partitionBy("complex_id").orderBy(
-        F.col("valid_from_utc").desc_nulls_last(),
-        F.col("ingested_at_utc").desc_nulls_last(),
-        F.col("official_complex_code").asc(),
-    )
-    latest = active.withColumn("_row_number", F.row_number().over(window)).where(
-        F.col("_row_number") == 1
-    )
+    latest = current_complex_rows(silver)
 
     return latest.select(
         F.col("complex_id"),

@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from industrial_complex_current import current_complex_rows
 import spatial_silver_handoff as shared
 from platform_contracts import (
     column_names,
@@ -205,7 +206,8 @@ def read_complexes(spark: Any, args: argparse.Namespace) -> Any:
     if args.complexes_mode == "jsonl":
         frame = spark.read.json(args.complexes_input)
     else:
-        frame = spark.table(qualified_complexes_table(args))
+        # The table is append-only; its current row per complex is the one rule every reader uses.
+        frame = current_complex_rows(spark.table(qualified_complexes_table(args)))
 
     missing_columns = sorted(set(COMPLEX_JOIN_COLUMNS) - set(frame.columns))
     if missing_columns:
@@ -226,11 +228,9 @@ def read_complexes(spark: Any, args: argparse.Namespace) -> Any:
 def assert_one_row_per_complex(complexes: Any) -> None:
     """Refuse an ambiguous complex list rather than picking a row.
 
-    `silver.industrial_complexes` declares no `current_row_predicate`, so this job has no
-    contract-stated way to choose between two rows for one code. Inventing one — "the latest
-    `valid_from_utc`", say — would put a versioning rule in a boundary loader, where nobody would
-    look for it. When the table starts carrying history, the predicate belongs in the contract and
-    this check is what will say so.
+    The table's current row per complex is chosen before this, by the rule every reader shares
+    (`industrial_complex_current`, the one the catalog Gold uses). What is left must be one row per
+    official code; two complexes claiming one code is a source fault this check names.
     """
 
     duplicates = complexes.groupBy("official_complex_code").count().where(F.col("count") > 1)
