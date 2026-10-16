@@ -520,6 +520,9 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([call["command"] for call in self.published(calls)],
                          ["publish-building-by-pnu-serving-manifest"])
+        # 2026-10-16: this run said `changed` and exited 1. The last word now matches the exit.
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome failed parcel; published: building")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
 
     def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
         # Root ADR-0190. The release ships the contract that names the pack-only lanes.
