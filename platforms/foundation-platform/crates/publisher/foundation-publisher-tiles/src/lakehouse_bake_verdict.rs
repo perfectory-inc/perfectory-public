@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn a_verdict_that_did_not_check_the_registry_binds_no_bake() {
-        // ADR-0265: --no-registry, a rehearsal without the table, or a verdict from before.
+        // ADR-0265: --no-registry, a gate that waited, or a verdict from before.
         for registry in [
             serde_json::json!("skipped"),
             serde_json::json!("absent"),

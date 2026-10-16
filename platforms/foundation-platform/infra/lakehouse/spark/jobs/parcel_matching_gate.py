@@ -11,9 +11,8 @@ Checks, from the lakehouse only:
 Writes the verdict JSON and exits 1 when the gate refuses, so a bake behind it does not start.
 Check (b) reads `silver.parcel_registry`, which the `parcel_registry` job creates (root ADR-0243). When
 that table does not exist yet the gate does not run: it writes a verdict naming the absent input and
-exits `INPUT_ABSENT` (3), so the job behind it waits (root ADR-0265). `--registry-when-present` (a
-rehearsal) skips check (b) instead and records `registry: absent`; `--no-registry` records `skipped`.
-A bake binds only to a verdict whose registry was `checked`.
+exits `INPUT_ABSENT` (3), so the job or rehearsal behind it waits (root ADR-0265); `--no-registry`
+records `skipped`. A bake binds only to a verdict whose registry was `checked`.
 
 The checks are the ones `map_matching_gate` states over plain Python values, run here as counts and
 anti-joins on the executors: a national snapshot is forty million parcels, and no PNU set, code
@@ -59,10 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sido", required=True, help="Comma-separated sido prefixes")
     parser.add_argument("--lineage-from-snapshot-id", help="Earlier snapshot of the lineage that reaches this one")
     parser.add_argument("--attribute", action="append", default=[], help="namespace.table:column_for_year=value, e.g. silver.land_individual_price:base_year=2026")
-    registry = parser.add_mutually_exclusive_group()
-    registry.add_argument("--no-registry", action="store_true", help="The region has no parcel registry yet; skip check (b)")
-    registry.add_argument("--registry-when-present", action="store_true",
-                          help=f"Skip check (b) only when {REGISTRY_TABLE} does not exist yet (a rehearsal); without it the gate waits")
+    parser.add_argument("--no-registry", action="store_true", help="The region has no parcel registry yet; skip check (b)")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
@@ -73,15 +69,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def registry_state(no_registry: bool, when_present: bool, exists: bool) -> str:
-    """How check (b) runs (root ADR-0265): `checked`, `skipped` (--no-registry), `absent` (a rehearsal
-    without the table) or `wait` (the table does not exist yet: the gate must not run)."""
+def registry_state(no_registry: bool, exists: bool) -> str:
+    """How check (b) runs (root ADR-0265): `checked`, `skipped` (--no-registry), or `wait` (the table
+    does not exist yet: the gate must not run)."""
 
     if no_registry:
         return "skipped"
-    if exists:
-        return "checked"
-    return "absent" if when_present else "wait"
+    return "checked" if exists else "wait"
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -254,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         "sido": args.sido,
     }
     try:
-        state = registry_state(args.no_registry, args.registry_when_present,
+        state = registry_state(args.no_registry,
                                spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{REGISTRY_TABLE}"))
         verdict["registry"] = state
         if state == "wait":

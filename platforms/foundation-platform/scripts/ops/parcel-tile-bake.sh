@@ -18,8 +18,8 @@
 # 2. The matching gate (parcel_matching_gate.py, root ADR-0113 §7) over every 시도 of the edition.
 #    A refusal stops the run before anything is written: a build binds only to a passing verdict
 #    (ADR-0133 §5). Its input silver.parcel_registry is the parcel_registry job's (ADR-0243); until
-#    that table exists the gate exits 3 and this half waits: `unchanged`, nothing written
-#    (root ADR-0265).
+#    that table exists the gate exits 3 and this half (a rehearsal's too) waits: `unchanged`,
+#    nothing written (root ADR-0265).
 # 3. The served Gold (parcel_boundary_served_gold.py, ADR-0133 §2): the edition with every ledgered
 #    `parcels` edit applied, committed to gold.parcel_boundary_served, and the v2 handoff parts.
 #    The run directory is recorded as ready; the last line is `changed`, which starts the bake.
@@ -31,8 +31,7 @@
 # rehearsal-gold-<YYYYMM> / rehearsal-bake: the same two halves for an edition the contract holds,
 #    run by a person before the contract serves it (runbook parcel-tile-bake.md §2); the edition is
 #    named, because the contract can hold one Silver has not loaded yet. The gate's refusal is
-#    recorded and does not stop it, and without silver.parcel_registry its check (b) is reported as
-#    not run (root ADR-0265); the Gold is written as for any edition (it serves
+#    recorded and does not stop it; without silver.parcel_registry it waits like the job (ADR-0265); the Gold is written as for any edition (it serves
 #    nothing until a bake promotes it); the bake runs every gate and stops before the catalog and R2
 #    (FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_REHEARSAL). Neither touches the served state.
 #
@@ -180,16 +179,14 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   # A rehearsal reads an edition the contract does not serve yet; both Spark jobs refuse that unless told.
   allow=()
   [[ "${MODE}" == rehearsal-gold ]] && allow=(--allow-non-served-edition)
-  gate_flags=()
-  [[ "${MODE}" == rehearsal-gold ]] && gate_flags=(--registry-when-present)
 
   # 2. The matching gate: a refusal is exit 1 with a verdict that did not pass. Any other failure —
   # a crash exits 1 too, with no verdict — stops the run, a rehearsal's included.
   gate_status=0
   verdict="${work}/matching-verdict.json"
-  spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" "${allow[@]}" "${gate_flags[@]}" \
+  spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" "${allow[@]}" \
     --summary-output "${container_work}/matching-verdict.json" || gate_status=$?
-  if ((gate_status == 3)) && [[ "${MODE}" == gold ]]; then
+  if ((gate_status == 3)); then
     # ADR-0265: the gate's input does not exist yet; nothing is written and the next run retries.
     job_journal "${journal}" "waiting: the matching gate's input silver.parcel_registry does not exist yet (job parcel_registry, root ADR-0243)"
     echo "foundation-job-outcome unchanged"; exit 0

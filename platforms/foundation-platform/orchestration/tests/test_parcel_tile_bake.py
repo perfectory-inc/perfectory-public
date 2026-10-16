@@ -109,7 +109,6 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
         for call in calls:
             self.assertIn("--allow-non-served-edition", call["args"], call["job"])
-        self.assertIn("--registry-when-present", calls[0]["args"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.newest)
         self.assertEqual((self.state / "rehearsal-ready").read_text().split()[0], self.newest)
         self.assertFalse((self.state / "ready").exists(), "a rehearsal never readies the job's bake")
@@ -134,10 +133,15 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         result, calls = self.run_half("gold", "no-registry")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
-        self.assertNotIn("--registry-when-present", calls[0]["args"])
         self.assertFalse((self.state / "ready").exists())
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertIn("silver.parcel_registry", (self.state / "journal.log").read_text())
+
+    def test_a_rehearsal_waits_for_the_registry_like_the_job(self):
+        result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "no-registry")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertFalse((self.state / "rehearsal-ready").exists())
 
     def test_a_rehearsal_of_an_edition_the_contract_does_not_hold_is_refused(self):
         result, calls = self.run_half("rehearsal-gold-209912", "refuse")
