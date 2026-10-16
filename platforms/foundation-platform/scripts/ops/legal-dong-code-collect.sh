@@ -3,8 +3,8 @@
 # 작업(ADR-0122, default_pool)이 하루 한 번 돌린다. Spark 는 쓰지 않는다.
 #
 #   legal-dong-code-collect.sh               매일 수집
-#   legal-dong-code-collect.sh steward --steward <id> --reason <why> --approve OLD=NEW [--approve OLD=NEW]...
-#                                            스튜어드 결정 한 건을 파일로 남긴다(다음 짝 맞추기가 반영)
+#
+# 스튜어드 결정은 여기서 받지 않는다: 더니어 "검토" 화면에서 스튜어드 API 로 한다(root ADR-0263).
 #
 # 매일 수집:
 #   1. 표 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 받아 Bronze 에 남긴다(collect-code-go-kr-legal-dong).
@@ -33,14 +33,6 @@ COLLECT="FOUNDATION_PLATFORM_CODE_GO_KR_LEGAL_DONG"
 PY=(python3 -E -s)
 journal="${STATE_ROOT}/journal.log"
 mkdir -p "${STATE_ROOT}"
-
-if [ "${1:-}" = steward ]; then
-  shift
-  "${PY[@]}" "${JOBS}/legal_dong_code_change_pairs.py" stage-steward-decision \
-    --review "${STATE_ROOT}/steward-review.json" --output-dir "${STATE_ROOT}/steward/pending" "$@"
-  job_journal "${journal}" "legal-dong-code steward decision staged"
-  exit 0
-fi
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 다른 등록 작업과 같은 재료로 조립한다.
 if [ -z "${DATABASE_URL:-}" ]; then

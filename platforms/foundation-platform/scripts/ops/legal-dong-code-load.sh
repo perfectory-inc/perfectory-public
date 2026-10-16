@@ -24,7 +24,7 @@
 # 그 앞에 필지고유번호변동연혁 수집 작업(parcel-number-change-collect.sh)이 쓴 대기 넘김을 먼저
 # silver.parcel_number_change_history 에 쌓는다(파일 하나가 한 번의 적재). 새 공식 이력이 들어왔는데 법정동 표
 # 넘김이 없으면 최신 스냅숏으로 짝 맞추기만 다시 돈다: 판단 대기였던 동을 이력이 정할 수 있다.
-# 대기 넘김이 없어도 대기 중인 스튜어드 결정(DB 의 기록 안 된 승인, 또는 아직 은퇴 전인 파일)이 있거나 DB 가
+# 대기 넘김이 없어도 DB 에 기록 안 된 스튜어드 승인이 있거나 DB 가
 # 스튜어드 목록을 받은 적이 없으면(steward-list-published.json 없음) 최신 스냅숏으로 짝 맞추기만 돈다. 모두
 # 없으면 그렇게 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
 #
@@ -63,40 +63,24 @@ legal_dong_steward_database_owes_pairing() {
 # Pairs one snapshot: $1 snapshot date, $2 its Bronze key.
 legal_dong_pair() {
   local snapshot_date="$1" table_key="$2" out="${work}/legal-dong" cout="${container_work}/legal-dong"
-  local decisions=()
   legal_dong_export_steward_decisions "${out}/steward-decisions.json"
-  decisions+=(--steward-decision-export "${cout}/steward-decisions.json")
-  if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
-    mkdir -p "${out}/steward"
-    cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${out}/steward/"
-    decisions+=(--steward-decisions "${cout}/steward")
-  fi
   # The official history is read once the table holds rows: one of its handoffs was loaded here.
   local official=()
   if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
     official=(--official-history-table silver.parcel_number_change_history)
   fi
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} \
+    --steward-decision-export "${cout}/steward-decisions.json" \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
     --review-handoff-output "${cout}/review-handoff.json" --steward-fold-summary-output "${cout}/steward-fold.json" \
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"
   legal_dong_install "${out}/steward-review.json" "${LEGAL_DONG_STATE_ROOT}/steward-review.json"
-  # Each staged decision moves to recorded/ or rejected/, as the run judged it.
-  python3 -I - "${out}/pairs-summary.json" "${LEGAL_DONG_STATE_ROOT}/steward" <<'PY'
-import json, pathlib, sys
-verdicts = json.load(open(sys.argv[1], encoding="utf-8")).get("steward_decisions", {})
-root = pathlib.Path(sys.argv[2])
-for name, verdict in verdicts.items():
-    if name.startswith("db:"):  # a steward database decision; its record is the fold below
-        print(f"steward decision {name}: {verdict}")
-        continue
-    target = root / ("recorded" if verdict == "recorded" else "rejected")
-    target.mkdir(parents=True, exist_ok=True)
-    (root / "pending" / name).rename(target / name)
-    print(f"steward decision {name}: {verdict}")
-PY
+  # The run's verdict on each database decision, for the log; a refused one stays standing.
+  python3 -I -c 'import json, sys
+for name, verdict in json.load(open(sys.argv[1], encoding="utf-8")).get("steward_decisions", {}).items():
+    print(f"steward decision {name}: {verdict}")' "${out}/pairs-summary.json"
   # The database decisions the run recorded are done; the new steward list is what the steward API reads.
   if [ "$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["decision_ids"]))' \
     "${out}/steward-fold.json")" != 0 ]; then
@@ -226,8 +210,6 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
   fi
   if [ "${parcel_number_change_loaded}" != 0 ]; then
     reason="new official history"
-  elif compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
-    reason="steward decisions"
   elif [ -f "${LEGAL_DONG_STATE_ROOT}/pairing-owed.json" ]; then
     reason="pairing owed"
   elif legal_dong_steward_database_owes_pairing; then

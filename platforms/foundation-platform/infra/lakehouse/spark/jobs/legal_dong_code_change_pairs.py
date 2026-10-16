@@ -38,9 +38,6 @@ writes them (`--steward-decision-export`); the run checks each again against the
 steward list, appends it as `steward:<who>` rows and pairs with it, and names the decisions it
 recorded (`--steward-fold-summary-output`) so `record-lineage-steward-folds` marks them done. Only
 codes on the steward list are accepted.
-
-A steward approval may still come staged as a file (`stage-steward-decision`, no Spark,
-`--steward-decisions`) until that path is retired; both are judged by the same `steward_rows`.
 """
 
 from __future__ import annotations
@@ -275,36 +272,6 @@ def steward_rows(
 
 
 # --- steward decisions ------------------------------------------------------------------------
-
-
-def stage_steward_decision(argv: list[str]) -> int:
-    """`stage-steward-decision`: write one steward decision file for the next pairing run (no Spark).
-
-    The decision is checked against the steward list the last pairing run wrote, so an approval of a
-    change that is not listed, or of a code that is not a candidate, is refused here, at the
-    steward's terminal, not in the scheduled run. The file is immutable once written; the next run
-    checks it again against the table and records it (`steward:<who>` rows) or sets it aside as
-    rejected, and reports which.
-    """
-
-    parser = argparse.ArgumentParser(prog="stage-steward-decision")
-    parser.add_argument("--review", required=True, help="steward-review.json the last pairing run wrote")
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--steward", required=True)
-    parser.add_argument("--reason", required=True)
-    parser.add_argument("--approve", action="append", default=[])
-    args = parser.parse_args(argv)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    review = json.loads(Path(args.review).read_text(encoding="utf-8"))["review"]
-    steward_rows(review, args.approve, args.steward, args.reason, None, "staging", now)
-    decision = {"steward": args.steward, "reason": args.reason, "approve": args.approve, "staged_at_utc": now.isoformat()}
-    out = Path(args.output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{now:%Y%m%dT%H%M%SZ}-{args.steward}.json"
-    with path.open("x", encoding="utf-8") as handle:  # never overwrite a decision
-        handle.write(json.dumps(decision, ensure_ascii=False, indent=2) + "\n")
-    print(path)
-    return 0
 
 
 def fold_steward_decisions(
@@ -557,7 +524,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="The 필지고유번호변동연혁 table (namespace.table) whose links dated in the pairing window "
                              "are the official step (root ADR-0150). Off without it.")
     parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU YYYYMMDD' per line, the window's links.")
-    parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--steward-decision-export",
                         help="The steward database's standing approvals (export-legal-dong-steward-decisions) to fold in.")
     parser.add_argument("--review-handoff-output", help="The steward list as the steward database loads it.")
@@ -605,10 +571,8 @@ def _write_json(path: str | None, value: Any) -> None:
         Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
-def _read_decisions(directory: str | None, export: str | None = None) -> list[tuple[str, dict[str, Any]]]:
-    staged = [(path.name, json.loads(path.read_text(encoding="utf-8")))
-              for path in sorted(Path(directory).glob("*.json"))] if directory else []
-    return staged + (db_decisions(json.loads(Path(export).read_text(encoding="utf-8"))) if export else [])
+def _read_decisions(export: str | None) -> list[tuple[str, dict[str, Any]]]:
+    return db_decisions(json.loads(Path(export).read_text(encoding="utf-8"))) if export else []
 
 
 def _schema(T, contract: Mapping[str, Any]):
@@ -692,8 +656,6 @@ def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, n
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["stage-steward-decision"]:
-        return stage_steward_decision(argv[1:])
     args = parse_args(argv)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     contract = cg.load_source_contract()
@@ -701,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
     parcel_source = editions.load()
     cadastral = cadastral_sido(parcel_source)
     run_id = pairing_run_id(args.table_source_record_id, now)
-    decisions = _read_decisions(args.steward_decisions, args.steward_decision_export)
+    decisions = _read_decisions(args.steward_decision_export)
 
     if args.validate_only and args.table_html:
         rows = cg.parse_full_table_html(Path(args.table_html).read_text(encoding="utf-8"), contract)

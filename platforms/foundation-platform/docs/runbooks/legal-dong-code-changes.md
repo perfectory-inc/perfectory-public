@@ -285,7 +285,18 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 (`steward-list-published.json` 없음) 대기 넘김이 없는 날에도 최신 스냅숏으로 짝 맞추기만 돈다. 그 실행은 자기 실행 id 로
 적재하므로, 승인으로 새로 정해진 아래 단위의 짝도 같은 날 기록된다.
 
-옛 길(`legal-dong-code-collect.sh steward` → `steward/pending/` 파일)은 화면이 운영에서 쓰인 뒤 지운다(ADR-0263 §6).
+옛 길(`legal-dong-code-collect.sh steward` → `steward/pending/` 파일)은 은퇴했다(ADR-0263 §6). 남은 파일은 아래 일회성 절차로
+한 번만 정리한다.
+
+### 일회성: 은퇴 때 남은 `steward/pending/` 파일 (one-off: 은퇴 PR 배포 후 한 번)
+
+1. `sudo ls /var/lib/foundation-platform/legal-dong-code/steward/pending/` — 비었으면 할 일이 없다. 기록에 "비어 있음"을 남긴다.
+2. 파일이 있으면 각 파일의 `approve`(옛=새)와 `reason` 을 읽고, 같은 결정을 더니어 "검토" 화면에서 다시 한다(누가 결정했는지가
+   신원으로 남아야 하므로 파일을 DB 에 옮겨 적지 않는다).
+3. 다음 계보 단위 실행이 그 승인을 기록했으면(요약의 `steward_decisions`) 파일을 손으로 옮긴다:
+   `sudo mkdir -p .../steward/retired && sudo mv .../steward/pending/*.json .../steward/retired/`.
+
+실행 기록: (배포 후 채운다)
 
 ## 6. When the crosswalk disagrees with the baseline
 

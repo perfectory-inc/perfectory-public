@@ -39,8 +39,6 @@ SPARK = textwrap.dedent("""
         out("--review-handoff-output").write_text('{"items": []}')
         out("--steward-fold-summary-output").write_text(json.dumps({"derivation_run_id": "r", "decision_ids": recorded}))
         verdicts = {f"db:{i}": "recorded" for i in recorded}
-        if "--steward-decisions" in opt:
-            verdicts.update({p.name: "recorded" for p in out("--steward-decisions").glob("*.json")})
         out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts}))
     elif job == "vworld_parcel_number_change_history.py":
         out("--summary-output").write_text("{}")
@@ -275,15 +273,14 @@ class StewardDatabase(Harness):
         self.run_cycle()
         self.assertEqual(self.jobs(), [])
 
-    def test_a_staged_file_and_a_database_approval_reach_the_same_run(self):
+    def test_a_staged_file_is_no_longer_read(self):
+        # The file path is retired (root ADR-0263 §6): a leftover file neither triggers a run nor reaches one.
         self.published()
-        self.db.write_text(json.dumps(["d-1"]))
         (self.legal / "steward/pending").mkdir(parents=True)
         (self.legal / "steward/pending/20990102T000000Z-steward-a.json").write_text("{}")
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(self.db.read_text()), [])
-        self.assertTrue((self.legal / "steward/recorded/20990102T000000Z-steward-a.json").exists())
+        self.assertEqual(self.jobs(), [])
 
     def test_a_failed_pairing_records_no_approval(self):
         self.published()
