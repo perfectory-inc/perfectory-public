@@ -36,6 +36,8 @@ class ReviewItem:
     evidence_etag: str
     from_snapshot_id: str
     to_snapshot_id: str
+    # 법정동 items only: what the pairing run recorded (root ADR-0263).
+    evidence_json: str = ""
 
 
 def evidence_etag(status: str, candidates_json: str) -> str:
@@ -199,6 +201,7 @@ def handoff_document(items: Iterable[ReviewItem], unit: str, published_at_utc: s
             "evidence_etag": i.evidence_etag,
             "from_snapshot_id": i.from_snapshot_id or None,
             "to_snapshot_id": i.to_snapshot_id or None,
+            "evidence_json": i.evidence_json or None,
         }
         for i in items
     ]

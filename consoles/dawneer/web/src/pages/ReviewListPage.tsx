@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import type { DawneerClient, ReviewStatus } from "../api/client";
-import { formatPnu, STATUS_LABEL } from "../lib/labels";
+import type { DawneerClient, ReviewItem, ReviewKind, ReviewStatus } from "../api/client";
+import { formatCode, KIND_LABEL, STATUS_LABEL } from "../lib/labels";
 
-/** The parcels waiting for a person, in parcel order, page by page. */
+/** What waits for a person — parcel lineage and 법정동 pairs — in subject-code order, page by page. */
 export function ReviewListPage({ client }: { client: DawneerClient }) {
+  const [kind, setKind] = useState<ReviewKind | "">("");
   const [status, setStatus] = useState<ReviewStatus | "">("");
   const [prefix, setPrefix] = useState("");
   const [undecidedOnly, setUndecidedOnly] = useState(true);
@@ -13,6 +14,7 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
   const after = cursors.at(-1);
 
   const filter = {
+    ...(kind ? { kind } : {}),
     ...(status ? { status } : {}),
     ...(/^\d{1,19}$/.test(prefix) ? { prefix } : {}),
     undecidedOnly,
@@ -27,7 +29,26 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
   return (
     <section>
       <div className="flex flex-wrap items-end gap-4">
-        <h1 className="mr-auto text-xl font-semibold">필지 계보 검토</h1>
+        <h1 className="mr-auto text-xl font-semibold">검토</h1>
+        <label className="text-sm">
+          <span className="block text-slate-500">종류</span>
+          <select
+            className="rounded border border-slate-300 bg-white px-2 py-1"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as ReviewKind | "");
+              setStatus("");
+              reset();
+            }}
+          >
+            <option value="">전체</option>
+            {Object.entries(KIND_LABEL).map(([code, label]) => (
+              <option key={code} value={code}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-sm">
           <span className="block text-slate-500">상태</span>
           <select
@@ -76,39 +97,7 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
       {page.isError && <p className="mt-6 text-red-700">{page.error.message}</p>}
       {page.data && (
         <>
-          <table className="mt-6 w-full border-collapse overflow-hidden rounded-lg bg-white text-sm shadow-sm">
-            <thead className="bg-slate-100 text-left text-slate-600">
-              <tr>
-                <th className="px-4 py-2">필지(PNU)</th>
-                <th className="px-4 py-2">상태</th>
-                <th className="px-4 py-2">후보</th>
-                <th className="px-4 py-2">맡은 사람</th>
-                <th className="px-4 py-2">결정</th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.data.items.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    검토할 필지가 없습니다.
-                  </td>
-                </tr>
-              )}
-              {page.data.items.map((item) => (
-                <tr key={item.item_id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-2 font-mono">
-                    <a className="text-blue-700 hover:underline" href={`#/items/${item.item_id}`}>
-                      {formatPnu(item.subject_pnu)}
-                    </a>
-                  </td>
-                  <td className="px-4 py-2">{STATUS_LABEL[item.status]}</td>
-                  <td className="px-4 py-2">{item.candidates.length}</td>
-                  <td className="px-4 py-2 text-slate-500">{item.claim ? "맡음" : "—"}</td>
-                  <td className="px-4 py-2 text-slate-500">{item.decisions.length ? `${item.decisions.length}건` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ReviewTable items={page.data.items} />
           <div className="mt-4 flex gap-2">
             <button
               type="button"
@@ -130,5 +119,47 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
         </>
       )}
     </section>
+  );
+}
+
+/** One row per item, whatever its kind; the subject reads as a PNU or as a 법정동 code and name. */
+export function ReviewTable({ items }: { items: ReviewItem[] }) {
+  return (
+    <table className="mt-6 w-full border-collapse overflow-hidden rounded-lg bg-white text-sm shadow-sm">
+      <thead className="bg-slate-100 text-left text-slate-600">
+        <tr>
+          <th className="px-4 py-2">종류</th>
+          <th className="px-4 py-2">대상</th>
+          <th className="px-4 py-2">상태</th>
+          <th className="px-4 py-2">후보</th>
+          <th className="px-4 py-2">맡은 사람</th>
+          <th className="px-4 py-2">결정</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length === 0 && (
+          <tr>
+            <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+              검토할 항목이 없습니다.
+            </td>
+          </tr>
+        )}
+        {items.map((item) => (
+          <tr key={item.item_id} className="border-t border-slate-100 hover:bg-slate-50">
+            <td className="px-4 py-2 text-slate-600">{KIND_LABEL[item.kind]}</td>
+            <td className="px-4 py-2">
+              <a className="font-mono text-blue-700 hover:underline" href={`#/items/${item.item_id}`}>
+                {formatCode(item.kind, item.subject_code)}
+              </a>
+              {item.legal_dong && <span className="ml-2 text-slate-700">{item.legal_dong.name}</span>}
+            </td>
+            <td className="px-4 py-2">{STATUS_LABEL[item.status]}</td>
+            <td className="px-4 py-2">{item.legal_dong ? item.legal_dong.candidates.length : item.candidates.length}</td>
+            <td className="px-4 py-2 text-slate-500">{item.claim ? "맡음" : "—"}</td>
+            <td className="px-4 py-2 text-slate-500">{item.decisions.length ? `${item.decisions.length}건` : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

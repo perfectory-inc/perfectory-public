@@ -20,4 +20,5 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 foundation-disposable-database = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

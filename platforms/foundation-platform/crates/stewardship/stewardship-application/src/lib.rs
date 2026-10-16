@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use stewardship_domain::{
-    Claim, DecisionDraft, Outcome, ReviewItem, ReviewStatus, StewardshipError,
+    Claim, DecisionDraft, ItemKind, Outcome, ReasonCode, ReviewItem, ReviewStatus, StewardshipError,
 };
 use uuid::Uuid;
 
@@ -18,12 +18,16 @@ pub struct DecisionRecord {
     pub decision_id: Uuid,
     /// The item it decides.
     pub item_id: Uuid,
-    /// The parcel it decides.
+    /// The parcel or 법정동 code it decides.
     pub subject_code: String,
     /// What was decided.
     pub outcome: Outcome,
     /// The linked candidate, for a link.
-    pub predecessor_code: Option<String>,
+    pub candidate_code: Option<String>,
+    /// Why, as a code.
+    pub reason_code: Option<ReasonCode>,
+    /// Why, in words.
+    pub note: String,
     /// Who decided.
     pub decided_by: Uuid,
     /// When.
@@ -50,9 +54,11 @@ pub struct ReviewItemView {
 /// Which items to list.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ReviewItemFilter {
+    /// Only this kind.
+    pub kind: Option<ItemKind>,
     /// Only this status.
     pub status: Option<ReviewStatus>,
-    /// Only parcels whose PNU starts with this prefix (a sido or sigungu code).
+    /// Only subjects whose code starts with this prefix (a sido or sigungu code).
     pub code_prefix: Option<String>,
     /// Only items nobody has decided yet.
     pub undecided_only: bool,
