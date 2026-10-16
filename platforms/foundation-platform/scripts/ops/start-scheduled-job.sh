@@ -140,13 +140,25 @@ wait "${follower}" 2>/dev/null
 result="$(state Result)"
 # The run says how it ended (root ADR-0260 §2): its last outcome line, read from this invocation's
 # own journal, not from what the follower happened to print. A run systemd counts as a success
-# that said nothing, or said `failed`, is a failed run. The line decided on is repeated before the
+# that said nothing, or said `failed`, is a failed run; a run systemd counts as failed ends with a
+# `failed` line of this script's whatever it said. The line decided on is repeated before the
 # result line, inside the frame the data flow map reads a failure's cause from.
 verdict=0
-if [[ "${result}" == success ]]; then
-  job_specs="$(dirname "${BASH_SOURCE[0]}")/../../orchestration/dags/job_specs.py"
-  outcome="$(journalctl --no-pager -o cat -n 2000 "_SYSTEMD_INVOCATION_ID=${invocation}" \
-    | python3 -I -B "${job_specs}" --outcome-line)" || outcome=""
+job_specs="$(dirname "${BASH_SOURCE[0]}")/../../orchestration/dags/job_specs.py"
+outcome="$(journalctl --no-pager -o cat -n 2000 "_SYSTEMD_INVOCATION_ID=${invocation}" \
+  | python3 -I -B "${job_specs}" --outcome-line)" || outcome=""
+if [[ "${result}" != success ]]; then
+  # A failed unit's last word is `failed`, whatever the run printed before it ended (2026-10-16:
+  # the by-PNU bake said `changed` for the lane that published and exited 1 for the one that did
+  # not). A run that claimed another outcome is named, so the contradiction is not lost.
+  claimed="${outcome#foundation-job-outcome }"
+  if [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
+    printf 'foundation-job-outcome failed systemd result=%s after the run said %s\n' "${result}" "${claimed}"
+  else
+    printf 'foundation-job-outcome failed systemd result=%s\n' "${result}"
+  fi
+  verdict=1
+else
   if [[ -z "${outcome}" ]]; then
     outcome="foundation-job-outcome failed no outcome reported"
     verdict=1
@@ -154,8 +166,6 @@ if [[ "${result}" == success ]]; then
     verdict=1
   fi
   printf '%s\n' "${outcome}"
-else
-  verdict=1
 fi
 printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
 exit "${verdict}"
