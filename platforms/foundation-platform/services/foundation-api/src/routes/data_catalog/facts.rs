@@ -223,13 +223,13 @@ struct SchedulerFacts {
     errors: Vec<String>,
 }
 
-/// The failed latest runs' logs already read or not to be asked for yet, and the (DAG id, run)
-/// pairs to ask the scheduler for.
+/// The logs of the latest runs that failed or ended waiting, already read or not to be asked for
+/// yet, and the (DAG id, run, ended waiting) triples to ask the scheduler for.
 fn known_logs<'a>(
     previous: Option<&Facts>,
     statuses: &'a [ScheduledJobStatus],
     read_at: DateTime<Utc>,
-) -> (SchedulerFacts, Vec<(&'a str, &'a str)>) {
+) -> (SchedulerFacts, Vec<(&'a str, &'a str, bool)>) {
     let no_failures = BTreeMap::new();
     let no_misses = BTreeMap::new();
     let (known, misses) = previous.map_or((&no_failures, &no_misses), |facts| {
@@ -244,13 +244,17 @@ fn known_logs<'a>(
     let mut ask = Vec::new();
     for status in statuses {
         let Some(run) = status.last_run.as_ref().filter(|run| {
+            // A skipped run is one that said it waits (root ADR-0260); its log says for what.
             matches!(
                 run.outcome,
-                ScheduledJobRunOutcome::Failed | ScheduledJobRunOutcome::UpForRetry
+                ScheduledJobRunOutcome::Failed
+                    | ScheduledJobRunOutcome::UpForRetry
+                    | ScheduledJobRunOutcome::Skipped
             )
         }) else {
             continue;
         };
+        let waited = run.outcome == ScheduledJobRunOutcome::Skipped;
         let dag_id = status.dag_id.as_str();
         match log_read(known, misses, dag_id, &run.run_urn, read_at) {
             LogRead::Known(log) => {
@@ -260,7 +264,7 @@ fn known_logs<'a>(
                 facts.errors.push(miss.error.clone());
                 facts.log_misses.insert(dag_id.to_owned(), miss);
             }
-            LogRead::Ask => ask.push((dag_id, run.run_urn.as_str())),
+            LogRead::Ask => ask.push((dag_id, run.run_urn.as_str(), waited)),
         }
     }
     (facts, ask)
@@ -271,7 +275,7 @@ fn known_logs<'a>(
 async fn ask_scheduler(
     previous: Option<&Facts>,
     facts: &mut SchedulerFacts,
-    ask: &[(&str, &str)],
+    ask: &[(&str, &str, bool)],
     overdue: bool,
     read_at: DateTime<Utc>,
 ) {
@@ -305,8 +309,8 @@ async fn ask_scheduler(
             return;
         }
     };
-    for (dag_id, run_urn) in ask {
-        match scheduler.latest_failure(&token, dag_id, run_urn).await {
+    for (dag_id, run_urn, waited) in ask {
+        match scheduler.latest_log(&token, dag_id, run_urn, *waited).await {
             Ok(log) => {
                 facts.failures.insert((*dag_id).to_owned(), log);
             }
@@ -501,30 +505,30 @@ impl Scheduler {
         Ok(in_progress_runs(&runs))
     }
 
-    /// The cause of `dag_id`'s latest failed (or retrying) run, read for the data catalog's
-    /// failed run `run_urn`.
-    async fn latest_failure(
+    /// The log of `dag_id`'s latest failed (or retrying) run, or with `waited` of its latest run
+    /// that ended waiting, read for the data catalog's run `run_urn`.
+    async fn latest_log(
         &self,
         token: &str,
         dag_id: &str,
         run_urn: &str,
+        waited: bool,
     ) -> Result<FailedRunLog, String> {
-        // A run whose task waits for its retry is still running as a DAG run.
+        // A run whose task waits for its retry is still running as a DAG run; a run whose task
+        // ended waiting is skipped, and its DAG run succeeded.
+        let states: &[(&str, &str)] = if waited {
+            &[("state", "success")]
+        } else {
+            &[("state", "failed"), ("state", "running")]
+        };
+        let mut query = vec![("order_by", "-run_after"), ("limit", "1")];
+        query.extend_from_slice(states);
         let runs = self
-            .get(
-                token,
-                &["api", "v2", "dags", dag_id, "dagRuns"],
-                &[
-                    ("order_by", "-run_after"),
-                    ("limit", "1"),
-                    ("state", "failed"),
-                    ("state", "running"),
-                ],
-            )
+            .get(token, &["api", "v2", "dags", dag_id, "dagRuns"], &query)
             .await?;
         let run_id = runs["dag_runs"][0]["dag_run_id"]
             .as_str()
-            .ok_or_else(|| format!("the scheduler holds no failed run of {dag_id}"))?
+            .ok_or_else(|| format!("the scheduler holds no such run of {dag_id}"))?
             .to_owned();
         let task_path = [
             "api",
@@ -550,12 +554,14 @@ impl Scheduler {
         let log = self
             .get(token, &log_path, &[("full_content", "true")])
             .await?;
-        let (cause, cause_line) = classify(&log_lines(&log["content"]));
+        let lines = log_lines(&log["content"]);
+        let (cause, cause_line) = classify(&lines);
         Ok(FailedRunLog {
             run_urn: run_urn.to_owned(),
             scheduler_run_id: Some(run_id),
             cause,
             cause_line,
+            waiting: waiting_reason(&lines),
         })
     }
 }
@@ -664,6 +670,18 @@ pub(super) fn classify(lines: &[String]) -> (FailureCause, Option<String>) {
         }
     };
     (cause, lines.get(at).map(|line| mask(line.trim())))
+}
+
+/// What a run said it waits for: the rest of its last `foundation-job-outcome waiting` line
+/// (root ADR-0260), masked and cut like a cause line.
+pub(super) fn waiting_reason(lines: &[String]) -> Option<String> {
+    const WAITING: &str = "foundation-job-outcome waiting ";
+    lines
+        .iter()
+        .rev()
+        .find_map(|line| line.trim().strip_prefix(WAITING))
+        .map(|reason| mask(reason.trim()))
+        .filter(|reason| !reason.is_empty())
 }
 
 /// The masks a relayed log line goes through, in order, each a pattern and what the match becomes.
@@ -845,6 +863,29 @@ Successfully emitted OpenLineage `FAIL` event";
     }
 
     #[test]
+    fn a_waiting_run_says_what_it_waits_for_in_its_last_outcome_line() {
+        let log = lines(
+            "Running command: synthetic_job\n\
+             start-scheduled-job: synthetic_job deferred: a release build is running\n\
+             foundation-job-outcome waiting a release build is running; this job starts after it finishes\n\
+             Task skipped",
+        );
+        assert_eq!(
+            waiting_reason(&log).as_deref(),
+            Some("a release build is running; this job starts after it finishes")
+        );
+        assert_eq!(
+            waiting_reason(&lines(FRAMED)),
+            None,
+            "a failed run waits for nothing"
+        );
+        assert_eq!(
+            waiting_reason(&lines("foundation-job-outcome waiting \n")),
+            None
+        );
+    }
+
+    #[test]
     fn a_log_the_scheduler_did_not_give_is_asked_for_again_only_later() {
         let now = DateTime::parse_from_rfc3339("2026-01-02T08:00:00Z")
             .map(|at| at.with_timezone(&Utc))
@@ -854,6 +895,7 @@ Successfully emitted OpenLineage `FAIL` event";
             scheduler_run_id: None,
             cause: FailureCause::Other,
             cause_line: None,
+            waiting: None,
         };
         let failures = BTreeMap::from([("dag".to_owned(), log.clone())]);
         let miss = SchedulerMiss {

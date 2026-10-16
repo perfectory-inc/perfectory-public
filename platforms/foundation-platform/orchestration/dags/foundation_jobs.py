@@ -34,7 +34,12 @@ class RunJob(SSHOperator):
 
     def run_ssh_client_command(self, ssh_client, command, context=None):
         output = super().run_ssh_client_command(ssh_client, command, context=context)
-        context["ti"].xcom_push(key=OUTCOME_KEY, value=job_outcome(output))
+        outcome = job_outcome(output)
+        context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
+        if outcome == "waiting":
+            # Not a failure and not a success: skipped, which the data flow map shows as waiting with
+            # the reason from this log (root ADR-0260). publish_outputs is skipped with it.
+            raise AirflowSkipException("the run ended waiting; its last foundation-job-outcome line says for what")
         return b""
 
 
