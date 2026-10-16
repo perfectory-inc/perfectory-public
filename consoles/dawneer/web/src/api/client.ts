@@ -37,6 +37,9 @@ export type DatasetSnapshot = DataCatalogSchemas["DatasetSnapshot"];
 export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
 export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
+export type ServiceChecks = DataCatalogSchemas["ServiceChecks"];
+export type EdgeHostCheck = DataCatalogSchemas["EdgeHostCheck"];
+export type CiWeek = DataCatalogSchemas["CiWeek"];
 
 /**
  * The parts of `GET /catalog/v1/pipeline-graph` this console reads. The document has no OpenAPI
@@ -232,6 +235,11 @@ export class DawneerClient {
   /** A dataset's Iceberg snapshots with the run that made each and what read it (root ADR-0195). */
   datasetSnapshots(nodeId: string): Promise<DatasetSnapshots> {
     return this.call(`dataset-snapshots?${new URLSearchParams({ node_id: nodeId }).toString()}`, {}, "data-catalog");
+  }
+
+  /** How Korea reaches the live hostnames and the weekly pull request CI time (root ADR-0209). */
+  serviceChecks(): Promise<ServiceChecks> {
+    return this.call("service-checks", {}, "data-catalog");
   }
 
   /** Every data contract with its checks' latest results (root ADR-0165). */
