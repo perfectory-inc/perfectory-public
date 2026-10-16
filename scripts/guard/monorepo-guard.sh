@@ -35,7 +35,7 @@ for g in hook-isolation-self-test \
          r2-env-namespace-consistency r2-env-namespace-consistency-self-test \
          r2-reads-have-one-path-self-test r2-reads-have-one-path \
          environment-variable-naming-self-test environment-variable-naming \
-         technology-version-consistency-self-test migration-naming \
+         technology-version-consistency-self-test migration-naming-self-test migration-naming \
          unique-package-names health-route-conformance \
          intelligence-no-vector-provider-self-test intelligence-no-vector-provider \
          utility-library-policy-self-test utility-library-policy \
