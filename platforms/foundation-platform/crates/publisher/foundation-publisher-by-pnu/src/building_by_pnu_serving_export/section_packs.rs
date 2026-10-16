@@ -26,7 +26,8 @@ mod equality;
 mod gate;
 mod health;
 mod inspect;
-mod latency;
+// Public for its memory test, which runs in a binary of its own (tests/latency_probe_memory.rs).
+pub mod latency;
 mod load;
 mod monitor;
 mod publish;
