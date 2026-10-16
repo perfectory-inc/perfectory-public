@@ -45,15 +45,11 @@ compose=(
 
 "${compose[@]}" "$@"
 
-# zitadel-loopback lives in identity-api's network namespace (network_mode: service:identity-api).
-# When identity-api is (re)created that namespace is replaced and the sidecar keeps the dead one:
-# identity-api then cannot reach the issuer on its loopback and every token check fails, while
-# `/readyz` used to say ready (2026-09-30). Compose's `depends_on.restart` did not recreate it in a
-# test on the production host, so this entry point, the only one operators use, re-attaches the
-# sidecar after anything that can start identity-api.
+# identity-api and its issuer relay (zitadel-loopback) join one namespace held by identity-netns
+# (compose.server.yml), so neither restart strands the other and nothing needs re-attaching. The
+# entry point still refuses to call a start done until identity-api reaches its issuer.
 case "${1:-}" in
   up | start | restart | create)
-    "${compose[@]}" up -d --no-deps --force-recreate zitadel-loopback
     # A start is not done until identity-api can reach its issuer: /readyz reports it (`issuer`).
     # Without this the broken state looked healthy and surfaced only as 503s to staff.
     for _ in $(seq 1 30); do

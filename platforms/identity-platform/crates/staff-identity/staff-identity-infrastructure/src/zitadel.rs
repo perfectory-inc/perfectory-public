@@ -204,8 +204,8 @@ fn invalid_claims(error: impl std::fmt::Display) -> StaffIdentityError {
     StaffIdentityError::InvalidClaims(error.to_string())
 }
 
-fn infrastructure(error: impl std::fmt::Display) -> StaffIdentityError {
-    StaffIdentityError::Infrastructure(error.to_string())
+fn infrastructure(error: impl std::error::Error + 'static) -> StaffIdentityError {
+    StaffIdentityError::Infrastructure(identity_shared_kernel::errors::with_causes(&error))
 }
 
 #[cfg(test)]

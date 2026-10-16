@@ -175,8 +175,8 @@ fn invalid_credential(_error: impl std::fmt::Display) -> ServiceIdentityError {
     ServiceIdentityError::InvalidCredential
 }
 
-fn infrastructure(error: impl std::fmt::Display) -> ServiceIdentityError {
-    ServiceIdentityError::Infrastructure(error.to_string())
+fn infrastructure(error: impl std::error::Error + 'static) -> ServiceIdentityError {
+    ServiceIdentityError::Infrastructure(identity_shared_kernel::errors::with_causes(&error))
 }
 
 #[cfg(test)]

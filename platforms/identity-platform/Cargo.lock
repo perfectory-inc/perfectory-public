@@ -1821,6 +1821,7 @@ dependencies = [
  "authorization-domain",
  "chrono",
  "identity-contracts",
+ "identity-shared-kernel",
  "jsonwebtoken",
  "reqwest",
  "serde",
