@@ -163,7 +163,7 @@ pub async fn get_complex(
 pub async fn update_complex(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-    Extension(_principal): Extension<AuthorizedPrincipal>,
+    Extension(principal): Extension<AuthorizedPrincipal>,
     Json(body): Json<UpdateComplexRequest>,
 ) -> Result<Json<IndustrialComplexResponse>, ApiError> {
     let complex_id = ComplexId::new(id);
@@ -174,6 +174,7 @@ pub async fn update_complex(
             expected_version: body.if_match_version,
             name: body.name,
             area_m2: body.area_m2,
+            applied_by: StaffId::new(principal.principal_id),
         })
         .await?;
     let gold_pointer = state
