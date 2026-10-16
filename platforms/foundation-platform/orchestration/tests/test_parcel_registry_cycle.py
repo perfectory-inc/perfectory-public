@@ -48,7 +48,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         for part in ("infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
             shutil.copytree(PLATFORM / part, release / part, ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh", "job-state-root.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
             (release / "scripts/ops" / name).chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
@@ -70,7 +70,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.script = base / "current/scripts/ops/parcel-registry-cycle.sh"
         self.env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log),
                     "FOUNDATION_PARCEL_REGISTRY_STATE_ROOT": str(self.state),
-                    "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.root / "lakehouse")}
+                    "FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_STATE_ROOT": str(self.root / "lakehouse")}
 
     def run_job(self, missing, **env):
         result = subprocess.run(["bash", str(self.script)], env={**self.env, "FAKE_MISSING": json.dumps(missing), **env},

@@ -226,6 +226,110 @@ def datasets_without_a_job(jobs=None, graph=None):
     return problems
 
 
+SECRETS = PLATFORM_ROOT / "config" / "runtime-secrets.contract.json"
+# A shell assignment of a state root with a default: `NAME="${SOURCE:-/default}"`.
+STATE_ROOT_DEFAULT = re.compile(r'^([A-Z_]*STATE_ROOT[A-Z_]*)="\$\{([A-Z_]+):-([^}]*)\}"', re.MULTILINE)
+
+
+def unit_write_paths(unit_text):
+    """The paths a ProtectSystem=strict unit may write: its ReadWritePaths, in order."""
+    return " ".join(re.findall(r"^ReadWritePaths=(.*)$", unit_text, flags=re.MULTILINE)).split()
+
+
+def rendered_unit(unit_text, state_paths):
+    """The unit with one `ReadWritePaths=` line holding `state_paths` (none when empty), where the
+    first one was, or after the last `ProtectSystem=` line (root ADR-0266)."""
+    block = f"ReadWritePaths={' '.join(state_paths)}\n" if state_paths else ""
+    kept = re.sub(r"^ReadWritePaths=.*\n", "\x00", unit_text, flags=re.MULTILINE)
+    if "\x00" in kept:
+        head, _, tail = kept.partition("\x00")
+        return head + block + tail.replace("\x00", "")
+    anchor = None
+    for anchor in re.finditer(r"^ProtectSystem=.*\n", kept, flags=re.MULTILINE):
+        pass
+    if anchor is None:
+        return kept if not block else kept.rstrip("\n") + "\n" + block
+    return kept[:anchor.end()] + block + kept[anchor.end():]
+
+
+def _env_file_names(unit_text, secrets):
+    """The variable names the unit's EnvironmentFiles hold (runtime-secrets contract groups)."""
+    paths = {re.sub(r"^-", "", path) for path in re.findall(r"^EnvironmentFile=(\S+)$", unit_text, flags=re.MULTILINE)}
+    names = set()
+    for group in secrets["groups"]:
+        if group["path"] in paths:
+            names.update(name for name in group["holds"] if not name.startswith("@"))
+    return names
+
+
+def state_path_problems(jobs=None, secrets=None, read=None):
+    """Every way a job could write outside its unit's sandbox (an empty list is a pass; root ADR-0266).
+
+    - `state_paths` in jobs.v1.json is where a job writes; its unit's `ReadWritePaths` is rendered
+      from it (`--write-units`) and must equal it. Jobs that share a unit state the same paths.
+    - A job script's state root (`*STATE_ROOT*="${SOURCE:-default}"`) must not come from a variable
+      one of its unit's EnvironmentFiles holds: the file's value is the host's, unseen here, and
+      2026-10-16 it pointed parcel_registry outside its sandbox (Read-only file system).
+    - A literal default of such a root must lie under the job's `state_paths` or its unit's
+      StateDirectory.
+    """
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    secrets = secrets if secrets is not None else json.loads(SECRETS.read_text(encoding="utf-8"))
+    read = read or (lambda path: path.read_text(encoding="utf-8"))
+    problems, by_unit = [], {}
+    for job in jobs["jobs"]:
+        job_id, paths = job["id"], job.get("state_paths")
+        if not isinstance(paths, list) or not all(isinstance(path, str) and path.startswith("/") for path in paths):
+            problems.append(f"{job_id}: state_paths must list the absolute paths the job writes")
+            continue
+        unit_path = service_unit_file(job["systemd_service"])
+        unit = read(unit_path)
+        if by_unit.setdefault(unit_path.name, paths) != paths:
+            problems.append(f"{job_id}: shares {unit_path.name} with a job that states other state_paths")
+        if "ProtectSystem=strict" in unit and unit_write_paths(unit) != paths:
+            problems.append(f"{job_id}: {unit_path.name} ReadWritePaths {unit_write_paths(unit)} is not its state_paths "
+                            f"{paths}; run: python orchestration/dags/job_specs.py --write-units")
+        start = re.search(r"^ExecStart=(\S+)", unit, flags=re.MULTILINE)
+        prefix = "/opt/foundation-platform/current/"
+        if not start or not start.group(1).startswith(prefix) or not start.group(1).endswith(".sh"):
+            continue
+        script = PLATFORM_ROOT / start.group(1)[len(prefix):]
+        held = _env_file_names(unit, secrets)
+        # systemd creates and allows /var/lib/<StateDirectory> itself.
+        writable = paths + [f"/var/lib/{name}" for name in re.findall(r"^StateDirectory=(\S+)$", unit, flags=re.MULTILINE)]
+        for name, source, default in STATE_ROOT_DEFAULT.findall(read(script)):
+            if source in held:
+                problems.append(f"{job_id}: {script.name} takes {name} from {source}, which an EnvironmentFile of "
+                                f"{unit_path.name} holds; a state root comes from the job's state_paths")
+            literal = default.split("$", 1)[0]
+            if literal.startswith("/") and "$" not in default and not any(
+                    literal == path or literal.startswith(path.rstrip("/") + "/") for path in writable):
+                problems.append(f"{job_id}: {script.name} defaults {name} to {literal}, outside what {unit_path.name} "
+                                f"may write {writable}")
+    return problems
+
+
+def write_units(jobs=None):
+    """Renders every job unit's ReadWritePaths from its state_paths."""
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    for job in jobs["jobs"]:
+        unit_path = service_unit_file(job["systemd_service"])
+        text = unit_path.read_text(encoding="utf-8")
+        if "ProtectSystem=strict" in text:
+            rendered = rendered_unit(text, job["state_paths"])
+            if rendered != text:
+                unit_path.write_bytes(rendered.encode("utf-8"))
+
+
+def job_state_root(job_id, jobs=None):
+    """The first of a job's state_paths: where its script keeps its state (root ADR-0266)."""
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    for job in jobs["jobs"]:
+        if job["id"] == job_id and job.get("state_paths"):
+            return job["state_paths"][0]
+    raise JobListError(f"{job_id}: no such job with state_paths")
+
+
 def declared_pools(jobs):
     """Pool name -> slot count, from jobs.v1.json `pools` (default_pool is Airflow's own)."""
     pools = jobs.get("pools")
@@ -620,10 +724,19 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--check-dependencies"]:
         if DEPENDENCIES.read_bytes() != rendered_dependencies().encode("utf-8"):
             sys.exit(f"{DEPENDENCIES} is stale; run: python orchestration/dags/job_specs.py --write-dependencies")
+    elif sys.argv[1:] == ["--write-units"]:
+        write_units()
+    elif sys.argv[1:] == ["--check-units"]:
+        found = state_path_problems()
+        if found:
+            sys.exit("\n".join(found))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--state-root":
+        print(job_state_root(sys.argv[2]))
     elif sys.argv[1:] == ["--outcome-line"]:
         # Reads a run's journal on stdin; prints its outcome line, or nothing (root ADR-0260 §2).
         line = outcome_line(sys.stdin.buffer.read())
         if line:
             print(line)
     else:
-        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --outcome-line")
+        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --write-units | --check-units"
+                 " | --state-root <job id> | --outcome-line")

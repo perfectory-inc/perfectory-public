@@ -14,8 +14,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
-STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship/parcel-registry}"
-LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship/lakehouse}"
+source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
+# Both roots under the job's state_paths (root ADR-0266); the *_STATE_ROOT overrides are the tests'.
+STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_STATE_ROOT:-$(job_state_root parcel_registry)/parcel-registry}"
+LAKEHOUSE_STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_STATE_ROOT:-$(job_state_root parcel_registry)/lakehouse}"
 # 가장 큰 시도(약 600만 필지)도 이 뒤에 시작해서 유닛 상한(150 분) 안에 끝나야 한다.
 START_BUDGET_MINUTES="${FOUNDATION_PARCEL_REGISTRY_START_BUDGET_MINUTES:-100}"
 DRIVER_MEMORY="${FOUNDATION_PARCEL_REGISTRY_DRIVER_MEMORY:-16g}"

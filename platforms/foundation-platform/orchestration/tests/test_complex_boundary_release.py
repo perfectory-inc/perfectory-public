@@ -70,7 +70,7 @@ class ComplexBoundaryRelease(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("complex-boundary-release.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("complex-boundary-release.sh", "admitted-writer-runtime.sh", "job-journal.sh", "job-state-root.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
         (release / "scripts/ops/map-edit-fold.sh").write_text(FAKE_FOLD)
         for path in (release / "scripts/ops").iterdir():
@@ -97,7 +97,7 @@ class ComplexBoundaryRelease(unittest.TestCase):
             "FAKE_LISTING": listing(("30137-1.zip", "2099-01-01T00:00:00Z"), ("30137-2.xlsx", "2099-03-01T00:00:00Z"),
                                     ("30137-1--sha256-ab.zip", "2099-02-01T00:00:00Z")),
             "FOUNDATION_COMPLEX_BOUNDARY_RELEASE_STATE_ROOT": str(self.root / "state"),
-            "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.lakehouse),
+            "FOUNDATION_COMPLEX_BOUNDARY_RELEASE_LAKEHOUSE_STATE_ROOT": str(self.lakehouse),
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": "bucket", "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": "https://r2.invalid",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID": "reader-id",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY": "reader-secret",
