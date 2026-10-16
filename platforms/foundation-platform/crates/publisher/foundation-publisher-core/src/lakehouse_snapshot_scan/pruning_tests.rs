@@ -27,6 +27,7 @@ const FIXTURE: LakehouseTableContract = LakehouseTableContract {
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: &[
         LakehouseColumn {
             name: "pnu",

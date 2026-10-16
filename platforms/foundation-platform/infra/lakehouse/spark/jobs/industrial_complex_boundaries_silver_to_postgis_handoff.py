@@ -37,6 +37,7 @@ from typing import Any
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, current_snapshot, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import (
     column_names,
+    current_rows,
     declared_geometry_srid,
     load_lakehouse_contract,
 )
@@ -383,8 +384,10 @@ def project(current_boundaries: Any, complexes: Any, F: Any) -> Any:
     the map with nothing anywhere saying which one.
     """
 
+    # The contract's current-row rule, not a local filter: the table keeps every appended version
+    # of a complex, and a filter that let two through would double the boundary (root ADR-0265).
     current_complexes = (
-        complexes.where(F.col("valid_to_utc").isNull())
+        current_rows(complexes, COMPLEXES_CONTRACT)
         .select("complex_id", "official_complex_code")
         .withColumnRenamed("complex_id", "complex_key")
     )

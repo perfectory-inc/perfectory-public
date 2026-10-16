@@ -101,6 +101,7 @@ pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Canonical,
         current_row_predicate: None,
+        current_row_latest: None,
         columns: COLUMNS,
         partition_spec: &["vintage"],
         sort_order: &["pnu", "mgmt_key", "base_date"],

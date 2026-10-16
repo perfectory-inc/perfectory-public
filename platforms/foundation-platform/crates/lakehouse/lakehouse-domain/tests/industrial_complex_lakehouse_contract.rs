@@ -3,12 +3,12 @@
 use std::{collections::BTreeSet, error::Error, io};
 
 use lakehouse_domain::{
-    industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseLayer,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract, GOLD_COMPLEX_CATALOG,
-    GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_TITLES,
-    SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
-    SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_INDUSTRIAL_COMPLEXES,
-    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
+    industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseCurrentRowLatest,
+    LakehouseLayer, LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS,
+    SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
+    SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
+    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -265,15 +265,44 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
     );
 }
 
+/// The versioned tables, and only they, say which row is current (root ADR-0265).
 #[test]
-fn only_parcel_boundaries_define_a_current_row_predicate() {
+fn only_versioned_tables_define_a_current_row_rule() {
     for contract in industrial_complex_lakehouse_contracts() {
         if contract.table_name == SILVER_PARCEL_BOUNDARIES.table_name {
             assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
+            assert_eq!(contract.current_row_latest, None);
+        } else if contract.table_name == SILVER_INDUSTRIAL_COMPLEXES.table_name {
+            assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
+            assert_eq!(
+                contract.current_row_latest,
+                Some(LakehouseCurrentRowLatest {
+                    key: &["official_complex_code"],
+                    newest_first: &["valid_from_utc", "ingested_at_utc"],
+                })
+            );
         } else {
             assert_eq!(
-                contract.current_row_predicate, None,
-                "{} must not define a current-row predicate",
+                (contract.current_row_predicate, contract.current_row_latest),
+                (None, None),
+                "{} must not define a current-row rule",
+                contract.table_name
+            );
+        }
+    }
+}
+
+/// A rule naming a column the table does not have would select nothing, silently.
+#[test]
+fn a_current_row_rule_names_only_the_table_s_own_columns() {
+    for contract in industrial_complex_lakehouse_contracts() {
+        let Some(latest) = contract.current_row_latest else {
+            continue;
+        };
+        for column in latest.key.iter().chain(latest.newest_first) {
+            assert!(
+                contract.columns.iter().any(|c| c.name == *column),
+                "{} current-row rule names {column}, which it does not have",
                 contract.table_name
             );
         }

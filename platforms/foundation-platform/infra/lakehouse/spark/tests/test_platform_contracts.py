@@ -15,6 +15,7 @@ sys.path.insert(0, str(JOBS_DIR))
 from platform_contracts import (  # noqa: E402
     CONTRACTS_PATH_ENV,
     column_names,
+    current_row_latest,
     current_row_predicate,
     declared_geometry_srid,
     jsonl_transport_columns,
@@ -142,6 +143,58 @@ class PlatformContractsTest(unittest.TestCase):
                 for call in calls
             )
         )
+
+
+class CurrentRowRuleTest(unittest.TestCase):
+    """`silver.industrial_complexes` keeps every appended version; the contract says which is current
+    (root ADR-0265), and every reader takes it through `current_rows`, not a filter of its own."""
+
+    COMPLEX_READERS = (
+        "industrial_complex_boundaries_handoff_to_silver.py",
+        "industrial_complex_boundaries_silver_to_postgis_handoff.py",
+        "industrial_complex_silver_to_gold.py",
+    )
+
+    def test_complexes_contract_declares_the_newest_row_per_code(self) -> None:
+        contract = load_lakehouse_contract(SILVER_INDUSTRIAL_COMPLEXES)
+        self.assertEqual(current_row_predicate(contract), "valid_to_utc IS NULL")
+        latest = current_row_latest(contract)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.key, ("official_complex_code",))
+        self.assertEqual(latest.newest_first, ("valid_from_utc", "ingested_at_utc"))
+
+    def test_an_unversioned_table_has_no_latest_rule(self) -> None:
+        self.assertIsNone(current_row_latest(load_lakehouse_contract("silver.parcel_boundaries")))
+
+    def test_the_rule_is_refused_when_missing_or_naming_a_foreign_column(self) -> None:
+        contract = dict(load_lakehouse_contract(SILVER_INDUSTRIAL_COMPLEXES))
+        missing = {key: value for key, value in contract.items() if key != "current_row_latest"}
+        with self.assertRaisesRegex(ValueError, "current_row_latest key"):
+            current_row_latest(missing)
+        for broken in (
+            {"key": ["official_complex_code"], "newest_first": ["no_such_column"]},
+            {"key": [], "newest_first": ["ingested_at_utc"]},
+            {"key": ["official_complex_code"]},
+            "ingested_at_utc",
+        ):
+            with self.subTest(broken=broken):
+                with self.assertRaisesRegex(ValueError, "current_row_latest"):
+                    current_row_latest({**contract, "current_row_latest": broken})
+
+    def test_every_complex_reader_selects_current_rows_through_the_contract(self) -> None:
+        for name in self.COMPLEX_READERS:
+            with self.subTest(reader=name):
+                tree = ast.parse((JOBS_DIR / name).read_text(encoding="utf-8"))
+                called = {
+                    node.func.id
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                }
+                self.assertIn("current_rows", called)
+                # A private window or a bare `valid_to_utc` filter is a second current-row rule.
+                source = (JOBS_DIR / name).read_text(encoding="utf-8")
+                self.assertNotIn("Window.partitionBy", source)
+                self.assertNotIn("complexes.where(", source)
 
 
 class JsonlTransportContractTest(unittest.TestCase):
