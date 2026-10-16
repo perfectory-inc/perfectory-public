@@ -83,7 +83,11 @@ mod tests {
     #[test]
     fn a_verdict_that_did_not_check_the_registry_binds_no_bake() {
         // ADR-0265: --no-registry, a rehearsal without the table, or a verdict from before.
-        for registry in [serde_json::json!("skipped"), serde_json::json!("absent"), serde_json::Value::Null] {
+        for registry in [
+            serde_json::json!("skipped"),
+            serde_json::json!("absent"),
+            serde_json::Value::Null,
+        ] {
             let mut value: serde_json::Value =
                 serde_json::from_slice(&verdict("s1", true, 5, 5)).unwrap_or_default();
             value["registry"] = registry.clone();
