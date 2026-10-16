@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use catalog_domain::{CatalogError, ComplexMutation, IndustrialComplex};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 
 use crate::industrial_complex_input::validate_clean_required;
 use crate::ports::CatalogUnitOfWork;
@@ -18,6 +18,8 @@ pub struct UpdateIndustrialComplexInput {
     pub name: Option<String>,
     /// Optional replacement official area in square meters.
     pub area_m2: Option<u64>,
+    /// Verified staff principal applying the edit.
+    pub applied_by: StaffId,
 }
 
 /// Updates an industrial complex through the Catalog unit of work.
@@ -50,6 +52,7 @@ impl UpdateIndustrialComplex {
                     name: input.name,
                     area_m2: input.area_m2,
                 },
+                input.applied_by,
             )
             .await
     }

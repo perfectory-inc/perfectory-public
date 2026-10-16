@@ -44,6 +44,9 @@ before "fixing" anything.
 - Fix: rename to the 14-digit form (see the `add-migration` skill; prefer
   `sqlx migrate add --timestamp`). Renaming an already-applied file
   invalidates local sqlx history — recreate local DBs.
+- Also failing means: two migration files anywhere in the tree share a 14-digit
+  version (sqlx keys by the number alone; #636 and #633 collided). Fix: move the
+  later PR's file to an unused version — check origin/main and every open PR.
 
 ### 4. unique-package-names
 

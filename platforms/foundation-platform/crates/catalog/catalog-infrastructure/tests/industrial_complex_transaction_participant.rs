@@ -1,4 +1,5 @@
-//! `PostgreSQL` contract tests for the Catalog canonical transaction participant.
+//! `PostgreSQL` contract tests for the Catalog canonical transaction participant, and for the
+//! staff edit path that records what it replaced in `catalog.catalog_edit` (ADR-0264).
 
 use catalog_application::{
     industrial_complex_patch::{
@@ -6,10 +7,10 @@ use catalog_application::{
     },
     ports::{CatalogUnitOfWork, UpsertIndustrialComplexCommand},
 };
-use catalog_domain::{CatalogError, IndustrialComplex, IndustrialComplexKind};
+use catalog_domain::{CatalogError, ComplexMutation, IndustrialComplex, IndustrialComplexKind};
 use catalog_infrastructure::{PgCatalogUnitOfWork, PgIndustrialComplexTransactionParticipant};
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::ComplexId;
+use foundation_shared_kernel::ids::{ComplexId, StaffId};
 use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -413,6 +414,147 @@ async fn missing_target_returns_exact_catalog_error() -> TestResult {
         Ok(())
     })
     .await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn an_update_keeps_the_replaced_values_and_the_editor() -> TestResult {
+    run_in_disposable_database("catalog_complex_edit_ledger", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let complex = create_complex(&pool).await?;
+        let editor = StaffId::new(Uuid::now_v7());
+        let uow = PgCatalogUnitOfWork::new(pool.clone());
+
+        uow.update_complex(complex.id, 1, rename("Renamed Complex", 120_000), editor)
+            .await?;
+        uow.update_complex(complex.id, 2, rename("Renamed Again", 130_000), editor)
+            .await?;
+
+        let rows: Vec<(String, String, i64, JsonValue, JsonValue, Uuid)> = sqlx::query_as(
+            "SELECT command_type, target_kind, expected_version,
+                    before_snapshot, after_snapshot, applied_by_principal_id
+             FROM catalog.catalog_edit
+             WHERE target_id = $1
+             ORDER BY expected_version",
+        )
+        .bind(complex.id.as_uuid())
+        .fetch_all(&pool)
+        .await?;
+
+        assert_eq!(rows.len(), 2);
+        let (command_type, target_kind, expected_version, before, after, applied_by) = &rows[0];
+        assert_eq!(command_type, "catalog.industrial_complex.update");
+        assert_eq!(target_kind, "industrial_complex");
+        assert_eq!(*expected_version, 1);
+        assert_eq!(before["name"], complex.name.as_str());
+        assert_eq!(before["area_m2"], 95_000);
+        assert_eq!(before["version"], 1);
+        assert_eq!(after["name"], "Renamed Complex");
+        assert_eq!(after["version"], 2);
+        assert_eq!(*applied_by, editor.as_uuid());
+        // The first value survives the second overwrite.
+        assert_eq!(rows[1].3["name"], "Renamed Complex");
+        assert_eq!(rows[1].4["name"], "Renamed Again");
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_rejected_update_writes_no_edit() -> TestResult {
+    run_in_disposable_database("catalog_complex_edit_stale", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let complex = create_complex(&pool).await?;
+        let uow = PgCatalogUnitOfWork::new(pool.clone());
+
+        let stale = uow
+            .update_complex(
+                complex.id,
+                7,
+                rename("Stale Edit", 1),
+                StaffId::new(Uuid::now_v7()),
+            )
+            .await;
+        assert!(matches!(
+            stale,
+            Err(CatalogError::ComplexVersionConflict {
+                expected: 7,
+                current: 1
+            })
+        ));
+        let missing = uow
+            .update_complex(
+                ComplexId::new(Uuid::now_v7()),
+                1,
+                rename("Missing", 1),
+                StaffId::new(Uuid::now_v7()),
+            )
+            .await;
+        assert!(matches!(missing, Err(CatalogError::ComplexNotFound(_))));
+
+        let edits: i64 = sqlx::query_scalar("SELECT count(*) FROM catalog.catalog_edit")
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(edits, 0);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn the_edit_ledger_refuses_rewrite_and_unknown_kinds() -> TestResult {
+    run_in_disposable_database("catalog_complex_edit_immutable", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let complex = create_complex(&pool).await?;
+        PgCatalogUnitOfWork::new(pool.clone())
+            .update_complex(
+                complex.id,
+                1,
+                rename("Renamed Complex", 120_000),
+                StaffId::new(Uuid::now_v7()),
+            )
+            .await?;
+
+        let update = sqlx::query(
+            "UPDATE catalog.catalog_edit SET before_snapshot = '{}'::jsonb WHERE target_id = $1",
+        )
+        .bind(complex.id.as_uuid())
+        .execute(&pool)
+        .await;
+        assert!(update.is_err(), "the edit ledger accepted an UPDATE");
+        let delete = sqlx::query("DELETE FROM catalog.catalog_edit WHERE target_id = $1")
+            .bind(complex.id.as_uuid())
+            .execute(&pool)
+            .await;
+        assert!(delete.is_err(), "the edit ledger accepted a DELETE");
+
+        let unknown_kind = sqlx::query(
+            "INSERT INTO catalog.catalog_edit (
+                 id, command_type, target_kind, target_id, expected_version,
+                 before_snapshot, after_snapshot, applied_by_principal_id
+             ) VALUES ($1, 'catalog.building.update', 'building', $2, 1, '{}', '{}', $3)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(Uuid::now_v7())
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await;
+        assert!(
+            unknown_kind.is_err(),
+            "the edit ledger accepted a kind with no writer"
+        );
+        Ok(())
+    })
+    .await
+}
+
+fn rename(name: &str, area_m2: u64) -> ComplexMutation {
+    ComplexMutation {
+        name: Some(name.to_owned()),
+        area_m2: Some(area_m2),
+    }
 }
 
 async fn create_complex(pool: &PgPool) -> TestResult<IndustrialComplex> {
