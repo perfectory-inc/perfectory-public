@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""The cadastral parcel editions the source contract names (root ADR-0067, ADR-0148).
+"""The cadastral parcel editions (root ADR-0067, ADR-0148, ADR-0224).
 
-`vworld-parcel-source-objects.json` lists, per provider edition (`YYYYMM`), the Bronze objects
-that hold it, when the provider extracted it, and where its converted handoffs live. Everything
-else about an edition is derived here, once, for every reader — the converter and the batch
-loader (through the command line below), the legal-dong pairing, the parcel panel and the
-lineage migration (by import):
+`vworld-parcel-source-objects.json` holds the rules; which Bronze objects hold an edition, when
+the provider extracted it and where its converted handoffs live are the Bronze ledger's, derived
+at run time by the publisher's `vworld-parcel-editions` command (`--editions` here, or
+`$VWORLD_PARCEL_EDITIONS`). The contract alone answers the served edition, its 시도 and every
+`source_snapshot_id`; a reader that needs an edition's objects or dates needs the ledger's
+document, and is refused without it. Everything else about an edition is derived here, once, for
+every reader — the converter and the batch loader (through the command line below), the
+legal-dong pairing, the parcel panel and the lineage migration (by import):
 
 - its `source_snapshot_id` in `silver.parcel_boundaries` (`snapshot_id_prefix` + edition), and
   its `valid_from_utc` (the first instant of its base month). Both used to be typed per run, and
@@ -14,9 +17,10 @@ lineage migration (by import):
 - which edition the map and the catalog are built from (`served_edition`);
 - which two editions bracket a code change (`bracketing`), for the legal-dong pairing's 지번 step.
 
-The check (`validate`) refuses a contract whose editions could be mistaken for one another: an
-object named in two editions, a member whose edition is not its edition's, a granularity whose
-coverage disagrees with the other, or two editions sharing a handoff prefix.
+The check (`validate`) refuses a contract that lists objects again, and editions that could be
+mistaken for one another: an object named in two editions, a member whose edition is not its
+edition's, a granularity whose coverage disagrees with the other, or two editions sharing a
+handoff prefix.
 """
 
 from __future__ import annotations
@@ -30,9 +34,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vworld-parcel-source-objects.json"
 CONTRACT_ENV = "VWORLD_PARCEL_SOURCE_CONTRACT"
+EDITIONS_ENV = "VWORLD_PARCEL_EDITIONS"
+RETIRED_KEYS = ("editions", "objects")
+LEDGER_COMMAND = "foundation-outbox-publisher vworld-parcel-editions"
 EDITION = re.compile(r"^(\d{4})(0[1-9]|1[0-2])$")
 GRANULARITIES = ("sido", "sigungu")
 
@@ -45,8 +52,30 @@ def contract_path() -> Path:
     return Path(os.environ.get(CONTRACT_ENV) or CONTRACT_PATH)
 
 
-def load(path: Path | None = None) -> dict[str, Any]:
+def _retired(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        for key, inner in value.items():
+            if key in RETIRED_KEYS:
+                return key
+            if (found := _retired(inner)) is not None:
+                return found
+    if isinstance(value, list):
+        return next((found for item in value if (found := _retired(item)) is not None), None)
+    return None
+
+
+def load(path: Path | None = None, editions_path: str | Path | None = None) -> dict[str, Any]:
+    """The contract, with the ledger's editions when a document is given (or named by
+    `$VWORLD_PARCEL_EDITIONS`)."""
+
     contract = json.loads((path or contract_path()).read_text(encoding="utf-8"))
+    if (key := _retired(contract)) is not None:
+        raise EditionError(f"the source contract holds `{key}`: an edition's objects are the Bronze ledger's, "
+                           f"read at run time ({LEDGER_COMMAND}, root ADR-0224), not a list in the contract")
+    editions_path = editions_path or os.environ.get(EDITIONS_ENV)
+    if editions_path:
+        document = json.loads(Path(editions_path).read_text(encoding="utf-8"))
+        contract = {**contract, "editions": document["editions"]}
     validate(contract)
     return contract
 
@@ -61,15 +90,19 @@ def _day(value: str, what: str) -> date:
 def validate(contract: Mapping[str, Any]) -> None:
     if contract.get("schema_version") != SCHEMA_VERSION:
         raise EditionError(f"source object contract schema_version {contract.get('schema_version')!r} is not {SCHEMA_VERSION}")
-    editions = contract.get("editions")
-    if not isinstance(editions, Mapping) or not editions:
-        raise EditionError("the source contract names no editions")
     if contract.get("load_granularity") not in GRANULARITIES:
         raise EditionError(f"load_granularity must be one of {GRANULARITIES}")
-    if contract.get("served_edition") not in editions:
-        raise EditionError(f"served_edition {contract.get('served_edition')!r} is not one of the editions {sorted(editions)}")
+    if not EDITION.fullmatch(str(contract.get("served_edition"))):
+        raise EditionError(f"served_edition {contract.get('served_edition')!r} is not YYYYMM")
+    if not contract.get("served_edition_sido"):
+        raise EditionError("the source contract must name served_edition_sido")
     if not contract.get("snapshot_id_prefix") or not contract.get("handoff_suffix"):
         raise EditionError("the source contract must name snapshot_id_prefix and handoff_suffix")
+    editions = contract.get("editions")
+    if editions is None:
+        return
+    if contract["served_edition"] not in editions:
+        raise EditionError(f"served_edition {contract['served_edition']!r} is not one of the ledger's editions {sorted(editions)}")
     seen_keys: dict[str, str] = {}
     seen_names: dict[str, str] = {}
     prefixes: dict[str, str] = {}
@@ -116,15 +149,22 @@ def validate(contract: Mapping[str, Any]) -> None:
                                f"{sorted(covered['sigungu'])}; every province needs its districts")
 
 
+def _ledger(contract: Mapping[str, Any]) -> Mapping[str, Any]:
+    if "editions" not in contract:
+        raise EditionError(f"which objects hold an edition is the Bronze ledger's: pass --editions <the output of "
+                           f"{LEDGER_COMMAND}> (or set ${EDITIONS_ENV}) (root ADR-0224)")
+    return contract["editions"]
+
+
 def edition(contract: Mapping[str, Any], name: str) -> Mapping[str, Any]:
-    found = contract["editions"].get(name)
+    found = _ledger(contract).get(name)
     if found is None:
         raise EditionError(f"the source contract holds no edition {name!r}; it holds {sorted(contract['editions'])}")
     return found
 
 
 def names(contract: Mapping[str, Any]) -> list[str]:
-    return sorted(contract["editions"])
+    return sorted(_ledger(contract))
 
 
 def served(contract: Mapping[str, Any]) -> str:
@@ -132,7 +172,13 @@ def served(contract: Mapping[str, Any]) -> str:
 
 
 def snapshot_id(contract: Mapping[str, Any], name: str) -> str:
-    edition(contract, name)
+    """`snapshot_id_prefix` + edition. Without the ledger's editions any well-formed edition is
+    accepted; with them, only one the ledger holds."""
+
+    if "editions" in contract:
+        edition(contract, name)
+    elif not EDITION.fullmatch(str(name)):
+        raise EditionError(f"edition {name!r} is not YYYYMM")
     return f"{contract['snapshot_id_prefix']}{name}"
 
 
@@ -177,9 +223,10 @@ def edition_of_snapshot_id(contract: Mapping[str, Any], value: str) -> str:
 
     prefix = contract["snapshot_id_prefix"]
     name = value[len(prefix):] if value.startswith(prefix) else ""
-    if name not in contract["editions"]:
-        raise EditionError(f"{value!r} is not the snapshot id of an edition; they are "
-                           f"{[snapshot_id(contract, n) for n in names(contract)]}")
+    held = contract["editions"] if "editions" in contract else None
+    if not EDITION.fullmatch(name) or (held is not None and name not in held):
+        known = [snapshot_id(contract, n) for n in names(contract)] if held is not None else f"{prefix}<YYYYMM>"
+        raise EditionError(f"{value!r} is not the snapshot id of an edition; they are {known}")
     return name
 
 
@@ -203,14 +250,14 @@ def handoff_key(contract: Mapping[str, Any], name: str, object_key: str) -> str:
 
 
 def all_objects(contract: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    return [obj for name in names(contract) for obj in contract["editions"][name]["objects"]]
+    return [obj for name in names(contract) for obj in _ledger(contract)[name]["objects"]]
 
 
 def cadastral_sido(contract: Mapping[str, Any]) -> list[str]:
-    """The 시도 the served parcel set carries: its sido objects."""
+    """The 시도 the served parcel set carries, as the contract states them (the ledger's editions
+    refuse a served edition covering others)."""
 
-    return sorted({obj["region_code"][:2] for obj in edition(contract, served(contract))["objects"]
-                   if obj["granularity"] == "sido"})
+    return sorted(contract["served_edition_sido"])
 
 
 def bracketing(contract: Mapping[str, Any], effective: str) -> tuple[str | None, str | None]:
@@ -224,7 +271,7 @@ def bracketing(contract: Mapping[str, Any], effective: str) -> tuple[str | None,
     day = _day(effective if "-" in effective else f"{effective[:4]}-{effective[4:6]}-{effective[6:]}", "change date")
     before = after = None
     for name in names(contract):
-        extracted = contract["editions"][name]["extracted_on"]
+        extracted = _ledger(contract)[name]["extracted_on"]
         if _day(extracted["latest"], name) < day:
             before = name
         elif after is None and _day(extracted["earliest"], name) > day:
@@ -237,9 +284,6 @@ def bracketing(contract: Mapping[str, Any], effective: str) -> tuple[str | None,
 
 PROVIDER_ENDPOINT = "vworld-dataset-parcel"
 BASE_MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
-MEMBER = re.compile(r"^LSMD_CONT_LDREG_(\d{2}|\d{5})_(\d{6})\.shp$")
-
-
 def endpoint_catalog(catalog: Mapping[str, Any]) -> dict[str, Any]:
     """The endpoint catalog cut to the parcel dataset, so the plan and inventory read one dataset's
     pages a day instead of every VWorld dataset's."""
@@ -259,7 +303,7 @@ def inventory_summary_csv(contract: Mapping[str, Any], catalog: Mapping[str, Any
     """
 
     selector = endpoint_catalog(catalog)["endpoints"][0]["provider_dataset_selector"]
-    latest = contract["editions"][names(contract)[-1]]
+    latest = _ledger(contract)[names(contract)[-1]]
     count = len(latest["objects"])
     gib = sum(obj["bytes"] for obj in latest["objects"]) / 2**30
     header = "module,svc_cde,ds_id,file_pages,file_count,large_file_count,listed_gib"
@@ -294,7 +338,7 @@ def provider_edition(contract: Mapping[str, Any], inventory: Mapping[str, Any]) 
     held = names(contract)
     if newest < held[-1]:
         raise EditionError(f"the provider's newest edition {newest} is older than the contract's {held[-1]}")
-    return newest, newest in contract["editions"]
+    return newest, newest in _ledger(contract)
 
 
 def held_reuploads(contract: Mapping[str, Any], inventory: Mapping[str, Any], name: str) -> list[str]:
@@ -333,81 +377,6 @@ def select_inventory(inventory: Mapping[str, Any], name: str) -> dict[str, Any]:
     return cut
 
 
-def check_not_partial(contract: Mapping[str, Any], name: str, objects: Sequence[Mapping[str, Any]]) -> None:
-    """Refuses a proposal that covers less of the country than the edition before it.
-
-    A provider listing caught half-updated (some files already the new month, the rest still the
-    old one) yields an edition of half the 시군구, which the contract checks alone would accept.
-    Against the previous edition (`new_edition_bounds`): the 시도 its 시군구 objects cover may change
-    only by a merger — a 시도 leaves only while another appears, at most `max_sido_set_difference`
-    codes in all — and its 시군구 count by at most `max_sigungu_count_change_share`.
-    """
-
-    earlier = [held for held in names(contract) if held < name]
-    if not earlier:
-        return
-    bounds = contract.get("new_edition_bounds")
-    if not isinstance(bounds, Mapping):
-        raise EditionError("the source contract names no new_edition_bounds; a proposal cannot be checked against its predecessor")
-    previous = earlier[-1]
-
-    def districts(objs: Sequence[Mapping[str, Any]]) -> tuple[set[str], int]:
-        codes = [obj["region_code"] for obj in objs if obj["granularity"] == "sigungu"]
-        return {code[:2] for code in codes}, len(codes)
-
-    was_sido, was_count = districts(contract["editions"][previous]["objects"])
-    now_sido, now_count = districts(objects)
-    left, appeared = was_sido - now_sido, now_sido - was_sido
-    if (left and not appeared) or len(left | appeared) > int(bounds["max_sido_set_difference"]):
-        raise EditionError(
-            f"edition {name} covers the 시도 {sorted(now_sido)} where {previous} covered {sorted(was_sido)} "
-            f"(left {sorted(left)}, appeared {sorted(appeared)}): a partial collection, not a new edition")
-    if abs(now_count - was_count) > was_count * float(bounds["max_sigungu_count_change_share"]):
-        raise EditionError(
-            f"edition {name} holds {now_count} 시군구 objects where {previous} held {was_count} (bound "
-            f"{bounds['max_sigungu_count_change_share']}): a partial collection, not a new edition")
-
-
-def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[str, Any]], prefix: str) -> dict[str, Any]:
-    """The contract entry for edition `name`, from the ZIPs as they were measured.
-
-    `measured` holds one row per collected object: its key, bytes, the members of its central
-    directory and their dates (`vworld_parcel_edition_members.py`). Each object must hold exactly one
-    shapefile of this edition; the entry is checked against the contract as it would stand with it,
-    so a proposal that could not be merged is refused here rather than in review.
-    """
-
-    objects, dates = [], []
-    for row in measured:
-        shapes = [m for m in row["members"] if m.endswith(".shp")]
-        found = MEMBER.fullmatch(shapes[0]) if len(shapes) == 1 else None
-        if found is None or found.group(2) != name:
-            raise EditionError(f"{row['object_key']} holds {shapes}, not one shapefile of edition {name}")
-        code = found.group(1)
-        objects.append({"object_key": row["object_key"], "bytes": row["bytes"],
-                        "dataset_name": shapes[0][: -len(".shp")], "region_code": code,
-                        "granularity": "sido" if len(code) == 2 else "sigungu"})
-        dates.extend(row["member_dates"])
-    if not objects:
-        raise EditionError(f"nothing was measured for edition {name}")
-    objects.sort(key=lambda obj: (obj["granularity"] != "sido", obj["region_code"]))
-    entry = {
-        "provider_base_month": f"{name[:4]}-{name[4:]}",
-        # Every member's date, not each file's newest: `bracketing` calls an edition wholly after a
-        # change only when its earliest member is, so a file whose members straddle the change
-        # (part written before it) must pull `earliest` back to its oldest member.
-        "extracted_on": {"earliest": min(dates), "latest": max(dates)},
-        "handoff_prefix": prefix,
-        "granularity_counts": {g: sum(1 for obj in objects if obj["granularity"] == g) for g in GRANULARITIES},
-        "objects": objects,
-    }
-    merged = json.loads(json.dumps(contract))
-    merged["editions"][name] = entry
-    validate(merged)
-    check_not_partial(contract, name, objects)
-    return entry
-
-
 # --- command line (the shell loaders' only way into the contract) -----------------------------
 
 
@@ -415,18 +384,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
                                             "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
-                                            "endpoint-catalog", "provider-edition", "held-reuploads", "select-inventory",
-                                            "propose"))
+                                            "endpoint-catalog", "provider-edition", "held-reuploads", "select-inventory"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
     parser.add_argument("--catalog", help="endpoint-catalog: public-source-endpoint-catalog.v1.json")
     parser.add_argument("--summary-output", help="endpoint-catalog: the plan's inventory summary CSV")
-    parser.add_argument("--measured", help="propose: JSON lines from vworld_parcel_edition_members.py")
-    parser.add_argument("--output", help="endpoint-catalog, select-inventory, propose: where to write")
+    parser.add_argument("--editions", help=f"the Bronze ledger's editions ({LEDGER_COMMAND}); defaults to ${EDITIONS_ENV}. "
+                                           "Required by every command that reads an edition's objects or dates")
+    parser.add_argument("--output", help="endpoint-catalog, select-inventory: where to write")
     args = parser.parse_args(argv)
     try:
-        contract = load(Path(args.contract) if args.contract else None)
+        contract = load(Path(args.contract) if args.contract else None, args.editions)
         if args.command == "endpoint-catalog":
             catalog = json.loads(Path(args.catalog).read_text(encoding="utf-8"))
             Path(args.output).write_text(json.dumps(endpoint_catalog(catalog), ensure_ascii=False) + "\n", encoding="utf-8")
@@ -446,16 +415,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             Path(args.output).write_text(json.dumps(cut, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             print(sum(len(job["files"]) for job in cut["jobs"]))
             return 0
-        if args.command == "propose":
-            rows = [json.loads(line) for line in Path(args.measured).read_text(encoding="utf-8").splitlines() if line.strip()]
-            prefix = f"{edition(contract, served(contract))['handoff_prefix'].split('/edition=')[0]}/edition={args.edition}"
-            entry = propose(contract, args.edition, rows, prefix)
-            Path(args.output).write_text(json.dumps({args.edition: entry}, ensure_ascii=False, indent=2) + "\n",
-                                         encoding="utf-8")
-            print(f"edition={args.edition} {entry['granularity_counts']} extracted={entry['extracted_on']}")
-            return 0
         if args.command == "check":
-            print(f"ok editions={','.join(names(contract))} served={served(contract)}")
+            held = ",".join(names(contract)) if "editions" in contract else "(contract only)"
+            print(f"ok editions={held} served={served(contract)}")
             return 0
         if args.command == "editions":
             print("\n".join(names(contract)))

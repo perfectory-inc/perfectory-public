@@ -150,7 +150,7 @@
     },
     {
       "id": "vworld_parcel_edition",
-      "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the source contract (vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze, measure each ZIP's members by ranged read, and propose the contract entry. No Spark: the Silver load runs from a release whose contract holds the edition (runbook vworld-parcel-editions.md). Exit 3 means an edition awaits the contract, not a fault: the job posts 'new edition waiting for contract entry' itself, and is not retried (a retry would only download and propose the same edition again).",
+      "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the editions the Bronze ledger holds (root ADR-0224: the publisher's vworld-parcel-editions, by the rules of vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze and measure each ZIP's members beside the ledger (bronze-object-members.sh, ranged reads), after which the ledger reads it as an edition. No Spark: the Silver load runs by hand from the runbook (vworld-parcel-editions.md). Exit 3 means a collected edition awaits its Silver load, not a fault: the job posts 'new edition waiting for Silver load' itself, and is not retried (a retry would only check the same edition again).",
       "systemd_service": "foundation-vworld-parcel-edition.service",
       "systemd_timer": null,
       "schedule": "40 4 * * *",
@@ -162,7 +162,7 @@
         "source-vworld-dataset-to-silver-parcel-boundaries"
       ],
       "enabled": false,
-      "disabled_reason": "New. Off until one supervised run on the data host (runbook vworld-parcel-editions.md, 'Turning it on') has answered 'held' for the edition the contract holds; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New. Off until one supervised run on the data host (runbook vworld-parcel-editions.md, 'Turning it on') has answered 'held' for the newest edition the ledger holds; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "parcel_number_change_history",

@@ -160,6 +160,15 @@ fn bronze_object_member_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn parcel_editions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "vworld-parcel-editions"])?,
+        Command::VworldParcelEditions
+    );
+    Ok(())
+}
+
+#[test]
 fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "clear-staging-namespace"])?,

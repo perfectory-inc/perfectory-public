@@ -94,7 +94,7 @@ class RunGroups(unittest.TestCase):
 
 class ProducerArguments(unittest.TestCase):
     def test_a_group_becomes_a_hand_run_the_producer_itself_validates(self):
-        args = job.parse_args(["--deadline-minutes", "60", "--work-dir", "w", "--allow-non-smoke-write"])
+        args = job.parse_args(["--deadline-minutes", "60", "--work-dir", "w", "--parcel-editions", "e", "--allow-non-smoke-write"])
         with mock.patch.object(producer.editions, "load", return_value=CONTRACT):
             parsed = producer.parse_args(job.producer_argv(args, CONTRACT, ("209906", "209909"), ("96,97", "95"),
                                                            Path("pins.json")))
@@ -105,13 +105,13 @@ class ProducerArguments(unittest.TestCase):
         self.assertEqual((parsed.iceberg_table, parsed.allow_non_smoke_write), ("parcel_lineage", True))
 
     def test_without_the_write_flag_the_producer_refuses_the_real_table(self):
-        args = job.parse_args(["--deadline-minutes", "60", "--work-dir", "w"])
+        args = job.parse_args(["--deadline-minutes", "60", "--work-dir", "w", "--parcel-editions", "e"])
         self.assertNotIn("--allow-non-smoke-write",
                          job.producer_argv(args, CONTRACT, ("209906", "209909"), ("98", "98"), Path("p")))
 
     def test_a_deadline_must_be_positive(self):
         with self.assertRaises(ValueError):
-            job.parse_args(["--deadline-minutes", "0", "--work-dir", "w"])
+            job.parse_args(["--deadline-minutes", "0", "--work-dir", "w", "--parcel-editions", "e"])
 
     def test_the_held_query_names_the_pair_the_rules_and_the_group(self):
         sql = job.held_sql("t", "a", "b", "96,97")
@@ -122,3 +122,23 @@ class ProducerArguments(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Editions(unittest.TestCase):
+    """The pairs are the Bronze ledger's editions (root ADR-0224): the contract alone names none."""
+
+    def test_the_derivation_needs_the_ledgers_editions(self):
+        with self.assertRaises(SystemExit):
+            job.parse_args(["--deadline-minutes", "60", "--work-dir", "w"])
+
+    def test_the_real_contract_alone_pairs_nothing_but_refuses(self):
+        import vworld_parcel_editions as editions  # noqa: PLC0415
+
+        with mock.patch.dict("os.environ", {}, clear=True), self.assertRaises(editions.EditionError):
+            job.edition_pairs(editions.load())
+
+    def test_the_stewardship_cycle_hands_the_derivation_the_ledgers_editions(self):
+        cycle = (Path(__file__).resolve().parents[4] / "scripts/ops/lineage-stewardship-cycle.sh").read_text(encoding="utf-8")
+        call = cycle[cycle.index("spark parcel_lineage_scheduled.py"):].split("\n\n")[0]
+        self.assertIn('--parcel-editions "${container_work}/parcel-editions.json"', call)
+        self.assertIn('parcel_editions > "${work}/parcel-editions.json"', cycle)

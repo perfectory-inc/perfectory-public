@@ -62,7 +62,21 @@ cd "$RELEASE" || { echo "릴리스 디렉터리 없음: $RELEASE" >&2; exit 1; }
 
 # 판이 정하는 것: 핸드오프 키(r2), 그리고 모든 행이 지녀야 할 source_snapshot_id 하나.
 CONTRACT="${SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
-editions() { python3 "$RELEASE/infra/lakehouse/spark/jobs/vworld_parcel_editions.py" "$@" --contract "$CONTRACT"; }
+PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"
+editions() { python3 "$RELEASE/infra/lakehouse/spark/jobs/vworld_parcel_editions.py" "$@" --contract "$CONTRACT" ${LEDGER_EDITIONS:+--editions "$LEDGER_EDITIONS"}; }
+# 판의 객체는 원천 계약이 아니라 Bronze 장부의 것이다(root ADR-0224): 발행기가 장부와 그 옆 ZIP 안 이름에서
+# 판을 만들어 내고, 판 읽기 도구는 그것을 --editions 로 읽는다. 장부는 Foundation DB 에 있다.
+ledger_editions() {
+  if [ -z "${DATABASE_URL:-}" ]; then
+    # shellcheck source=../ops/database-url.sh
+    source "$RELEASE/scripts/ops/database-url.sh"
+    DATABASE_URL="$(foundation_database_url)" || { echo "DATABASE_URL 을 만들지 못했다 (recovery.env 의 FOUNDATION_ADMIN_PASSWORD)" >&2; return 1; }
+  fi
+  LEDGER_EDITIONS="$(mktemp)"
+  trap 'rm -f "$LEDGER_EDITIONS"' EXIT
+  DATABASE_URL="$DATABASE_URL" VWORLD_PARCEL_SOURCE_CONTRACT="$CONTRACT" "$PUBLISHER" vworld-parcel-editions > "$LEDGER_EDITIONS" ||
+    { echo "장부에서 필지 판을 읽지 못했다" >&2; return 1; }
+}
 if [ -n "${VWORLD_PARCEL_HANDOFF_PREFIX:-}" ]; then
   echo "VWORLD_PARCEL_HANDOFF_PREFIX 는 더 이상 받지 않는다 — 판의 핸드오프 자리는 원천 계약이 정한다" >&2
   exit 1
@@ -112,10 +126,11 @@ case "$SOURCE" in
              FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
       [ -n "${!v:-}" ] || { echo "r2 입력에는 $v 가 필요하다" >&2; exit 1; }
     done
-    # The keys come from the contract that already names the objects, edition by edition: the
+    # The keys come from the edition's objects in the ledger and the contract's handoff rules: the
     # prefix was a default here and in two other callers, and renaming it meant editing three
     # files and any one missed would read from a prefix nothing was written to. The suffix
     # (the contract's handoff_suffix) is derived there too.
+    ledger_editions || exit 1
     mapfile -t all < <(editions handoff-keys --edition "$EDITION" \
       | sed "s#^#s3a://${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}/#")
     [ "${#all[@]}" -gt 0 ] || { echo "핸드오프 키 목록을 못 만들었다" >&2; exit 1; }

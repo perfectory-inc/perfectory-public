@@ -60,9 +60,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def canonical_by_bare_name() -> dict[str, str]:
     """Map each bare file name to the one object key that ends with it.
 
-    Built from the source contract rather than by gluing a prefix onto the name: the prefix is a
-    property of the object, and a name that matches no object or two objects means the mapping is
-    not a mapping. Verified 2026-09-01 — across all 272 objects, no two share a file name.
+    Built from the objects of every edition rather than by gluing a prefix onto the name: the prefix
+    is a property of the object, and a name that matches no object or two objects means the mapping
+    is not a mapping. Verified 2026-09-01 — across all 272 objects, no two share a file name. The
+    objects are the Bronze ledger's (`$VWORLD_PARCEL_EDITIONS`, the output of the publisher's
+    `vworld-parcel-editions`; root ADR-0224).
     """
     path = Path(os.environ.get(SOURCE_CONTRACT_ENV, str(DEFAULT_SOURCE_CONTRACT)))
     contract = editions.load(path)

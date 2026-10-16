@@ -8,9 +8,10 @@
 # **Which objects.** `bronze/source=vworldkr__parcel/` holds the whole country twice per edition —
 # at province and at district granularity — and several editions, and the object names say
 # nothing about which is which. Converting both coverings would double every parcel; converting
-# objects of two editions under one id would mix them. The set is not decided here; it is read
-# from `vworld-parcel-source-objects.json`, edition by edition, through `vworld_parcel_editions.py`
-# (root ADR-0067, ADR-0148).
+# objects of two editions under one id would mix them. The set is not decided here; it is the
+# Bronze ledger's, edition by edition (the publisher's `vworld-parcel-editions`), read through
+# `vworld_parcel_editions.py` with the rules of `vworld-parcel-source-objects.json`
+# (root ADR-0067, ADR-0148, ADR-0224).
 #
 # **Which edition, under which id.** The operator names the edition (`VWORLD_PARCEL_EDITION`,
 # e.g. 202609) and nothing else: its `source_snapshot_id`, its `valid_from_utc` and its handoff
@@ -42,7 +43,20 @@ JOBS="${VWORLD_PARCEL_EXPORT_JOBS:-8}"
 CONTRACT="${VWORLD_PARCEL_SOURCE_CONTRACT:-$RELEASE/infra/lakehouse/contracts/vworld-parcel-source-objects.json}"
 EDITIONS="$RELEASE/infra/lakehouse/spark/jobs/vworld_parcel_editions.py"
 PUBLISHER="${FOUNDATION_PLATFORM_PUBLISHER_BIN:-$RELEASE/bin/foundation-outbox-publisher}"
-editions() { python3 "$EDITIONS" "$@" --contract "$CONTRACT"; }
+editions() { python3 "$EDITIONS" "$@" --contract "$CONTRACT" ${LEDGER_EDITIONS:+--editions "$LEDGER_EDITIONS"}; }
+# 판의 객체는 원천 계약이 아니라 Bronze 장부의 것이다(root ADR-0224): 발행기가 장부와 그 옆 ZIP 안 이름에서
+# 판을 만들어 내고, 판 읽기 도구는 그것을 --editions 로 읽는다. 장부는 Foundation DB 에 있다.
+ledger_editions() {
+  if [ -z "${DATABASE_URL:-}" ]; then
+    # shellcheck source=../ops/database-url.sh
+    source "$RELEASE/scripts/ops/database-url.sh"
+    DATABASE_URL="$(foundation_database_url)" || { echo "DATABASE_URL 을 만들지 못했다 (recovery.env 의 FOUNDATION_ADMIN_PASSWORD)" >&2; return 1; }
+  fi
+  LEDGER_EDITIONS="$(mktemp)"
+  trap 'rm -f "$LEDGER_EDITIONS"' EXIT
+  DATABASE_URL="$DATABASE_URL" VWORLD_PARCEL_SOURCE_CONTRACT="$CONTRACT" "$PUBLISHER" vworld-parcel-editions > "$LEDGER_EDITIONS" ||
+    { echo "장부에서 필지 판을 읽지 못했다" >&2; return 1; }
+}
 
 # 이 명령은 R2 에 **쓴다**. 처음에 여기 적혀 있던 것은 적재기의 목록, 즉 읽기 자격증명이었다.
 # 읽기만 쥐여 주면 검사는 통과하고 255개가 전부 즉시 실패했다 — 통과했으니 확인했다고 믿게
@@ -81,6 +95,7 @@ fi
 [ -f "$EDITIONS" ] || { echo "판 읽기 도구가 없다: $EDITIONS" >&2; exit 1; }
 [ -x "$PUBLISHER" ] || { echo "실행 파일이 없다: $PUBLISHER" >&2; exit 1; }
 mkdir -p "$STATE"
+ledger_editions || exit 1
 
 # 판의 계보 값·핸드오프 자리·접미사·실을 객체는 모두 원천 계약이 정한다. 여기 적으면 계약과
 # 갈라지고, 적재기가 같은 계약에서 같은 이름을 만들기 때문에 적재기가 없는 객체를 찾게 된다.

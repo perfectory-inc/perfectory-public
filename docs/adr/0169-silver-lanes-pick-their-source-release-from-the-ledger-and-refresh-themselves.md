@@ -175,3 +175,5 @@
     남았을 수 있다는 뜻이고, 그보다 적으면 그 실행이 남은 것을 다 골랐다.
   - 실패한 레인의 파일별 이유가 유닛 저널로 간다(ADR-0174 개정 기록).
 - 2026-10-14: ③의 토지 레인 `completeness` 시도 개수(17)는 [ADR-0248](./0248-vworld-land-lanes-take-their-sido-from-the-legal-dong-code-list.md) 가 대체했다. 시도 레인은 개수를 적지 않고 판 날짜의 법정동코드 목록(`reference.legal_dong_code_snapshot`) 시도를 덮는다. 위 결정 본문은 고치지 않았다.
+- 2026-10-14: Consequences 의 필지 판 측정 도구를 지웠다. 필지 판은 장부 옆 ZIP 안 이름에서 읽는다
+  ([ADR-0224](./0224-parcel-editions-are-read-from-the-bronze-ledger.md)); ZIP 안 이름을 재는 곳은 하나다.

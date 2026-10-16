@@ -98,8 +98,18 @@ lock="${STATE_ROOT}/bake.lock"
 exec 8<"${lock}"
 flock -n 8 || { echo "parcel-tile-bake: refused: another bake holds ${lock}" >&2; exit 75; }
 
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  DATABASE_URL="$(foundation_database_url)"
+  export DATABASE_URL
+fi
+# Which objects hold an edition is the Bronze ledger's (root ADR-0224): the publisher reads it, and
+# every vworld_parcel_editions reader below takes it from VWORLD_PARCEL_EDITIONS.
+VWORLD_PARCEL_SOURCE_CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json" \
+  "${PUBLISHER_BIN}" vworld-parcel-editions > "${STATE_ROOT}/parcel-editions.json"
+export VWORLD_PARCEL_EDITIONS="${STATE_ROOT}/parcel-editions.json"
+
 # The edition, its snapshot id, its 시도 and the data-disk work root, from the contracts this
-# release ships: none of them is written down here. A rehearsal takes the newest edition.
+# release ships and the ledger: none of them is written down here. A rehearsal takes the newest edition.
 which_edition=served
 [[ "${MODE}" == rehearsal-* ]] && which_edition=newest
 mapfile -t plan < <(python3 -I - "${RELEASE_ROOT}" "${which_edition}" <<'PY'
@@ -109,7 +119,7 @@ release = pathlib.Path(sys.argv[1])
 sys.path.insert(0, str(release / "infra/lakehouse/spark/jobs"))
 import vworld_parcel_editions as editions
 contract = editions.load()
-chosen = editions.served(contract) if sys.argv[2] == "served" else max(contract["editions"])
+chosen = editions.served(contract) if sys.argv[2] == "served" else editions.names(contract)[-1]
 bake = json.loads((release / "config/tile-bake-containers.contract.json").read_text(encoding="utf-8"))
 print(chosen)
 print(editions.snapshot_id(contract, chosen))
@@ -121,10 +131,6 @@ PY
 edition="${plan[0]}"; snapshot="${plan[1]}"; sido="${plan[2]}"; work_root="${plan[3]}"
 [[ -n "${work_root:-}" && -n "${sido}" ]] || { echo "parcel-tile-bake: refused: the contracts name no edition, 시도 or work root" >&2; exit 65; }
 
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  DATABASE_URL="$(foundation_database_url)"
-  export DATABASE_URL
-fi
 lakehouse_root="${work_root}/lakehouse"
 container_root="/workspace/target/lakehouse"
 
