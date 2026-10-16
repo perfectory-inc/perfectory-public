@@ -343,11 +343,14 @@ impl Accept {
     }
 }
 
-/// One timed answer; `body` is decoded when it came gzip.
+/// One timed answer. It keeps the content digest of its body, never the body: the probe holds
+/// every answer of its sample until it tallies them, and 2026-10-16 the unit price lane's 10,000
+/// pairs of decoded documents took the gate (나) probe to 8 GB and the OOM killer.
 #[derive(Debug)]
 pub struct Answer {
     pub ms: f64,
-    pub body: Vec<u8>,
+    /// `normalized_digest` of the decoded body, or why the body has none (not a JSON object).
+    pub digest: Result<[u8; 32], String>,
     pub server_timing: Option<String>,
     /// The answer's `Content-Encoding`, `None` when it had none.
     pub content_encoding: Option<String>,
@@ -357,6 +360,14 @@ pub struct Answer {
 }
 
 impl Answer {
+    /// The answer's content digest, or the error its body gave.
+    ///
+    /// # Errors
+    /// Returns an error when the body was not a JSON object.
+    pub fn content(&self) -> anyhow::Result<[u8; 32]> {
+        self.digest.clone().map_err(anyhow::Error::msg)
+    }
+
     /// The encoding the answer came in, `identity` when it named none.
     pub fn encoding(&self) -> &str {
         self.content_encoding.as_deref().unwrap_or("identity")
@@ -762,7 +773,7 @@ impl Tally {
             }
         }
         if let Ok(live) = &read.live {
-            if let Ok(digest) = normalized_digest(&live.body) {
+            if let Ok(digest) = live.digest {
                 self.live_digests.insert(pnu.to_owned(), digest);
             }
         }
@@ -791,10 +802,10 @@ impl Tally {
                     self.pack_warm.push(pack.ms);
                 }
                 let wanted = match &self.expected {
-                    None => Some(normalized_digest(&live.body)?),
+                    None => Some(live.content()?),
                     Some(expected) => expected.get(pnu).copied(),
                 };
-                if wanted != Some(normalized_digest(&pack.body)?) {
+                if wanted != Some(pack.content()?) {
                     self.mismatched += 1;
                     self.example(pnu);
                 }
@@ -909,9 +920,11 @@ pub async fn timed_get(
             })
         }
     };
+    // Only the digest outlives this read (see `Answer`).
+    let digest = normalized_digest(&body).map_err(|error| format!("{error:#}"));
     Ok(Answer {
         ms,
-        body,
+        digest,
         server_timing,
         content_encoding,
         version,
@@ -969,7 +982,7 @@ pub async fn read_without_gzip(
             *evidence.outcomes.entry(outcome).or_default() += 1;
         }
         match live_digests.get(&pnu) {
-            Some(live) if normalized_digest(&answer.body).ok().as_ref() != Some(live) => {
+            Some(live) if answer.digest.as_ref().ok() != Some(live) => {
                 evidence.mismatched += 1;
             }
             Some(_) => {}
