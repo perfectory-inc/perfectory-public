@@ -246,6 +246,17 @@ async fn bronze_dedupe_conflict_adopts_latest_object_key_and_run() {
         .expect("list bronze objects for first run");
     assert!(first_run_objects.is_empty());
 
+    assert_replaced_row_is_kept(&pool, &original, first_run.id).await;
+    assert_one_current_row_per_key(
+        &pool,
+        &repo,
+        &uow,
+        &fixture,
+        source.id,
+        [first_run.id, second_run.id],
+    )
+    .await;
+
     cleanup(&pool, source.id).await;
 }
 
@@ -526,6 +537,96 @@ impl BronzeFixture {
             updated_at: now,
             version: 1,
         }
+    }
+}
+
+/// The first collection is not lost: the registry row it occupied is kept, whole (ADR-0264).
+async fn assert_replaced_row_is_kept(
+    pool: &PgPool,
+    original: &BronzeObject,
+    first_run_id: IngestionRunId,
+) {
+    let kept: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT change, prior_row FROM catalog.bronze_object_version
+         WHERE bronze_object_id = $1 ORDER BY id",
+    )
+    .bind(original.id.as_uuid())
+    .fetch_all(pool)
+    .await
+    .expect("read replaced bronze object rows");
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].0, "update");
+    assert_eq!(kept[0].1["object_key"], original.object_key.as_str());
+    assert_eq!(
+        kept[0].1["checksum_sha256"],
+        original.checksum_sha256.as_str()
+    );
+    assert_eq!(
+        kept[0].1["ingestion_run_id"],
+        first_run_id.as_uuid().to_string()
+    );
+    for rewrite in [
+        "UPDATE catalog.bronze_object_version SET change = 'delete' WHERE bronze_object_id = $1",
+        "DELETE FROM catalog.bronze_object_version WHERE bronze_object_id = $1",
+    ] {
+        let refused = sqlx::query(rewrite)
+            .bind(original.id.as_uuid())
+            .execute(pool)
+            .await;
+        assert!(
+            refused.is_err(),
+            "the replaced-row ledger accepted: {rewrite}"
+        );
+    }
+}
+
+/// Current-row rule: earlier collections live only in `bronze_object_version`, so the registry
+/// every reader queries still holds exactly one row per key however many versions exist.
+async fn assert_one_current_row_per_key(
+    pool: &PgPool,
+    repo: &PgBronzeIngestRepository,
+    uow: &PgBronzeIngestUnitOfWork,
+    fixture: &BronzeFixture,
+    source_id: SourceCatalogId,
+    replaced_runs: [IngestionRunId; 2],
+) {
+    let third_run = uow
+        .create_ingestion_run(&BronzeFixture::run(source_id))
+        .await
+        .expect("create third ingestion run");
+    let mut third = fixture.bronze_object(source_id, third_run.id, Uuid::now_v7());
+    third.object_key = ObjectKey::parse(&format!("{}-third", third.object_key.as_str()))
+        .expect("valid third object key");
+    uow.record_bronze_object(&third)
+        .await
+        .expect("record third bronze object");
+    let (current, versions): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM catalog.bronze_object
+                 WHERE source_catalog_id = $1 AND dedupe_key = $2),
+                (SELECT count(*) FROM catalog.bronze_object_version
+                 WHERE source_catalog_id = $1 AND dedupe_key = $2)",
+    )
+    .bind(source_id.as_uuid())
+    .bind(&third.dedupe_key)
+    .fetch_one(pool)
+    .await
+    .expect("count current and replaced rows");
+    assert_eq!((current, versions), (1, 2));
+    let third_run_objects = repo
+        .list_bronze_objects_by_run(third_run.id)
+        .await
+        .expect("list bronze objects for third run");
+    assert_eq!(third_run_objects.len(), 1);
+    assert_eq!(
+        third_run_objects[0].object_key.as_str(),
+        third.object_key.as_str()
+    );
+    for run in replaced_runs {
+        assert!(repo
+            .list_bronze_objects_by_run(run)
+            .await
+            .expect("list bronze objects for a replaced run")
+            .is_empty());
     }
 }
 
