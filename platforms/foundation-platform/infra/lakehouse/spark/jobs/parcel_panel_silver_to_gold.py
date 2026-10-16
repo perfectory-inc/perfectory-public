@@ -1211,7 +1211,7 @@ def build_lineage_event(args: argparse.Namespace, summary: dict[str, Any]) -> di
         "additional_input_datasets": [
             {
                 "qualified_name": name,
-                "namespace": "silver",
+                "namespace": name.split(".", 1)[0],
                 "table": source_table_name(name),
                 "storage_format": args.input_mode,
             }

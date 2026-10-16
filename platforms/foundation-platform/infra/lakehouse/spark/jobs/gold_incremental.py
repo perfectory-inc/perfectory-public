@@ -620,11 +620,14 @@ def retain_input_snapshots(spark: Any, catalog: str, namespace: str, gold_table:
     """Tag each pinned Silver snapshot so expiry keeps the next incremental run's comparison point.
 
     One tag per (input, Gold table), moved on every commit, so it holds at most one old snapshot.
+    `namespace` is where the Silver inputs live; an input of another namespace (a `reference.`
+    table) is tagged in its own.
     """
     tag = input_tag(gold_table)
     tagged = []
     for name, snapshot in sorted(pins.items()):
-        table = f"`{catalog}`.`{namespace}`.`{name.split('.', 1)[1]}`"
+        own, table_name = name.split(".", 1)
+        table = f"`{catalog}`.`{namespace if own == 'silver' else own}`.`{table_name}`"
         spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE TAG `{tag}` AS OF VERSION {int(snapshot)}")
         tagged.append(name)
     return tagged
