@@ -14,6 +14,11 @@
     "config_toml": "/etc/containerd/config.toml",
     "reason": "Docker 29 keeps images, their snapshots and the build cache in containerd's image store (driver-type io.containerd.snapshotter.v1), not under Docker's data-root: measured 2026-10-14 on ai-server, /var/lib/docker 21.4 GB and /var/lib/containerd 105 GB. Moving only Docker's data-root would leave five sixths of it on the system disk."
   },
+  "datahub": {
+    "state_dir": "/var/lib/foundation-platform/datahub",
+    "adopt_from": ["/home/perfectory/datahub-state"],
+    "reason": "The data catalog's secrets (runtime.env, 0600) and user.props live here, root's, 0700; datahub-runtime.sh reads the path from this file and from nowhere else, so the release (root, foundation-release.sh datahub) and anyone else run the same state. ai-server was installed with DATAHUB_RUNTIME_DIR=/home/perfectory/datahub-state because the deployer could not write /var/lib; the release copies a file state_dir lacks from adopt_from, once, and never reads adopt_from again after that."
+  },
   "spark_tmp": "/data/foundation-platform/spark-tmp",
   "spark_tmp_reason": "Every Spark container (compose.lakehouse.yml spark and spark-small) mounts this at /tmp: Spark's default spill directory, Python's tempfile and the JVM's temp files. Without it they wrote into the container's own layer, which lives with Docker on the system disk until the move above has run; 13 of the 18 Spark launches set no spark.local.dir. A job that names its own spark.local.dir (/scratch, already on this disk) keeps it. Mode 1777: the container runs as uid 185 or as the caller's FOUNDATION_PLATFORM_LAKEHOUSE_UID.",
   "time_caps_minutes": {"live_copy": 150, "stopped_copy": 60},

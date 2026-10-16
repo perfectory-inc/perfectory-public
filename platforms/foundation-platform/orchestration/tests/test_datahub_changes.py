@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
 
 import datahub_changes  # noqa: E402
+import datahub_state  # noqa: E402
 
 CONFIG = """system-update-quickstart aaa
 datahub-gms-quickstart bbb
@@ -54,6 +57,50 @@ class TheReleaseStep(unittest.TestCase):
         deploy = (PLATFORM / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
         self.assertGreater(deploy.index('"${release}" datahub'), deploy.index("phase=done"),
                            "after the DAGs are unpaused, so a catalog failure holds no job")
+
+
+class TheStateIsOneFact(unittest.TestCase):
+    """2026-10-16: the live state sat in DATAHUB_RUNTIME_DIR=/home/perfectory/datahub-state and root,
+    using the script default, found no runtime.env. The path is the contract's, and nothing overrides it."""
+
+    def test_the_runtime_reads_the_contract_and_no_variable(self):
+        runtime = (PLATFORM / "scripts/deploy/datahub-runtime.sh").read_text(encoding="utf-8")
+        self.assertNotIn("DATAHUB_RUNTIME_DIR", runtime)
+        self.assertIn('runtime_dir="$(python3 -I -B "${script_dir}/datahub_state.py" dir)"', runtime)
+        self.assertTrue(datahub_state.load()["state_dir"].startswith("/var/lib/"))
+
+    def test_the_release_adopts_before_it_asks_compose(self):
+        body = re.search(r"(?ms)^apply_datahub\(\) \{\n(.*?)^\}", TheReleaseStep.release).group(1)
+        self.assertLess(body.index('datahub_state.py" adopt'), body.index("config --hash"))
+
+    def adopt(self, state, old):
+        return datahub_state.adopt(state, [old], owner=None)
+
+    def test_missing_files_are_copied_once_and_the_old_directory_is_only_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old, state = pathlib.Path(directory, "old"), pathlib.Path(directory, "state")
+            old.mkdir()
+            (old / "runtime.env").write_text("A=1\n")
+            (old / "user.props").write_text("datahub:x\n")
+            self.assertEqual(sorted(self.adopt(state, old)),
+                             [f"runtime.env from {old}", f"user.props from {old}"])
+            self.assertEqual((state / "runtime.env").read_text(), "A=1\n")
+            self.assertEqual(sorted(p.name for p in old.iterdir()), ["runtime.env", "user.props"])
+            if os.name == "posix":
+                self.assertEqual((state / "runtime.env").stat().st_mode & 0o777, 0o600)
+                self.assertEqual((state / "user.props").stat().st_mode & 0o777, 0o644)
+                self.assertEqual(state.stat().st_mode & 0o777, 0o700)
+            (old / "runtime.env").write_text("A=changed\n")
+            self.assertEqual(self.adopt(state, old), [], "a second run copies nothing")
+            self.assertEqual((state / "runtime.env").read_text(), "A=1\n", "the state it has is never replaced")
+
+    def test_a_host_installed_at_the_state_dir_adopts_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = pathlib.Path(directory, "state")
+            state.mkdir()
+            (state / "runtime.env").write_text("A=1\n")
+            (state / "user.props").write_text("datahub:x\n")
+            self.assertEqual(self.adopt(state, pathlib.Path(directory, "absent")), [])
 
 
 if __name__ == "__main__":

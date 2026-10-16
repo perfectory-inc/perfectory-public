@@ -1223,6 +1223,8 @@ migrate_lakehouse() {
 apply_datahub() {
   assert_current_release
   local runtime="${release_root}/current/scripts/deploy/datahub-runtime.sh" work changed
+  # The state is the contract's datahub.state_dir; a host installed elsewhere is adopted once.
+  python3 -I -B "${release_root}/current/scripts/deploy/datahub_state.py" adopt
   work="$(mktemp -d)"
   "${runtime}" config --hash '*' >"${work}/config"
   docker ps -a --filter label=com.docker.compose.project=datahub     --format '{{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.config-hash"}}' >"${work}/running"
