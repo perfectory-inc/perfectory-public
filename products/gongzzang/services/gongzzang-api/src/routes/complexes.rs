@@ -3,9 +3,9 @@
 //! Gongzzang 은 B2C 라우트 계약과 사용자 대면 응답 모양만 소유해요. 산업단지 정본은 Foundation
 //! Platform Catalog 가 소유하고, 여기서는 published contract 로만 읽어요.
 //!
-//! 경로 키가 lakehouse id 인 이유: 지도의 `complex` 레이어가 feature id 로 발행하는 값이 그것이고,
-//! Catalog 의 `id` 와는 서로 계산되지 않는 **다른 식별자**예요. 둘을 섞으면 조회가 조용히 비므로
-//! [`shared_kernel::lakehouse_complex_id::LakehouseComplexId`] 가 입구에서 형식을 거부해요.
+//! 경로 키는 지도의 `complex` 레이어가 feature id 로 발행하는 값이고, Foundation Catalog 의 `id` 와
+//! 같아요(root ADR-0250). 형식이 틀린 값(은퇴한 v7 포함)은
+//! [`shared_kernel::lakehouse_complex_id::LakehouseComplexId`] 가 입구에서 거부해요.
 //!
 //! 목록(`GET /api/complexes`)은 [`search`] 에 있어요. 두 라우트가 같은 reader 포트를 쓰는 이유는
 //! 같은 정본 표를 읽기 때문이고, 목록 행이 `lakehouse_complex_id` 를 실어 보내는 이유는 그 값이
@@ -90,11 +90,8 @@ pub struct ComplexSearchRejected {
 /// 목록 응답이 그것까지 실으면 1,448행의 정본 표를 20행씩 그대로 내보내는 셈이에요.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComplexCatalogListRecord {
-    /// lakehouse 식별자. 패널을 여는 열쇠예요.
-    ///
-    /// `None` 인 단지가 실제로 있어요(쓰기 API 로 등록된 행 — 2026-08-23 정본 1,448행 중 6행).
-    /// 그런 줄은 열 패널이 없으므로 화면이 누를 수 없는 줄로 그려요.
-    pub lakehouse_complex_id: Option<String>,
+    /// 패널을 여는 열쇠. Foundation 단지 `id` 와 같은 값이고 모든 단지에 있어요(root ADR-0250).
+    pub lakehouse_complex_id: String,
     /// 원천 산업단지 고유번호.
     pub official_complex_code: String,
     /// 산업단지명.
@@ -368,7 +365,7 @@ mod tests {
     use super::*;
 
     const LAKEHOUSE_ID: &str = "7df3859c-1e0a-51fa-8b7d-9a1c2e3f4a5b";
-    /// `Uuid::now_v7()` 모양 — `catalog.industrial_complex.id` 가 사는 식별자 공간.
+    /// `Uuid::now_v7()` 모양 — 은퇴한 옛 Catalog id 의 식별자 공간(root ADR-0250).
     const CATALOG_ID: &str = "01a0136d-2b3c-7e61-8f90-a1b2c3d4e5f6";
 
     struct StubReader(Result<Option<ComplexCatalogRecord>, &'static str>);
@@ -474,8 +471,8 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_a_catalog_id_at_the_door() {
-        // 이 라우트가 존재하는 이유가 두 식별자 공간이 다르다는 것이므로, 정본 id 를 보낸
-        // 요청은 "그런 단지 없음"(404)이 아니라 "식별자가 틀렸음"(400)으로 끝나야 해요.
+        // 은퇴한 v7 id 를 보낸 요청은 "그런 단지 없음"(404)이 아니라 "식별자가 틀렸음"(400)으로
+        // 끝나야 해요 — 옛 링크가 어디서 왔는지 응답이 말해 줘요.
         let response = get_complex(
             state(StubReader(Ok(Some(record())))),
             authenticated_user(),

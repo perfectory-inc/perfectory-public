@@ -1,14 +1,12 @@
 //! `LakehouseComplexId` — Foundation Platform 이 발행한 산업단지 식별자 (`UUIDv5`).
 //!
-//! 산업단지에는 식별자가 **둘** 있고 서로 계산되지 않아요. Catalog 가 행을 만들 때 `Uuid::now_v7()`
-//! 로 찍는 `id` 가 하나, Bronze→Silver 작업이 `UUIDv5` 로 유도하는 lakehouse `complex_id` 가
-//! 다른 하나예요. 바깥으로 발행되는 쪽 — `complex` 벡터 타일의 feature id, Gold 산출물 객체 키 —
-//! 은 후자이고, 공짱이 지도 클릭에서 손에 쥐는 값도 후자예요.
+//! 산업단지 id 는 하나예요: 공식 단지코드에서 유도한 `UUIDv5` 로, Catalog `id`·`complex` 벡터 타일의
+//! feature id·Gold 산출물 키가 모두 이 값이에요(root ADR-0250). 예전에 Catalog 가 `Uuid::now_v7()`
+//! 로 찍던 id 는 은퇴했고 Foundation 은 더 이상 그 값으로 답하지 않아요.
 //!
-//! 이 타입이 존재하는 이유는 그 둘을 섞어 보내는 실수를 **입구에서** 막기 위해서예요. 버전 자리를
-//! `5` 로 고정하면 `now_v7()` 로 찍힌 Catalog `id` 는 형식 검사에서 거부돼요 — 조회 결과가 조용히
+//! 이 타입은 형식이 틀린 값(옛 v7 포함)을 **입구에서** 400 으로 거부해요 — 조회가 조용히 404 로
 //! 비는 대신에요. 같은 불변식이 Foundation 쪽 DB 제약
-//! (`industrial_complex_lakehouse_complex_id_is_uuid_v5`) 과
+//! (`industrial_complex_id_is_derived_from_official_code`) 과
 //! `serving_postgis.industrial_complex_boundary_publication` 의
 //! `complex_boundary_publication_complex_id_is_uuid_v5` 에도 걸려 있어요.
 

@@ -65,3 +65,7 @@ migration `20260818082317_industrial_complex_carries_its_sourced_description.sql
   타일이 발행하는 식별자가 아니고, 두 번째 열쇠는 세 번째 id 공간을 부를 뿐이다.
 - 정본 행에 `lakehouse_complex_id` 가 없는 단지(쓰기 API 로 등록된 것)는 이 경로로 열리지
   않는다. 열려야 할 이유도 없다 — 그런 단지는 타일에도 없다.
+
+---
+
+2026-10-16: §2 는 [ADR-0250](./0250-an-industrial-complex-has-one-id-derived-from-its-official-code.md)으로 대체됐다. 산업단지 id 가 하나가 되어 `by-lakehouse-id` 조회구를 지웠다(#582).
