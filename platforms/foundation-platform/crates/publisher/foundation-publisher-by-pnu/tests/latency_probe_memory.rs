@@ -59,10 +59,7 @@ async fn serve(document: &[u8]) -> anyhow::Result<MockServer> {
 
 #[tokio::test(flavor = "current_thread")]
 async fn the_probe_holds_no_answer_past_its_read() -> anyhow::Result<()> {
-    let document = format!(
-        r#"{{"pnu":"x","pad":"{}"}}"#,
-        "a".repeat(DOCUMENT_BYTES)
-    );
+    let document = format!(r#"{{"pnu":"x","pad":"{}"}}"#, "a".repeat(DOCUMENT_BYTES));
     let live = serve(document.as_bytes()).await?;
     let pack = serve(document.as_bytes()).await?;
     let pnus: Vec<String> = (0..SAMPLE)
