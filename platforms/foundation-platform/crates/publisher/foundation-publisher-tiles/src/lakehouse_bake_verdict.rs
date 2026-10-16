@@ -11,13 +11,12 @@ use catalog_application::ports::LakehouseBakeSilverSource;
 use sha2::{Digest as _, Sha256};
 
 /// Path of the verdict JSON for the snapshot a v2 summary names.
-pub(crate) const MATCHING_VERDICT_ENV: &str =
-    "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_MATCHING_VERDICT";
+pub const MATCHING_VERDICT_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_MATCHING_VERDICT";
 /// The verdict schema `parcel_matching_gate.py` writes and the build-row guard reads.
-pub(crate) const MATCHING_VERDICT_SCHEMA: &str = "foundation-platform.parcel_matching_verdict.v1";
+pub const MATCHING_VERDICT_SCHEMA: &str = "foundation-platform.parcel_matching_verdict.v1";
 
 /// The Silver source to bind for a summary naming `source_snapshot_id`, or `None` for a v1 summary.
-pub(crate) fn silver_source(
+pub fn silver_source(
     source_snapshot_id: Option<&str>,
 ) -> anyhow::Result<Option<LakehouseBakeSilverSource>> {
     let Some(snapshot) = source_snapshot_id else {
@@ -32,10 +31,7 @@ pub(crate) fn silver_source(
 }
 
 /// Checks `bytes` is a passing verdict for exactly `snapshot` that covered every parcel of it.
-pub(crate) fn verdict_source(
-    snapshot: &str,
-    bytes: &[u8],
-) -> anyhow::Result<LakehouseBakeSilverSource> {
+pub fn verdict_source(snapshot: &str, bytes: &[u8]) -> anyhow::Result<LakehouseBakeSilverSource> {
     let verdict: serde_json::Value =
         serde_json::from_slice(bytes).context("the matching verdict is not JSON")?;
     ensure!(

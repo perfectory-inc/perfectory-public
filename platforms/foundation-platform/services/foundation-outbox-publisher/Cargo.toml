@@ -64,6 +64,7 @@ foundation-publisher-by-pnu = { workspace = true }
 foundation-publisher-collection = { workspace = true }
 foundation-publisher-core = { workspace = true }
 foundation-publisher-parcel-anchor = { workspace = true }
+foundation-publisher-tiles = { workspace = true }
 outbound-http-infrastructure = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "v7"] }
 zip = { workspace = true }

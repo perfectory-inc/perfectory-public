@@ -595,7 +595,7 @@ fn the_contract_caps_every_container_and_the_runs_pass_the_caps() -> anyhow::Res
 
 #[test]
 fn a_job_project_labels_every_tool_container_for_its_cleanup() -> anyhow::Result<()> {
-    use foundation_publisher_silver::remote_lakehouse_job::{ONEOFF_LABEL, PROJECT_LABEL};
+    use foundation_publisher_core::compose_labels::{ONEOFF_LABEL, PROJECT_LABEL};
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     let project = format!("foundation-parcel-tile-bake-{}", "a".repeat(32));
     for image in [&contract.images.gdal, &contract.images.tippecanoe] {

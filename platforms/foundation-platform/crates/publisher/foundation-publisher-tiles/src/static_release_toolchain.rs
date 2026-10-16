@@ -14,7 +14,8 @@ use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use tokio::{process::Command, time};
 
-const CONTRACT_JSON: &str = include_str!("../../../config/static-release-toolchain.contract.json");
+const CONTRACT_JSON: &str =
+    include_str!("../../../../config/static-release-toolchain.contract.json");
 
 #[derive(Debug, Deserialize)]
 struct Contract {
@@ -55,12 +56,12 @@ struct VerifiedExecutable {
 }
 
 #[derive(Debug)]
-pub(crate) struct VerifiedToolchain {
+pub struct VerifiedToolchain {
     executables: BTreeMap<String, VerifiedExecutable>,
 }
 
 impl VerifiedToolchain {
-    pub(crate) async fn run<I, S>(
+    pub async fn run<I, S>(
         &self,
         tool_name: &str,
         arguments: I,
@@ -85,7 +86,7 @@ impl VerifiedToolchain {
     }
 }
 
-pub(crate) async fn verify(timeout: Duration) -> anyhow::Result<VerifiedToolchain> {
+pub async fn verify(timeout: Duration) -> anyhow::Result<VerifiedToolchain> {
     ensure!(!timeout.is_zero(), "external-tool timeout must be positive");
     let contract = embedded_contract()?;
     let platform = platform_key(env::consts::OS, env::consts::ARCH)?;

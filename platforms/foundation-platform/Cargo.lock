@@ -1881,6 +1881,7 @@ dependencies = [
  "foundation-publisher-core",
  "foundation-publisher-parcel-anchor",
  "foundation-publisher-silver",
+ "foundation-publisher-tiles",
  "foundation-shapefile",
  "foundation-shared-kernel",
  "futures-util",
@@ -2061,6 +2062,33 @@ dependencies = [
  "tracing",
  "uuid",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "foundation-publisher-tiles"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "catalog-application",
+ "catalog-domain",
+ "catalog-infrastructure",
+ "flate2",
+ "foundation-disposable-database",
+ "foundation-outbox",
+ "foundation-publisher-core",
+ "foundation-shared-kernel",
+ "prost",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]

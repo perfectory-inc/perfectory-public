@@ -135,7 +135,7 @@ async fn control<T>(
         .context("readdress control operation exceeded its deadline")?
 }
 
-pub(crate) async fn run() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_lookup(|name| std::env::var(name).ok())?;
     let storage = TileDerivativeR2Config::from_env()?;
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;

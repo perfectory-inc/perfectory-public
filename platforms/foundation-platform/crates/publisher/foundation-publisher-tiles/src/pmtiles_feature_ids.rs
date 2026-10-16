@@ -21,7 +21,7 @@ use anyhow::{bail, ensure, Context as _};
 use flate2::read::GzDecoder;
 use prost::Message as _;
 
-pub(crate) const HEADER_BYTES: usize = 127;
+pub const HEADER_BYTES: usize = 127;
 /// Leaf directories may point at further leaves; real archives use one level.
 const MAX_DIRECTORY_DEPTH: usize = 4;
 /// A directory or tile larger than this is not something tippecanoe writes; refuse instead of
@@ -30,22 +30,22 @@ const MAX_BLOCK_BYTES: u64 = 512 << 20;
 
 /// The PMTiles v3 header fields the gate reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Header {
-    pub(crate) root_directory: (u64, u64),
-    pub(crate) leaf_directories_offset: u64,
-    pub(crate) tile_data_offset: u64,
-    pub(crate) internal_compression: u8,
-    pub(crate) tile_compression: u8,
-    pub(crate) tile_type: u8,
-    pub(crate) min_zoom: u8,
-    pub(crate) max_zoom: u8,
+pub struct Header {
+    pub root_directory: (u64, u64),
+    pub leaf_directories_offset: u64,
+    pub tile_data_offset: u64,
+    pub internal_compression: u8,
+    pub tile_compression: u8,
+    pub tile_type: u8,
+    pub min_zoom: u8,
+    pub max_zoom: u8,
 }
 
 /// Compression codes of the PMTiles v3 header.
-pub(crate) const COMPRESSION_NONE: u8 = 1;
-pub(crate) const COMPRESSION_GZIP: u8 = 2;
+pub const COMPRESSION_NONE: u8 = 1;
+pub const COMPRESSION_GZIP: u8 = 2;
 /// Tile type code of MVT.
-pub(crate) const TILE_TYPE_MVT: u8 = 1;
+pub const TILE_TYPE_MVT: u8 = 1;
 
 fn le_u64(bytes: &[u8], at: usize) -> u64 {
     let mut word = [0_u8; 8];
@@ -54,7 +54,7 @@ fn le_u64(bytes: &[u8], at: usize) -> u64 {
 }
 
 impl Header {
-    pub(crate) fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
+    pub fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
         ensure!(
             bytes.len() >= HEADER_BYTES,
             "archive is shorter than a PMTiles header"
@@ -78,11 +78,11 @@ impl Header {
 
 /// One directory entry. `run_length == 0` points at a leaf directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Entry {
-    pub(crate) tile_id: u64,
-    pub(crate) offset: u64,
-    pub(crate) length: u64,
-    pub(crate) run_length: u64,
+pub struct Entry {
+    pub tile_id: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub run_length: u64,
 }
 
 fn read_varint(bytes: &[u8], at: &mut usize) -> anyhow::Result<u64> {
@@ -99,7 +99,7 @@ fn read_varint(bytes: &[u8], at: &mut usize) -> anyhow::Result<u64> {
 }
 
 /// Decodes an uncompressed directory: count, then tile-id deltas, run lengths, lengths, offsets.
-pub(crate) fn decode_directory(bytes: &[u8]) -> anyhow::Result<Vec<Entry>> {
+pub fn decode_directory(bytes: &[u8]) -> anyhow::Result<Vec<Entry>> {
     let mut at = 0;
     let count = usize::try_from(read_varint(bytes, &mut at)?)?;
     // Every entry takes at least four bytes, so a count the bytes cannot hold is corruption.
@@ -146,7 +146,7 @@ pub(crate) fn decode_directory(bytes: &[u8]) -> anyhow::Result<Vec<Entry>> {
 }
 
 /// The first tile id of zoom `z`: the tiles of every lower zoom come before it.
-pub(crate) fn first_tile_id(zoom: u8) -> u64 {
+pub fn first_tile_id(zoom: u8) -> u64 {
     (0..u32::from(zoom)).map(|z| 1_u64 << (2 * z)).sum()
 }
 
@@ -166,37 +166,37 @@ fn decompress(bytes: Vec<u8>, compression: u8, what: &str) -> anyhow::Result<Vec
 
 /// MVT, declaring only what the gate reads. Undeclared fields (geometry, extent) are skipped.
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Tile {
+pub struct Tile {
     #[prost(message, repeated, tag = "3")]
-    pub(crate) layers: Vec<Layer>,
+    pub layers: Vec<Layer>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Layer {
+pub struct Layer {
     #[prost(string, tag = "1")]
-    pub(crate) name: String,
+    pub name: String,
     #[prost(message, repeated, tag = "2")]
-    pub(crate) features: Vec<Feature>,
+    pub features: Vec<Feature>,
     #[prost(string, repeated, tag = "3")]
-    pub(crate) keys: Vec<String>,
+    pub keys: Vec<String>,
     #[prost(message, repeated, tag = "4")]
-    pub(crate) values: Vec<Value>,
+    pub values: Vec<Value>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Feature {
+pub struct Feature {
     #[prost(uint32, repeated, tag = "2")]
-    pub(crate) tags: Vec<u32>,
+    pub tags: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
-pub(crate) struct Value {
+pub struct Value {
     #[prost(string, optional, tag = "1")]
-    pub(crate) string_value: Option<String>,
+    pub string_value: Option<String>,
 }
 
 /// The tile id of `z/x/y`: every lower zoom first, then the Hilbert position on the zoom (spec v3).
-pub(crate) fn tile_id(zoom: u8, x: u32, y: u32) -> u64 {
+pub fn tile_id(zoom: u8, x: u32, y: u32) -> u64 {
     let (mut x, mut y) = (u64::from(x), u64::from(y));
     let mut position = 0_u64;
     let side = 1_u64 << zoom;
@@ -213,7 +213,7 @@ pub(crate) fn tile_id(zoom: u8, x: u32, y: u32) -> u64 {
 }
 
 /// The `z/x/y` of a tile id, the inverse of [`tile_id`].
-pub(crate) fn tile_zxy(id: u64) -> anyhow::Result<(u8, u32, u32)> {
+pub fn tile_zxy(id: u64) -> anyhow::Result<(u8, u32, u32)> {
     let mut first = 0_u64;
     for zoom in 0..32_u8 {
         let count = 1_u64 << (2 * u32::from(zoom));
@@ -246,19 +246,19 @@ fn rotate(s: u64, x: &mut u64, y: &mut u64, rx: u64, ry: u64) {
 }
 
 /// The tile-id range `[start, end)` of one zoom.
-pub(crate) fn zoom_range(zoom: u8) -> (u64, u64) {
+pub fn zoom_range(zoom: u8) -> (u64, u64) {
     (first_tile_id(zoom), first_tile_id(zoom + 1))
 }
 
 /// A PMTiles v3 archive of MVT tiles over any seekable bytes: the local file a bake just wrote, or
 /// an R2 object read by range. Only the directories and tiles asked for are read.
-pub(crate) struct Archive<R> {
+pub struct Archive<R> {
     reader: R,
     header: Header,
 }
 
 impl<R: Read + Seek> Archive<R> {
-    pub(crate) fn open(mut reader: R) -> anyhow::Result<Self> {
+    pub fn open(mut reader: R) -> anyhow::Result<Self> {
         let mut bytes = vec![0_u8; HEADER_BYTES];
         reader.seek(SeekFrom::Start(0))?;
         reader
@@ -302,7 +302,7 @@ impl<R: Read + Seek> Archive<R> {
     }
 
     /// The decompressed bytes of one tile entry.
-    pub(crate) fn entry_tile(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
+    pub fn entry_tile(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
         let at = self
             .header
             .tile_data_offset
@@ -313,7 +313,7 @@ impl<R: Read + Seek> Archive<R> {
     }
 
     /// The decompressed bytes of the tile with this id, or `None` when the archive has no such tile.
-    pub(crate) fn tile(&mut self, id: u64) -> anyhow::Result<Option<Vec<u8>>> {
+    pub fn tile(&mut self, id: u64) -> anyhow::Result<Option<Vec<u8>>> {
         let (mut offset, mut length) = self.header.root_directory;
         for _ in 0..MAX_DIRECTORY_DEPTH {
             let entries = self.directory_at(offset, length)?;
@@ -339,7 +339,7 @@ impl<R: Read + Seek> Archive<R> {
 
     /// Calls `on_entry` with every tile entry overlapping tile ids `[start, end)`, in tile-id order,
     /// reading only the leaf directories that can hold them.
-    pub(crate) fn for_each_entry(
+    pub fn for_each_entry(
         &mut self,
         range: (u64, u64),
         on_entry: &mut dyn FnMut(&mut Self, Entry) -> anyhow::Result<()>,
@@ -383,18 +383,18 @@ impl<R: Read + Seek> Archive<R> {
 }
 
 /// What the walk expects of every tile it reads.
-pub(crate) struct Expect<'a> {
-    pub(crate) zoom: u8,
-    pub(crate) layer: &'a str,
-    pub(crate) id_property: &'a str,
+pub struct Expect<'a> {
+    pub zoom: u8,
+    pub layer: &'a str,
+    pub id_property: &'a str,
     /// The property names a feature may carry; anything else is refused.
-    pub(crate) properties: &'a [String],
+    pub properties: &'a [String],
 }
 
 /// Calls `on_id` with the tile id and the id property of every feature in every tile of
 /// `expect.zoom`, in tile-id order. A feature appears once per tile it is in, so the same id can
 /// come many times. Returns the number of tiles read.
-pub(crate) fn for_each_feature_id(
+pub fn for_each_feature_id(
     archive: &Path,
     expect: &Expect<'_>,
     mut on_id: impl FnMut(u64, &str) -> anyhow::Result<()>,
@@ -456,4 +456,4 @@ fn feature_id<'a>(layer: &'a Layer, feature: &Feature, id_key: Option<usize>) ->
 
 #[cfg(test)]
 #[path = "pmtiles_feature_ids_tests.rs"]
-pub(crate) mod tests;
+pub mod tests;

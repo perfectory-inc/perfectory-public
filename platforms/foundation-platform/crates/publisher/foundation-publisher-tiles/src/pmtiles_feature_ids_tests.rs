@@ -17,7 +17,7 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
     }
 }
 
-pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {
+pub fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(bytes).unwrap_or_default();
     encoder.finish().unwrap_or_default()
@@ -44,7 +44,7 @@ fn directory(entries: &[Entry]) -> Vec<u8> {
 }
 
 /// A synthetic MVT tile: one layer, each feature tagged with an id and one more property.
-pub(crate) fn tile(layer: &str, ids: &[&str]) -> Vec<u8> {
+pub fn tile(layer: &str, ids: &[&str]) -> Vec<u8> {
     let mut keys = vec!["pnu".to_owned(), "kind".to_owned()];
     let mut values = vec![Value {
         string_value: Some("synthetic".to_owned()),
@@ -80,7 +80,7 @@ pub(crate) fn tile(layer: &str, ids: &[&str]) -> Vec<u8> {
 }
 
 /// One tile per (tile id, ids); the root points at one leaf per pair of tiles so the walk descends.
-pub(crate) fn archive(min_zoom: u8, max_zoom: u8, tiles: &[(u64, Vec<u8>)]) -> Vec<u8> {
+pub fn archive(min_zoom: u8, max_zoom: u8, tiles: &[(u64, Vec<u8>)]) -> Vec<u8> {
     let mut data = Vec::new();
     let mut entries = Vec::new();
     for (tile_id, bytes) in tiles {
@@ -148,7 +148,7 @@ fn ids_at(path: &Path, zoom: u8, layer: &str) -> anyhow::Result<(Vec<String>, u6
     Ok((ids, tiles))
 }
 
-pub(crate) fn written(bytes: &[u8]) -> anyhow::Result<tempfile::NamedTempFile> {
+pub fn written(bytes: &[u8]) -> anyhow::Result<tempfile::NamedTempFile> {
     let mut file = tempfile::NamedTempFile::new()?;
     file.write_all(bytes)?;
     file.flush()?;

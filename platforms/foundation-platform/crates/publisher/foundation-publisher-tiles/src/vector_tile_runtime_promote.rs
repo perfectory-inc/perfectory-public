@@ -28,7 +28,7 @@ use crate::public_data_control_support::{optional_env_value, required_env_value}
 ///
 /// Every field is a literal declared by the calling command, so `grep` finds the operator-facing
 /// name in the module that owns it.
-pub(crate) struct EnvNames {
+pub struct EnvNames {
     pub confirm: &'static str,
     pub data_revision: &'static str,
     pub canonical_snapshot: &'static str,
@@ -48,7 +48,7 @@ pub(crate) struct EnvNames {
 /// *domain fact* ledger and carries a validation status, while `catalog.publication_revision` is
 /// the per-unit publication ledger every later unit registers in and has no status column —
 /// a publication revision is not a claim that anything was validated.
-pub(crate) enum RevisionLedger {
+pub enum RevisionLedger {
     /// `catalog.administrative_boundary_revision`, whose status must be `validated` or `published`.
     AdministrativeBoundary,
     /// `catalog.publication_revision`, which must belong to this unit, carry no administrative
@@ -65,7 +65,7 @@ pub(crate) enum RevisionLedger {
 }
 
 /// Everything that differs between one publication unit's promotion and another's.
-pub(crate) struct UnitPromotion {
+pub struct UnitPromotion {
     /// `catalog.vector_tile_publication_unit.unit_key`, which is also the Martin source id, the
     /// layer id, and the path segment the tiles URL template has to end on.
     pub unit_key: &'static str,
@@ -98,7 +98,7 @@ pub(crate) struct UnitPromotion {
 /// runtime pointer is not the one the caller expected, when the named projection load is not a
 /// succeeded load of this unit at this revision and snapshot, when a re-used release id describes a
 /// different publication, or when the CAS gate refuses the manifest.
-pub(crate) async fn run(unit: &UnitPromotion) -> anyhow::Result<()> {
+pub async fn run(unit: &UnitPromotion) -> anyhow::Result<()> {
     let config = Config::from_env(unit)?;
     let pool = PgPool::connect(&config.database_url)
         .await
