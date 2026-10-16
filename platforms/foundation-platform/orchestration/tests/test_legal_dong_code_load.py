@@ -3,7 +3,8 @@
 On 2026-10-06 a 30527 handoff was loaded and moved to loaded/, then the pairing failed; the next run saw no
 pending handoff and no steward decision, so it never paired again. These tests run the real script, sourced
 the way lineage-stewardship-cycle.sh sources it, with `spark` replaced by a stand-in that writes the outputs
-the real jobs write (or fails the pairing on demand), and read what it leaves in the state roots.
+the real jobs write (or fails the pairing on demand), and the publisher replaced by a stand-in for the
+steward database (root ADR-0263), and read what it leaves in the state roots.
 """
 
 import json
@@ -33,11 +34,36 @@ SPARK = textwrap.dedent("""
             sys.exit("PairingConflict")
         out("--projection-output").write_text('{"projection": true}')
         out("--review-output").write_text('{"review": []}')
-        out("--summary-output").write_text('{"steward_decisions": {}}')
+        export = json.loads(out("--steward-decision-export").read_text())
+        recorded = [d["decision_id"] for d in export["decisions"]]
+        out("--review-handoff-output").write_text('{"items": []}')
+        out("--steward-fold-summary-output").write_text(json.dumps({"derivation_run_id": "r", "decision_ids": recorded}))
+        verdicts = {f"db:{i}": "recorded" for i in recorded}
+        out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts}))
     elif job == "vworld_parcel_number_change_history.py":
         out("--summary-output").write_text("{}")
     else:
         sys.exit("unexpected job " + job)
+""")
+
+# Stands in for the publisher and the steward database: `db-decisions.json` holds the ids of the standing
+# approvals no run recorded yet; recording them removes them, as the fold record does.
+PUBLISHER = textwrap.dedent("""
+    import json, os, pathlib, sys
+    db = pathlib.Path(os.environ["DB_DECISIONS"])
+    standing = json.loads(db.read_text()) if db.exists() else []
+    with open(os.environ["PUBLISHER_CALLS"], "a") as calls:
+        calls.write(sys.argv[1] + "\\n")
+    if sys.argv[1] == "export-legal-dong-steward-decisions":
+        pathlib.Path(os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_STEWARD_DECISIONS_OUTPUT"]).write_text(json.dumps(
+            {"review_items": 0, "decision_count": len(standing), "decisions": [{"decision_id": i} for i in standing]}))
+    elif sys.argv[1] == "record-lineage-steward-folds":
+        done = json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY"]).read_text())
+        db.write_text(json.dumps([i for i in standing if i not in done["decision_ids"]]))
+    elif sys.argv[1] == "load-lineage-review-items":
+        json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT"]).read_text())
+    else:
+        sys.exit("unexpected command " + sys.argv[1])
 """)
 
 DRIVER = textwrap.dedent("""
@@ -45,13 +71,15 @@ DRIVER = textwrap.dedent("""
     work="${WORK_ROOT}/${RUN_ID}"
     container_work="/workspace/target/lakehouse/runs/${RUN_ID}"
     mkdir -p "${work}"
+    run_log="${work}/run.log"
+    publisher() { "${PUBLISHER_BIN}" "$@"; }
     spark() { printf '%s\\n' "$1" >> "${CALLS}"; python3 "${SPARK_STUB}" "${work}" "${container_work}" "$@"; }
     source "${LOAD}"
     load_legal_dong_code_handoffs
 """)
 
 
-class PairingOwed(unittest.TestCase):
+class Harness(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="legal-dong-load-")
         self.addCleanup(temp.cleanup)
@@ -62,6 +90,12 @@ class PairingOwed(unittest.TestCase):
         self.parcel.mkdir()
         (self.root / "spark.py").write_text(SPARK)
         (self.root / "driver.sh").write_text(DRIVER)
+        (self.root / "publisher.py").write_text(PUBLISHER)
+        publisher = self.root / "publisher.sh"
+        publisher.write_text(f'#!/usr/bin/env bash\nexec python3 "{(self.root / "publisher.py").as_posix()}" "$@"\n')
+        publisher.chmod(0o755)
+        self.db = self.root / "db-decisions.json"
+        self.publisher_calls = self.root / "publisher-calls.log"
         self.journal = self.root / "journal.log"
         self.calls = self.root / "calls.log"
         self.runs = 0
@@ -69,11 +103,14 @@ class PairingOwed(unittest.TestCase):
     def run_cycle(self, fail_pairing=False):
         self.runs += 1
         self.calls.write_text("")
+        self.publisher_calls.write_text("")
         env = {"PATH": os.environ["PATH"], "LOAD": str(LOAD), "SPARK_STUB": str(self.root / "spark.py"),
                "WORK_ROOT": str(self.root / "runs"), "RUN_ID": f"run{self.runs}", "CALLS": str(self.calls),
                "journal": str(self.journal), "run_id": f"run{self.runs}",
                "FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT": str(self.legal),
-               "FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT": str(self.parcel)}
+               "FOUNDATION_PARCEL_NUMBER_CHANGE_STATE_ROOT": str(self.parcel),
+               "PUBLISHER_BIN": str(self.root / "publisher.sh"), "DB_DECISIONS": str(self.db),
+               "PUBLISHER_CALLS": str(self.publisher_calls)}
         if fail_pairing:
             env["FAIL_PAIRING"] = "1"
         return subprocess.run(["bash", str(self.root / "driver.sh")], env=env, capture_output=True, text=True,
@@ -81,6 +118,12 @@ class PairingOwed(unittest.TestCase):
 
     def jobs(self):
         return self.calls.read_text().split()
+
+    def publisher(self):
+        return self.publisher_calls.read_text().split()
+
+    def published(self):
+        (self.legal / "steward-list-published.json").write_text("{}")
 
     def journal_lines(self):
         return self.journal.read_text(encoding="utf-8").splitlines() if self.journal.exists() else []
@@ -106,6 +149,7 @@ class PairingOwed(unittest.TestCase):
         path = self.legal / "pairing-owed.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
+class PairingOwed(Harness):
     def test_a_failed_pairing_after_official_history_is_owed_and_the_next_run_pays_it(self):
         self.latest_snapshot()
         (self.legal / "last-pairing.json").write_text("{}")
@@ -157,6 +201,7 @@ class PairingOwed(unittest.TestCase):
 
     def test_nothing_owed_runs_nothing(self):
         self.latest_snapshot()
+        self.published()
         (self.legal / "last-pairing.json").write_text("{}")
         (self.legal / "loaded/table-20990701").mkdir(parents=True)
         result = self.run_cycle()
@@ -196,6 +241,53 @@ class PairingOwed(unittest.TestCase):
         self.assertEqual(self.jobs(), ["vworld_parcel_number_change_history.py"])
         self.assertEqual(self.marker()["owed_since_run"], "run1")
         self.assertIn("no legal-dong snapshot loaded yet", self.journal_lines()[-1])
+
+
+class StewardDatabase(Harness):
+    """The steward list and decisions go through the steward database (root ADR-0263)."""
+
+    def setUp(self):
+        super().setUp()
+        self.latest_snapshot()
+        (self.legal / "last-pairing.json").write_text("{}")
+
+    def test_a_list_the_database_never_received_is_paired_and_published_once(self):
+        result = self.run_cycle()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
+        self.assertEqual(self.publisher(), ["export-legal-dong-steward-decisions", "load-lineage-review-items"])
+        self.assertTrue((self.legal / "steward-list-published.json").exists())
+        self.assertTrue(any("re-paired (steward database)" in line for line in self.journal_lines()))
+        self.run_cycle()
+        self.assertEqual(self.jobs(), [], "a published list with no approval waiting owes nothing")
+
+    def test_a_standing_approval_is_paired_recorded_and_not_paired_again(self):
+        self.published()
+        self.db.write_text(json.dumps(["d-1"]))
+        result = self.run_cycle()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
+        self.assertEqual(self.publisher(), ["export-legal-dong-steward-decisions", "export-legal-dong-steward-decisions",
+                                            "record-lineage-steward-folds", "load-lineage-review-items"])
+        self.assertEqual(json.loads(self.db.read_text()), [], "the run recorded the approval it appended")
+        self.run_cycle()
+        self.assertEqual(self.jobs(), [])
+
+    def test_a_staged_file_is_no_longer_read(self):
+        # The file path is retired (root ADR-0263 §6): a leftover file neither triggers a run nor reaches one.
+        self.published()
+        (self.legal / "steward/pending").mkdir(parents=True)
+        (self.legal / "steward/pending/20990102T000000Z-steward-a.json").write_text("{}")
+        result = self.run_cycle()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.jobs(), [])
+
+    def test_a_failed_pairing_records_no_approval(self):
+        self.published()
+        self.db.write_text(json.dumps(["d-1"]))
+        self.assertNotEqual(self.run_cycle(fail_pairing=True).returncode, 0)
+        self.assertNotIn("record-lineage-steward-folds", self.publisher())
+        self.assertEqual(json.loads(self.db.read_text()), ["d-1"], "an approval the run did not append stays standing")
 
 
 if __name__ == "__main__":

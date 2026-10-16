@@ -17,8 +17,10 @@ function recording(status = 200, body: unknown = {}) {
 describe("DawneerClient", () => {
   it("reads without the CSRF value and only through the server's relay", async () => {
     const { calls, fetchImpl } = recording(200, { items: [], next_after: null });
-    await new DawneerClient(SESSION, fetchImpl).listItems({ status: "pending", prefix: "99999", undecidedOnly: true });
-    expect(calls[0]?.url).toBe("/api/foundation/lineage-review/items?status=pending&prefix=99999&undecided_only=true&limit=50");
+    await new DawneerClient(SESSION, fetchImpl).listItems({ kind: "legal_dong", status: "steward", prefix: "99999", undecidedOnly: true });
+    expect(calls[0]?.url).toBe(
+      "/api/foundation/lineage-review/items?kind=legal_dong&status=steward&prefix=99999&undecided_only=true&limit=50",
+    );
     expect(new Headers(calls[0]?.init.headers).get("x-dawneer-csrf")).toBeNull();
   });
 

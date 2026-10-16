@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 법정동 코드 변경의 적재·짝 맞추기 절반 (root ADR-0143, ADR-0144). lineage-stewardship-cycle.sh 가 source 하고, 자기
-# 단계 앞에서 load_legal_dong_code_handoffs 를 부른다. 그 단위의 spark 자리(3)와 spark 함수, 작업 폴더를
+# 단계 앞에서 load_legal_dong_code_handoffs 를 부른다. 그 단위의 spark 자리(3)와 spark·publisher 함수, 작업 폴더를
 # 그대로 쓴다. 계보는 법정동 코드 변경의 소비자이므로 바로 앞에서 적재한다.
 #
 # 대기 넘김(수집 작업이 쓴 pending/<표 객체>/)마다, 오래된 것부터:
@@ -18,11 +18,15 @@
 #               있고, 그것만 정할 수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가
 #               아니다: 계보가 이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
 #   3. 넘김을 loaded/ 로 옮긴다.
+# 스튜어드 목록과 결정은 스튜어드 DB 를 거친다(root ADR-0263): 짝 맞추기는 DB 가 내보낸 서 있는 승인
+# (export-legal-dong-steward-decisions)을 읽어 다시 검사하고 쌓으며, 기록한 결정을 record-lineage-steward-folds
+# 로 표시하고, 새 스튜어드 목록을 load-lineage-review-items 로 DB 에 넣는다(더니어 화면이 그 목록을 보여 준다).
 # 그 앞에 필지고유번호변동연혁 수집 작업(parcel-number-change-collect.sh)이 쓴 대기 넘김을 먼저
 # silver.parcel_number_change_history 에 쌓는다(파일 하나가 한 번의 적재). 새 공식 이력이 들어왔는데 법정동 표
 # 넘김이 없으면 최신 스냅숏으로 짝 맞추기만 다시 돈다: 판단 대기였던 동을 이력이 정할 수 있다.
-# 대기 넘김이 없어도 대기 중인 스튜어드 결정이 있으면 최신 스냅숏으로 짝 맞추기만 돈다. 둘 다 없으면 그렇게
-# 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
+# 대기 넘김이 없어도 DB 에 기록 안 된 스튜어드 승인이 있거나 DB 가
+# 스튜어드 목록을 받은 적이 없으면(steward-list-published.json 없음) 최신 스냅숏으로 짝 맞추기만 돈다. 모두
+# 없으면 그렇게 남기고 지나간다. 어느 단계든 실패하면 함수가 0 이 아닌 값을 돌려주고, 호출한 단위가 계보로 넘어가지 않는다.
 #
 # "짝 맞추기를 빚졌다"의 정본은 pairing-owed.json 하나다. 어느 넘김이든 적재하기 전에(loaded/ 로 옮기기 전에)
 # 쓰고, 짝 맞추기의 쌓기와 설치가 끝난 뒤에만 지운다. 그 파일이 있으면 넘김도 결정도 없는 날에도 다시 짝을
@@ -41,37 +45,53 @@ legal_dong_install() {
   mv -f "$2.tmp" "$2"
 }
 
+# Writes the steward database's standing 법정동 approvals to $1 (root ADR-0263).
+legal_dong_export_steward_decisions() {
+  FOUNDATION_PLATFORM_LEGAL_DONG_STEWARD_DECISIONS_OUTPUT="$1" \
+    publisher export-legal-dong-steward-decisions >> "${run_log}" 2>&1
+}
+
+# Succeeds when the steward database owes the pairing a run: it never received the steward list, or it
+# holds approvals no run has recorded yet.
+legal_dong_steward_database_owes_pairing() {
+  [ -f "${LEGAL_DONG_STATE_ROOT}/steward-list-published.json" ] || return 0
+  legal_dong_export_steward_decisions "${work}/legal-dong/steward-decisions-probe.json"
+  [ "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["decision_count"])' \
+    "${work}/legal-dong/steward-decisions-probe.json")" != 0 ]
+}
+
 # Pairs one snapshot: $1 snapshot date, $2 its Bronze key.
 legal_dong_pair() {
   local snapshot_date="$1" table_key="$2" out="${work}/legal-dong" cout="${container_work}/legal-dong"
-  local decisions=()
-  if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
-    mkdir -p "${out}/steward"
-    cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${out}/steward/"
-    decisions=(--steward-decisions "${cout}/steward")
-  fi
+  legal_dong_export_steward_decisions "${out}/steward-decisions.json"
   # The official history is read once the table holds rows: one of its handoffs was loaded here.
   local official=()
   if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
     official=(--official-history-table silver.parcel_number_change_history)
   fi
   spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} \
+    --steward-decision-export "${cout}/steward-decisions.json" \
     --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
+    --review-handoff-output "${cout}/review-handoff.json" --steward-fold-summary-output "${cout}/steward-fold.json" \
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"
   legal_dong_install "${out}/steward-review.json" "${LEGAL_DONG_STATE_ROOT}/steward-review.json"
-  # Each staged decision moves to recorded/ or rejected/, as the run judged it.
-  python3 -I - "${out}/pairs-summary.json" "${LEGAL_DONG_STATE_ROOT}/steward" <<'PY'
-import json, pathlib, sys
-verdicts = json.load(open(sys.argv[1], encoding="utf-8")).get("steward_decisions", {})
-root = pathlib.Path(sys.argv[2])
-for name, verdict in verdicts.items():
-    target = root / ("recorded" if verdict == "recorded" else "rejected")
-    target.mkdir(parents=True, exist_ok=True)
-    (root / "pending" / name).rename(target / name)
-    print(f"steward decision {name}: {verdict}")
-PY
+  # The run's verdict on each database decision, for the log; a refused one stays standing.
+  python3 -I -c 'import json, sys
+for name, verdict in json.load(open(sys.argv[1], encoding="utf-8")).get("steward_decisions", {}).items():
+    print(f"steward decision {name}: {verdict}")' "${out}/pairs-summary.json"
+  # The database decisions the run recorded are done; the new steward list is what the steward API reads.
+  if [ "$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["decision_ids"]))' \
+    "${out}/steward-fold.json")" != 0 ]; then
+    FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${out}/steward-fold.json" \
+      publisher record-lineage-steward-folds >> "${run_log}" 2>&1
+  fi
+  FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${out}/review-handoff.json" \
+  FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
+    publisher load-lineage-review-items >> "${run_log}" 2>&1
+  printf '{"run": "%s", "snapshot_date": "%s"}\n' "${run_id}" "${snapshot_date}" \
+    > "${LEGAL_DONG_STATE_ROOT}/steward-list-published.json"
 }
 
 # Loads every pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history, oldest first,
@@ -190,10 +210,10 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
   fi
   if [ "${parcel_number_change_loaded}" != 0 ]; then
     reason="new official history"
-  elif compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
-    reason="steward decisions"
   elif [ -f "${LEGAL_DONG_STATE_ROOT}/pairing-owed.json" ]; then
     reason="pairing owed"
+  elif legal_dong_steward_database_owes_pairing; then
+    reason="steward database"
   else
     job_journal "${journal}" "legal-dong-code no pending handoff run=${run_id}"
     return 0

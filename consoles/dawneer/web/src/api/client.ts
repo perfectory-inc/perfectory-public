@@ -9,6 +9,8 @@ type Schemas = components["schemas"];
 export type ReviewItem = Schemas["LineageReviewItem"];
 export type ReviewItemPage = Schemas["LineageReviewItemPage"];
 export type ReviewStatus = Schemas["LineageReviewStatus"];
+export type ReviewKind = Schemas["LineageReviewKind"];
+export type LegalDongEvidence = Schemas["LineageLegalDongEvidence"];
 export type DecisionRequest = Schemas["LineageDecisionRequest"];
 export type DecisionResponse = Schemas["LineageDecisionResponse"];
 export type StewardDecision = Schemas["LineageStewardDecision"];
@@ -153,6 +155,7 @@ export class DawneerClient {
   }
 
   listItems(filter: {
+    kind?: ReviewKind;
     status?: ReviewStatus;
     prefix?: string;
     undecidedOnly?: boolean;
@@ -160,6 +163,7 @@ export class DawneerClient {
     limit?: number;
   }): Promise<ReviewItemPage> {
     const query = new URLSearchParams();
+    if (filter.kind) query.set("kind", filter.kind);
     if (filter.status) query.set("status", filter.status);
     if (filter.prefix) query.set("prefix", filter.prefix);
     if (filter.undecidedOnly) query.set("undecided_only", "true");

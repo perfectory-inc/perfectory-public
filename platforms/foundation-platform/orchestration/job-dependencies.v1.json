@@ -254,7 +254,7 @@
           "dataset": "perfectory://serving-lineage-stewardship",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,serving-lineage-stewardship,PROD)",
           "node_id": "serving-lineage-stewardship",
-          "title": "필지 계보 스튜어드 결정",
+          "title": "스튜어드 결정 (필지 계보·법정동 짝)",
           "kind": "serving_group",
           "surface_kind": null
         },
@@ -336,7 +336,7 @@
           "dataset": "perfectory://serving-lineage-stewardship",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,serving-lineage-stewardship,PROD)",
           "node_id": "serving-lineage-stewardship",
-          "title": "필지 계보 스튜어드 결정",
+          "title": "스튜어드 결정 (필지 계보·법정동 짝)",
           "kind": "serving_group",
           "surface_kind": null
         },

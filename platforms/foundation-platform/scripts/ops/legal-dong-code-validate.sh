@@ -4,12 +4,13 @@
 # 최신 code.go.kr 스냅숏(latest-legal-dong-snapshot.json), 변경표에 기록된 짝, 폐지마다 그 날짜를 감싸는 필지 판
 # 둘(silver.parcel_boundaries)을 정기 실행과 똑같이 읽고, `--validate-only` 로 판단만 한다. 레이크하우스에는 쓰지
 # 않는다. 결과는 실행 폴더의 세 파일이다: summary.json(쌓였을 짝 `would_append`, 증거별 개수), steward-review.json,
-# projection.json. 스튜어드 결정 대기 파일은 읽기만 하고 옮기지 않는다.
+# projection.json. 스튜어드 DB 의 서 있는 승인을 읽기만 하고 접힘을 기록하지 않는다(root ADR-0263).
 #
 # lineage_stewardship 과 같은 spark 자리를 쓰므로 그 단위가 도는 동안에는 돌리지 않는다. 런북:
 # docs/runbooks/legal-dong-code-changes.md 의 "운영 데이터로 미리 보기".
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 
 STATE_ROOT="${FOUNDATION_LINEAGE_STEWARDSHIP_STATE_ROOT:-/var/lib/foundation-platform/lineage-stewardship}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
@@ -33,13 +34,13 @@ if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
   official=(--official-history-table silver.parcel_number_change_history)
 fi
 
-decisions=()
-if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
-  mkdir -p "${work}/steward"
-  cp "${LEGAL_DONG_STATE_ROOT}"/steward/pending/*.json "${work}/steward/"
-  chmod -R a+rX "${work}/steward"
-  decisions=(--steward-decisions "${container_work}/steward")
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(foundation_database_url)"
+  export DATABASE_URL
 fi
+FOUNDATION_PLATFORM_LEGAL_DONG_STEWARD_DECISIONS_OUTPUT="${work}/steward-decisions.json" \
+  "${PUBLISHER_BIN}" export-legal-dong-steward-decisions > "${work}/export.log" 2>&1
+chmod a+r "${work}/steward-decisions.json"
 
 docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
@@ -51,7 +52,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   spark spark-submit --master 'local[4]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py --validate-only \
   --snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}" --jibun-evidence editions \
-  ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+  ${official[@]+"${official[@]}"} --steward-decision-export "${container_work}/steward-decisions.json" \
   --projection-output "${container_work}/projection.json" --review-output "${container_work}/steward-review.json" \
   --summary-output "${container_work}/summary.json" > "${work}/run.log" 2>&1
 

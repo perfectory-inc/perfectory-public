@@ -1,7 +1,11 @@
-//! Wire contract of the parcel-lineage steward API (root ADR-0115).
+//! Wire contract of the steward API (root ADR-0115, ADR-0263).
+//!
+//! Items are parcel lineage or, as a second kind, the pairs of abolished 법정동 codes.
 //!
 //! The staff console (Dawneer, root ADR-0114) uses these types by path, so a change here breaks its
 //! build in the same CI run instead of in production.
+
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -17,6 +21,59 @@ pub enum LineageReviewStatus {
     Pending,
     /// An automatic link sampled for quality review.
     Sample,
+    /// A 법정동 change the data did not pair; a steward may pair it.
+    Steward,
+    /// A 법정동 split into several codes; the data records it, a steward cannot approve it.
+    Split,
+    /// A 법정동 change waiting for the data that decides it; a steward cannot approve it.
+    AwaitingData,
+}
+
+/// What a review item decides.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LineageReviewKind {
+    /// Where a parcel came from: the subject is the newer PNU, a candidate an older PNU.
+    Parcel,
+    /// Where an abolished 법정동 code went: the subject is the old code, a candidate a new code.
+    LegalDong,
+}
+
+/// One new code the pairing run offers for an abolished 법정동 code.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct LineageLegalDongCandidate {
+    /// The new 10-digit code.
+    pub code: String,
+    /// Its full name in the code table.
+    pub name: String,
+    /// The day the code table says it was created, `YYYYMMDD` or empty.
+    pub created_date: String,
+}
+
+/// What the pairing run recorded about an abolished 법정동 code.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct LineageLegalDongEvidence {
+    /// The old code's full name in the code table.
+    pub name: String,
+    /// `sido`, `sigungu`, `eupmyeondong` or `ri`.
+    pub level: String,
+    /// The day the code table says it was abolished, `YYYYMMDD` or empty.
+    pub abolished_date: String,
+    /// Why the date + name rule did not pair it: `ambiguous_name_match` or `no_candidate`.
+    pub rule: String,
+    /// What the 지번 step saw.
+    pub jibun: String,
+    /// Where its 지번 went when it split: new code → how many.
+    pub split_into: BTreeMap<String, u64>,
+    /// The evidence it waits for, when awaiting data.
+    pub waiting_for: String,
+    /// Whether the run read the official parcel-number history (`VWorld` 30527): `read` or
+    /// `not_collected`.
+    pub official_history: String,
+    /// How many of its parcels the official rows move without deciding the pair.
+    pub official_partial_moves: u64,
+    /// The new codes offered; empty when the run found none (any other code may then be named).
+    pub candidates: Vec<LineageLegalDongCandidate>,
 }
 
 /// What a steward decided.
@@ -84,8 +141,12 @@ pub struct LineageStewardDecision {
     pub decision_id: String,
     /// What was decided.
     pub outcome: LineageDecisionOutcome,
-    /// The linked candidate, for a link.
-    pub predecessor_pnu: Option<String>,
+    /// The linked candidate, for a link: an older PNU, or a new 법정동 code.
+    pub candidate_code: Option<String>,
+    /// Why, as a code.
+    pub reason_code: Option<LineageReasonCode>,
+    /// Why, in words.
+    pub note: String,
     /// The steward's principal id.
     pub decided_by: String,
     /// When.
@@ -103,14 +164,18 @@ pub struct LineageStewardDecision {
 pub struct LineageReviewItem {
     /// Stable item id.
     pub item_id: String,
-    /// The parcel to decide.
-    pub subject_pnu: String,
+    /// What the item decides.
+    pub kind: LineageReviewKind,
+    /// The parcel (19-digit PNU) or the abolished 법정동 code (10 digits) to decide.
+    pub subject_code: String,
     /// Why it is on the queue.
     pub status: LineageReviewStatus,
     /// Send this back with a decision; a changed value means the evidence changed.
     pub evidence_etag: String,
-    /// Candidate predecessors with their evidence.
+    /// Parcel items: candidate predecessors with their evidence; empty on 법정동 items.
     pub candidates: Vec<LineageReviewCandidate>,
+    /// 법정동 items: what the pairing run recorded, with the codes it offers.
+    pub legal_dong: Option<LineageLegalDongEvidence>,
     /// The live claim, if any.
     pub claim: Option<LineageReviewClaim>,
     /// Every decision, newest first.
@@ -120,7 +185,7 @@ pub struct LineageReviewItem {
 /// A page of review items.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct LineageReviewItemPage {
-    /// Items in parcel order.
+    /// Items in subject-code order.
     pub items: Vec<LineageReviewItem>,
     /// Pass as `after` for the next page; absent on the last page.
     pub next_after: Option<String>,
@@ -133,10 +198,10 @@ pub struct LineageDecisionRequest {
     /// What was decided.
     pub outcome: LineageDecisionOutcome,
     /// The chosen candidate; only for `link`.
-    pub predecessor_pnu: Option<String>,
+    pub candidate_code: Option<String>,
     /// Required for `link` and `not_a_link`.
     pub reason_code: Option<LineageReasonCode>,
-    /// Free text; required when the reason is `other`.
+    /// Free text; required when the reason is `other`, and on every 법정동 `link` or `not_a_link`.
     #[serde(default)]
     pub note: String,
     /// The `evidence_etag` of the item as read.

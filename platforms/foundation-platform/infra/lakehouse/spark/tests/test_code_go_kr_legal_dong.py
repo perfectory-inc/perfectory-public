@@ -821,28 +821,6 @@ class StewardOnlyRerunTest(unittest.TestCase):
         self.assertNotEqual(pairs_job.pairing_run_id(self.KEY, NOW), pairs_job.pairing_run_id(self.KEY, NOW.replace(day=3)))
 
 
-class StewardDecisionTest(unittest.TestCase):
-    def test_a_staged_decision_is_checked_now_and_again_when_folded(self):
-        parsed = renamed_table()
-        plan = pairs_job.plan_derivation(parsed, [], CONTRACT, CADASTRAL, "run", NOW, NO_PARCELS_BEFORE)
-        with tempfile.TemporaryDirectory() as tmp:
-            review = Path(tmp) / "steward-review.json"
-            review.write_text(json.dumps({"review": plan["review"]}), encoding="utf-8")
-            out = Path(tmp) / "pending"
-            base = ["stage-steward-decision", "--review", str(review), "--output-dir", str(out), "--steward", "steward-a", "--reason", "현장 확인"]
-            with self.assertRaisesRegex(ValueError, "not on the steward list"):
-                pairs_job.main(base + ["--approve", "9811010200=9911010200"])
-            self.assertFalse(out.exists() and any(out.iterdir()), "a refused decision leaves no file")
-            self.assertEqual(pairs_job.main(base + ["--approve", "9811010100=9911010100"]), 0)
-            decisions = [(p.name, json.loads(p.read_text(encoding="utf-8"))) for p in out.glob("*.json")]
-        steward, verdicts = pairs_job.fold_steward_decisions(decisions, plan["review"], {r["region_cd"] for r in parsed}, NOW)
-        self.assertEqual(list(verdicts.values()), ["recorded"])
-        self.assertEqual(steward[0]["source"], "steward:steward-a")
-        # 그 사이 목록이 바뀌었으면(이미 짝이 생김) 기록하지 않고 그렇다고 말한다.
-        _, stale = pairs_job.fold_steward_decisions(decisions, [], set(), NOW)
-        self.assertTrue(list(stale.values())[0].startswith("rejected"))
-
-
 class SeedReproductionTest(unittest.TestCase):
     def test_the_derived_crosswalk_reproduces_the_seed_pairs(self):
         # 씨앗의 시도·시군구 코드로 7월 1일 통합의 전체 표를 만든다(이름은 지어낸 것). 날짜·이름 규칙만으로
@@ -901,8 +879,8 @@ class TheChangeTableDoesNotReadTheLineageTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             pairs_job.parse_args(["--snapshot-date", "2099-07-02", "--table-source-record-id", "k", "--validate-only",
                                   "--table-html", "t.html", "--parcel-lineage-table", "silver.parcel_lineage"])
-        planted = source.replace('parser.add_argument("--steward-decisions"',
-                                 'parser.add_argument("--parcel-lineage-table")\n    parser.add_argument("--steward-decisions"')
+        planted = source.replace('parser.add_argument("--steward-decision-export"',
+                                 'parser.add_argument("--parcel-lineage-table")\n    parser.add_argument("--steward-decision-export"')
         self.assertNotEqual(planted, source, "the planted option must land in the source")
         planted_strings = [node.value for node in ast.walk(ast.parse(planted))
                            if isinstance(node, ast.Constant) and isinstance(node.value, str)]
