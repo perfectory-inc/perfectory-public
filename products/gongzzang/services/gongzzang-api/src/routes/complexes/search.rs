@@ -157,9 +157,8 @@ fn invalid_filter(title: &str, detail: String) -> ProblemResponse {
 /// 그런 줄은 화면이 주소 조각을 아예 빼야지 빈 자리를 남기면 안 돼요.
 #[derive(Debug, Serialize)]
 pub struct ComplexListItemResponse {
-    /// 패널을 여는 열쇠. 없는 단지는 이 키가 빠지고, 화면은 그 줄을 누를 수 없게 그려요.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lakehouse_complex_id: Option<String>,
+    /// 패널을 여는 열쇠. 모든 단지에 있어요(root ADR-0250).
+    pub lakehouse_complex_id: String,
     /// 원천 산업단지 고유번호.
     pub official_complex_code: String,
     /// 산업단지명.
@@ -374,12 +373,10 @@ mod tests {
     }
 
     #[test]
-    fn a_row_without_a_lakehouse_id_omits_the_key_rather_than_nulling_it() {
-        // Foundation 은 이제 모든 단지에 id 를 줘요(root ADR-0250). 그래도 화면은 키의 부재로
-        // "누를 수 없는 줄"을 판정하므로, 값이 없을 때 `null` 이 아니라 키를 빼는 계약은 지켜요.
+    fn absent_columns_omit_the_key_rather_than_nulling_it() {
         let page = ComplexCatalogPage {
             complexes: vec![ComplexCatalogListRecord {
-                lakehouse_complex_id: None,
+                lakehouse_complex_id: "7df3859c-768f-51fa-a78d-6398acd5f052".to_owned(),
                 official_complex_code: "111010".to_owned(),
                 name: "테스트산업단지".to_owned(),
                 kind: "national".to_owned(),
@@ -394,7 +391,10 @@ mod tests {
 
         let json = serde_json::to_value(ComplexesResponse::from(page)).expect("serialize");
         let row = json["complexes"][0].as_object().expect("row object");
-        assert!(!row.contains_key("lakehouse_complex_id"));
+        assert_eq!(
+            row["lakehouse_complex_id"],
+            "7df3859c-768f-51fa-a78d-6398acd5f052"
+        );
         assert!(!row.contains_key("address_text"));
         assert!(!row.contains_key("status"));
         assert_eq!(row["name"], "테스트산업단지");

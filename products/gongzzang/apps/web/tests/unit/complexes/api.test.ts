@@ -41,6 +41,7 @@ describe("toComplexSearchParams", () => {
 describe("ComplexesResponseSchema", () => {
   it("accepts a row whose absent columns are absent keys", () => {
     const row = ComplexListItemSchema.parse({
+      lakehouse_complex_id: "024905cb-8a9f-54ef-ac7d-ca30d796a6b9",
       official_complex_code: "141010",
       name: "반월특수지역",
       kind: "national",
@@ -48,7 +49,6 @@ describe("ComplexesResponseSchema", () => {
 
     expect(row.address_text).toBeUndefined();
     expect(row.status).toBeUndefined();
-    expect(row.lakehouse_complex_id).toBeUndefined();
   });
 
   it("keeps the total so the screen can say how much it is showing", () => {
