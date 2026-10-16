@@ -23,7 +23,8 @@ async function main(): Promise<void> {
     throw new Error(`OpenAPI spec not found at ${OPENAPI_PATH}`, { cause: error });
   }
 
-  const types = astToString(await openapiTS(JSON.parse(openapiContent)));
+  // enumValues: the web's zod schemas need the value lists at run time, not only the types.
+  const types = astToString(await openapiTS(JSON.parse(openapiContent), { enumValues: true }));
   await writeFile(OUTPUT_PATH, types, "utf-8");
   console.info(`[api-types] Generated TS types at ${OUTPUT_PATH}`);
 }

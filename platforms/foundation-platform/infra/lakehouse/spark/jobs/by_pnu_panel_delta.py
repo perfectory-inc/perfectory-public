@@ -36,9 +36,14 @@ R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connecti
 # The parcel and building lanes, and every pack-only lane the R2 contract names (root ADR-0190; a
 # kind line's Gold is gold.<lane with - as _>, root ADR-0193): each lane's Gold panel is one row per
 # PNU with a row_digest, so one comparison serves them all.
+_LANES = json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8")).get("by_pnu_lanes", {})
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel",
-               **{name: lane.get("gold_table") or "gold." + name.replace("-", "_") for name, lane in
-                  json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8")).get("by_pnu_lanes", {}).items()}}
+               **{name: lane.get("gold_table") or "gold." + name.replace("-", "_") for name, lane in _LANES.items()}}
+# A lane keyed narrower than a PNU (root ADR-0204) names the Gold column that follows the PNU in its
+# document key; its change set lists keys (PNU then that column's value), which the bake's upserts
+# and tombstones are by.
+KEY_SUFFIX_COLUMNS = {name: lane["document_key_suffix"]["column"] for name, lane in _LANES.items()
+                      if lane.get("document_key_suffix")}
 EXIT_NO_COMPARISON = 3
 EXIT_NOT_A_DELTA = 4
 EXIT_NO_DIGEST = 5
@@ -137,7 +142,9 @@ def classify(baseline: Any, current: Any) -> Any:
     )
 
 
-def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str) -> Any:
+def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str,
+                   key_suffix_column: str | None = None) -> Any:
+    """The snapshot's rows as (pnu, row_digest, present), `pnu` being the lane's document key."""
     from pyspark.sql import functions as F
 
     known = spark.sql(
@@ -156,7 +163,8 @@ def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str) -> An
             f"snapshot {snapshot_id} of {table} carries no row_digest; a digest-less snapshot "
             "cannot be compared — re-base the lane (ADR-0099, ADR-0146)",
         )
-    return frame.select("pnu", "row_digest", F.lit(True).alias("present"))
+    key = F.col("pnu") if key_suffix_column is None else F.concat(F.col("pnu"), F.col(key_suffix_column))
+    return frame.select(key.alias("pnu"), "row_digest", F.lit(True).alias("present"))
 
 
 def refuse_missing_digests(frame: Any, label: str) -> None:
@@ -182,8 +190,9 @@ def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     from pyspark.sql import functions as F
 
     table = GOLD_TABLES[args.unit]
-    baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id)
-    current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id)
+    suffix = KEY_SUFFIX_COLUMNS.get(args.unit)
+    baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id, suffix)
+    current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id, suffix)
     refuse_missing_digests(baseline, "baseline")
     refuse_missing_digests(current, "current")
     # One join, kept on disk: the counts and both lists read it instead of joining again.

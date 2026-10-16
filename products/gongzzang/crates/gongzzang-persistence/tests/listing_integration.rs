@@ -514,3 +514,101 @@ async fn db_check_constraints_match_shared_kernel_enums() {
         );
     }
 }
+
+/// Root ADR-0223: a parcel copy on a listing names the Foundation contract and snapshot it
+/// came from, and the database refuses a copy that does not.
+#[tokio::test]
+async fn parcel_copy_records_its_foundation_source_and_an_unsourced_copy_is_refused() {
+    use listing_domain::repository::ListingParcelDenormalize;
+    use shared_kernel::admin_division::EupmyeondongCode;
+    use shared_kernel::land_use_type::LandUseType;
+
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let owner = seed_owner(&pool, "zsub-parcel-source", "parcel-source@example.com").await;
+    let repo = PgListingRepository::new(pool.clone());
+    let listing = make_listing_sale(owner);
+    repo.save(&listing, test_ctx()).await.unwrap();
+
+    let denormalize = ListingParcelDenormalize {
+        admin_code: EupmyeondongCode::try_new("99999001").unwrap(),
+        land_use_type: LandUseType::FactorySite,
+        zoning: None,
+        source_contract: "foundation-platform.parcel_by_pnu_profile.v1".to_owned(),
+        source_snapshot_id: "999990000000000002".to_owned(),
+    };
+    repo.update_parcel_denormalize(&listing.id, &denormalize)
+        .await
+        .unwrap();
+
+    let (contract, snapshot): (Option<String>, Option<String>) = sqlx::query_as(
+        "select parcel_source_contract, parcel_source_snapshot_id from listing where id = $1",
+    )
+    .bind(listing.id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        contract.as_deref(),
+        Some("foundation-platform.parcel_by_pnu_profile.v1")
+    );
+    assert_eq!(snapshot.as_deref(), Some("999990000000000002"));
+
+    let unsourced =
+        sqlx::query("update listing set parcel_source_snapshot_id = null where id = $1")
+            .bind(listing.id.as_str())
+            .execute(&pool)
+            .await
+            .expect_err("a parcel copy without its snapshot must be refused");
+    let code = unsourced
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned);
+    assert_eq!(code.as_deref(), Some("23514"), "check_violation expected");
+}
+
+/// Root ADR-0223: a listing whose parcel copy was written before the migration (land use
+/// set, no source) still saves after it. Postgres checks even a `NOT VALID` CHECK on
+/// UPDATE, and save is `INSERT .. ON CONFLICT DO UPDATE`, so the migration must clear the
+/// unsourced copies rather than leave them behind the constraint.
+#[tokio::test]
+async fn a_listing_copied_before_the_source_migration_still_saves() {
+    // The migration's statements from this marker on act on rows that already exist.
+    const MIGRATION: &str =
+        include_str!("../../../migrations/20261014094000_listing_parcel_copy_names_its_source.sql");
+    let tail = MIGRATION
+        .split_once("-- Copies written before this migration.")
+        .map(|(_, tail)| tail)
+        .expect("migration names where its existing-row statements begin");
+
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let owner = seed_owner(&pool, "zsub-parcel-legacy", "parcel-legacy@example.com").await;
+    let repo = PgListingRepository::new(pool.clone());
+    let mut listing = make_listing_sale(owner);
+    repo.save(&listing, test_ctx()).await.unwrap();
+
+    // The row as the old schema left it: a land-use copy with no source.
+    sqlx::raw_sql("alter table listing drop constraint listing_parcel_copy_names_its_source_chk")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("update listing set parcel_land_use_type = 'factory_site' where id = $1")
+        .bind(listing.id.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(tail).execute(&pool).await.unwrap();
+
+    listing.version = 2; // the next save of the same listing, as an edit would be
+    repo.save(&listing, test_ctx())
+        .await
+        .expect("a listing copied before the migration must still save");
+    let (land_use,): (Option<String>,) =
+        sqlx::query_as("select parcel_land_use_type from listing where id = $1")
+            .bind(listing.id.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(land_use, None, "the unsourced copy waits for the refresh");
+}

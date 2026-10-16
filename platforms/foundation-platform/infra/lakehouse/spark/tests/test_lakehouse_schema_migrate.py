@@ -280,3 +280,24 @@ class KnownDrift(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnitPriceGrain(unittest.TestCase):
+    """2026-10-13: gold.unit_price_panel went from one row per PNU to one per (pnu, building_id)
+    under its old name. The live table held rows, so the deploy's migration refused the new
+    required column (a backfill keeps the row count; a grain change cannot be one) and every deploy
+    stopped with the DAGs paused. The kind is now its own table, gold.unit_price, which its load
+    creates; the old table is no contract's and the migration leaves it alone."""
+
+    def test_the_regrained_unit_price_gold_never_alters_the_live_table(self) -> None:
+        contracts = migrate.load_lakehouse_artifact()["contracts"]
+        self.assertIn("gold.unit_price", contracts)
+        self.assertIn("building_id", migrate.column_names(contracts["gold.unit_price"]))
+        # The live table is no contract's: the deploy's migration never plans a change to it.
+        self.assertNotIn("gold.unit_price_panel", contracts)
+        # Kept under the old name, the same contract on the live rows is the refusal that stopped
+        # the deploys: the reason for the new name.
+        # The live table's shape is production's, from the shape ledger (root ADR-0259).
+        refusals = migrate.production_shape_refusals(
+            {"gold.unit_price_panel": contracts["gold.unit_price"]}, migrate.load_production_shape())
+        self.assertIn("['building_id'] with no registered backfill", " ".join(refusals))

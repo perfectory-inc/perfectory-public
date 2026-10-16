@@ -32,6 +32,9 @@ before "fixing" anything.
 - Fix: delete area-local toolchain files; make members inherit. A deliberate
   toolchain bump changes `rust_toolchain` in the contract, then the copies the
   guard names (rust-toolchain.toml, workspace roots, Dockerfiles), in ONE commit.
+- Also: a Cargo.toml requires a crate listed in `cargo_version_requirements`
+  (e.g. `utoipa`) at another version. Fix: use the contract's value; a bump
+  changes the contract and every workspace root in ONE commit (root ADR-0256).
 
 ### 3. migration-naming
 

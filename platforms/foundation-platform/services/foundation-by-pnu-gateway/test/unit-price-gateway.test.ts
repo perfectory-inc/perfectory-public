@@ -11,7 +11,9 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 // namespaces (`scripts/guard/public-fixture-safety.py`).
 const PNU = "9999900000100000000";
 const GATEWAY = connectionContract.by_pnu_lanes["unit-price"];
-const URL_OF_PNU = `https://unit-prices.example.test${GATEWAY.request_path.prefix}${PNU}`;
+// Root ADR-0204: a unit price document is one building of one PNU, requested as <pnu>/<building id>.
+const BUILDING = "00000000-0000-0000-0000-00000000000b";
+const URL_OF_PNU = `https://unit-prices.example.test${GATEWAY.request_path.prefix}${PNU}/${BUILDING}`;
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function envelope(): string {
@@ -77,6 +79,17 @@ describe("foundation unit price gateway (pack-only)", () => {
     const response = await runtime.dispatchFetch(URL_OF_PNU);
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("takes a request only as <pnu>/<building id> of the contract's suffix pattern (root ADR-0204)", async () => {
+    runtime = await start("on");
+    const prefix = `https://unit-prices.example.test${GATEWAY.request_path.prefix}`;
+    for (const path of [PNU, `${PNU}/`, `${PNU}/not-a-building`, `${PNU}/${BUILDING}/x`, `${PNU}${BUILDING}`, `x/${BUILDING}`]) {
+      const response = await runtime.dispatchFetch(`${prefix}${path}`);
+      expect(response.status, path).toBe(404);
+    }
+    // The well-formed key reaches the pack path (an outage here: the manifest has no packs).
+    expect((await runtime.dispatchFetch(`${prefix}${PNU}/${BUILDING}`)).status).toBe(503);
   });
 
   it("answers its own capabilities under its own path", async () => {

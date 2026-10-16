@@ -1,4 +1,5 @@
 // apps/web/lib/panel/registry.ts
+import type { QueryClient } from "@tanstack/react-query";
 import type { ComponentType } from "react";
 import type { PanelKind, PanelStackEntry, PanelView } from "./types";
 
@@ -28,6 +29,11 @@ export interface PanelViewDefinition<K extends PanelKind, TData = unknown> {
    * 기존 fetcher (signal 인자 안 받음) 도 정상 작동 — TS optional 인자 호환.
    */
   fetcher: (id: string, signal?: AbortSignal) => Promise<TData>;
+  /**
+   * Another lane's request this view will need, started together with `fetcher` rather than
+   * after its data renders (TanStack Query guide: "Prefetching in query functions").
+   */
+  prefetch?: (id: string, client: QueryClient) => void;
   /** TanStack Query staleTime ms. spec FU2 = per-kind tune. v1 default 5min. */
   staleTime: number;
   /** child link list — registry link integrity 는 T4/T5 가 검증 */

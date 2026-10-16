@@ -333,8 +333,8 @@ class TheEditionJobTest(unittest.TestCase):
 
     def test_the_measurement_container_gets_the_reader_key_only(self):
         script = COLLECT_SCRIPT.read_text(encoding="utf-8")
-        self.assertEqual(measurement_keys(script), {"FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-                                                    "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY"})
+        self.assertEqual(measurement_keys(script), {"FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                                                    "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY"})
         # 심은 회귀: 쓰기 키를 넘기던 이전 모양은 이 검사가 잡는다.
         self.assertTrue(all("WRITER" in key for key in measurement_keys(script.replace("_READER_", "_WRITER_"))))
 

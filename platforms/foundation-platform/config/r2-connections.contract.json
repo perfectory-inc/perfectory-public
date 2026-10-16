@@ -129,12 +129,12 @@
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"
       ],
       "expected_values": {
@@ -149,10 +149,10 @@
         "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET",
         "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION",
         "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX",
-        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_WRITER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY"
+        "FOUNDATION_PLATFORM_TILE_DERIVATIVES_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_TILE_DERIVATIVES_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY"
       ],
       "expected_values": {
         "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET": "foundation-platform-tile-derivatives-prod",
@@ -164,10 +164,10 @@
       "required_env": [
         "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
         "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST",
-        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY",
-        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY"
+        "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY",
+        "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY"
       ],
       "expected_values": {
         "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET": "foundation-platform-postgres-recovery-prod"
@@ -226,7 +226,7 @@
     "preview_query_parameter": "packs",
     "cloudflare_analytics": {
       "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
-      "api_token_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ANALYTICS_TOKEN",
+      "api_token_env": "FOUNDATION_PLATFORM_ANALYTICS_READER_TOKEN",
       "zone_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ZONE_ID",
       "token_scope": "Account > Account Analytics: Read (the account's Workers invocations) and Zone > Analytics: Read on the live hostname's zone (its HTTP responses by status)",
       "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics, and a canary step also counts the live hostname's 5xx from zone analytics, because a Worker's own 503 is a success invocation in Workers analytics; Cloudflare's GraphQL Analytics API serves account datasets to Account Analytics and zone datasets to zone Analytics, so the canary needs both and its preflight runs both queries. The token is read only through the environment file config/runtime-secrets.contract.json names for these variables (group cloudflare-analytics, root:root 0600), never from the repository or a shell; the zone id is required beside it for a canary step"
@@ -453,6 +453,16 @@
       "max_body_bytes": 1048576
     },
     "max_pending_edits_per_unit": 5000,
+    "real_user_metrics": {
+      "path": "/rum",
+      "analytics_engine_binding": "GONGZZANG_WEB_RUM",
+      "analytics_engine_dataset": "gongzzang_web_rum",
+      "metrics": ["LCP", "INP", "CLS", "TTFB", "panel_data_ready"],
+      "lane_pattern": "[a-z][a-z-]{0,23}[.][a-z][a-z-]{0,23}",
+      "max_body_bytes": 4096,
+      "max_metrics": 32,
+      "max_value": 600000
+    },
     "overlay_cache_control": "public, max-age=0, must-revalidate",
     "content_type": "application/json; charset=utf-8",
     "cors": {
@@ -497,7 +507,12 @@
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,
       "pack_only_reason": "a lane of one kind of data (root ADR-0190) is born serving from section packs: it never had an object lane, so its first publish is the pack-only cut-over gate and its Worker never reads objects",
-      "gold_table": "gold.unit_price_panel",
+      "gold_table": "gold.unit_price",
+      "document_key_suffix": {
+        "column": "building_id",
+        "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "reason": "root ADR-0204: a PNU's unit price document was up to 596 KB gzip (a large apartment complex is one PNU), over the 256 KiB whole-read bound; a document is one building of one PNU (the building's catalog id, the nil UUID for units linked to no building), at most about 148 KB measured. The key is the PNU then the suffix (format 2 packs); the request path is <prefix><pnu>/<suffix>"
+      },
       "document_schema_version": "foundation-platform.unit_price_by_pnu.v1",
       "latency_baseline_lane": "building",
       "latency_baseline_lane_reason": "every PNU with a priced unit has a building document (a unit price is served under the PNU its building document carries it), so the building preview reads the same PNUs through the same Worker code at the same placement: the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds a cut-over to",

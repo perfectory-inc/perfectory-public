@@ -4,12 +4,10 @@ use chrono::Utc;
 use shared_kernel::id::{Id, UserMarker};
 
 use super::super::{User, UserKind, UserRole};
-use super::fixtures::{
-    sample_broker_license, sample_business_number, sample_email, SAMPLE_PHONE_HASH,
-};
+use super::fixtures::{sample_broker_license, sample_email, SAMPLE_PHONE_HASH};
 use crate::errors::UserError;
 
-// ── try_new_full (full, 14 args) ──────────────────────────────────────────
+// ── try_new_full (full, 12 args) ──────────────────────────────────────────
 
 #[test]
 fn try_new_full_happy_path_all_some() {
@@ -21,8 +19,6 @@ fn try_new_full_happy_path_all_some() {
         Some(SAMPLE_PHONE_HASH.to_owned()),
         "Alice",
         UserKind::Corporation,
-        Some(sample_business_number()),
-        Some(now),
         Some(sample_broker_license()),
         Some(now),
         vec![UserRole::Buyer, UserRole::Broker],
@@ -32,8 +28,6 @@ fn try_new_full_happy_path_all_some() {
     )
     .expect("valid full");
     assert_eq!(user.phone_kr_hash.as_deref(), Some(SAMPLE_PHONE_HASH));
-    assert!(user.business_number.is_some());
-    assert_eq!(user.business_verified_at, Some(now));
     assert!(user.broker_license_number.is_some());
     assert_eq!(user.broker_verified_at, Some(now));
     assert_eq!(user.roles.len(), 2);
@@ -55,8 +49,6 @@ fn try_new_full_happy_path_all_none_matches_try_new() {
         None,
         "Alice",
         UserKind::Individual,
-        None,
-        None,
         None,
         None,
         Vec::new(),
@@ -90,8 +82,6 @@ fn rejects_phone_hash_wrong_length() {
         UserKind::Individual,
         None,
         None,
-        None,
-        None,
         Vec::new(),
         None,
         None,
@@ -113,8 +103,6 @@ fn rejects_phone_hash_non_hex() {
         Some(bad),
         "Alice",
         UserKind::Individual,
-        None,
-        None,
         None,
         None,
         Vec::new(),
@@ -140,8 +128,6 @@ fn accepts_uppercase_phone_hash() {
         UserKind::Individual,
         None,
         None,
-        None,
-        None,
         Vec::new(),
         None,
         None,
@@ -149,29 +135,6 @@ fn accepts_uppercase_phone_hash() {
     )
     .expect("uppercase hex OK");
     assert_eq!(user.phone_kr_hash.as_deref(), Some(upper));
-}
-
-#[test]
-fn rejects_business_verified_without_business_number() {
-    let now = Utc::now();
-    let err = User::try_new_full(
-        Id::new(),
-        "sub",
-        sample_email(),
-        None,
-        "Alice",
-        UserKind::Corporation,
-        None, // no business_number
-        Some(now),
-        None,
-        None,
-        Vec::new(),
-        None,
-        None,
-        now,
-    )
-    .unwrap_err();
-    assert!(matches!(err, UserError::BusinessVerificationInconsistent));
 }
 
 #[test]
@@ -184,8 +147,6 @@ fn rejects_broker_verified_without_broker_license() {
         None,
         "Alice",
         UserKind::Individual,
-        None,
-        None,
         None, // no broker_license_number
         Some(now),
         Vec::new(),
@@ -198,30 +159,6 @@ fn rejects_broker_verified_without_broker_license() {
 }
 
 #[test]
-fn accepts_business_verification_with_number() {
-    let now = Utc::now();
-    let user = User::try_new_full(
-        Id::new(),
-        "sub",
-        sample_email(),
-        None,
-        "Alice",
-        UserKind::Corporation,
-        Some(sample_business_number()),
-        Some(now),
-        None,
-        None,
-        Vec::new(),
-        None,
-        None,
-        now,
-    )
-    .expect("valid");
-    assert!(user.business_number.is_some());
-    assert_eq!(user.business_verified_at, Some(now));
-}
-
-#[test]
 fn accepts_broker_verification_with_license() {
     let now = Utc::now();
     let user = User::try_new_full(
@@ -231,8 +168,6 @@ fn accepts_broker_verification_with_license() {
         None,
         "Alice",
         UserKind::Individual,
-        None,
-        None,
         Some(sample_broker_license()),
         Some(now),
         vec![UserRole::Broker],
@@ -246,31 +181,6 @@ fn accepts_broker_verification_with_license() {
 }
 
 #[test]
-fn business_number_some_without_verified_is_ok() {
-    // 사업자번호는 입력했지만 아직 검증 전 — 합법.
-    let now = Utc::now();
-    let user = User::try_new_full(
-        Id::new(),
-        "sub",
-        sample_email(),
-        None,
-        "Alice",
-        UserKind::Corporation,
-        Some(sample_business_number()),
-        None, // not yet verified
-        None,
-        None,
-        Vec::new(),
-        None,
-        None,
-        now,
-    )
-    .expect("valid");
-    assert!(user.business_number.is_some());
-    assert_eq!(user.business_verified_at, None);
-}
-
-#[test]
 fn roles_with_multiple_values() {
     let now = Utc::now();
     let user = User::try_new_full(
@@ -280,8 +190,6 @@ fn roles_with_multiple_values() {
         None,
         "Alice",
         UserKind::Individual,
-        None,
-        None,
         None,
         None,
         vec![UserRole::Buyer, UserRole::Seller, UserRole::Operator],
@@ -338,8 +246,6 @@ fn user_serde_roundtrip_full() {
         Some(SAMPLE_PHONE_HASH.to_owned()),
         "Alice",
         UserKind::Corporation,
-        Some(sample_business_number()),
-        Some(now),
         Some(sample_broker_license()),
         Some(now),
         vec![UserRole::Buyer, UserRole::Broker],

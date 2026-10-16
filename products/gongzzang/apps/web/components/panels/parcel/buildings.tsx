@@ -6,8 +6,9 @@ import { useState } from "react";
 import type { BuildingUnit } from "@/lib/api/building-units";
 import type { BuildingsResponse } from "@/lib/api/buildings";
 import { unitFloorText } from "@/lib/api/unit-floor";
-import { fetchUnitPrices, type UnitPrices } from "@/lib/api/unit-price-edge";
+import type { UnitPrices } from "@/lib/api/unit-price-edge";
 import type { PanelStackEntry } from "@/lib/panel/types";
+import { unitPricesQuery } from "./unit-prices";
 
 export function ParcelBuildingsCard({
   entry,
@@ -18,16 +19,10 @@ export function ParcelBuildingsCard({
 }) {
   const t = useTranslations("panels.parcel.buildings");
   const floorText = useTranslations("panels.parcel.floors");
-  // The units' prices are the parcel's own document (root ADR-0190): one request per parcel, sent
-  // when a unit list is first shown (unlinked units are shown at once), joined to the units by id.
+  // The units' prices are the parcel's own document (root ADR-0190), joined to the units by id.
+  // The buildings view started the request with its own (register.ts), so this reads it.
   const hasUnits = data.buildings.some((b) => b.units.length > 0) || data.unlinked_units.length > 0;
-  const [unitsShown, setUnitsShown] = useState(data.unlinked_units.length > 0);
-  const prices = useQuery({
-    queryKey: ["unit-prices", entry.id],
-    queryFn: ({ signal }) => fetchUnitPrices(entry.id, signal),
-    enabled: hasUnits && unitsShown,
-    staleTime: 60 * 60_000,
-  });
+  const prices = useQuery({ ...unitPricesQuery(entry.id), enabled: hasUnits });
   const priceState: PriceState = {
     prices: prices.data,
     loading: prices.isFetching && prices.data === undefined,
@@ -63,10 +58,7 @@ export function ParcelBuildingsCard({
                   : t("unknown")}
                 {b.approved_at && ` · ${b.approved_at}`}
               </div>
-              <details
-                className="group mt-2"
-                onToggle={(event) => event.currentTarget.open && setUnitsShown(true)}
-              >
+              <details className="group mt-2">
                 <summary className="cursor-pointer text-[length:var(--text-caption)] text-[var(--color-accent)]">
                   <span className="group-open:hidden">{t("units.show")}</span>
                   <span className="hidden group-open:inline">{t("units.hide")}</span>

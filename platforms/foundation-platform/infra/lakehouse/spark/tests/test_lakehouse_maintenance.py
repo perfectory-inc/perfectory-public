@@ -31,6 +31,7 @@ from lakehouse_maintenance import (  # noqa: E402
     month_of_tag,
     protected_snapshots,
     retention_tags,
+    rewrite_data_files_sql,
     rotation_order,
     should_compact,
     timestamp_before,
@@ -43,12 +44,14 @@ def sound_contract() -> dict:
         "schema_version": 1,
         "order": ["compaction", "snapshot_expiry", "orphan_cleanup"],
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
-                       "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25},
+                       "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25,
+                       "partial_progress_max_commits": 10},
         "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
                             "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
                             "year_end_tag": {"name_format": "yearly-%Y"}},
         "orphan_cleanup": {"safety_days": 3},
-        "scheduled": {"deadline_minutes": 140, "skip": ["orphan_cleanup"]},
+        "scheduled": {"deadline_minutes": 140, "skip": ["orphan_cleanup"],
+                      "spark": {"master": "local[8,8]", "driver_memory": "16g"}},
     }
 
 
@@ -327,6 +330,28 @@ class ScheduledRunTest(unittest.TestCase):
             encoding="utf-8")
         limit = int(re.search(r"^TimeoutStartSec=(\d+)m$", unit, re.M).group(1))
         self.assertLess(load_maintenance_contract()["scheduled"]["deadline_minutes"], limit)
+
+
+class R2ResetsTest(unittest.TestCase):
+    """2026-10-15: one R2 connection reset aborted silver.parcel_boundaries's whole compaction."""
+
+    def test_a_master_without_task_retries_is_refused(self):
+        """Plain local[N] ignores spark.task.maxFailures: one reset aborts the job (root ADR-0102)."""
+        for master in ("local[8]", "local[8,1]", "local[*]"):
+            contract = sound_contract()
+            contract["scheduled"]["spark"]["master"] = master
+            with self.assertRaises(ValueError, msg=master):
+                validate_maintenance_contract(contract)
+
+    def test_the_shipped_master_retries_tasks(self):
+        master = load_maintenance_contract()["scheduled"]["spark"]["master"]
+        self.assertRegex(master, r"^local\[\d+,\s*([2-9]|\d{2,})\]$")
+
+    def test_a_compaction_keeps_the_groups_it_already_rewrote(self):
+        sql = rewrite_data_files_sql("r2", "silver.parcel_boundaries", sound_contract()["compaction"])
+        self.assertIn("'partial-progress.enabled','true'", sql)
+        self.assertIn("'partial-progress.max-commits','10'", sql)
+        self.assertIn("'min-input-files','2'", sql)
 
 
 class CompactionTriggerTest(unittest.TestCase):

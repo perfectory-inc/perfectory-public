@@ -1,6 +1,6 @@
 # ADR 0073: 표제부가 필지와 호 사이의 건물을 채운다
 
-- Status: Accepted
+- Status: Superseded by ADR-0194 (§3–§6 의 `catalog.building` 투영을 지웠다; §1·§2 의 `silver.building_register_titles` 는 그대로다)
 - Date: 2026-09-03
 
 ## Context

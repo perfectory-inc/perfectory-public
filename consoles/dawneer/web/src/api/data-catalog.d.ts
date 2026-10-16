@@ -362,6 +362,13 @@ export interface components {
              * @description The median of what the recent runs before it added.
              */
             typical_rows: number;
+        } | {
+            /** @enum {string} */
+            kind: "waiting";
+            /** @description What it waits for, as its run said; absent when the log could not be read. */
+            reason?: string | null;
+            /** @description The scheduler's id of that run, for its log. */
+            scheduler_run_id?: string | null;
         };
         /** @description One run of a scheduled job that the data catalog holds. */
         ScheduledJobRun: {

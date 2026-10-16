@@ -17,5 +17,11 @@
       "database_name": "foundation-map-edits",
       "migrations_dir": "migrations"
     }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "GONGZZANG_WEB_RUM",
+      "dataset": "gongzzang_web_rum"
+    }
   ]
 }

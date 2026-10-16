@@ -9,7 +9,8 @@ use chrono::NaiveDate;
 
 use super::execute::{self, Runtime, SparkLoad};
 use super::land::{
-    self, Candidate, Completeness, LandRelease, LandRule, MeasuredObject, Reading, MEASURE_COMMAND,
+    self, Candidate, Completeness, LandRelease, LandRule, MeasuredObject, Reading, SidoCalendar,
+    MEASURE_COMMAND,
 };
 use super::lane::{ExportKind, Lane, LaneContract, WriteMode};
 use super::release::LedgerObject;
@@ -28,11 +29,11 @@ const LAND_LANES: [Lane; 7] = [
     Lane::LandUseZoneCode,
 ];
 
-fn rule(count: usize) -> LandRule {
+fn rule() -> LandRule {
     LandRule {
         source: PRICE.to_owned(),
         member_name: r"^AL_D151_(?P<region>[0-9]{2})_(?P<vintage>[0-9]{8})\.csv$".to_owned(),
-        completeness: Completeness::Sido { count },
+        completeness: Completeness::Sido,
         snapshot_label: "vworldkr-land-individual-price".to_owned(),
         handoff_prefix: format!("silver-handoff/{PRICE}"),
         handoff_suffix: ".jsonl.gz".to_owned(),
@@ -81,9 +82,37 @@ fn converts_price(name: &str) -> bool {
     name.starts_with("AL_D151_") && name.ends_with(".csv")
 }
 
-fn select(rule: &LandRule, measured: &[MeasuredObject]) -> anyhow::Result<LandRelease> {
-    let candidates = land::candidates(rule, measured, converts_price)?;
-    land::select(rule, &candidates.found)
+/// One row of `reference.legal_dong_code_snapshot`, as the scan decodes it.
+fn code_row(
+    snapshot: &str,
+    sido: &str,
+    status: &str,
+    created: &str,
+    abolished: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    let row = serde_json::json!({
+        "region_cd": format!("{sido}00000000"),
+        "status": status,
+        "snapshot_date": snapshot,
+        "created_date": created,
+        "abolished_date": abolished,
+    });
+    row.as_object().cloned().unwrap_or_default()
+}
+
+/// A code list whose 시도 are `codes`, all in force since always.
+fn sido(codes: &[&str]) -> anyhow::Result<SidoCalendar> {
+    let rows: Vec<_> = codes
+        .iter()
+        .map(|code| code_row("2099-12-01", code, "존재", "", ""))
+        .collect();
+    SidoCalendar::from_snapshot_rows(&rows)
+}
+
+/// Selects with a code list of the 시도 `codes`.
+fn select(codes: &[&str], measured: &[MeasuredObject]) -> anyhow::Result<LandRelease> {
+    let candidates = land::candidates(&rule(), measured, converts_price)?;
+    land::select(&rule(), &candidates.found, Some(&sido(codes)?))
 }
 
 fn regions(release: &LandRelease) -> Vec<&str> {
@@ -114,7 +143,7 @@ fn the_newest_vintage_covering_every_region_is_the_release() -> anyhow::Result<(
             reading: Reading::NotLoadable,
         },
     ];
-    let release = select(&rule(2), &measured)?;
+    let release = select(&["97", "98"], &measured)?;
     assert_eq!(release.vintage, "20990201");
     assert_eq!(regions(&release), ["97", "98"]);
     assert!(release.skipped_incomplete.is_empty());
@@ -126,7 +155,7 @@ fn the_newest_vintage_covering_every_region_is_the_release() -> anyhow::Result<(
         ]
     );
     assert_eq!(
-        release.source_snapshot_id(&rule(2))?,
+        release.source_snapshot_id(&rule())?,
         "vworldkr-land-individual-price:20990201"
     );
     Ok(())
@@ -140,17 +169,119 @@ fn a_newer_vintage_missing_a_region_is_skipped_not_loaded() -> anyhow::Result<()
         // the newest harvest has only one of the two regions so far
         price("SYNTHETIC-03", "97", "20990301", None)?,
     ];
-    let release = select(&rule(2), &measured)?;
+    let release = select(&["97", "98"], &measured)?;
     assert_eq!(release.vintage, "20990101");
-    assert_eq!(release.skipped_incomplete, ["20990301 regions=1"]);
+    assert_eq!(release.skipped_incomplete, ["20990301 regions=97"]);
     // A vintage with more regions than the contract's is not a release either.
-    let error = select(&rule(1), &measured[..2])
+    let error = select(&["97"], &measured[..2])
         .err()
         .context("two regions are not the one the rule requires")?;
     assert!(
-        error.to_string().contains("20990101 regions=2"),
+        error.to_string().contains("20990101 regions=97,98"),
         "{error:#}"
     );
+    Ok(())
+}
+
+/// A code list in which 시도 98 and 99 merge into 96 on 2099-06-01 (synthetic codes).
+fn merger() -> anyhow::Result<SidoCalendar> {
+    SidoCalendar::from_snapshot_rows(&[
+        code_row("2099-12-01", "97", "존재", "", ""),
+        code_row("2099-12-01", "98", "폐지", "", "20990601"),
+        code_row("2099-12-01", "99", "폐지", "19880101", "20990601"),
+        code_row("2099-12-01", "96", "존재", "20990601", ""),
+        // a 폐지 row without its day cannot be placed and is left out
+        code_row("2099-12-01", "95", "폐지", "", ""),
+        // not a 시도 row
+        {
+            let mut row = code_row("2099-12-01", "97", "존재", "", "");
+            row.insert("region_cd".to_owned(), "9711000000".into());
+            row
+        },
+        // an older snapshot is not read: the newest one says what each code's days are
+        code_row("2099-11-01", "94", "존재", "", ""),
+    ])
+}
+
+#[test]
+fn the_code_list_says_which_sido_a_day_has() -> anyhow::Result<()> {
+    let calendar = merger()?;
+    let on = |day: &str| calendar.on(day).into_iter().collect::<Vec<_>>();
+    assert_eq!(on("20990531"), ["97", "98", "99"]);
+    assert_eq!(on("20990601"), ["96", "97"]);
+    // A list that names no current 시도 is no list.
+    let empty =
+        SidoCalendar::from_snapshot_rows(&[code_row("2099-12-01", "98", "폐지", "", "20990601")]);
+    assert!(empty.is_err());
+    let undated =
+        SidoCalendar::from_snapshot_rows(&[code_row("2099-12-01", "97", "존재", "2099", "")]);
+    assert!(undated.is_err());
+    Ok(())
+}
+
+/// A row of the code list at any level (`region_cd` in full).
+fn region_row(
+    region: &str,
+    status: &str,
+    created: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut row = code_row("2099-12-01", "00", status, created, "");
+    row.insert("region_cd".to_owned(), region.into());
+    row
+}
+
+#[test]
+fn a_single_tier_city_is_a_sido_by_its_one_district_row() -> anyhow::Result<()> {
+    // 세종특별자치시 has no 3600000000 row, only 3611000000; leaving it out made every vintage of
+    // every land lane incomplete on 2026-10-15 (synthetic prefix 93 here).
+    let calendar = SidoCalendar::from_snapshot_rows(&[
+        code_row("2099-12-01", "97", "존재", "", ""),
+        region_row("9711000000", "존재", ""),
+        region_row("9311000000", "존재", "20990301"),
+    ])?;
+    assert_eq!(
+        calendar.on("20990228").into_iter().collect::<Vec<_>>(),
+        ["97"]
+    );
+    assert_eq!(
+        calendar.on("20990301").into_iter().collect::<Vec<_>>(),
+        ["93", "97"]
+    );
+    // Two district-level rows under a prefix with no 시도 row: which one is the 시도 is unknown.
+    let ambiguous = SidoCalendar::from_snapshot_rows(&[
+        code_row("2099-12-01", "97", "존재", "", ""),
+        region_row("9311000000", "존재", ""),
+        region_row("9312000000", "존재", ""),
+    ]);
+    assert!(ambiguous.is_err());
+    Ok(())
+}
+
+#[test]
+fn after_a_merger_the_fewer_sido_are_a_release_and_the_old_ones_are_not() -> anyhow::Result<()> {
+    let measured = [
+        price("SYNTHETIC-01", "97", "20990501", None)?,
+        price("SYNTHETIC-02", "98", "20990501", None)?,
+        price("SYNTHETIC-03", "99", "20990501", None)?,
+        // after the merger: two 시도 cover the country
+        price("SYNTHETIC-04", "96", "20990701", None)?,
+        price("SYNTHETIC-05", "97", "20990701", None)?,
+        // a newer harvest still under the old codes is not loaded under a date they had ended
+        price("SYNTHETIC-06", "97", "20990801", None)?,
+        price("SYNTHETIC-07", "98", "20990801", None)?,
+        price("SYNTHETIC-08", "99", "20990801", None)?,
+    ];
+    let candidates = land::candidates(&rule(), &measured, converts_price)?;
+    let release = land::select(&rule(), &candidates.found, Some(&merger()?))?;
+    assert_eq!(release.vintage, "20990701");
+    assert_eq!(regions(&release), ["96", "97"]);
+    assert_eq!(release.skipped_incomplete, ["20990801 regions=97,98,99"]);
+    // Before the merger's harvest, the three old 시도 are the release.
+    let older = land::candidates(&rule(), &measured[..3], converts_price)?;
+    let release = land::select(&rule(), &older.found, Some(&merger()?))?;
+    assert_eq!(regions(&release), ["97", "98", "99"]);
+    // A 시도 lane without the code list is refused, never guessed.
+    assert!(land::select(&rule(), &candidates.found, None).is_err());
     Ok(())
 }
 
@@ -163,7 +294,7 @@ fn an_object_not_yet_measured_refuses_the_run_and_names_the_command() -> anyhow:
             reading: Reading::Unmeasured,
         },
     ];
-    let error = land::candidates(&rule(1), &measured, converts_price)
+    let error = land::candidates(&rule(), &measured, converts_price)
         .err()
         .context("an unmeasured object may hold the newest vintage")?;
     let message = error.to_string();
@@ -181,7 +312,7 @@ fn two_objects_of_a_region_resolve_to_the_later_provider_update() -> anyhow::Res
         [earlier.clone(), later.clone()],
         [later.clone(), earlier.clone()],
     ] {
-        let release = select(&rule(1), &measured)?;
+        let release = select(&["97"], &measured)?;
         assert_eq!(release.objects[0].1, later.object);
     }
     Ok(())
@@ -194,7 +325,7 @@ fn two_objects_of_a_region_with_the_same_or_no_update_date_are_refused() -> anyh
             price("SYNTHETIC-01", "97", "20990101", updated)?,
             price("SYNTHETIC-02", "97", "20990101", updated)?,
         ];
-        let error = select(&rule(1), &measured)
+        let error = select(&["97"], &measured)
             .err()
             .context("a tie must not be broken by key order")?;
         assert!(
@@ -209,7 +340,7 @@ fn two_objects_of_a_region_with_the_same_or_no_update_date_are_refused() -> anyh
         price("SYNTHETIC-03", "97", "20990201", None)?,
         price("SYNTHETIC-04", "97", "20990201", None)?,
     ];
-    assert_eq!(select(&rule(2), &measured)?.vintage, "20990101");
+    assert_eq!(select(&["97", "98"], &measured)?.vintage, "20990101");
     Ok(())
 }
 
@@ -226,13 +357,13 @@ fn an_object_the_export_would_refuse_is_left_out_and_named() -> anyhow::Result<(
         double,
         undated,
     ];
-    let candidates = land::candidates(&rule(2), &measured, converts_price)?;
+    let candidates = land::candidates(&rule(), &measured, converts_price)?;
     assert_eq!(candidates.found.len(), 1);
     assert_eq!(candidates.refused.len(), 2, "{:?}", candidates.refused);
     assert!(candidates.refused[0].contains("SYNTHETIC-02"));
     assert!(candidates.refused[1].contains("no date"));
     // Without it 98 is uncovered, so there is no release rather than a guessed one.
-    assert!(land::select(&rule(2), &candidates.found).is_err());
+    assert!(land::select(&rule(), &candidates.found, Some(&sido(&["97", "98"])?)).is_err());
     Ok(())
 }
 
@@ -254,7 +385,7 @@ fn a_national_lane_loads_its_one_newest_object() -> anyhow::Result<()> {
         },
     ];
     let candidates = land::candidates(&zone_rule(), &measured, |n| n == "LART_LMISZONE.csv")?;
-    let release = land::select(&zone_rule(), &candidates.found)?;
+    let release = land::select(&zone_rule(), &candidates.found, None)?;
     assert_eq!(release.vintage, "20991203");
     assert_eq!(regions(&release), ["national"]);
     assert_eq!(
@@ -264,14 +395,14 @@ fn a_national_lane_loads_its_one_newest_object() -> anyhow::Result<()> {
     // Two objects of one ledger day are a tie unless the provider dates them apart.
     let tied = [code_table("SYNTHETIC-1", 3)?, code_table("SYNTHETIC-3", 3)?];
     let candidates = land::candidates(&zone_rule(), &tied, |n| n == "LART_LMISZONE.csv")?;
-    assert!(land::select(&zone_rule(), &candidates.found).is_err());
+    assert!(land::select(&zone_rule(), &candidates.found, None).is_err());
     Ok(())
 }
 
 // ---- unchanged or changed ------------------------------------------------------------------
 
 fn candidates_of(measured: &[MeasuredObject]) -> anyhow::Result<Vec<Candidate>> {
-    Ok(land::candidates(&rule(2), measured, converts_price)?.found)
+    Ok(land::candidates(&rule(), measured, converts_price)?.found)
 }
 
 #[test]
@@ -283,7 +414,7 @@ fn a_release_the_table_records_or_a_newer_one_is_unchanged() -> anyhow::Result<(
         price("SYNTHETIC-04", "98", "20990201", None)?,
     ];
     let all = candidates_of(&measured)?;
-    let newest = land::select(&rule(2), &all)?;
+    let newest = land::select(&rule(), &all, Some(&sido(&["97", "98"])?))?;
     let key = |name: &str| format!("bronze/source={PRICE}/{name}.zip");
     let ingested: BTreeSet<String> = [
         key("SYNTHETIC-03"),
@@ -302,7 +433,11 @@ fn a_release_the_table_records_or_a_newer_one_is_unchanged() -> anyhow::Result<(
     let older: BTreeSet<String> = [key("SYNTHETIC-01"), key("SYNTHETIC-02")].into();
     assert_eq!(land::decide(&newest, &all, &older), Decision::ExportAndLoad);
     // A newer release in the table is never replaced by an older one.
-    let previous = land::select(&rule(2), &candidates_of(&measured[..2])?)?;
+    let previous = land::select(
+        &rule(),
+        &candidates_of(&measured[..2])?,
+        Some(&sido(&["97", "98"])?),
+    )?;
     assert_eq!(
         land::decide(&previous, &all, &half),
         Decision::Unchanged("newer_release_loaded")
@@ -311,7 +446,7 @@ fn a_release_the_table_records_or_a_newer_one_is_unchanged() -> anyhow::Result<(
         Lane::LandIndividualPrice,
         &newest.vintage,
         &Decision::Unchanged("already_loaded"),
-        &newest.source_snapshot_id(&rule(2))?,
+        &newest.source_snapshot_id(&rule())?,
         None,
     );
     assert_eq!(
@@ -387,8 +522,18 @@ fn every_land_rule_reads_what_its_export_converts_and_nothing_beside_it() -> any
                 "{sibling}"
             );
         }
-        if let Completeness::Sido { count } = rule.completeness {
-            assert_eq!(count, 17, "{}: the 시도 a national load covers", lane.id());
+        if rule.completeness == Completeness::Sido {
+            // The 시도 are the code list's on the vintage's day, never a number in the contract.
+            let (_, text) = lane.contract_source();
+            let value: serde_json::Value = serde_json::from_str(text)?;
+            let completeness = &value["silver_refresh"]["completeness"];
+            assert!(completeness.get("count").is_none(), "{}", lane.id());
+            assert_eq!(
+                completeness["regions_from"],
+                "reference.legal_dong_code_snapshot",
+                "{}",
+                lane.id()
+            );
             let captures = regex.captures(loaded).context("captures")?;
             assert_eq!(&captures["region"], "97");
             assert_eq!(&captures["vintage"], "20991231");
@@ -467,10 +612,30 @@ fn a_land_contract_that_names_a_release_or_would_misload_is_refused() -> anyhow:
                 v["silver_refresh"]["member_name"] = r"^(?P<region>LART)_LMISZONE\.csv$".into()
             }),
         ),
-        // completeness that is not 시도 N or national 1
+        // completeness that is not 시도 from the code list or national 1: a hand-written 시도
+        // count (17 stopped being true on 2026-07-01) or another list of regions
         (
             Lane::LandUsePlan,
-            Box::new(|v| v["silver_refresh"]["completeness"]["count"] = 0.into()),
+            Box::new(|v| v["silver_refresh"]["completeness"]["count"] = 17.into()),
+        ),
+        (
+            Lane::LandUsePlan,
+            Box::new(|v| v["silver_refresh"]["completeness"]["count"] = 16.into()),
+        ),
+        (
+            Lane::LandUsePlan,
+            Box::new(|v| {
+                v["silver_refresh"]["completeness"]["regions_from"] =
+                    "silver.administrative_boundaries".into()
+            }),
+        ),
+        (
+            Lane::LandUsePlan,
+            Box::new(|v| {
+                if let Some(block) = v["silver_refresh"]["completeness"].as_object_mut() {
+                    block.remove("regions_from");
+                }
+            }),
         ),
         (
             Lane::LandUseZoneCode,
@@ -616,11 +781,9 @@ fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Resu
         assert!(args
             .windows(2)
             .any(|w| w[0] == "--iceberg-branch" && w[1] == execute::load_branch("synthetic-load")));
-        assert!(args.windows(2).any(|w| w
-            == [
-                "-e",
-                "FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID"
-            ]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["-e", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]));
     }
     Ok(())
 }

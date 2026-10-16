@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use foundation_shared_kernel::ids::{ComplexId, LakehouseComplexId};
+use foundation_shared_kernel::ids::ComplexId;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -65,7 +65,7 @@ async fn store_with_fixture(label: &str) -> anyhow::Result<(ProfileObjectStore, 
 
 fn claim(body: &[u8]) -> anyhow::Result<ClaimedGoldProfileArtifact> {
     Ok(ClaimedGoldProfileArtifact {
-        lakehouse_complex_id: LakehouseComplexId::new(Uuid::parse_str(COMPLEX_ID)?),
+        artifact_complex_id: ComplexId::new(Uuid::parse_str(COMPLEX_ID)?),
         current_version: ARTIFACT_ID.to_owned(),
         object_key: object_key(ARTIFACT_ID),
         checksum_sha256: checksum(body),
@@ -164,8 +164,8 @@ async fn a_pointer_at_an_object_that_does_not_exist_is_refused() -> anyhow::Resu
 async fn an_object_describing_another_complex_is_refused() -> anyhow::Result<()> {
     let (store, root, body) = store_with_fixture("wrong-complex").await?;
     let mut lying = claim(&body)?;
-    lying.lakehouse_complex_id =
-        LakehouseComplexId::new(Uuid::parse_str("0196e7e0-3c20-5000-8000-100000000009")?);
+    lying.artifact_complex_id =
+        ComplexId::new(Uuid::parse_str("0196e7e0-3c20-5000-8000-100000000009")?);
 
     let result = VerifiedGoldProfileArtifact::verify(&store, lying).await;
 

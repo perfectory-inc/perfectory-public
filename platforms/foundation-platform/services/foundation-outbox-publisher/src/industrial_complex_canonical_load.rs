@@ -16,9 +16,8 @@
 //!   from the same Gold row as the identity fields. Each reached Gold only once the projection
 //!   stopped dropping it; before that this command recorded it in its summary as a column it could
 //!   not load.
-//! - `lakehouse_complex_id` carries the Gold row's own `complex_id`. That id is what Gold artifact
-//!   object keys are derived from, and the canonical `id` is minted locally, so a row without it
-//!   can name no object in R2.
+//! - The Gold row's own `complex_id` is checked against the official code's derivation, which is
+//!   the canonical `id` (root ADR-0250); a row whose id disagrees fails the load.
 //! - `primary_bjdong_code` is always `NULL`. Silver declares the column and zero of its rows fill
 //!   it, so the Gold projection does not carry it at all; a canonical row must not claim an
 //!   administrative code no source ever stated.
@@ -40,7 +39,7 @@ use catalog_domain::{
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use chrono::{NaiveDate, SecondsFormat, Utc};
-use foundation_shared_kernel::ids::LakehouseComplexId;
+use foundation_shared_kernel::ids::ComplexId;
 use lakehouse_domain::GOLD_COMPLEX_CATALOG;
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Serialize;
@@ -319,7 +318,7 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
             seen_codes.insert(official_complex_code.clone()),
             "Gold snapshot carries more than one row for official_complex_code {official_complex_code}"
         );
-        let lakehouse_complex_id = LakehouseComplexId::new(
+        let complex_id = ComplexId::new(
             Uuid::parse_str(required_row_string(row, "complex_id")?.as_str()).with_context(
                 || format!("Gold row {official_complex_code} carries an unreadable complex_id"),
             )?,
@@ -364,7 +363,7 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
 
         match canonical_area_m2(row.get("official_area_sqm")) {
             Ok(area_m2) => planned.push(IndustrialComplexCatalogRow {
-                lakehouse_complex_id: Some(lakehouse_complex_id),
+                complex_id: Some(complex_id),
                 official_complex_code,
                 name,
                 kind,

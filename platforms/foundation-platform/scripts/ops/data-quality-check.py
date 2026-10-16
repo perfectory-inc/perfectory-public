@@ -30,6 +30,8 @@ import urllib.request
 
 import yaml
 
+import internal_http  # beside this file: the daily jobs' one retry for the services they call
+
 RELEASE = pathlib.Path(os.environ.get("FOUNDATION_DATA_QUALITY_RELEASE", "/opt/foundation-platform/current"))
 CONTRACTS = RELEASE / "contracts" / "data"
 GMS = os.environ.get("FOUNDATION_DATA_QUALITY_GMS_URL", "http://127.0.0.1:18095")
@@ -42,23 +44,29 @@ def graphql(query, variables=None):
     request = urllib.request.Request(
         f"{GMS}/api/graphql", data=body, headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        answer = json.load(response)
+    answer = internal_http.open_json(request, timeout=60)
     if answer.get("errors"):
         raise RuntimeError(f"data catalog answered errors: {answer['errors'][:1]}")
     return answer["data"]
 
 
 def trino(sql):
-    """Rows of a Trino query, as lists of strings."""
-    completed = subprocess.run(
-        ["docker", "exec", TRINO_CONTAINER, "trino", "--catalog", TRINO_CATALOG,
-         "--output-format", "CSV", "--execute", sql],
-        capture_output=True, text=True, timeout=900,
-    )
-    if completed.returncode != 0:
-        raise LookupError(completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "trino failed")
-    return list(csv.reader(io.StringIO(completed.stdout)))
+    """Rows of a Trino query, as lists of strings. A query error raises LookupError at once; a
+    server that did not answer is asked again (internal_http)."""
+    def once():
+        completed = subprocess.run(
+            ["docker", "exec", TRINO_CONTAINER, "trino", "--catalog", TRINO_CATALOG,
+             "--output-format", "CSV", "--execute", sql],
+            capture_output=True, text=True, timeout=900,
+        )
+        if completed.returncode == 0:
+            return list(csv.reader(io.StringIO(completed.stdout)))
+        last = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "trino failed"
+        if internal_http.trino_transient(completed.stderr):
+            raise internal_http.TrinoUnavailable(last)
+        raise LookupError(last)
+
+    return internal_http.retry_trino(once)
 
 
 def assertions_of(contract_id):
@@ -154,7 +162,11 @@ def main():
             print(f"data-quality: {label}: {item}")
     if totals["unregistered"]:
         print("data-quality: register the contracts first: datahub-runtime.sh ingest data-contracts")
-    sys.exit(1 if totals["failed"] else 0)
+    # The run's last line (root ADR-0260). It writes no dataset, so a clean run changed nothing.
+    if totals["failed"]:
+        print(f"foundation-job-outcome failed {len(totals['failed'])} contract checks failed")
+        sys.exit(1)
+    print("foundation-job-outcome unchanged")
 
 
 if __name__ == "__main__":

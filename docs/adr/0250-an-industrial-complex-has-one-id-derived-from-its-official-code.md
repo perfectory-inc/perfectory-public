@@ -48,11 +48,15 @@ ADR-0048 은 두 번째 조회구를 붙였고 ADR-0226 은 공짱이 v5 만 저
 
 ### 단계 (각각 독립 PR)
 
+열 삭제를 3a 와 3b 로 나누는 이유: 배포는 옛 API 가 서비스하는 동안 이주를 돌리고 그다음 API 를 바꾼다(ADR-0245).
+같은 PR 에서 열을 지우면, 이주부터 새 API 가 뜰 때까지 옛 API 의 산업단지 조회가 사라진 열을 읽다가 실패한다.
+
 | 단계 | 내용 | 깨지는 호출자 |
 |---|---|---|
 | 1 | 유도 함수·발급 자리 교체·마이그레이션·장부·CHECK (이 ADR) | 없음 |
 | 2 | 공짱 `complex_reader`·웹, 더니어가 `/complexes/{id}` 만 사용 | 없음 |
-| 3 | `by-lakehouse-id` 경로·`find_complex_by_lakehouse_id`·`lakehouse_complex_id` 열·DTO 필드·`LakehouseComplexId` 타입 제거, OpenAPI·공짱 pin 재생성 | 1·2 배포 후에만 |
+| 3a | `by-lakehouse-id` 경로·`find_complex_by_lakehouse_id`·DTO 필드·`LakehouseComplexId` 타입·더니어 표시 제거, OpenAPI·공짱 스냅숏/pin 재생성. 아무 코드도 열을 읽지 않고, INSERT/UPDATE 만 `id` 를 열에 되비춘다 | 1·2 배포 후에만 |
+| 3b | `lakehouse_complex_id` 열 삭제(이주 + 운영 형태 시험), 되비추기 제거 | 3a 배포 후에만 |
 
 ## Rejected
 

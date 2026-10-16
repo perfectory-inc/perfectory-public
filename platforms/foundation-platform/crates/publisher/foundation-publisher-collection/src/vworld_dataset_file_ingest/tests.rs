@@ -30,9 +30,9 @@ use super::{
     download_request_from_inventory_file, eligible_inventory_file_count, existing_file_report,
     failed_file_report, parse_bronze_key_form, parse_dataset_file_max_in_flight,
     partition_held_files, persist_file_stream_with_adapters, plan_streamed_file_location,
-    select_inventory_files, validate_inventory_file_identity, vworld_dataset_file_ingest_status,
-    vworld_dataset_login_config, BronzeKeyForm, PayloadKey, VWorldDatasetFileIngestConfig,
-    VWorldDatasetFileJob,
+    refuse_provider_file_id_live_write, select_inventory_files, validate_inventory_file_identity,
+    vworld_dataset_file_ingest_status, vworld_dataset_login_config, BronzeKeyForm, PayloadKey,
+    VWorldDatasetFileIngestConfig, VWorldDatasetFileJob,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -824,6 +824,20 @@ fn the_bronze_key_form_is_one_of_two_words() -> TestResult {
         BronzeKeyForm::ContentAddressed
     );
     assert!(parse_bronze_key_form(Some("content-addressed")).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_live_write_never_keys_by_provider_file_number() -> TestResult {
+    // 2026-10-14: the parcel edition collector wrote under number keys; five files met the objects
+    // an earlier edition left (R2 502) and others were taken for "already held" (root ADR-0152).
+    let refused = refuse_provider_file_id_live_write(true, BronzeKeyForm::ProviderFileId)
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(refused.contains("content_addressed"), "{refused}");
+    refuse_provider_file_id_live_write(true, BronzeKeyForm::ContentAddressed)?;
+    refuse_provider_file_id_live_write(false, BronzeKeyForm::ProviderFileId)?;
     Ok(())
 }
 

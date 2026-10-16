@@ -14,6 +14,8 @@
     "min_input_files_reason": "A partition holding one file has nothing to merge with. Iceberg skips it either way; stating it keeps the intent legible.",
     "trigger_small_file_count": 10,
     "trigger_small_file_fraction": 0.25,
+    "partial_progress_max_commits": 10,
+    "partial_progress_reason": "A compaction commits its file groups in up to this many commits instead of one, so a group that fails (an R2 connection reset, 2026-10-15) keeps the groups already rewritten; the next run takes the rest.",
     "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
   },
   "snapshot_expiry": {
@@ -33,8 +35,8 @@
   "scheduled": {
     "deadline_minutes": 140,
     "skip": ["orphan_cleanup"],
-    "spark": {"master": "local[8]", "driver_memory": "16g"},
-    "reason": "The scheduled job (`lakehouse_maintenance` in orchestration/jobs.v1.json) runs compaction and expiry on every lakehouse contract table, the least recently maintained first. It starts no table after `deadline_minutes`, which stays under the unit's TimeoutStartSec (160m) and Airflow's 165 so a table in flight can finish; a table it does not reach is first at the next run. Orphan cleanup lists a table's whole location and has not been run against R2 from the server; it stays an operator's step until it has. The Spark size is the batch load's (16g driver under the compose `spark` service's 20g cap)."
+    "spark": {"master": "local[8,8]", "driver_memory": "16g"},
+    "reason": "The scheduled job (`lakehouse_maintenance` in orchestration/jobs.v1.json) runs compaction and expiry on every lakehouse contract table, the least recently maintained first. It starts no table after `deadline_minutes`, which stays under the unit's TimeoutStartSec (160m) and Airflow's 165 so a table in flight can finish; a table it does not reach is first at the next run. Orphan cleanup lists a table's whole location and has not been run against R2 from the server; it stays an operator's step until it has. The Spark size is the batch load's (16g driver under the compose `spark` service's 20g cap); the master carries task retries, `local[8,8]`, as every lakehouse job's does (root ADR-0102): plain local[N] ignores spark.task.maxFailures and one R2 connection reset aborted silver.parcel_boundaries on 2026-10-15."
   },
   "tables": {
     "silver.building_register_floors": {

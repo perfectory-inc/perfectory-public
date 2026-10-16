@@ -18,8 +18,12 @@ pub struct ListingParcelDenormalize {
     pub admin_code: EupmyeondongCode,
     /// Land use type.
     pub land_use_type: LandUseType,
-    /// Zoning from V-World parcel lookup when available.
+    /// Zoning from the Foundation parcel document when available.
     pub zoning: Option<Zoning>,
+    /// Foundation contract the values were read under (root ADR-0223).
+    pub source_contract: String,
+    /// Foundation Gold snapshot the values were baked from: their as-of (root ADR-0223).
+    pub source_snapshot_id: String,
 }
 
 /// Listing detail page response projection.

@@ -5,8 +5,13 @@
 //! The ledger's own fields cannot say this: a VWorld object's `provider_file_name` is the dataset
 //! title, and which 시도 and which harvest it holds is written only in the CSV inside
 //! (`AL_D151_<시도>_<YYYYMMDD>.csv`). The contract states the rule that reads them
-//! (`silver_refresh.member_name`) and how many regions make a release (`completeness`); the
-//! objects are the ledger's. An object nobody has measured yet is refused, never guessed.
+//! (`silver_refresh.member_name`) and what makes a release (`completeness`); the objects are the
+//! ledger's. An object nobody has measured yet is refused, never guessed.
+//!
+//! Which 시도 a 시도 lane's release must cover is not written anywhere in this repository: it is
+//! the 시도 the official 법정동 code list (`reference.legal_dong_code_snapshot`, root ADR-0143)
+//! lists on the vintage's day ([`SidoCalendar`]). A count written in the contract stopped being
+//! true on 2026-07-01, when two 시도 merged into one.
 //!
 //! A release replaces the table (gold.parcel_panel reads one `source_snapshot_id` per land table):
 //! each object is exported to its own handoff by the lane's existing export, then the handoffs are
@@ -20,8 +25,13 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::NaiveDate;
+use foundation_publisher_core::lakehouse_snapshot_scan::{
+    scan_snapshot_rows_kept, LakehouseObjectReader,
+};
+use lakehouse_domain::REFERENCE_LEGAL_DONG_CODE_SNAPSHOT;
 use lakehouse_infrastructure::IcebergRestCatalog;
 use regex::Regex;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::{PgPool, Row};
 
 use super::{
@@ -39,11 +49,12 @@ pub(in crate::remote_lakehouse_job) const MEASURE_COMMAND: &str =
 /// The region of a national lane's one object.
 const NATIONAL: &str = "national";
 
-/// How many regions make a release.
+/// What makes a release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::remote_lakehouse_job) enum Completeness {
-    /// One object for each of `count` 시도, all of one vintage.
-    Sido { count: usize },
+    /// One object for each 시도 the code list lists on the vintage's day ([`SidoCalendar`]), all
+    /// of one vintage.
+    Sido,
     /// One national object; its vintage is its ledger snapshot date.
     National,
 }
@@ -75,7 +86,7 @@ impl LandRule {
             .with_context(|| format!("member_name {:?} is not a regex", self.member_name))?;
         let names: BTreeSet<&str> = regex.capture_names().flatten().collect();
         let wanted: BTreeSet<&str> = match self.completeness {
-            Completeness::Sido { .. } => ["region", "vintage"].into(),
+            Completeness::Sido => ["region", "vintage"].into(),
             Completeness::National => BTreeSet::new(),
         };
         ensure!(
@@ -203,7 +214,7 @@ pub(in crate::remote_lakehouse_job) fn candidates(
             rule.source
         );
         let (region, vintage) = match rule.completeness {
-            Completeness::Sido { .. } => {
+            Completeness::Sido => {
                 let captures = regex
                     .captures(name)
                     .context("a matched name has captures")?;
@@ -261,7 +272,7 @@ impl LandRelease {
         rule: &LandRule,
     ) -> anyhow::Result<String> {
         Ok(match rule.completeness {
-            Completeness::Sido { .. } => format!("{}:{}", rule.snapshot_label, self.vintage),
+            Completeness::Sido => format!("{}:{}", rule.snapshot_label, self.vintage),
             Completeness::National => {
                 let [(_, object)] = self.objects.as_slice() else {
                     bail!("a national release is one object");
@@ -286,17 +297,19 @@ impl LandRelease {
 
 /// Picks the newest complete release.
 ///
-/// Vintages are tried newest first. A vintage whose objects do not name exactly the contract's
-/// count of regions is skipped (named in `skipped_incomplete`). In the first complete vintage, a
+/// Vintages are tried newest first. A vintage whose objects do not name exactly its regions (for
+/// a 시도 lane the 시도 `sido` lists on the vintage's day, for a national lane one) is skipped
+/// (named in `skipped_incomplete`). In the first complete vintage, a
 /// region with two objects keeps the one the provider updated later; two with the same or no
 /// update date are refused (`release::newest`, the hub lanes' rule), never decided by key order.
 pub(in crate::remote_lakehouse_job) fn select(
     rule: &LandRule,
     candidates: &[Candidate],
+    sido: Option<&SidoCalendar>,
 ) -> anyhow::Result<LandRelease> {
-    let required = match rule.completeness {
-        Completeness::Sido { count } => count,
-        Completeness::National => 1,
+    let sido = match rule.completeness {
+        Completeness::Sido => Some(sido.context("a 시도 lane needs the code list's 시도")?),
+        Completeness::National => None,
     };
     let vintages: BTreeSet<&str> = candidates
         .iter()
@@ -311,8 +324,15 @@ pub(in crate::remote_lakehouse_job) fn select(
                 .or_default()
                 .push(&candidate.object);
         }
-        if by_region.len() != required {
-            skipped_incomplete.push(format!("{vintage} regions={}", by_region.len()));
+        let held: BTreeSet<&str> = by_region.keys().copied().collect();
+        let complete = sido.map_or(held.len() == 1, |sido| {
+            held.iter()
+                .copied()
+                .eq(sido.on(vintage).iter().map(String::as_str))
+        });
+        if !complete {
+            let held: Vec<&str> = held.into_iter().collect();
+            skipped_incomplete.push(format!("{vintage} regions={}", held.join(",")));
             continue;
         }
         let mut objects = Vec::new();
@@ -329,14 +349,170 @@ pub(in crate::remote_lakehouse_job) fn select(
         });
     }
     bail!(
-        "the ledger holds no vintage of {} covering {required} regions (incomplete: {})",
+        "the ledger holds no vintage of {} covering {} (incomplete: {})",
         rule.source,
+        if sido.is_some() {
+            "the 시도 the code list lists on its day"
+        } else {
+            "one national object"
+        },
         if skipped_incomplete.is_empty() {
             "none; no object matched the member rule".to_owned()
         } else {
             skipped_incomplete.join(", ")
         }
     )
+}
+
+/// The 시도 of the official 법정동 code list, each with the days it began and ended, from the
+/// list's newest snapshot (`reference.legal_dong_code_snapshot`; code.go.kr gives every code its
+/// 생성일 and 폐지일, root ADR-0143 §2). It is the one place a 시도 lane learns its regions.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::remote_lakehouse_job) struct SidoCalendar {
+    /// Two-digit code, first day (`YYYYMMDD`, `None`: always), day it ended (`None`: still).
+    codes: Vec<(String, Option<String>, Option<String>)>,
+}
+
+fn text(row: &JsonMap<String, JsonValue>, column: &str) -> String {
+    row.get(column)
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+/// A `YYYYMMDD` column, `None` when blank.
+fn day(row: &JsonMap<String, JsonValue>, column: &str) -> anyhow::Result<Option<String>> {
+    let value = text(row, column);
+    if value.is_empty() {
+        return Ok(None);
+    }
+    ensure!(
+        value.len() == 8 && NaiveDate::parse_from_str(&value, "%Y%m%d").is_ok(),
+        "{} {column} {value:?} is not YYYYMMDD",
+        text(row, "region_cd")
+    );
+    Ok(Some(value))
+}
+
+impl SidoCalendar {
+    /// Reads the 시도 rows (`region_cd` `NN00000000`) of the newest snapshot among `rows`. A
+    /// 폐지 row without its 폐지일 cannot be placed in time and is left out, so a vintage holding
+    /// that code is skipped rather than loaded. Refuses a snapshot that lists no current 시도.
+    ///
+    /// A single-tier city has no `NN00000000` row: 세종특별자치시 is `3611000000`, its one
+    /// 시군구-level row. A prefix with no 시도 row and exactly one 시군구-level row (`NNxxx00000`)
+    /// is that 시도, with that row's days; more than one is refused, because which of them speaks
+    /// for the 시도 is not in the list. Leaving 세종 out made every vintage look incomplete and
+    /// stopped all six land lanes (2026-10-15).
+    pub(in crate::remote_lakehouse_job) fn from_snapshot_rows(
+        rows: &[JsonMap<String, JsonValue>],
+    ) -> anyhow::Result<Self> {
+        let newest = rows
+            .iter()
+            .map(|row| text(row, "snapshot_date"))
+            .max()
+            .context("reference.legal_dong_code_snapshot holds no 시도 row")?;
+        let newest_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| text(row, "snapshot_date") == newest)
+            .collect();
+        let with_sido_row: BTreeSet<String> = newest_rows
+            .iter()
+            .filter_map(|row| {
+                text(row, "region_cd")
+                    .strip_suffix("00000000")
+                    .map(str::to_owned)
+            })
+            .collect();
+        let mut single_tier: BTreeMap<String, Vec<&JsonMap<String, JsonValue>>> = BTreeMap::new();
+        let mut sido_rows = Vec::new();
+        for row in newest_rows {
+            let region = text(row, "region_cd");
+            if let Some(code) = region.strip_suffix("00000000") {
+                sido_rows.push((code.to_owned(), row));
+            } else if region.len() == 10
+                && region.ends_with("00000")
+                && !with_sido_row.contains(&region[..2])
+            {
+                single_tier
+                    .entry(region[..2].to_owned())
+                    .or_default()
+                    .push(row);
+            }
+        }
+        for (prefix, held) in single_tier {
+            let [row] = held.as_slice() else {
+                bail!(
+                    "시도 {prefix} has no {prefix}00000000 row and {} 시군구-level rows; which one is the 시도 is not in the code list",
+                    held.len()
+                );
+            };
+            sido_rows.push((prefix, row));
+        }
+        let mut codes = Vec::new();
+        for (code, row) in sido_rows {
+            let region = text(row, "region_cd");
+            ensure!(
+                code.len() == 2 && code.bytes().all(|b| b.is_ascii_digit()),
+                "{region} is not a 10-digit 법정동 code"
+            );
+            let (from, until) = (day(row, "created_date")?, day(row, "abolished_date")?);
+            match (text(row, "status").as_str(), &until) {
+                ("폐지", None) => {}
+                ("존재" | "폐지", _) => codes.push((code, from, until)),
+                (other, _) => bail!("{region} has the status {other:?}, not 존재 or 폐지"),
+            }
+        }
+        let calendar = Self { codes };
+        ensure!(
+            !calendar.on(&newest.replace('-', "")).is_empty(),
+            "the {newest} snapshot of reference.legal_dong_code_snapshot lists no current 시도"
+        );
+        Ok(calendar)
+    }
+
+    /// The 시도 codes in force on `day` (`YYYYMMDD`), in code order.
+    pub(in crate::remote_lakehouse_job) fn on(&self, day: &str) -> BTreeSet<String> {
+        self.codes
+            .iter()
+            .filter(|(_, from, until)| {
+                from.as_deref().is_none_or(|from| from <= day)
+                    && until.as_deref().is_none_or(|until| day < until)
+            })
+            .map(|(code, _, _)| code.clone())
+            .collect()
+    }
+}
+
+/// Reads the code list's 시도 from the current snapshot of `reference.legal_dong_code_snapshot`.
+pub(in crate::remote_lakehouse_job) async fn read_sido_calendar(
+    catalog: &IcebergRestCatalog,
+) -> anyhow::Result<SidoCalendar> {
+    let table = REFERENCE_LEGAL_DONG_CODE_SNAPSHOT.table_name;
+    let snapshot = catalog
+        .load_current_snapshot_manifest_list(table)
+        .await
+        .with_context(|| format!("cannot resolve the {table} snapshot"))?
+        .with_context(|| format!("{table} has no snapshot, so no 시도 lane knows its regions"))?;
+    let reader = LakehouseObjectReader::from_env()?;
+    // 시도 rows and 시군구-level rows: a single-tier city's 시도 is its one 시군구-level row.
+    let is_sido = |row: &JsonMap<String, JsonValue>| {
+        row.get("region_cd")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|code| code.ends_with("00000"))
+    };
+    let scanned = scan_snapshot_rows_kept(
+        &REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
+        &reader,
+        &snapshot,
+        is_sido,
+        None,
+        None,
+    )
+    .await?;
+    scanned.ensure_complete()?;
+    SidoCalendar::from_snapshot_rows(&scanned.rows)
 }
 
 /// Whether the table already holds the release: every object of it recorded, or an object of a

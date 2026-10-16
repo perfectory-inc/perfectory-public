@@ -15,10 +15,10 @@ last_reviewed: 2026-10-13
 | --- | --- |
 | 굽는 판(edition) | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` 의 `served_edition` (ADR-0148 §1) |
 | 굽기 순서 | `scripts/ops/parcel-tile-bake.sh` 머리말 |
-| 예약·시간 한계·풀 | `orchestration/jobs.v1.json` 의 `parcel_tile_bake`, `infra/systemd/foundation-parcel-tile-bake.service` |
+| 예약·시간 한계·풀 | `orchestration/jobs.v1.json` 의 `parcel_served_gold`·`parcel_tile_bake`, `infra/systemd/foundation-parcel-tile-bake@.service` (루트 ADR-0253) |
 | 컨테이너 이미지·메모리 상한·작업 디스크 | `config/tile-bake-containers.contract.json` (작업 루트 `work_disk.production_root`) |
 | 동등성 표본 | `config/tile-equivalence.contract.json` (ADR-0133 §4, ADR-0135) |
-| 환경 파일 | `config/runtime-secrets.contract.json` 의 유닛 `foundation-parcel-tile-bake.service` |
+| 환경 파일 | `config/runtime-secrets.contract.json` 의 유닛 `foundation-parcel-tile-bake@.service` |
 | 작업 폴더·증거 | `/data/foundation-platform/tile-bake/lakehouse/parcel-tile-bake/<run>/`(판정·서빙본 요약·조각·로그, 쌓기만) |
 
 ## 1. 한 번의 실행
@@ -32,16 +32,20 @@ last_reviewed: 2026-10-13
 
 PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `foundation-job-outcome changed`, 아니면 `unchanged` 다.
 
-## 2. 첫 감독 실행 (작업을 켜기 전)
+## 2. 예행 (판을 옮기기 전, 작업을 켜기 전)
 
-작업은 `enabled: false` 로 등록된다. 켜기 전에 한 번 사람이 지켜보며 돌리고 아래를 적는다.
+두 작업은 `enabled: false` 로 등록된다. 새 판을 지도에 올리기 전에 사람이 예행한다(루트 ADR-0253 2항).
+예행은 계약이 가진 **가장 새 판**을 굽고, 아무것도 서비스하지 않는다.
 
-1. 동등성 증명(읽기만): `scripts/ops/parcel-boundary-equality.py` 로 Silver·서빙본·미러·발행본의 개수와 도형 해시를
-   시도마다 맞춘다. 먼저 `--region 11`(표본), 그다음 전국. 차이·중복·해시 불일치가 하나라도 있으면 멈춘다.
-2. 서버에서 `sudo systemctl start foundation-parcel-tile-bake.service` 를 쓰지 않는다(꺼진 작업은 호스트가 거부한다).
-   서비스 계정으로 같은 스크립트를 돌린다. 시간·최대 메모리·`/data` 최대 사용량을 잰다.
-3. 결과를 이 문서 4절에 적는다. 160분 안이면 `enabled: true` 로 바꾸는 PR 을 낸다. 넘으면 ADR-0138 의 풀 결정을
-   다시 연다(이 줄만 올리지 않는다).
+1. 서버 창(Spark 가 비는 시간)을 조정자에게 받는다.
+2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold`
+   를 실행한다. 대조 관문과 서빙본 Gold 를 돌린다. 관문이 거부해도 기록만 하고 계속한다.
+3. `... parcel-tiles status` 로 끝을 확인한 뒤 `... parcel-tiles rehearse bake` 를 실행한다. 모든 관문을 돌리고, build 행·
+   업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
+   동등성 전체 증거는 `/data/foundation-platform/tile-bake/bake/parcels-first-release-equivalence-rehearsal-*.json` 이다.
+4. 두 반쪽의 시간·최대 메모리·`/data` 최대 사용량, 관문 판정, 동등성 분류(ADR-0251)를 4절에 적는다.
+5. 사장이 `served_edition` 을 옮기는 PR 을 승인하면(타일과 패널이 함께 옮겨진다), 두 작업을 켜는 PR 을 낸다.
+   각 반쪽이 115분 안이어야 한다.
 
 ## 3. 되돌리기
 

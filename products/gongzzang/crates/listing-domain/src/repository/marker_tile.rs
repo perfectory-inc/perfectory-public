@@ -159,7 +159,7 @@ pub struct ListingMarkerMask {
     pub encoding: ListingMarkerMaskEncoding,
     /// Marker ids selected by the mask. Coordinates are intentionally absent.
     pub marker_ids: Vec<String>,
-    /// Highest projection version included in this mask.
+    /// The one marker version counter (root ADR-0257) when this mask was read.
     pub projection_version: Option<i64>,
     /// Highest anchor snapshot identity included in this mask.
     pub anchor_snapshot_id: Option<String>,
@@ -241,7 +241,7 @@ pub struct ListingMarkerDeltas {
 pub struct ListingMarkerCount {
     /// Exact public marker count for the filter.
     pub total_count: i64,
-    /// Highest projection version included in the count result.
+    /// The one marker version counter (root ADR-0257) when this count was read.
     pub projection_version: Option<i64>,
     /// Highest anchor snapshot identity included in the count result.
     pub anchor_snapshot_id: Option<String>,

@@ -63,6 +63,8 @@ use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 #[path = "pmtiles_feature_ids.rs"]
 pub mod pmtiles_feature_ids;
+#[path = "subpixel.rs"]
+pub mod subpixel;
 #[path = "tile_equivalence.rs"]
 pub mod tile_equivalence;
 
@@ -78,6 +80,8 @@ const MAP_EDIT_GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWA
 const MAP_EDIT_WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
 /// How many ids a gate failure names; the counts are always complete.
 const NAMED_IDS: usize = 5;
+/// The most missing ids the gate reads geometry for (ADR-0262); 202609 at detail 12 missed 542.
+const MAX_CLASSIFIED_MISSING: usize = 100_000;
 /// Range size for reading the active archive: one directory or a few tiles per request.
 const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 
@@ -87,6 +91,10 @@ const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 pub struct BakeContract {
     images: ImageSet,
     pub work_disk: WorkDisk,
+    /// Root ADR-0262: tippecanoe's `--full-detail` (maxzoom tile extent `2^detail`) for a unit
+    /// whose features its default 12 drops; a unit not listed keeps the default.
+    #[serde(default)]
+    pub maxzoom_detail: std::collections::BTreeMap<String, u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,6 +138,13 @@ impl BakeContract {
             contract.work_disk.min_free_bytes > 0
                 && contract.work_disk.min_free_bytes_per_handoff_byte > 0,
             "the contract's work_disk minimums must be positive"
+        );
+        ensure!(
+            contract
+                .maxzoom_detail
+                .values()
+                .all(|detail| (12..=16).contains(detail)),
+            "a maxzoom_detail is between tippecanoe's default 12 and 16"
         );
         Ok(contract)
     }
@@ -536,6 +551,8 @@ pub struct ServedLayer {
     pub feature_id_property: String,
     pub tile_min_zoom: u8,
     pub tile_max_zoom: u8,
+    /// The deepest zoom the map draws this layer at, overzooming the maxzoom tiles (ADR-0262).
+    pub render_max_zoom: u8,
     pub properties: Vec<String>,
 }
 
@@ -576,9 +593,9 @@ pub fn gate_archive(
     layer: &ServedLayer,
     columns: &[String],
     ids: &ServedIds,
-    name_missing: impl FnOnce(&[u128]) -> anyhow::Result<Vec<String>>,
+    classify_missing: impl FnOnce(&[u128]) -> anyhow::Result<Missing>,
     observe: &mut dyn FnMut(u64, &str) -> anyhow::Result<()>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<IdGate> {
     let mut header = vec![0_u8; pmtiles_feature_ids::HEADER_BYTES];
     File::open(archive)
         .and_then(|mut file| file.read_exact(&mut header))
@@ -608,27 +625,98 @@ pub fn gate_archive(
         },
     )?;
     let present = |index: usize| found[index / 64] & (1_u64 << (index % 64)) != 0;
-    let missing = (0..ids.len()).filter(|index| !present(*index)).count();
-    if missing > 0 || extra > 0 {
-        let first_missing: Vec<u128> = ids
-            .sorted
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !present(*index))
-            .take(NAMED_IDS)
-            .map(|(_, hash)| *hash)
-            .collect();
-        let named = if first_missing.is_empty() {
-            Vec::new()
-        } else {
-            name_missing(&first_missing)?
-        };
+    let missing: Vec<u128> = ids
+        .sorted
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !present(*index))
+        .map(|(_, hash)| *hash)
+        .collect();
+    // A bake that lost this many is broken, not tiny; it is refused without reading the handoff.
+    ensure!(
+        missing.len() <= MAX_CLASSIFIED_MISSING && extra == 0,
+        "maxzoom tiles miss {} of the {} served ids and carry {extra} feature(s) the snapshot does not serve; extra {extra_named:?}",
+        missing.len(),
+        ids.len()
+    );
+    let classified = if missing.is_empty() {
+        Missing::default()
+    } else {
+        classify_missing(&missing)?
+    };
+    ensure!(
+        classified.subpixel.len() + classified.unexplained.len() == missing.len(),
+        "the handoff named {} of the {} ids the maxzoom tiles miss",
+        classified.subpixel.len() + classified.unexplained.len(),
+        missing.len()
+    );
+    if !classified.unexplained.is_empty() {
+        let named: Vec<&String> = classified.unexplained.iter().take(NAMED_IDS).collect();
         bail!(
-            "maxzoom tiles miss {missing} of the {} served ids and carry {extra} feature(s) the snapshot does not serve; missing {named:?}, extra {extra_named:?}",
-            ids.len()
+            "maxzoom tiles miss {} of the {} served ids: {} sub-pixel at render_max_zoom {} (allowed, ADR-0262) and {} that are not; not sub-pixel {named:?}",
+            missing.len(),
+            ids.len(),
+            classified.subpixel.len(),
+            layer.render_max_zoom,
+            classified.unexplained.len()
         );
     }
-    Ok(ids.digest())
+    Ok(IdGate {
+        digest: ids.digest(),
+        subpixel: classified.subpixel,
+    })
+}
+
+/// The served ids the maxzoom tiles miss, by whether their own geometry explains it (ADR-0262).
+#[derive(Debug, Default)]
+pub struct Missing {
+    /// Sub-pixel at the layer's render_max_zoom: nothing the map could draw. Allowed, listed.
+    pub subpixel: Vec<String>,
+    /// Anything else, an unreadable geometry included. Refused.
+    pub unexplained: Vec<String>,
+}
+
+/// What the maxzoom id gate proves: the archive carries every served id but the listed sub-pixel ones.
+#[derive(Debug)]
+pub struct IdGate {
+    pub digest: String,
+    pub subpixel: Vec<String>,
+}
+
+/// Reads the handoff again for the rows whose id hash is in `missing` and classifies each by its
+/// geometry (ADR-0262).
+fn classify_missing(
+    summary: &ServedSummary,
+    handoff: &Path,
+    missing: &[u128],
+    render_max_zoom: u8,
+) -> anyhow::Result<Missing> {
+    let wanted: std::collections::HashSet<u128> = missing.iter().copied().collect();
+    let mut out = Missing::default();
+    for_each_handoff_line(summary, handoff, |line, location| {
+        let row: ServedRow = serde_json::from_str(line)
+            .with_context(|| format!("{} is not a served row", location()))?;
+        if wanted.contains(&id_hash(&row.feature_id)) {
+            let subpixel = hex_bytes(&row.geometry_wkb_hex)
+                .and_then(|wkb| subpixel::is_subpixel(&wkb, render_max_zoom));
+            match subpixel {
+                Ok(true) => out.subpixel.push(row.feature_id),
+                Ok(false) | Err(_) => out.unexplained.push(row.feature_id),
+            }
+        }
+        Ok(())
+    })?;
+    out.subpixel.sort_unstable();
+    out.unexplained.sort_unstable();
+    Ok(out)
+}
+
+fn hex_bytes(hex: &str) -> anyhow::Result<Vec<u8>> {
+    ensure!(hex.len().is_multiple_of(2), "odd-length WKB hex");
+    (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).context("WKB hex"))
+        .collect()
 }
 
 /// Refuses a work disk with less free space than the contract asks for this handoff.
@@ -659,6 +747,20 @@ struct Config {
     /// The Compose project of the job that runs the bake: GDAL and tippecanoe carry its labels so
     /// the unit's ExecStopPost removes them after a timeout, with the job's Spark container.
     container_project: Option<String>,
+    /// ADR-0253: bake and gate only; nothing is recorded, uploaded or promoted.
+    rehearsal: bool,
+    /// ADR-0262: the contract's maxzoom detail for this unit, if it sets one.
+    maxzoom_detail: Option<u8>,
+}
+
+/// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
+/// misspelt rehearsal never promotes.
+fn rehearsal_flag(value: Option<String>) -> anyhow::Result<bool> {
+    match value.as_deref() {
+        None | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(other) => bail!("{PREFIX}_REHEARSAL is {other:?}; it is 0 or 1"),
+    }
 }
 
 impl Config {
@@ -710,6 +812,8 @@ impl Config {
             container_project: container_project(optional_env_value(&format!(
                 "{PREFIX}_CONTAINER_PROJECT"
             ))?)?,
+            rehearsal: rehearsal_flag(optional_env_value(&format!("{PREFIX}_REHEARSAL"))?)?,
+            maxzoom_detail: None,
         })
     }
 }
@@ -731,7 +835,8 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
                         WHERE build.result_release_id = release.id
                           AND build.kind = 'lakehouse_bake') AS produced_by_lakehouse_bake,
                 layer.source_layer, layer.feature_id_property,
-                layer.tile_min_zoom, layer.tile_max_zoom, layer.feature_filter_properties
+                layer.tile_min_zoom, layer.tile_max_zoom, layer.render_max_zoom,
+                layer.feature_filter_properties
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release ON release.id = unit.active_release_id
          JOIN catalog.vector_tile_release_layer AS layer ON layer.release_id = release.id
@@ -780,6 +885,7 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
             feature_id_property,
             tile_min_zoom: u8::try_from(row.try_get::<i16, _>("tile_min_zoom")?)?,
             tile_max_zoom: u8::try_from(row.try_get::<i16, _>("tile_max_zoom")?)?,
+            render_max_zoom: u8::try_from(row.try_get::<i16, _>("render_max_zoom")?)?,
             properties,
         },
     })
@@ -864,7 +970,11 @@ pub fn run_args(work: &Path, image: &Image, project: Option<&str>) -> Vec<OsStri
 /// tippecanoe's arguments after the image: the flags measured on the Seoul pilot (root ADR-0133),
 /// plus `-t` so its temporary files stay on the work disk and `-P` because the GeoJSON sequence
 /// has one feature per line.
-pub fn tippecanoe_args(layer: &ServedLayer, columns: &[String]) -> Vec<OsString> {
+pub fn tippecanoe_args(
+    layer: &ServedLayer,
+    columns: &[String],
+    maxzoom_detail: Option<u8>,
+) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         "-o".to_owned(),
         "/w/unit.pmtiles".to_owned(),
@@ -886,6 +996,9 @@ pub fn tippecanoe_args(layer: &ServedLayer, columns: &[String]) -> Vec<OsString>
     ]
     .map(OsString::from)
     .into();
+    if let Some(detail) = maxzoom_detail {
+        args.push(format!("--full-detail={detail}").into());
+    }
     for property in columns {
         args.push("-y".into());
         args.push(property.into());
@@ -965,7 +1078,7 @@ async fn build_archive(
     );
 
     let mut tippecanoe = run_args(work, &images.tippecanoe, project);
-    tippecanoe.extend(tippecanoe_args(layer, columns));
+    tippecanoe.extend(tippecanoe_args(layer, columns, config.maxzoom_detail));
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
     std::fs::remove_file(work.join("served.geojsons"))?;
@@ -1006,9 +1119,10 @@ async fn record_fold(
 /// failure after it started and before promotion; returns an error if the fold cannot be recorded
 /// after promotion (the tiles are already correct, and re-running the fold call is safe).
 pub async fn run() -> anyhow::Result<()> {
-    let config = Config::from_env()?;
+    let mut config = Config::from_env()?;
     let contract = BakeContract::parse(CONTRACT_JSON)?
         .with_release_tippecanoe(optional_env_value(&format!("{PREFIX}_TIPPECANOE_IMAGE"))?)?;
+    config.maxzoom_detail = contract.maxzoom_detail.get(&config.unit_key).copied();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1070,6 +1184,18 @@ async fn bake_in(
         "the active release already serves Gold snapshot {}",
         active.snapshot
     );
+    if config.rehearsal {
+        return rehearse(
+            config,
+            &contract.images,
+            work,
+            prepared,
+            &active,
+            samples,
+            summary,
+        )
+        .await;
+    }
     let uow = Arc::new(
         PgCatalogUnitOfWork::new(pool.clone())
             .with_runtime_manifest_publication(RuntimeManifestPublicationCapability::enabled()),
@@ -1149,20 +1275,32 @@ async fn bake_in(
     Ok(())
 }
 
-async fn bake_and_upload(
+/// What the bake produced before anything is written: the archive, the maxzoom id gate (the SHA-256
+/// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0262), and — when the active release came from another oven — the first-release equivalence
+/// outcome with the file its whole evidence was written to.
+struct Gated {
+    archive: PathBuf,
+    ids: IdGate,
+    equivalence: Option<(tile_equivalence::Equivalence, PathBuf)>,
+}
+
+/// Bakes and runs every gate, writing nothing but the work directory and the equivalence evidence
+/// (named after `label`) beside it.
+#[allow(clippy::too_many_arguments)]
+async fn bake_and_gate(
     config: &Config,
     images: &ImageSet,
-    build_job_id: VectorTileBuildJobId,
+    label: &str,
     work: &Path,
     (columns, ids): (Vec<String>, ServedIds),
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
-) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
+) -> anyhow::Result<Gated> {
     let layer = &active.layer;
     let archive =
         build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
-    let (ids_digest, collector, ids) = {
+    let (id_gate, collector, ids) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
             layer.clone(),
@@ -1171,52 +1309,135 @@ async fn bake_and_upload(
         );
         let mut collector = SampleCollector::new(samples, &config.unit_key);
         tokio::task::spawn_blocking(move || {
-            let digest = gate_archive(
+            let render_max_zoom = layer.render_max_zoom;
+            let gate = gate_archive(
                 &archive,
                 &layer,
                 &columns,
                 &ids,
-                |missing| ids_with_hashes(&summary, &handoff, missing),
+                |missing| classify_missing(&summary, &handoff, missing, render_max_zoom),
                 &mut |tile, id| collector.observe(tile, id),
             )?;
-            anyhow::Ok((digest, collector, ids))
+            anyhow::Ok((gate, collector, ids))
         })
         .await
         .context("the archive gate stopped")??
     };
+    if tile_equivalence::skipped(active.origin).is_some() {
+        return Ok(Gated {
+            archive,
+            ids: id_gate,
+            equivalence: None,
+        });
+    }
     let storage = TileDerivativeR2Config::from_env()?;
-    let equivalence = match tile_equivalence::skipped(active.origin) {
-        Some(skipped) => skipped,
-        None => {
-            // The active archive is read by range: its directory and the sampled tiles, never whole.
-            let active_reader = R2ObjectStorage::from_config(storage.reader_config())
-                .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
-                .await
-                .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
-            let (archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
-            let outcome = tokio::task::spawn_blocking(move || {
-                tile_equivalence::first_release_gate(
-                    active_reader,
-                    File::open(&archive)?,
-                    &samples,
-                    (&layer.source_layer, &layer.feature_id_property),
-                    (layer.tile_min_zoom, layer.tile_max_zoom),
-                    &collector,
-                    &ids,
-                )
-            })
-            .await
-            .context("the equivalence gate stopped")??;
-            // Beside the work directory, which is removed: the whole evidence outlives the bake.
-            let evidence_file = config.work_root.join(format!(
-                "{}-first-release-equivalence-{build_job_id}.json",
-                config.unit_key
-            ));
-            std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
-                .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
-            tile_equivalence::verdict(&outcome, &evidence_file.display().to_string())?
-        }
+    // The active archive is read by range: its directory and the sampled tiles, never whole.
+    let active_reader = R2ObjectStorage::from_config(storage.reader_config())
+        .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
+        .await
+        .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
+    let (new_archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
+    let outcome = tokio::task::spawn_blocking(move || {
+        tile_equivalence::first_release_gate(
+            active_reader,
+            File::open(&new_archive)?,
+            &samples,
+            (&layer.source_layer, &layer.feature_id_property),
+            (layer.tile_min_zoom, layer.tile_max_zoom),
+            &collector,
+            &ids,
+        )
+    })
+    .await
+    .context("the equivalence gate stopped")??;
+    // Beside the work directory, which is removed: the whole evidence outlives the bake.
+    let evidence_file = config.work_root.join(format!(
+        "{}-first-release-equivalence-{label}.json",
+        config.unit_key
+    ));
+    std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
+        .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
+    Ok(Gated {
+        archive,
+        ids: id_gate,
+        equivalence: Some((outcome, evidence_file)),
+    })
+}
+
+/// ADR-0253: bakes and gates the snapshot like a bake, then stops — no build row, no upload, no
+/// promotion, no fold — and prints what a person needs before the contract serves the edition.
+async fn rehearse(
+    config: &Config,
+    images: &ImageSet,
+    work: &Path,
+    prepared: (Vec<String>, ServedIds),
+    active: &ActiveStatic,
+    samples: &SampleContract,
+    summary: Arc<ServedSummary>,
+) -> anyhow::Result<()> {
+    let label = format!("rehearsal-{}", Uuid::now_v7());
+    let gated = bake_and_gate(
+        config,
+        images,
+        &label,
+        work,
+        prepared,
+        active,
+        samples,
+        summary.clone(),
+    )
+    .await?;
+    let pmtiles_bytes = std::fs::metadata(&gated.archive)?.len();
+    let equivalence = gated.equivalence.as_ref().map(|(outcome, file)| {
+        serde_json::json!({
+            "passed": outcome.passed(),
+            "evidence": file.display().to_string(),
+            "counts": outcome.refusal(),
+        })
+    });
+    println!(
+        "lakehouse-tile-bake-rehearsal unit={} gold_snapshot={} served_row_count={} pmtiles_bytes={pmtiles_bytes} maxzoom_feature_id_hashes_sha256={} maxzoom_subpixel_ids={} first_release_equivalence={}",
+        config.unit_key,
+        summary.canonical_iceberg_snapshot_id,
+        summary.served_row_count,
+        gated.ids.digest,
+        serde_json::to_string(&gated.ids.subpixel)?,
+        serde_json::to_string(&equivalence)?
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn bake_and_upload(
+    config: &Config,
+    images: &ImageSet,
+    build_job_id: VectorTileBuildJobId,
+    work: &Path,
+    prepared: (Vec<String>, ServedIds),
+    active: &ActiveStatic,
+    samples: &SampleContract,
+    summary: Arc<ServedSummary>,
+) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
+    let Gated {
+        archive,
+        ids: id_gate,
+        equivalence,
+    } = bake_and_gate(
+        config,
+        images,
+        &build_job_id.to_string(),
+        work,
+        prepared,
+        active,
+        samples,
+        summary.clone(),
+    )
+    .await?;
+    let equivalence = match &equivalence {
+        Some((outcome, file)) => tile_equivalence::verdict(outcome, &file.display().to_string())?,
+        None => tile_equivalence::skipped(active.origin).unwrap_or_default(),
     };
+    let storage = TileDerivativeR2Config::from_env()?;
     let release_id = static_release_id_for_build(build_job_id);
     let object_key = storage.release_key(&config.unit_key, &release_id.to_string())?;
     ensure!(
@@ -1237,7 +1458,8 @@ async fn bake_and_upload(
         "served_summary_schema": summary.schema_version,
         "edits_through_change_seq": summary.edits_through_change_seq,
         "served_row_count": summary.served_row_count,
-        "maxzoom_feature_id_hashes_sha256": ids_digest,
+        "maxzoom_feature_id_hashes_sha256": id_gate.digest,
+        "maxzoom_subpixel_ids": id_gate.subpixel,
         "first_release_equivalence": equivalence,
         "pmtiles_sha256": verified.checksum_sha256,
         "pmtiles_bytes": verified.size_bytes,

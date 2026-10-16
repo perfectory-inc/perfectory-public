@@ -184,8 +184,8 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
     require_all(
         &config,
         &[
-            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_ACCESS_KEY_ID}",
-            "  aws_secret_access_key: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY}",
+            "pmtiles:\n  aws_access_key_id: ${FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_ACCESS_KEY_ID}",
+            "  aws_secret_access_key: ${FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY}",
             concat!(
                 "  aws_region: ${FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION:",
                 "-auto}"
@@ -198,8 +198,8 @@ fn production_static_martin_config_uses_private_r2_prefix_discovery() {
         ],
         "production static Martin config",
     );
-    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID}"));
-    assert!(!config.contains("${FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID}"));
+    assert!(!config.contains("${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}"));
     assert!(!config.contains("${R2_S3_ENDPOINT}"));
     assert!(!config.contains("allow_http"));
     assert!(!config.contains("pmtiles:\n  sources:"));
@@ -447,7 +447,7 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
         "inherited xtrace must be disabled before any R2 values are inspected"
     );
     assert!(
-        !proof.contains("--user \"$FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID:$FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY\""),
+        !proof.contains("--user \"$FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID:$FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY\""),
         "R2 credentials must not be exposed in curl argv"
     );
     assert!(
@@ -825,6 +825,8 @@ fn production_runbook_locks_private_derivative_bucket_and_pointer_safety() {
 #[test]
 fn the_runbook_only_names_tile_derivative_variables_the_contract_declares() {
     const PREFIX: &str = "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_";
+    // The keys are named after their Cloudflare tokens, without `R2_` (root ADR-0247).
+    const CREDENTIAL_PREFIX: &str = "FOUNDATION_PLATFORM_TILE_DERIVATIVES_";
 
     let contract = read("platforms/foundation-platform/config/r2-connections.contract.json");
     let runbook =
@@ -833,7 +835,11 @@ fn the_runbook_only_names_tile_derivative_variables_the_contract_declares() {
     // The runbook abbreviates the prefix as `...` after naming it in full, so both spellings are
     // resolved to the same full variable name before the comparison.
     let mut named = BTreeSet::new();
-    for (marker, cut) in [(PREFIX, 0), ("`..._", 1)] {
+    for (marker, prefix, cut) in [
+        (PREFIX, PREFIX, 0),
+        (CREDENTIAL_PREFIX, CREDENTIAL_PREFIX, 0),
+        ("`..._", PREFIX, 1),
+    ] {
         let mut rest = runbook.as_str();
         while let Some(start) = rest.find(marker) {
             let tail = &rest[start + marker.len() - cut..];
@@ -843,7 +849,7 @@ fn the_runbook_only_names_tile_derivative_variables_the_contract_declares() {
                 .collect();
             let suffix = suffix.trim_start_matches('_').trim_end_matches('_');
             if !suffix.is_empty() && suffix != "*" {
-                named.insert(format!("{PREFIX}{suffix}"));
+                named.insert(format!("{prefix}{suffix}"));
             }
             rest = &rest[start + marker.len()..];
         }

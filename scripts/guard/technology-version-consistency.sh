@@ -192,6 +192,35 @@ while IFS= read -r line; do
   fi
 done < <(git grep -n -E '^[[:space:]]*rust-version[[:space:]]*[.=]' -- ':(glob)**/Cargo.toml' | tr -d '\r' || true)
 
+# Crates that several Cargo workspaces share (cargo_version_requirements): each workspace root
+# writes the requirement once and members inherit it, so every literal must equal the contract.
+while IFS=$'\t' read -r crate requirement; do
+  [ -n "$crate" ] || continue
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      *'workspace = true'*) continue ;;
+    esac
+    declaration=${line#*:*:}
+    value=$(printf '%s\n' "$declaration" | sed -n -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/p; s/.*version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' | head -1)
+    if [ "$value" != "$requirement" ]; then
+      echo "FAIL technology-version: $crate must be required as \"$requirement\" (tools/technology-versions.contract.json):" >&2
+      echo "  $line" >&2
+      fail=1
+    fi
+  done < <(git grep -n -E "^[[:space:]]*${crate}[[:space:]]*=" -- ':(glob)**/Cargo.toml' | tr -d '\r' || true)
+done < <(python3 - "$version_pins_contract" <<'PY' | tr -d '\r'
+import json
+import sys
+
+pins = json.load(open(sys.argv[1], encoding="utf-8")).get("cargo_version_requirements", {})
+for crate, requirement in pins.items():
+    if not isinstance(requirement, str) or requirement.strip() == "":
+        raise SystemExit(f"cargo_version_requirements.{crate} must be a non-empty string")
+    print(f"{crate}\t{requirement}")
+PY
+)
+
 if [ "$fail" -eq 0 ]; then
   echo 'OK technology-version-consistency'
 fi

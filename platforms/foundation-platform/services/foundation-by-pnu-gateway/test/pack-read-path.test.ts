@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { fetchByPnu } from "../src/index";
+import { fetchByPnu, warmRequestPath } from "../src/index";
 import {
   answerCacheUrl,
   PackFormatError,
@@ -499,5 +499,11 @@ describe("R2 retries within a deadline", () => {
     const live = await fetchByPnu(new Request(url), env(false), ctx);
     expect(live.status).toBe(404);
     expect(live.headers.get("server-timing")).toBeNull();
+  });
+});
+
+describe("an isolate's startup runs the request path once (root ADR-0233)", () => {
+  it("every pure step answers at startup as it does for a request", () => {
+    expect(warmRequestPath()).toBe(true);
   });
 });

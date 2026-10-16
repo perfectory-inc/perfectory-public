@@ -407,6 +407,19 @@ pub async fn import_anchor_rows(
 
     let projection_result = sqlx::query(
         r"
+        -- One counter for every marker change (root ADR-0257); this import is one step of it.
+        with bumped as (
+            update listing_marker_state
+            set version = version + 1
+            where exists (
+                select 1
+                from listing l
+                join foundation_anchor_import_stage s on s.pnu = l.parcel_pnu
+                join parcel_marker_anchor a on a.pnu = l.parcel_pnu
+                where l.status = 'active'
+            )
+            returning version
+        )
         insert into listing_marker_projection (
             marker_id,
             listing_id,
@@ -438,7 +451,7 @@ pub async fn import_anchor_rows(
             a.source_geometry_version,
             a.source_geometry_checksum_sha256,
             l.version,
-            1,
+            bumped.version,
             least(16383, greatest(0, floor(((ST_X(a.anchor_point) + 180.0) / 360.0) * 16384.0)::integer)),
             least(
                 16383,
@@ -459,6 +472,7 @@ pub async fn import_anchor_rows(
         from listing l
         join foundation_anchor_import_stage s on s.pnu = l.parcel_pnu
         join parcel_marker_anchor a on a.pnu = l.parcel_pnu
+        cross join bumped
         where l.status = 'active'
         on conflict (listing_id) do update set
             marker_id = excluded.marker_id,
@@ -468,7 +482,7 @@ pub async fn import_anchor_rows(
             source_geometry_version = excluded.source_geometry_version,
             source_geometry_checksum_sha256 = excluded.source_geometry_checksum_sha256,
             source_listing_version = excluded.source_listing_version,
-            projection_version = listing_marker_projection.projection_version + 1,
+            projection_version = excluded.projection_version,
             z14_tile_x = excluded.z14_tile_x,
             z14_tile_y = excluded.z14_tile_y,
             listing_status = excluded.listing_status,

@@ -89,7 +89,7 @@ pub async fn create_listing(
     })?;
 
     // SP9 T4 / ADR 0018: PNU lookup → denormalize 컬럼 채움. best-effort —
-    // 실패 시 listing 은 생성됨 (denormalize NULL). 월간 재매핑 cron 이 backfill.
+    // 실패 시 listing 은 생성됨 (denormalize NULL). 갱신 경로: root ADR-0223.
     populate_parcel_denormalize(&state, &listing).await;
 
     Ok((
@@ -105,7 +105,8 @@ pub async fn create_listing(
 ///
 /// best-effort — 모든 단계 실패는 warn 로그 후 swallow. listing row 자체는
 /// `create_listing` 에서 이미 commit 됐고, denormalize 가 NULL 이어도 검색이
-/// 동작 안 할 뿐 (PNU 기준 검색은 가능). 월간 ETL cron 이 stale row 재매핑.
+/// 동작 안 할 뿐 (PNU 기준 검색은 가능). 값 옆에 Foundation 계약·스냅샷을 함께 적어
+/// 낡은 사본을 찾을 수 있게 한다 (root ADR-0223).
 #[allow(clippy::cognitive_complexity)] // 3 분기 + 2 logging — 분해 시 가독성 떨어짐
 async fn populate_parcel_denormalize(state: &ListingsState, listing: &Listing) {
     let info = match state.parcel_lookup.lookup_by_pnu(&listing.parcel_pnu).await {
@@ -139,10 +140,22 @@ async fn populate_parcel_denormalize(state: &ListingsState, listing: &Listing) {
         );
         return;
     };
+    // A copy that cannot name its Foundation contract and snapshot can never be found stale,
+    // so none is written (root ADR-0223).
+    let Some(source) = info.source else {
+        tracing::warn!(
+            listing_id = %listing.id,
+            pnu = %listing.parcel_pnu,
+            "parcel document names no source snapshot — denormalize skipped"
+        );
+        return;
+    };
     let denormalize = ListingParcelDenormalize {
         admin_code: info.admin.eupmyeondong.clone(),
         land_use_type,
         zoning: info.zoning,
+        source_contract: source.contract,
+        source_snapshot_id: source.snapshot_id,
     };
 
     if let Err(e) = state
@@ -153,7 +166,7 @@ async fn populate_parcel_denormalize(state: &ListingsState, listing: &Listing) {
         tracing::warn!(
             listing_id = %listing.id,
             error = %e,
-            "update_parcel_denormalize failed — denormalize NULL until cron backfills"
+            "update_parcel_denormalize failed — denormalize stays NULL"
         );
     }
 }

@@ -43,7 +43,7 @@ COMPOSE_PROJECT="${COMPOSE_PROJECT:-foundation-platform-compute}"
 
 for v in FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
          FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-         FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN; do
+         FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN; do
   if [ -z "${!v:-}" ]; then
     echo "필수 환경변수가 비어 있다: $v" >&2
     exit 1
@@ -86,13 +86,13 @@ print(','.join(
 
 submit() {
   docker compose -p "$COMPOSE_PROJECT" -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
-    -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID \
-    -e FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID \
+    -e FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY \
     spark \
     spark-submit --master "local[$TASKS]" --driver-memory "$DRIVER_MEM" \
     --packages "$PACKAGES" --conf spark.jars.ivy=/home/spark/.ivy2 "$@"
@@ -108,8 +108,8 @@ case "$SOURCE" in
     # 훑어서 얻으면 반쯤 변환된 상태가 "이만큼이 전부"로 보인다.
     for v in FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET \
              FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \
-             FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID \
-             FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
+             FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID \
+             FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
       [ -n "${!v:-}" ] || { echo "r2 입력에는 $v 가 필요하다" >&2; exit 1; }
     done
     # The keys come from the contract that already names the objects, edition by edition: the

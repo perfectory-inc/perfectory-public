@@ -10,25 +10,23 @@
  * - monthly_rent: deposit + monthly_rent 모두 Some
  *
  * 도메인 backend `crates/listing-domain/src/entity.rs` 의
- * `try_new_draft` / `update_editable_fields` 와 동기화 필요. utoipa 자동 생성
- * (FU 55) 까지는 manual fork.
+ * `try_new_draft` / `update_editable_fields` 와 동기화 필요. 값 목록은
+ * `@gongzzang/api-types` 가 Rust `OpenAPI` 에서 생성해요.
  */
 
+import {
+  contactVisibilityValues,
+  listingTypeValues,
+  transactionTypeValues,
+} from "@gongzzang/api-types";
 import { z } from "zod";
 import { LISTING_ID_PATTERN } from "@/lib/identity/patterns";
 
-export const LISTING_TYPES = [
-  "factory",
-  "warehouse",
-  "office",
-  "knowledge_industry_center",
-  "industrial_land",
-  "logistics_center",
-] as const;
+export const LISTING_TYPES = listingTypeValues;
 
-export const TRANSACTION_TYPES = ["sale", "monthly_rent", "jeonse"] as const;
+export const TRANSACTION_TYPES = transactionTypeValues;
 
-export const CONTACT_VISIBILITIES = ["public", "login_required", "verified_only"] as const;
+export const CONTACT_VISIBILITIES = contactVisibilityValues;
 
 const PNU_REGEX = /^\d{19}$/;
 

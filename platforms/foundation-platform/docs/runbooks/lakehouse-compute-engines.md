@@ -157,10 +157,10 @@ Trino 는 읽기만 하므로 R2 reader 키를 넣는다.
 ```text
 FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI
 FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE
-FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN
+FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN
 FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
+FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 ```
 
 ## Trino 실행
@@ -235,7 +235,7 @@ Spark 는 record 를 다시 정규화하지 않고, 계약 컬럼/필수값/체�
 Parquet 또는 Iceberg 에 쓰고 다시 읽어 `foundation-platform.spark_run_summary.v1` 를 남긴다.
 `docker compose run` 으로 live Iceberg smoke 를 실행할 때는 `.env.lakehouse` 를 host shell 에서
 source 한 뒤 `-e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE
--e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN` 처럼 변수 이름을 명시해서 Spark container 에 전달한다.
+-e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN` 처럼 변수 이름을 명시해서 Spark container 에 전달한다.
 `--env-file` 은 Compose interpolation 에 쓰이지만, run container 의 process env 로 모든 값을 자동 주입하지
 않는다는 점을 전제로 둔다.
 
@@ -313,7 +313,7 @@ R2 Data Catalog / Iceberg write smoke (live R2/Iceberg credential 을 환경에 
 docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN="<catalog-token>" \
   spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
@@ -351,7 +351,7 @@ smoke 테이블에 기록한다.
 docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN="<catalog-token>" \
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN="<catalog-token>" \
   spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
@@ -505,8 +505,8 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 
 주소·상태·지정일·착공일·준공일·관리기관·시행자·시도/시군구 코드에 더해, 분양상태·조성진행률·
 사업기간(원문과 파생 두 달)·지정근거법·개발방식·조성목적·유치업종이 모두 신원 필드와 같은 Gold
-행에서 함께 적재된다(root ADR-0044). `lakehouse_complex_id` 도 함께 쓴다 — Gold 프로필 오브젝트
-키가 그 값에서 파생되므로, 그 칸이 없으면 canonical 행이 R2 의 어떤 오브젝트도 가리키지 못한다.
+행에서 함께 적재된다(root ADR-0044). Gold 행의 `complex_id` 는 공식 단지코드의 유도값과 같아야
+하고 그 값이 곧 canonical `id` 다(root ADR-0250) — 다르면 적재가 멈춘다.
 
 이 커맨드가 **쓰지 않는 것**을 요약이 스스로 적는다.
 

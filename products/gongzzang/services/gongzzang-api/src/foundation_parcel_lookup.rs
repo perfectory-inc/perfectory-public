@@ -16,7 +16,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parcel_lookup::{
     GosiYearMonth, LookupError, ParcelCharacteristics, ParcelForestLedger, ParcelInfo,
-    ParcelInfoLookup, ParcelLandRight, ParcelTransferEvent,
+    ParcelInfoLookup, ParcelLandRight, ParcelSource, ParcelTransferEvent,
 };
 use reqwest::StatusCode;
 use shared_kernel::admin_division::{AdminDivision, EupmyeondongCode, SidoCode, SigunguCode};
@@ -193,6 +193,14 @@ fn parcel_info_from_response(
             })
             .collect(),
         land_right_total: response.land_right_total,
+        source: response
+            .schema_version
+            .clone()
+            .zip(response.source.as_ref())
+            .map(|(contract, source)| ParcelSource {
+                contract,
+                snapshot_id: source.iceberg_snapshot_id.clone(),
+            }),
     })
 }
 
@@ -349,6 +357,34 @@ mod tests {
         assert!(info.zoning.is_none());
         assert!(info.official_land_price_per_m2.is_none());
         assert!(info.gosi_year_month.is_none());
+        assert!(
+            info.source.is_none(),
+            "a document naming no snapshot has no source"
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_carries_the_edge_documents_contract_and_gold_snapshot() {
+        // Root ADR-0223: the as-of is the Gold snapshot the edge baked, not the fetch time.
+        let body = format!(
+            r#"{{"schema_version":"foundation-platform.parcel_by_pnu_profile.v1","pnu":"{REQUEST_PNU}","source":{{"table":"gold.parcel_panel","iceberg_snapshot_id":"999990000000000002","metadata_location":"s3://lakehouse/metadata/v1.json","manifest_list_location":"s3://lakehouse/metadata/snap-1.avro"}},"kind":null,"area_m2":null,"zonings":[],"price":null,"characteristics":null,"forest_ledger":null,"transfer_history":[],"land_rights":[],"land_right_total":0}}"#
+        );
+        let base_url = spawn_foundation_platform_response(REQUEST_PNU, "HTTP/1.1 200 OK", &body);
+        let lookup = FoundationPlatformParcelInfoLookup::new(&base_url).expect("valid base url");
+
+        let info = lookup
+            .lookup_by_pnu(&Pnu::try_new(REQUEST_PNU).unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            info.source,
+            Some(ParcelSource {
+                contract: "foundation-platform.parcel_by_pnu_profile.v1".to_owned(),
+                snapshot_id: "999990000000000002".to_owned(),
+            })
+        );
     }
 
     #[tokio::test]

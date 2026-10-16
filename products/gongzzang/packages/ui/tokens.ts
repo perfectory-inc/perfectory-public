@@ -3,6 +3,8 @@
 // JS 측 design token SSOT. CSS variable 정의 (packages/ui/tokens/*.css) 와
 // *반드시 동기화*. 변경 시 양쪽 모두 update.
 
+import type { ListingType } from "@gongzzang/api-types";
+
 /**
  * Viewport breakpoints (px).
  *
@@ -52,7 +54,7 @@ export const LISTING_TYPE_COLORS = {
   knowledge_industry_center: "#7c3aed", // violet-600
   industrial_land: "#ea580c", // orange-600
   logistics_center: "#0891b2", // cyan-600
-} as const;
+} as const satisfies Record<ListingType, string>;
 
 export type ListingTypeKey = keyof typeof LISTING_TYPE_COLORS;
 

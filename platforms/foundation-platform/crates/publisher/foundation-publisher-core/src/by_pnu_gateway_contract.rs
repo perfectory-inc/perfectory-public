@@ -158,12 +158,13 @@ struct R2ConnectionContract {
 pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gateway"];
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line.
-const DERIVED_LANE_HAND_FIELDS: [&str; 7] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 8] = [
     "decision",
     "host",
     "kind",
     "section",
     "columns",
+    "document_key_suffix",
     "documents_follow_lane",
     "documents_follow_lane_reason",
 ];
@@ -310,8 +311,35 @@ struct PackLaneEntry {
     /// Gate (나)'s absolute bound on this lane's own cold and warm p95: the baseline's documents
     /// are not this lane's, so the increase over them alone is not the bound.
     latency_p95_max_ms: f64,
+    /// A lane whose document is narrower than a PNU (root ADR-0204): the Gold column whose value
+    /// follows the PNU in the document key.
+    #[serde(default)]
+    document_key_suffix: Option<KeySuffixEntry>,
     #[serde(flatten)]
     gateway: ByPnuGatewayPolicy,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeySuffixEntry {
+    column: String,
+    pattern: String,
+    reason: String,
+}
+
+/// What follows the PNU in a lane's document key (root ADR-0204): a Gold column's value, of the
+/// contract's pattern. The key is `<pnu><suffix>`; the request path names it `<pnu>/<suffix>`.
+#[derive(Debug)]
+pub struct KeySuffix {
+    pub column: &'static str,
+    pub pattern: regex::Regex,
+}
+
+impl KeySuffix {
+    /// Whether `suffix` is one of this lane's suffixes.
+    #[must_use]
+    pub fn admits(&self, suffix: &str) -> bool {
+        !suffix.contains('/') && self.pattern.is_match(suffix)
+    }
 }
 
 /// A lane the contract names, with what follows from its name resolved once.
@@ -326,6 +354,8 @@ pub struct PackLane {
     pub document_schema_version: String,
     pub latency_baseline_lane: String,
     pub latency_p95_max_ms: f64,
+    /// The document key's suffix, for a lane keyed narrower than a PNU (root ADR-0204).
+    pub key_suffix: Option<KeySuffix>,
     gateway: ByPnuGatewayPolicy,
 }
 
@@ -395,6 +425,36 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
             "by_pnu_lanes.{name} names no document schema or no section packs"
         ));
     }
+    let key_suffix = match entry.document_key_suffix {
+        None => None,
+        Some(suffix) => {
+            let column = gold
+                .columns
+                .iter()
+                .map(|column| column.name)
+                .find(|column| *column == suffix.column)
+                .filter(|column| {
+                    !column.ends_with("_json") && !PACK_LANE_NON_CONTENT_COLUMNS.contains(column)
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "by_pnu_lanes.{name}.document_key_suffix.column {:?} is no plain content \
+                         column of {}",
+                        suffix.column, entry.gold_table
+                    )
+                })?;
+            if suffix.reason.trim().is_empty() {
+                return Err(format!(
+                    "by_pnu_lanes.{name}.document_key_suffix names no reason"
+                ));
+            }
+            let pattern =
+                regex::Regex::new(&format!("^(?:{})$", suffix.pattern)).map_err(|error| {
+                    format!("by_pnu_lanes.{name}.document_key_suffix.pattern: {error}")
+                })?;
+            Some(KeySuffix { column, pattern })
+        }
+    };
     Ok(PackLane {
         name: name.to_owned(),
         unit: format!("{name}-by-pnu"),
@@ -407,6 +467,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         document_schema_version: entry.document_schema_version,
         latency_baseline_lane: entry.latency_baseline_lane,
         latency_p95_max_ms: entry.latency_p95_max_ms,
+        key_suffix,
         gateway: entry.gateway,
     })
 }

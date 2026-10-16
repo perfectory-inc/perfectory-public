@@ -31,10 +31,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 )
 missing=()
 for name in "${required_env[@]}"; do
@@ -103,6 +103,8 @@ if [ "${held}" = held ]; then
       "$(date -u +%FT%TZ)" "$(printf '%s\n' "${reuploads}" | wc -l)" "${edition}" "$(printf '%s' "${reuploads}" | tr '\n' ',')" \
       "${run_id}" | tee -a "${journal}" >&2
   fi
+  # Silver did not move: a run that does not say so counts as changed and starts what reads it (ADR-0171).
+  printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
 
@@ -113,6 +115,10 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH="${work}/ingest-evidence.json"
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE=1
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
+# 판마다 같은 파일 번호를 다시 쓰므로 키는 내용이다(root ADR-0152): 번호 키는 앞 판이 남긴 객체와 부딪히거나(R2 502)
+# 그 옛 객체를 "이미 있음"으로 읽는다(2026-10-14). 본문은 해시를 재는 동안 실행 폴더의 spool 에 두고 파일마다 지운다.
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
+export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 "${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
 "${PY[@]}" - "${work}/ingest-evidence.json" "${files}" > "${work}/keys.txt" <<'PY'
 import json, sys
@@ -129,8 +135,8 @@ PY
 GDAL_IMAGE="ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779"
 # The measurement only reads (ranged GETs), so it gets the reader key: a container given the
 # writer key could overwrite the Bronze objects it measures.
-AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_ACCESS_KEY_ID:?the lakehouse reader key is required}" \
-AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_READER_SECRET_ACCESS_KEY:?the lakehouse reader key is required}" \
+AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID:?the lakehouse reader key is required}" \
+AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY:?the lakehouse reader key is required}" \
 AWS_S3_ENDPOINT="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT#https://}" \
 B="${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}" \
   docker run --rm -i --memory 1g -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_S3_ENDPOINT -e B \
@@ -148,4 +154,8 @@ job_journal "${journal}" \
   "vworld-parcel-edition provider=${edition} new: collected ${files} files, proposed ${STATE_ROOT}/proposed/${edition}.json run=${run_id}"
 notify_slack "${message}"
 echo "new edition waiting for contract entry: edition ${edition}; add ${STATE_ROOT}/proposed/${edition}.json to vworld-parcel-source-objects.json (runbook vworld-parcel-editions.md)" >&2
+# Not a fault: the unit counts this status as success (SuccessExitStatus), so systemd's failure notice and
+# the scheduler's red run stay for real failures; the notice above is the one this run sends. Silver is
+# loaded later from a release that holds the edition, so nothing downstream starts from this run.
+printf 'foundation-job-outcome unchanged\n'
 exit "${AWAITING_CONTRACT}"

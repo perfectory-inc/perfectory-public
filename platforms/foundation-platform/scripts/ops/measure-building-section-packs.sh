@@ -41,8 +41,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 # The Gold read's key pair, before any shard starts (root ADR-0153): the first released script ran
 # without it and learned so at shard 1. The contract's run measure-building-section-packs supplies it.
 required_env=(
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_R2_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID
+  FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
 )
 for name in "${required_env[@]}"; do
   [[ -n "${!name:-}" ]] || refuse "${name} is not set; run with: runtime_secrets.py properties measure-building-section-packs" 78

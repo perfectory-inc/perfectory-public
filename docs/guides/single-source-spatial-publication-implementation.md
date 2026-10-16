@@ -337,7 +337,7 @@ cd platforms/foundation-platform
 MSYS2_ARG_CONV_EXCL='*' docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN \
+  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \
   spark spark-submit \
   --conf spark.jars.ivy=/tmp/.ivy2 \
   --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1,org.apache.iceberg:iceberg-aws-bundle:1.6.1 \

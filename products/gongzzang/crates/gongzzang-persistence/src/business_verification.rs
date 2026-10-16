@@ -64,15 +64,8 @@ const BUSINESS_VERIFICATION_COLUMNS: &str =
     reviewer_id, reviewer_note, submitted_at, reviewed_at, sla_due_at, version";
 
 fn parse_status(s: &str) -> Result<BusinessVerificationStatus, RepoError> {
-    match s {
-        "pending" => Ok(BusinessVerificationStatus::Pending),
-        "approved" => Ok(BusinessVerificationStatus::Approved),
-        "rejected" => Ok(BusinessVerificationStatus::Rejected),
-        "needs_more_info" => Ok(BusinessVerificationStatus::NeedsMoreInfo),
-        other => Err(RepoError::Database(format!(
-            "unexpected business_verification status: {other}"
-        ))),
-    }
+    s.parse()
+        .map_err(|e| RepoError::Database(format!("unexpected business_verification status: {e}")))
 }
 
 /// `PgRow` → [`BusinessVerification`] 변환.
@@ -340,5 +333,24 @@ impl BusinessVerificationRepository for PgBusinessVerificationRepository {
             .await
             .map_err(map_sqlx_err)?;
         rows.iter().map(row_to_business_verification).collect()
+    }
+
+    #[instrument(skip(self), fields(user_id = %user_id.as_str()))]
+    async fn find_verified_business(
+        &self,
+        user_id: &Id<UserMarker>,
+    ) -> Result<Option<BusinessVerification>, RepoError> {
+        let sql = format!(
+            "select {BUSINESS_VERIFICATION_COLUMNS} from business_verification_queue \
+             where user_id = $1 and status = 'approved' \
+             order by reviewed_at desc nulls last, submitted_at desc \
+             limit 1"
+        );
+        let row = sqlx::query(&sql)
+            .bind(user_id.as_str())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_err)?;
+        row.as_ref().map(row_to_business_verification).transpose()
     }
 }

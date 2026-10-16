@@ -1,4 +1,5 @@
 "use client";
+import { cardSearchSortValues, transactionTypeValues } from "@gongzzang/api-types";
 import {
   MultiSelect,
   RangeSlider,
@@ -16,8 +17,8 @@ import { useListingsStore } from "@/stores/listings";
 // 공짱 = 산업용 부동산. 현재 노출 = 공장 / 창고 / 토지 (3종).
 // backend schema 는 6종 (office, knowledge_industry_center, logistics_center 자리).
 const TYPES: ListingType[] = ["factory", "warehouse", "industrial_land"];
-const TXNS: TransactionType[] = ["sale", "monthly_rent", "jeonse"];
-const SORTS: SortKey[] = ["created_at_desc", "price_asc", "price_desc", "area_asc", "area_desc"];
+const TXNS = transactionTypeValues;
+const SORTS = cardSearchSortValues;
 
 const AREA_MIN = 0;
 const AREA_MAX = 10_000;

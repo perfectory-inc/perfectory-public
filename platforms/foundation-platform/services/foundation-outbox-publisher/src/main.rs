@@ -1001,11 +1001,27 @@ async fn catalog_broadcaster(
         runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
     let object_storage_driver = object_storage_driver()?;
     runtime_environment::validate_catalog_driver(runtime_environment, &object_storage_driver)?;
-    let object_storage: Arc<dyn ObjectStorageService> = match object_storage_driver.as_str() {
-        "log" => Arc::new(LoggingObjectStorage),
+    // The second store is the tile edge's bucket, where the v2 runtime manifest goes (root ADR-0254).
+    let (object_storage, runtime_manifest_storage): (
+        Arc<dyn ObjectStorageService>,
+        Arc<dyn ObjectStorageService>,
+    ) = match object_storage_driver.as_str() {
+        "log" => (
+            Arc::new(LoggingObjectStorage),
+            Arc::new(LoggingObjectStorage),
+        ),
         "r2" => {
             validate_runtime_r2_bucket(runtime_environment)?;
-            Arc::new(R2ObjectStorage::from_env().context("failed to configure R2 object storage")?)
+            let tiles = tile_derivative_object_storage::TileDerivativeR2Config::from_env()
+                .context(
+                    "the runtime manifest is written to the tile-derivative bucket (root ADR-0254)",
+                )?;
+            (
+                Arc::new(
+                    R2ObjectStorage::from_env().context("failed to configure R2 object storage")?,
+                ),
+                Arc::new(R2ObjectStorage::from_config(tiles.writer)),
+            )
         }
         driver => {
             bail!(
@@ -1019,11 +1035,11 @@ async fn catalog_broadcaster(
         None => fallback,
     };
 
-    Ok(Arc::new(CatalogEventBroadcaster::new(
-        Arc::new(PgVectorTileManifestReader::new(pool)),
-        object_storage,
-        fanout,
-    )))
+    let reader = Arc::new(PgVectorTileManifestReader::new(pool));
+    Ok(Arc::new(
+        CatalogEventBroadcaster::new(reader.clone(), object_storage, fanout)
+            .with_runtime_manifest(reader, runtime_manifest_storage),
+    ))
 }
 
 fn fallback_broadcaster() -> anyhow::Result<Arc<dyn EventBroadcaster>> {

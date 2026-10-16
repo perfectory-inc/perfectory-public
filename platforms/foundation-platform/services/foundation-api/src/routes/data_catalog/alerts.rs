@@ -66,7 +66,13 @@ fn render(status: Option<&ScheduledJobsStatus>, console: Option<&str>) -> String
         return body;
     };
     for job in status.jobs.iter().filter(|job| job.enabled) {
-        for problem in &job.problems {
+        // A wait is shown on the map and never paged: the job ran and said what it waits for (root
+        // ADR-0260). It is not failed, blocked or late.
+        let pages = job
+            .problems
+            .iter()
+            .filter(|problem| !matches!(problem, ScheduledJobProblem::Waiting { .. }));
+        for problem in pages {
             let node_id = node_of(job, problem).unwrap_or_default();
             let link = match (console, node_id.is_empty()) {
                 (Some(base), false) => format!(
@@ -111,6 +117,7 @@ const fn kind(problem: &ScheduledJobProblem) -> &'static str {
         ScheduledJobProblem::Late { .. } => "late",
         ScheduledJobProblem::Slow { .. } => "slow",
         ScheduledJobProblem::Volume { .. } => "volume",
+        ScheduledJobProblem::Waiting { .. } => "waiting",
     }
 }
 
@@ -150,6 +157,10 @@ fn sentence(problem: &ScheduledJobProblem) -> String {
         ScheduledJobProblem::Volume {
             rows, typical_rows, ..
         } => format!("보통 {typical_rows}행인데 이번엔 {rows}행"),
+        ScheduledJobProblem::Waiting { reason, .. } => reason.as_ref().map_or_else(
+            || "기다리는 중 · 로그를 못 읽어 무엇을 기다리는지 몰라요".to_owned(),
+            |reason| format!("기다리는 중 · {reason}"),
+        ),
     }
 }
 
@@ -285,6 +296,24 @@ mod tests {
                 "link=\"https://console.example.test/#/flow?node=node-gold_synthetic\"} 1"
             )]
         );
+    }
+
+    #[test]
+    fn a_wait_is_never_paged() {
+        // Root ADR-0260: a fold due during a release build was paged as a failure; it now waits.
+        let waiting = ScheduledJobProblem::Waiting {
+            reason: Some("a release build is running".to_owned()),
+            scheduler_run_id: None,
+        };
+        let body = render(
+            Some(&status(
+                vec![job("fold_synthetic", true, vec![waiting])],
+                None,
+            )),
+            None,
+        );
+        assert!(body.contains("foundation_scheduled_jobs_readable 1"));
+        assert_eq!(problem_lines(&body), Vec::<&str>::new());
     }
 
     #[test]

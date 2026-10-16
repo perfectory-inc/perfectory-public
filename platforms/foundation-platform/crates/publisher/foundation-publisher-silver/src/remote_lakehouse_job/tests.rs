@@ -106,7 +106,7 @@ fn scalar_handoff_plan_runs_remote_spark_without_secret_values() {
         .contains("--iceberg-table building_register_floors_smoke"));
     assert!(plan
         .remote_script
-        .contains("-e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_TOKEN"));
+        .contains("-e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"));
     assert!(plan
         .remote_script
         .contains("cat 'target/lakehouse/smoke/building_register_floors-summary.json'"));

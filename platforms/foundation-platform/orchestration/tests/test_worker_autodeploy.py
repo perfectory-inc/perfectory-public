@@ -59,6 +59,8 @@ w = args[args.index("wrangler") + 1:]
 def option(name):
     return w[w.index(name) + 1] if name in w else None
 assert "CLOUDFLARE_API_TOKEN" in args and "CLOUDFLARE_ACCOUNT_ID" in args, "wrangler ran without the credential names"
+assert os.environ.get("CLOUDFLARE_API_TOKEN") == os.environ["FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN"], \
+    "wrangler did not get the Workers token under the one name it reads"
 config = json.loads((workdir / option("--config")).read_text())
 env = option("--env")
 section = config["env"][env] if env else config
@@ -205,7 +207,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         (root / "control/current").symlink_to(pathlib.Path("releases") / COMMIT)
         (root / "opt/releases" / COMMIT).mkdir(parents=True)
         (root / "opt/current").symlink_to(pathlib.Path("releases") / COMMIT)
-        self.credential.write_text("CLOUDFLARE_API_TOKEN=x\nCLOUDFLARE_ACCOUNT_ID=y\n")
+        self.credential.write_text("FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=x\nCLOUDFLARE_ACCOUNT_ID=y\n")
         self.credential.chmod(0o600)
 
         # The fake account: every listed Worker (and its preview) at one version with a CORS value
@@ -247,7 +249,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def tick(self, **env):
         saved = dict(os.environ)
         os.environ.update({"PATH": f"{self.bin}:{saved['PATH']}", "FIXTURE_ROOT": str(self.root),
-                           "CLOUDFLARE_API_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": "y",
+                           "FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN": "x", "CLOUDFLARE_ACCOUNT_ID": "y",
                            "FIXTURE_D1": json.dumps(D1_ACCOUNT), **env})
         self.output = io.StringIO()
         try:
@@ -524,11 +526,11 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
     def test_a_token_file_missing_a_name_is_refused_before_anything_runs_and_reported_once(self):
-        self.credential.write_text("CLOUDFLARE_API_TOKEN=x\n")
+        self.credential.write_text("FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=x\n")
         self.assertEqual(self.tick(), 78)
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.tick(), 0, "the same refusal alerted twice")
-        self.credential.write_text("CLOUDFLARE_API_TOKEN=x\nCLOUDFLARE_ACCOUNT_ID=y\n")
+        self.credential.write_text("FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=x\nCLOUDFLARE_ACCOUNT_ID=y\n")
         self.assertEqual(self.tick(), 0)
         self.assertFalse((self.host.state / "refused").exists())
 
