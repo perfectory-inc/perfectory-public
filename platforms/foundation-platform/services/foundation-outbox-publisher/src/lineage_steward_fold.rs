@@ -5,6 +5,11 @@
 //! 2. the Spark job `lineage_steward_fold_to_silver.py` appends them to `silver.parcel_lineage`;
 //! 3. `record-lineage-steward-folds` reads the job's summary and records which decisions landed.
 //!
+//! 법정동 pairs make the same round trip with their own reader (root ADR-0263):
+//! `export-legal-dong-steward-decisions` writes the standing approvals, the pairing run
+//! (`legal_dong_code_change_pairs.py`) checks and appends them to `reference.legal_dong_code_change`,
+//! and `record-lineage-steward-folds` records the ones it appended.
+//!
 //! The row shape is `stewardship_domain::fold::lineage_row`; this module only moves files.
 
 use anyhow::{bail, Context};
@@ -16,6 +21,7 @@ use uuid::Uuid;
 use crate::public_data_control_support::required_env_value;
 
 const OUTPUT_ENV: &str = "FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT";
+const LEGAL_DONG_OUTPUT_ENV: &str = "FOUNDATION_PLATFORM_LEGAL_DONG_STEWARD_DECISIONS_OUTPUT";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY";
 
 async fn store() -> anyhow::Result<PgLineageStewardshipStore> {
@@ -43,6 +49,22 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     println!(
         "lineage-steward-fold-export-json {}",
         serde_json::json!({"output": path, "rows": handoff.row_count})
+    );
+    Ok(())
+}
+
+pub(crate) async fn export_legal_dong() -> anyhow::Result<()> {
+    let path = required_env_value(LEGAL_DONG_OUTPUT_ENV)?;
+    let export = store().await?.legal_dong_decisions().await?;
+    std::fs::write(&path, serde_json::to_vec(&export)?)
+        .with_context(|| format!("cannot write {path}"))?;
+    println!(
+        "legal-dong-steward-decisions-export-json {}",
+        serde_json::json!({
+            "output": path,
+            "review_items": export.review_items,
+            "decisions": export.decision_count,
+        })
     );
     Ok(())
 }

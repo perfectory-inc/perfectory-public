@@ -244,7 +244,7 @@ impl PostgresKnowledgeIndex {
             SELECT
                 c.source_id,
                 c.chunk_ordinal,
-                c.heading_path,
+                c.headings,
                 c.body,
                 c.release_id
             FROM ip_knowledge_chunk c
@@ -280,7 +280,7 @@ impl PostgresKnowledgeIndex {
                 Some(SearchHit {
                     source_id: matched.source_id.clone(),
                     chunk_ordinal: matched.chunk_ordinal,
-                    heading_path: matched.heading_path.clone(),
+                    headings: matched.headings.clone(),
                     body: matched.body.clone(),
                     context_before: matched
                         .chunk_ordinal
@@ -326,12 +326,13 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
                 r#"
                 INSERT INTO ip_knowledge_chunk (
                     tenant_id, product_id, release_id, source_id, chunk_ordinal,
-                    heading_path, body, search_text_morph, search_text_raw,
+                    heading_path, headings, body, search_text_morph, search_text_raw,
                     source_snapshot_id, content_checksum_sha256
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 ON CONFLICT (tenant_id, product_id, release_id, source_id, chunk_ordinal)
                 DO UPDATE SET
                     heading_path = EXCLUDED.heading_path,
+                    headings = EXCLUDED.headings,
                     body = EXCLUDED.body,
                     search_text_morph = EXCLUDED.search_text_morph,
                     search_text_raw = EXCLUDED.search_text_raw,
@@ -344,7 +345,9 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
             .bind(&release.release_id)
             .bind(&indexed.chunk.source_id)
             .bind(indexed.chunk.chunk_ordinal)
-            .bind(&indexed.chunk.heading_path)
+            // 이은 문자열은 제목 검색 신호의 입력일 뿐이다; 결과는 `headings`를 읽는다.
+            .bind(indexed.chunk.heading_path())
+            .bind(&indexed.chunk.headings)
             .bind(&indexed.chunk.body)
             // 두 신호를 **각자의 칼럼에** 넣는다. 한 칸에 섞으면 서로를 가린다.
             .bind(tokenize_korean(&searchable_text(indexed)))
@@ -482,14 +485,14 @@ impl KnowledgeIndexPort for PostgresKnowledgeIndex {
 /// 색인 대상 텍스트. 제목 경로와 본문을 잇는다 — 제목에 담긴 어휘도 본문 신호에 들어가야
 /// 하기 때문이다. 제목 **전용** 신호는 별도 리트리버(`heading`)가 따로 본다.
 fn searchable_text(indexed: &IndexedChunk) -> String {
-    format!("{} {}", indexed.chunk.heading_path, indexed.chunk.body)
+    format!("{} {}", indexed.chunk.heading_path(), indexed.chunk.body)
 }
 
 /// 읽어 온 조각 한 줄. 매치된 것과 이웃을 같은 모양으로 담는다 — 이웃도 결국 조각이다.
 struct ChunkRow {
     source_id: String,
     chunk_ordinal: i32,
-    heading_path: String,
+    headings: Vec<String>,
     body: String,
     release_id: String,
 }
@@ -498,7 +501,7 @@ fn row_to_chunk(row: &sqlx::postgres::PgRow) -> Result<ChunkRow, KnowledgeIndexE
     Ok(ChunkRow {
         source_id: row.try_get("source_id").map_err(store_failed_from)?,
         chunk_ordinal: row.try_get("chunk_ordinal").map_err(store_failed_from)?,
-        heading_path: row.try_get("heading_path").map_err(store_failed_from)?,
+        headings: row.try_get("headings").map_err(store_failed_from)?,
         body: row.try_get("body").map_err(store_failed_from)?,
         release_id: row.try_get("release_id").map_err(store_failed_from)?,
     })

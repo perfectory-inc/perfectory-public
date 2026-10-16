@@ -105,3 +105,31 @@ CI 의 표는 매번 빈 스키마에서 새로 만든 것이라, 운영 표가 
 (`scripts/deploy/migration-approval-preflight.py`). 값이 계약과 다르거나 DB 에 못 물으면 설정 이름과 실행할
 `ALTER DATABASE` 한 줄로 멈춘다 — DAG 도 컨테이너도 건드리지 않는다. #465 는 4단계 `activate` 가 API 를 다시 만든 뒤에
 거부돼 API 가 30분 내려갔다. 이로써 `set_in_production` 은 선언이자 배포 전 확인이 된다.
+
+## 2026-10-16 개정: §8 Postgres 마이그레이션은 운영처럼 행이 든 표 위에서 돈다
+
+위 "남은 일"의 결정이다. `platforms/foundation-platform/config/postgres-production-shape.json` 은 운영 DB 에서 행이 있는
+표의 **이름**이다(`scripts/ops/postgres-production-shape.sh`, 표마다 `select exists`, 값 없음). 변경이 마이그레이션이나
+이 관문을 건드리면 Postgres 통합 잡이 새 DB 에 main 의 마이그레이션을 적용하고, 그 표마다 합성 행을 한 줄 넣은 뒤, 변경의
+새 마이그레이션을 하나씩 적용한다(`scripts/ci/foundation_postgres_production_shape.py`). 합성 행은 카탈로그에서 만든다:
+타입별 값, CHECK 가 이름 짓는 값과 고정 정규식의 예, 부모 먼저, 발행자의 세션 플래그, 좌표는 예약된 합성 상자 안.
+그것으로 못 채우는 도메인 규칙만 `config/postgres-seed-hints.json` 이 열별 합성 값으로 준다. 아직 못 채우는 표는 같은
+파일의 `not_yet_seeded` 에 이유와 함께 이름이 있고, 이 목록은 줄기만 한다(채워지는 표가 이름에 남으면 실패). 자체 시험은
+seed 된 행 위에서 필수 열 추가가 실패함을 매번 보인다. 첫 측정: 33표 중 21표, CI 단계 9초.
+
+## 2026-10-16 개정: §5 원장의 신선도는 서버의 작업이 확인한다
+
+배포 로그의 `shape-ledger stale` 한 줄만으로는 아무도 모른다. 등록된 작업 `shape_ledger_check`
+(`foundation-shape-ledger-check.service`, `scripts/ops/shape-ledger-check.py`)가 두 원장을 읽기 전용으로 다시 찍어
+릴리스가 싣고 온 것과 표 단위로 비교하고, 다르면 **실패**한다(작업 결과 + `OnFailure` 알림, 표마다 한 줄). 시점은 모양이
+바뀌는 때다: 배포마다 migrate 직후(`started_once_after_deploy`), 그리고 매일 적재들이 끝난 뒤(12:30). 새로 찍은 원장은
+상태 디렉터리(`/var/lib/foundation-shape-ledger/`)에 남아 갱신 PR 이 복사 한 번이다. 열을 더한 배포 직후의 실패는
+의도다 — 원장이 운영보다 늦었다는 사실 그 자체다.
+
+자격: 카탈로그 읽기 토큰은 이미 호스트의 `operations-map` 그룹에 있다(새 비밀 없음, CI 에는 비밀 없음). Postgres 는 docker
+그룹으로 런타임 컨테이너에 묻는다(root 불필요).
+
+PR 자동 생성은 하지 않는다: 서버의 GitHub 경로는 익명 fetch 뿐이고, 배포 키는 읽기 전용이어야 한다
+(`scripts/github/check-publication-authority.sh`). 자동화하려면 소유자가 이 저장소 한정 fine-grained 토큰(contents·pull
+requests 쓰기)을 만들어 `env-set` 으로 새 그룹에 두고, 이 작업이 `shape-ledger/refresh` 브랜치 하나를 밀고 그 PR 을 연다 —
+쓰기 자격을 서버에 두는 결정이므로 소유자 몫이다.

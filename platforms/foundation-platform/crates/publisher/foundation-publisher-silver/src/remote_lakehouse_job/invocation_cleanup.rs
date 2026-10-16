@@ -14,10 +14,7 @@ use std::{
 use anyhow::{ensure, Context};
 
 const MAX_LIST_BYTES: u64 = 4096;
-/// The label key Compose names a container's project with; the cleanup lists by it.
-pub const PROJECT_LABEL: &str = "com.docker.compose.project";
-/// The label Compose puts on a `run` container; the cleanup removes only those.
-pub const ONEOFF_LABEL: &str = "com.docker.compose.oneoff=True";
+pub use foundation_publisher_core::compose_labels::{ONEOFF_LABEL, PROJECT_LABEL};
 
 /// A registered job whose Spark runs in a per-invocation Compose project.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -28,6 +28,9 @@ consoles/dawneer/
 | `/api/foundation/<경로>` | 허용 목록(`server/src/relay.rs`)에 있는 Foundation 경로만 세션의 토큰을 실어 넘긴다. 쓰기는 `x-dawneer-csrf` 필수 |
 | 그 밖 | 화면(`web/dist`) |
 
+데이터 흐름 화면의 「서비스 점검」 탭은 서버가 매시 잰 한국→서비스 주소 경로(colo·p50·p95)와 주별 PR CI 시간을
+보인다([ADR-0209](../../docs/adr/0209-the-data-flow-map-shows-the-edge-path-from-korea-and-the-ci-time-trend.md)).
+
 ## 노트북에서 실행
 
 0. 화면을 굽는다: `cd web && pnpm install && pnpm build` (`dist/` 는 커밋하지 않는다)

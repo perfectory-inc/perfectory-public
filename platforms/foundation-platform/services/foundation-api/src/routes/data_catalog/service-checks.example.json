@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-13T02:17:00+00:00",
+  "edge": {
+    "checked_at": "2026-10-13T02:17:00+00:00",
+    "reference_colo": "ICN",
+    "hosts": [
+      {
+        "hostname": "tiles.example.test",
+        "colo": "SEA",
+        "p50_ms": 957,
+        "p95_ms": 3566,
+        "samples": 9,
+        "failed_samples": 1,
+        "error": null
+      },
+      {
+        "hostname": "catalog.example.test",
+        "colo": null,
+        "p50_ms": null,
+        "p95_ms": null,
+        "samples": 0,
+        "failed_samples": 10,
+        "error": "URLError: timed out"
+      }
+    ]
+  },
+  "ci": {
+    "attempted_at": "2026-10-13T02:17:00+00:00",
+    "budget_minutes": 10.0,
+    "weeks": [
+      {
+        "week_start": "2026-10-05",
+        "count": 120,
+        "p50": 23.4,
+        "p90": 31.3,
+        "max": 58.0,
+        "worst_workflow": "Foundation Platform CI",
+        "worst_workflow_p50": 24.5
+      }
+    ],
+    "pending_days": 3,
+    "error": null
+  }
+}

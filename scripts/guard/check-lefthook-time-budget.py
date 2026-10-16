@@ -53,6 +53,8 @@ INTERPRETERS = {"bash", "sh", "python", "python3"}
 CI_SOURCES = [
     *sorted((ROOT / ".github" / "workflows").glob("*.yml")),
     ROOT / "scripts" / "guard" / "monorepo-guard.sh",
+    # The guard runner's list (root ADR-0207).
+    ROOT / "tools" / "ci" / "change-scope.json",
     *sorted((ROOT / "tools" / "xtask" / "src").glob("*.rs")),
 ]
 

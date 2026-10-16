@@ -254,7 +254,7 @@
           "dataset": "perfectory://serving-lineage-stewardship",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,serving-lineage-stewardship,PROD)",
           "node_id": "serving-lineage-stewardship",
-          "title": "필지 계보 스튜어드 결정",
+          "title": "스튜어드 결정 (필지 계보·법정동 짝)",
           "kind": "serving_group",
           "surface_kind": null
         },
@@ -336,7 +336,7 @@
           "dataset": "perfectory://serving-lineage-stewardship",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,serving-lineage-stewardship,PROD)",
           "node_id": "serving-lineage-stewardship",
-          "title": "필지 계보 스튜어드 결정",
+          "title": "스튜어드 결정 (필지 계보·법정동 짝)",
           "kind": "serving_group",
           "surface_kind": null
         },
@@ -436,6 +436,383 @@
     },
     {
       "id": "data_quality",
+      "producers": [
+        "building_register_floor",
+        "map_edit_fold_admin",
+        "map_edit_fold_complex",
+        "lineage_stewardship",
+        "legal_dong_code_changes",
+        "vworld_parcel_edition",
+        "parcel_number_change_history",
+        "silver_refresh_building_register_titles",
+        "silver_refresh_building_register_units",
+        "silver_refresh_building_register_unit_areas",
+        "silver_refresh_building_register_apartment_price",
+        "silver_refresh_building_register_exclusive_unit",
+        "silver_refresh_land_characteristic",
+        "silver_refresh_land_forest_ledger",
+        "silver_refresh_land_individual_price",
+        "silver_refresh_land_right_registration",
+        "silver_refresh_land_transfer_history",
+        "silver_refresh_land_use_plan",
+        "silver_refresh_land_use_zone_code",
+        "gold_panel_rebuild",
+        "admin_boundary_release",
+        "parcel_registry",
+        "complex_boundary_release",
+        "parcel_served_gold",
+        "gold_kind_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.administrative_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.administrative_boundary_served,PROD)",
+          "node_id": "gold-administrative-boundary-served",
+          "title": "행정경계 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.building_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
+          "node_id": "gold-building-panel",
+          "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.complex_catalog",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.complex_catalog,PROD)",
+          "node_id": "gold-complex-catalog",
+          "title": "산업단지 제공용 프로필",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.complex_spatial_locator",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.complex_spatial_locator,PROD)",
+          "node_id": "gold-complex-spatial-locator",
+          "title": "산업단지 위치 찾기",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.industrial_complex_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.industrial_complex_boundary_served,PROD)",
+          "node_id": "gold-industrial-complex-boundary-served",
+          "title": "산업단지 경계 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.lineage_review_queue",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.lineage_review_queue,PROD)",
+          "node_id": "gold-lineage-review-queue",
+          "title": "필지 계보 검토 목록",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_boundary_served",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_boundary_served,PROD)",
+          "node_id": "gold-parcel-boundary-served",
+          "title": "필지 서빙본",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_characteristics",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
+          "node_id": "gold-parcel-characteristics",
+          "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_forest_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
+          "node_id": "gold-parcel-forest-ledger",
+          "title": "필지 임야대장 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_land_rights",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
+          "node_id": "gold-parcel-land-rights",
+          "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_panel,PROD)",
+          "node_id": "gold-parcel-panel",
+          "title": "필지 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
+          "node_id": "gold-parcel-price",
+          "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_transfer_history,PROD)",
+          "node_id": "gold-parcel-transfer-history",
+          "title": "필지 토지이동이력 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_zoning",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_zoning,PROD)",
+          "node_id": "gold-parcel-zoning",
+          "title": "필지 용도지역 판정 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.place_id_bridge",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_bridge,PROD)",
+          "node_id": "gold-place-id-bridge",
+          "title": "ID↔코드 연결표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.place_id_changelog",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_changelog,PROD)",
+          "node_id": "gold-place-id-changelog",
+          "title": "ID 변경 내역",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.place_id_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.place_id_registry,PROD)",
+          "node_id": "gold-place-id-registry",
+          "title": "발행 ID 목록",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://reference.legal_dong_code_snapshot",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_snapshot,PROD)",
+          "node_id": "reference-legal-dong-code-snapshot",
+          "title": "법정동코드 스냅숏",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.administrative_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
+          "node_id": "silver-administrative-boundaries",
+          "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_apartment_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price,PROD)",
+          "node_id": "silver-building-register-apartment-price",
+          "title": "건축물대장 공동주택가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_exclusive_unit",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_exclusive_unit,PROD)",
+          "node_id": "silver-building-register-exclusive-unit",
+          "title": "건축물대장 전유부",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_floors",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_floors,PROD)",
+          "node_id": "silver-building-register-floors",
+          "title": "건물 층별 정보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_titles,PROD)",
+          "node_id": "silver-building-register-titles",
+          "title": "건물 표제부",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_unit_areas",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_unit_areas,PROD)",
+          "node_id": "silver-building-register-unit-areas",
+          "title": "호별 전유·공용 면적",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_units,PROD)",
+          "node_id": "silver-building-register-units",
+          "title": "건물 호별 정보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.complex_parcel_memberships",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.complex_parcel_memberships,PROD)",
+          "node_id": "silver-complex-parcel-memberships",
+          "title": "산업단지와 필지 소속",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.industrial_complex_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.industrial_complex_boundaries,PROD)",
+          "node_id": "silver-industrial-complex-boundaries",
+          "title": "산업단지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.industrial_complexes",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.industrial_complexes,PROD)",
+          "node_id": "silver-industrial-complexes",
+          "title": "산업단지 기본 정보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_characteristic",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_characteristic,PROD)",
+          "node_id": "silver-land-characteristic",
+          "title": "필지별 토지특성",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_forest_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_forest_ledger,PROD)",
+          "node_id": "silver-land-forest-ledger",
+          "title": "필지별 임야대장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_individual_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_individual_price,PROD)",
+          "node_id": "silver-land-individual-price",
+          "title": "필지별 공시지가",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_right_registration",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_right_registration,PROD)",
+          "node_id": "silver-land-right-registration",
+          "title": "필지별 대지권 등록",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_transfer_history,PROD)",
+          "node_id": "silver-land-transfer-history",
+          "title": "필지별 토지이동이력",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_plan",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_plan,PROD)",
+          "node_id": "silver-land-use-plan",
+          "title": "필지별 토지이용계획",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_zone_code",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_code,PROD)",
+          "node_id": "silver-land-use-zone-code",
+          "title": "용도지역 코드 사전",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.map_edit_ledger",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.map_edit_ledger,PROD)",
+          "node_id": "silver-map-edit-ledger",
+          "title": "지도 편집 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_lineage",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_lineage,PROD)",
+          "node_id": "silver-parcel-lineage",
+          "title": "필지 계보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_number_change_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_number_change_history,PROD)",
+          "node_id": "silver-parcel-number-change-history",
+          "title": "필지고유번호변동연혁",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_registry",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
+          "node_id": "silver-parcel-registry",
+          "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
+          "node_id": "silver-unit-official-price",
+          "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": []
+    },
+    {
+      "id": "shape_ledger_check",
       "producers": [
         "building_register_floor",
         "map_edit_fold_admin",

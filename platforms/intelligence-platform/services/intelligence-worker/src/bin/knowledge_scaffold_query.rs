@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{}. {} [{}] #{}",
             rank + 1,
             hit.source_id,
-            hit.heading_path,
+            hit.headings.join(" > "),
             hit.chunk_ordinal
         );
     }

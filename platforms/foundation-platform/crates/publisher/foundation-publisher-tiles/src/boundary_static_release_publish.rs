@@ -58,19 +58,19 @@ use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 /// The `complex`, `admin`, and `parcel` commands each construct one of these and call [`run`]; no
 /// other part of the orchestration is copied per unit.
 #[derive(Clone, Copy)]
-pub(crate) struct UnitStaticReleaseSpec {
+pub struct UnitStaticReleaseSpec {
     /// The `catalog.vector_tile_publication_unit` key, which is also the dynamic Martin source id
     /// (`scripts/tiles/martin-dynamic.yaml`): `complex`, `admin`, or `parcels`.
-    pub(crate) unit_key: &'static str,
+    pub unit_key: &'static str,
     /// The operator environment-variable prefix, e.g.
     /// `FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_STATIC_RELEASE`. Every variable this command
     /// reads is this prefix plus a shared suffix, so an operator's runbook differs only by prefix.
-    pub(crate) env_prefix: &'static str,
+    pub env_prefix: &'static str,
     /// The human label the success line names, e.g. `industrial complex boundary`.
-    pub(crate) display_label: &'static str,
+    pub display_label: &'static str,
     /// The `serving_postgis` view whose extent the dynamic TileJSON bounds must cover before a bake,
     /// e.g. `serving_postgis.industrial_complex_boundary_current`.
-    pub(crate) serving_current_table: &'static str,
+    pub serving_current_table: &'static str,
 }
 
 #[derive(Clone)]
@@ -191,7 +191,7 @@ struct RepresentativeTile {
 }
 
 /// Runs the production static-release publisher for one publication unit.
-pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
+pub async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
     let config = Config::from_env(spec)?;
     let database_url = required_env("DATABASE_URL")?;
     let pool = PgPool::connect(&database_url)
@@ -314,9 +314,7 @@ pub(crate) async fn run(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
 /// storage mode, while the proof needs to demonstrate the negative paths without touching R2. The
 /// proof exercises the shared object-store and Martin guards, so it is unit-independent; a unit's
 /// command supplies only the environment prefix that gates the destructive confirmation.
-pub(crate) async fn run_local_mutation_guard_proof(
-    spec: &UnitStaticReleaseSpec,
-) -> anyhow::Result<()> {
+pub async fn run_local_mutation_guard_proof(spec: &UnitStaticReleaseSpec) -> anyhow::Result<()> {
     let confirm = format!("{}_LOCAL_PROOF_CONFIRM", spec.env_prefix);
     ensure!(
         required_env(&confirm)? == "1",
@@ -753,7 +751,7 @@ async fn build_archives(
     )
 }
 
-pub(crate) async fn create_only_upload_and_rehash(
+pub async fn create_only_upload_and_rehash(
     writer: &dyn ObjectStorageStreamingService,
     reader: &dyn ObjectStorageStreamingService,
     path: &Path,
@@ -1101,7 +1099,7 @@ async fn fetch_tile(
         .to_vec())
 }
 
-pub(crate) fn ensure_tool_success(tool: &str, output: &Output) -> anyhow::Result<()> {
+pub fn ensure_tool_success(tool: &str, output: &Output) -> anyhow::Result<()> {
     if output.status.success() {
         return Ok(());
     }
@@ -1133,7 +1131,7 @@ fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
     }
 }
 
-pub(crate) fn bounded_failure_reason(error: &anyhow::Error) -> String {
+pub fn bounded_failure_reason(error: &anyhow::Error) -> String {
     error.to_string().chars().take(2_000).collect::<String>()
 }
 

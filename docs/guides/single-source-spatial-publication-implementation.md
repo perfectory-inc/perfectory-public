@@ -139,7 +139,7 @@ bundled mapbox-gl, Vitest, Playwright.
 ### Static builder, R2, and Martin
 
 - Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs`.
-- Create `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_derivative_object_storage.rs`.
+- Create `platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/tile_derivative_object_storage.rs`.
 - Modify `platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/r2_layout.rs`.
 - Reuse `platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2.rs`; do not create another S3 client.
 - Modify `scripts/tiles/{compose.yaml,martin-dynamic.yaml,martin-static.yaml,tiles-slice-proof.sh,fixture.sql,vector-tile-manifest.local.json}`.
@@ -920,7 +920,7 @@ git commit -m "feat(foundation): activate WAP spatial tile revisions"
 
 **Files:**
 - Create: `platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs`
-- Create: `platforms/foundation-platform/services/foundation-outbox-publisher/src/tile_derivative_object_storage.rs`
+- Create: `platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/tile_derivative_object_storage.rs`
 - Modify: `platforms/foundation-platform/services/foundation-outbox-publisher/src/{main.rs,main_command_tests.rs,r2_layout.rs}`
 - Modify: `scripts/tiles/{compose.yaml,martin-dynamic.yaml,martin-static.yaml,tiles-slice-proof.sh}`
 - Test: `platforms/foundation-platform/services/foundation-api/tests/tiles_slice_harness_contract.rs`

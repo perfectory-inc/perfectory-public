@@ -14,11 +14,12 @@ use axum::{
     Json, Router,
 };
 use foundation_contracts::data_catalog::{
-    DataCatalogEntity, DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood,
-    DataCatalogSearchPage, DataContractQuality, DataQualityCheck, DataQualityDetail,
-    DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink, DatasetSnapshots,
-    FailureCause, OperationsLinks, ScheduledJobDataset, ScheduledJobProblem, ScheduledJobRun,
-    ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
+    CiTimeTrend, CiWeek, DataCatalogEntity, DataCatalogEntityKind, DataCatalogField,
+    DataCatalogNeighbourhood, DataCatalogSearchPage, DataContractQuality, DataQualityCheck,
+    DataQualityDetail, DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink,
+    DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks, ScheduledJobDataset,
+    ScheduledJobProblem, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
+    ScheduledJobStatus, ScheduledJobsStatus, ServiceChecks,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -33,6 +34,7 @@ mod alerts;
 mod facts;
 mod health;
 mod operations;
+mod service_checks;
 mod snapshots;
 
 pub(super) use alerts::problem_metrics as scheduled_job_problem_metrics;
@@ -46,14 +48,15 @@ const MAX_NEIGHBOURS: u32 = 200;
     info(
         title = "Foundation Platform staff data catalog API",
         version = "1.0.0",
-        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165)."
+        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0209)."
     ),
     paths(
         search,
         entity,
         operations::scheduled_jobs,
         operations::quality_checks,
-        snapshots::dataset_snapshots
+        snapshots::dataset_snapshots,
+        service_checks::service_checks
     ),
     components(schemas(
         DataCatalogEntity,
@@ -78,6 +81,11 @@ const MAX_NEIGHBOURS: u32 = 200;
         DataQualityCheck,
         DataQualityResult,
         DataQualityDetail,
+        ServiceChecks,
+        EdgeCheck,
+        EdgeHostCheck,
+        CiTimeTrend,
+        CiWeek,
         ApiErrorResponse,
         InternalApiErrorResponse,
     )),
@@ -133,6 +141,10 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/dataset-snapshots",
             super::protected_route(get(snapshots::dataset_snapshots), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/service-checks",
+            super::protected_route(get(service_checks::service_checks), state, read, None),
         )
 }
 

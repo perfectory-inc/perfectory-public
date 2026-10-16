@@ -90,5 +90,6 @@ customProperties:
   - property: "upstreamDatasets"
     value:
       - "reference.legal_dong_code_snapshot"
+      - "serving-lineage-stewardship"
       - "silver.parcel_boundaries"
       - "silver.parcel_number_change_history"

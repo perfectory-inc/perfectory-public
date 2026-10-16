@@ -3,7 +3,8 @@
 # ADR-0173), sourced so it can be run against stand-ins. The caller defines
 #
 #   airflow <args...>   Airflow's CLI in the scheduler container
-#   jobs_of <which>     the job registry's lists: `enabled` ids, `started-once` "<service> <minutes>"
+#   jobs_of <which>     the job registry's lists: `enabled` ids, `started-once` "<service> <minutes>",
+#                       `deferred` ids of enabled jobs a release build kept from starting (root ADR-0260)
 #
 # start_once_then_unpause <sha>   steps 6 and 7. Starts once, with every DAG still paused, each job the
 #     registry marks `started_once_after_deploy`, then unpauses every enabled DAG whatever those runs
@@ -34,6 +35,18 @@ deploy_unpause_enabled() {
     airflow dags unpause "foundation_${id}" >/dev/null || return 1
   done
   echo "unpaused ${#enabled[@]} DAGs"
+  # A job that came due while the release built was not started; it is owed its run now (root
+  # ADR-0260). Its record goes when it starts, so a trigger that fails is tried by the next deploy.
+  local -a owed
+  mapfile -t owed < <(jobs_of deferred)
+  for id in "${owed[@]}"; do
+    [[ -n "${id}" ]] || continue
+    if airflow dags trigger "foundation_${id}" >/dev/null; then
+      echo "started foundation_${id}: it came due while the release built"
+    else
+      echo "foundation-deploy: could not start foundation_${id}, deferred while the release built; its next scheduled run starts it" >&2
+    fi
+  done
 }
 
 start_once_then_unpause() {

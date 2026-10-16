@@ -85,7 +85,7 @@ impl KnowledgeIndexPort for InMemoryKnowledgeIndex {
             .filter_map(|(_, indexed)| {
                 let haystack = format!(
                     "{} {}",
-                    indexed.chunk.heading_path.to_lowercase(),
+                    indexed.chunk.heading_path().to_lowercase(),
                     indexed.chunk.body.to_lowercase()
                 );
                 let score = terms
@@ -98,7 +98,7 @@ impl KnowledgeIndexPort for InMemoryKnowledgeIndex {
                         SearchHit {
                             source_id: indexed.chunk.source_id.clone(),
                             chunk_ordinal: indexed.chunk.chunk_ordinal,
-                            heading_path: indexed.chunk.heading_path.clone(),
+                            headings: indexed.chunk.headings.clone(),
                             body: indexed.chunk.body.clone(),
                             // 인메모리 어댑터는 문맥 복원을 하지 않는다. 테스트와
                             // loopback 개발용이며, 문맥 복원은 Postgres 스위트가 본다.
