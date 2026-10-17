@@ -175,3 +175,5 @@
     남았을 수 있다는 뜻이고, 그보다 적으면 그 실행이 남은 것을 다 골랐다.
   - 실패한 레인의 파일별 이유가 유닛 저널로 간다(ADR-0174 개정 기록).
 - 2026-10-14: ③의 토지 레인 `completeness` 시도 개수(17)는 [ADR-0248](./0248-vworld-land-lanes-take-their-sido-from-the-legal-dong-code-list.md) 가 대체했다. 시도 레인은 개수를 적지 않고 판 날짜의 법정동코드 목록(`reference.legal_dong_code_snapshot`) 시도를 덮는다. 위 결정 본문은 고치지 않았다.
+
+- 2026-10-18 주석: §3 의 덮어쓰기를 바뀐 키만 쌓기로 바꾸자는 제안이 검토 중이다 — [ADR-0275](./0275-silver-release-lanes-append-the-changed-keys-instead-of-overwriting.md) (Proposed). 승인 전까지 이 ADR 이 유효하다.
