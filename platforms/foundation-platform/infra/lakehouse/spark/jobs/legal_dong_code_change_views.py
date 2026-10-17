@@ -12,6 +12,8 @@ instead of storing its own copy:
   (`parcel_lineage.dong_pairing_from_changes`);
 - `renumbered_into`: which code a parcel attribute keyed under one side of a renumbering is
   served under (`parcel_panel_silver_to_gold.read_inputs`).
+- `region_pairs`: which 시도 codes a reorganization joins, for the section coverage bound
+  (`section_coverage.py`, root ADR-0272).
 
 Plain Python over plain rows, so the test lane without PySpark exercises every view. A row is a
 mapping with at least `kind`, `old_code`, `new_code`, `level`, `effective_date` and `source`, as the
@@ -72,6 +74,14 @@ def leaf_pairs(
                 continue
         out.setdefault(pair["old_code"], {}).setdefault(pair["new_code"], pair["source"])
     return out
+
+
+def region_pairs(rows: Iterable[Mapping[str, Any]], digits: int) -> list[tuple[str, str]]:
+    """Every (old region, new region) a recorded pair moves a code between, a region being the
+    code's first `digits` digits (2: the 시도). Pairs inside one region are not listed."""
+
+    return sorted({(pair["old_code"][:digits], pair["new_code"][:digits]) for pair in pair_rows(rows)
+                   if pair["old_code"][:digits] != pair["new_code"][:digits]})
 
 
 def _day(value: str | None) -> str:

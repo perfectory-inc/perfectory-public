@@ -332,12 +332,14 @@ class Outcome:
 
 def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pins: dict[str, str],
                    previous: dict[str, str] | None, target_table: str, validate_full: Callable,
-                   assert_minimum: Callable[[int, int | None], None]) -> Outcome:
+                   assert_minimum: Callable[[int, int | None], None], coverage: Any = None) -> Outcome:
     """The incremental plan when it applies, else the full build; checked, not yet written.
 
     The full build is the one the producer always ran: every input to `lane.build`, its quality
     gates, the expected count and the row floor. The incremental plan runs the same gates on the
-    rows it recomputed and the floor on the row count the merge will leave.
+    rows it recomputed and the floor on the row count the merge will leave. `coverage` (a
+    section_coverage.Guard, root ADR-0272) checks the sections the Gold will hold against the served
+    snapshot: the full build's, or the served counts with the affected PNUs' rows replaced.
     """
     from pyspark.storagelevel import StorageLevel
 
@@ -366,6 +368,10 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
                 if args.expected_count is not None and plan["row_count"] != args.expected_count:
                     raise ValueError(f"Expected {args.expected_count} Gold rows, the merge leaves {plan['row_count']}")
                 assert_minimum(plan["row_count"], args.minimum_count)
+                if coverage is not None:
+                    from section_coverage import merged_counts
+                    replaced = coverage.measure(current.join(plan["affected"], KEY, "left_semi"))
+                    coverage.check(merged_counts(coverage.served, replaced, coverage.measure(plan["recomputed"])))
             except BaseException:
                 plan["stages"].remove()
                 raise
@@ -379,6 +385,8 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     gold = lane.build(frames).persist(StorageLevel.DISK_ONLY)
     count, metrics = validate_full(gold, args.expected_count)
     assert_minimum(count, args.minimum_count)
+    if coverage is not None:
+        coverage.check(coverage.measure(gold))
     return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed,
                    appended_inputs=appended)
 
@@ -515,6 +523,7 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
     return {
         "source": source,
         "recomputed": recomputed,
+        "affected": affected,
         "counts": {
             "affected_pnus": affected_count,
             "parity_sample_pnus": sample_count,
