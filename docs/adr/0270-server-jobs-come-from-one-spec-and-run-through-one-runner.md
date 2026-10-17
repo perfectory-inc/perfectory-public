@@ -85,7 +85,7 @@
 | Airflow DAG·풀·자산 | `orchestration/dags/job_specs.py` 가 명세를 읽는 지금 방식 유지. `execution_timeout` = 상한 + 여유 |
 | 데이터 흐름 지도 노드 | `job-dependencies` 그대로 |
 
-생성기는 `cargo xtask jobs generate|check` 다(Rust). **작게 둔다**: 만드는 것은 위의 유닛·tmpfiles·sudoers
+생성기는 Foundation 크레이트 `foundation-jobs` 다(Rust, `cargo run -p foundation-jobs -- generate|check`; CI 검사는 그 크레이트의 시험). `cargo xtask` 가 아닌 이유: xtask 는 표준 라이브러리만 쓰는 규칙이라 JSON 명세를 읽지 못한다. 같은 명세 타입을 러너가 그대로 쓴다. **작게 둔다**: 만드는 것은 위의 유닛·tmpfiles·sudoers
 세 가지뿐이고, 템플릿 언어·플러그인·조건부 생성은 없다(GitLab 도 `all_queues.yml` 하나를 rake 작업 하나로 만들고 CI 가
 대조한다). Airflow DAG 파일은 Airflow 가 요구하므로 Python 으로 남아 명세를 **읽기만** 한다 — 생성물이 아니다.
 

@@ -54,7 +54,7 @@ last_reviewed: 2026-10-17
 | 단계 | 하는 일 | 끝났다의 기준(잴 수 있는 것) |
 |---|---|---|
 | 0 | 이 문서 | 사장 결정 |
-| 1 | 명세 v2 + 생성기(`cargo xtask jobs`) | 작업 유닛의 `TimeoutStartSec`·`ReadWritePaths` 를 손으로 쓴 곳 0개. 생성물을 손으로 고치면 CI 실패(심어서 확인) |
+| 1 | 명세 v2 + 생성기(`foundation-jobs` 크레이트) | 작업 유닛의 `TimeoutStartSec`·`ReadWritePaths` 를 손으로 쓴 곳 0개. 생성물을 손으로 고치면 CI 실패(심어서 확인) |
 | 2 | 러너를 작업 2개에 | 가벼운 1개·무거운 1개가 러너로 7일 연속 돌고, 결과 줄과 종료 코드가 다른 실행 0건 |
 | 2b | 운영자 스위치·늦은 회차·기다림 상한 | `pause`·`run-now`·`stop` 을 운영자가 sudo 없이 써서 기록이 남음(훈련 1회); `skipped late` 가 지도에 보임; `idempotent` 없는 작업의 재시도를 CI 가 거부(심어서 확인) |
 | 3 | 무거운 대기열 | `takes_turns` 칸 0개, "미뤄진 작업" 기록 0건, 빌드가 대기열로 자리를 얻음 |
