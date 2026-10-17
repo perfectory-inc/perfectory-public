@@ -9,6 +9,10 @@ on:
   pull_request:
     branches: [main]
   merge_group:
+  # A pull request verifies only the crates it reaches (root ADR-0269); every night
+  # main verifies every crate, as the merge queue does.
+  schedule:
+    - cron: "41 17 * * *"
   push:
     branches:
       - main
@@ -69,6 +73,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -154,7 +160,11 @@ jobs:
       # of an area without the other.
       - name: Verify (fmt, clippy, test)
         working-directory: ${{ github.workspace }}
-        run: cargo xtask verify foundation --part cargo
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: cargo xtask verify foundation --part cargo --affected
 
       - name: Verify exact static-release executable toolchain
         working-directory: ${{ github.workspace }}
@@ -402,6 +412,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Set dynamic database URL
@@ -459,7 +471,10 @@ jobs:
         env:
           FOUNDATION_PLATFORM_RUNTIME_ENV: ci
           FOUNDATION_PLATFORM_EXECUTION_CONTEXT: ci
-        run: cargo xtask integration foundation
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: cargo xtask integration foundation --affected
 
   kafka-integration:
     name: Kafka and Schema Registry integration tests
