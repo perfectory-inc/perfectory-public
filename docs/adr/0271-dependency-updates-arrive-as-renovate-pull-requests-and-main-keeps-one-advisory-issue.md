@@ -1,4 +1,4 @@
-# ADR 0270: 의존성 갱신은 Renovate PR 로 도착하고, main 의 Cargo 권고는 이슈 하나가 들고 있다
+# ADR 0271: 의존성 갱신은 Renovate PR 로 도착하고, main 의 Cargo 권고는 이슈 하나가 들고 있다
 
 - Status: Accepted
 - Date: 2026-10-17

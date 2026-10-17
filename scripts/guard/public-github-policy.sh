@@ -292,7 +292,7 @@ require(branch == {
     "target": "branch",
     "enforcement": "active",
     # The designated maintainer, and the hosted Renovate app (id 2740) that pushes renovate/**
-    # update branches (root ADR-0270); neither bypasses the main ruleset.
+    # update branches (root ADR-0271); neither bypasses the main ruleset.
     "bypass_actors": [{
         "actor_id": 253390842,
         "actor_type": "User",

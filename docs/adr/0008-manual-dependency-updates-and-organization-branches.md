@@ -38,4 +38,4 @@ last_reviewed: 2026-07-28
 
 개정 2026-10-07: "critical 보안 공지는 수동으로 즉시 PR 을 만든다"의 npm 처리 방식은 [ADR-0158](./0158-npm-overrides-have-one-source-and-a-new-advisory-arrives-as-a-prepared-change.md) 이 정한다(워크플로우가 변경을 준비하고, PR 은 여전히 유지보수자가 연다).
 
-개정 2026-10-17: 첫 결정(Dependabot·자동 보안 PR 미사용)은 [ADR-0270](./0270-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 이 고친다 — 갱신 PR 은 호스팅 Renovate 앱이 연다.
+개정 2026-10-17: 첫 결정(Dependabot·자동 보안 PR 미사용)은 [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 이 고친다 — 갱신 PR 은 호스팅 Renovate 앱이 연다.

@@ -108,7 +108,7 @@ for workflow in "${workflows[@]}"; do
 
   # Permission maps are intentionally tiny: one top-level contents: read map,
   # plus optional job-level copies of that same least-privilege map. One exception (root
-  # ADR-0270): the daily advisory workflow, schedule-only, may add issues: write to a job-level map
+  # ADR-0271): the daily advisory workflow, schedule-only, may add issues: write to a job-level map
   # so its last job keeps one issue in step with main; no other permission and no other file.
   issue_writer=0
   if [ "$(basename "$workflow")" = dependency-advisories.yml ] && awk '

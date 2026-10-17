@@ -458,7 +458,7 @@ scheduled_fixture scheduled-write
 sed -i 's/^  contents: read$/  contents: write/' "$test_root/scheduled-write/report.yml"
 expect_rejected scheduled-write-permission "$test_root/scheduled-write"
 
-# Root ADR-0270: only the schedule-only dependency-advisories.yml may add issues: write, and only
+# Root ADR-0271: only the schedule-only dependency-advisories.yml may add issues: write, and only
 # to a job-level map beside contents: read.
 issue_writer_fixture() {
   scheduled_fixture "$1"

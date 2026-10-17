@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves scripts/ci/cargo-advisories.sh can fail (root ADR-0270): a planted lockfile with a published
+# Proves scripts/ci/cargo-advisories.sh can fail (root ADR-0271): a planted lockfile with a published
 # advisory is refused and named, a clean one passes, and the issue step opens, rewrites only on new
 # findings, and closes. The fixture workspaces are written here, not tracked: a tracked Cargo.lock with
 # a vulnerable crate would fail the repository OSV ratchet and this script's own default scan.

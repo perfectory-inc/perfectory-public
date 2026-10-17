@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily RUSTSEC check of every Cargo workspace on main, and the one issue that carries it (root ADR-0270).
+# Daily RUSTSEC check of every Cargo workspace on main, and the one issue that carries it (root ADR-0271).
 # Prevents: a new advisory or yank reaching main without a commit and being found by an unrelated
 # pull request hours later (2026-10-16/17, zip twice).
 #
@@ -68,7 +68,7 @@ issue() {
     failure)
       body="$(mktemp)"
       {
-        printf 'The daily `cargo-deny check advisories` on main refused (root ADR-0270). Latest run: %s\n\n' "$run"
+        printf 'The daily `cargo-deny check advisories` on main refused (root ADR-0271). Latest run: %s\n\n' "$run"
         if [ -s "$summary" ]; then
           cat "$summary"
         else

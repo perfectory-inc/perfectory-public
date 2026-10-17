@@ -1,6 +1,6 @@
 name: dependency-advisories
 # A RUSTSEC advisory or a yank reaches main without a commit. This daily run finds it before an
-# unrelated pull request does and keeps one issue open while main refuses (root ADR-0270). It gates
+# unrelated pull request does and keeps one issue open while main refuses (root ADR-0271). It gates
 # no pull request. The fixes themselves arrive as Renovate pull requests (.github/renovate.json).
 on:
   schedule:
@@ -60,7 +60,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   # The only job that writes: issues, nothing else, on main only, after the check that read the
-  # crates has finished in another job (root ADR-0270).
+  # crates has finished in another job (root ADR-0271).
   issue:
     name: Advisory issue
     needs: [check]
