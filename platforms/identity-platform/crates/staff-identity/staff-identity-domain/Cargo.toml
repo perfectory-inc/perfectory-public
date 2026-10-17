@@ -15,3 +15,4 @@ chrono = { workspace = true }
 identity-shared-kernel = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+identity-workspace-hack.workspace = true

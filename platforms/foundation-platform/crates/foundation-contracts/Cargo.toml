@@ -18,3 +18,4 @@ utoipa = { workspace = true }
 uuid = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 catalog-domain = { workspace = true }
+foundation-workspace-hack.workspace = true

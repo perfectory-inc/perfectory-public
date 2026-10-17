@@ -16,6 +16,7 @@ thiserror = { workspace = true }
 geo-types = { workspace = true }
 regex = { workspace = true }
 utoipa = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 
 [lints]

@@ -32,3 +32,4 @@ lakehouse-domain = { workspace = true }
 catalog-application = { workspace = true }
 catalog-domain = { workspace = true }
 catalog-infrastructure = { workspace = true }
+foundation-workspace-hack.workspace = true

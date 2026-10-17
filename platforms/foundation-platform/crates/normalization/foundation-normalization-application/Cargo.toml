@@ -16,6 +16,7 @@ foundation-normalization-domain = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+foundation-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -15,6 +15,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 utoipa = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }

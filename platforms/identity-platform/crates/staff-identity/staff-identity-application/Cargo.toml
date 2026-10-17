@@ -18,6 +18,7 @@ identity-contracts = { workspace = true }
 identity-shared-kernel = { workspace = true }
 staff-identity-domain = { workspace = true }
 uuid = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -35,6 +35,7 @@ tracing = { workspace = true }
 geo-types = { workspace = true }
 serde_json = { workspace = true }
 bigdecimal = "0.4"
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

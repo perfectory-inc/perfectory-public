@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/gongzzang-workspace-hack",
     "crates/shared-kernel",
     "crates/user-domain",
     "crates/listing-domain",
@@ -57,6 +58,7 @@ print_stdout = "deny"
 print_stderr = "deny"
 
 [workspace.dependencies]
+gongzzang-workspace-hack = { path = "crates/gongzzang-workspace-hack" }
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 async-trait = "0.1"
 # SP-Obs T5: Sentry SDK — env-driven, silent disabled if no SENTRY_DSN

@@ -13,6 +13,7 @@ chrono = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -133,3 +133,20 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   걸린 크레이트 15개(단위 시간의 합)를 CI 요약(`$GITHUB_STEP_SUMMARY`)과 로그에 표로 찍는다. omicron 의
   빌드 분석처럼 보고일 뿐 판정이 아니다 — 보고서가 없으면 이유를 찍고 0 으로 끝난다. 시험:
   `scripts/ci/test_cargo_timings.py`(`required/repository` 가 돌린다), xtask 의 clippy 명령 단언.
+- 2026-10-17 (§7 hakari): 멤버가 둘 이상인 작업 공간 넷(foundation·gongzzang·identity·intelligence)에
+  `crates/<area>-workspace-hack` 과 `.config/hakari.toml`(omicron 의 `dep-format-version = "4"`,
+  `workspace-hack-line-style = "workspace-dotted"`, 리눅스·윈도 플랫폼)을 둔다. dawneer(멤버 하나)와
+  xtask(의존성 없음)는 묶을 것이 없다. `cargo xtask verify <area>` 가 omicron 의 두 검사
+  (`cargo hakari generate --diff`, `cargo hakari manage-deps --dry-run`)를 돌린다 — 의존성을 바꾼 뒤
+  `cargo hakari generate && cargo hakari manage-deps` 를 잊으면 실패다. 판과 체크섬은
+  `tools/cargo-hakari.env`(GitHub 이 공개한 자산 다이제스트와 같다)와 `tools/pinned-artifacts.json`.
+  - hakari 는 `cargo build --workspace --all-targets` 의 기능 집합을 모든 멤버에 묶으므로, 운영
+    이미지(`cargo build --release -p <서비스>`)의 의존성 기능도 바뀐다. 서비스 8개의 `cargo tree` 를
+    전후로 비교해 운영 동작이 바뀌는 것은 묶음에서 뺐다(`final-excludes`): rustls 와 그 백엔드
+    (`ring`·`aws-lc-rs` 가 둘 다 켜지면 rustls 가 기본 공급자를 고르지 못한다 — 코드는 공급자를 직접
+    고르지 않는다), DuckDB 번들 빌드, intelligence 의 한국어 사전(`build_rs` 가 받아 푼다).
+  - 남는 변화는 순수 Rust 크레이트의 기능 추가뿐이다: tokio(`macros`·`signal`·`process` 등, gongzzang
+    두 바이너리에 개발 의존성의 `test-util`), regex-automata 의 유니코드 기능, futures 의 async-await.
+    hakari 에는 개발 의존성을 빼는 설정이 없다(omicron·RisingWave 도 같은 값을 치른다).
+  - 시험: xtask `every_multi_member_workspace_keeps_a_workspace_hack`; 낡은 workspace-hack(한 줄
+    지움)은 `generate --diff` 가, 의존 줄이 빠진 멤버는 `manage-deps --dry-run` 이 종료 코드 1 로 거부했다.

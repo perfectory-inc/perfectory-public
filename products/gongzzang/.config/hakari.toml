@@ -1,0 +1,27 @@
+# cargo-hakari settings (root ADR-0269). `cargo xtask verify gongzzang` refuses a workspace-hack
+# crate that `cargo hakari generate --diff` would change, or a member that does not depend on it.
+# Every member then builds the third-party crates with one feature set, whichever members a run
+# selects: `-p` on a pull request and `--workspace` on main reuse the same dependency builds.
+hakari-package = "gongzzang-workspace-hack"
+dep-format-version = "4"
+workspace-hack-line-style = "workspace-dotted"
+resolver = "2"
+# CI and the servers are Linux; the laptops and one Foundation CI job are Windows.
+platforms = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+# Left out of the unified set, so every service still links exactly the crypto backend and the
+# native libraries its own manifest asks for: rustls with both `ring` and `aws-lc-rs` cannot pick a
+# default provider, and DuckDB's bundled C++ build belongs only to the crates that query it.
+[final-excludes]
+third-party = [
+    { name = "aws-lc-rs" },
+    { name = "aws-lc-sys" },
+    { name = "hyper-rustls" },
+    { name = "ring" },
+    { name = "rustls" },
+    { name = "rustls-webpki" },
+    { name = "tokio-rustls" },
+]
