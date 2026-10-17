@@ -115,3 +115,5 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
 - `required/repository` 잡의 제한 시간을 20분으로 늘렸다(실패 시 lock 재생성이 컨테이너 이미지를 내려받는다).
   예약 실행은 하루 한 번 저장소 가드 전체를 돈다.
 - 남은 일: C 경로(소유자 결정), 차등 판정 ADR, Cargo 권고의 같은 처리(지금은 보고서만 남는다).
+
+개정 2026-10-17: 위 평가 A 행과 "남은 일: Cargo 권고의 같은 처리"는 [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 이 이어받는다(Renovate 가 계약을 읽어 PR 을 열고, main 의 Cargo 권고는 매일 검사해 이슈 하나가 든다).

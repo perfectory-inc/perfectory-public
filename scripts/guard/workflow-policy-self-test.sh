@@ -458,6 +458,35 @@ scheduled_fixture scheduled-write
 sed -i 's/^  contents: read$/  contents: write/' "$test_root/scheduled-write/report.yml"
 expect_rejected scheduled-write-permission "$test_root/scheduled-write"
 
+# Root ADR-0271: only the schedule-only dependency-advisories.yml may add issues: write, and only
+# to a job-level map beside contents: read.
+issue_writer_fixture() {
+  scheduled_fixture "$1"
+  mv "$test_root/$1/report.yml" "$test_root/$1/${2:-dependency-advisories.yml}"
+  sed -i 's/^    runs-on: ubuntu-24.04$/    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n      issues: write/' \
+    "$test_root/$1/${2:-dependency-advisories.yml}"
+}
+issue_writer_fixture issue-writer
+if ! "$checker" "$test_root/issue-writer" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the advisory workflow's job-level issues: write" >&2
+  exit 1
+fi
+issue_writer_fixture issue-writer-other-file other-report.yml
+expect_rejected issue-write-in-another-workflow "$test_root/issue-writer-other-file"
+issue_writer_fixture issue-writer-push
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/issue-writer-push/dependency-advisories.yml"
+expect_rejected issue-write-with-push-trigger "$test_root/issue-writer-push"
+issue_writer_fixture issue-writer-top-level
+sed -i 's/^  contents: read$/  contents: read\n  issues: write/' "$test_root/issue-writer-top-level/dependency-advisories.yml"
+expect_rejected issue-write-at-top-level "$test_root/issue-writer-top-level"
+issue_writer_fixture issue-writer-pull-requests
+sed -i 's/^      issues: write$/      pull-requests: write/' "$test_root/issue-writer-pull-requests/dependency-advisories.yml"
+expect_rejected pull-request-write-in-advisory-workflow "$test_root/issue-writer-pull-requests"
+issue_writer_fixture issue-writer-contents
+sed -i 's/^      contents: read$/      contents: write/' "$test_root/issue-writer-contents/dependency-advisories.yml"
+expect_rejected contents-write-in-advisory-workflow "$test_root/issue-writer-contents"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \
