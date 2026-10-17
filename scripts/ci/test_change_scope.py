@@ -364,7 +364,8 @@ class CratesTest(unittest.TestCase):
         source = "platforms/ws/tools/tool/tests/one_caller.rs"
         (root / source).parent.mkdir(parents=True)
         (root / source).write_text(
-            'for top in ["crates", "services", "unrelated"] {}\n// "tools" in a comment is no read\n',
+            'for top in ["crates", "services", "unrelated"] {}\n// "tools" in a comment is no read\n'
+            'let doc = json!({"tools": {}}); let image = &doc["tools"]["x"];\n',
             encoding="utf-8",
         )
         reads = cs.member_reads(root, self.WS, self.MEMBERS, [source])

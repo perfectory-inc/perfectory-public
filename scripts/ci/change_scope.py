@@ -375,8 +375,10 @@ def owning_member(members: dict[str, tuple[str, set[str]]], path: str) -> str | 
     return max(owners)[1] if owners else None
 
 
-# A quoted bare word: `for root in ["crates", "services"]` walks every member below those folders.
-QUOTED_WORD = re.compile(r"""["']([\w-]+)["']""")
+# A quoted bare word passed on as a value: `for root in ["crates", "services"]`, `join("crates")`
+# walk every member below those folders. A JSON key (`"services": …`) or an index
+# (`value["services"]`) names no folder.
+QUOTED_WORD = re.compile(r"""(?<![\w)\]]\[)["']([\w-]+)["'](?=\s*[,\])])""")
 
 
 def member_reads(
