@@ -1471,8 +1471,6 @@ dependencies = [
  "getrandom 0.4.3",
  "http",
  "httparse",
- "hyper",
- "hyper-util",
  "libc",
  "log",
  "memchr",

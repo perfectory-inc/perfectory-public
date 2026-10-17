@@ -1084,8 +1084,6 @@ dependencies = [
  "futures-channel",
  "futures-sink",
  "futures-util",
- "hyper",
- "hyper-util",
  "indexmap",
  "libc",
  "log",

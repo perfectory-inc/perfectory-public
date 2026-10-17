@@ -24,8 +24,6 @@ form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-sink = { version = "0.3" }
 futures-util = { version = "0.3", default-features = false, features = ["async-await-macro", "channel", "io", "sink"] }
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["http1", "http2", "server", "service", "tokio"] }
 indexmap = { version = "2", features = ["serde"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
@@ -77,7 +75,6 @@ tracing-core = { version = "0.1" }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy"] }
 libc = { version = "0.2" }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 tower = { version = "0.5", default-features = false, features = ["limit", "log", "make", "retry", "timeout"] }
@@ -86,7 +83,6 @@ tower = { version = "0.5", default-features = false, features = ["limit", "log",
 libc = { version = "0.2" }
 
 [target.x86_64-pc-windows-msvc.dependencies]
-hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 tower = { version = "0.5", default-features = false, features = ["limit", "log", "make", "retry", "timeout"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }

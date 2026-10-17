@@ -2156,8 +2156,6 @@ dependencies = [
  "hashbrown 0.17.1",
  "http 1.5.0",
  "httparse",
- "hyper",
- "hyper-util",
  "indexmap",
  "libc",
  "log",

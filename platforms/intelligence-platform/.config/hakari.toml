@@ -12,15 +12,23 @@ platforms = [
     "x86_64-pc-windows-msvc",
 ]
 
-# Left out of the unified set, so every service still links exactly the crypto backend and the
-# native libraries its own manifest asks for: rustls with both `ring` and `aws-lc-rs` cannot pick a
-# default provider, and the Korean dictionary build (`build_rs` downloads and unpacks it) belongs
-# only to the crate that tokenizes.
+# Left out of the unified set, so every service still builds these with exactly the features its own
+# manifest asks for (root ADR-0269, measured with `cargo tree -p <service>` before and after):
+# - rustls and its backends: with both `ring` and `aws-lc-rs` on, rustls cannot pick a default
+#   crypto provider, and no code here installs one;
+# - hyper, hyper-util and h2: hyper-util's auto connection builder serves cleartext HTTP/2 to anyone
+#   who sends its preface once `http2` is compiled in, so every axum server would accept a protocol
+#   it refuses today;
+# - DuckDB's bundled C++ build and the Korean dictionary download (`build_rs`) belong only to the
+#   crates that query or tokenize.
 [final-excludes]
 third-party = [
     { name = "aws-lc-rs" },
     { name = "aws-lc-sys" },
+    { name = "h2" },
+    { name = "hyper" },
     { name = "hyper-rustls" },
+    { name = "hyper-util" },
     { name = "lindera" },
     { name = "lindera-dictionary" },
     { name = "lindera-ko-dic" },

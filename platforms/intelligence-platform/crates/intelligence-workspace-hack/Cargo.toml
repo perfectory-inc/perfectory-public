@@ -29,8 +29,6 @@ futures-sink = { version = "0.3" }
 futures-util = { version = "0.3", default-features = false, features = ["async-await-macro", "channel", "io", "sink"] }
 http = { version = "1" }
 httparse = { version = "1" }
-hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "server-auto", "service"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-traits = { version = "0.2", default-features = false, features = ["i128", "std"] }
@@ -92,7 +90,6 @@ uuid = { version = "1", features = ["serde", "v4"] }
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2" }
 rand = { version = "0.9" }
 tower = { version = "0.5", default-features = false, features = ["retry"] }
@@ -106,7 +103,6 @@ libc = { version = "0.2" }
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
 rand = { version = "0.9" }
 tower = { version = "0.5", default-features = false, features = ["retry"] }
 tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }

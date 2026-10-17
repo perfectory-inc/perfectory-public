@@ -141,10 +141,13 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   `cargo hakari generate && cargo hakari manage-deps` 를 잊으면 실패다. 판과 체크섬은
   `tools/cargo-hakari.env`(GitHub 이 공개한 자산 다이제스트와 같다)와 `tools/pinned-artifacts.json`.
   - hakari 는 `cargo build --workspace --all-targets` 의 기능 집합을 모든 멤버에 묶으므로, 운영
-    이미지(`cargo build --release -p <서비스>`)의 의존성 기능도 바뀐다. 서비스 8개의 `cargo tree` 를
-    전후로 비교해 운영 동작이 바뀌는 것은 묶음에서 뺐다(`final-excludes`): rustls 와 그 백엔드
-    (`ring`·`aws-lc-rs` 가 둘 다 켜지면 rustls 가 기본 공급자를 고르지 못한다 — 코드는 공급자를 직접
-    고르지 않는다), DuckDB 번들 빌드, intelligence 의 한국어 사전(`build_rs` 가 받아 푼다).
+    이미지(`cargo build --release -p <서비스>`)의 의존성 기능도 바뀐다. 운영 바이너리 10개(foundation
+    2·identity 4·gongzzang 2·intelligence 2)의 `cargo tree -e normal,build --target
+    x86_64-unknown-linux-gnu` 를 main 과 비교해, 동작이 바뀌는 것은 묶음에서 뺐다(`final-excludes`):
+    rustls 와 그 백엔드(`ring`·`aws-lc-rs` 가 둘 다 켜지면 rustls 가 기본 공급자를 고르지 못한다),
+    hyper·hyper-util·h2(hyper-util 의 자동 연결 빌더는 `http2` 가 컴파일되면 HTTP/2 서두를 보낸 누구에게나
+    평문 HTTP/2 를 열어 준다 — axum 서버 셋이 지금 거부하는 프로토콜을 받게 된다), DuckDB 번들 빌드,
+    intelligence 의 한국어 사전(`build_rs` 가 받아 푼다).
   - 남는 변화는 순수 Rust 크레이트의 기능 추가뿐이다: tokio(`macros`·`signal`·`process` 등, gongzzang
     두 바이너리에 개발 의존성의 `test-util`), regex-automata 의 유니코드 기능, futures 의 async-await.
     hakari 에는 개발 의존성을 빼는 설정이 없다(omicron·RisingWave 도 같은 값을 치른다).
