@@ -472,7 +472,7 @@ if ! "$checker" "$test_root/issue-writer" "$test_root/ruleset.json" "$test_root/
   echo "FAIL workflow-policy-self-test: rejected the advisory workflow's job-level issues: write" >&2
   exit 1
 fi
-issue_writer_fixture issue-writer-other-file report.yml
+issue_writer_fixture issue-writer-other-file other-report.yml
 expect_rejected issue-write-in-another-workflow "$test_root/issue-writer-other-file"
 issue_writer_fixture issue-writer-push
 sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/issue-writer-push/dependency-advisories.yml"
