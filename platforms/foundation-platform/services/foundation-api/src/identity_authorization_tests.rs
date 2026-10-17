@@ -430,7 +430,8 @@ async fn identity_policy_timeout_returns_service_unavailable_through_router(
             "trace_id": "trace-policy-timeout"
         })))
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(100)))
-        .expect(2)
+        // Timed out, not re-sent: only a request that never reached Identity is retried.
+        .expect(1)
         .mount(&identity)
         .await;
     let verifier = IdentityTokenVerifier::new(
@@ -800,7 +801,8 @@ async fn identity_request_timeout_fails_closed() -> Result<(), Box<dyn Error>> {
     Mock::given(method("POST"))
         .and(path("/identity/v1/policy/decisions"))
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(200)))
-        .expect(2)
+        // A request Identity is still working on is not sent again.
+        .expect(1)
         .mount(&identity)
         .await;
     let client = HttpIdentityClient::new(
@@ -820,6 +822,54 @@ async fn identity_request_timeout_fails_closed() -> Result<(), Box<dyn Error>> {
         .await;
 
     assert_eq!(result, Err(IdentityAuthorizationError::Unavailable));
+    Ok(())
+}
+
+/// 2026-10-17: Dawneer's review list answered 503 in 0.5-1 s while Identity was healthy. The
+/// policy decision was cut at one fifth of the authorization budget (400 ms of 2 s) and sent
+/// again, so a staff decision that took longer than a slice failed though the budget had time.
+#[tokio::test]
+async fn a_policy_decision_slower_than_a_budget_slice_is_answered_within_the_budget(
+) -> Result<(), Box<dyn Error>> {
+    let zitadel = MockServer::start().await;
+    mount_zitadel_metadata(&zitadel).await;
+    let identity = MockServer::start().await;
+    let principal_id = Uuid::now_v7();
+    Mock::given(method("POST"))
+        .and(path("/identity/v1/policy/decisions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(600))
+                .set_body_json(json!({
+                    "principal_id": principal_id,
+                    "decision": "allow",
+                    "reason_code": "staff_role",
+                    "evaluated_at": Utc::now(),
+                })),
+        )
+        .expect(1)
+        .mount(&identity)
+        .await;
+    let authorization = crate::state::http_identity_authorization(
+        zitadel.uri(),
+        TEST_AUDIENCE.to_owned(),
+        identity.uri(),
+        Duration::from_secs(2),
+    )?;
+    let token = signed_token(&zitadel.uri(), "staff")?;
+
+    let principal = authorization
+        .authorize(
+            &token,
+            RequiredPrincipalKind::Staff,
+            "foundation.lineage",
+            "review",
+            None,
+            "trace-slow-decision",
+        )
+        .await?;
+
+    assert_eq!(principal.principal_id, principal_id);
     Ok(())
 }
 
