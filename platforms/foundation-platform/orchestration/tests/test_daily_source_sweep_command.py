@@ -270,8 +270,10 @@ class SweepCommand(unittest.TestCase):
         self.assertTrue(default.startswith("/data/"), "the spool is on the data disk, not the small root disk")
         self.assertTrue(any(default == w or default.startswith(w.rstrip("/") + "/") for w in writable),
                         (default, writable))
-        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
-        self.assertTrue(any(w in release for w in writable if w.startswith("/data/")),
+        # The release makes it from the job list's state_directories (test_job_state_directories).
+        made = {entry["path"] for entry in json.loads(
+            (PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["state_directories"]}
+        self.assertTrue(any(w in made for w in writable if w.startswith("/data/")),
                         "the release creates the unit's data-disk path")
 
     def test_a_quiet_day_leaves_a_line_and_no_message(self):

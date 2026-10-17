@@ -57,8 +57,9 @@ class TheUnit(unittest.TestCase):
         script = re.search(r"SILVER_REFRESH_STATE_ROOT:-([^}]+)\}", SCRIPT.read_text(encoding="utf-8")).group(1)
         self.assertTrue(script.startswith("/data/"), "the root disk is small")
         self.assertEqual(unit_lines("ReadWritePaths"), [script])
-        release = RELEASE.read_text(encoding="utf-8")
-        self.assertRegex(release, rf"install -d -o foundation-platform -g foundation-platform -m 2770 {re.escape(script)}\n")
+        # The release makes it from the job list's state_directories (test_job_state_directories).
+        made = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["state_directories"]
+        self.assertIn({"path": script, "mode": "2770"}, made)
 
     def test_the_release_admits_the_unit_because_its_lanes_are_jobs(self):
         # foundation-release.sh installs the release admission of every listed job's service,
