@@ -166,11 +166,26 @@ jobs:
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: cargo xtask verify foundation --part cargo --affected
 
+      # On a pull request only when the publisher is among the crates it verifies (root
+      # ADR-0269): verify no longer builds the publisher otherwise, and compiling it here ran
+      # past the 300 s limit below (#673). Every other event still runs it; a change to the
+      # installer alone is the Windows job's gate on pull requests.
       - name: Verify exact static-release executable toolchain
         working-directory: ${{ github.workspace }}
         shell: bash
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: |
           set -euo pipefail
+          selected=0
+          python3 scripts/ci/change_scope.py crates --workspace platforms/foundation-platform \
+            --includes foundation-outbox-publisher || selected=$?
+          if [ "$selected" -eq 3 ]; then
+            exit 0
+          fi
+          [ "$selected" -eq 0 ] || exit "$selected"
           tool_directory="$RUNNER_TEMP/static-release-toolchain"
           python3 scripts/tiles/static_release_toolchain_contract.py install \
             --destination "$tool_directory" --platform linux-x86_64 --timeout-seconds 30
