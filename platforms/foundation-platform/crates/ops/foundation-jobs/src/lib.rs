@@ -4,8 +4,10 @@
 //! are rendered from the list, and this crate's test refuses a committed unit that says anything
 //! else. Today that is the unit's `TimeoutStartSec=` line, from the job's `time_limit_minutes`, and
 //! the `ReadWritePaths=` line of a `ProtectSystem=strict` unit, from its `state_paths` (root ADR-0266).
+//! It also renders the host's `tmpfiles.d` file that creates the job state directories, with their
+//! mode and owner, before any unit or container uses them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Deserialize;
@@ -28,6 +30,10 @@ pub const JOB_UNIT_LINES: &[&str] = &[
     "ProtectHome=true",
     "ProtectSystem=strict",
 ];
+/// The generated `tmpfiles.d` file, relative to the platform root.
+pub const TMPFILES: &str = "infra/tmpfiles/foundation-job-state.conf";
+/// The account and group that own every job state directory.
+pub const STATE_OWNER: &str = "foundation-platform";
 /// What a reader of the units is told when one differs from its rendering.
 pub const GENERATE: &str =
     "cargo run -p foundation-jobs -- generate (from platforms/foundation-platform)";
@@ -37,6 +43,19 @@ pub const GENERATE: &str =
 pub struct JobList {
     /// Every scheduled job.
     pub jobs: Vec<Job>,
+    /// Every directory the host makes for the jobs, with its mode.
+    pub state_directories: Vec<StateDirectory>,
+    /// Job state paths this list does not make, each with why.
+    pub state_paths_not_created_here: BTreeMap<String, String>,
+}
+
+/// A directory the host makes for the jobs, owned by [`STATE_OWNER`].
+#[derive(Debug, Deserialize)]
+pub struct StateDirectory {
+    /// The directory, absolute.
+    pub path: String,
+    /// Its octal mode, four digits (`0755`, `2770`, `0777`).
+    pub mode: String,
 }
 
 /// One job, as far as rendering reads it.
@@ -227,6 +246,96 @@ pub fn job_unit_line_problems(file: &str, unit: &str) -> Vec<String> {
         .collect()
 }
 
+/// Every way the state directories disagree with the jobs' `state_paths`. Empty is a pass.
+///
+/// Each job state path is a state directory or is named in `state_paths_not_created_here`; each
+/// state directory is a job state path or lies under one; a mode is four octal digits.
+#[must_use]
+pub fn state_directory_problems(list: &JobList) -> Vec<String> {
+    let state_paths: BTreeSet<&str> = list
+        .jobs
+        .iter()
+        .flat_map(|job| job.state_paths.iter().map(String::as_str))
+        .collect();
+    let mut problems = Vec::new();
+    let mut seen = BTreeSet::new();
+    for directory in &list.state_directories {
+        let path = directory.path.as_str();
+        if !seen.insert(path) {
+            problems.push(format!("{path}: listed twice in state_directories"));
+        }
+        let mode = directory.mode.as_bytes();
+        if mode.len() != 4 || !mode.iter().all(|digit| (b'0'..=b'7').contains(digit)) {
+            problems.push(format!(
+                "{path}: mode {} is not four octal digits",
+                directory.mode
+            ));
+        }
+        let under_a_state_path = state_paths
+            .iter()
+            .any(|state| path == *state || path.starts_with(&format!("{state}/")));
+        if !under_a_state_path {
+            problems.push(format!(
+                "{path}: a state directory under no job's state_paths"
+            ));
+        }
+    }
+    for path in &state_paths {
+        let made = seen.contains(path);
+        let named = list.state_paths_not_created_here.contains_key(*path);
+        if made == named {
+            problems.push(format!(
+                "{path}: a job state path must be in state_directories or in state_paths_not_created_here, not {}",
+                if made { "both" } else { "neither" }
+            ));
+        }
+    }
+    for path in list.state_paths_not_created_here.keys() {
+        if !state_paths.contains(path.as_str()) {
+            problems.push(format!(
+                "{path}: in state_paths_not_created_here but no job's state path"
+            ));
+        }
+    }
+    problems
+}
+
+/// The `tmpfiles.d` file that makes every state directory with its mode and owner. `d` creates a
+/// missing directory and sets the mode and owner of one that exists; no age, so nothing is cleaned.
+///
+/// # Errors
+/// Every [`state_directory_problems`] problem.
+pub fn render_tmpfiles(list: &JobList) -> Result<String, Vec<String>> {
+    let problems = state_directory_problems(list);
+    if !problems.is_empty() {
+        return Err(problems);
+    }
+    let mut out = format!(
+        "# Generated from orchestration/jobs.v1.json state_directories (root ADR-0270 §1); do not edit.\n\
+         # Run: {GENERATE}\n"
+    );
+    out.extend(list.state_directories.iter().map(|directory| {
+        format!(
+            "d {} {} {STATE_OWNER} {STATE_OWNER} -\n",
+            directory.path, directory.mode
+        )
+    }));
+    Ok(out)
+}
+
+/// Every way the committed `tmpfiles.d` file differs from the job list. Empty is a pass.
+#[must_use]
+pub fn check_tmpfiles(list: &JobList, committed: Result<String, String>) -> Vec<String> {
+    match (render_tmpfiles(list), committed) {
+        (Err(problems), _) => problems,
+        (Ok(_), Err(error)) => vec![format!("{TMPFILES}: {error}")],
+        (Ok(rendered), Ok(committed)) if rendered != committed => vec![format!(
+            "{TMPFILES}: is not what the job list's state_directories say; run: {GENERATE}"
+        )],
+        (Ok(_), Ok(_)) => Vec::new(),
+    }
+}
+
 /// One job unit: what its file holds now and what the job list says it should hold.
 #[derive(Debug)]
 pub struct Unit {
@@ -363,6 +472,8 @@ mod tests {
 
     fn list(jobs: &[(&str, &str, u32)]) -> JobList {
         JobList {
+            state_directories: Vec::new(),
+            state_paths_not_created_here: BTreeMap::new(),
             jobs: jobs
                 .iter()
                 .map(|(id, service, minutes)| Job {
@@ -378,6 +489,76 @@ mod tests {
 
     fn paths(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    fn with_state(
+        paths_of_job: &[&str],
+        directories: &[(&str, &str)],
+        elsewhere: &[&str],
+    ) -> JobList {
+        let mut jobs = list(&[("a", "a.service", 150)]);
+        if let Some(job) = jobs.jobs.first_mut() {
+            job.state_paths = paths(paths_of_job);
+        }
+        jobs.state_directories = directories
+            .iter()
+            .map(|(path, mode)| StateDirectory {
+                path: (*path).to_owned(),
+                mode: (*mode).to_owned(),
+            })
+            .collect();
+        jobs.state_paths_not_created_here = elsewhere
+            .iter()
+            .map(|path| ((*path).to_owned(), "made by Docker".to_owned()))
+            .collect();
+        jobs
+    }
+
+    #[test]
+    fn the_tmpfiles_file_makes_each_state_directory_with_its_mode() -> TestResult {
+        let jobs = with_state(
+            &["/a", "/b"],
+            &[("/a", "0755"), ("/a/lake", "0777")],
+            &["/b"],
+        );
+        let rendered = render_tmpfiles(&jobs).map_err(|problems| problems.join("; "))?;
+        assert!(
+            rendered.contains("\nd /a 0755 foundation-platform foundation-platform -\n"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.ends_with("\nd /a/lake 0777 foundation-platform foundation-platform -\n"),
+            "{rendered}"
+        );
+        assert_eq!(
+            check_tmpfiles(&jobs, Ok(rendered.clone())),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            check_tmpfiles(&jobs, Ok(rendered.replace("0777", "0755"))).len(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_state_path_nobody_makes_is_refused() {
+        // #625's class: a path a unit or container uses that the host never made.
+        let jobs = with_state(&["/a", "/b"], &[("/a", "0755")], &[]);
+        assert!(state_directory_problems(&jobs)
+            .iter()
+            .any(|problem| problem.starts_with("/b:")));
+    }
+
+    #[test]
+    fn a_directory_outside_every_state_path_a_bad_mode_and_a_stale_exception_are_refused() {
+        let jobs = with_state(
+            &["/a"],
+            &[("/a", "755"), ("/elsewhere", "0755")],
+            &["/gone"],
+        );
+        let problems = state_directory_problems(&jobs);
+        assert_eq!(problems.len(), 3, "{problems:?}");
     }
 
     #[test]
