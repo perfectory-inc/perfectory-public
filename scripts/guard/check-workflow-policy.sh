@@ -297,6 +297,8 @@ for workflow in "${workflows[@]}"; do
   # pnpm and Node with its pnpm cache are skipped the same way when Foundation's suites job finds
   # that a pull request reaches no suite (root ADR-0269): no store exists, and setup-node's post
   # step would fail the job or save an empty store under the lockfile's key (#683).
+  # The pnpm store is restored on every ref and saved from main only (root ADR-0269): setup-node's
+  # own cache saved a copy under each merge-queue branch that no later run could read.
   # The docs checks carry `!cancelled()` so one CI round reports every failing
   # document check instead of stopping at the first; that condition only widens
   # execution and the job still fails on any of them. The job-summary step
@@ -328,6 +330,9 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Rust cache" && step_if == foundation_gate) \
         || (step_name == "Set up pnpm" && step_if == foundation_gate) \
         || (step_name == "Set up Node" && step_if == foundation_gate) \
+        || (step_name == "Locate pnpm store" && step_if == foundation_gate) \
+        || (step_name == "Restore pnpm store" && step_if == foundation_gate) \
+        || (step_name == "Save pnpm store" && step_if == main_only) \
         || (step_name == "Fill pinned release binaries" && step_if == cache_writer) \
         || (step_name == "Save pinned release binaries" && step_if == cache_writer) \
         || (step_name == "Stash workspace build" && step_if == main_only) \
