@@ -1,14 +1,16 @@
 //! `foundation-jobs check | generate [<platform root>]` (root ADR-0270 §1).
 //!
-//! `check` lists every way the committed job units differ from the job list and fails if any does;
-//! `generate` rewrites the units that differ. The platform root defaults to the current directory
+//! `check` lists every way the committed job units and the job state `tmpfiles.d` file differ from
+//! the job list and fails if any does; `generate` rewrites what differs. The platform root defaults to the current directory
 //! (run it from `platforms/foundation-platform`).
 
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use foundation_jobs::{check, render, JobList, UNIT_DIR};
+use foundation_jobs::{
+    check, check_tmpfiles, render, render_tmpfiles, JobList, TMPFILES, UNIT_DIR,
+};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -28,7 +30,11 @@ fn main() -> ExitCode {
         |file: &str| std::fs::read_to_string(units.join(file)).map_err(|error| error.to_string());
     match args.first().map(String::as_str) {
         Some("check") => {
-            let problems = check(&list, &read);
+            let mut problems = check(&list, &read);
+            problems.extend(check_tmpfiles(
+                &list,
+                std::fs::read_to_string(root.join(TMPFILES)).map_err(|error| error.to_string()),
+            ));
             for problem in &problems {
                 let _ = writeln!(err, "{problem}");
             }
@@ -53,7 +59,21 @@ fn main() -> ExitCode {
                     }
                     let _ = writeln!(err, "rendered {}", unit.file);
                 }
-                ExitCode::SUCCESS
+                match render_tmpfiles(&list) {
+                    Ok(rendered) => {
+                        if let Err(error) = std::fs::write(root.join(TMPFILES), rendered) {
+                            let _ = writeln!(err, "{TMPFILES}: {error}");
+                            return ExitCode::FAILURE;
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(problems) => {
+                        for problem in &problems {
+                            let _ = writeln!(err, "{problem}");
+                        }
+                        ExitCode::FAILURE
+                    }
+                }
             }
         },
         _ => {

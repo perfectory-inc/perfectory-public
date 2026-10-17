@@ -349,6 +349,7 @@ PY
     atomic_link "${current_target}" "${release_root}/previous"
   fi
   atomic_link "${next_target}" "${release_root}/current"
+  prepare_job_state_directories
 }
 
 # A release is a tree rooted at platforms/foundation-platform, and this is where that is
@@ -1189,6 +1190,20 @@ prepare_spark_tmp() {
     "${release_root}/current/config/host-layout.contract.json")"
 }
 
+# The job state directories, each with its owner and mode, before any unit or container uses one
+# (orchestration/jobs.v1.json state_directories, rendered by foundation-jobs; root ADR-0270 §1). On
+# 2026-10-15 a directory made only in `timers` was mounted by `migrate` first, Docker made it root
+# 0755, and every deploy stopped (#625). `d` makes a missing directory and resets the owner and mode
+# of one that exists; the file also goes to /etc/tmpfiles.d, so a reboot makes them again. A release
+# from before the file made them in `timers` itself.
+prepare_job_state_directories() {
+  local conf="${release_root}/current/infra/tmpfiles/foundation-job-state.conf"
+  [[ -f "${conf}" ]] || return 0
+  install -d -o root -g root -m 0755 /etc/tmpfiles.d
+  install -o root -g root -m 0644 -t /etc/tmpfiles.d "${conf}"
+  systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf
+}
+
 install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
@@ -1394,38 +1409,9 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
         print(job["systemd_timer"])
 ' "${jobs_file}")
     install_scheduler_access "${jobs_file}" "${2:-}"
-    # Working directories the fold and the stewardship cycle write, whoever starts them. Their
-    # lakehouse workspaces are written by the Spark container too (uid 185), so they are 0777:
-    # the stewardship one was made 0755 by the script itself, Spark's write check refused it, and
-    # the cycle failed at its first step on every run (found 2026-10-01). The fold's had been
-    # made 0777 by hand from its runbook.
-    install -d -o foundation-platform -g foundation-platform \
-      /var/lib/foundation-platform/map-edit-fold /var/lib/foundation-platform/lineage-stewardship
-    # The legal-dong code collection writes its handoffs here, and the stewardship cycle, which loads
-    # them, names it in ReadWritePaths: systemd refuses to start a unit whose path is missing
-    # (root ADR-0143).
-    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/legal-dong-code
-    # The cadastral edition check keeps its runs and proposed contract entries here (root ADR-0148).
-    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/vworld-parcel-edition
-    # Like legal-dong-code above, for the 필지고유번호변동연혁 collection's handoffs (root ADR-0150): the stewardship
-    # cycle loads them and names the path, so it must exist before that unit next starts.
-    install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/parcel-number-change
-    install -d -o foundation-platform -g foundation-platform -m 0777 \
-      /var/lib/foundation-platform/map-edit-fold/lakehouse \
-      /var/lib/foundation-platform/lineage-stewardship/lakehouse
-    # The by-PNU bakes' work files: on the data disk, the only path their unit may write.
-    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/by-pnu-bake
-    # The daily sweep's spool for content-addressed VWorld files (root ADR-0168): the unit names it in
-    # ReadWritePaths, and systemd refuses to start a unit whose path is missing.
-    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/source-sweep
-    # The Silver refresh lanes' work: staged Bronze ZIPs, handoffs and Spark's spill (root ADR-0169).
-    # Its unit names this path in ReadWritePaths. The lanes are registered jobs (root ADR-0171), so
-    # the loop above installs the template's release admission, switched on or not.
-    install -d -o foundation-platform -g foundation-platform -m 2770 /data/foundation-platform/silver-refresh
-    # The national parcel tile bake's work: the matching verdict, the served handoff, Spark's spill
-    # and the oven's files (config/tile-bake-containers.contract.json work_disk.production_root, root
-    # ADR-0194 5). Its unit names this path in ReadWritePaths.
-    install -d -o foundation-platform -g foundation-platform /data/foundation-platform/tile-bake
+    # The job state directories the units name in ReadWritePaths and the containers mount: one
+    # generated file, applied here too so a `timers` run on its own (recovery) makes them as well.
+    prepare_job_state_directories
     prepare_spark_tmp
     install_host_retention
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),

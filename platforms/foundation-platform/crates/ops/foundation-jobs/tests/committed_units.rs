@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use foundation_jobs::{check, JobList, UNIT_DIR};
+use foundation_jobs::{check, check_tmpfiles, JobList, TMPFILES, UNIT_DIR};
 
 #[test]
 fn every_job_unit_says_its_time_limit() -> Result<(), String> {
@@ -18,5 +18,16 @@ fn every_job_unit_says_its_time_limit() -> Result<(), String> {
     let problems = check(&list, &read);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(!list.jobs.is_empty(), "the job list names no job");
+    Ok(())
+}
+
+#[test]
+fn the_job_state_tmpfiles_file_is_the_job_lists() -> Result<(), String> {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").map_err(|error| error.to_string())?;
+    let root = PathBuf::from(manifest).join("../../..");
+    let list = JobList::read(&root)?;
+    let committed = std::fs::read_to_string(root.join(TMPFILES)).map_err(|error| error.to_string());
+    let problems = check_tmpfiles(&list, committed);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
     Ok(())
 }
