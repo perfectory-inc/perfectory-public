@@ -153,3 +153,42 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
     hakari 에는 개발 의존성을 빼는 설정이 없다(omicron·RisingWave 도 같은 값을 치른다).
   - 시험: xtask `every_multi_member_workspace_keeps_a_workspace_hack`; 낡은 workspace-hack(한 줄
     지움)은 `generate --diff` 가, 의존 줄이 빠진 멤버는 `manage-deps --dry-run` 이 종료 코드 1 로 거부했다.
+
+## Measurements
+
+2026-10-17, `gh api …/actions/runs` 로 쟀다. PR 벽시계는 그 머리 커밋의 첫 `pull_request` 실행 시작부터
+마지막 종료까지, 머지 큐는 그 PR 이 든 마지막 `merge_group` 실행들, 임계 잡은 가장 늦게 끝난 작업 잡
+(`required/*`·`Change scope` 제외), 대기/작업은 그 잡의 생성→시작 / 시작→종료다.
+
+크레이트 하나 또는 패키지 하나만 바꾼 PR 5건(#663 이후):
+
+| PR | 바꾼 것 | PR 벽시계 | 임계 잡(대기/작업) | 머지 큐 | 큐 임계 잡(대기/작업) | 합 |
+|---|---|---|---|---|---|---|
+| #683 | 크레이트 `foundation-jobs` 1 | **3.3분** | Rust 0.3/2.8 | 28.7분 | Rust 2.4/26.1, 의존성 캐시 없음 | 32.0분 |
+| #675 | Spark 잡 패키지 1 | **8.8분** | Spark 0.1/8.6 | **9.6분** | Postgres 0.1/9.4 | **18.4분** |
+| #682 | `scripts/ops` 패키지 1 | 13.1분 | 스위트 5.5/7.2 | 19.3분 | Rust 1.0/18.1, 의존성 캐시 없음 | 32.4분 |
+| #681 | Spark 잡 패키지 1 | 16.5분 | Spark 2.9/8.6 | 28.4분 | Rust 1.9/24.4, 의존성 캐시 없음 | 44.9분 |
+| #673 | 크레이트 `foundation-api` 1 | 26.2분(2회) | 1회차 static-release 단계 300초 초과(#674 로 고침), 2회차 Foundation 6.2분 | 16.5분 | boundary slice 0.0/16.3 | 42.7분 |
+
+사전(#656–#662): PR 9.6–25.3분, 머지 큐 포함 21.7–49.0분.
+
+판정: PR ≤10분은 캐시가 살아 있는 실행에서 지켜진다(#683 3.3분, #675 8.8분). 머지 큐 포함 ≤20분은
+5건 중 1건(#675)만 지켜졌다.
+
+원인: 무료 Actions 캐시 한도(저장소 10 GB)의 LRU 퇴거. 같은 날 캐시 목록은 11.37 GB 였고, 큰 항목은
+작업 공간 빌드 보관분(ADR-0201) 4.9 GB, Postgres 잡의 rust-cache 2.1–3.4 GB, Windows static-release
+1.5 GB 였다. Foundation Rust 잡의 의존성 캐시(`rust-quality-dependencies`, 1.8 GB)가 밀려나면 다음
+머지 큐 실행은 의존성을 전부 다시 빌드한다(clippy 11–14분, 잡 18–26분). 잠금 파일이 바뀐 PR(#665 hakari
+포함)은 main 이 새 키로 저장할 때까지 한 주기를 차갑게 돈다.
+
+hakari 효과(Foundation Rust 잡, clippy 빌드/시험 빌드): 이전 — 캐시가 살아 있던 PR 은 #683 7.7/5.8초,
+#673 28.7/29.6초, #660 40.8/100초, 캐시가 없던 #657 741/225초. 이후(#665 병합 20:22 뒤) — #679 581/98초,
+#689 586/130초이고, 두 실행 모두 의존성 캐시가 없었다("No cache found", 캐시는 21:04 에 다시 저장됐다).
+캐시 퇴거와 겹쳐 아직 따로 잴 수 없다. 캐시가 살아 있는 실행 5건으로 다시 잰다.
+
+고칠 것(유료 러너 없이): 캐시 합을 한도 아래로 고정한다.
+- Postgres 잡이 Rust 잡의 의존성 캐시를 같이 쓴다(`shared-key: rust-quality-dependencies`, 저장은
+  Rust 잡만). hakari 뒤로 두 잡은 같은 기능 집합으로 의존성을 빌드하므로, 2–3.4 GB 가 사라진다.
+- 드물게만 고르는 Windows static-release 잡은 rust-cache 를 저장하지 않는다(1.5 GB).
+- 저장 항목과 크기의 상한을 계약 하나에 적고, 주간 `ci-time-budget` 처럼 `gh cache list` 합이 그 상한을
+  넘으면 실패하는 점검을 둔다.
