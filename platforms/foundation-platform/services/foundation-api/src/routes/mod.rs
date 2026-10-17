@@ -450,6 +450,7 @@ async fn enforce_concurrency_limit(
         state
             .app_state
             .record_overload_rejection("concurrency_limit");
+        tracing::warn!(path = %request.uri().path(), "503: the concurrency limit is reached");
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 

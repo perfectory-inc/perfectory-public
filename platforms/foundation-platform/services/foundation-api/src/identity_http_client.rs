@@ -56,7 +56,7 @@ impl HttpIdentityClient {
             trace_id,
         };
 
-        for attempt in 0..MAX_TRANSPORT_ATTEMPTS {
+        for attempt in 1..=MAX_TRANSPORT_ATTEMPTS {
             let response = self
                 .client
                 .post(self.policy_decision_url.clone())
@@ -65,30 +65,42 @@ impl HttpIdentityClient {
                 .send()
                 .await;
             match response {
-                Ok(response) => return decode_decision(response).await,
-                Err(error) if is_safe_transport_failure(&error) => {
-                    if attempt + 1 == MAX_TRANSPORT_ATTEMPTS {
-                        return Err(IdentityAuthorizationError::Unavailable);
-                    }
+                Ok(response) => return decode_decision(response, trace_id).await,
+                // Only a request that never reached Identity is sent again: re-sending one Identity
+                // is still working on doubles its load and cannot answer sooner.
+                Err(error) if error.is_connect() && attempt < MAX_TRANSPORT_ATTEMPTS => {
+                    tracing::warn!(%trace_id, attempt, %error, "identity policy decision could not connect; retrying");
                 }
-                Err(_) => return Err(IdentityAuthorizationError::Unavailable),
+                Err(error) => {
+                    tracing::warn!(
+                        %trace_id,
+                        attempt,
+                        timeout = error.is_timeout(),
+                        connect = error.is_connect(),
+                        %error,
+                        "identity authorization unavailable: the policy decision request failed"
+                    );
+                    return Err(IdentityAuthorizationError::Unavailable);
+                }
             }
         }
         Err(IdentityAuthorizationError::Unavailable)
     }
 }
 
-fn is_safe_transport_failure(error: &reqwest::Error) -> bool {
-    error.is_connect() || error.is_timeout()
-}
-
-async fn decode_decision(response: reqwest::Response) -> Result<Uuid, IdentityAuthorizationError> {
+async fn decode_decision(
+    response: reqwest::Response,
+    trace_id: &str,
+) -> Result<Uuid, IdentityAuthorizationError> {
     match response.status() {
         StatusCode::OK => {
             let response = response
                 .json::<PolicyDecisionResponse>()
                 .await
-                .map_err(|_| IdentityAuthorizationError::Unavailable)?;
+                .map_err(|error| {
+                    tracing::warn!(%trace_id, %error, "identity authorization unavailable: the policy decision body is unreadable");
+                    IdentityAuthorizationError::Unavailable
+                })?;
             let _ = (&response.reason_code, response.evaluated_at);
             match response.decision {
                 ResourceAction::Allow => Ok(response.principal_id),
@@ -97,7 +109,10 @@ async fn decode_decision(response: reqwest::Response) -> Result<Uuid, IdentityAu
         }
         StatusCode::UNAUTHORIZED => Err(IdentityAuthorizationError::Unauthorized),
         StatusCode::FORBIDDEN => Err(IdentityAuthorizationError::Forbidden),
-        _ => Err(IdentityAuthorizationError::Unavailable),
+        status => {
+            tracing::warn!(%trace_id, %status, "identity authorization unavailable: Identity answered the policy decision with an unexpected status");
+            Err(IdentityAuthorizationError::Unavailable)
+        }
     }
 }
 

@@ -110,6 +110,7 @@ impl IdentityAuthorization for HttpIdentityAuthorization {
                             IdentityAuthorizationError::Unauthorized
                         }
                         IdentityTokenVerificationError::Infrastructure => {
+                            tracing::warn!(%trace_id, "identity authorization unavailable: the token signing keys could not be read");
                             IdentityAuthorizationError::Unavailable
                         }
                     })?;
@@ -127,6 +128,13 @@ impl IdentityAuthorization for HttpIdentityAuthorization {
             })
         })
         .await
-        .unwrap_or(Err(IdentityAuthorizationError::Unavailable))
+        .unwrap_or_else(|_| {
+            tracing::warn!(
+                %trace_id,
+                budget_ms = self.authorization_timeout.as_millis(),
+                "identity authorization unavailable: Identity did not answer within the authorization budget"
+            );
+            Err(IdentityAuthorizationError::Unavailable)
+        })
     }
 }

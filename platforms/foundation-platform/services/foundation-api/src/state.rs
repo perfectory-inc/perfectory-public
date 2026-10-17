@@ -124,6 +124,36 @@ fn identity_network_request_timeout(authorization_timeout: Duration) -> anyhow::
     Ok(request_timeout)
 }
 
+/// The Identity authorization the API runs with. Token metadata fetches get one budget slice each;
+/// the policy decision gets the whole authorization budget, because a staff decision does
+/// database work in Identity, and cutting it at a slice turned a slow answer into a 503
+/// (2026-10-17: every lineage-review 503 took 0.5-1 s, two 400 ms slices).
+pub fn http_identity_authorization(
+    zitadel_issuer_url: String,
+    zitadel_audience: String,
+    identity_api_base_url: String,
+    authorization_timeout: Duration,
+) -> anyhow::Result<HttpIdentityAuthorization> {
+    let network_request_timeout = identity_network_request_timeout(authorization_timeout)?;
+    let connect_timeout = IDENTITY_CONNECT_TIMEOUT.min(network_request_timeout);
+    let verifier = IdentityTokenVerifier::new(
+        zitadel_issuer_url,
+        zitadel_audience,
+        connect_timeout,
+        network_request_timeout,
+    )?;
+    let identity_client = HttpIdentityClient::new(
+        identity_api_base_url,
+        connect_timeout,
+        authorization_timeout,
+    )?;
+    Ok(HttpIdentityAuthorization::new(
+        verifier,
+        identity_client,
+        authorization_timeout,
+    ))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppConfig {
     pub database_url: String,
@@ -613,25 +643,12 @@ impl AppState {
             .connect(&config.database_url)
             .await?;
 
-        let authorization_timeout = Duration::from_millis(config.identity_authorization_timeout_ms);
-        let network_request_timeout = identity_network_request_timeout(authorization_timeout)?;
-        let connect_timeout = IDENTITY_CONNECT_TIMEOUT.min(network_request_timeout);
-        let verifier = IdentityTokenVerifier::new(
+        let identity_authorization = Arc::new(http_identity_authorization(
             config.zitadel_issuer_url,
             config.zitadel_audience,
-            connect_timeout,
-            network_request_timeout,
-        )?;
-        let identity_client = HttpIdentityClient::new(
             config.identity_api_base_url,
-            connect_timeout,
-            network_request_timeout,
-        )?;
-        let identity_authorization = Arc::new(HttpIdentityAuthorization::new(
-            verifier,
-            identity_client,
-            authorization_timeout,
-        ));
+            Duration::from_millis(config.identity_authorization_timeout_ms),
+        )?);
 
         let state = Self::from_pool(
             pool,
