@@ -46,6 +46,12 @@ pub fn verdict_source(snapshot: &str, bytes: &[u8]) -> anyhow::Result<LakehouseB
     if verdict["passed"] != true {
         bail!("the matching gate refused Silver snapshot {snapshot}; the bake does not start");
     }
+    // Root ADR-0265: a verdict that skipped check (b), or ran without the registry, binds no bake.
+    ensure!(
+        verdict["registry"] == "checked",
+        "the matching verdict for {snapshot} did not check the parcel registry (registry {})",
+        verdict["registry"]
+    );
     let total = verdict["snapshot_parcel_count"].as_u64().unwrap_or(0);
     ensure!(
         total > 0 && verdict["parcels"]["checked"].as_u64() == Some(total),
@@ -69,8 +75,26 @@ mod tests {
             "passed": passed,
             "snapshot_parcel_count": total,
             "parcels": {"passed": passed, "checked": checked},
+            "registry": "checked",
         }))
         .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_verdict_that_did_not_check_the_registry_binds_no_bake() {
+        // ADR-0265: --no-registry, a gate that waited, or a verdict from before.
+        for registry in [
+            serde_json::json!("skipped"),
+            serde_json::json!("absent"),
+            serde_json::Value::Null,
+        ] {
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&verdict("s1", true, 5, 5)).unwrap_or_default();
+            value["registry"] = registry.clone();
+            let bytes = serde_json::to_vec(&value).unwrap_or_default();
+            assert!(verdict_source("s1", &bytes).is_err(), "{registry}");
+        }
+        assert!(verdict_source("s1", &verdict("s1", true, 5, 5)).is_ok());
     }
 
     #[test]

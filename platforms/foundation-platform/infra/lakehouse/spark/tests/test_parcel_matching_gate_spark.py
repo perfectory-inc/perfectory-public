@@ -75,6 +75,16 @@ class VerdictContractTest(unittest.TestCase):
                 self.assertIn(f'{job.VERDICT_SCHEMA_VERSION}', path.read_text(encoding="utf-8"))
 
 
+class RegistryStateTest(unittest.TestCase):
+    """Root ADR-0265: the gate does not run before silver.parcel_registry exists."""
+
+    def test_an_absent_registry_makes_the_gate_wait(self):
+        self.assertEqual(job.registry_state(no_registry=False, exists=False), "wait")
+        self.assertEqual(job.registry_state(no_registry=False, exists=True), "checked")
+        self.assertEqual(job.registry_state(no_registry=True, exists=False), "skipped")
+        self.assertEqual(job.INPUT_ABSENT, 3)
+
+
 @unittest.skipUnless(has_pyspark(), "requires pyspark")
 class ParcelGateSparkTest(unittest.TestCase):
     @classmethod

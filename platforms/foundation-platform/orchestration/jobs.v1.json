@@ -647,7 +647,8 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-parcel-boundaries-to-gold-parcel-boundary-served",
-        "silver-map-edit-ledger-to-gold-parcel-boundary-served"
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+        "silver-parcel-registry-to-gold-parcel-boundary-served"
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4)."

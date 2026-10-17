@@ -4,7 +4,7 @@
 #
 #   parcel-tile-bake.sh gold [--force <reason>]   job parcel_served_gold
 #   parcel-tile-bake.sh bake                      job parcel_tile_bake (started when gold changed)
-#   parcel-tile-bake.sh rehearsal-gold            operator: the newest edition, nothing served
+#   parcel-tile-bake.sh rehearsal-gold-<YYYYMM>   operator: that edition, nothing served
 #   parcel-tile-bake.sh rehearsal-bake            operator: bake it, no catalog or R2 write
 #   parcel-tile-bake.sh cleanup                   the unit's ExecStopPost
 #
@@ -17,7 +17,9 @@
 #    --force runs it again and logs the reason.
 # 2. The matching gate (parcel_matching_gate.py, root ADR-0113 §7) over every 시도 of the edition.
 #    A refusal stops the run before anything is written: a build binds only to a passing verdict
-#    (ADR-0133 §5).
+#    (ADR-0133 §5). Its input silver.parcel_registry is the parcel_registry job's (ADR-0243); until
+#    that table exists the gate exits 3 and this half (a rehearsal's too) waits: `unchanged`,
+#    nothing written (root ADR-0265).
 # 3. The served Gold (parcel_boundary_served_gold.py, ADR-0133 §2): the edition with every ledgered
 #    `parcels` edit applied, committed to gold.parcel_boundary_served, and the v2 handoff parts.
 #    The run directory is recorded as ready; the last line is `changed`, which starts the bake.
@@ -26,9 +28,10 @@
 #    archive gates, the first-release equivalence gate against the active release (ADR-0133 §4,
 #    ADR-0135, ADR-0251), the create-only upload and the promotion. A failure before the promotion
 #    changes nothing served. The edition is then recorded as baked.
-# rehearsal-gold / rehearsal-bake: the same two halves for the newest edition the contract holds,
-#    run by a person before the contract serves it (runbook parcel-tile-bake.md §2). The gate's
-#    refusal is recorded and does not stop it; the Gold is written as for any edition (it serves
+# rehearsal-gold-<YYYYMM> / rehearsal-bake: the same two halves for an edition the contract holds,
+#    run by a person before the contract serves it (runbook parcel-tile-bake.md §2); the edition is
+#    named, because the contract can hold one Silver has not loaded yet. The gate's refusal is
+#    recorded and does not stop it; without silver.parcel_registry it waits like the job (ADR-0265); the Gold is written as for any edition (it serves
 #    nothing until a bake promotes it); the bake runs every gate and stops before the catalog and R2
 #    (FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_REHEARSAL). Neither touches the served state.
 #
@@ -46,9 +49,11 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
+REHEARSED=""
 case "${MODE}" in
-  gold|bake|rehearsal-gold|rehearsal-bake|cleanup) shift ;;
-  *) echo "parcel-tile-bake: expected gold, bake, rehearsal-gold, rehearsal-bake or cleanup, got '${MODE}'" >&2; exit 64 ;;
+  gold|bake|rehearsal-bake|cleanup) shift ;;
+  rehearsal-gold-[0-9][0-9][0-9][0-9][0-9][0-9]) REHEARSED="${MODE#rehearsal-gold-}"; MODE=rehearsal-gold; shift ;;
+  *) echo "parcel-tile-bake: expected gold, bake, rehearsal-gold-<YYYYMM>, rehearsal-bake or cleanup, got '${MODE}'" >&2; exit 64 ;;
 esac
 
 if [[ "${MODE}" == cleanup ]]; then
@@ -99,17 +104,18 @@ exec 8<"${lock}"
 flock -n 8 || { echo "parcel-tile-bake: refused: another bake holds ${lock}" >&2; exit 75; }
 
 # The edition, its snapshot id, its 시도 and the data-disk work root, from the contracts this
-# release ships: none of them is written down here. A rehearsal takes the newest edition.
-which_edition=served
-[[ "${MODE}" == rehearsal-* ]] && which_edition=newest
-mapfile -t plan < <(python3 -I - "${RELEASE_ROOT}" "${which_edition}" <<'PY'
+# release ships: none of them is written down here. A rehearsal's Gold half bakes the edition it
+# names, which the contract must hold.
+mapfile -t plan < <(python3 -I - "${RELEASE_ROOT}" "${REHEARSED:-served}" <<'PY'
 import json, pathlib, sys
 sys.dont_write_bytecode = True
 release = pathlib.Path(sys.argv[1])
 sys.path.insert(0, str(release / "infra/lakehouse/spark/jobs"))
 import vworld_parcel_editions as editions
 contract = editions.load()
-chosen = editions.served(contract) if sys.argv[2] == "served" else max(contract["editions"])
+chosen = editions.served(contract) if sys.argv[2] == "served" else sys.argv[2]
+if chosen not in contract["editions"]:
+    sys.exit(f"parcel-tile-bake: refused: the source contract holds no edition {chosen}")
 bake = json.loads((release / "config/tile-bake-containers.contract.json").read_text(encoding="utf-8"))
 print(chosen)
 print(editions.snapshot_id(contract, chosen))
@@ -180,6 +186,11 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   verdict="${work}/matching-verdict.json"
   spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" "${allow[@]}" \
     --summary-output "${container_work}/matching-verdict.json" || gate_status=$?
+  if ((gate_status == 3)); then
+    # ADR-0265: the gate's input does not exist yet; nothing is written and the next run retries.
+    job_journal "${journal}" "waiting: the matching gate's input silver.parcel_registry does not exist yet (job parcel_registry, root ADR-0243)"
+    echo "foundation-job-outcome unchanged"; exit 0
+  fi
   if ((gate_status != 0)); then
     refused=no
     [[ "${gate_status}" == 1 && -s "${verdict}" ]] \
@@ -209,6 +220,8 @@ if [[ ! -s "${ready_file}" ]]; then
   echo "foundation-job-outcome unchanged"; exit 0
 fi
 read -r ready_snapshot work <"${ready_file}"
+# A rehearsal bakes the Gold its own Gold half made ready, whatever edition it named.
+[[ "${MODE}" == rehearsal-bake ]] && snapshot="${ready_snapshot}"
 if [[ "${ready_snapshot}" != "${snapshot}" ]]; then
   job_journal "${journal}" "nothing to do: the waiting Gold is ${ready_snapshot}, the contract's edition ${snapshot}"
   echo "foundation-job-outcome unchanged"; exit 0

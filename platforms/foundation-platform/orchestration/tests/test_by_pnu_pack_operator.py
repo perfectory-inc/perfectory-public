@@ -316,15 +316,16 @@ class PackOperator(OperatorHarness):
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_a_parcel_tile_rehearsal_starts_its_half_and_never_beside_spark_work(self):
-        # Root ADR-0253: the rehearsal is two instances of the bake template, started one at a time.
-        for half in ("gold", "bake"):
-            with self.subTest(half=half):
+        # Root ADR-0253, ADR-0265: the Gold half names its edition; the bake takes what it made ready.
+        for args, unit in ((("gold", "202609"), "foundation-parcel-tile-bake@rehearsal-gold-202609.service"),
+                           (("bake",), "foundation-parcel-tile-bake@rehearsal-bake.service")):
+            with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
-                result, calls = self.run_operator("parcel-tiles", "rehearse", half)
+                result, calls = self.run_operator("parcel-tiles", "rehearse", *args)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
-                                 [["start", "--no-block", f"foundation-parcel-tile-bake@rehearsal-{half}.service"]])
-        for active in (["foundation-autodeploy.service"], ["foundation-parcel-tile-bake@rehearsal-gold.service"],
+                                 [["start", "--no-block", unit]])
+        for active in (["foundation-autodeploy.service"], ["foundation-parcel-tile-bake@rehearsal-gold-202609.service"],
                        ["foundation-parcel-tile-bake@gold.service"], ["foundation-gold-panel-rebuild.service"],
                        ["foundation-silver-refresh@land-use-plan.service"]):
             with self.subTest(active=active):
@@ -333,8 +334,10 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
         for args in (("parcel-tiles", "rehearse"), ("parcel-tiles", "rehearse", "promote"),
-                     ("parcel-tiles", "rehearse", "gold", "extra"), ("parcel-tiles", "start", "gold"),
-                     ("parcel-tiles", "status", "extra")):
+                     ("parcel-tiles", "rehearse", "gold"), ("parcel-tiles", "rehearse", "gold", "2026-09"),
+                     ("parcel-tiles", "rehearse", "gold", "202613"), ("parcel-tiles", "rehearse", "gold", "../x"),
+                     ("parcel-tiles", "rehearse", "gold", "202609", "extra"), ("parcel-tiles", "rehearse", "bake", "202609"),
+                     ("parcel-tiles", "start", "gold"), ("parcel-tiles", "status", "extra")):
             with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args)
