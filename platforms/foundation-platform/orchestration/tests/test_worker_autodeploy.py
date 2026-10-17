@@ -165,7 +165,7 @@ seen[host] = seen.get(host, 0) + 1
 counts.write_text(json.dumps(seen))
 broken = os.environ.get("FIXTURE_MONITOR_FAILS", "no such host") in line
 report = {"pnus": 20, "answered": 20, "failures": ["a sample PNU: http_500"] if broken else [],
-          "drifted_from_served": [], "drifted_from_objects": [], "latency_ms": {"p50": p95 / 2, "p95": p95},
+          "drifted_from_served": [], "latency_ms": {"p50": p95 / 2, "p95": p95},
           "latency_p95_max_ms": 3000.0}
 report["passed"] = not broken and p95 <= 3000.0
 path = next((v for k, v in env.items() if k.endswith("_MONITOR_REPORT_PATH")), None)
