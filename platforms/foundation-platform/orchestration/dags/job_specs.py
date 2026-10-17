@@ -231,27 +231,6 @@ SECRETS = PLATFORM_ROOT / "config" / "runtime-secrets.contract.json"
 STATE_ROOT_DEFAULT = re.compile(r'^([A-Z_]*STATE_ROOT[A-Z_]*)="\$\{([A-Z_]+):-([^}]*)\}"', re.MULTILINE)
 
 
-def unit_write_paths(unit_text):
-    """The paths a ProtectSystem=strict unit may write: its ReadWritePaths, in order."""
-    return " ".join(re.findall(r"^ReadWritePaths=(.*)$", unit_text, flags=re.MULTILINE)).split()
-
-
-def rendered_unit(unit_text, state_paths):
-    """The unit with one `ReadWritePaths=` line holding `state_paths` (none when empty), where the
-    first one was, or after the last `ProtectSystem=` line (root ADR-0266)."""
-    block = f"ReadWritePaths={' '.join(state_paths)}\n" if state_paths else ""
-    kept = re.sub(r"^ReadWritePaths=.*\n", "\x00", unit_text, flags=re.MULTILINE)
-    if "\x00" in kept:
-        head, _, tail = kept.partition("\x00")
-        return head + block + tail.replace("\x00", "")
-    anchor = None
-    for anchor in re.finditer(r"^ProtectSystem=.*\n", kept, flags=re.MULTILINE):
-        pass
-    if anchor is None:
-        return kept if not block else kept.rstrip("\n") + "\n" + block
-    return kept[:anchor.end()] + block + kept[anchor.end():]
-
-
 def _env_file_names(unit_text, secrets):
     """The variable names the unit's EnvironmentFiles hold (runtime-secrets contract groups)."""
     paths = {re.sub(r"^-", "", path) for path in re.findall(r"^EnvironmentFile=(\S+)$", unit_text, flags=re.MULTILINE)}
@@ -263,10 +242,11 @@ def _env_file_names(unit_text, secrets):
 
 
 def state_path_problems(jobs=None, secrets=None, read=None):
-    """Every way a job could write outside its unit's sandbox (an empty list is a pass; root ADR-0266).
+    """Every way a job script could write outside its unit's sandbox (an empty list is a pass; root
+    ADR-0266).
 
-    - `state_paths` in jobs.v1.json is where a job writes; its unit's `ReadWritePaths` is rendered
-      from it (`--write-units`) and must equal it. Jobs that share a unit state the same paths.
+    - `state_paths` in jobs.v1.json is where a job writes. Its unit's `ReadWritePaths` is rendered
+      from it, and a unit that differs is refused, by the crate foundation-jobs (root ADR-0270 §1).
     - A job script's state root (`*STATE_ROOT*="${SOURCE:-default}"`) must not come from a variable
       one of its unit's EnvironmentFiles holds: the file's value is the host's, unseen here, and
       2026-10-16 it pointed parcel_registry outside its sandbox (Read-only file system).
@@ -276,7 +256,7 @@ def state_path_problems(jobs=None, secrets=None, read=None):
     jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
     secrets = secrets if secrets is not None else json.loads(SECRETS.read_text(encoding="utf-8"))
     read = read or (lambda path: path.read_text(encoding="utf-8"))
-    problems, by_unit = [], {}
+    problems = []
     for job in jobs["jobs"]:
         job_id, paths = job["id"], job.get("state_paths")
         if not isinstance(paths, list) or not all(isinstance(path, str) and path.startswith("/") for path in paths):
@@ -284,11 +264,6 @@ def state_path_problems(jobs=None, secrets=None, read=None):
             continue
         unit_path = service_unit_file(job["systemd_service"])
         unit = read(unit_path)
-        if by_unit.setdefault(unit_path.name, paths) != paths:
-            problems.append(f"{job_id}: shares {unit_path.name} with a job that states other state_paths")
-        if "ProtectSystem=strict" in unit and unit_write_paths(unit) != paths:
-            problems.append(f"{job_id}: {unit_path.name} ReadWritePaths {unit_write_paths(unit)} is not its state_paths "
-                            f"{paths}; run: python orchestration/dags/job_specs.py --write-units")
         start = re.search(r"^ExecStart=(\S+)", unit, flags=re.MULTILINE)
         prefix = "/opt/foundation-platform/current/"
         if not start or not start.group(1).startswith(prefix) or not start.group(1).endswith(".sh"):
@@ -307,18 +282,6 @@ def state_path_problems(jobs=None, secrets=None, read=None):
                 problems.append(f"{job_id}: {script.name} defaults {name} to {literal}, outside what {unit_path.name} "
                                 f"may write {writable}")
     return problems
-
-
-def write_units(jobs=None):
-    """Renders every job unit's ReadWritePaths from its state_paths."""
-    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
-    for job in jobs["jobs"]:
-        unit_path = service_unit_file(job["systemd_service"])
-        text = unit_path.read_text(encoding="utf-8")
-        if "ProtectSystem=strict" in text:
-            rendered = rendered_unit(text, job["state_paths"])
-            if rendered != text:
-                unit_path.write_bytes(rendered.encode("utf-8"))
 
 
 def job_state_root(job_id, jobs=None):
@@ -736,9 +699,7 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--check-dependencies"]:
         if DEPENDENCIES.read_bytes() != rendered_dependencies().encode("utf-8"):
             sys.exit(f"{DEPENDENCIES} is stale; run: python orchestration/dags/job_specs.py --write-dependencies")
-    elif sys.argv[1:] == ["--write-units"]:
-        write_units()
-    elif sys.argv[1:] == ["--check-units"]:
+    elif sys.argv[1:] == ["--check-state-roots"]:
         found = state_path_problems()
         if found:
             sys.exit("\n".join(found))
@@ -750,5 +711,5 @@ if __name__ == "__main__":
         if line:
             print(line)
     else:
-        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --write-units | --check-units"
+        sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --check-state-roots"
                  " | --state-root <job id> | --outcome-line")

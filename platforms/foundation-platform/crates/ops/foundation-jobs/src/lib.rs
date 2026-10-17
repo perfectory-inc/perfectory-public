@@ -2,7 +2,8 @@
 //!
 //! A job's facts are stated once, in the list. The parts of its systemd unit that repeat one of them
 //! are rendered from the list, and this crate's test refuses a committed unit that says anything
-//! else. Today that is the unit's `TimeoutStartSec=` line, from the job's `time_limit_minutes`.
+//! else. Today that is the unit's `TimeoutStartSec=` line, from the job's `time_limit_minutes`, and
+//! the `ReadWritePaths=` line of a `ProtectSystem=strict` unit, from its `state_paths` (root ADR-0266).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -49,6 +50,17 @@ pub struct Job {
     pub time_limit_minutes: u32,
     /// How much longer than its run the scheduler gives one start, in minutes.
     pub stop_grace_minutes: u32,
+    /// Where the job writes and keeps state across runs; absolute paths.
+    pub state_paths: Vec<String>,
+}
+
+/// What a job unit repeats from the job list. Jobs that share a unit must state the same.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitFacts {
+    /// The unit's `TimeoutStartSec=`, in minutes.
+    pub time_limit_minutes: u32,
+    /// The unit's `ReadWritePaths=`, when it is a `ProtectSystem=strict` unit.
+    pub state_paths: Vec<String>,
 }
 
 impl JobList {
@@ -94,11 +106,57 @@ pub fn time_limit_line(minutes: u32) -> String {
     }
 }
 
-/// The unit text with its one `TimeoutStartSec=` line set to `minutes`.
+/// The unit text with what it repeats from the job list set to `facts`.
 ///
 /// # Errors
-/// When the unit has no such line, or more than one.
-pub fn render_unit(unit: &str, minutes: u32) -> Result<String, String> {
+/// When the unit has no `TimeoutStartSec=` line, or more than one.
+pub fn render_unit(unit: &str, facts: &UnitFacts) -> Result<String, String> {
+    let timed = render_time_limit(unit, facts.time_limit_minutes)?;
+    Ok(render_write_paths(&timed, &facts.state_paths))
+}
+
+/// The unit with one `ReadWritePaths=` line holding `paths` (none when empty).
+///
+/// The line goes where the first one was, or after the last `ProtectSystem=` line. A unit that is
+/// not `ProtectSystem=strict` may write anywhere its user may, so it is left as it is.
+#[must_use]
+pub fn render_write_paths(unit: &str, paths: &[String]) -> String {
+    if !unit.lines().any(|line| line == "ProtectSystem=strict") {
+        return unit.to_owned();
+    }
+    let block = if paths.is_empty() {
+        String::new()
+    } else {
+        format!("ReadWritePaths={}\n", paths.join(" "))
+    };
+    let lines: Vec<&str> = unit.split_inclusive('\n').collect();
+    let first = lines
+        .iter()
+        .position(|line| line.starts_with("ReadWritePaths="));
+    let kept: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| !line.starts_with("ReadWritePaths="))
+        .collect();
+    let at = first.or_else(|| {
+        kept.iter()
+            .rposition(|line| line.starts_with("ProtectSystem="))
+            .map(|index| index + 1)
+    });
+    let mut out = String::with_capacity(unit.len() + block.len());
+    for (index, line) in kept.iter().enumerate() {
+        if Some(index) == at {
+            out.push_str(&block);
+        }
+        out.push_str(line);
+    }
+    if at.is_none_or(|index| index >= kept.len()) {
+        out.push_str(&block);
+    }
+    out
+}
+
+fn render_time_limit(unit: &str, minutes: u32) -> Result<String, String> {
     let count = unit
         .lines()
         .filter(|line| line.starts_with("TimeoutStartSec="))
@@ -183,20 +241,28 @@ pub struct Unit {
 /// Every job unit, rendered from the list. `read` returns a unit file's text by its file name.
 ///
 /// # Errors
-/// Every problem found: a limit of zero, jobs that share a unit but state different limits, a unit
-/// that cannot be read or has no single `TimeoutStartSec=` line, and a stop grace no longer than the
-/// unit's `TimeoutStopSec=` (the scheduler would give up while the unit still stops).
+/// Every problem found: a limit of zero, a state path that is not absolute, jobs that share a unit
+/// but state different facts, a unit that cannot be read or has no single `TimeoutStartSec=`, and
+/// a stop grace no longer than the unit's `TimeoutStopSec=` (the scheduler would give up while the
+/// unit still stops).
 pub fn render(
     list: &JobList,
     read: &dyn Fn(&str) -> Result<String, String>,
 ) -> Result<Vec<Unit>, Vec<String>> {
     let mut problems = Vec::new();
-    let mut limits: BTreeMap<String, (u32, &str)> = BTreeMap::new();
+    let mut by_unit: BTreeMap<String, (UnitFacts, &str)> = BTreeMap::new();
     let mut graces: BTreeMap<String, (u32, &str)> = BTreeMap::new();
     for job in &list.jobs {
         if job.time_limit_minutes == 0 {
             problems.push(format!("{}: time_limit_minutes must be above 0", job.id));
         }
+        if let Some(path) = job.state_paths.iter().find(|path| !path.starts_with('/')) {
+            problems.push(format!("{}: state path {path} is not absolute", job.id));
+        }
+        let facts = UnitFacts {
+            time_limit_minutes: job.time_limit_minutes,
+            state_paths: job.state_paths.clone(),
+        };
         let file = unit_file_name(&job.systemd_service);
         let shortest = graces
             .entry(file.clone())
@@ -204,21 +270,21 @@ pub fn render(
         if job.stop_grace_minutes < shortest.0 {
             *shortest = (job.stop_grace_minutes, &job.id);
         }
-        match limits.get(&file) {
-            Some((minutes, other)) if *minutes != job.time_limit_minutes => problems.push(format!(
-                "{}: shares {file} with {other}, which states time_limit_minutes {minutes}, not {}",
-                job.id, job.time_limit_minutes
+        match by_unit.get(&file) {
+            Some((shared, other)) if *shared != facts => problems.push(format!(
+                "{}: shares {file} with {other}, which states {shared:?}, not {facts:?}",
+                job.id
             )),
             Some(_) => {}
             None => {
-                limits.insert(file, (job.time_limit_minutes, &job.id));
+                by_unit.insert(file, (facts, &job.id));
             }
         }
     }
     let mut units = Vec::new();
-    for (file, (minutes, _)) in limits {
+    for (file, (facts, _)) in by_unit {
         let unit = read(&file).and_then(|current| {
-            render_unit(&current, minutes).map(|rendered| Unit {
+            render_unit(&current, &facts).map(|rendered| Unit {
                 file: file.clone(),
                 current,
                 rendered,
@@ -260,7 +326,7 @@ pub fn check(list: &JobList, read: &dyn Fn(&str) -> Result<String, String>) -> V
             .filter(|unit| unit.current != unit.rendered)
             .map(|unit| {
                 format!(
-                    "{}: TimeoutStartSec is not the job list's time_limit_minutes; run: {GENERATE}",
+                    "{}: TimeoutStartSec or ReadWritePaths is not what the job list says; run: {GENERATE}",
                     unit.file
                 )
             })
@@ -304,9 +370,60 @@ mod tests {
                     systemd_service: (*service).to_owned(),
                     time_limit_minutes: *minutes,
                     stop_grace_minutes: 5,
+                    state_paths: Vec::new(),
                 })
                 .collect(),
         }
+    }
+
+    fn paths(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_strict_units_write_paths_are_its_state_paths() {
+        let unit = "[Service]\nProtectSystem=strict\nReadWritePaths=/old\nExecStart=/bin/true\n";
+        assert_eq!(
+            render_write_paths(unit, &paths(&["/a", "/b"])),
+            "[Service]\nProtectSystem=strict\nReadWritePaths=/a /b\nExecStart=/bin/true\n"
+        );
+        assert_eq!(
+            render_write_paths(unit, &[]),
+            "[Service]\nProtectSystem=strict\nExecStart=/bin/true\n"
+        );
+        assert_eq!(
+            render_write_paths("[Service]\nProtectSystem=strict\nX=1\n", &paths(&["/a"])),
+            "[Service]\nProtectSystem=strict\nReadWritePaths=/a\nX=1\n"
+        );
+        assert_eq!(
+            render_write_paths("[Service]\nProtectSystem=strict\n", &paths(&["/a"])),
+            "[Service]\nProtectSystem=strict\nReadWritePaths=/a\n"
+        );
+        let open = "[Service]\nReadWritePaths=/kept\n";
+        assert_eq!(render_write_paths(open, &paths(&["/a"])), open);
+    }
+
+    #[test]
+    fn a_state_path_the_unit_does_not_allow_is_refused() {
+        // The 2026-10-16 failure (#647): the job wrote where its unit's sandbox did not allow.
+        let mut jobs = list(&[("parcel_registry", "a.service", 150)]);
+        if let Some(job) = jobs.jobs.first_mut() {
+            job.state_paths = paths(&["/var/lib/foundation-platform/lineage-stewardship"]);
+        }
+        let unit = format!("{UNIT}ReadWritePaths=/var/lib/foundation-platform/map-edit-fold\n");
+        let problems = check(&jobs, &move |_: &str| Ok(unit.clone()));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+    }
+
+    #[test]
+    fn a_relative_state_path_is_refused() {
+        let mut jobs = list(&[("a", "a.service", 150)]);
+        if let Some(job) = jobs.jobs.first_mut() {
+            job.state_paths = paths(&["var/lib/x"]);
+        }
+        assert!(check(&jobs, &reading(UNIT))
+            .iter()
+            .any(|problem| problem.contains("not absolute")));
     }
 
     fn reading(text: &'static str) -> impl Fn(&str) -> Result<String, String> {
