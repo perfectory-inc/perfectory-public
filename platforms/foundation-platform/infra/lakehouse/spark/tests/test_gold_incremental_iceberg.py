@@ -398,7 +398,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         # mapped to PNUs too. Each merges only the parcels it reaches and equals the full rebuild.
         # A zone code moves under another anchor: the parcels zoned under it (1, 4, 7, ...) change.
         moved_zone = [*zone_codes, {"ucode": "UQA110", "parent_ucode": "UQA100", "uname": "child",
-                                    "source_snapshot_id": "zc-v2"}]
+                                    "source_snapshot_id": "zc-v1"}]
         zone_changes = {
             job.ZONE_CODE_SOURCE: moved_zone,
             job.ZONING_SOURCE: zonings + [{**zonings[0], "pnu": pnu(5), "zone_code": "UQA110"}],
