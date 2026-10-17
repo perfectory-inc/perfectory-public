@@ -82,6 +82,18 @@ impl JwksCache {
             .ok_or(AuthError::UnknownKey)
     }
 
+    /// Seeds one key, as a fetched `JWKS` would, for the verifier's tests.
+    #[cfg(test)]
+    pub(crate) async fn insert_for_test(&self, kid: &str, key: DecodingKey) {
+        self.entries.write().await.insert(
+            kid.to_owned(),
+            Entry {
+                key: Arc::new(key),
+                fetched_at: Instant::now(),
+            },
+        );
+    }
+
     async fn refetch(&self) -> Result<(), AuthError> {
         let resp = self
             .http
