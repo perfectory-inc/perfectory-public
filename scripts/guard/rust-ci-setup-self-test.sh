@@ -174,6 +174,8 @@ retries="$(value_of CARGO_NET_RETRY)"
   || fail "rust-setup.sh must use the sparse crates.io index"
 [ "$(value_of PERFECTORY_RUST_SETUP)" = "$channel" ] \
   || fail "rust-setup.sh must export the marker xtask checks"
+[ "$(value_of NEXTEST_PROFILE)" = ci ] \
+  || fail "rust-setup.sh must select the nextest ci profile every workspace defines"
 
 if GITHUB_ENV="" PATH="$fake_bin:$PATH" bash "$setup" >/dev/null 2>&1; then
   fail "rust-setup.sh ran without a GitHub Actions environment file"

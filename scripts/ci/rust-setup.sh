@@ -42,6 +42,8 @@ settings=(
   # CI builds once from clean sources; incremental state only bloats the cache.
   "CARGO_INCREMENTAL=0"
   "CARGO_TERM_COLOR=always"
+  # The nextest profile every workspace's .config/nextest.toml defines for CI (root ADR-0269).
+  "NEXTEST_PROFILE=ci"
   # The marker xtask checks before it runs in CI (scripts/guard/rust-ci-setup.sh).
   "PERFECTORY_RUST_SETUP=$channel"
 )

@@ -2332,6 +2332,23 @@ mod tests {
         assert!(checked >= AREAS.len());
     }
 
+    /// CI runs every workspace's tests under the nextest `ci` profile (`NEXTEST_PROFILE=ci` from
+    /// scripts/ci/rust-setup.sh, root ADR-0269); nextest refuses to start when the profile is
+    /// missing, so a workspace without it would fail every CI run.
+    #[test]
+    fn every_verified_workspace_defines_the_nextest_ci_profile() {
+        for area in AREAS {
+            let config = repo_root().join(area.dir).join(".config/nextest.toml");
+            let text = std::fs::read_to_string(&config)
+                .unwrap_or_else(|error| panic!("{}: {error}", config.display()));
+            assert!(
+                text.lines().any(|line| line.trim() == "[profile.ci]"),
+                "{} defines no [profile.ci]",
+                config.display()
+            );
+        }
+    }
+
     fn names(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_owned()).collect()
     }
