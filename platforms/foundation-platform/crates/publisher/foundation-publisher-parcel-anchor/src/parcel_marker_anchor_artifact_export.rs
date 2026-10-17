@@ -28,7 +28,7 @@ use sqlx::{Connection, Executor, PgConnection};
 use uuid::Uuid;
 
 use crate::parcel_boundary_handoff::{
-    parse_stage_row, push_copy_csv_row, read_execution_evidence, validate_source_snapshot_id,
+    parse_stage_row, push_copy_csv_row, read_handoff_objects, validate_source_snapshot_id,
     ExecutionEvidence, HandoffObject,
 };
 use crate::r2_layout::{parcel_marker_anchor_artifact_prefix, PARCEL_MARKER_ANCHOR_ARTIFACT_ROOT};
@@ -59,7 +59,8 @@ const SNAPSHOT_PUBLISHED_EVENT_TYPE: &str = "catalog.parcel_marker_anchor.snapsh
 /// Runs the parcel marker anchor artifact export.
 pub async fn run() -> anyhow::Result<()> {
     let config = AnchorArtifactExportConfig::from_env()?;
-    let evidence = read_execution_evidence(&config.execution_evidence_path)?;
+    let evidence =
+        read_handoff_objects(&config.execution_evidence_path, config.expected_row_count)?;
     let storage =
         R2ObjectStorage::from_env().context("failed to configure R2 for Silver handoff reads")?;
     let export_run_id = Uuid::now_v7();
