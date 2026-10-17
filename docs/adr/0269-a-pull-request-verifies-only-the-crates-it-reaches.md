@@ -28,7 +28,7 @@ ADR-0202 는 풀 리퀘스트가 바꾼 **영역**만 돌린다. 영역 안에�
 
 - **oxidecomputer/omicron** — `.config/nextest.toml` 의 `profile.ci`(`fail-fast = false`, `retries = 2`,
   `flaky-result = "fail"`, JUnit), `test-groups`, setup 스크립트, `rdeps()` 필터; `.config/hakari.toml` 과
-  `workspace-hack/`; `.github/workflows/hakari.yml` 의 `cargo hakari generate --diff` 와
+  `workspace-hack/`; omicron 의 hakari 워크플로우(`hakari.yml`)가 도는 `cargo hakari generate --diff` 와
   `cargo hakari manage-deps --dry-run`. 바뀐 파일로 크레이트를 고르지는 않는다.
 - **risingwavelabs/risingwave** — `.config/nextest.toml` 의 `profile.ci`(`retries = 0`,
   `fail-fast = false`, JUnit), `.config/hakari.toml`, `ci/workflows/pull-request.yml`. 역시 크레이트 선택은 없다.
