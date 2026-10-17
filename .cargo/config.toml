@@ -8,3 +8,9 @@
 # area workspaces. See docs/adr/0004-verification-ssot.md.
 [alias]
 xtask = "run --manifest-path tools/xtask/Cargo.toml --quiet --"
+
+# aws-lc-sys (the jsonwebtoken and rustls crypto backend) assembles its Windows objects with NASM,
+# which a Windows workstation or runner does not have; this uses the checked objects the crate
+# ships instead. Linux builds do not read it.
+[env]
+AWS_LC_SYS_PREBUILT_NASM = "1"

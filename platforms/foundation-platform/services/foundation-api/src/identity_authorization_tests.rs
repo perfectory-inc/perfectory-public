@@ -21,7 +21,7 @@ use crate::identity_authorization::{
     IdentityAuthorizationError, RequiredPrincipalKind,
 };
 use crate::identity_http_client::HttpIdentityClient;
-use crate::identity_token_verifier::IdentityTokenVerifier;
+use crate::identity_token_verifier::{IdentityTokenVerificationError, IdentityTokenVerifier};
 use crate::routes::{router, router_with_traffic};
 use crate::state::AppState;
 use crate::traffic::TrafficConfig;
@@ -316,6 +316,65 @@ async fn public_health_route_bypasses_identity_policy() -> Result<(), Box<dyn Er
         .lock()
         .map_err(|_| "authorization calls poisoned")?
         .is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_time_claim_of_the_wrong_type_or_an_hmac_token_is_unauthorized(
+) -> Result<(), Box<dyn Error>> {
+    let zitadel = MockServer::start().await;
+    mount_zitadel_metadata(&zitadel).await;
+    let verifier = IdentityTokenVerifier::new(
+        zitadel.uri(),
+        TEST_AUDIENCE,
+        Duration::from_secs(1),
+        Duration::from_secs(2),
+    )?;
+    let now = Utc::now().timestamp();
+    let claims = json!({"sub": "service-subject", "iat": now, "exp": now + 300, "iss": zitadel.uri(),
+                        "aud": TEST_AUDIENCE, "principal_kind": "service"});
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(TEST_KID.to_owned());
+    let private_key = format!(
+        "-----BEGIN {label}-----
+{TEST_RSA_PRIVATE_KEY_BODY}
+-----END {label}-----",
+        label = "PRIVATE KEY"
+    );
+    let rsa = EncodingKey::from_rsa_pem(private_key.as_bytes())?;
+    let mut started = claims.clone();
+    started["nbf"] = json!(now - 60);
+    assert!(verifier
+        .verify(&encode(&header, &started, &rsa)?)
+        .await
+        .is_ok());
+    // GHSA-h395-gr6q-cpjc: a string `nbf` or `exp` must not read as an absent claim.
+    let later = (now + 86_400).to_string();
+    for (claim, value) in [
+        ("nbf", json!(later)),
+        ("exp", json!(later)),
+        ("nbf", json!(now + 86_400)),
+    ] {
+        let mut forged = claims.clone();
+        forged[claim] = value.clone();
+        let result = verifier.verify(&encode(&header, &forged, &rsa)?).await;
+        assert!(
+            matches!(result, Err(IdentityTokenVerificationError::Unauthorized)),
+            "{claim} = {value}"
+        );
+    }
+    // Algorithm confusion: the header says HS256 and the "secret" is the published RSA key.
+    let mut hmac = Header::new(Algorithm::HS256);
+    hmac.kid = Some(TEST_KID.to_owned());
+    let token = encode(
+        &hmac,
+        &claims,
+        &EncodingKey::from_secret(TEST_RSA_MODULUS.as_bytes()),
+    )?;
+    assert!(matches!(
+        verifier.verify(&token).await,
+        Err(IdentityTokenVerificationError::Unauthorized)
+    ));
     Ok(())
 }
 

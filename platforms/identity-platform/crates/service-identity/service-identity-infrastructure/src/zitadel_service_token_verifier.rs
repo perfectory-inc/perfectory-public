@@ -168,6 +168,9 @@ fn build_validation(
     validation.set_audience(&[audience]);
     validation.set_required_spec_claims(&["exp", "iss", "sub", "aud", "principal_kind"]);
     validation.validate_aud = true;
+    // An `nbf` the token carries is enforced, and one of the wrong JSON type is refused rather than
+    // read as absent (jsonwebtoken >= 10.3, GHSA-h395-gr6q-cpjc).
+    validation.validate_nbf = true;
     Ok(validation)
 }
 
@@ -495,6 +498,62 @@ GcZ0izY/30012ajdHY+/QK5lsMoxTnn0skdS+spLxaS5ZEO4qvPVb8RAoCkWMMal
     }
 
     #[tokio::test]
+    async fn machine_token_whose_time_claim_has_the_wrong_type_is_rejected(
+    ) -> Result<(), Box<dyn Error>> {
+        // GHSA-h395-gr6q-cpjc: a string `nbf` or `exp` must not read as an absent claim.
+        let verifier =
+            verifier_with_cached_test_jwk(TEST_ISSUER, TEST_AUDIENCE, Some(test_principal()))
+                .await?;
+        let later = (Utc::now().timestamp() + 86_400).to_string();
+        for (claim, value) in [
+            ("nbf", json!(later)),
+            ("exp", json!(later)),
+            ("nbf", json!(Utc::now().timestamp() + 86_400)),
+        ] {
+            let mut claims = serde_json::to_value(test_claims())?;
+            claims[claim] = value.clone();
+            let result = verifier
+                .verify_credential(&signed_test_token(&claims)?)
+                .await;
+            assert!(
+                matches!(result, Err(ServiceIdentityError::InvalidCredential)),
+                "{claim} = {value}"
+            );
+        }
+        let mut started = serde_json::to_value(test_claims())?;
+        started["nbf"] = json!(Utc::now().timestamp() - 60);
+        assert!(verifier
+            .verify_credential(&signed_test_token(&started)?)
+            .await
+            .is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn machine_token_signed_with_the_public_key_as_an_hmac_secret_is_rejected(
+    ) -> Result<(), Box<dyn Error>> {
+        // Algorithm confusion: the header says HS256 and the "secret" is the published RSA key.
+        let verifier =
+            verifier_with_cached_test_jwk(TEST_ISSUER, TEST_AUDIENCE, Some(test_principal()))
+                .await?;
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some(TEST_KID.to_owned());
+        let token = encode(
+            &header,
+            &test_claims(),
+            &EncodingKey::from_secret(TEST_RSA_MODULUS.as_bytes()),
+        )?;
+
+        let result = verifier.verify_credential(&token).await;
+
+        assert!(matches!(
+            result,
+            Err(ServiceIdentityError::InvalidCredential)
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn machine_token_with_wrong_issuer_is_rejected() -> Result<(), Box<dyn Error>> {
         let verifier =
             verifier_with_cached_test_jwk(TEST_ISSUER, TEST_AUDIENCE, Some(test_principal()))
@@ -601,7 +660,7 @@ GcZ0izY/30012ajdHY+/QK5lsMoxTnn0skdS+spLxaS5ZEO4qvPVb8RAoCkWMMal
         }
     }
 
-    fn signed_test_token(claims: &TestTokenClaims) -> Result<String, jsonwebtoken::errors::Error> {
+    fn signed_test_token(claims: &impl Serialize) -> Result<String, jsonwebtoken::errors::Error> {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(TEST_KID.to_owned());
         let private_key = format!(

@@ -155,6 +155,9 @@ impl IdentityTokenVerifier {
         validation.set_audience(&[self.audience.trim()]);
         validation.set_required_spec_claims(&["exp", "iss", "sub", "aud", "principal_kind"]);
         validation.validate_aud = true;
+        // An `nbf` the token carries is enforced, and one of the wrong JSON type is refused rather
+        // than read as absent (jsonwebtoken >= 10.3, GHSA-h395-gr6q-cpjc).
+        validation.validate_nbf = true;
         let claims = decode::<ZitadelClaims>(bearer, &decoding_key, &validation)
             .map_err(|_| IdentityTokenVerificationError::Unauthorized)?
             .claims;
