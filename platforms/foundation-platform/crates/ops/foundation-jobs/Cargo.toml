@@ -1,0 +1,16 @@
+[package]
+name = "foundation-jobs"
+version = "0.1.0"
+description = "The scheduled job list and what is rendered from it (root ADR-0270)"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
