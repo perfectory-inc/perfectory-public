@@ -1,6 +1,6 @@
 # ADR 0270: 서버 작업은 작업 명세 하나에서 만들고, 러너 하나가 돌린다
 
-- Status: Proposed (사장 결정 대기 — 이 문서로 정한다. 러너는 아직 만들지 않는다)
+- Status: Accepted (2026-10-17, 사장 결정). 결정 2 "빌드를 서버 밖으로"는 열려 있다 — [부록 A](#부록-a-열린-결정--빌드를-서버-밖으로)
 - Date: 2026-10-17
 - Builds on: [ADR-0122](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)(작업 = systemd 유닛,
   Airflow 는 시작만), [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)(바뀐 데이터로 잇기),
@@ -272,7 +272,7 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 | systemd 만 쓰고 Airflow 를 뺌 | 자산으로 잇기, 실행 이력, 데이터 지도가 Airflow 기록을 읽는다(ADR-0171·0165) |
 | 셸 공용 라이브러리로 감싸개를 정리 | 시험하기 어렵고, 이번 사고들이 셸의 경로·순서·결과 판정에서 났다 |
 | 지금처럼 배포 전역 잠금 | 2.5시간·5시간 대기와 미뤄진 작업이 이 결정의 이유다 |
-| 빌드를 지금 호스트 밖(CI)으로 | 배포 대기를 더 줄이지만 ADR-0134(호스트가 정본 main 을 직접 인증·빌드)의 신뢰 모델을 바꾼다. 따로 결정한다 |
+| 빌드를 지금 호스트 밖(CI)으로 | 이 ADR 에서는 정하지 않는다. ADR-0134 의 신뢰 모델을 바꾸므로 따로 정한다 — 부록 A |
 | Dagster 로 이전 | 큰 이전이다. 막는 자산 검사 아이디어만 가져온다 |
 | 유닛에서 명세를 거꾸로 생성 | 유닛은 자산·일정·재시도를 표현하지 못한다 |
 | 러너가 매 실행 폴더를 `mkdir` 만 함(tmpfiles 없이) | 컨테이너 마운트가 러너보다 먼저 일어나는 경로(#625 의 migrate)를 막지 못한다 |
@@ -287,4 +287,39 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 - 대가: 러너가 핵심 경로가 된다 — 러너의 결함은 모든 작업을 멈춘다. 그래서 (a) 러너는 작업 하나씩 옮기고, (b) 각 단계는
   심은 위반으로 실패하는 시험과 함께 들어오며, (c) systemd 시간 상한은 안전망으로 남는다.
 - 빌드는 무거운 대기열에서 자리를 기다린다. 굽기(14g)가 돌면 빌드(22g)는 기다린다 — 지금도 그렇지만, 바뀐 뒤에는 그 기다림이
-  빌드 하나에만 걸리고 DAG·다른 작업을 멈추지 않는다. 이 기다림까지 없애려면 위 "빌드를 호스트 밖으로"를 따로 정한다.
+  빌드 하나에만 걸리고 DAG·다른 작업을 멈추지 않는다. 이 기다림까지 없애려면 부록 A 를 따로 정한다.
+
+## 부록 A (열린 결정) — 빌드를 서버 밖으로
+
+사장이 검토 중이다(2026-10-17). 빌드 캐시를 R2 에 두는 것은 허락했다. **여기서는 정하지 않는다**; 정하면 ADR 을 따로 쓴다.
+
+### 선택지
+
+1. **CI 가 main 의 커밋마다 릴리스 산출물을 한 번 만든다.** 머지 큐를 통과한 커밋에 대해 GitHub 호스트 러너(공개 저장소, 무료)가
+   지금 서버가 만드는 것(publisher 이미지, Rust 바이너리, tippecanoe 이미지)을 만든다.
+2. **출처 증명을 붙인다.** [GitHub artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)(Sigstore 서명, SLSA 출처 증명 형식)로 "이 다이제스트는 이
+   저장소의 이 워크플로가 이 커밋에서 만들었다"를 서명한다. [SLSA v1.0 Build L2](https://slsa.dev/spec/v1.0/levels)에 해당한다.
+3. **서버는 빌드하지 않고 확인한다.** 산출물을 받아 (a) 커밋이 정본 main 의 조상인지(지금 그대로), (b) 다이제스트, (c) 서명과
+   서명한 워크플로(`gh attestation verify --repo … --signer-workflow …`, [설명](https://cli.github.com/manual/gh_attestation_verify))를
+   확인하고 설치·봉인한다. 22g 빌더가 없어지므로 배포는 무거운 대기열을 기다리지 않는다.
+4. **컴파일 캐시는 R2.** [sccache 의 S3 백엔드](https://github.com/mozilla/sccache/blob/main/docs/S3.md)(`SCCACHE_ENDPOINT`,
+   `SCCACHE_REGION=auto`, `SCCACHE_S3_KEY_PREFIX`)를 R2 버킷 하나에 둔다. **쓰기는 main·머지 큐 실행만**, PR 실행은 읽기만
+   (오염된 캐시가 릴리스로 들어가는 길을 막는다).
+
+### ADR-0134 에서 바뀌는 것
+
+| ADR-0134 | 지금 | 이 선택지 |
+|---|---|---|
+| §1 소스 인증 | 서버의 제어 코드가 정본 main 을 직접 fetch 하고, 그 커밋의 바이트로 **서버가 빌드** | 정본 main 조상 확인은 그대로. 빌드 대신 **서명된 산출물의 다이제스트와 서명 워크플로**를 확인 |
+| 믿는 대상 | 서버의 root 소유 제어 코드 + 서버의 빌드 | 위에 더해 GitHub Actions 러너와 Sigstore(서명 발급) |
+| §2 설치 뒤 바이트 재검사, 봉인 | 그대로 | 그대로(`chattr +i`, ADR-0184) |
+| 빌드 상한(ADR-0137) | 서버 메모리 예산에 22g 빌더 | 서버 예산에서 빠짐 |
+
+### 열린 위험 (정하기 전에 잴 것)
+
+- **러너 크기**: 공개 저장소의 무료 Linux 러너는 4 CPU·16 GB 메모리·14 GB SSD 다. 서버에서 잰 publisher 빌더 상한은 22g 다
+  (ADR-0137). 16 GB 에서 빌드되는지 먼저 재야 한다. 더 큰 러너는 돈이 들므로 이 선택지 밖이다.
+- **믿는 대상이 늘어난다**: GitHub Actions·Sigstore 가 뚫리면 서명된 나쁜 산출물이 생긴다. 완화: 서명한 워크플로 경로와 ref 를
+  고정해 확인하고, 서버가 가끔 같은 커밋을 다시 빌드해 다이제스트를 대조(재현성 표본 검사)할 수 있다.
+- **R2 쓰기 열쇠가 CI 에 들어간다**: main·머지 큐 작업에만 주고, 캐시 전용 버킷·접두어로 범위를 좁힌다.
+
