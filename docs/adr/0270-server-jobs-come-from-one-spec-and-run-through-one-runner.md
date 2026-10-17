@@ -24,6 +24,7 @@
 | #656 결과 줄 `changed`, 종료 코드 1 | 작업이 결과 줄을 직접 찍음 | 판정이 작업마다 따로 |
 | Gold 재구성 2.5시간이 배포를 막고, 배포가 작업을 막음 | 배포 0단계 "등록된 작업이 하나도 안 돌 때까지", 빌드 잠금이 모든 작업 시작 거부 | 배포와 작업이 전역 잠금 하나 |
 | `takes_turns`, 손으로 짠 대기자 | Airflow 풀은 Airflow 가 시작한 것만 셈 | 동시성 규칙이 여러 곳에 |
+| 10-17 by-PNU 굽기가 6시간+ `activating`, #661 배포가 0단계에서 3시간+ 대기 | 굽기의 1초짜리 첫 단계(`show-parcel-zoning-by-pnu-serving-state`, CPU 2.4초, 00:31:42Z 이후 로그 없음)가 R2 요청 하나에 멈춤. R2 SDK 클라이언트에 요청 시간 상한이 없고, 유닛 상한은 20시간(굽기 전체 기준). 운영자가 멈출 NOPASSWD 길이 없어 사장 sudo 만 가능 | 시간 상한이 작업 전체 하나뿐; 요청마다 상한이 없음; 멈춤 권한이 명세 밖 |
 | #660 광주·전남 토지권리 조용히 빠짐 | 행 하한은 행 수만 셈, 빈 섹션은 못 봄 | 데이터 검사가 섹션·지역을 모름 |
 | 셸 262개 | 작업마다 경로·시간 상한·결과가 systemd 유닛·스크립트·Airflow·계약에 반복 | — |
 
@@ -92,12 +93,23 @@
 3. **자리 얻기**: 무거운 작업이면 §4 대기열에서 자기 무게만큼 자리를 얻는다. 기다린 시간을 실행 기록에 남긴다.
 4. **표 리스**: 계산된 "쓰는 표"마다 공유 잠금. 마이그레이션은 같은 잠금을 배타로 잡는다(§3).
 5. **실행 폴더**: `scratch` 아래 `<job>/<invocation>` 를 만들고 명령에 넘긴다. 성공하면 지우고, 실패하면 명세의 시간만큼 남긴다.
-6. **시간 상한**: 명령의 프로세스 그룹에 상한을 걸고, 넘으면 TERM → 여유 뒤 KILL. Docker 컨테이너는 실행마다 붙인 이름표로
+6. **시간 상한 둘**: (a) 작업 전체 상한 `time_limit_minutes`, (b) **진척 없음 상한** `stall_limit_minutes` — 명령이
+   그 시간 동안 출력 한 줄도 내지 않으면 멈춘 것으로 본다(systemd `WatchdogSec` 의 생각을 출력 줄로). 10-17 굽기처럼
+   20시간짜리 작업의 1초짜리 단계가 멈추면 (a) 만으로는 20시간을 잡힌다. 둘 중 먼저 닿은 것에서 프로세스 그룹에
+   TERM → 여유 뒤 KILL. Docker 컨테이너는 실행마다 붙인 이름표로
    정리한다(지금 `ExecStopPost ... cleanup` 이 하던 일). systemd `TimeoutStartSec` 는 러너가 죽었을 때의 안전망이다.
 7. **결과 한 줄**: 명령의 결과 줄을 읽어 판정하고, **러너가** `foundation-job-outcome ...` 을 마지막 줄로 찍는다.
    종료 코드는 그 줄에서 정한다(ADR-0260 표 그대로: `changed`·`unchanged`·`waiting` → 0, 그 밖 → 1).
    명령은 마지막 줄을 쓸 수 없으므로 #656 같은 어긋남이 생길 수 없다.
 8. **실행 기록**: `/var/lib/foundation-jobs/runs/<job>/<invocation>.json` 에 릴리스·대기 시작·실행 시작·끝·결과·기다린 이유.
+
+`stop <job>` 은 도는 실행을 멈추고 `failed stopped by <운영자>` 로 끝낸다. 운영자 계정의 sudo 허용(작업 유닛의
+start·stop)은 명세에서 생성하므로, 새 작업도 첫날부터 사장 sudo 없이 멈출 수 있다.
+
+**네트워크 요청마다 시간 상한**: 러너의 상한은 마지막 안전망이다. 바깥으로 나가는 모든 클라이언트는 요청마다 연결·첫
+바이트 상한을 갖는다. 지금 `outbound-http-infrastructure` 의 정책(`ICEBERG` 등 10초/30초)이 HTTP 클라이언트에는 있지만,
+R2 SDK 클라이언트(`foundation-outbox/src/object_storage/r2.rs`)에는 없었다 — 10-17 굽기를 멈춘 것이 이 요청이다(따로
+고치는 PR 이 있다). 가드는 SDK 설정을 만드는 곳마다 시간 상한 설정을 요구한다.
 
 `explain <job> [<invocation>]` 은 명세·고정된 릴리스·경로·실행 기록·로그 끝을 한 번에 보인다(진단을 한 명령으로).
 
@@ -189,6 +201,8 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 
 | 출처(1차 자료) | 가져온 것 | 가져오지 않은 것 |
 |---|---|---|
+| [systemd.service `WatchdogSec`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) | "살아 있다는 신호가 끊기면 멈춘 것" → 진척 없음 상한 | `sd_notify` 를 작업마다 심기(출력 줄로 대신) |
+| [AWS SDK for Rust — timeouts](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/timeouts.html) | 기본은 연결 상한(3.1초)뿐, 첫 바이트·시도·작업 상한은 "없음"; 멈춘 본문 보호는 본문에만 → 응답 머리를 기다리는 요청은 클라이언트를 만드는 곳에서 상한을 건다 | — |
 | [Kubernetes Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/) | `activeDeadlineSeconds`(실행 전체 시간 상한 하나) → `time_limit_minutes`; `backoffLimit` → `retries`; `ttlSecondsAfterFinished` → 실행 폴더 보존 시간 | 클러스터·컨트롤러 |
 | [Airflow pools](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html), [assets](https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/assets.html) | 풀·`pool_slots`·`priority_weight` 는 생성해서 유지; 자산으로 잇기(ADR-0171) 유지 | 풀을 동시성의 권위로 쓰기(Airflow 밖 시작을 못 봄) |
 | [Nomad periodic](https://developer.hashicorp.com/nomad/docs/job-specification/periodic) | `prohibit_overlap`(같은 작업 겹침 금지), 작업 하나 = 명세 하나(jobspec) | Nomad 자체 |
