@@ -1,7 +1,7 @@
 {
   "description": "Perfectory monorepo — source-visible proprietary software",
   "has_discussions": false,
-  "has_issues": false,
+  "has_issues": true,
   "has_projects": false,
   "has_wiki": false,
   "allow_auto_merge": false,

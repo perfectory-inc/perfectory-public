@@ -291,9 +291,15 @@ require(branch == {
     "name": "perfectory-public-non-main-branch-firewall",
     "target": "branch",
     "enforcement": "active",
+    # The designated maintainer, and the hosted Renovate app (id 2740) that pushes renovate/**
+    # update branches (root ADR-0270); neither bypasses the main ruleset.
     "bypass_actors": [{
         "actor_id": 253390842,
         "actor_type": "User",
+        "bypass_mode": "always",
+    }, {
+        "actor_id": 2740,
+        "actor_type": "Integration",
         "bypass_mode": "always",
     }],
     # The merge queue (root ADR-0155) builds each group on a ref it creates under
@@ -306,7 +312,7 @@ require(branch == {
         {"type": "creation"},
         {"type": "update"},
     ],
-}, "non-main firewall must allow only the designated organization maintainer and the merge queue's own refs")
+}, "non-main firewall must allow only the designated organization maintainer, the Renovate app and the merge queue's own refs")
 
 bootstrap_branch = load("bootstrap-non-main-branch-firewall.json")
 expected_bootstrap_branch = dict(branch)

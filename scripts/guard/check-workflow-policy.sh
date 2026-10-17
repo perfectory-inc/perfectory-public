@@ -107,8 +107,23 @@ for workflow in "${workflows[@]}"; do
   fi
 
   # Permission maps are intentionally tiny: one top-level contents: read map,
-  # plus optional job-level copies of that same least-privilege map.
-  awk -v file="$workflow" '
+  # plus optional job-level copies of that same least-privilege map. One exception (root
+  # ADR-0270): the daily advisory workflow, schedule-only, may add issues: write to a job-level map
+  # so its last job keeps one issue in step with main; no other permission and no other file.
+  issue_writer=0
+  if [ "$(basename "$workflow")" = dependency-advisories.yml ] && awk '
+    /^on:[[:space:]]*$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  [A-Za-z0-9_-]+:/ {
+      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
+      if (key == "schedule") schedule++
+      else if (key != "workflow_dispatch") other++
+    }
+    END { exit (schedule == 1 && !other) ? 0 : 1 }
+  ' "$workflow"; then
+    issue_writer=1
+  fi
+  awk -v file="$workflow" -v issue_writer="$issue_writer" '
     function indentation(line, copy) {
       copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
     }
@@ -116,10 +131,10 @@ for workflow in "${workflows[@]}"; do
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
     }
     function finish_permissions() {
-      if (child_count != 1 || !has_contents_read) {
+      if (child_count != 1 + has_issues_write || !has_contents_read) {
         fail("permissions must contain exactly contents: read")
       }
-      in_permissions=0; base=-1; child_count=0; has_contents_read=0
+      in_permissions=0; base=-1; child_count=0; has_contents_read=0; has_issues_write=0
     }
     {
       current=indentation($0)
@@ -133,6 +148,8 @@ for workflow in "${workflows[@]}"; do
           child_count++
           if ($0 ~ /^[[:space:]]*contents:[[:space:]]*read[[:space:]]*$/) {
             if (has_contents_read++) fail("duplicate contents permission")
+          } else if (issue_writer && base == 4 && $0 ~ /^[[:space:]]*issues:[[:space:]]*write[[:space:]]*$/) {
+            if (has_issues_write++) fail("duplicate issues permission")
           } else {
             fail("permissions may grant only literal contents: read")
           }
@@ -199,8 +216,12 @@ for workflow in "${workflows[@]}"; do
     END { if (state) finish_defaults(); exit failed ? 1 : 0 }
   ' "$workflow"
 
-  if grep -En '^[[:space:]]*permissions:[[:space:]]*write-all([[:space:]]|$)|^[[:space:]]+(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):[[:space:]]*write([[:space:]]|$)' \
-    "$workflow" >/dev/null; then
+  write_grants="$(grep -En '^[[:space:]]*permissions:[[:space:]]*write-all([[:space:]]|$)|^[[:space:]]+(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):[[:space:]]*write([[:space:]]|$)' \
+    "$workflow" || true)"
+  if [ "$issue_writer" = 1 ]; then
+    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      issues: write$' || true)"
+  fi
+  if [ -n "$write_grants" ]; then
     echo "FAIL workflow-policy: public workflows must not grant write permissions: $workflow" >&2
     exit 1
   fi

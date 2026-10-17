@@ -1,0 +1,90 @@
+name: dependency-advisories
+# A RUSTSEC advisory or a yank reaches main without a commit. This daily run finds it before an
+# unrelated pull request does and keeps one issue open while main refuses (root ADR-0270). It gates
+# no pull request. The fixes themselves arrive as Renovate pull requests (.github/renovate.json).
+on:
+  schedule:
+    - cron: "41 21 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Cargo advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # A run that fails before the check still hands the issue job a (empty) summary.
+      - name: Start the summary
+        run: mkdir -p target/supply-chain && touch target/supply-chain/cargo-advisories.md
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      - name: Set up Rust
+        shell: bash
+        run: bash scripts/ci/rust-setup.sh
+      # Keeps ~/.cargo/registry, the crates `cargo metadata` downloads for every workspace, between
+      # daily runs; nothing is built, so one workspace keys it.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
+        with:
+          workspaces: |
+            tools/xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install cargo-deny
+        shell: bash
+        run: bash scripts/ci/install-cargo-deny.sh
+      # Every day the check first refuses a planted advisory, so a check that can no longer fail
+      # cannot report a clean main.
+      - name: The check refuses a planted advisory
+        run: bash scripts/ci/cargo-advisories-self-test.sh
+      - name: Every Cargo workspace on main
+        run: bash scripts/ci/cargo-advisories.sh check target/supply-chain/cargo-advisories.md
+      - name: Upload supply-chain artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (SHA pin, ADR 0028)
+        with:
+          name: cargo-advisories
+          path: target/supply-chain/
+          if-no-files-found: error
+          retention-days: 7
+  # The only job that writes: issues, nothing else, on main only, after the check that read the
+  # crates has finished in another job (root ADR-0270).
+  issue:
+    name: Advisory issue
+    needs: [check]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cargo-advisories.sh
+          sparse-checkout-cone-mode: false
+      - name: Download supply-chain artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 (SHA pin, ADR 0028)
+        with:
+          name: cargo-advisories
+          path: target/supply-chain/
+      - name: Keep the one issue in step
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CHECK_RESULT: ${{ needs.check.result }}
+        run: bash scripts/ci/cargo-advisories.sh issue "$CHECK_RESULT" target/supply-chain/cargo-advisories.md
