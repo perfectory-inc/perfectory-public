@@ -626,7 +626,7 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
     // reaches (root ADR-0269).
     for half in [
         "cargo xtask verify foundation --part cargo --affected\n",
-        "cargo xtask verify foundation --part suites\n",
+        "cargo xtask verify foundation --part suites --affected\n",
     ] {
         assert_eq!(
             ci.matches(half).count(),
