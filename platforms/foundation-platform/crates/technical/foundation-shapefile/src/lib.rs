@@ -409,7 +409,10 @@ where
         if entry.is_dir() {
             continue;
         }
-        let Some((base, extension)) = entry.name().rsplit_once('.') else {
+        let name = entry
+            .name()
+            .with_context(|| format!("failed to decode the name of ZIP member {index}"))?;
+        let Some((base, extension)) = name.rsplit_once('.') else {
             continue;
         };
         let extension = extension.to_ascii_lowercase();
@@ -467,16 +470,19 @@ where
     let mut entry = archive
         .by_index(index)
         .with_context(|| format!("failed to open ZIP member {index}"))?;
+    let name = entry
+        .name()
+        .with_context(|| format!("failed to decode the name of ZIP member {index}"))?
+        .into_owned();
     let capacity =
         usize::try_from(entry.size()).context("ZIP member size exceeds address space")?;
     let mut bytes = Vec::with_capacity(capacity);
     entry
         .read_to_end(&mut bytes)
-        .with_context(|| format!("failed to read ZIP member {}", entry.name()))?;
+        .with_context(|| format!("failed to read ZIP member {name}"))?;
     if bytes.len() != capacity {
         bail!(
-            "ZIP member {} length mismatch: declared={capacity}, read={}",
-            entry.name(),
+            "ZIP member {name} length mismatch: declared={capacity}, read={}",
             bytes.len()
         );
     }
