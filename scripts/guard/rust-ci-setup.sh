@@ -53,8 +53,9 @@ for workflow in "${workflows[@]}"; do
         cache_count++
         cache_step = step
         if (step_name != "Rust cache") fail("the rust-cache step must be named \"Rust cache\"")
-        if (save_if != "${{ github.ref == '\''refs/heads/main'\'' }}") {
-          fail("Rust cache must use save-if: ${{ github.ref == '\''refs/heads/main'\'' }} (main writes, pull requests and merge groups only read)")
+        # false reads the cache another job saves and saves none (root ADR-0269): still only main writes.
+        if (save_if != "${{ github.ref == '\''refs/heads/main'\'' }}" && save_if != "false") {
+          fail("Rust cache must use save-if: ${{ github.ref == '\''refs/heads/main'\'' }} or false (main writes, pull requests and merge groups only read)")
         }
         if (bad_with != "") fail("Rust cache admits only workspaces, shared-key and save-if, found " bad_with)
         if (!has_workspaces) fail("Rust cache must name its workspaces")

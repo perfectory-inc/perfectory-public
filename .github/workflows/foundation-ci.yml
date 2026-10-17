@@ -477,7 +477,11 @@ jobs:
           workspaces: |
             platforms/foundation-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Reads the Rust job's dependency cache and saves none of its own (root ADR-0269): with
+          # the workspace-hack both jobs build the same dependency features, and a second 2–3.4 GB
+          # entry pushed that cache out of the 10 GB limit, so merge-queue runs rebuilt every crate.
+          shared-key: rust-quality-dependencies
+          save-if: false
 
       - name: Install database client
         shell: bash
