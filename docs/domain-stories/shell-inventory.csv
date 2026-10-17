@@ -1,0 +1,263 @@
+path,lines,logic,caller,target,reason
+platforms/foundation-platform/infra/postgres/recovery-entrypoint.sh,24,true,deploy,runner,Dockerfile ENTRYPOINT for the postgres recovery image
+platforms/foundation-platform/scripts/compose-smoke.sh,258,true,ci,xtask,Run directly from two GitHub Actions workflows
+platforms/foundation-platform/scripts/deploy/airflow-runtime.sh,246,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/assert-runtime-environment.sh,73,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/assert-runtime-migrations.sh,83,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/datahub-runtime.sh,165,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/deploy-start-once.sh,97,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/foundation-autodeploy.sh,143,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/foundation-deploy.sh,197,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/foundation-release-test.sh,1378,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/foundation-release.sh,1500,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/foundation-runtime.sh,70,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/runtime-up-in-order.sh,54,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/deploy/worker-wrangler.sh,51,true,deploy,runner,Part of the foundation-deploy/release pipeline
+platforms/foundation-platform/scripts/load/lakehouse-batch-load.sh,213,true,systemd-job,runner,Lakehouse batch load invoked by the scheduled Spark job
+platforms/foundation-platform/scripts/load/vworld-parcel-handoff-export.sh,187,true,systemd-job,runner,Lakehouse batch load invoked by the scheduled Spark job
+platforms/foundation-platform/scripts/ops/admin-boundary-release.sh,125,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/admitted-writer-runtime.sh,87,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/bronze-object-members.sh,63,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/building-register-floor-cycle.sh,48,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-bake-shards.sh,112,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-gateway-canary.sh,225,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-gateway-health.sh,61,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-kind-sizes.sh,40,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-lane-cutover.sh,303,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-pack-bake.sh,212,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh,565,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-serving-bake.sh,701,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/by-pnu-serving-monitor.sh,19,false,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/complex-boundary-release.sh,110,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/daily-source-sweep.sh,356,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/database-url.sh,52,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/gold-panel-rebuild.sh,300,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/host-docker-data-root.sh,456,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/job-journal.sh,68,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/lakehouse-maintenance.sh,100,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/lakehouse-migrate.sh,37,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/legal-dong-code-collect.sh,75,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/legal-dong-code-load.sh,268,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/legal-dong-code-validate.sh,69,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh,172,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/map-edit-fold.sh,153,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/measure-building-section-packs.sh,124,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/notify-unit-failure.sh,28,false,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh,126,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh,95,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh,243,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/postgres-production-shape.sh,30,true,ci,xtask,Called from scripts/ci/foundation-postgres-production-shape.sh
+platforms/foundation-platform/scripts/ops/publish-outbox.sh,21,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/raon-large-files.sh,242,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/silver-refresh.sh,103,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/staging-smoke.sh,258,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/start-scheduled-job.sh,171,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/vworld-login.sh,30,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/vworld-parcel-edition-collect.sh,161,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/vworld-sweep-lane.sh,24,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/recovery/check-identity-backup-freshness.sh,28,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/identity-backup-lib.sh,53,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/identity-restore-drill.sh,130,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/postgres-restore-drill.sh,82,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/run-identity-backup.sh,68,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/run-postgres-backup.sh,27,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh,1423,true,deploy,runner,Post-deploy smoke suite asserted by deploy_contract.rs
+platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh,57,true,systemd-job,runner,Converter called from admin-boundary-release.sh systemd job
+platforms/foundation-platform/services/foundation-provider-acquisition-worker/scripts/raon-agent-container-proof.sh,57,true,deploy,runner,Dockerfile ENTRYPOINT for the worker container
+platforms/foundation-platform/services/foundation-provider-acquisition-worker/scripts/raon-batch-entrypoint.sh,104,true,deploy,runner,Dockerfile ENTRYPOINT for the worker container
+platforms/identity-platform/infra/zitadel/configure-zitadel.sh,310,true,deploy,runner,Run during zitadel compose setup/deploy
+platforms/identity-platform/scripts/compose-smoke.sh,339,true,ci,xtask,Run directly from a GitHub Actions workflow
+platforms/identity-platform/scripts/deploy/identity-runtime.sh,74,true,deploy,runner,Part of the identity-platform deploy pipeline
+platforms/identity-platform/scripts/deploy/zitadel-runtime.sh,44,true,deploy,runner,Part of the identity-platform deploy pipeline
+products/gongzzang/infra/zitadel/init-zitadel.sh,114,true,deploy,runner,Run via docker-compose during local/CI zitadel setup
+products/gongzzang/packages/api-types/scripts/generate.tests.sh,43,true,test-fixture,xtask,"npm ""test"" script (package.json) for codegen"
+products/gongzzang/scripts/ci/vitest-lane-completeness.sh,75,true,ci,xtask,gongzzang CI helper invoked from a workflow
+products/gongzzang/scripts/ci/walking-skeleton-e2e.sh,148,true,ci,xtask,gongzzang CI helper invoked from a workflow
+products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.sh,103,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
+products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.tests.sh,129,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
+products/gongzzang/scripts/lefthook/check-no-fake-pass.sh,75,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
+products/gongzzang/scripts/lefthook/check-no-fake-pass.tests.sh,144,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
+products/gongzzang/scripts/lefthook/file-line-limit.sh,95,true,ci,xtask,"Moved to CI only (gongzzang-ci.yml), not in lefthook.yml"
+products/gongzzang/scripts/lefthook/file-line-limit.tests.sh,95,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
+products/gongzzang/scripts/lefthook/foundation-ownership-boundary.sh,200,true,ci,xtask,"Moved to CI only by ADR-0149, not in lefthook.yml"
+products/gongzzang/scripts/lefthook/panel-guards.tests.sh,68,true,test-fixture,xtask,Lefthook self-test run directly by gongzzang-ci.yml
+products/gongzzang/scripts/lefthook/panel-no-direct-codec.sh,27,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
+products/gongzzang/scripts/lefthook/panel-no-framework-import-kind.sh,28,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
+products/gongzzang/scripts/lefthook/panel-no-state-without-router.sh,26,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
+products/gongzzang/scripts/sqlx-migrate.sh,23,true,dev-tool,xtask,Manual DB setup command documented in README
+products/gongzzang/scripts/sqlx-prepare.sh,27,true,dev-tool,xtask,"Manual sqlx-prepare wrapper, sibling of sqlx-migrate.sh"
+products/gongzzang/scripts/web-preview/common.sh,51,true,deploy,runner,"PR web-preview deploy, started by a systemd unit"
+products/gongzzang/scripts/web-preview/deploy.sh,134,true,deploy,runner,"PR web-preview deploy, started by a systemd unit"
+products/gongzzang/scripts/web-preview/teardown.sh,48,true,deploy,runner,"PR web-preview deploy, started by a systemd unit"
+products/gongzzang/tests/migrations/test_v001_01.sh,49,true,unreferenced,delete,Superseded by test_v001_full.sh; CI no longer runs it
+products/gongzzang/tests/migrations/test_v001_02.sh,47,true,unreferenced,delete,Superseded by test_v001_full.sh; CI no longer runs it
+products/gongzzang/tests/migrations/test_v001_03.sh,65,true,unreferenced,delete,Superseded by test_v001_full.sh; CI no longer runs it
+products/gongzzang/tests/migrations/test_v001_05.sh,111,true,unreferenced,delete,Superseded by test_v001_full.sh; CI no longer runs it
+products/gongzzang/tests/migrations/test_v001_full.sh,227,true,test-fixture,xtask,DB migration smoke test; CI runs the _full/_audit variant
+products/gongzzang/tests/migrations/test_v002_audit_immutable.sh,110,true,test-fixture,xtask,DB migration smoke test; CI runs the _full/_audit variant
+scripts/ci/actionlint.sh,55,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/foundation-postgres-production-shape.sh,56,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/gitleaks-scan.sh,124,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/install-cargo-deny.sh,28,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/lychee-docs.sh,74,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/materialize-public-candidate-tree.sh,24,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/osv-vulnerability-gate.sh,130,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/require-successful-needs.sh,45,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/reuse-lint.sh,64,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/rust-setup.sh,70,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/github/build-public-root.sh,143,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/check-actions-cache-controls.sh,118,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/check-billing-budgets.sh,105,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/check-publication-authority.sh,237,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/configure-public-repository.sh,546,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/import-private-feature-diff.sh,169,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/prepare-public-root.sh,134,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/publish-public-root.sh,211,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/safe-git-transport.sh,205,true,deploy,runner,Used by foundation-deploy.sh/autodeploy.sh for git transport
+scripts/github/show-public-repository-identity.sh,52,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/validate-legal-publication.sh,48,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/github/validate-public-repository-identity.sh,39,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
+scripts/guard/a-deploy-verifies-the-schema-it-left-self-test.sh,103,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/a-deploy-verifies-the-schema-it-left.sh,84,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/actions-cache-controls-self-test.sh,90,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/area-ci-input-coverage-self-test.sh,124,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/area-ci-input-coverage.sh,119,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/area-registry-self-test.sh,67,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/area-registry.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/assert-runtime-environment-self-test.sh,156,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/assert-runtime-migrations-self-test.sh,102,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/backend-profile-consistency-self-test.sh,49,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/backend-profile-consistency.sh,108,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/billing-budgets-self-test.sh,68,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/bootstrap-creates-what-it-grants-on-self-test.sh,71,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/bootstrap-creates-what-it-grants-on.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/build-coupling-baseline-self-test.sh,107,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/build-coupling-baseline.sh,310,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
+scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/check-container-runtime-policy.sh,705,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-workflow-policy.sh,627,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/container-images-match-the-contract-self-test.sh,58,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/container-images-match-the-contract.sh,13,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/container-runtime-policy-self-test.sh,418,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/container-runtime-policy.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/credential-names-self-test.sh,54,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/credential-names.sh,19,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/document-contract-markers-self-test.sh,105,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/document-contract-markers.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/environment-variable-naming-self-test.sh,168,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/environment-variable-naming.sh,286,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/every-container-has-a-memory-cap-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/every-container-has-a-memory-cap.sh,465,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/every-table-declares-its-load-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/every-table-declares-its-load.sh,77,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/foundation-ci-scope-self-test.sh,9,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/foundation-kafka-contract.sh,105,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/foundation-parcel-current-selector-self-test.sh,112,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/foundation-parcel-current-selector.sh,60,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
+scripts/guard/foundation-r2-lakehouse-live-self-test.sh,151,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/frontend-test-isolation-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/github-policy-json-self-test.sh,463,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/gitleaks-policy-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/hand-rolled-error-boundary-self-test.sh,184,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/hand-rolled-error-boundary.sh,347,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/health-route-conformance.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/import-private-feature-diff-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/intelligence-no-vector-provider-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/intelligence-no-vector-provider.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/lefthook-advisory-policy-self-test.sh,133,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lefthook-advisory-policy.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/lefthook-time-budget-self-test.sh,72,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lefthook-time-budget.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"
+scripts/guard/lineage-is-derived-not-passed-self-test.sh,109,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lineage-is-derived-not-passed.sh,75,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/live-lane-completeness-self-test.sh,550,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/live-lane-completeness.sh,601,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/migration-approval-gates-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/migration-approval-gates.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/migration-naming-self-test.sh,32,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/migration-naming.sh,25,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/monorepo-guard.sh,37,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/no-adhoc-cargo-lint.sh,49,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/no-env-access-in-domain-layers-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/no-env-access-in-domain-layers.sh,61,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/no-silent-test-skip-self-test.sh,255,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/no-silent-test-skip.sh,163,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/npm-security-overrides.sh,14,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/osv-vulnerability-ratchet-self-test.sh,127,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/package-publication-policy-self-test.sh,122,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/pinned-downloads-self-test.sh,84,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/pinned-downloads.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/pipeline-graph-covers-every-dataset-self-test.sh,7,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/pipeline-graph-covers-every-dataset.sh,6,false,git-hook,keep,Run directly by lefthook.yml pre-push fast-ratchets
+scripts/guard/public-doc-boundary-self-test.sh,77,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/public-doc-boundary.sh,11,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/public-fixture-safety-self-test.sh,200,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/public-fixture-safety.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/public-github-policy.sh,689,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/public-repository-safety.sh,476,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/public-root-builder.sh,78,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/public-root-publisher-self-test.sh,112,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/public-tree-snapshot-self-test.sh,181,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/publication-authority-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/r2-env-namespace-consistency-self-test.sh,178,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/r2-env-namespace-consistency.sh,275,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/r2-reads-have-one-path-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/r2-reads-have-one-path.sh,85,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/region-code-pairs-have-one-home-self-test.sh,120,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/region-code-pairs-have-one-home.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/repository-identity-capture-self-test.sh,94,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/repository-identity-ci.sh,27,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/repository-identity-policy-self-test.sh,300,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/roadmap-owns-recorded-debt-self-test.sh,125,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/roadmap-owns-recorded-debt.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/runtime-secrets-contract-self-test.sh,70,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/runtime-secrets-contract.sh,20,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/rust-ci-setup-self-test.sh,182,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/rust-ci-setup.sh,138,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/safe-git-transport-self-test.sh,211,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/static-release-toolchain-ssot-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/static-release-toolchain-ssot.sh,5,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/technology-version-consistency-self-test.sh,137,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/technology-version-consistency.sh,227,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
+scripts/guard/the-contract-names-where-its-objects-live-self-test.sh,134,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/the-contract-names-where-its-objects-live.sh,74,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/the-deploy-does-not-restate-the-compose-chain-self-test.sh,102,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,116,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/third-party-artifact-policy-self-test.sh,191,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/tiles-slice-proof-env-self-test.sh,29,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/unique-package-names.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/utility-library-policy-self-test.sh,111,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/utility-library-policy.sh,57,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/workflow-policy-self-test.sh,497,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/xtask-path-coverage-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/tiles/boundary-slice-proof.sh,858,true,ci,xtask,Tile proof script run by a CI workflow
+scripts/tiles/http-evidence.sh,21,true,ci,xtask,Tile proof script run by a CI workflow
+scripts/tiles/tiles-slice-proof.sh,987,true,ci,xtask,Tile proof script run by a CI workflow
+scripts/verify/cargo-verify.sh,259,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/foundation-kafka-live.sh,136,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/foundation-r2-lakehouse-live.sh,128,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/foundation-spark-runtime-files.sh,75,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/foundation-spark-runtime.sh,90,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/frontend-test.sh,60,true,ci,xtask,Verification script run by CI / cargo xtask verify
+scripts/verify/integration.sh,117,true,ci,xtask,Verification script run by CI / cargo xtask verify
+tools/npm/advisory-fix-guards.sh,29,true,ci,xtask,npm advisory-fix automation invoked by a CI workflow
+tools/npm/open-advisory-fix-pr.sh,64,true,ci,xtask,npm advisory-fix automation invoked by a CI workflow
+tools/npm/prepare-advisory-fix.sh,77,true,ci,xtask,npm advisory-fix automation invoked by a CI workflow
+tools/npm/refresh-locks.sh,89,true,ci,xtask,npm advisory-fix automation invoked by a CI workflow
