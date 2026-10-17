@@ -1,3 +1,4 @@
+// probe: one-crate CI timing (ADR-0269), closed unmerged
 //! Foundation Platform HTTP API composition library.
 
 use std::ffi::OsStr;
