@@ -29,12 +29,12 @@ DOMAIN = SPARK_DIR.parents[2] / "crates" / "stewardship" / "stewardship-domain" 
 DECIDER = "00000000-0000-0000-0000-000000000001"
 
 
-def export(*approvals: tuple[str, str, str]) -> dict:
+def export(*approvals: tuple[str, str, str], note: str = "합성 공문") -> dict:
     """The database's standing approvals as `export-legal-dong-steward-decisions` writes them."""
 
     decisions = [
         {"decision_id": decision_id, "old_code": old, "new_code": new, "decided_by": DECIDER,
-         "decided_at": "2099-01-02T00:00:00Z", "reason_code": "official_document", "note": "합성 공문"}
+         "decided_at": "2099-01-02T00:00:00Z", "reason_code": "official_document" if note else None, "note": note}
         for decision_id, old, new in approvals
     ]
     return {"schema_version": pairs_job.DECISION_EXPORT_SCHEMA, "review_items": 1,
@@ -62,6 +62,12 @@ class DatabaseDecisionTest(unittest.TestCase):
         self.assertEqual((rows[0]["source"], rows[0]["old_code"], rows[0]["new_code"], rows[0]["detail"]),
                          (f"steward:{DECIDER}", "9811010100", "9911010100", "합성 공문"))
         self.assertEqual(pairs_job.fold_summary(verdicts, "run-1"), {"derivation_run_id": "run-1", "decision_ids": ["d-1"]})
+
+    def test_an_approval_with_neither_reason_nor_note_is_recorded(self):
+        decisions = pairs_job.db_decisions(export(("d-1", "9811010100", "9911010100"), note=""))
+        rows, verdicts = pairs_job.fold_steward_decisions(decisions, self.plan["review"], self.codes, NOW)
+        self.assertEqual(verdicts, {"db:d-1": "recorded"})
+        self.assertEqual((rows[0]["source"], rows[0]["new_code"], rows[0]["detail"]), (f"steward:{DECIDER}", "9911010100", None))
 
     def test_the_run_refuses_again_what_the_list_or_the_table_does_not_hold(self):
         # 심은 위반: an approval of a change that is not listed (it was paired by the rule), and one of a

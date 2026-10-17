@@ -270,8 +270,8 @@ class PairingTest(unittest.TestCase):
                                (["9811010100=9999999999"], "not a candidate")):
             with self.subTest(approvals), self.assertRaisesRegex(ValueError, why):
                 pairs_job.steward_rows(plan["review"], approvals, "steward-a", "이유", codes, "s", NOW)
-        with self.assertRaisesRegex(ValueError, "reason"):
-            pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
+        silent = pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
+        self.assertIsNone(silent[0]["detail"], "a reason is optional; blank is stored as null")
         # 승인 행을 기록한 다음 날의 도출은 그 짝을 쓰고 목록에서 뺀다.
         next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW, NO_PARCELS_BEFORE)
         self.assertEqual(next_day["review"], [])

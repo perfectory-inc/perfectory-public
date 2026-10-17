@@ -13,6 +13,9 @@ export const STATUS_LABEL: Record<S["LineageReviewStatus"], string> = {
   awaiting_data: "데이터 대기",
 };
 
+/** The list filter that brings back what the data decides; the default list hides it. */
+export const DATA_DECIDED_FILTER_LABEL = `${STATUS_LABEL.split}·${STATUS_LABEL.awaiting_data} 항목도 보기`;
+
 export const KIND_LABEL: Record<S["LineageReviewKind"], string> = {
   parcel: "필지 계보",
   legal_dong: "법정동 짝",

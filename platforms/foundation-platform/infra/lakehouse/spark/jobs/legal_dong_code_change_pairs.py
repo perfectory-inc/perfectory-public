@@ -247,13 +247,12 @@ def steward_rows(
     `approvals` are `OLD=NEW`. OLD must be an open pair item whose status is `steward`: an item
     awaiting data, or a split, is the data's to decide (ADR-0144 §4). NEW must be one of its
     candidates when it has any, and a code the full table holds in every case (`table_codes`; None
-    when staging a decision without the table, the pairing run checks it again).
+    when staging a decision without the table, the pairing run checks it again). `reason` is
+    optional: who, when and which pair are recorded either way (root ADR-0268).
     """
 
     if not STEWARD_ID.fullmatch(steward):
         raise ValueError(f"--steward must be a plain id: {steward!r}")
-    if not reason.strip():
-        raise ValueError("--reason is required: the decision must say why")
     open_pairs = {item["old_code"]: item for item in review if item["kind"] == "pair"}
     source = f"steward:{steward}"
     rows = []
@@ -269,7 +268,7 @@ def steward_rows(
         if (table_codes is not None and new not in table_codes) or (item["candidates"] and new not in item["candidates"]):
             raise ValueError(f"{new} is not a candidate for {old} ({item['candidates'] or 'a code in the full table'})")
         rows.append(change_row("pair", source, old, new, derivation_run_id, now, level=cg.code_level(old),
-                               rule_verdict="steward", detail=reason))
+                               rule_verdict="steward", detail=reason.strip()))
     if not rows:
         raise ValueError("a steward decision needs at least one --approve")
     return rows
@@ -321,7 +320,7 @@ def stage_steward_decision(argv: list[str]) -> int:
     parser.add_argument("--review", required=True, help="steward-review.json the last pairing run wrote")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--steward", required=True)
-    parser.add_argument("--reason", required=True)
+    parser.add_argument("--reason", default="")
     parser.add_argument("--approve", action="append", default=[])
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc).replace(microsecond=0)

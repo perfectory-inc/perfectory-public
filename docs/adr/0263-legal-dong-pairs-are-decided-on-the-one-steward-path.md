@@ -70,3 +70,5 @@
 - 새 publisher 명령 하나(`export-legal-dong-steward-decisions`). 기존 `load-lineage-review-items`·`record-lineage-steward-folds` 를 그대로 쓴다.
 - 더니어 "검토" 화면이 두 종류를 한 목록에 보이고(종류 거르개), 법정동 항목 화면은 근거·후보·결정 이력을 보인다.
 - DB 를 재구성하면 법정동 목록은 다음 짝 맞추기 때 다시 게시된다(그 사이엔 비어 있다). `steward-list-published.json` 을 지우면 바로 다시 게시한다.
+
+- 2026-10-17 개정 주석: 결정의 이유 코드와 메모는 선택이 되었다 — [ADR-0268](./0268-a-steward-decisions-reason-and-note-are-optional.md).

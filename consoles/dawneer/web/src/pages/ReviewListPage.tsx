@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import type { DawneerClient, ReviewItem, ReviewKind, ReviewStatus } from "../api/client";
-import { formatCode, KIND_LABEL, STATUS_LABEL } from "../lib/labels";
+import { DATA_DECIDED_FILTER_LABEL, formatCode, KIND_LABEL, STATUS_LABEL } from "../lib/labels";
 
 /** What waits for a person — parcel lineage and 법정동 pairs — in subject-code order, page by page. */
 export function ReviewListPage({ client }: { client: DawneerClient }) {
@@ -10,6 +10,8 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
   const [status, setStatus] = useState<ReviewStatus | "">("");
   const [prefix, setPrefix] = useState("");
   const [undecidedOnly, setUndecidedOnly] = useState(true);
+  // Splits and changes awaiting data need no person (ADR-0144 §4): hidden unless asked for.
+  const [showDataDecided, setShowDataDecided] = useState(false);
   const [cursors, setCursors] = useState<string[]>([]);
   const after = cursors.at(-1);
 
@@ -18,6 +20,8 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
     ...(status ? { status } : {}),
     ...(/^\d{1,19}$/.test(prefix) ? { prefix } : {}),
     undecidedOnly,
+    // A status picked by name is shown whatever it is.
+    actionableOnly: !status && !showDataDecided,
     ...(after ? { after } : {}),
   };
   const page = useQuery({
@@ -90,6 +94,17 @@ export function ReviewListPage({ client }: { client: DawneerClient }) {
             }}
           />
           결정 안 된 것만
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={showDataDecided}
+            onChange={(e) => {
+              setShowDataDecided(e.target.checked);
+              reset();
+            }}
+          />
+          {DATA_DECIDED_FILTER_LABEL}
         </label>
       </div>
 
