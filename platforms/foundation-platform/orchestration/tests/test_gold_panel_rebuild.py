@@ -507,9 +507,10 @@ class Registration(unittest.TestCase):
         # systemd stops it before Airflow would (test_job_specs checks every job); a longer
         # timeout pushes the hourly folds past their starvation bound.
         self.assertIn("TimeoutStartSec=160m", unit)
-        self.assertEqual(job["timeout_minutes"], 165)
+        self.assertEqual(job_specs.scheduler_timeout_minutes(job), 165)
         stretched = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
-        next(j for j in stretched["jobs"] if j["id"] == "gold_panel_rebuild")["timeout_minutes"] = 166
+        rebuild = next(j for j in stretched["jobs"] if j["id"] == "gold_panel_rebuild")
+        rebuild["stop_grace_minutes"] = 166 - rebuild["time_limit_minutes"]
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1201 minutes")
                             for problem in job_specs.pool_starvation(stretched)))
 

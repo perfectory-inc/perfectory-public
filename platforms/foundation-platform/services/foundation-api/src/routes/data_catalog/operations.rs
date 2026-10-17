@@ -58,11 +58,18 @@ pub(super) struct JobList {
 }
 
 impl JobList {
-    /// Each job's time limit in minutes, by job id.
+    /// Each job's limit for one start in minutes, by job id: its run's time limit plus its stop
+    /// grace (root ADR-0270 §1; `job_specs.scheduler_timeout_minutes` adds the same two).
     pub(super) fn timeouts(&self) -> BTreeMap<String, u32> {
         self.jobs
             .iter()
-            .map(|job| (job.id.clone(), job.timeout_minutes))
+            .map(|job| {
+                (
+                    job.id.clone(),
+                    job.time_limit_minutes
+                        .saturating_add(job.stop_grace_minutes),
+                )
+            })
             .collect()
     }
 
@@ -80,10 +87,12 @@ struct ListedJob {
     id: String,
     description: String,
     schedule: String,
-    /// How long a run may take (root ADR-0122): a scheduled start this long ago with no success
-    /// since is late (root ADR-0195).
-    #[serde(default)]
-    timeout_minutes: u32,
+    /// How long a run may run (root ADR-0270 §1). With `stop_grace_minutes`, a scheduled start
+    /// this long ago with no success since is late (root ADR-0195). Both are required: a job list
+    /// without them is refused, not read as zero.
+    time_limit_minutes: u32,
+    /// How much longer than its run the scheduler gives one start.
+    stop_grace_minutes: u32,
     enabled: bool,
     /// When the job was switched on (root ADR-0239): a slot before it is not one it missed.
     #[serde(default)]
@@ -587,6 +596,25 @@ mod tests {
         at(iso).timestamp_millis()
     }
 
+    #[test]
+    fn the_real_job_list_gives_each_start_more_than_its_run() -> Result<(), String> {
+        // Read at run time (cargo sets it for the test): no compile-time file dependency.
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").map_err(|error| error.to_string())?;
+        let path = Path::new(&manifest).join("../..").join(DEFAULT_JOBS_PATH);
+        let real = read_job_list(&path).map_err(|error| format!("{error:?}"))?;
+        let timeouts = real.timeouts();
+        assert_eq!(timeouts.len(), real.jobs.len());
+        for job in &real.jobs {
+            assert!(job.time_limit_minutes > 0, "{}", job.id);
+            assert!(
+                timeouts.get(&job.id) > Some(&job.time_limit_minutes),
+                "{}",
+                job.id
+            );
+        }
+        Ok(())
+    }
+
     fn list() -> JobList {
         JobList {
             dag_id_prefix: "synthetic_".to_owned(),
@@ -595,7 +623,8 @@ mod tests {
                     id: "nightly".to_owned(),
                     description: "a nightly job".to_owned(),
                     schedule: "20 7 * * *".to_owned(),
-                    timeout_minutes: 60,
+                    time_limit_minutes: 55,
+                    stop_grace_minutes: 5,
                     enabled: true,
                     enabled_since: None,
                     disabled_reason: None,
@@ -606,7 +635,8 @@ mod tests {
                     id: "half_hourly".to_owned(),
                     description: "a half-hourly job".to_owned(),
                     schedule: "0,30 * * * *".to_owned(),
-                    timeout_minutes: 60,
+                    time_limit_minutes: 55,
+                    stop_grace_minutes: 5,
                     enabled: true,
                     enabled_since: None,
                     disabled_reason: None,
@@ -617,7 +647,8 @@ mod tests {
                     id: "off".to_owned(),
                     description: "a job that is off".to_owned(),
                     schedule: "40 4 * * *".to_owned(),
-                    timeout_minutes: 60,
+                    time_limit_minutes: 55,
+                    stop_grace_minutes: 5,
                     enabled: false,
                     enabled_since: None,
                     disabled_reason: Some("waiting for a supervised run".to_owned()),

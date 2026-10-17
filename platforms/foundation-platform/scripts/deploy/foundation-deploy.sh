@@ -57,7 +57,14 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
-        print(job["systemd_service"], job["timeout_minutes"])
+        # One start's limit (root ADR-0270 §1), the sum job_specs.scheduler_timeout_minutes makes;
+        # test_foundation_autodeploy holds the two to the same answer on the real list. one-off: the
+        # list read is the release being replaced, and the one this change replaces still states
+        # timeout_minutes. Drop that branch once the host runs a release with stop_grace_minutes.
+        if "timeout_minutes" in job:
+            print(job["systemd_service"], job["timeout_minutes"])
+        else:
+            print(job["systemd_service"], job["time_limit_minutes"] + job["stop_grace_minutes"])
 if which == "enabled-consumers-first":
     # Airflow drops an output event for a DAG that is still paused (root ADR-0179): the order is the
     # job registry's own dependency graph, consumers first (orchestration/dags/job_specs.py).

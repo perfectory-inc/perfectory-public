@@ -33,6 +33,8 @@ pub struct Job {
     pub systemd_service: String,
     /// How long one run may run, in minutes.
     pub time_limit_minutes: u32,
+    /// How much longer than its run the scheduler gives one start, in minutes.
+    pub stop_grace_minutes: u32,
 }
 
 impl JobList {
@@ -105,6 +107,34 @@ pub fn render_unit(unit: &str, minutes: u32) -> Result<String, String> {
         .collect())
 }
 
+/// The seconds a unit gives its stop (`TimeoutStopSec=`; systemd's default is 90).
+///
+/// # Errors
+/// When the value is not seconds (`120`, `120s`) or minutes (`2min`, `2m`), or is given twice.
+pub fn stop_seconds(unit: &str) -> Result<u32, String> {
+    let values: Vec<&str> = unit
+        .lines()
+        .filter_map(|line| line.strip_prefix("TimeoutStopSec="))
+        .collect();
+    let value = match values.as_slice() {
+        [] => return Ok(90),
+        [value] => *value,
+        _ => return Err("has more than one TimeoutStopSec= line".to_owned()),
+    };
+    let (number, unit_seconds) = value
+        .strip_suffix("min")
+        .or_else(|| value.strip_suffix('m'))
+        .map_or_else(
+            || (value.strip_suffix('s').unwrap_or(value), 1),
+            |minutes| (minutes, 60),
+        );
+    number
+        .parse::<u32>()
+        .ok()
+        .and_then(|number| number.checked_mul(unit_seconds))
+        .ok_or_else(|| format!("TimeoutStopSec={value} is not seconds or minutes"))
+}
+
 /// One job unit: what its file holds now and what the job list says it should hold.
 #[derive(Debug)]
 pub struct Unit {
@@ -119,19 +149,27 @@ pub struct Unit {
 /// Every job unit, rendered from the list. `read` returns a unit file's text by its file name.
 ///
 /// # Errors
-/// Every problem found: a limit of zero, jobs that share a unit but state different limits, and a
-/// unit that cannot be read or has no single `TimeoutStartSec=` line.
+/// Every problem found: a limit of zero, jobs that share a unit but state different limits, a unit
+/// that cannot be read or has no single `TimeoutStartSec=` line, and a stop grace no longer than the
+/// unit's `TimeoutStopSec=` (the scheduler would give up while the unit still stops).
 pub fn render(
     list: &JobList,
     read: &dyn Fn(&str) -> Result<String, String>,
 ) -> Result<Vec<Unit>, Vec<String>> {
     let mut problems = Vec::new();
     let mut limits: BTreeMap<String, (u32, &str)> = BTreeMap::new();
+    let mut graces: BTreeMap<String, (u32, &str)> = BTreeMap::new();
     for job in &list.jobs {
         if job.time_limit_minutes == 0 {
             problems.push(format!("{}: time_limit_minutes must be above 0", job.id));
         }
         let file = unit_file_name(&job.systemd_service);
+        let shortest = graces
+            .entry(file.clone())
+            .or_insert((job.stop_grace_minutes, &job.id));
+        if job.stop_grace_minutes < shortest.0 {
+            *shortest = (job.stop_grace_minutes, &job.id);
+        }
         match limits.get(&file) {
             Some((minutes, other)) if *minutes != job.time_limit_minutes => problems.push(format!(
                 "{}: shares {file} with {other}, which states time_limit_minutes {minutes}, not {}",
@@ -153,7 +191,19 @@ pub fn render(
             })
         });
         match unit {
-            Ok(unit) => units.push(unit),
+            Ok(unit) => {
+                if let Some((grace, job)) = graces.get(&unit.file) {
+                    match stop_seconds(&unit.current) {
+                        Ok(stop) if u64::from(*grace) * 60 > u64::from(stop) => {}
+                        Ok(stop) => problems.push(format!(
+                            "{job}: stop_grace_minutes {grace} is not longer than {}'s TimeoutStopSec ({stop}s)",
+                            unit.file
+                        )),
+                        Err(error) => problems.push(format!("{}: {error}", unit.file)),
+                    }
+                }
+                units.push(unit);
+            }
             Err(error) => problems.push(format!("{file}: {error}")),
         }
     }
@@ -199,6 +249,7 @@ mod tests {
                     id: (*id).to_owned(),
                     systemd_service: (*service).to_owned(),
                     time_limit_minutes: *minutes,
+                    stop_grace_minutes: 5,
                 })
                 .collect(),
         }
@@ -218,6 +269,24 @@ mod tests {
             unit_file_name("foundation-data-quality.service"),
             "foundation-data-quality.service"
         );
+    }
+
+    #[test]
+    fn a_stop_grace_must_outlast_the_units_stop() {
+        assert_eq!(stop_seconds("[Service]\n"), Ok(90));
+        assert_eq!(stop_seconds("TimeoutStopSec=120\n"), Ok(120));
+        assert_eq!(stop_seconds("TimeoutStopSec=2min\n"), Ok(120));
+        assert!(stop_seconds("TimeoutStopSec=infinity\n").is_err());
+        let mut jobs = list(&[("a", "a.service", 150)]);
+        let slow_stop = "[Service]\nTimeoutStartSec=150m\nTimeoutStopSec=6min\n";
+        assert_eq!(
+            check(&jobs, &move |_: &str| Ok(slow_stop.to_owned())).len(),
+            1
+        );
+        if let Some(job) = jobs.jobs.first_mut() {
+            job.stop_grace_minutes = 7;
+        }
+        assert!(check(&jobs, &move |_: &str| Ok(slow_stop.to_owned())).is_empty());
     }
 
     #[test]
