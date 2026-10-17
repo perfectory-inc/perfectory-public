@@ -69,7 +69,7 @@ class JobSpec:
     dag_id: str
     description: str
     schedule: str
-    timeout_minutes: int
+    timeout_minutes: int  # one start's limit: scheduler_timeout_minutes(job)
     pool: str
     pool_slots: int
     retries: int
@@ -392,9 +392,21 @@ def priority_weight(job):
     return value
 
 
+def scheduler_timeout_minutes(job):
+    """One start's limit: the run's time_limit_minutes plus its stop_grace_minutes (root ADR-0270 §1).
+
+    The DAG's execution and SSH timeouts, the starvation bound, the deploy's wait for a started-once
+    job and the operations map's lateness all use this sum; jobs.v1.json states its two parts.
+    """
+    for field in ("time_limit_minutes", "stop_grace_minutes"):
+        if type(job.get(field)) is not int or job[field] < 1:
+            raise JobListError(f"{job['id']}: {field} must be a positive integer")
+    return job["time_limit_minutes"] + job["stop_grace_minutes"]
+
+
 def hold_minutes(job):
     """The longest one scheduled run holds its slots: every try at its timeout, plus the delays."""
-    return (retries(job) + 1) * int(job["timeout_minutes"]) + retries(job) * RETRY_DELAY_MINUTES
+    return (retries(job) + 1) * scheduler_timeout_minutes(job) + retries(job) * RETRY_DELAY_MINUTES
 
 
 def longest_wait_minutes(starved, others, slots):
@@ -697,7 +709,7 @@ def load_specs(jobs=None, graph=None):
                 dag_id=f"{dag_id_prefix}{job_id}",
                 description=job["description"],
                 schedule=job["schedule"],
-                timeout_minutes=int(job["timeout_minutes"]),
+                timeout_minutes=scheduler_timeout_minutes(job),
                 pool=job["pool"],
                 pool_slots=pool_slots(job),
                 retries=retries(job),

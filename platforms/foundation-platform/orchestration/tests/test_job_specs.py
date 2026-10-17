@@ -268,7 +268,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_a_retry_holds_the_slots_again(self):
         # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
-        floor = {"id": "f", "timeout_minutes": 250, "retries": 1}
+        floor = {"id": "f", "time_limit_minutes": 240, "stop_grace_minutes": 10, "retries": 1}
         self.assertEqual(job_specs.hold_minutes(floor), 505)
         self.assertEqual(job_specs.hold_minutes({**floor, "retries": 0}), 250)
         # Planted: FLOOR retried three times would keep the hourly folds waiting past the limit,
@@ -510,7 +510,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
 
     def test_a_lane_that_holds_its_slots_longer_than_the_gold_rebuild_starves_the_folds(self):
         jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[2])["timeout_minutes"] = 170
+        job(jobs, LANES[2])["stop_grace_minutes"] = 170 - job(jobs, LANES[2])["time_limit_minutes"]
         problems = job_specs.pool_starvation(jobs)
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1205 minutes")
                             and LANES[2] in problem for problem in problems), problems)

@@ -4,7 +4,7 @@
 //! failed latest run (and the cause its scheduler log gives), a job whose inputs will not come
 //! because a job it waits on failed (`upstream_job_ids`, rendered by `job_specs.py`), a scheduled
 //! start whose time limit has passed with no success since and no run of it queued or running in
-//! the scheduler (the job list's `schedule` and `timeout_minutes`; a run waiting for its pool's
+//! the scheduler (the job list's `schedule`, and `time_limit_minutes` + `stop_grace_minutes`; a run waiting for its pool's
 //! slots is not late, `job_specs.py` bounds that wait), a run much longer than the job's median,
 //! and a run that wrote far fewer or far more rows than the runs before it of the same kind (the
 //! `added-records` of the snapshots it committed to the Iceberg tables it writes; a run that
