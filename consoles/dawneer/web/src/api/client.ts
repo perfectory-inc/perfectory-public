@@ -162,6 +162,7 @@ export class DawneerClient {
     status?: ReviewStatus;
     prefix?: string;
     undecidedOnly?: boolean;
+    actionableOnly?: boolean;
     after?: string;
     limit?: number;
   }): Promise<ReviewItemPage> {
@@ -170,6 +171,7 @@ export class DawneerClient {
     if (filter.status) query.set("status", filter.status);
     if (filter.prefix) query.set("prefix", filter.prefix);
     if (filter.undecidedOnly) query.set("undecided_only", "true");
+    if (filter.actionableOnly) query.set("actionable_only", "true");
     if (filter.after) query.set("after", filter.after);
     query.set("limit", String(filter.limit ?? 50));
     return this.call(`lineage-review/items?${query.toString()}`);

@@ -199,9 +199,9 @@ pub struct LineageDecisionRequest {
     pub outcome: LineageDecisionOutcome,
     /// The chosen candidate; only for `link`.
     pub candidate_code: Option<String>,
-    /// Required for `link` and `not_a_link`.
+    /// Optional for every kind and outcome.
     pub reason_code: Option<LineageReasonCode>,
-    /// Free text; required when the reason is `other`, and on every 법정동 `link` or `not_a_link`.
+    /// Free text; optional, required only when the reason is `other`.
     #[serde(default)]
     pub note: String,
     /// The `evidence_etag` of the item as read.

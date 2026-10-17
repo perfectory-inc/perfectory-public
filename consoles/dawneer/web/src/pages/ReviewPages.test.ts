@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { ReviewItem } from "../api/client";
-import { DecisionTrail, LegalDongPanel } from "./ReviewItemPage";
+import { DecisionTrail, decisionRequest, LegalDongPanel } from "./ReviewItemPage";
 import { ReviewTable } from "./ReviewListPage";
 
 // Synthetic codes in the repository-reserved 99999 namespace (public-fixture-safety).
@@ -70,6 +70,19 @@ describe("the review list", () => {
     expect(markup).toContain("합성시 옛동");
     expect(markup).toContain("사람 확인");
     expect(markup).toContain(`href="#/items/${dong.item_id}"`);
+  });
+});
+
+describe("a decision", () => {
+  it("approves a 법정동 pair in one click: a code, no reason, no note", () => {
+    const body = decisionRequest(dong, "link", "9999930100", "official_document", "");
+    expect(body).toEqual({ outcome: "link", candidate_code: "9999930100", note: "", evidence_etag: dong.evidence_etag });
+  });
+
+  it("sends a parcel decision without a reason when none is picked, and the one picked otherwise", () => {
+    expect(decisionRequest(parcel, "not_a_link", "", null, "")).not.toHaveProperty("reason_code");
+    expect(decisionRequest(parcel, "not_a_link", "", "site_survey", "").reason_code).toBe("site_survey");
+    expect(decisionRequest(parcel, "unsure", "", "site_survey", "")).not.toHaveProperty("reason_code");
   });
 });
 

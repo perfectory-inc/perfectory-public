@@ -145,6 +145,9 @@ struct ListQuery {
     /// Only items without a standing decision on their current evidence.
     #[serde(default)]
     undecided_only: bool,
+    /// Leave out items the data decides (`split`, `awaiting_data`): they need no person.
+    #[serde(default)]
+    actionable_only: bool,
     /// The `next_after` of the previous page.
     after: Option<String>,
     /// Page size, at most 200.
@@ -199,6 +202,7 @@ async fn list_items(
                 status: query.status.map(domain_status),
                 code_prefix: query.prefix,
                 undecided_only: query.undecided_only,
+                actionable_only: query.actionable_only,
                 after_subject_code: query.after,
                 limit,
             },
@@ -316,7 +320,7 @@ async fn release_item(
     ),
     responses(
         (status = 200, description = "Recorded, replayed, or dry run passed", body = LineageDecisionResponse),
-        (status = 400, description = "The decision is malformed, names no candidate, or a 법정동 decision says no why", body = ApiErrorResponse),
+        (status = 400, description = "The decision is malformed, names no candidate, or cites `other` without a note", body = ApiErrorResponse),
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not review lineage"),
         (status = 404, description = "No such review item", body = ApiErrorResponse),

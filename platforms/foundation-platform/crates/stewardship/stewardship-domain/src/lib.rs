@@ -46,6 +46,25 @@ pub enum ReviewStatus {
     AwaitingData,
 }
 
+/// Every status, in wire order.
+pub const STATUSES: [ReviewStatus; 6] = [
+    ReviewStatus::NeedsReview,
+    ReviewStatus::Pending,
+    ReviewStatus::Sample,
+    ReviewStatus::Steward,
+    ReviewStatus::Split,
+    ReviewStatus::AwaitingData,
+];
+
+impl ReviewStatus {
+    /// Whether the data, not a person, settles an item in this status (ADR-0144 §4): it needs no
+    /// human action, so the default review list leaves it out.
+    #[must_use]
+    pub const fn data_decides(self) -> bool {
+        matches!(self, Self::Split | Self::AwaitingData)
+    }
+}
+
 /// What kind of thing a review item decides; the `unit` column (ADR-0263).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -280,17 +299,10 @@ const fn status_wire(status: ReviewStatus) -> &'static str {
 /// # Errors
 /// Returns [`StewardshipError::InvalidItem`] for an unknown status.
 pub fn status_from_wire(value: &str) -> Result<ReviewStatus, StewardshipError> {
-    [
-        ReviewStatus::NeedsReview,
-        ReviewStatus::Pending,
-        ReviewStatus::Sample,
-        ReviewStatus::Steward,
-        ReviewStatus::Split,
-        ReviewStatus::AwaitingData,
-    ]
-    .into_iter()
-    .find(|status| status_wire(*status) == value)
-    .ok_or_else(|| StewardshipError::InvalidItem(format!("unknown status {value}")))
+    STATUSES
+        .into_iter()
+        .find(|status| status_wire(*status) == value)
+        .ok_or_else(|| StewardshipError::InvalidItem(format!("unknown status {value}")))
 }
 
 /// A decision as a steward submits it.
@@ -302,9 +314,9 @@ pub struct DecisionDraft {
     /// code of a 법정동 item. Serialized under its first name so request hashes stay stable.
     #[serde(rename = "predecessor_pnu")]
     pub candidate_code: Option<String>,
-    /// Why; required when the outcome writes lineage.
+    /// Why, as a code; optional.
     pub reason_code: Option<ReasonCode>,
-    /// Free text.
+    /// Free text; optional unless the reason is `other`.
     #[serde(default)]
     pub note: String,
     /// The fingerprint of the item the steward decided on.
@@ -457,17 +469,11 @@ pub fn check_decision(
         }
         (_, None) => {}
     }
-    if draft.outcome.writes_lineage() && draft.reason_code.is_none() {
+    // A reason and a note are optional for every kind: who, when, what and the evidence it stood on
+    // are recorded with the decision. Only `other` must say what it is (root ADR-0268).
+    if draft.reason_code == Some(ReasonCode::Other) && draft.note.trim().is_empty() {
         return Err(StewardshipError::InvalidInput(
-            "a lineage decision cites a reason".to_owned(),
-        ));
-    }
-    // A 법정동 decision says why in words, as the change table's `detail` records it (ADR-0263).
-    let note_required = draft.reason_code == Some(ReasonCode::Other)
-        || (item.kind == ItemKind::LegalDong && draft.outcome.writes_lineage());
-    if note_required && draft.note.trim().is_empty() {
-        return Err(StewardshipError::InvalidInput(
-            "this decision needs a note saying why".to_owned(),
+            "the reason other needs a note saying what".to_owned(),
         ));
     }
     Ok(requires_approval(&candidates, draft))

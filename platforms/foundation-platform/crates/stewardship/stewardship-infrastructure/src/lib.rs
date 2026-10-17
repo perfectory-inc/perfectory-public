@@ -330,6 +330,15 @@ const fn outcome_wire(outcome: Outcome) -> &'static str {
     }
 }
 
+/// The statuses a list leaves out: those the data decides, when only actionable items are asked for.
+fn hidden_statuses(actionable_only: bool) -> Vec<String> {
+    stewardship_domain::STATUSES
+        .into_iter()
+        .filter(|status| actionable_only && status.data_decides())
+        .map(|status| status.to_string())
+        .collect()
+}
+
 fn row_to_item(row: &PgRow) -> Result<ReviewItem, StewardshipError> {
     Ok(ReviewItem {
         item_id: row.try_get("item_id").map_err(map_sqlx)?,
@@ -467,6 +476,7 @@ impl LineageStewardshipStore for PgLineageStewardshipStore {
                AND ($6::text IS NULL OR i.unit = $6)
                AND ($2::text IS NULL OR starts_with(i.subject_code, $2))
                AND ($3::text IS NULL OR i.subject_code > $3)
+               AND i.status <> ALL($7::text[])
                AND (NOT $4 OR NOT EXISTS (
                     SELECT 1 FROM catalog.lineage_steward_decision d
                     LEFT JOIN catalog.lineage_steward_approval a USING (decision_id)
@@ -486,6 +496,7 @@ impl LineageStewardshipStore for PgLineageStewardshipStore {
         .bind(filter.undecided_only)
         .bind(i64::from(filter.limit))
         .bind(filter.kind.map(ItemKind::wire))
+        .bind(hidden_statuses(filter.actionable_only))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;

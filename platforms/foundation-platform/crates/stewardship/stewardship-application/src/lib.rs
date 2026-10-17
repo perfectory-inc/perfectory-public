@@ -62,6 +62,9 @@ pub struct ReviewItemFilter {
     pub code_prefix: Option<String>,
     /// Only items nobody has decided yet.
     pub undecided_only: bool,
+    /// Leave out items the data decides ([`ReviewStatus::data_decides`]): splits and changes
+    /// awaiting data need no person.
+    pub actionable_only: bool,
     /// Keyset cursor: items with a larger subject code.
     pub after_subject_code: Option<String>,
     /// Page size.
