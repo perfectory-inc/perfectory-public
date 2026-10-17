@@ -622,9 +622,10 @@ fn examples_and_ci_cover_independent_foundation_deployability() -> TestResult {
         assert!(ci.contains(required), "CI is missing {required}");
     }
     // CI runs the SSOT as its two halves on two runners (root ADR-0199): each half exactly once,
-    // and no other invocation beside them.
+    // and no other invocation beside them. A pull request's cargo half verifies only the crates it
+    // reaches (root ADR-0269).
     for half in [
-        "cargo xtask verify foundation --part cargo\n",
+        "cargo xtask verify foundation --part cargo --affected\n",
         "cargo xtask verify foundation --part suites\n",
     ] {
         assert_eq!(

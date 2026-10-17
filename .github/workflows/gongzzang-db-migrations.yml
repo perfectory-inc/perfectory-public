@@ -8,6 +8,10 @@ on:
   pull_request:
     branches: [main]
   merge_group:
+  # A pull request verifies only the crates it reaches (root ADR-0269); every night
+  # main verifies every crate, as the merge queue does.
+  schedule:
+    - cron: "41 17 * * *"
     # Intentionally unfiltered so required/gongzzang-migrations always reports.
 
 defaults:
@@ -79,6 +83,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Set up Rust
@@ -126,7 +132,11 @@ jobs:
       # lane's own gating flags exercised rather than assumed.
       - name: Run the gongzzang postgres lane (xtask SSOT)
         working-directory: ${{ github.workspace }}
-        run: cargo xtask integration gongzzang postgres
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: cargo xtask integration gongzzang postgres --affected
 
   required:
     name: required/gongzzang-migrations
