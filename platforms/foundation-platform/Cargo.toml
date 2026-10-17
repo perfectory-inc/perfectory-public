@@ -21,6 +21,7 @@ members = [
     "crates/technical/outbound-http-infrastructure",
     "crates/technical/foundation-shapefile",
     "crates/technical/foundation-disposable-database",
+    "crates/ops/foundation-jobs",
     "crates/foundation-outbox",
     "crates/publisher/foundation-publisher-core",
     "crates/publisher/foundation-publisher-by-pnu",
