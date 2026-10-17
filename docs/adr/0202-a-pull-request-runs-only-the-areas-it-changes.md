@@ -71,3 +71,7 @@
 - **서드파티 경로 필터 액션(`dorny/paths-filter` 등)**: 결정 규칙이 YAML 안에 다시 흩어지고, 새 서드파티 의존이 생긴다.
   표준 라이브러리 파이썬 하나와 `git diff`로 충분하다.
 - **각 잡의 단계마다 건너뛰기(Foundation 방식)**: 잡마다 러너가 뜨고 단계별 `if:` 허용 목록이 늘어난다.
+
+## Revisions
+
+- 2026-10-17: 영역 안에서는 [ADR-0269](./0269-a-pull-request-verifies-only-the-crates-it-reaches.md)가 같은 계약의 `crates` 절로 풀 리퀘스트의 Rust 검사를 바뀐 크레이트와 그 역의존으로 좁힌다.

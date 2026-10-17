@@ -339,7 +339,12 @@ fn read_single_workbook_entry(object_path: &Path) -> anyhow::Result<Vec<u8>> {
         if entry.is_dir() {
             continue;
         }
-        if entry.name().to_ascii_lowercase().ends_with(".xlsx") {
+        if entry
+            .name()
+            .with_context(|| format!("failed to decode the name of zip entry {index}"))?
+            .to_ascii_lowercase()
+            .ends_with(".xlsx")
+        {
             workbook_indexes.push(index);
         }
     }

@@ -69,7 +69,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 | 종류 | 남기는 것 | 남기지 않는 것 |
 |---|---|---|
 | 일회성 운영 작업(호스트 이전, 데이터 일회 보정, 옛 표 정리) | 런북 한 절 + 실행 기록 | 전용 계약·ADR·가드. 일회용 스크립트는 작업이 끝난 PR에서 지운다 |
-| 사고 | 사후 검토서 한 장(원인·영향·재발 방지 PR 링크) | 사고마다 새 ADR |
+| 사고 | 사후 검토서 한 장(원인·영향·재발 방지 PR 링크). 비공개 저장소 `perfectory-inc/perfectory-ops` 의 `postmortems/` 에 둔다 | 사고마다 새 ADR |
 | ADR | 오래 가는 결정(정본 위치, 키, 경계, 대가를 치른 선택) | 작업 절차, 측정 일지, 임시 환경 |
 | 임시 환경·실험 | 내리는 명령 하나 | 시험·계약 |
 
@@ -103,6 +103,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - `scripts/guard/monorepo-guard.sh` 가 위 규칙을 기계 검사한다(CI + pre-push).
 - **검증 SSOT**: `cargo xtask verify <area>` 하나를 로컬 하네스와 CI가 똑같이 부른다([ADR-0004](./docs/adr/0004-verification-ssot.md)). 워크플로우에 raw `cargo clippy/fmt` 금지.
 - **CI 시간 예산**: PR 벽시계 상한은 [`tools/ci/ci-time-budget.contract.json`](./tools/ci/ci-time-budget.contract.json) 하나뿐이다. 주간 `ci-time-budget` 워크플로가 직전 주 p50과 비교한다([ADR-0203](./docs/adr/0203-pull-request-ci-has-one-wall-clock-budget.md)). CI를 느리게 하는 변경은 이 숫자 안에서 설명한다.
+- **번호는 열린 PR까지 본다**: ADR 번호와 마이그레이션 버전은 main만이 아니라 다른 열린 PR이 이미 잡은 것도 피한다. PR CI의 `numbering_collisions.py`(`required/repository`)가 main이나 더 먼저 연 PR이 가진 번호를 거부하고 다음 빈 번호를 알려 준다. 나중에 연 쪽이 번호를 바꾼다.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
 
 ## 작업 목록 SSOT

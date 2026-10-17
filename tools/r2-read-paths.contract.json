@@ -8,10 +8,9 @@
       "platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2/"
     ],
     "products/gongzzang": [
-      "products/gongzzang/services/gongzzang-api/src/photo_upload.rs",
-      "products/gongzzang/services/gongzzang-outbox-publisher/src/listing_photo_lakehouse.rs"
+      "products/gongzzang/crates/gongzzang-r2-object-storage/"
     ],
-    "areas_reason": "Areas share no Cargo path dependency (root ADR-0001), so each area that talks to R2 has its own one place. foundation-platform's is foundation-outbox's R2 client and its read policy (r2/read_retry.rs). gongzzang's two files are where its clients stand today; they become one module that carries the same policy."
+    "areas_reason": "Areas share no Cargo path dependency (root ADR-0001), so each area that talks to R2 has its own one place. foundation-platform's is foundation-outbox's R2 client and its read policy (r2/read_retry.rs). gongzzang's is the gongzzang-r2-object-storage crate: its client builder and its read with the same policy and numbers."
   },
   "spark": [
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_engine.py",

@@ -49,11 +49,7 @@ async fn item(
     let id = Uuid::new_v4();
     let json = candidates(in_effect);
     let etag = evidence_etag(status, &json);
-    let wire = match status {
-        ReviewStatus::NeedsReview => "needs_review",
-        ReviewStatus::Pending => "pending",
-        ReviewStatus::Sample => "sample",
-    };
+    let wire = status.to_string();
     sqlx::query(
         "INSERT INTO catalog.lineage_review_item
          (item_id, unit, subject_code, status, candidates_json, evidence_etag, queue_published_at)
@@ -75,7 +71,7 @@ fn decide(item_id: Uuid, etag: &str, decider: Uuid, key: &str, outcome: Outcome)
         item_id,
         draft: DecisionDraft {
             outcome,
-            predecessor_pnu: (outcome == Outcome::Link).then(|| OLD.to_owned()),
+            candidate_code: (outcome == Outcome::Link).then(|| OLD.to_owned()),
             reason_code: outcome
                 .writes_lineage()
                 .then_some(ReasonCode::BuildingRegister),
@@ -405,6 +401,149 @@ async fn only_standing_decisions_in_effect_fold_and_each_folds_once() -> TestRes
         assert_eq!(store.record_folds(&ids, "steward-fold-test").await?, 1);
         assert_eq!(store.record_folds(&ids, "steward-fold-test").await?, 0, "recording twice changes nothing");
         assert!(store.foldable_decisions().await?.is_empty());
+        Ok(())
+    })
+    .await
+}
+
+// Synthetic 법정동 codes in the repository-reserved 99999 namespace (public-fixture-safety).
+const OLD_DONG_A: &str = "9999910100";
+const OLD_DONG_B: &str = "9999910200";
+const OLD_DONG_SPLIT: &str = "9999910300";
+const NEW_DONG: &str = "9999930100";
+const OTHER_DONG: &str = "9999930200";
+
+/// The steward list as the pairing run hands it off (`legal_dong_code_change_pairs.py`).
+fn legal_dong_handoff(at: &str) -> String {
+    let offered = format!(
+        r#"[{{"code": "{NEW_DONG}", "name": "합성시 합성동", "created_date": "2099-07-01"}}]"#
+    );
+    let items = [(201, OLD_DONG_A, "steward"), (202, OLD_DONG_B, "steward"), (203, OLD_DONG_SPLIT, "split")]
+        .iter()
+        .map(|(id, code, status)| {
+            serde_json::json!({
+                "item_id": Uuid::from_u128(*id), "subject_code": code, "status": status,
+                "candidates_json": offered,
+                "evidence_etag": evidence_etag(stewardship_domain::status_from_wire(status).unwrap_or(ReviewStatus::Steward), &offered),
+                "from_snapshot_id": null, "to_snapshot_id": null,
+                "evidence_json": serde_json::json!({
+                    "name": "합성시 옛동", "level": "eupmyeondong", "abolished_date": "2099-06-30",
+                    "rule": "ambiguous_name_match", "jibun": "", "split_into": {}, "waiting_for": "",
+                    "official_history": "read", "official_partial_moves": 0,
+                }).to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schema_version": "foundation-platform.lineage_review_handoff.v1", "unit": "legal_dong",
+        "published_at_utc": at, "item_count": items.len(), "items": items,
+    })
+    .to_string()
+}
+
+fn pair(
+    item: &stewardship_domain::ReviewItem,
+    decider: Uuid,
+    key: &str,
+    code: Option<&str>,
+) -> DecideCommand {
+    DecideCommand {
+        item_id: item.item_id,
+        draft: DecisionDraft {
+            outcome: if code.is_some() {
+                Outcome::Link
+            } else {
+                Outcome::NotALink
+            },
+            candidate_code: code.map(ToOwned::to_owned),
+            // One click: a 법정동 decision carries neither a reason nor a note.
+            reason_code: None,
+            note: String::new(),
+            evidence_etag: item.evidence_etag(),
+            supersedes_decision_id: None,
+        },
+        decider,
+        idempotency_key: key.to_owned(),
+        dry_run: false,
+        now: now(),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn legal_dong_pairs_are_decided_on_the_same_tables_and_exported_for_the_pairing_run(
+) -> TestResult {
+    use stewardship_domain::handoff::parse_handoff;
+    use stewardship_domain::ItemKind;
+
+    run_in_disposable_database("steward_legal_dong", |pool| async move {
+        migrate(&pool).await?;
+        let store = PgLineageStewardshipStore::new(pool.clone());
+        assert_eq!(store.legal_dong_decisions().await?.review_items, 0, "nothing published yet");
+        store.replace_review_items(&parse_handoff(&legal_dong_handoff("2099-09-01T00:00:00Z"))?).await?;
+        // A parcel item beside them: the kind filter keeps the two apart.
+        let (parcel, parcel_etag) = item(&pool, NEW_A, ReviewStatus::Pending, false).await?;
+        let dongs = store
+            .list_items(ReviewItemFilter { kind: Some(ItemKind::LegalDong), limit: 10, ..ReviewItemFilter::default() }, now())
+            .await?;
+        assert_eq!(dongs.iter().map(|v| v.item.subject_code.as_str()).collect::<Vec<_>>(), [OLD_DONG_A, OLD_DONG_B, OLD_DONG_SPLIT]);
+        let (a, b, split) = (&dongs[0].item, &dongs[1].item, &dongs[2].item);
+        let actionable = store
+            .list_items(ReviewItemFilter { kind: Some(ItemKind::LegalDong), actionable_only: true, limit: 10, ..ReviewItemFilter::default() }, now())
+            .await?;
+        assert_eq!(
+            actionable.iter().map(|v| v.item.subject_code.as_str()).collect::<Vec<_>>(),
+            [OLD_DONG_A, OLD_DONG_B],
+            "the default list hides what the data decides; the split stays in the table"
+        );
+        assert!(a.evidence_json.is_some());
+
+        let alice = Uuid::from_u128(1);
+        assert!(
+            matches!(store.decide(pair(a, alice, "dong-not-offered-01", Some(OTHER_DONG))).await, Err(StewardshipError::NotACandidate(_))),
+            "a code the run did not offer is refused"
+        );
+        assert!(
+            matches!(store.decide(pair(split, alice, "dong-split-000001", Some(NEW_DONG))).await, Err(StewardshipError::DataDecides { .. })),
+            "a split is the data's to decide"
+        );
+        // Two abolished codes into one new code is a merger, not a taken predecessor.
+        let DecideOutcome::Recorded(first) = store.decide(pair(a, alice, "dong-approve-a-001", Some(NEW_DONG))).await? else {
+            return Err("the approval was not recorded".into());
+        };
+        store.decide(pair(b, alice, "dong-approve-b-001", Some(NEW_DONG))).await?;
+        // B is then rejected: its latest lineage-writing decision is no approval, so it is not exported.
+        store.decide(pair(b, alice, "dong-reject-b-0001", None)).await?;
+
+        let export = store.legal_dong_decisions().await?;
+        assert_eq!((export.review_items, export.decision_count), (3, 1));
+        let decision = &export.decisions[0];
+        assert_eq!((decision.decision_id, decision.old_code.as_str(), decision.new_code.as_str(), decision.note.as_str()),
+                   (first.decision_id, OLD_DONG_A, NEW_DONG, ""));
+        assert_eq!((decision.decided_by, decision.decided_at, decision.reason_code), (alice, now(), None), "who and when are recorded");
+
+        // A parcel decision may omit its reason too; the table no longer refuses it.
+        let mut bare = decide(parcel, &parcel_etag, alice, "parcel-bare-00001", Outcome::NotALink);
+        bare.draft.reason_code = None;
+        let DecideOutcome::Recorded(parcel_decision) = store.decide(bare).await? else {
+            return Err("the parcel decision was not recorded".into());
+        };
+        assert_eq!((parcel_decision.reason_code, parcel_decision.decided_by), (None, alice));
+        assert!(store.foldable_decisions().await?.is_empty(), "a 법정동 decision never folds into parcel lineage");
+
+        assert_eq!(store.record_folds(&[decision.decision_id], "legal-dong-pairing-test").await?, 1);
+        assert_eq!(store.legal_dong_decisions().await?.decision_count, 0, "a recorded pair is exported once");
+
+        let wrong_unit = sqlx::query(
+            "INSERT INTO catalog.lineage_review_item (item_id, unit, subject_code, status, candidates_json, evidence_etag, queue_published_at)
+             VALUES ($1, 'legal_dong', $2, 'pending', '[]', $3, now())",
+        )
+        .bind(Uuid::from_u128(299))
+        .bind(OLD_DONG_A)
+        .bind("0".repeat(64))
+        .execute(&pool)
+        .await;
+        assert!(wrong_unit.is_err(), "the table refuses a parcel status and a missing evidence document on a 법정동 item");
         Ok(())
     })
     .await

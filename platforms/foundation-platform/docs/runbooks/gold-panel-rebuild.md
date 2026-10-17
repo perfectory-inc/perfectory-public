@@ -65,7 +65,9 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
    - 아무것도 바뀌지 않았으면 `nothing to do` 로 그 표를 끝낸다.
 2. **생산** — 모든 입력을 현재 판으로 고정해(`pins.json`) 생산자를 `--minimum-count` 와 함께 돌린다. 하한은 현재
    Gold 행 수 × (1 − `max_row_loss_fraction`) 의 올림이다. 생산자는 품질 검사(열·필수값·PNU·중복)와 하한을
-   **쓰기 전에** 확인하고, 하나라도 어기면 아무것도 커밋하지 않고 실패한다.
+   **쓰기 전에** 확인하고, 하나라도 어기면 아무것도 커밋하지 않고 실패한다. 섹션을 가진 표(필지 패널과 종류 표)는
+   같은 자리에서 섹션 덮임도 본다: 섹션·시도마다 직전 Gold head 대비 계약 `section_coverage` 만큼 넘게 줄면
+   거부한다(root ADR-0272). 행 수가 그대로여도 한 시도의 섹션이 비면 여기서 멈춘다.
 3. **커밋** — 통과하면 새 스냅숏 하나(`overwrite`)를 커밋하고 요약에 판을 적는다. 이전 스냅숏은 역사에 남는다.
    실행 요약·계보 이벤트는 같은 run 폴더의 `summary.json`·`lineage.json`. 커밋 뒤 입력마다 고정한 Silver 스냅숏에
    태그 `foundation-gold-input-gold-<표>` 를 옮겨 단다(다음 증분 실행의 비교 기준, 만료되지 않게).
@@ -98,6 +100,7 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 | 로그 | 뜻 | 할 일 |
 | --- | --- | --- |
 | `fewer than the N the previous snapshot allows` | 행 손실이 허용치를 넘음, 커밋 없음 | 입력 중 어느 것이 지역·행을 잃었는지 run 폴더의 요약과 Silver 스냅숏을 본다. 진짜 감소면 감독 아래 생산자를 손으로 `--expected-count` 와 함께 돌린다(아래 5) |
+| `section coverage fell by more than` | 섹션이 시도 하나(또는 표 전체)의 덮임을 잃음, 커밋 없음 | 메시지가 섹션·시도·비율을 적는다. 그 섹션의 Silver 입력이 그 지역을 잃었는지, 코드 개편이 `reference.legal_dong_code_change` 에 기록됐는지 본다. 기록 안 된 개편이면 짝을 먼저 기록한다 — 한도를 풀지 않는다 |
 | `Gold quality gates failed` · `duplicate` | 생산자 품질 검사 거부, 커밋 없음 | 생산자 문서의 거부 사유대로. 필지 중복은 [parcel-by-pnu-serving-bake.md](./parcel-by-pnu-serving-bake.md) 1절 |
 | `required Silver inputs do not exist` · `no longer exist` | 입력 표가 없음 | 계획이 거부. 표를 되살리거나 생산자 입력을 바꾸는 결정이 먼저 |
 | `records no source pins` | 켜진 작업이 판 기록 없는 Gold 를 만남 | 감독 아래 `gold-panel-rebuild.sh <표> --unconditional "<이유>"` 한 번(4절 3단계와 같음) |

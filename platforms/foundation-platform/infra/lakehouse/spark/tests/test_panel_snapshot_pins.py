@@ -109,7 +109,7 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     with mock.patch.object(job.F, "expr", create=True):
                         job.read_source(spark, args, name, selected)
                     reader.option.assert_called_once_with("snapshot-id", "11")
-                    reader.load.assert_called_once_with(f"r2.silver.{name.split('.', 1)[1]}")
+                    reader.load.assert_called_once_with(f"r2.{name}")
                     spark.table.assert_not_called()
 
     def test_missing_pin_cannot_fall_back_to_current_head_at_the_read_boundary(self):
@@ -157,10 +157,11 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job, "build_spark_session", side_effect=start))
                     for name in ("filtered_by_region", "with_lineage_sources", "build_zonings", "build_price",
                                  "build_characteristics", "build_forest_ledger", "build_transfer_history",
-                                 "build_land_rights", "build_lineage", "carry_section"):
+                                 "build_land_rights", "build_lineage", "carry_section", "renumbered"):
                         stack.enter_context(mock.patch.object(job, name, return_value=frame))
                     carry = stack.enter_context(mock.patch.object(job, "read_carry_candidates", return_value=None))
                     stack.enter_context(mock.patch.object(job, "resolve_zoning_anchors", return_value={}))
+                    stack.enter_context(mock.patch.object(job.F, "broadcast", create=True))
                 else:
                     session = stack.enter_context(mock.patch.object(job, "SparkSession"))
                     builder = session.builder.appName.return_value.config.return_value

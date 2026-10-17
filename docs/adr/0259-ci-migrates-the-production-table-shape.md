@@ -116,3 +116,32 @@ CI 의 표는 매번 빈 스키마에서 새로 만든 것이라, 운영 표가 
 그것으로 못 채우는 도메인 규칙만 `config/postgres-seed-hints.json` 이 열별 합성 값으로 준다. 아직 못 채우는 표는 같은
 파일의 `not_yet_seeded` 에 이유와 함께 이름이 있고, 이 목록은 줄기만 한다(채워지는 표가 이름에 남으면 실패). 자체 시험은
 seed 된 행 위에서 필수 열 추가가 실패함을 매번 보인다. 첫 측정: 33표 중 21표, CI 단계 9초.
+
+## 2026-10-16 개정: §5 원장의 신선도는 서버의 작업이 확인한다
+
+배포 로그의 `shape-ledger stale` 한 줄만으로는 아무도 모른다. 등록된 작업 `shape_ledger_check`
+(`foundation-shape-ledger-check.service`, `scripts/ops/shape-ledger-check.py`)가 두 원장을 읽기 전용으로 다시 찍어
+릴리스가 싣고 온 것과 표 단위로 비교하고, 다르면 **실패**한다(작업 결과 + `OnFailure` 알림, 표마다 한 줄). 시점은 모양이
+바뀌는 때다: 배포마다 migrate 직후(`started_once_after_deploy`), 그리고 매일 적재들이 끝난 뒤(12:30). 새로 찍은 원장은
+상태 디렉터리(`/var/lib/foundation-shape-ledger/`)에 남아 갱신 PR 이 복사 한 번이다. 열을 더한 배포 직후의 실패는
+의도다 — 원장이 운영보다 늦었다는 사실 그 자체다.
+
+자격: 카탈로그 읽기 토큰은 이미 호스트의 `operations-map` 그룹에 있다(새 비밀 없음, CI 에는 비밀 없음). Postgres 는 docker
+그룹으로 런타임 컨테이너에 묻는다(root 불필요).
+
+PR 자동 생성은 하지 않는다: 서버의 GitHub 경로는 익명 fetch 뿐이고, 배포 키는 읽기 전용이어야 한다
+(`scripts/github/check-publication-authority.sh`). 자동화하려면 소유자가 이 저장소 한정 fine-grained 토큰(contents·pull
+requests 쓰기)을 만들어 `env-set` 으로 새 그룹에 두고, 이 작업이 `shape-ledger/refresh` 브랜치 하나를 밀고 그 PR 을 연다 —
+쓰기 자격을 서버에 두는 결정이므로 소유자 몫이다.
+
+## 2026-10-16 개정: 낡은 원장은 기다림이고, 갱신 PR 은 작업이 연다
+
+낡은 원장은 운영이 깨진 것이 아니라 사람이 들일 PR 하나다. `shape_ledger_check` 는 낡음을 처음 본 시각을 상태 디렉터리의
+`first-stale.json` 에 남기고, 48시간 안에는 `foundation-job-outcome waiting …` (ADR-0260, 알림 없음, 이유에 PR 링크),
+48시간이 지나면 `failed` 로 끝나 알린다. 원장이 다시 맞으면 기록을 지운다.
+
+갱신 PR 은 하나다: 브랜치 `shape-ledger/refresh` = main + 작업이 찍은 두 원장(손대지 않음). 내용이 같으면 커밋하지 않고,
+바뀌면 그 브랜치를 강제로 옮기며, 열린 PR 은 본문만 갱신한다. GitHub Git Data API 만 쓴다(서버에 git 쓰기·미러 쓰기 없음).
+자격은 저장소의 유일한 쓰기 계정(`scripts/github/check-publication-authority.sh`)이 만든 이 저장소 한정 fine-grained 토큰을
+`shape-ledger-pr` 그룹(`FOUNDATION_PLATFORM_SHAPE_LEDGER_GITHUB_TOKEN`, 선택)에 둔다 — 새 주체가 아니다. 토큰이 없으면 이유에
+"손으로 복사" 를 적고 같은 규칙으로 기다림·실패한다. 여러 열을 묶는 CHECK 를 가진 새 표의 seed 힌트는 사람 몫으로 남는다.

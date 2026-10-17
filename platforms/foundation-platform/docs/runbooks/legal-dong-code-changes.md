@@ -266,7 +266,7 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
   | `status` | 뜻 | 누가 정하나 |
   | --- | --- | --- |
   | `awaiting_data` | 정할 수 있는 단계의 데이터가 없다(필지 스냅숏 쌍, 또는 지번이 모두 떠났는데 변동연혁이 없다) | 데이터. 스튜어드 승인은 거부된다 |
-  | `split` | 지번이 여러 새 동으로 나뉘었고 어느 것도 하한에 못 미친다. `split_into` 가 어디로 몇 개 갔는지 적는다 | 짝이 아니다. 지번별 연결은 필지 계보(ADR-0113)가 한다. 승인은 거부된다 |
+  | `split` | 지번이 둘 이상의 새 동으로 실제로 나뉘었고 어느 것도 하한에 못 미친다. 하한이 남기는 몫(1 − 하한, 지금 5%)보다 적게 받은 동은 우연히 같은 필지라 목적지로 세지 않는다. 시도·시군구는 자기 동·리가 둘 이상의 새 코드로 짝지어졌을 때다. `split_into` 가 어디로 몇 개 갔는지 적는다 | 짝이 아니다. 지번별 연결은 필지 계보(ADR-0113)가 한다. 승인은 거부된다 |
   | `steward` | 모든 단계가 데이터를 갖고도 정하지 못했다 | 스튜어드 |
 
   `jibun` 칸은 2 단계가 본 것이다: `needs … edition …`(판 대기, VWorld 연속지적도 판 런북 5 절), `no parcels before`, `no 지번 in any new code`, 또는
@@ -274,19 +274,18 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
   요약(`pairs-summary.json`)의 `review_by_status` 가 상태별 개수다.
 - `crosswalk`: 시군구 하나가 둘로 나뉘거나 둘이 하나로 합쳐져 대응표 한 칸이 될 수 없는 경우.
 
-승인은 파일 한 건이다. 쓰기 전에 지금 목록과 대조한다. 목록에 없는 코드, `steward` 상태가 아닌 항목, 후보 밖의
-코드는 그 자리에서 거부된다.
+승인은 더니어 "검토" 화면에서 한다(루트 ADR-0263). 짝 맞추기가 `pair` 항목을 스튜어드 DB 에 게시하고(종류 `법정동 짝`),
+스튜어드는 항목을 맡아 근거(이름·폐지일·이름 규칙·지번 비교·30527 상태·후보의 이름과 생성일)를 보고 새 코드 하나를 골라 승인하거나
+거절한다. 메모(왜)는 필수다. API 가 그 자리에서 거부하는 것: 목록에 없는 코드(항목 없음), `steward` 가 아닌 항목(409), 후보 밖의 코드.
+후보가 없는 항목은 자기 자신이 아닌 10자리 코드를 받고, 표에 있는지는 짝 맞추기가 확인한다.
 
-```bash
-sudo -u foundation-platform /opt/foundation-platform/current/scripts/ops/legal-dong-code-collect.sh steward \
-  --steward <직원 id> --reason "<근거: 문서, 확인한 자료>" --approve <옛 코드>=<새 코드>
-```
+다음 계보 단위 실행이 서 있는 승인을 내보내(`export-legal-dong-steward-decisions`) 표와 목록에 다시 대조하고 `steward:<결정자 id>`
+행으로 기록한 뒤 접힘을 남긴다(`record-lineage-steward-folds`). 대조에서 거부된 승인은 서 있는 채 남고 이유가 그 실행의
+`pairs-summary.json` 의 `steward_decisions`(`db:<결정 id>`)에 있다. 기록 안 된 승인이 있거나 DB 가 목록을 받은 적이 없으면
+(`steward-list-published.json` 없음) 대기 넘김이 없는 날에도 최신 스냅숏으로 짝 맞추기만 돈다. 그 실행은 자기 실행 id 로
+적재하므로, 승인으로 새로 정해진 아래 단위의 짝도 같은 날 기록된다.
 
-결정은 `steward/pending/` 에 쌓이고, 다음 계보 단위 실행이 표와 다시 대조해 `steward:<id>` 행으로 기록한다.
-기록된 결정은 `steward/recorded/` 로, 그 사이 목록이 바뀌어 맞지 않게 된 결정은 `steward/rejected/` 로 옮겨진다.
-옮겨진 이유는 그 실행의 `pairs-summary.json` 에 있다. 대기 넘김이 없는 날에도 대기 중인 결정이 있으면 최신
-스냅숏으로 짝 맞추기만 돈다. 그 실행은 자기 실행 id 로 적재하므로, 승인으로 새로 정해진 아래 단위의 짝도 같은
-날 기록된다. 화면은 더니어 계보 검토 창구(ADR-0114)로 옮겨 갈 자리다. 그 전까지는 이 명령이다.
+옛 길(`legal-dong-code-collect.sh steward` → `steward/pending/` 파일)은 화면이 운영에서 쓰인 뒤 지운다(ADR-0263 §6).
 
 ## 6. When the crosswalk disagrees with the baseline
 
@@ -337,4 +336,3 @@ ADR-0145 §3: 27쌍은 첫 실운영에서 변경표가 그것을 재현하면 �
   옮겨 담지 않는다(ADR-0145: 공식 짝의 집은 이 표 하나).
 - 시도 단위 통합만 대응표가 다스린다. 인천 구 재편처럼 시도 안의 재번호는 필지 계보(ADR-0113)의 몫이다.
 - data.go.kr `getStanReginCdList` 스냅숏 차이(ADR-0104)를 보조 검증으로 붙이는 일은 이 런북 밖이다.
-- 스튜어드 화면은 더니어로 옮겨야 한다.

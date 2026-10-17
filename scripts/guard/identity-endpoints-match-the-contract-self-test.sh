@@ -115,4 +115,25 @@ io.open(path, "w", encoding="utf-8", newline="").write(
 PY
 expect renamed-alias-target reject "does not target"
 
+root="$(fixture relay-borrows-the-api-namespace)"
+python3 - "$root/platforms/identity-platform/compose.server.yml" <<'PY'
+import io, sys
+path = sys.argv[1]
+text = io.open(path, encoding="utf-8", newline="").read()
+head, _, tail = text.partition("  zitadel-loopback:")
+io.open(path, "w", encoding="utf-8", newline="").write(
+    head + "  zitadel-loopback:" + tail.replace('network_mode: "service:identity-netns"', 'network_mode: "service:identity-api"', 1)
+)
+PY
+expect relay-borrows-the-api-namespace reject "shares a namespace other than identity-netns"
+
+root="$(fixture no-namespace-holder)"
+python3 - "$root/platforms/identity-platform/compose.server.yml" <<'PY'
+import io, sys
+path = sys.argv[1]
+text = io.open(path, encoding="utf-8", newline="").read()
+io.open(path, "w", encoding="utf-8", newline="").write(text.replace('entrypoint: ["sleep", "infinity"]', 'command: ["serve"]'))
+PY
+expect no-namespace-holder reject "no sleep-only identity-netns"
+
 printf 'OK %s\n' "$name"

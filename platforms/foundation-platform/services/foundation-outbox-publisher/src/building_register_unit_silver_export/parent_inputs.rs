@@ -149,12 +149,9 @@ fn validate_zip_entry(path: &Path, expected: &str) -> anyhow::Result<()> {
     let mut archive = ZipArchive::new(File::open(path)?)?;
     let entry_index = single_file_entry_index(&mut archive)?;
     let entry = archive.by_index_raw(entry_index)?;
-    if entry.name() != expected {
-        bail!(
-            "{} must contain {expected}, found {}",
-            path.display(),
-            entry.name()
-        );
+    let name = entry.name()?;
+    if name != expected {
+        bail!("{} must contain {expected}, found {name}", path.display());
     }
     Ok(())
 }

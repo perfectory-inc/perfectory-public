@@ -29,9 +29,11 @@ pub enum ApiError {
 }
 
 impl ApiError {
-    pub(crate) fn internal(operation: &'static str) -> Self {
+    /// An opaque internal failure. The cause is required and goes to the log only, never to the
+    /// caller: an error logged without its cause cost the 2026-10-16 staff sign-in its diagnosis.
+    pub(crate) fn internal(operation: &'static str, cause: &dyn std::fmt::Display) -> Self {
         let correlation_id = Uuid::now_v7();
-        tracing::error!(%correlation_id, operation, "identity request failed");
+        tracing::error!(%correlation_id, operation, %cause, "identity request failed");
         Self::Internal { correlation_id }
     }
 }
@@ -85,5 +87,68 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::ApiError;
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if let Ok(mut buffer) = self.0.lock() {
+                buffer.extend_from_slice(bytes);
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn an_internal_error_logs_its_cause_and_answers_without_it() {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(captured.clone())
+            .with_ansi(false)
+            .finish();
+        let response = tracing::subscriber::with_default(subscriber, || {
+            axum::response::IntoResponse::into_response(ApiError::internal(
+                "verify_staff_session",
+                &"error sending request: dns error: try again",
+            ))
+        });
+        let logged = captured
+            .0
+            .lock()
+            .map(|buffer| String::from_utf8_lossy(&buffer).into_owned())
+            .unwrap_or_default();
+        assert!(
+            logged.contains("operation=\"verify_staff_session\""),
+            "{logged}"
+        );
+        assert!(
+            logged.contains("cause=error sending request: dns error: try again"),
+            "{logged}"
+        );
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

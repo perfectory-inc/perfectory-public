@@ -30,16 +30,24 @@ The 코드변경안내 notice board is not a source (ADR-0144).
 without it, it reads the lakehouse as a scheduled run does (the snapshot, the recorded changes and the
 parcel editions) — the real-data check (`scripts/ops/legal-dong-code-validate.sh`).
 
-A steward approval is staged as a file (`stage-steward-decision`, no Spark), checked against the
-steward list the last run wrote; the next run (`--steward-decisions`) checks it again against the
-table, appends it as `steward:<who>` rows and pairs with it. Only codes on the steward list are
-accepted.
+The steward list reaches the people who decide it through the steward API (root ADR-0263): the run
+writes it as a review handoff (`--review-handoff-output`, unit `legal_dong`) that
+`load-lineage-review-items` loads into the steward database, and a steward approves or refuses each
+pair on the Dawneer screen. The standing approvals come back as `export-legal-dong-steward-decisions`
+writes them (`--steward-decision-export`); the run checks each again against the table and its own
+steward list, appends it as `steward:<who>` rows and pairs with it, and names the decisions it
+recorded (`--steward-fold-summary-output`) so `record-lineage-steward-folds` marks them done. Only
+codes on the steward list are accepted.
+
+A steward approval may still come staged as a file (`stage-steward-decision`, no Spark,
+`--steward-decisions`) until that path is retired; both are judged by the same `steward_rows`.
 """
 
 from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import re
 import sys
@@ -49,6 +57,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 import code_go_kr_legal_dong as cg
 import legal_dong_code_change_views as views
+import lineage_review_queue as review_queue
 import vworld_parcel_editions as editions
 import vworld_parcel_number_change_history as pnch
 
@@ -58,6 +67,8 @@ SNAPSHOT_CONTRACT = "reference.legal_dong_code_snapshot"
 PROJECTION_SCHEMA = "foundation-platform.sigungu_crosswalk_projection.v2"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 STEWARD_ID = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
+DECISION_EXPORT_SCHEMA = "foundation-platform.legal_dong_steward_decisions.v1"
+REVIEW_UNIT = "legal_dong"
 
 
 def cadastral_sido(parcel_source: Mapping[str, Any]) -> list[str]:
@@ -236,13 +247,12 @@ def steward_rows(
     `approvals` are `OLD=NEW`. OLD must be an open pair item whose status is `steward`: an item
     awaiting data, or a split, is the data's to decide (ADR-0144 §4). NEW must be one of its
     candidates when it has any, and a code the full table holds in every case (`table_codes`; None
-    when staging a decision without the table, the pairing run checks it again).
+    when staging a decision without the table, the pairing run checks it again). `reason` is
+    optional: who, when and which pair are recorded either way (root ADR-0268).
     """
 
     if not STEWARD_ID.fullmatch(steward):
         raise ValueError(f"--steward must be a plain id: {steward!r}")
-    if not reason.strip():
-        raise ValueError("--reason is required: the decision must say why")
     open_pairs = {item["old_code"]: item for item in review if item["kind"] == "pair"}
     source = f"steward:{steward}"
     rows = []
@@ -258,10 +268,39 @@ def steward_rows(
         if (table_codes is not None and new not in table_codes) or (item["candidates"] and new not in item["candidates"]):
             raise ValueError(f"{new} is not a candidate for {old} ({item['candidates'] or 'a code in the full table'})")
         rows.append(change_row("pair", source, old, new, derivation_run_id, now, level=cg.code_level(old),
-                               rule_verdict="steward", detail=reason))
+                               rule_verdict="steward", detail=reason.strip()))
     if not rows:
         raise ValueError("a steward decision needs at least one --approve")
     return rows
+
+
+def rules_version() -> str:
+    """The version of the rules a pairing applies: SHA-256 over every module this job loaded from its own
+    directory (its whole import closure: this job, the pairing rules, the views, the edition and
+    official-history readers) and the two contracts it reads. A deploy that changes any of them owes a
+    re-pairing (`scripts/ops/legal-dong-code-load.sh`), so a fixed rule reaches the record the same day,
+    not only when new data arrives. Walked from this module's own top-level imports, so the host and
+    the Spark run compute the same value and a new import is covered by itself.
+    """
+
+    here = Path(__file__).resolve().parent
+    seen: dict[str, Path] = {}
+    todo = [sys.modules[__name__]]
+    while todo:  # the modules this one imports at its top, and theirs, within this directory
+        module = todo.pop()
+        path = Path(module.__file__).resolve()
+        if path.parent != here or module.__name__ in seen:
+            continue
+        seen[module.__name__] = path
+        for value in vars(module).values():
+            owner = value if isinstance(value, type(sys)) else sys.modules.get(getattr(value, "__module__", "") or "")
+            if owner is not None and getattr(owner, "__file__", None) and owner.__name__ not in seen:
+                todo.append(owner)
+    modules = set(seen.values())
+    digest = hashlib.sha256()
+    for path in sorted(modules) + [cg.CONTRACT_PATH.resolve(), editions.contract_path().resolve()]:
+        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 # --- steward decisions ------------------------------------------------------------------------
@@ -281,7 +320,7 @@ def stage_steward_decision(argv: list[str]) -> int:
     parser.add_argument("--review", required=True, help="steward-review.json the last pairing run wrote")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--steward", required=True)
-    parser.add_argument("--reason", required=True)
+    parser.add_argument("--reason", default="")
     parser.add_argument("--approve", action="append", default=[])
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -321,6 +360,73 @@ def fold_steward_decisions(
         except ValueError as error:
             verdicts[name] = f"rejected: {error}"
     return rows, verdicts
+
+
+def db_decisions(export: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """The steward database's standing approvals (`export-legal-dong-steward-decisions`) as the
+    decisions `fold_steward_decisions` judges: one per decision, named `db:<decision id>`, its steward
+    the decider's principal id and its reason the decision's note (root ADR-0263)."""
+
+    if export.get("schema_version") != DECISION_EXPORT_SCHEMA:
+        raise ValueError(f"steward decision export is {export.get('schema_version')!r}, not {DECISION_EXPORT_SCHEMA}")
+    if export.get("decision_count") != len(export.get("decisions", [])):
+        raise ValueError("steward decision export is not whole: decision_count does not match its decisions")
+    return [
+        (f"db:{decision['decision_id']}",
+         {"steward": decision["decided_by"], "reason": decision.get("note", ""),
+          "approve": [f"{decision['old_code']}={decision['new_code']}"]})
+        for decision in export["decisions"]
+    ]
+
+
+def fold_summary(verdicts: Mapping[str, str], derivation_run_id: str) -> dict[str, Any]:
+    """The database decisions this run recorded, as `record-lineage-steward-folds` reads them."""
+
+    ids = sorted(name.removeprefix("db:") for name, verdict in verdicts.items()
+                 if name.startswith("db:") and verdict == "recorded")
+    return {"derivation_run_id": derivation_run_id, "decision_ids": ids}
+
+
+def review_handoff(
+    review: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, str]],
+    official_read: bool,
+    official_partial_moves: Mapping[str, int],
+    now: datetime,
+) -> dict[str, Any]:
+    """The steward list as the steward database loads it (root ADR-0263): one item per open `pair`,
+    its candidates with their names and creation dates from the table, and what the run recorded
+    about it (`stewardship_domain::LegalDongEvidence`). Other review kinds are a person's reading
+    (runbook `legal-dong-code-changes.md`), never a pair to approve, so they stay in the file only."""
+
+    by_code = {row["region_cd"]: row for row in rows}
+    items = []
+    for item in review:
+        if item["kind"] != "pair":
+            continue
+        old = item["old_code"]
+        candidates = [
+            {"code": code, "name": by_code.get(code, {}).get("full_name", ""),
+             "created_date": by_code.get(code, {}).get("created_date", "")}
+            for code in item["candidates"]
+        ]
+        candidates_json = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
+        evidence = {
+            "name": item.get("name", ""), "level": item.get("level", ""), "abolished_date": item.get("as_of", ""),
+            "rule": item.get("reason", ""), "jibun": item.get("jibun", ""),
+            "split_into": {code: int(count) for code, count in sorted(item.get("split_into", {}).items())},
+            "waiting_for": item.get("waiting_for", ""),
+            "official_history": "read" if official_read else "not_collected",
+            "official_partial_moves": int(official_partial_moves.get(old, 0)),
+        }
+        status = item["status"]
+        items.append(review_queue.ReviewItem(
+            item_id=review_queue.item_id(REVIEW_UNIT, old), subject_code=old, status=status,
+            candidates_json=candidates_json, evidence_etag=review_queue.evidence_etag(status, candidates_json),
+            from_snapshot_id="", to_snapshot_id="",
+            evidence_json=json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+        ))
+    return review_queue.handoff_document(items, REVIEW_UNIT, now.isoformat())
 
 
 # --- inputs -----------------------------------------------------------------------------------
@@ -481,6 +587,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "are the official step (root ADR-0150). Off without it.")
     parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU YYYYMMDD' per line, the window's links.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
+    parser.add_argument("--steward-decision-export",
+                        help="The steward database's standing approvals (export-legal-dong-steward-decisions) to fold in.")
+    parser.add_argument("--review-handoff-output", help="The steward list as the steward database loads it.")
+    parser.add_argument("--steward-fold-summary-output",
+                        help="The database decisions this run recorded, for record-lineage-steward-folds.")
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")
     parser.add_argument("--summary-output")
@@ -523,10 +634,10 @@ def _write_json(path: str | None, value: Any) -> None:
         Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
-def _read_decisions(directory: str | None) -> list[tuple[str, dict[str, Any]]]:
-    if not directory:
-        return []
-    return [(path.name, json.loads(path.read_text(encoding="utf-8"))) for path in sorted(Path(directory).glob("*.json"))]
+def _read_decisions(directory: str | None, export: str | None = None) -> list[tuple[str, dict[str, Any]]]:
+    staged = [(path.name, json.loads(path.read_text(encoding="utf-8")))
+              for path in sorted(Path(directory).glob("*.json"))] if directory else []
+    return staged + (db_decisions(json.loads(Path(export).read_text(encoding="utf-8"))) if export else [])
 
 
 def _schema(T, contract: Mapping[str, Any]):
@@ -597,15 +708,22 @@ def _edition_parcels(spark, F, table: str, parcel_source: Mapping[str, Any], max
     return None if read is None else drop_non_polygons(read, name, max_share, skipped)
 
 
-def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, now: datetime, summary: dict[str, Any]) -> None:
+def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, now: datetime, summary: dict[str, Any],
+          rows: Sequence[Mapping[str, str]], official_read: bool) -> None:
     _write_json(args.projection_output, projection_document(plan, args.snapshot_date, args.table_source_record_id, snapshot_id, now))
     _write_json(args.review_output, {"review": plan["review"], **awaiting_counts(plan["review"])})
-    _write_json(args.summary_output, summary)
+    _write_json(args.review_handoff_output,
+                review_handoff(plan["review"], rows, official_read, plan["counts"]["official_partial_moves"], now))
+    _write_json(args.steward_fold_summary_output, fold_summary(summary.get("steward_decisions", {}), summary["run_id"]))
+    _write_json(args.summary_output, {**summary, "rules_version": rules_version()})
     print("legal-dong-code-change-pairs-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str))
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["rules-version"]:
+        print(rules_version())
+        return 0
     if argv[:1] == ["stage-steward-decision"]:
         return stage_steward_decision(argv[1:])
     args = parse_args(argv)
@@ -615,7 +733,7 @@ def main(argv: list[str] | None = None) -> int:
     parcel_source = editions.load()
     cadastral = cadastral_sido(parcel_source)
     run_id = pairing_run_id(args.table_source_record_id, now)
-    decisions = _read_decisions(args.steward_decisions)
+    decisions = _read_decisions(args.steward_decisions, args.steward_decision_export)
 
     if args.validate_only and args.table_html:
         rows = cg.parse_full_table_html(Path(args.table_html).read_text(encoding="utf-8"), contract)
@@ -630,7 +748,8 @@ def main(argv: list[str] | None = None) -> int:
         steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
         if steward:
             plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
-        _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "steward_decisions": verdicts, **plan["counts"]})
+        _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "run_id": run_id,
+                                                 "steward_decisions": verdicts, **plan["counts"]}, rows, official is not None)
         return 0
 
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
@@ -679,10 +798,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate_only:  # the lakehouse as it stands, read and judged; nothing written to it
             if steward:
                 plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
-            _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse",
+            _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse", "run_id": run_id,
                                                      "steward_decisions": verdicts, **evidence_read, **plan["counts"],
                                                      "would_append": [{k: row[k] for k in ("old_code", "new_code", "level", "source", "detail")}
-                                                                      for row in plan["fresh_changes"]]})
+                                                                      for row in plan["fresh_changes"]]},
+                  rows, official is not None)
             return 0
         append_changes = functools.partial(_append, spark, T, change_table, CHANGE_CONTRACT)
         steward_appended = False
@@ -703,11 +823,11 @@ def main(argv: list[str] | None = None) -> int:
         # with the catalog's, so a projection the table has moved past is refused there.
         change_snapshot = _main_snapshot(spark, change_table)
         _emit(args, plan, change_snapshot, now, {
-            "job": JOB_NAME, "status": "ready", "changes_appended": changes_appended,
+            "job": JOB_NAME, "status": "ready", "run_id": run_id, "changes_appended": changes_appended,
             "steward_decisions": verdicts, "steward_rows_appended": steward_appended,
             "change_table_snapshot_id": change_snapshot, "crosswalk_review_items": len(crosswalk_review),
             **evidence_read, **plan["counts"],
-        })
+        }, rows, official is not None)
         return 0
     finally:
         spark.stop()

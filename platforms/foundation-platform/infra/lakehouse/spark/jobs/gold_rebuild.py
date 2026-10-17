@@ -51,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import section_coverage
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
 SOURCE_SNAPSHOTS_PROPERTY = "foundation.source-iceberg-snapshots"
@@ -91,11 +92,25 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
         raise PlanError("gold rebuild contract names no tables")
     if "kind_tables" in contract:
         import by_pnu_kinds
-        derived = kind_tables(contract["kind_tables"], by_pnu_kinds.kinds() if kinds is None else kinds, tables)
+        found = by_pnu_kinds.kinds() if kinds is None else kinds
+        derived = kind_tables(contract["kind_tables"], found, tables)
         clash = sorted(set(derived) & set(tables))
         if clash:
             raise PlanError(f"{clash} are kind tables: their line in the R2 connection contract is their entry")
         tables = contract["tables"] = {**tables, **derived}
+        # Root ADR-0272: every table that carries served sections (a kind's host panel, and each kind)
+        # is held to the one section coverage bound.
+        carriers = {kind.host_panel for kind in found.values()} | set(derived)
+        coverage = contract.get("section_coverage")
+        if carriers and coverage is None:
+            raise PlanError(f"{sorted(carriers)} carry served sections and the contract declares no section_coverage")
+        if coverage is not None:
+            try:
+                section_coverage.bound_from_contract(coverage, shares=True)
+            except ValueError as error:
+                raise PlanError(str(error)) from None
+            for name in carriers & set(tables):
+                tables[name]["section_coverage"] = coverage
     for name, table in tables.items():
         fraction = table.get("max_row_loss_fraction")
         if type(fraction) not in (int, float) or not 0 <= fraction < 1:
@@ -399,6 +414,13 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         mode, mode_reasons, previous_pins = incremental_mode(entry, gold, silver, pins, whole_table_inputs,
                                                              unconditional)
     settings = entry.get("incremental") or {}
+    coverage = entry.get("section_coverage")
+    # Root ADR-0272: the producer measures its sections against the served Gold before it writes.
+    against = None if coverage is None or previous is None else gold["head"]
+    if against is not None:
+        flags += ["--section-coverage-snapshot", str(against),
+                  "--max-section-coverage-drop", repr(float(coverage["max_share_drop_fraction"])),
+                  "--section-coverage-min-pnus", str(coverage["min_region_pnus"])]
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "gold_table": table,
@@ -415,6 +437,7 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         "previous_row_count": previous,
         "minimum_row_count": minimum,
         "max_row_loss_fraction": entry["max_row_loss_fraction"],
+        "section_coverage_against": against,
         # How a rebuild runs (root ADR-0180): merge only the changed PNUs, or rebuild whole and why.
         "mode": mode,
         "mode_reasons": mode_reasons,

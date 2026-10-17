@@ -175,7 +175,7 @@ pub fn map_staff_auth_error(error: &StaffIdentityError) -> ApiError {
         | StaffIdentityError::JtiRevoked(_)
         | StaffIdentityError::InvalidClaims(_) => ApiError::Unauthorized,
         StaffIdentityError::DuplicateZitadelSubject | StaffIdentityError::Infrastructure(_) => {
-            ApiError::internal("verify_staff_session")
+            ApiError::internal("verify_staff_session", error)
         }
     }
 }
@@ -191,7 +191,7 @@ fn map_assign_role_error(error: &AssignStaffRoleError) -> ApiError {
             authorization_application::ports::RoleGrantPersistenceError::StaffNotFound(_),
         ) => ApiError::NotFound,
         AssignStaffRoleError::Persistence(
-            authorization_application::ports::RoleGrantPersistenceError::Infrastructure(_),
-        ) => ApiError::internal("assign_staff_role"),
+            authorization_application::ports::RoleGrantPersistenceError::Infrastructure(cause),
+        ) => ApiError::internal("assign_staff_role", cause),
     }
 }

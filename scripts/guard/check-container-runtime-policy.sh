@@ -340,7 +340,8 @@ def check_compose(path: str, text: str) -> None:
             fail(path, index + 1, "explicit YAML mapping keys are unsupported")
         if re.search(r":\s*\{", content):
             fail(path, index + 1, "flow-style Compose mappings are unsupported")
-        if re.search(r":\s*!", content):
+        # One tag is understood: an overlay emptying the base file's port list (`ports: !reset []`).
+        if re.search(r":\s*!", content) and not re.fullmatch(r"\s*ports:\s*!reset \[\]\s*", content):
             fail(path, index + 1, "custom YAML tags are unsupported in Compose policy inputs")
         if re.match(r"^\s*extends:", content):
             fail(path, index + 1, "Compose extends indirection is unsupported")
@@ -400,6 +401,10 @@ def check_compose(path: str, text: str) -> None:
             continue
         base_indent = len(ports_match.group(1))
         inline = re.split(r"\s+#", ports_match.group(2), maxsplit=1)[0].strip()
+        if inline == "!reset []":
+            # An overlay clearing the base file's list publishes nothing (a service that joins
+            # another's network namespace may not publish its own ports).
+            continue
         if inline:
             try:
                 values = ast.literal_eval(inline)

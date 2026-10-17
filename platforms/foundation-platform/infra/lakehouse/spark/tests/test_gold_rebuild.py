@@ -316,13 +316,21 @@ class RowLoss(unittest.TestCase):
             source = Path(module.__file__).read_text(encoding="utf-8")
             run = source[source.index("def run("):]
             self.assertLess(run.index("incremental.build_or_merge("), run.index(write), module.JOB_NAME)
-            self.assertIn("assert_minimum_row_count)", run[:run.index(write)], module.JOB_NAME)
+            self.assertRegex(run[:run.index(write)], r"assert_minimum_row_count(, coverage)?\)", module.JOB_NAME)
+        # Root ADR-0272: the producers whose Gold carries served sections hand their coverage guard to
+        # the same checked build.
+        for module in (parcel, kinds_job):
+            source = Path(module.__file__).read_text(encoding="utf-8")
+            run = source[source.index("def run("):]
+            self.assertIn("section_coverage.guard_from_arguments(", run[:run.index("incremental.build_or_merge(")])
+            self.assertIn("assert_minimum_row_count, coverage)", run, module.__name__)
         source = Path(incremental.__file__).read_text(encoding="utf-8")
         body = source[source.index("def build_or_merge("):source.index("def pins_seed(")]
         returns = [i for i in range(len(body)) if body.startswith("return Outcome(", i)]
         self.assertEqual(len(returns), 2, "one full and one incremental outcome")
         for at in returns:
             self.assertIn("assert_minimum(", body[:at].rsplit("return Outcome(", 1)[-1])
+            self.assertIn("coverage.check(", body[:at].rsplit("return Outcome(", 1)[-1])
 
 
 class Write(unittest.TestCase):

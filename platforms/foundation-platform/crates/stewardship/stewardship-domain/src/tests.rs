@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use super::{
     check_approval, check_decision, check_idempotency_key, claim_expiry, evidence_etag, Claim,
-    DecisionDraft, Outcome, ReasonCode, ReviewItem, ReviewStatus, StewardshipError,
+    DecisionDraft, ItemKind, Outcome, ReasonCode, ReviewItem, ReviewStatus, StewardshipError,
 };
 
 // Synthetic parcels in the repository-reserved 99999 namespace (public-fixture-safety).
@@ -20,19 +20,21 @@ fn now() -> DateTime<Utc> {
 fn item(status: ReviewStatus, in_effect: bool) -> ReviewItem {
     ReviewItem {
         item_id: Uuid::nil(),
+        kind: ItemKind::Parcel,
         subject_code: NEW.to_owned(),
         status,
         candidates_json: format!(
             "[{{\"evidence_kind\": \"area+category\", \"evidence_ref\": \"\", \"grade\": \"needs_review\", \
              \"in_effect\": {in_effect}, \"predecessor_pnu\": \"{OLD}\", \"relation\": \"jurisdiction_transfer\"}}]"
         ),
+        evidence_json: None,
     }
 }
 
 fn draft(item: &ReviewItem, outcome: Outcome, predecessor: Option<&str>) -> DecisionDraft {
     DecisionDraft {
         outcome,
-        predecessor_pnu: predecessor.map(ToOwned::to_owned),
+        candidate_code: predecessor.map(ToOwned::to_owned),
         reason_code: outcome
             .writes_lineage()
             .then_some(ReasonCode::BuildingRegister),
@@ -116,11 +118,17 @@ fn only_a_listed_candidate_can_be_linked() {
 }
 
 #[test]
-fn a_lineage_decision_cites_a_reason_and_other_needs_a_note() {
+fn a_reason_and_a_note_are_optional_but_other_needs_a_note() {
     let item = item(ReviewStatus::Pending, false);
-    let mut no_reason = draft(&item, Outcome::NotALink, None);
-    no_reason.reason_code = None;
-    assert!(check_decision(&item, &no_reason, steward(1), None, now()).is_err());
+    for (outcome, code) in [(Outcome::Link, Some(OLD)), (Outcome::NotALink, None)] {
+        let mut bare = draft(&item, outcome, code);
+        bare.reason_code = None;
+        assert_eq!(
+            check_decision(&item, &bare, steward(1), None, now()),
+            Ok(false),
+            "{outcome:?} with neither reason nor note"
+        );
+    }
     let mut other = draft(&item, Outcome::NotALink, None);
     other.reason_code = Some(ReasonCode::Other);
     assert!(check_decision(&item, &other, steward(1), None, now()).is_err());
@@ -289,4 +297,170 @@ fn not_a_link_folds_as_a_pending_row_that_links_nothing() -> Result<(), Stewards
 fn only_lineage_decisions_on_a_listed_candidate_fold() {
     assert!(super::fold::lineage_row(&foldable(Outcome::Unsure, None)).is_err());
     assert!(super::fold::lineage_row(&foldable(Outcome::Link, Some(OTHER))).is_err());
+}
+
+// Synthetic 법정동 codes in the repository-reserved 99999 namespace (public-fixture-safety).
+const OLD_DONG: &str = "9999910100";
+const NEW_DONG: &str = "9999930100";
+const OTHER_DONG: &str = "9999930200";
+
+fn dong_item(status: ReviewStatus, offered: &[&str]) -> ReviewItem {
+    let candidates = offered
+        .iter()
+        .map(|code| {
+            format!(
+                "{{\"code\": \"{code}\", \"name\": \"합성동\", \"created_date\": \"2099-07-01\"}}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    ReviewItem {
+        item_id: Uuid::nil(),
+        kind: ItemKind::LegalDong,
+        subject_code: OLD_DONG.to_owned(),
+        status,
+        candidates_json: format!("[{candidates}]"),
+        evidence_json: Some("{}".to_owned()),
+    }
+}
+
+fn dong_draft(item: &ReviewItem, outcome: Outcome, code: Option<&str>) -> DecisionDraft {
+    DecisionDraft {
+        outcome,
+        candidate_code: code.map(ToOwned::to_owned),
+        reason_code: outcome
+            .writes_lineage()
+            .then_some(ReasonCode::OfficialDocument),
+        note: "합성 사유".to_owned(),
+        evidence_etag: item.evidence_etag(),
+        supersedes_decision_id: None,
+    }
+}
+
+#[test]
+fn a_legal_dong_pair_names_an_offered_code() -> Result<(), StewardshipError> {
+    let item = dong_item(ReviewStatus::Steward, &[NEW_DONG]);
+    let approve = dong_draft(&item, Outcome::Link, Some(NEW_DONG));
+    assert!(!check_decision(&item, &approve, steward(1), None, now())?);
+    let reject = dong_draft(&item, Outcome::NotALink, None);
+    assert!(!check_decision(&item, &reject, steward(1), None, now())?);
+
+    assert_eq!(
+        check_decision(
+            &item,
+            &dong_draft(&item, Outcome::Link, Some(OTHER_DONG)),
+            steward(1),
+            None,
+            now()
+        ),
+        Err(StewardshipError::NotACandidate(OTHER_DONG.to_owned())),
+        "a code the run did not offer is refused"
+    );
+    let one_click = DecisionDraft {
+        reason_code: None,
+        note: " ".to_owned(),
+        ..approve
+    };
+    assert_eq!(
+        check_decision(&item, &one_click, steward(1), None, now()),
+        Ok(false),
+        "an approval needs neither a reason nor a note"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_split_or_a_change_awaiting_data_can_never_be_approved() {
+    assert!(
+        !ReviewStatus::Steward.data_decides(),
+        "the default list keeps what a person decides"
+    );
+    for status in [ReviewStatus::Split, ReviewStatus::AwaitingData] {
+        assert!(status.data_decides(), "{status} leaves the default list");
+        let item = dong_item(status, &[NEW_DONG, OTHER_DONG]);
+        for (outcome, code) in [(Outcome::Link, Some(NEW_DONG)), (Outcome::NotALink, None)] {
+            assert_eq!(
+                check_decision(
+                    &item,
+                    &dong_draft(&item, outcome, code),
+                    steward(1),
+                    None,
+                    now()
+                ),
+                Err(StewardshipError::DataDecides {
+                    subject: OLD_DONG.to_owned(),
+                    status
+                }),
+                "{status} {outcome:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_legal_dong_item_without_candidates_takes_another_well_formed_code() {
+    let item = dong_item(ReviewStatus::Steward, &[]);
+    assert!(check_decision(
+        &item,
+        &dong_draft(&item, Outcome::Link, Some(NEW_DONG)),
+        steward(1),
+        None,
+        now()
+    )
+    .is_ok());
+    for bad in [OLD_DONG, "99999", "9999930100100010000"] {
+        assert_eq!(
+            check_decision(
+                &item,
+                &dong_draft(&item, Outcome::Link, Some(bad)),
+                steward(1),
+                None,
+                now()
+            ),
+            Err(StewardshipError::NotACandidate(bad.to_owned())),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_legal_dong_handoff_carries_its_evidence_and_only_its_statuses() {
+    use super::handoff::{parse_handoff, HANDOFF_SCHEMA_VERSION};
+
+    let document = |status: &str, candidates: &str, evidence: &str| {
+        let etag = super::status_from_wire(status)
+            .map(|s| evidence_etag(s, candidates))
+            .unwrap_or_default();
+        serde_json::json!({
+            "schema_version": HANDOFF_SCHEMA_VERSION, "unit": "legal_dong",
+            "published_at_utc": "2099-09-30T00:00:00Z", "item_count": 1,
+            "items": [{"item_id": Uuid::nil(), "subject_code": OLD_DONG, "status": status,
+                       "candidates_json": candidates, "evidence_etag": etag,
+                       "from_snapshot_id": null, "to_snapshot_id": null,
+                       "evidence_json": serde_json::from_str::<serde_json::Value>(evidence).ok()
+                           .map(|_| evidence.to_owned())}]
+        })
+        .to_string()
+    };
+    let recorded = serde_json::to_string(&super::LegalDongEvidence::default()).unwrap_or_default();
+    assert!(
+        parse_handoff(&document("steward", "[]", "{}")).is_err(),
+        "evidence of another shape"
+    );
+    let offered =
+        format!("[{{\"code\": \"{NEW_DONG}\", \"name\": \"합성동\", \"created_date\": \"\"}}]");
+    assert!(parse_handoff(&document("steward", &offered, &recorded)).is_ok());
+    assert!(
+        parse_handoff(&document("pending", &offered, &recorded)).is_err(),
+        "a parcel status"
+    );
+    assert!(
+        parse_handoff(&document("steward", &offered, "null")).is_err(),
+        "no evidence"
+    );
+    let itself = format!("[{{\"code\": \"{OLD_DONG}\", \"name\": \"\", \"created_date\": \"\"}}]");
+    assert!(
+        parse_handoff(&document("steward", &itself, &recorded)).is_err(),
+        "the old code as its own candidate"
+    );
 }

@@ -164,12 +164,23 @@ pub async fn provision(
     let mut revoked_count = 0;
 
     for principal in &manifest.principals {
-        sqlx::query(UPSERT_PRINCIPAL_SQL)
+        // The upsert returns a row only when it inserted or changed one; only then is there a
+        // new value to record (root ADR-0264).
+        let changed: Option<Uuid> = sqlx::query_scalar(UPSERT_PRINCIPAL_SQL)
             .bind(principal.principal_id.as_uuid())
             .bind(&principal.zitadel_subject)
             .bind(&principal.display_name)
-            .execute(&mut *transaction)
+            .fetch_optional(&mut *transaction)
             .await?;
+        if changed.is_some() {
+            sqlx::query(APPEND_PRINCIPAL_RECORD_SQL)
+                .bind(principal.principal_id.as_uuid())
+                .bind(&principal.zitadel_subject)
+                .bind(&principal.display_name)
+                .bind(&manifest.policy_sha256)
+                .execute(&mut *transaction)
+                .await?;
+        }
 
         let current: Vec<String> = sqlx::query_scalar(CURRENT_GRANTS_SQL)
             .bind(principal.principal_id.as_uuid())
@@ -232,7 +243,8 @@ const UPSERT_PRINCIPAL_SQL: &str = "INSERT INTO identity.service_principal \
      WHERE identity.service_principal.zitadel_subject \
                IS DISTINCT FROM EXCLUDED.zitadel_subject \
         OR identity.service_principal.display_name \
-               IS DISTINCT FROM EXCLUDED.display_name";
+               IS DISTINCT FROM EXCLUDED.display_name \n     RETURNING id";
+const APPEND_PRINCIPAL_RECORD_SQL: &str = "INSERT INTO identity.service_principal_record \n         (service_principal_id, zitadel_subject, display_name, source, policy_sha256) \n     VALUES ($1, $2, $3, 'workload_policy', $4)";
 const CURRENT_GRANTS_SQL: &str = "SELECT capability FROM identity.service_capability_grant \
      WHERE service_principal_id = $1 ORDER BY capability";
 const APPEND_GRANT_RECORD_SQL: &str = "INSERT INTO identity.service_capability_grant_record \

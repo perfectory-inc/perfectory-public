@@ -1,5 +1,5 @@
-//! The parcel-lineage steward routes (root ADR-0115): who may call them, what reaches the store,
-//! and what each refusal answers.
+//! The steward routes (root ADR-0115, ADR-0263): who may call them, what reaches the store, and
+//! what each refusal answers, for parcel and 법정동 items alike.
 
 use super::*;
 use chrono::{TimeZone, Utc};
@@ -7,13 +7,18 @@ use stewardship_application::{
     DecideCommand, DecideOutcome, DecisionRecord, LineageStewardshipStore, ReviewItemFilter,
     ReviewItemView,
 };
-use stewardship_domain::{Claim, Outcome, ReviewItem, ReviewStatus, StewardshipError};
+use stewardship_domain::{
+    Claim, ItemKind, LegalDongEvidence, Outcome, ReviewItem, ReviewStatus, StewardshipError,
+};
 use utoipa::OpenApi;
 
 const REVIEWER_TOKEN: &str = "synthetic-reviewer-token";
 const ADJUDICATOR_TOKEN: &str = "synthetic-adjudicator-token";
 const ITEM: &str = "00000000-0000-5000-8000-000000000001";
 const PNU: &str = "9999930100100010000";
+// Synthetic 법정동 codes in the repository-reserved 99999 namespace (public-fixture-safety).
+const OLD_DONG: &str = "9999910100";
+const NEW_DONG: &str = "9999930100";
 
 fn reviewer() -> uuid::Uuid {
     uuid::Uuid::from_u128(1)
@@ -68,7 +73,9 @@ fn record() -> DecisionRecord {
         item_id: uuid::Uuid::from_u128(1),
         subject_code: PNU.to_owned(),
         outcome: Outcome::NotALink,
-        predecessor_code: None,
+        candidate_code: None,
+        reason_code: None,
+        note: String::new(),
         decided_by: reviewer(),
         decided_at: Utc
             .with_ymd_and_hms(2099, 9, 30, 12, 0, 0)
@@ -83,6 +90,7 @@ fn record() -> DecisionRecord {
 /// Records every call and answers with a configured error, if any.
 #[derive(Default)]
 struct RecordingStewardStore {
+    filters: Mutex<Vec<ReviewItemFilter>>,
     decisions: Mutex<Vec<DecideCommand>>,
     approvals: Mutex<Vec<(uuid::Uuid, uuid::Uuid, bool)>>,
     error: Mutex<Option<StewardshipError>>,
@@ -105,20 +113,48 @@ impl RecordingStewardStore {
 impl LineageStewardshipStore for RecordingStewardStore {
     async fn list_items(
         &self,
-        _filter: ReviewItemFilter,
+        filter: ReviewItemFilter,
         _now: chrono::DateTime<Utc>,
     ) -> Result<Vec<ReviewItemView>, StewardshipError> {
         self.configured().await?;
-        Ok(vec![ReviewItemView {
-            item: ReviewItem {
-                item_id: uuid::Uuid::from_u128(1),
-                subject_code: PNU.to_owned(),
-                status: ReviewStatus::Pending,
-                candidates_json: "[]".to_owned(),
-            },
-            claim: None,
-            decisions: Vec::new(),
-        }])
+        let parcel = ReviewItem {
+            item_id: uuid::Uuid::from_u128(1),
+            kind: ItemKind::Parcel,
+            subject_code: PNU.to_owned(),
+            status: ReviewStatus::Pending,
+            candidates_json: "[]".to_owned(),
+            evidence_json: None,
+        };
+        let dong = ReviewItem {
+            item_id: uuid::Uuid::from_u128(2),
+            kind: ItemKind::LegalDong,
+            subject_code: OLD_DONG.to_owned(),
+            status: ReviewStatus::Steward,
+            candidates_json: format!(
+                r#"[{{"code": "{NEW_DONG}", "name": "합성시 새동", "created_date": "2099-07-01"}}]"#
+            ),
+            evidence_json: Some(
+                serde_json::to_string(&LegalDongEvidence {
+                    name: "합성시 옛동".to_owned(),
+                    official_history: "read".to_owned(),
+                    ..LegalDongEvidence::default()
+                })
+                .map_err(|error| StewardshipError::InvalidItem(error.to_string()))?,
+            ),
+        };
+        let limit = filter.limit as usize;
+        let kind = filter.kind;
+        self.filters.lock().await.push(filter);
+        Ok([dong, parcel]
+            .into_iter()
+            .filter(|item| kind.is_none_or(|kind| item.kind == kind))
+            .take(limit)
+            .map(|item| ReviewItemView {
+                item,
+                claim: None,
+                decisions: Vec::new(),
+            })
+            .collect())
     }
 
     async fn get_item(
@@ -340,6 +376,13 @@ async fn store_refusals_answer_with_their_own_status() -> Result<(), Box<dyn Err
             StewardshipError::NotACandidate(PNU.to_owned()),
             StatusCode::BAD_REQUEST,
         ),
+        (
+            StewardshipError::DataDecides {
+                subject: OLD_DONG.to_owned(),
+                status: ReviewStatus::Split,
+            },
+            StatusCode::CONFLICT,
+        ),
         (StewardshipError::ItemNotFound, StatusCode::NOT_FOUND),
         (
             StewardshipError::Persistence("db down".to_owned()),
@@ -413,7 +456,13 @@ async fn only_an_adjudicator_rules_and_never_on_their_own_decision() -> Result<(
 #[tokio::test]
 async fn a_list_with_a_malformed_filter_is_refused() -> Result<(), Box<dyn Error>> {
     let router = app(Arc::default(), Arc::default())?;
-    for query in ["?limit=0", "?limit=201", "?prefix=28a", "?after=123"] {
+    for query in [
+        "?limit=0",
+        "?limit=201",
+        "?prefix=28a",
+        "?after=123",
+        "?kind=building",
+    ] {
         let response = router
             .clone()
             .oneshot(request(
@@ -429,7 +478,7 @@ async fn a_list_with_a_malformed_filter_is_refused() -> Result<(), Box<dyn Error
     let ok = router
         .oneshot(request(
             Method::GET,
-            "/catalog/v1/lineage-review/items?prefix=99999&limit=1",
+            "/catalog/v1/lineage-review/items?kind=parcel&prefix=99999&limit=1",
             Some(REVIEWER_TOKEN),
             None,
             String::new(),
@@ -438,7 +487,8 @@ async fn a_list_with_a_malformed_filter_is_refused() -> Result<(), Box<dyn Error
     assert_eq!(ok.status(), StatusCode::OK);
     let body: serde_json::Value =
         serde_json::from_slice(&to_bytes(ok.into_body(), usize::MAX).await?)?;
-    assert_eq!(body["items"][0]["subject_pnu"], PNU);
+    assert_eq!(body["items"][0]["subject_code"], PNU);
+    assert_eq!(body["items"][0]["kind"], "parcel");
     assert_eq!(
         body["next_after"], PNU,
         "a full page names where the next one starts"
@@ -446,6 +496,88 @@ async fn a_list_with_a_malformed_filter_is_refused() -> Result<(), Box<dyn Error
     assert_eq!(
         body["items"][0]["evidence_etag"],
         stewardship_domain::evidence_etag(ReviewStatus::Pending, "[]")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn legal_dong_items_list_on_the_same_route_with_their_recorded_evidence(
+) -> Result<(), Box<dyn Error>> {
+    let store = Arc::new(RecordingStewardStore::default());
+    let response = app(Arc::default(), store.clone())?
+        .oneshot(request(
+            Method::GET,
+            "/catalog/v1/lineage-review/items?kind=legal_dong",
+            Some(REVIEWER_TOKEN),
+            None,
+            String::new(),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        store.filters.lock().await[0].kind,
+        Some(ItemKind::LegalDong),
+        "the kind filter reaches the store"
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
+    let item = &body["items"][0];
+    assert_eq!(
+        (&item["kind"], &item["subject_code"], &item["status"]),
+        (
+            &serde_json::json!("legal_dong"),
+            &serde_json::json!(OLD_DONG),
+            &serde_json::json!("steward")
+        )
+    );
+    assert_eq!(item["legal_dong"]["name"], "합성시 옛동");
+    assert_eq!(item["legal_dong"]["official_history"], "read");
+    assert_eq!(item["legal_dong"]["candidates"][0]["code"], NEW_DONG);
+    assert_eq!(item["candidates"], serde_json::json!([]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_legal_dong_approval_reaches_the_store_with_only_its_code_and_a_malformed_code_does_not(
+) -> Result<(), Box<dyn Error>> {
+    let store = Arc::new(RecordingStewardStore::default());
+    let router = app(Arc::default(), store.clone())?;
+    let approve = |code: &str| {
+        serde_json::json!({
+            // One click: neither a reason nor a note.
+            "outcome": "link", "candidate_code": code, "evidence_etag": "0".repeat(64),
+        })
+        .to_string()
+    };
+    let malformed = router
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            &decide_uri(""),
+            Some(REVIEWER_TOKEN),
+            Some("dong-key-0001"),
+            approve("99999"),
+        )?)
+        .await?;
+    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert!(store.decisions.lock().await.is_empty());
+
+    let accepted = router
+        .oneshot(request(
+            Method::POST,
+            &decide_uri(""),
+            Some(REVIEWER_TOKEN),
+            Some("dong-key-0002"),
+            approve(NEW_DONG),
+        )?)
+        .await?;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    assert_eq!(
+        store.decisions.lock().await[0]
+            .draft
+            .candidate_code
+            .as_deref(),
+        Some(NEW_DONG)
     );
     Ok(())
 }

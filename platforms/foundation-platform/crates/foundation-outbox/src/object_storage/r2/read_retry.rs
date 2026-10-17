@@ -17,7 +17,6 @@ use std::time::Duration;
 
 use aws_sdk_s3::config::http::HttpResponse;
 use aws_sdk_s3::error::SdkError;
-use aws_sdk_s3::operation::get_object::GetObjectError;
 use tokio::runtime::Handle;
 
 use crate::errors::PublishError;
@@ -81,8 +80,20 @@ fn target(request: ReadRequest<'_>) -> String {
 }
 
 /// Whether a request that got no usable answer may be asked again. A request that never reached R2
-/// or never heard back may; a real answer may only when it is a server error or a throttle.
-fn request_error_is_transient(error: &SdkError<GetObjectError, HttpResponse>) -> bool {
+/// or never heard back may; a real answer may only when it is a server error or a throttle. Reads
+/// and writes ask the same question (`write_retry`).
+pub(super) fn request_error_is_transient<E>(error: &SdkError<E, HttpResponse>) -> bool
+where
+    E: std::error::Error + 'static,
+{
+    // This client's own refusal (root ADR-0177) arrives as a dispatch failure: it will not change.
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = cause {
+        if current.is::<super::namespace::NamespaceRefusal>() {
+            return false;
+        }
+        cause = current.source();
+    }
     match error {
         SdkError::DispatchFailure(_) | SdkError::TimeoutError(_) | SdkError::ResponseError(_) => {
             true
@@ -128,7 +139,7 @@ async fn attempt(client: &aws_sdk_s3::Client, bucket: &str, request: ReadRequest
 }
 
 /// A number in `[0, 1)` that differs per call, from the standard library's per-instance random keys.
-fn jitter_unit() -> f64 {
+pub(super) fn jitter_unit() -> f64 {
     use std::hash::{BuildHasher as _, Hasher as _};
     let bits = std::collections::hash_map::RandomState::new()
         .build_hasher()

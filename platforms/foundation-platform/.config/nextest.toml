@@ -14,3 +14,11 @@ slow-timeout = { period = "20s", terminate-after = 3 }
 [[profile.default.overrides]]
 filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
 slow-timeout = { period = "30s", terminate-after = 4 }
+
+# The profile CI runs (`NEXTEST_PROFILE=ci`, set by scripts/ci/rust-setup.sh; root ADR-0269), as
+# oxidecomputer/omicron's: a failing test runs twice more so a flake is named FLAKY in the log, and
+# it still fails the run. It inherits everything above.
+[profile.ci]
+retries = 2
+flaky-result = "fail"
+failure-output = "immediate-final"

@@ -143,14 +143,14 @@ export interface components {
         LineageDecisionOutcome: "link" | "not_a_link" | "unsure" | "escalate";
         /** @description A steward's decision on an item. */
         LineageDecisionRequest: {
+            /** @description The chosen candidate; only for `link`. */
+            candidate_code?: string | null;
             /** @description The `evidence_etag` of the item as read. */
             evidence_etag: string;
-            /** @description Free text; required when the reason is `other`. */
+            /** @description Free text; optional, required only when the reason is `other`. */
             note?: string;
             /** @description What was decided. */
             outcome: components["schemas"]["LineageDecisionOutcome"];
-            /** @description The chosen candidate; only for `link`. */
-            predecessor_pnu?: string | null;
             reason_code?: null | components["schemas"]["LineageReasonCode"];
             /** @description The decision this one replaces. */
             supersedes_decision_id?: string | null;
@@ -162,6 +162,46 @@ export interface components {
             disposition: components["schemas"]["LineageDecisionDisposition"];
             /** @description Whether a second person must approve. */
             requires_approval: boolean;
+        };
+        /** @description One new code the pairing run offers for an abolished 법정동 code. */
+        LineageLegalDongCandidate: {
+            /** @description The new 10-digit code. */
+            code: string;
+            /** @description The day the code table says it was created, `YYYYMMDD` or empty. */
+            created_date: string;
+            /** @description Its full name in the code table. */
+            name: string;
+        };
+        /** @description What the pairing run recorded about an abolished 법정동 code. */
+        LineageLegalDongEvidence: {
+            /** @description The day the code table says it was abolished, `YYYYMMDD` or empty. */
+            abolished_date: string;
+            /** @description The new codes offered; empty when the run found none (any other code may then be named). */
+            candidates: components["schemas"]["LineageLegalDongCandidate"][];
+            /** @description What the 지번 step saw. */
+            jibun: string;
+            /** @description `sido`, `sigungu`, `eupmyeondong` or `ri`. */
+            level: string;
+            /** @description The old code's full name in the code table. */
+            name: string;
+            /**
+             * @description Whether the run read the official parcel-number history (`VWorld` 30527): `read` or
+             *     `not_collected`.
+             */
+            official_history: string;
+            /**
+             * Format: int64
+             * @description How many of its parcels the official rows move without deciding the pair.
+             */
+            official_partial_moves: number;
+            /** @description Why the date + name rule did not pair it: `ambiguous_name_match` or `no_candidate`. */
+            rule: string;
+            /** @description Where its 지번 went when it split: new code → how many. */
+            split_into: {
+                [key: string]: number;
+            };
+            /** @description The evidence it waits for, when awaiting data. */
+            waiting_for: string;
         };
         /**
          * @description The fixed reasons a lineage-writing decision cites.
@@ -195,7 +235,7 @@ export interface components {
         };
         /** @description A review item with its claim and decisions. */
         LineageReviewItem: {
-            /** @description Candidate predecessors with their evidence. */
+            /** @description Parcel items: candidate predecessors with their evidence; empty on 법정동 items. */
             candidates: components["schemas"]["LineageReviewCandidate"][];
             claim?: null | components["schemas"]["LineageReviewClaim"];
             /** @description Every decision, newest first. */
@@ -204,27 +244,37 @@ export interface components {
             evidence_etag: string;
             /** @description Stable item id. */
             item_id: string;
+            /** @description What the item decides. */
+            kind: components["schemas"]["LineageReviewKind"];
+            legal_dong?: null | components["schemas"]["LineageLegalDongEvidence"];
             /** @description Why it is on the queue. */
             status: components["schemas"]["LineageReviewStatus"];
-            /** @description The parcel to decide. */
-            subject_pnu: string;
+            /** @description The parcel (19-digit PNU) or the abolished 법정동 code (10 digits) to decide. */
+            subject_code: string;
         };
         /** @description A page of review items. */
         LineageReviewItemPage: {
-            /** @description Items in parcel order. */
+            /** @description Items in subject-code order. */
             items: components["schemas"]["LineageReviewItem"][];
             /** @description Pass as `after` for the next page; absent on the last page. */
             next_after?: string | null;
         };
         /**
+         * @description What a review item decides.
+         * @enum {string}
+         */
+        LineageReviewKind: "parcel" | "legal_dong";
+        /**
          * @description Why an item is on the review queue.
          * @enum {string}
          */
-        LineageReviewStatus: "needs_review" | "pending" | "sample";
+        LineageReviewStatus: "needs_review" | "pending" | "sample" | "steward" | "split" | "awaiting_data";
         /** @description A stored decision. */
         LineageStewardDecision: {
             /** @description `approved` or `rejected`, once a second person has ruled. */
             approval?: string | null;
+            /** @description The linked candidate, for a link: an older PNU, or a new 법정동 code. */
+            candidate_code?: string | null;
             /**
              * Format: date-time
              * @description When.
@@ -234,10 +284,11 @@ export interface components {
             decided_by: string;
             /** @description Decision id. */
             decision_id: string;
+            /** @description Why, in words. */
+            note: string;
             /** @description What was decided. */
             outcome: components["schemas"]["LineageDecisionOutcome"];
-            /** @description The linked candidate, for a link. */
-            predecessor_pnu?: string | null;
+            reason_code?: null | components["schemas"]["LineageReasonCode"];
             /** @description Whether a second person must approve before it takes effect. */
             requires_approval: boolean;
             /** @description The decision this one replaces. */
@@ -323,12 +374,16 @@ export interface operations {
     list_items: {
         parameters: {
             query?: {
+                /** @description Only this kind. */
+                kind?: components["schemas"]["LineageReviewKind"];
                 /** @description Only this status. */
                 status?: components["schemas"]["LineageReviewStatus"];
-                /** @description Only parcels whose PNU starts with these digits (a sido or sigungu code). */
+                /** @description Only subjects whose code starts with these digits (a sido or sigungu code). */
                 prefix?: string;
                 /** @description Only items without a standing decision on their current evidence. */
                 undecided_only?: boolean;
+                /** @description Leave out items the data decides (`split`, `awaiting_data`): they need no person. */
+                actionable_only?: boolean;
                 /** @description The `next_after` of the previous page. */
                 after?: string;
                 /** @description Page size, at most 200. */
@@ -340,7 +395,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Review items in parcel order */
+            /** @description Review items in subject-code order */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -554,7 +609,7 @@ export interface operations {
                     "application/json": components["schemas"]["LineageDecisionResponse"];
                 };
             };
-            /** @description The decision is malformed or names no candidate */
+            /** @description The decision is malformed, names no candidate, or cites `other` without a note */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -586,7 +641,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
-            /** @description Evidence changed, another steward holds the item, the key was reused with another body, or the predecessor is taken */
+            /** @description Evidence changed, another steward holds the item, the key was reused with another body, the predecessor is taken, or the 법정동 item is the data's to decide (split, awaiting data) */
             409: {
                 headers: {
                     [name: string]: unknown;

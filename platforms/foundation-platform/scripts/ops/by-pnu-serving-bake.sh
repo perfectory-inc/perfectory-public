@@ -62,7 +62,8 @@
 # release whose job does not.
 #
 # `all` ends with `foundation-job-outcome changed` when a lane published (a patch, a base or a
-# reflect-only manifest), `unchanged` otherwise (root ADR-0171).
+# reflect-only manifest), `unchanged` otherwise (root ADR-0171), and `failed <lanes>; published:
+# <lanes>` when any lane failed: the last word matches the exit status.
 #
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
@@ -103,8 +104,14 @@ case "${UNIT}" in
         "${BASH_SOURCE[0]}" "${lane}" || { lane_status=$?; failed+="${lane} "; ((status)) || status=${lane_status}; }
     done
     # Then every lane's superseded pack generations past their rollback window (root ADR-0242).
-    "${BASH_SOURCE[0]}" retire || { lane_status=$?; ((status)) || status=${lane_status}; }
-    if [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
+    "${BASH_SOURCE[0]}" retire || { lane_status=$?; failed+="retire "; ((status)) || status=${lane_status}; }
+    # The last word matches the exit: a run that exits non-zero says failed, though another lane
+    # published (2026-10-16: `changed` and then exit 1). What did publish is named with it.
+    if ((status)); then
+      published="$(sort -u "${BY_PNU_BAKE_PUBLISHED}" | tr '\n' ' ')"
+      published="${published% }"
+      echo "foundation-job-outcome failed${failed% }; published: ${published:-none}"
+    elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
       echo "foundation-job-outcome changed"
     else
       echo "foundation-job-outcome unchanged"

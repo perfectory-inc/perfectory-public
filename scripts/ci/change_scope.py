@@ -199,6 +199,15 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
         for glob in entry.get("owns", []):
             if not any(glob_regex(glob).match(t) for t in tracked):
                 errors.append(f"{workflow}: owned glob `{glob}` names no tracked file (stale)")
+    crates = contract.get("crates", {})
+    for key, prefix in (("run_all", ""), ("run_all_in_workspace", "**/")):
+        globs = crates.get(key)
+        if not isinstance(globs, list) or not globs:
+            errors.append(f"crates.{key} must be a non-empty list")
+            continue
+        for glob in globs:
+            if not any(glob_regex(prefix + glob).match(t) for t in tracked):
+                errors.append(f"crates.{key}: `{glob}` names no tracked file (stale)")
     for name in sorted(set(scoped) | set(unscoped)):
         if not (root / WORKFLOWS / name).is_file():
             errors.append(f"{name}: listed in {CONTRACT} but no such workflow")
@@ -256,17 +265,22 @@ def _resolve(base: PurePosixPath, literal: str) -> str | None:
     return "/".join(parts) if parts else None
 
 
-def source_reads(source: str, text: str, tracked: set[str], tracked_dirs: set[str]) -> set[str]:
+def source_reads(
+    source: str, text: str, tracked: set[str], tracked_dirs: set[str], package_dir: str | None = None
+) -> set[str]:
     """Repository paths (files, or directories nothing narrower explains) a source names in quotes.
 
     A quoted path is resolved from the repository root, the area root and the source's
-    own directory; the first resolution that is tracked counts. A directory is
+    own directory (and, given one, its package directory: `migrate!` and `CARGO_MANIFEST_DIR` paths
+    start there); the first resolution that is tracked counts. A directory is
     narrowed by the bare file names and relative paths the same source joins onto it.
     Comment lines are ignored.
     """
     code = "\n".join(line for line in text.splitlines() if not COMMENT.match(line))
     area = PurePosixPath(*PurePosixPath(source).parts[:2])
     bases = (PurePosixPath(), area, PurePosixPath(source).parent)
+    if package_dir is not None:
+        bases += (PurePosixPath(package_dir),)
     files: set[str] = set()
     dirs: set[str] = set()
     for literal in set(QUOTED_PATH.findall(code)):
@@ -311,9 +325,246 @@ def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[st
     return sorted(errors)
 
 
+# --- crates: which workspace crates a pull request affects (root ADR-0269) ------------------------
+
+# Only a pull request narrows to crates. A push to main refills the build caches the next pull
+# request starts from, and the merge queue, the nightly run and a manual run are the full gate.
+CRATE_SELECT_EVENTS = frozenset({"pull_request"})
+
+
+def workspace_members(root: Path, workspace: str) -> dict[str, tuple[str, set[str]]]:
+    """Member name -> (its directory from the repository root, the members it depends on).
+
+    `--no-deps` reads the manifests only: no lockfile resolution, no network. Every kind of
+    dependency counts (normal, build, dev): a dev-dependency's change can fail the dependent's tests.
+    """
+    manifest = root / workspace / "Cargo.toml"
+    out = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps", "--manifest-path", str(manifest)],
+        check=True,
+        capture_output=True,
+    ).stdout
+    packages = json.loads(out.decode("utf-8"))["packages"]
+    names = {package["name"] for package in packages}
+    members: dict[str, tuple[str, set[str]]] = {}
+    for package in packages:
+        directory = Path(package["manifest_path"]).resolve().parent.relative_to(root.resolve()).as_posix()
+        deps = {dep["name"] for dep in package["dependencies"] if dep.get("path") and dep["name"] in names}
+        members[package["name"]] = (directory, deps)
+    return members
+
+
+def closure(members: dict[str, tuple[str, set[str]]], changed: set[str]) -> set[str]:
+    """`changed` and every member that depends on one of them, directly or not: nextest's `rdeps()`."""
+    dependents: dict[str, set[str]] = {name: set() for name in members}
+    for name, (_, deps) in members.items():
+        for dep in deps:
+            dependents[dep].add(name)
+    selected, stack = set(changed), list(changed)
+    while stack:
+        for dependent in dependents[stack.pop()]:
+            if dependent not in selected:
+                selected.add(dependent)
+                stack.append(dependent)
+    return selected
+
+
+def owning_member(members: dict[str, tuple[str, set[str]]], path: str) -> str | None:
+    """The member whose directory holds `path` (the deepest, when members nest)."""
+    owners = [(len(directory), name) for name, (directory, _) in members.items() if path.startswith(directory + "/")]
+    return max(owners)[1] if owners else None
+
+
+# A quoted bare word passed on as a value: `for root in ["crates", "services"]`, `join("crates")`
+# walk every member below those folders. A JSON key (`"services": …`) or an index
+# (`value["services"]`) names no folder.
+QUOTED_WORD = re.compile(r"""(?<![\w)\]]\[)["']([\w-]+)["'](?=\s*[,\])])""")
+
+
+def member_reads(
+    root: Path, workspace: str, members: dict[str, tuple[str, set[str]]], tracked: list[str]
+) -> dict[str, set[str]]:
+    """Member name -> the repository paths its Rust sources name in quotes (ADR-0202 §6's reader).
+
+    A bare quoted word that is a top folder of the workspace holding members (`"crates"`) reads that
+    whole folder: a test that walks every crate's sources is a reader of every crate.
+    """
+    member_roots = {
+        f"{workspace}/{PurePosixPath(directory).relative_to(workspace).parts[0]}"
+        for directory, _ in members.values()
+        if directory.startswith(workspace + "/")
+    }
+    tracked_set = set(tracked)
+    tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
+    reads: dict[str, set[str]] = {name: set() for name in members}
+    for source in tracked:
+        if not source.endswith(".rs"):
+            continue
+        owner = owning_member(members, source)
+        if owner is None:
+            continue
+        try:
+            text = (root / source).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        reads[owner] |= source_reads(source, text, tracked_set, tracked_dirs, members[owner][0])
+        code = "\n".join(line for line in text.splitlines() if not COMMENT.match(line))
+        reads[owner] |= {f"{workspace}/{word}" for word in QUOTED_WORD.findall(code)} & member_roots
+    return reads
+
+
+def decide_crates(
+    contract: dict,
+    workspace: str,
+    event: str,
+    changed: set[str] | None,
+    members: dict[str, tuple[str, set[str]]],
+    reads: dict[str, set[str]],
+) -> tuple[set[str] | None, set[str], set[str], str]:
+    """(the members to verify, or None for all of them; the members whose dependents run too; the
+    members that only read a changed crate's sources; why).
+
+    A changed path selects the member whose directory holds it and every member whose sources
+    name it (or a directory above it) in quotes, then every dependent of those. A path that no
+    member holds or reads is not a Rust input. A run-all path, or Rust outside every member, runs
+    every member.
+    """
+    if event not in CRATE_SELECT_EVENTS:
+        return None, set(), set(), f"{event or 'an unnamed event'} verifies every crate"
+    if changed is None:
+        return None, set(), set(), "changed paths unavailable"
+    if changed & RUN_ALL:
+        return None, set(), set(), "the scope definition changed"
+    rules = contract["crates"]
+    run_all = [glob_regex(g) for g in rules["run_all"]]
+    run_all += [glob_regex(f"{workspace}/{g}") for g in rules["run_all_in_workspace"]]
+    direct: set[str] = set()
+    readers: set[str] = set()
+    for path in sorted(changed):
+        if any(pattern.match(path) for pattern in run_all):
+            return None, set(), set(), f"run-all input changed: {path}"
+        owner = owning_member(members, path)
+        if owner is not None:
+            direct.add(owner)
+        elif path.startswith(workspace + "/") and path.endswith(".rs"):
+            return None, set(), set(), f"Rust source outside every crate: {path}"
+        ancestors = {path} | {str(p) for p in PurePosixPath(path).parents}
+        named_by = {name for name, paths in reads.items() if paths & ancestors}
+        # Another crate's source or manifest is text to the test that reads it: the reader's
+        # build does not change, so its dependents do not run. Any other file it names may be
+        # compiled in (`include_str!`), and its dependents run as for a change in it.
+        if owner is not None and (path.endswith(".rs") or path.endswith("/Cargo.toml")):
+            readers |= named_by
+        else:
+            direct |= named_by
+    selected = closure(members, direct)
+    readers -= selected
+    return (
+        selected | readers,
+        direct,
+        readers,
+        f"{len(direct)} crate(s) changed, {len(selected)} with their dependents, {len(readers)} reading their sources",
+    )
+
+
+def suite_reads(root: Path, workspace: str, tracked: list[str]) -> set[str]:
+    """Repository paths the workspace's non-Rust sources (the Python and Node suites and what they
+    run) name in quotes, with ADR-0202 §6's reader."""
+    tracked_set = set(tracked)
+    tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
+    reads: set[str] = set()
+    for source in tracked:
+        if not source.startswith(workspace + "/") or source.endswith(".rs") or not source.endswith(SOURCE_SUFFIXES):
+            continue
+        try:
+            text = (root / source).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        reads |= source_reads(source, text, tracked_set, tracked_dirs)
+    return reads
+
+
+def decide_suites(
+    contract: dict,
+    workspace: str,
+    event: str,
+    changed: set[str] | None,
+    members: dict[str, tuple[str, set[str]]],
+    reads: set[str],
+) -> tuple[bool, str]:
+    """(whether the workspace's Python and Node suites run, why).
+
+    They are skipped only on a pull request whose every changed path sits inside a Rust crate, or
+    outside the workspace, and is named by none of the workspace's non-Rust sources. Anything else
+    in the workspace, a run-all input, or an unknown comparison runs them.
+    """
+    selected, _, _, reason = decide_crates(contract, workspace, event, changed, members, {})
+    if selected is None or changed is None:
+        return True, reason
+    for path in sorted(changed):
+        ancestors = {path} | {str(p) for p in PurePosixPath(path).parents}
+        if reads & ancestors:
+            return True, f"a suite reads {path}"
+        if path.startswith(workspace + "/") and owning_member(members, path) is None:
+            return True, f"changed outside every crate: {path}"
+    return False, f"none of {len(changed)} changed paths reaches a suite: only Rust crates or other areas changed"
+
+
+def suites_main(args: argparse.Namespace) -> int:
+    """Print `run <why>` or `skip <why>`, tab-separated, for `cargo xtask verify --part suites --affected`."""
+    event = os.environ.get("CHANGE_SCOPE_EVENT", "")
+    changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
+    workspace = args.workspace.strip("/")
+    members = workspace_members(ROOT, workspace)
+    reads: set[str] = set()
+    if event in CRATE_SELECT_EVENTS and changed is not None:
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
+        reads = suite_reads(ROOT, workspace, sorted({t for t in listed.decode().split("\0") if t} | changed))
+    run, reason = decide_suites(load_contract(), workspace, event, changed, members, reads)
+    print(f"{'run' if run else 'skip'}\t{reason}")
+    return 0
+
+
+def crates_main(args: argparse.Namespace) -> int:
+    """Print the selection for xtask, tab-separated: `all <why>` or `some <why>`, then one line per
+    member: `changed` (its tests and its dependents' run: nextest `rdeps()`), `reader` (only its own
+    tests run: `package()`), `affected` (every member built, linted and tested). With `--includes
+    NAME` print nothing and exit 0 when that member is verified, 3 when it is not."""
+    event = os.environ.get("CHANGE_SCOPE_EVENT", "")
+    changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
+    workspace = args.workspace.strip("/")
+    members = workspace_members(ROOT, workspace)
+    if args.includes is not None and args.includes not in members:
+        print(f"change-scope: {args.includes} is not a member of {workspace}", file=sys.stderr)
+        return 2
+    reads: dict[str, set[str]] = {}
+    if event in CRATE_SELECT_EVENTS and changed is not None:
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
+        # A deleted file is still found by the sources that name it: those are what it breaks.
+        reads = member_reads(ROOT, workspace, members, sorted({t for t in listed.decode().split("\0") if t} | changed))
+    selected, direct, readers, reason = decide_crates(load_contract(), workspace, event, changed, members, reads)
+    if args.includes is not None:
+        verified = selected is None or args.includes in selected
+        print(f"change-scope: {args.includes} {'is' if verified else 'is not'} verified ({reason})", file=sys.stderr)
+        return 0 if verified else 3
+    print(f"{'all' if selected is None else 'some'}\t{reason}")
+    for name in sorted(direct):
+        print(f"changed\t{name}")
+    for name in sorted(readers):
+        print(f"reader\t{name}")
+    for name in sorted(selected or ()):
+        print(f"affected\t{name}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    crates = sub.add_parser("crates", help="the workspace crates a pull request affects, for xtask --affected")
+    crates.add_argument("--workspace", required=True, help="the Cargo workspace directory, from the repository root")
+    crates.add_argument("--includes", help="exit 0 when this member is verified, 3 when it is not")
+    suites = sub.add_parser("suites", help="whether a pull request runs a workspace's Python and Node suites")
+    suites.add_argument("--workspace", required=True, help="the Cargo workspace directory, from the repository root")
     select = sub.add_parser("select", help="write affected=true|false for one workflow to $GITHUB_OUTPUT")
     select.add_argument("--workflow", required=True)
     paths = sub.add_parser("paths", help="print one scoped workflow's input globs")
@@ -322,6 +573,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check", help="the contract and the workflows agree")
     args = parser.parse_args(argv)
 
+    if args.command == "crates":
+        return crates_main(args)
+    if args.command == "suites":
+        return suites_main(args)
     if args.command == "paths":
         entry = load_contract(args.root)["workflows"].get(args.workflow)
         if entry is not None:

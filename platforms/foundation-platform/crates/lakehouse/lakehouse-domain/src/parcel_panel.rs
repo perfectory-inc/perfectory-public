@@ -107,6 +107,7 @@ pub const GOLD_PARCEL_PANEL: LakehouseTableContract = LakehouseTableContract {
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
+    current_row_latest: None,
     columns: GOLD_PARCEL_PANEL_COLUMNS,
     // Follows the canonical parcel table it projects: the snapshot the rows were built from.
     partition_spec: &["source_snapshot_id"],

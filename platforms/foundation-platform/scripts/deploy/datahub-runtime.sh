@@ -11,9 +11,10 @@
 # After `up`/`restart`/`start` it waits until the UI and GMS answer and staff sign-in hands the
 # browser to Zitadel, and exits 1 otherwise — a catalog whose sign-in is broken is not "up".
 #
+# State (runtime.env, user.props) is config/host-layout.contract.json `datahub.state_dir`, root's
+# and 0700; nothing overrides it, so the release and a person run the same catalog.
+#
 # Environment:
-#   DATAHUB_RUNTIME_DIR       state directory (default /var/lib/foundation-platform/datahub):
-#                             holds runtime.env and user.props, mode 0700
 #   DATAHUB_OIDC_CLIENT_FILE  Zitadel client credentials written by identity-platform's
 #                             configure-zitadel.sh (default
 #                             /etc/identity-platform/secrets/datahub-oidc-client.env)
@@ -22,7 +23,7 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd "${script_dir}/../.." && pwd)"
 compose_dir="${root_dir}/infra/datahub"
-runtime_dir="${DATAHUB_RUNTIME_DIR:-/var/lib/foundation-platform/datahub}"
+runtime_dir="$(python3 -I -B "${script_dir}/datahub_state.py" dir)"
 env_file="${runtime_dir}/runtime.env"
 user_props="${runtime_dir}/user.props"
 oidc_file="${DATAHUB_OIDC_CLIENT_FILE:-/etc/identity-platform/secrets/datahub-oidc-client.env}"

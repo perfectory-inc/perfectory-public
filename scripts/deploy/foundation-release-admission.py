@@ -475,15 +475,26 @@ def release_build_lock():
         yield
 
 
-def require_no_release_build() -> None:
-    """A registered job does not start while a release builds (ADR-0137); Airflow retries it later."""
+def release_build_running() -> bool:
+    """Whether a release build holds the build lock now. Reading it needs no privilege."""
     if not BUILD_LOCK.exists():
-        return
+        return False
     with open(BUILD_LOCK, encoding="utf-8") as handle:
         try:
             fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise ValueError("a release build is running; this job starts after it finishes (ADR-0137)") from error
+        except BlockingIOError:
+            return True
+    return False
+
+
+def require_no_release_build() -> None:
+    """A registered job does not start while a release builds (ADR-0137).
+
+    The scheduler's runner asks `release-build-running` first and defers the job without starting
+    its unit (root ADR-0260); this refusal is for a start that slips past that question.
+    """
+    if release_build_running():
+        raise ValueError("a release build is running; this job starts after it finishes (ADR-0137)")
 
 
 def file_sha256(path: Path) -> str:
@@ -757,7 +768,16 @@ def main() -> int:
     sub.add_parser("verify-current")
     # The deploy's wait (foundation-deploy.sh step 0) asks this, the check `build` refuses on: one list.
     sub.add_parser("running-jobs")
+    # The scheduler's runner asks this before it starts a job (root ADR-0260): 75 a release build is
+    # running, 0 none. It only reads the lock, so it is the one question asked without root.
+    sub.add_parser("release-build-running")
     args = parser.parse_args()
+    if args.command == "release-build-running":
+        try:
+            return 75 if release_build_running() else 0
+        except OSError as error:
+            print(f"foundation-release-admission: cannot read the build lock: {error}", file=sys.stderr)
+            return 65
     try:
         if os.geteuid() != 0:
             raise ValueError("release admission must run as the host administrator")

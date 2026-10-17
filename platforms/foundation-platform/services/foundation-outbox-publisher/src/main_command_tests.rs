@@ -177,6 +177,13 @@ fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
+            "export-legal-dong-steward-decisions"
+        ])?,
+        Command::ExportLegalDongStewardDecisions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
             "record-lineage-steward-folds"
         ])?,
         Command::RecordLineageStewardFolds

@@ -7,6 +7,7 @@
 //!
 //! Usage (from the repository root):
 //!   cargo xtask verify <area|all>   # area slugs: tools/areas.contract.json, plus `tooling`
+//!   cargo xtask verify <area> --affected   # a pull request: only the crates it reaches (ADR-0269)
 //!   cargo xtask docs   # monorepo-wide lychee internal-link check (offline)
 
 use std::path::{Path, PathBuf};
@@ -956,7 +957,10 @@ fn main() {
             "this GitHub Actions job did not run `bash scripts/ci/rust-setup.sh` first; every CI              job that runs cargo goes through that one setup (root ADR-0155)",
         );
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // A pull request verifies only the crates its change reaches (root ADR-0269).
+    let affected = args.iter().any(|arg| arg == "--affected");
+    args.retain(|arg| arg != "--affected");
     match args.first().map(String::as_str) {
         Some("verify") => {
             // One log for the whole gate. A failing repository guard used to end the run before any
@@ -968,7 +972,9 @@ fn main() {
                 args.get(3).map(String::as_str),
             )
             .unwrap_or_else(|| {
-                fail_usage("usage: cargo xtask verify <area|all> [--part cargo|suites]")
+                fail_usage(
+                    "usage: cargo xtask verify <area|all> [--part cargo|suites] [--affected]",
+                )
             });
             // The repository guard runs once per gate: with the whole verify, or with its cargo part.
             if part != VerifyPart::Suites {
@@ -978,11 +984,11 @@ fn main() {
                 Some("all") => {
                     for area in AREAS {
                         eprintln!("\n=== xtask verify {} ===", area.slug);
-                        verify(area, part, &mut log);
+                        verify(area, part, affected, &mut log);
                     }
                 }
                 Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
-                    Some(area) => verify(area, part, &mut log),
+                    Some(area) => verify(area, part, affected, &mut log),
                     None => fail_usage(&format!(
                         "unknown area '{name}'. known: {}, all",
                         AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
@@ -1000,22 +1006,24 @@ fn main() {
                 Some("all") => {
                     for area in AREAS.iter().filter(|a| !a.live_lanes.is_empty()) {
                         eprintln!("\n=== xtask integration {} ===", area.slug);
-                        integration(area, &mut log);
+                        integration(area, affected, &mut log);
                     }
                 }
                 Some(name) => match AREAS.iter().find(|a| a.slug == name || a.dir == name) {
                     // A third argument selects one live-resource lane; without it the
                     // area's Postgres suite runs as before.
                     Some(area) => match args.get(2).map(String::as_str) {
-                        Some(lane) => integration_lane(area, lane, &mut log),
-                        None => integration(area, &mut log),
+                        Some(lane) => integration_lane(area, lane, affected, &mut log),
+                        None => integration(area, affected, &mut log),
                     },
                     None => fail_usage(&format!(
                         "unknown area '{name}'. known: {}, all",
                         AREAS.iter().map(|a| a.slug).collect::<Vec<_>>().join(", ")
                     )),
                 },
-                None => fail_usage("missing area: cargo xtask integration <area|all> [lane]"),
+                None => fail_usage(
+                    "missing area: cargo xtask integration <area|all> [lane] [--affected]",
+                ),
             }
             log.finish("integration");
         }
@@ -1115,12 +1123,27 @@ fn verify_part(flag: Option<&str>, value: Option<&str>) -> Option<VerifyPart> {
     }
 }
 
-fn verify(area: &Area, part: VerifyPart, log: &mut FailureLog) {
+/// The crates to verify: all of them, or with `--affected` what the change scope selects. A
+/// selector that cannot answer is a failure, never a quiet narrowing.
+fn selection_for(area: &Area, affected: bool, log: &mut FailureLog) -> Option<Selection> {
+    if !affected {
+        return Some(Selection::All);
+    }
+    log.absorb(crate_selection(area))
+}
+
+fn verify(area: &Area, part: VerifyPart, affected: bool, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
+    if part == VerifyPart::Suites {
+        return verify_suites(area, &dir, affected, log);
+    }
+    let Some(selection) = selection_for(area, affected, log) else {
+        return;
+    };
     match part {
-        VerifyPart::Cargo => return verify_cargo(area, &dir, log),
-        VerifyPart::Suites => return verify_python_and_node(area, &dir, log),
+        VerifyPart::Cargo => return verify_cargo(area, &dir, &selection, log),
+        VerifyPart::Suites => return verify_suites(area, &dir, affected, log),
         VerifyPart::Whole => {}
     }
 
@@ -1132,9 +1155,64 @@ fn verify(area: &Area, part: VerifyPart, log: &mut FailureLog) {
     run_beside(
         log,
         &format!("{} python/node verification", area.slug),
-        |log| verify_cargo(area, &dir, log),
-        |log| verify_python_and_node(area, &dir, log),
+        |log| verify_cargo(area, &dir, &selection, log),
+        |log| verify_suites(area, &dir, affected, log),
     );
+}
+
+/// The Python and Node suites, unless `--affected` and the change scope answers that a pull
+/// request reaches none of them: every changed path is inside a Rust crate, or in another area,
+/// and no non-Rust source of this area names it (root ADR-0269). A selector that cannot answer is
+/// a failure.
+fn verify_suites(area: &Area, dir: &Path, affected: bool, log: &mut FailureLog) {
+    let has_suites = !area.python_tests.is_empty() || !area.node_tests.is_empty();
+    if affected && has_suites {
+        let Some((run, reason)) = log.absorb(suite_selection(area)) else {
+            return;
+        };
+        if !run {
+            eprintln!(
+                "xtask: {}: the Python and Node suites have nothing to verify: {reason}",
+                area.slug
+            );
+            return;
+        }
+        eprintln!("xtask: {}: the suites run: {reason}", area.slug);
+    }
+    verify_python_and_node(area, dir, log);
+}
+
+/// `scripts/ci/change_scope.py suites`'s answer: whether the suites run, and why.
+fn suite_selection(area: &Area) -> Result<(bool, String), String> {
+    let mut command = Command::new("python3");
+    command.current_dir(repo_root()).args([
+        "scripts/ci/change_scope.py",
+        "suites",
+        "--workspace",
+        area.dir,
+    ]);
+    let rendered = format!("{command:?}");
+    let output = command
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("({}) {rendered}", output.status));
+    }
+    parse_suite_selection(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Reads the one line `run <why>` or `skip <why>` (tab-separated); anything else is a failure.
+fn parse_suite_selection(stdout: &str) -> Result<(bool, String), String> {
+    let mut lines = stdout.lines();
+    match (
+        lines.next().and_then(|line| line.split_once('\t')),
+        lines.next(),
+    ) {
+        (Some(("run", reason)), None) => Ok((true, reason.to_owned())),
+        (Some(("skip", reason)), None) => Ok((false, reason.to_owned())),
+        _ => Err(format!("unreadable suite selection {stdout:?}")),
+    }
 }
 
 /// Runs `side` on its own thread while `main` runs on this one, and puts both sides' failures in
@@ -1162,22 +1240,151 @@ fn run_beside(
     }
 }
 
-fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
+/// The crates `--affected` verifies, as `scripts/ci/change_scope.py crates` answers (root ADR-0269).
+#[derive(Debug, PartialEq, Eq)]
+enum Selection {
+    /// Every crate: no `--affected`, not a pull request, or a run-all input changed.
+    All,
+    Some {
+        /// Changed members: their tests and every dependent's run (nextest `rdeps()`).
+        changed: Vec<String>,
+        /// Members whose tests read a changed member's sources: their own tests run (`package()`).
+        readers: Vec<String>,
+        /// Every member built, linted and tested; empty when the change reaches no crate.
+        affected: Vec<String>,
+    },
+}
+
+impl Selection {
+    fn verifies(&self, package: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Some { affected, .. } => affected.iter().any(|name| name == package),
+        }
+    }
+}
+
+/// Reads the selector's tab-separated answer: `all|some <why>`, then `changed|reader|affected <name>`.
+fn parse_selection(stdout: &str) -> Result<Selection, String> {
+    let mut lines = stdout.lines();
+    let head = lines.next().unwrap_or_default();
+    let (kind, reason) = head.split_once('\t').unwrap_or((head, ""));
+    let (mut changed, mut readers, mut affected) = (Vec::new(), Vec::new(), Vec::new());
+    for line in lines {
+        match line.split_once('\t') {
+            Some(("changed", name)) => changed.push(name.to_owned()),
+            Some(("reader", name)) => readers.push(name.to_owned()),
+            Some(("affected", name)) => affected.push(name.to_owned()),
+            _ => return Err(format!("unreadable crate selection line {line:?}")),
+        }
+    }
+    let selection = match kind {
+        "all" if changed.is_empty() && readers.is_empty() && affected.is_empty() => Selection::All,
+        "some" => Selection::Some {
+            changed,
+            readers,
+            affected,
+        },
+        _ => return Err(format!("unreadable crate selection {head:?}")),
+    };
+    eprintln!("xtask: crate selection: {kind} ({reason})");
+    Ok(selection)
+}
+
+/// Asks the one change scope (root ADR-0202) which of the area's crates a pull request reaches.
+/// The comparison comes from `CHANGE_SCOPE_EVENT`, `CHANGE_SCOPE_BASE` and `CHANGE_SCOPE_HEAD`.
+fn crate_selection(area: &Area) -> Result<Selection, String> {
+    let mut command = Command::new("python3");
+    command.current_dir(repo_root()).args([
+        "scripts/ci/change_scope.py",
+        "crates",
+        "--workspace",
+        area.dir,
+    ]);
+    let rendered = format!("{command:?}");
+    let output = command
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("({}) {rendered}", output.status));
+    }
+    parse_selection(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// clippy over the workspace, or over the affected packages; `None` when no crate is affected.
+fn clippy_command(selection: &Selection) -> Option<Vec<String>> {
+    let packages: Vec<String> = match selection {
+        Selection::All => vec!["--workspace".to_owned()],
+        Selection::Some { affected, .. } if affected.is_empty() => return None,
+        Selection::Some { affected, .. } => affected
+            .iter()
+            .flat_map(|package| ["-p".to_owned(), package.clone()])
+            .collect(),
+    };
+    let head = ["clippy", "--locked"].map(str::to_owned);
+    let tail = ["--all-features", "--all-targets", "--", "-D", "warnings"].map(str::to_owned);
+    Some(head.into_iter().chain(packages).chain(tail).collect())
+}
+
+/// The `cargo test` selections to run, each with the nextest filterset that narrows it. Every
+/// affected package is built; a feature-gated one keeps its own default-features stage, as in
+/// `verify_test_commands`.
+fn test_selections(area: &Area, selection: &Selection) -> Vec<(Vec<String>, Option<String>)> {
+    let Selection::Some {
+        changed,
+        readers,
+        affected,
+    } = selection
+    else {
+        return verify_test_commands(area)
+            .into_iter()
+            .map(|command| (command.into_iter().map(str::to_owned).collect(), None))
+            .collect();
+    };
+    let filterset = changed
+        .iter()
+        .map(|package| format!("rdeps(={package})"))
+        .chain(readers.iter().map(|package| format!("package(={package})")))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let gated = feature_gated_packages(area);
+    let packages = |gated_stage: bool| -> Vec<String> {
+        affected
+            .iter()
+            .filter(|package| gated.contains(&package.as_str()) == gated_stage)
+            .flat_map(|package| ["-p".to_owned(), package.clone()])
+            .collect()
+    };
+    let mut commands = Vec::new();
+    let ungated = packages(false);
+    if !ungated.is_empty() {
+        let head = ["test", "--locked", "--all-features"].map(str::to_owned);
+        commands.push(head.into_iter().chain(ungated).collect());
+    }
+    // One stage per feature-gated package: each `-p <name>` pair.
+    for package in packages(true).chunks(2) {
+        let head = ["test", "--locked"].map(str::to_owned);
+        commands.push(head.into_iter().chain(package.iter().cloned()).collect());
+    }
+    commands
+        .into_iter()
+        .map(|command| (command, Some(filterset.clone())))
+        .collect()
+}
+
+fn verify_cargo(area: &Area, dir: &Path, selection: &Selection, log: &mut FailureLog) {
     let dir = dir.to_path_buf();
     log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
-    log.absorb(cargo_reporting(
-        &dir,
-        &[
-            "clippy",
-            "--locked",
-            "--workspace",
-            "--all-features",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ],
-    ));
+    let Some(clippy) = clippy_command(selection) else {
+        eprintln!(
+            "xtask: {}: this pull request changes no crate; clippy and the Rust tests have nothing to verify",
+            area.slug
+        );
+        return;
+    };
+    let args: Vec<&str> = clippy.iter().map(String::as_str).collect();
+    log.absorb(cargo_reporting(&dir, &args));
 
     // The Rust tests run under cargo-nextest: one process per test, as many at once as the
     // machine has cores, where `cargo test` ran each test binary after the last (root ADR-0205).
@@ -1185,8 +1392,13 @@ fn verify_cargo(area: &Area, dir: &Path, log: &mut FailureLog) {
     let Some(nextest) = nextest_dir(log) else {
         return;
     };
-    for selection in verify_test_commands(area) {
-        let [tests, doctests] = nextest_commands(&selection);
+    for (selection, filterset) in test_selections(area, selection) {
+        let [mut tests, doctests] = nextest_commands(&selection);
+        if let Some(filterset) = filterset {
+            // A selected crate may have no tests of its own; the whole-workspace run keeps
+            // nextest's default, which fails when nothing runs.
+            tests.extend(["-E".to_owned(), filterset, "--no-tests=warn".to_owned()]);
+        }
         let args: Vec<&str> = tests.iter().map(String::as_str).collect();
         let mut cargo = cargo_command(&dir, &args);
         cargo.env("PATH", path_with(&nextest));
@@ -1248,12 +1460,13 @@ fn without_ansi_colour(text: &str) -> String {
 
 /// The two runs one `cargo test` selection becomes: nextest for the test targets, then the
 /// doctests nextest cannot run. Same packages, features and exclusions in both.
-fn nextest_commands(selection: &[&str]) -> [Vec<String>; 2] {
+fn nextest_commands<S: AsRef<str>>(selection: &[S]) -> [Vec<String>; 2] {
     let rest = selection
-        .strip_prefix(&["test"])
-        .unwrap_or(selection)
         .iter()
-        .map(|arg| (*arg).to_owned());
+        .map(|arg| arg.as_ref().to_owned())
+        .skip(usize::from(
+            selection.first().is_some_and(|arg| arg.as_ref() == "test"),
+        ));
     let nextest = ["nextest", "run", "--no-fail-fast"]
         .map(str::to_owned)
         .into_iter();
@@ -1689,7 +1902,7 @@ fn repository_guard(log: &mut FailureLog) {
 /// job ran both and the Kafka half quietly passed against no broker. A lane runs
 /// its own targets and refuses to start without its own env, so "did not run"
 /// can never be recorded as "verified".
-fn integration_lane(area: &Area, lane_name: &str, log: &mut FailureLog) {
+fn integration_lane(area: &Area, lane_name: &str, affected: bool, log: &mut FailureLog) {
     let Some(lane) = area.live_lanes.iter().find(|lane| lane.name == lane_name) else {
         fail_usage(&format!(
             "unknown lane '{lane_name}' for {}. known: {}",
@@ -1710,10 +1923,18 @@ fn integration_lane(area: &Area, lane_name: &str, log: &mut FailureLog) {
             ));
         }
     }
+    let Some(selection) = selection_for(area, affected, log) else {
+        return;
+    };
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
     let mut lane_total = 0;
+    let mut lane_targets = 0;
     for (target, command) in lane.targets.iter().zip(lane_commands(lane)) {
+        if !selection.verifies(target.package()) {
+            continue;
+        }
+        lane_targets += 1;
         let args: Vec<&str> = command.iter().map(String::as_str).collect();
         // Every remaining target still runs. A lane is an authoritative gate, and stopping here
         // meant one broken suite hid the state of every suite after it — on a lane that takes
@@ -1727,7 +1948,7 @@ fn integration_lane(area: &Area, lane_name: &str, log: &mut FailureLog) {
         }
     }
     eprintln!(
-        "xtask: {} lane '{}' executed {lane_total} test(s) across {} target(s).",
+        "xtask: {} lane '{}' executed {lane_total} test(s) across {lane_targets} of {} target(s).",
         area.slug,
         lane.name,
         lane.targets.len()
@@ -1744,7 +1965,7 @@ fn integration_lane(area: &Area, lane_name: &str, log: &mut FailureLog) {
 /// counted as a pass, so a green Postgres job silently asserted nothing about
 /// four other backends. Delegating to the lane runs exactly the targets Postgres
 /// actually covers.
-fn integration(area: &Area, log: &mut FailureLog) {
+fn integration(area: &Area, affected: bool, log: &mut FailureLog) {
     let has_postgres_lane = area.live_lanes.iter().any(|lane| lane.name == "postgres");
     if !has_postgres_lane {
         fail_usage(&format!(
@@ -1763,7 +1984,7 @@ fn integration(area: &Area, log: &mut FailureLog) {
             area.slug
         ));
     }
-    integration_lane(area, "postgres", log);
+    integration_lane(area, "postgres", affected, log);
 }
 
 /// The repository root: xtask lives at `<root>/tools/xtask`, so climb two parents
@@ -2164,6 +2385,168 @@ mod tests {
             }
         }
         assert!(checked >= AREAS.len());
+    }
+
+    /// CI runs every workspace's tests under the nextest `ci` profile (`NEXTEST_PROFILE=ci` from
+    /// scripts/ci/rust-setup.sh, root ADR-0269); nextest refuses to start when the profile is
+    /// missing, so a workspace without it would fail every CI run.
+    #[test]
+    fn every_verified_workspace_defines_the_nextest_ci_profile() {
+        for area in AREAS {
+            let config = repo_root().join(area.dir).join(".config/nextest.toml");
+            let text = std::fs::read_to_string(&config)
+                .unwrap_or_else(|error| panic!("{}: {error}", config.display()));
+            assert!(
+                text.lines().any(|line| line.trim() == "[profile.ci]"),
+                "{} defines no [profile.ci]",
+                config.display()
+            );
+        }
+    }
+
+    /// The suite answer is read exactly (root ADR-0269): a skip needs the selector to say so.
+    #[test]
+    fn the_suite_selection_is_read_exactly() {
+        assert_eq!(
+            parse_suite_selection("run\ta suite reads x\n"),
+            Ok((true, "a suite reads x".to_owned()))
+        );
+        assert_eq!(
+            parse_suite_selection("skip\tonly Rust\n"),
+            Ok((false, "only Rust".to_owned()))
+        );
+        for broken in ["", "skip\n", "maybe\twhy\n", "skip\twhy\nrun\twhy\n"] {
+            assert!(
+                parse_suite_selection(broken).is_err(),
+                "{broken:?} must be refused"
+            );
+        }
+    }
+
+    fn names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    /// The selector's answer is read exactly; anything else is a failure, never a full or empty run
+    /// (root ADR-0269).
+    #[test]
+    fn the_crate_selection_is_read_exactly() {
+        assert_eq!(
+            parse_selection("all\tmerge_group verifies every crate\n"),
+            Ok(Selection::All)
+        );
+        assert_eq!(
+            parse_selection(
+                "some\twhy\nchanged\ta\nreader\tr\naffected\ta\naffected\tb\naffected\tr\n"
+            ),
+            Ok(Selection::Some {
+                changed: names(&["a"]),
+                readers: names(&["r"]),
+                affected: names(&["a", "b", "r"]),
+            })
+        );
+        assert_eq!(
+            parse_selection("some\tnothing reaches a crate\n"),
+            Ok(Selection::Some {
+                changed: vec![],
+                readers: vec![],
+                affected: vec![],
+            })
+        );
+        for broken in [
+            "",
+            "maybe\twhy\n",
+            "some\twhy\nadded\ta\n",
+            "all\twhy\naffected\ta\n",
+        ] {
+            assert!(
+                parse_selection(broken).is_err(),
+                "{broken:?} must be refused"
+            );
+        }
+    }
+
+    /// A pull request lints, builds and tests the affected packages only, and nextest narrows to
+    /// the changed crates' rdeps() and the readers' own package(); no selection keeps the workspace.
+    #[test]
+    fn an_affected_selection_narrows_clippy_and_the_tests() {
+        let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        let some = Selection::Some {
+            changed: names(&["foundation-outbox"]),
+            readers: names(&["catalog-application"]),
+            affected: names(&["catalog-application", "foundation-api", "foundation-outbox"]),
+        };
+        let clippy = clippy_command(&some).unwrap();
+        assert!(!clippy.contains(&"--workspace".to_owned()));
+        assert_eq!(
+            clippy[2..8],
+            names(&[
+                "-p",
+                "catalog-application",
+                "-p",
+                "foundation-api",
+                "-p",
+                "foundation-outbox"
+            ])[..]
+        );
+        let tests = test_selections(foundation, &some);
+        assert_eq!(tests.len(), 1);
+        let (command, filterset) = &tests[0];
+        assert!(!command.contains(&"--workspace".to_owned()));
+        assert_eq!(command.iter().filter(|arg| *arg == "-p").count(), 3);
+        assert_eq!(
+            filterset.as_deref(),
+            Some("rdeps(=foundation-outbox) | package(=catalog-application)")
+        );
+
+        let nothing = Selection::Some {
+            changed: vec![],
+            readers: vec![],
+            affected: vec![],
+        };
+        assert_eq!(clippy_command(&nothing), None);
+        assert!(test_selections(foundation, &nothing).is_empty());
+
+        assert!(clippy_command(&Selection::All)
+            .unwrap()
+            .contains(&"--workspace".to_owned()));
+        let full: Vec<Vec<String>> = test_selections(foundation, &Selection::All)
+            .into_iter()
+            .map(|(command, filterset)| {
+                assert_eq!(filterset, None);
+                command
+            })
+            .collect();
+        let expected: Vec<Vec<String>> = verify_test_commands(foundation)
+            .into_iter()
+            .map(|command| names(&command))
+            .collect();
+        assert_eq!(full, expected);
+    }
+
+    /// A feature-gated package keeps its own default-features stage under a selection, so its
+    /// live suite is never compiled into the offline run (as in `verify_test_commands`).
+    #[test]
+    fn an_affected_feature_gated_package_keeps_its_own_stage() {
+        let gongzzang = AREAS.iter().find(|area| area.slug == "gongzzang").unwrap();
+        let some = Selection::Some {
+            changed: names(&["gongzzang-persistence"]),
+            readers: vec![],
+            affected: names(&["gongzzang-api", "gongzzang-persistence"]),
+        };
+        let commands: Vec<Vec<String>> = test_selections(gongzzang, &some)
+            .into_iter()
+            .map(|(command, _)| command)
+            .collect();
+        assert_eq!(
+            commands,
+            vec![
+                names(&["test", "--locked", "--all-features", "-p", "gongzzang-api"]),
+                names(&["test", "--locked", "-p", "gongzzang-persistence"]),
+            ]
+        );
+        assert!(some.verifies("gongzzang-persistence") && !some.verifies("gongzzang-web"));
+        assert!(Selection::All.verifies("anything"));
     }
 
     /// Only cargo's "no library" answer excuses a failed doctest run; a failing doctest, or that

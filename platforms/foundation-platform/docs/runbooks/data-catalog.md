@@ -20,7 +20,7 @@ Foundation 과 같은 장비에서 돈다.
 | 업스트림 compose(이미지 digest 고정) | `infra/datahub/compose.yml` |
 | 우리 설정(포트·비밀값·로그인·메모리) | `infra/datahub/compose.override.yml` |
 | 실행 스크립트 | `scripts/deploy/datahub-runtime.sh` |
-| 비밀값·상태 | `DATAHUB_RUNTIME_DIR`(기본 `/var/lib/foundation-platform/datahub`, 0700). 운영 계정이 그 디렉터리에 쓸 수 없는 장비에서는 이 변수로 운영 계정의 홈 아래 0700 디렉터리를 가리킨다 |
+| 비밀값·상태 | `config/host-layout.contract.json` 의 `datahub.state_dir`(`/var/lib/foundation-platform/datahub`, root 0700) 하나뿐이다. 다른 곳에 설치된 장비(`adopt_from`)는 배포의 `foundation-release.sh datahub` 가 한 번 복사해 옮긴다. 컴포즈 명령은 root 로 돈다 |
 | Zitadel 로그인 앱 | identity-platform `config/staff-console-applications.v1.json` 의 `datahub` 줄 |
 
 웹 화면은 `127.0.0.1:19002`, GMS API 는 `127.0.0.1:18095` 에만 열린다. 직원은 SSH 터널로 들어온다.
@@ -97,3 +97,7 @@ Airflow 작업 `foundation_data_quality`(매일 07:20 UTC, `scripts/ops/data-qua
 
 `compose.yml` 을 새 판의 업스트림 파일로 바꾸고, 새 이미지를 받아 digest 로 다시 고정한 뒤 `up -d` 한다.
 `system-update` 컨테이너가 저장소 구조를 맞춘다.
+
+병합된 `compose.yml` 변경은 배포가 직접 적용한다: `foundation-deploy.sh` 8단계(`foundation-release.sh datahub`)가
+렌더링한 설정 해시가 실행 중 컨테이너와 다른 서비스만 `up -d` 로 다시 만든다(의존 순서는 compose 가 지킨다:
+GMS 가 바뀌면 `system-update` 가 먼저 돈다). 바뀐 것이 없으면 아무것도 건드리지 않는다. sudo 로 손수 `up -d` 할 일이 없다.

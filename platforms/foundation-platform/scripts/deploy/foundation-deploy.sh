@@ -69,6 +69,16 @@ if which == "enabled-consumers-first":
         print("\n".join(unpause_order()))
     else:
         print("\n".join(job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]))
+if which == "deferred":
+    # The enabled jobs the scheduler's runner did not start because a release build was running
+    # (root ADR-0260); job_units.py of the running release says where it recorded them.
+    import os
+    deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
+    if os.path.isfile(os.path.join(deploy, "job_units.py")):
+        sys.path.insert(0, deploy)
+        from job_units import deferred
+        enabled = {job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]}
+        print("\n".join(job for job in deferred() if job in enabled))
 PY
 }
 mapfile -t jobs < <(jobs_of enabled)
@@ -177,6 +187,11 @@ if ! "${control_root}/current/scripts/deploy/foundation-release-admission.py" ve
   echo "foundation-deploy: RELEASE ADMISSION REFUSES THE RELEASE JUST INSTALLED; every job on it will be refused" >&2
   exit 1
 fi
+
+log "8. the data catalog's containers follow the release (only services whose config changed)"
+# After the DAGs are back: a catalog that fails to come up fails the deploy and alerts, and no job
+# waits on it.
+"${release}" datahub
 
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"

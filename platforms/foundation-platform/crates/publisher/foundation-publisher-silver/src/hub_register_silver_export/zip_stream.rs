@@ -20,7 +20,7 @@ pub(super) fn open<R: Read + Seek>(source: R, expected_name: &str) -> anyhow::Re
     );
     let member = archive.by_index(0).context("invalid HUB ZIP member")?;
     ensure!(
-        member.name() == expected_name,
+        member.name().context("undecodable HUB ZIP member name")? == expected_name,
         "unexpected HUB ZIP member name"
     );
     ensure!(
@@ -29,7 +29,9 @@ pub(super) fn open<R: Read + Seek>(source: R, expected_name: &str) -> anyhow::Re
     );
     let (header_start, data_start, compressed_bytes, uncompressed_bytes, crc32) = (
         member.header_start(),
-        member.data_start(),
+        member
+            .data_start()
+            .context("HUB ZIP member data offset unknown")?,
         member.compressed_size(),
         member.size(),
         member.crc32(),

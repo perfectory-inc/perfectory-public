@@ -24,7 +24,22 @@ unsound = "all"
 # is semver-unreachable from any released SDK, not merely un-upgraded here. Dropping the
 # S3 SDK or pinning an unreleased revision would widen risk. Remove this entry once
 # `aws-sdk-s3` publishes a release that depends on `lru >= 0.18.2`.
+#
+# zip: on 2026-10-16 03:32-03:35 UTC upstream yanked every release line but 9.0.x, and on
+# 2026-10-09/10 RUSTSEC-2026-0367 (SUID/SGID bits kept), -0368 (symlink targets outside the
+# destination) and -0369 (permissions applied through symlinks) were published, all patched in
+# zip >= 9.0.0 and all about `ZipArchive::extract` / `ZipStreamReader::extract` writing to disk.
+# Our own dependency is on zip 9, and duckdb 1.10506.1's libduckdb-sys builds with zip ^9. The one
+# copy left is zip 8.6.0 under calamine: its newest release, 0.36.1 (checked 2026-10-17), still
+# requires `zip ^8.6`, so no released upgrade reaches 9. calamine only opens workbooks in memory
+# (`ZipArchive::by_name` + read) and never calls `extract`, so the three advisories' code is not
+# reached. Review by 2026-11-17: delete these four entries as soon as calamine releases on zip 9,
+# or at once if an advisory names a read path.
 ignore = [
+    { crate = "zip@8.6.0", reason = "yanked 2026-10-16; dependency of calamine, whose newest 0.36.1 still requires zip ^8.6 (checked 2026-10-17); review by 2026-11-17" },
+    { id = "RUSTSEC-2026-0367", reason = "zip 8.6.0 via calamine 0.36.1 (newest, requires zip ^8.6); calamine never calls extract, the affected path; review by 2026-11-17" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 8.6.0 via calamine 0.36.1 (newest, requires zip ^8.6); calamine never calls extract, the affected path; review by 2026-11-17" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 8.6.0 via calamine 0.36.1 (newest, requires zip ^8.6); calamine never calls extract, the affected path; review by 2026-11-17" },
     { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23" },
     { id = "RUSTSEC-2026-0253", reason = "lru is reached only via aws-sdk-s3, whose every published release through 1.141.0 requires lru ^0.16.3 while the fix landed in 0.18.2, as of 2026-08-13" },
 ]

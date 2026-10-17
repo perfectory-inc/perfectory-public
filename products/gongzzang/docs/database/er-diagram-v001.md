@@ -35,6 +35,7 @@ erDiagram
     user ||--o{ business_verification_queue : submits
     business_verification_queue ||--o{ business_verification_status_history : records
     user ||--o{ listing_report : reports
+    listing_report ||--o{ listing_report_status_history : records
     user ||--o{ admin_action : performs
     user ||--|{ external_account : signs_in_with
 
@@ -157,6 +158,11 @@ erDiagram
         char_30 listing_id FK
         char_30 reporter_id FK
         varchar reason
+    }
+    listing_report_status_history {
+        bigint history_id PK
+        char_30 report_id FK
+        varchar status "append-only"
     }
 ```
 

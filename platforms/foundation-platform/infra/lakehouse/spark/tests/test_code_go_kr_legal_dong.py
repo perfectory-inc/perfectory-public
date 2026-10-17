@@ -270,8 +270,8 @@ class PairingTest(unittest.TestCase):
                                (["9811010100=9999999999"], "not a candidate")):
             with self.subTest(approvals), self.assertRaisesRegex(ValueError, why):
                 pairs_job.steward_rows(plan["review"], approvals, "steward-a", "이유", codes, "s", NOW)
-        with self.assertRaisesRegex(ValueError, "reason"):
-            pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
+        silent = pairs_job.steward_rows(plan["review"], ["9811010100=9911010100"], "steward-a", " ", codes, "s", NOW)
+        self.assertIsNone(silent[0]["detail"], "a reason is optional; blank is stored as null")
         # 승인 행을 기록한 다음 날의 도출은 그 짝을 쓰고 목록에서 뺀다.
         next_day = pairs_job.plan_derivation(parsed, approved, CONTRACT, CADASTRAL, "run2", NOW, NO_PARCELS_BEFORE)
         self.assertEqual(next_day["review"], [])
@@ -769,6 +769,81 @@ class HandoffTest(unittest.TestCase):
 
 
 # --- steward decisions and reruns -------------------------------------------------------------
+
+
+class StrayLotTest(unittest.TestCase):
+    """A 동 with one real destination below the line is a person's, not a split (ADR-0113 §5, ADR-0144 §4).
+
+    Measured shape (2026-07, 서구 가정동): 94.9% of its 지번 under one new 동, and single same-land lots
+    scattered over many others. Counting every stray as a destination made it `split`, which no
+    steward may approve, and the lineage then refused the 동 every day.
+    """
+
+    def plan(self, after):
+        # 갑동 is renamed (no name match) and a 병동 is created beside it on the same day.
+        rows = merged_table()
+        rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
+        rows.append(row("9911010300", "합성특별시 가구 병동", parent="9911000000", created=DAY))
+        evidence = cg.JibunEvidence({"9811010100": lots(*range(1, 101))}, after, "b->a")
+        return cg.pair_changes(as_rows(table_html(rows)), FLOOR, jibun=evidence, min_share=MIN_SHARE)
+
+    def item(self, result):
+        return next(i for i in result.review if i["old_code"] == "9811010100")
+
+    def test_one_real_destination_and_a_stray_lot_is_a_stewards_with_that_candidate(self):
+        # 심은 위반 (the old rule): 94 lots under one 동 and 1 stray under another read as a split.
+        item = self.item(self.plan({"9911010100": lots(*range(1, 95)), "9911010300": lots(95)}))
+        self.assertEqual(item["status"], "steward")
+        self.assertIn("9911010100", item["candidates"])
+        self.assertEqual(item["split_into"], {"9911010100": 94, "9911010300": 1}, "the strays stay visible")
+
+    def test_two_real_destinations_are_a_split(self):
+        item = self.item(self.plan({"9911010100": lots(*range(1, 61)), "9911010300": lots(*range(61, 101))}))
+        self.assertEqual(item["status"], "split")
+
+
+class SigunguSplitTest(unittest.TestCase):
+    def test_a_sigungu_whose_dongs_went_to_two_sigungu_is_a_split_not_a_stewards(self):
+        # The shape of a real 2026-07 reorganization, on synthetic codes: one 시군구 is abolished and its
+        # two 동 are recorded into two different new 시군구. No name matches, and the 지번 step holds no
+        # parcels under a 시군구 code itself. 심은 위반 (the old classifier): `steward` with no candidate, a
+        # pair a person was asked to choose, which would map the whole 시군구 onto one new code.
+        rows = [
+            row("9800000000", "합성도", "폐지", "0000000000", abolished=DAY),
+            row("9900000000", "합성특별시", parent="0000000000", created=DAY),
+            row("9811000000", "합성도 가구", "폐지", "9800000000", abolished=DAY),
+            row("9912000000", "합성특별시 나구", parent="9900000000", created=DAY),
+            row("9913000000", "합성특별시 다구", parent="9900000000", created=DAY),
+            row("9811010100", "합성도 가구 갑동", "폐지", "9811000000", abolished=DAY),
+            row("9811010200", "합성도 가구 을동", "폐지", "9811000000", abolished=DAY),
+            row("9912010100", "합성특별시 나구 갑동", parent="9912000000", created=DAY),
+            row("9913010100", "합성특별시 다구 을동", parent="9913000000", created=DAY),
+        ]
+        table = as_rows(table_html(rows))
+        recorded = [
+            pairs_job.change_row("pair", "official:parcel-history", old, new, "seed", NOW, level="eupmyeondong",
+                                 rule_verdict="official_parcel_history")
+            for old, new in (("9811010100", "9912010100"), ("9811010200", "9913010100"))
+        ]
+        plan = pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run", NOW,
+                                         cg.JibunEvidence({}, {"9912010100": lots(1)}, "b->a"))
+        item = next(i for i in plan["review"] if i["old_code"] == "9811000000")
+        self.assertEqual((item["status"], item["split_into"]), ("split", {"9912000000": 1, "9913000000": 1}))
+        with self.assertRaisesRegex(ValueError, "the data decides it"):
+            pairs_job.steward_rows(plan["review"], ["9811000000=9912000000"], "steward-a", "추정", None, "s", NOW)
+
+    def test_a_sigungu_whose_dongs_all_went_to_one_sigungu_is_still_paired_by_the_rollup(self):
+        rows = merged_table()
+        rows[3] = row("9911000000", "합성특별시 새가구", parent="9900000000", created=DAY)  # no name match
+        recorded = [
+            pairs_job.change_row("pair", "official:parcel-history", old, new, "seed", NOW, level="eupmyeondong",
+                                 rule_verdict="official_parcel_history")
+            for old, new in (("9811010100", "9911010100"), ("9811010200", "9911010200"))
+        ]
+        plan = pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run", NOW,
+                                         cg.JibunEvidence({}, {}, "b->a"))
+        self.assertIn(("9811000000", "9911000000"), {(p["old_code"], p["new_code"]) for p in plan["fresh_changes"]})
+        self.assertNotIn("9811000000", {i["old_code"] for i in plan["review"]})
 
 
 class StewardOnlyRerunTest(unittest.TestCase):
