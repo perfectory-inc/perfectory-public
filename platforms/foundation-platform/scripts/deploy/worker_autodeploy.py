@@ -260,13 +260,13 @@ def latency_only(report: dict[str, Any]) -> bool:
     """Every PNU answered with the document the lane serves; only the p95 can have failed."""
 
     return (report["answered"] == report["pnus"] and not report["failures"]
-            and not report["drifted_from_served"] and not report["drifted_from_objects"])
+            and not report["drifted_from_served"])
 
 
 def breach(report: dict[str, Any]) -> str:
     return (f"{len(report['failures'])} failures, {report['pnus'] - report['answered']} unanswered, "
             f"{len(report['drifted_from_served'])} drifted from what the lane serves, "
-            f"{len(report['drifted_from_objects'])} from the objects, p95 {report['latency_ms']['p95']:.0f} ms "
+            f"p95 {report['latency_ms']['p95']:.0f} ms "
             f"(bound {report['latency_p95_max_ms']:.0f} ms)")
 
 

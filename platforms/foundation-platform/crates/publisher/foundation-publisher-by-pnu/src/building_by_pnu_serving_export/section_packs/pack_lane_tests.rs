@@ -309,7 +309,6 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     }
     let report = super::monitor::check(&store, &live_host.uri(), &keys, 3000.0).await?;
     assert!(report.passed, "{report:?}");
-    assert_eq!(report.objects_not_compared, 3);
     // And a live answer that is not the packs' document is a breach.
     let drifted = MockServer::start().await;
     Mock::given(method("GET"))

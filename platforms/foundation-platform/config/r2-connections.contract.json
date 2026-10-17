@@ -105,7 +105,7 @@
       "monitor": {
         "pnus": 20,
         "latency_p95_max_ms": 3000,
-        "reason": "as the building lane's: hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance parcel), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist; a 5xx, a document that differs, or a p95 above the bound is an alert"
+        "reason": "as the building lane's: hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance parcel), 20 PNUs from the gate sample read from the live hostname and held to the document the lane serves (the packs once the manifest names them); a 5xx, a document that differs, or a p95 above the bound is an alert. The per-PNU objects are not compared: the section-pack bake no longer writes them, so after a pack bake they hold an older document (2026-10-17)"
       },
       "preview_worker": {
         "wrangler_env": "preview",
@@ -365,7 +365,7 @@
       "monitor": {
         "pnus": 20,
         "latency_p95_max_ms": 3000,
-        "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and compared with the object documents while they exist: a 5xx, a document that differs from its object, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+        "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and held to the document the lane serves (the packs once the manifest names them; the per-PNU objects are not compared, the section-pack bake no longer writes them): a 5xx, a document that differs, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
       },
       "fallback": {
         "objects_kept_clean_days": 30,

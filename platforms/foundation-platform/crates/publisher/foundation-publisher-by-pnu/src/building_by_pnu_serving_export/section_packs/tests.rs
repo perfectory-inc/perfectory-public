@@ -1589,21 +1589,12 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
         }
         let held = super::monitor::check(&lane.store, &faithful.uri(), &pnus, 3_000.0).await?;
         assert!(held.passed, "{phase}: {held:?}");
-        assert_eq!(
-            (held.answered, held.objects_not_compared),
-            (2, 0),
-            "{phase}"
-        );
+        assert_eq!(held.answered, 2, "{phase}");
 
         let report = super::monitor::check(&lane.store, &drifted.uri(), &pnus, 3_000.0).await?;
         assert!(!report.passed, "{phase}: a drifted document passed");
         assert_eq!(
             report.drifted_from_served,
-            vec![PNU_A.to_owned()],
-            "{phase}"
-        );
-        assert_eq!(
-            report.drifted_from_objects,
             vec![PNU_A.to_owned()],
             "{phase}"
         );
@@ -1616,5 +1607,21 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
         assert!(!report.passed, "{phase}: a p95 above the bound passed");
         assert!(report.latency_ms.p95 > 100.0, "{phase}: {report:?}");
     }
+
+    // 2026-10-17: the section-pack bake does not write objects, so after a pack bake an object holds
+    // an older document. A hostname faithful to the packs is not a breach because of it.
+    let served = lane.live().await?;
+    let object = lane.root.join(crate::r2_layout::by_pnu::object_key(
+        LANE,
+        served.base_generation,
+        PNU_A,
+    )?);
+    std::fs::remove_file(&object)?;
+    std::fs::write(&object, b"{\"stale\":true}\n")?;
+    let held = super::monitor::check(&lane.store, &faithful.uri(), &pnus, 3_000.0).await?;
+    assert!(
+        held.passed,
+        "an object the packs replaced failed the monitor: {held:?}"
+    );
     Ok(())
 }

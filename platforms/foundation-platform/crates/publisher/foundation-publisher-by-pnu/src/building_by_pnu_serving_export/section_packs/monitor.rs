@@ -7,9 +7,12 @@
 //! - 200, within the read timeout;
 //! - the document the lane serves, resolved by the publisher's own reader from R2 (the packs when
 //!   the manifest names them, else the objects);
-//! - while objects still exist: the object document, for a PNU no object patch covers (a covered
-//!   one is reported as not compared, never guessed);
 //! - a p95 within `monitor.latency_p95_max_ms`.
+//!
+//! It no longer compares the answer with the per-PNU object documents once packs are served: the
+//! section-pack bake does not write objects, so after a pack bake they hold an older document and
+//! the comparison failed a faithful hostname (2026-10-17, parcel). Before the cut-over the objects
+//! are what the lane serves, which the check above already holds.
 //!
 //! Any breach fails the run, so the unit's `OnFailure` reports it to Slack. Read-only.
 
@@ -38,10 +41,6 @@ pub struct MonitorReport {
     pub failures: Vec<String>,
     /// Answers that differ from what the lane serves (packs or objects).
     pub drifted_from_served: Vec<String>,
-    /// Answers that differ from the object document.
-    pub drifted_from_objects: Vec<String>,
-    /// PNUs an object patch covers, whose object was not compared.
-    pub objects_not_compared: usize,
     pub latency_ms: Timings,
     pub latency_p95_max_ms: f64,
     pub passed: bool,
@@ -89,11 +88,10 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     ensure!(
         report.passed,
         "the live {} hostname breached the monitor: {} failures, {} drifted from what the \
-         lane serves, {} from the objects, p95 {:.0} ms (bound {:.0} ms)",
+         lane serves, p95 {:.0} ms (bound {:.0} ms)",
         lane.noun(),
         report.failures.len(),
         report.drifted_from_served.len(),
-        report.drifted_from_objects.len(),
         report.latency_ms.p95,
         report.latency_p95_max_ms
     );
@@ -123,8 +121,6 @@ pub async fn check(
         answered: 0,
         failures: Vec::new(),
         drifted_from_served: Vec::new(),
-        drifted_from_objects: Vec::new(),
-        objects_not_compared: 0,
         latency_ms: Timings::default(),
         latency_p95_max_ms,
         passed: false,
@@ -147,7 +143,6 @@ pub async fn check(
         report.answered += 1;
         latency.push(answer.ms);
         let live = answer.content()?;
-        let object = object_document(store, &served, pnu).await?;
         let served_bytes = if served.section_packs.is_some() {
             let inspected = inspect::inspect(store, pnu, None).await?;
             ensure!(
@@ -157,24 +152,16 @@ pub async fn check(
             );
             Some(serde_json::to_vec(&inspected["document"])?)
         } else {
-            object.clone()
+            object_document(store, &served, pnu).await?
         };
         if served_bytes.as_deref().map(normalized_digest).transpose()? != Some(live) {
             report.drifted_from_served.push(pnu.clone());
-        }
-        match object {
-            Some(object) if normalized_digest(&object)? != live => {
-                report.drifted_from_objects.push(pnu.clone());
-            }
-            Some(_) => {}
-            None => report.objects_not_compared += 1,
         }
     }
     report.latency_ms = timings(&mut latency);
     report.passed = report.answered == pnus.len()
         && report.failures.is_empty()
         && report.drifted_from_served.is_empty()
-        && report.drifted_from_objects.is_empty()
         && report.latency_ms.p95 <= latency_p95_max_ms;
     Ok(report)
 }
