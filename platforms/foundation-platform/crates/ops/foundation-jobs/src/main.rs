@@ -1,7 +1,8 @@
 //! `foundation-jobs check | generate [<platform root>]` (root ADR-0270 §1).
 //!
 //! `check` lists every way the committed job units differ from the job list and fails if any does;
-//! `generate` rewrites the units that differ. The platform root defaults to this crate's own.
+//! `generate` rewrites the units that differ. The platform root defaults to the current directory
+//! (run it from `platforms/foundation-platform`).
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -11,10 +12,9 @@ use foundation_jobs::{check, render, JobList, UNIT_DIR};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let root = args.get(1).map_or_else(
-        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
-        PathBuf::from,
-    );
+    let root = args
+        .get(1)
+        .map_or_else(|| PathBuf::from("."), PathBuf::from);
     let mut err = std::io::stderr().lock();
     let list = match JobList::read(&root) {
         Ok(list) => list,

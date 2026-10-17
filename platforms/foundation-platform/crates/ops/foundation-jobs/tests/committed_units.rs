@@ -8,7 +8,9 @@ use foundation_jobs::{check, JobList, UNIT_DIR};
 
 #[test]
 fn every_job_unit_says_its_time_limit() -> Result<(), String> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    // Read at run time: cargo sets it for the test process (no compile-time file dependency).
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").map_err(|error| error.to_string())?;
+    let root = PathBuf::from(manifest).join("../../..");
     let list = JobList::read(&root)?;
     let units = root.join(UNIT_DIR);
     let read =

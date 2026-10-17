@@ -14,7 +14,8 @@ pub const JOB_LIST: &str = "orchestration/jobs.v1.json";
 /// The systemd units, relative to the platform root.
 pub const UNIT_DIR: &str = "infra/systemd";
 /// What a reader of the units is told when one differs from its rendering.
-pub const GENERATE: &str = "cargo run -p foundation-jobs -- generate";
+pub const GENERATE: &str =
+    "cargo run -p foundation-jobs -- generate (from platforms/foundation-platform)";
 
 /// The job list, as far as rendering reads it.
 #[derive(Debug, Deserialize)]
