@@ -35,21 +35,18 @@ def pair_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
     The table is append-only and a pair may be recorded by several runs; the view repeats none.
     """
 
-    seen: set[tuple[str, str, str]] = set()
-    out: list[dict[str, str]] = []
+    out: dict[tuple[str, str, str], dict[str, str]] = {}
     for row in rows:
         if row.get("kind") != "pair" or not row.get("old_code") or not row.get("new_code"):
             continue
         key = (str(row["old_code"]), str(row["new_code"]), str(row.get("source") or ""))
-        if key in seen:
+        # A dated row of a pair wins over an undated one (a steward pair recorded before it was dated).
+        if key in out and (out[key]["effective_date"] or not row.get("effective_date")):
             continue
-        seen.add(key)
-        out.append(
-            {"old_code": key[0], "new_code": key[1], "source": key[2], "level": str(row.get("level") or ""),
-             "effective_date": str(row.get("effective_date") or ""), "rule_verdict": str(row.get("rule_verdict") or ""),
-             "detail": str(row.get("detail") or "")}
-        )
-    return sorted(out, key=lambda pair: (pair["old_code"], pair["new_code"], pair["source"]))
+        out[key] = {"old_code": key[0], "new_code": key[1], "source": key[2], "level": str(row.get("level") or ""),
+                    "effective_date": str(row.get("effective_date") or ""), "rule_verdict": str(row.get("rule_verdict") or ""),
+                    "detail": str(row.get("detail") or "")}
+    return sorted(out.values(), key=lambda pair: (pair["old_code"], pair["new_code"], pair["source"]))
 
 
 def leaf_pairs(
