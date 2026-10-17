@@ -247,6 +247,10 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 | 누적 변경(기존 패치 + 이번) > `max_cumulative_change_ratio` × `base_object_count` | 전량(압축) |
 | 그 밖 | 패치 |
 
+- 비율 0.05 와 같은 내용 Gold 의 비교 생략은 10-17 실측(비교 59분, 이동연혁 전량 73분)을 근거로
+  [ADR-0274(제안)](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md) 이 다시 정하자고 한다.
+  승인 전까지 위 표가 그대로다.
+
 - 변경 집합은 `by_pnu_panel_delta.py` 가 마지막 반영 스냅숏과 새 스냅숏의 `row_digest` 를 PNU 로 맞대 낸다. 거부는
   종료 코드로 구별한다(3 = 비교 스냅숏 없음, 4 = 델타 아님). 거부된 날은 운영자가 이유를 적어 전량을 강제한다.
 - Spark 는 측정한 작은 서비스 `spark-small`(2560m)에서 `local[4]`, driver 1500m 로 돈다. 굽기와 차례로 돌므로 작업의
