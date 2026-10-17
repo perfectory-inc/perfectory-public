@@ -7,6 +7,7 @@
   [ADR-0184](./0184-one-answer-for-running-jobs-and-a-release-the-kernel-keeps-immutable.md)(불변 릴리스),
   [ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md)(결과 한 줄),
   ADR-0266(작업의 쓰기 경로는 한 목록, PR #648 — 아직 병합 전)
+- Changes: ADR-0266 §2·§3 — `ReadWritePaths` 를 만드는 것은 `job_specs.py --write-units` 가 아니라 크레이트 `foundation-jobs` 다(#679); `job_specs.py` 는 스크립트 검사만(`--check-state-roots`)
 - Would change: [ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md) §1(결과 어휘에
   `skipped <이유>` 를 더함), [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md) §4(빌드는 혼자 돈다),
   [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md) §1·§2(손으로 정한 슬롯, `takes_turns`),
