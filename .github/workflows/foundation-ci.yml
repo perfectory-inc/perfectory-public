@@ -414,10 +414,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the dependency cache rust-quality saves (root ADR-0269).
           workspaces: |
             platforms/foundation-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: rust-quality-dependencies
+          save-if: false
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh
@@ -618,10 +620,12 @@ jobs:
         if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the dependency cache rust-quality saves (root ADR-0269).
           workspaces: |
             platforms/foundation-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: rust-quality-dependencies
+          save-if: false
 
       - name: Install database client
         shell: bash
