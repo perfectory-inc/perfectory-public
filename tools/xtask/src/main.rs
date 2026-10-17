@@ -1136,14 +1136,14 @@ fn verify(area: &Area, part: VerifyPart, affected: bool, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
     ensure_apt(area.apt_deps);
     if part == VerifyPart::Suites {
-        return verify_python_and_node(area, &dir, log);
+        return verify_suites(area, &dir, affected, log);
     }
     let Some(selection) = selection_for(area, affected, log) else {
         return;
     };
     match part {
         VerifyPart::Cargo => return verify_cargo(area, &dir, &selection, log),
-        VerifyPart::Suites => return verify_python_and_node(area, &dir, log),
+        VerifyPart::Suites => return verify_suites(area, &dir, affected, log),
         VerifyPart::Whole => {}
     }
 
@@ -1156,8 +1156,63 @@ fn verify(area: &Area, part: VerifyPart, affected: bool, log: &mut FailureLog) {
         log,
         &format!("{} python/node verification", area.slug),
         |log| verify_cargo(area, &dir, &selection, log),
-        |log| verify_python_and_node(area, &dir, log),
+        |log| verify_suites(area, &dir, affected, log),
     );
+}
+
+/// The Python and Node suites, unless `--affected` and the change scope answers that a pull
+/// request reaches none of them: every changed path is inside a Rust crate, or in another area,
+/// and no non-Rust source of this area names it (root ADR-0269). A selector that cannot answer is
+/// a failure.
+fn verify_suites(area: &Area, dir: &Path, affected: bool, log: &mut FailureLog) {
+    let has_suites = !area.python_tests.is_empty() || !area.node_tests.is_empty();
+    if affected && has_suites {
+        let Some((run, reason)) = log.absorb(suite_selection(area)) else {
+            return;
+        };
+        if !run {
+            eprintln!(
+                "xtask: {}: the Python and Node suites have nothing to verify: {reason}",
+                area.slug
+            );
+            return;
+        }
+        eprintln!("xtask: {}: the suites run: {reason}", area.slug);
+    }
+    verify_python_and_node(area, dir, log);
+}
+
+/// `scripts/ci/change_scope.py suites`'s answer: whether the suites run, and why.
+fn suite_selection(area: &Area) -> Result<(bool, String), String> {
+    let mut command = Command::new("python3");
+    command.current_dir(repo_root()).args([
+        "scripts/ci/change_scope.py",
+        "suites",
+        "--workspace",
+        area.dir,
+    ]);
+    let rendered = format!("{command:?}");
+    let output = command
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|error| format!("could not spawn {rendered}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("({}) {rendered}", output.status));
+    }
+    parse_suite_selection(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Reads the one line `run <why>` or `skip <why>` (tab-separated); anything else is a failure.
+fn parse_suite_selection(stdout: &str) -> Result<(bool, String), String> {
+    let mut lines = stdout.lines();
+    match (
+        lines.next().and_then(|line| line.split_once('\t')),
+        lines.next(),
+    ) {
+        (Some(("run", reason)), None) => Ok((true, reason.to_owned())),
+        (Some(("skip", reason)), None) => Ok((false, reason.to_owned())),
+        _ => Err(format!("unreadable suite selection {stdout:?}")),
+    }
 }
 
 /// Runs `side` on its own thread while `main` runs on this one, and puts both sides' failures in
@@ -2345,6 +2400,25 @@ mod tests {
                 text.lines().any(|line| line.trim() == "[profile.ci]"),
                 "{} defines no [profile.ci]",
                 config.display()
+            );
+        }
+    }
+
+    /// The suite answer is read exactly (root ADR-0269): a skip needs the selector to say so.
+    #[test]
+    fn the_suite_selection_is_read_exactly() {
+        assert_eq!(
+            parse_suite_selection("run\ta suite reads x\n"),
+            Ok((true, "a suite reads x".to_owned()))
+        );
+        assert_eq!(
+            parse_suite_selection("skip\tonly Rust\n"),
+            Ok((false, "only Rust".to_owned()))
+        );
+        for broken in ["", "skip\n", "maybe\twhy\n", "skip\twhy\nrun\twhy\n"] {
+            assert!(
+                parse_suite_selection(broken).is_err(),
+                "{broken:?} must be refused"
             );
         }
     }

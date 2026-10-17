@@ -398,6 +398,48 @@ class CratesTest(unittest.TestCase):
         self.assertTrue(any("crates.run_all: `gone/**` names no tracked file" in e for e in fixture.errors()))
 
 
+class SuitesTest(unittest.TestCase):
+    """Whether a pull request runs a workspace's Python and Node suites (root ADR-0269)."""
+
+    WS = CratesTest.WS
+    MEMBERS = CratesTest.MEMBERS
+    CONTRACT = CratesTest.CONTRACT
+
+    def decide(self, changed, event="pull_request", reads=frozenset()):
+        return cs.decide_suites(self.CONTRACT, self.WS, event, changed, self.MEMBERS, set(reads))[0]
+
+    def test_a_rust_only_change_skips_the_suites(self) -> None:
+        self.assertFalse(self.decide({"platforms/ws/services/api/src/lib.rs", "platforms/ws/crates/kernel/Cargo.toml"}))
+        self.assertFalse(self.decide({"platforms/other/src/lib.rs", "docs/guide.md"}))
+
+    def test_a_change_outside_every_crate_runs_them(self) -> None:
+        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs", "platforms/ws/scripts/job.py"}))
+
+    def test_a_crate_file_a_suite_reads_runs_them(self) -> None:
+        reads = {"platforms/ws/crates/kernel/fixtures"}
+        self.assertTrue(self.decide({"platforms/ws/crates/kernel/fixtures/rows.json"}, reads=reads))
+        self.assertTrue(self.decide({"docs/contract.json"}, reads={"docs/contract.json"}))
+
+    def test_run_all_and_other_events_run_them(self) -> None:
+        self.assertTrue(self.decide({"platforms/ws/Cargo.lock"}))
+        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs"}, event="merge_group"))
+        self.assertTrue(self.decide(None))
+
+    def test_suite_reads_scan_non_rust_sources_only(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        files = {
+            "platforms/ws/scripts/test_job.py": 'open("platforms/ws/crates/kernel/fixtures/rows.json")\n',
+            "platforms/ws/crates/kernel/src/lib.rs": 'include_str!("../../../config/routes.json");\n',
+            "platforms/ws/crates/kernel/fixtures/rows.json": "[]",
+            "platforms/ws/config/routes.json": "{}",
+        }
+        for path, text in files.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text, encoding="utf-8")
+        self.assertEqual(cs.suite_reads(root, self.WS, list(files)), {"platforms/ws/crates/kernel/fixtures/rows.json"})
+
+
 class RepositoryTest(unittest.TestCase):
     def test_the_repository_contract_holds(self) -> None:
         self.assertEqual(cs.check(), [])

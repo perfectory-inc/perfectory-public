@@ -118,3 +118,13 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   멈추지 않는 규칙(ADR-0012 1항)이라 xtask 에 남는다. JUnit 출력은 읽는 곳이 없어 두지 않는다.
   시험: xtask `every_verified_workspace_defines_the_nextest_ci_profile`(프로필이 없는 작업 공간은
   nextest 가 시작을 거부한다), `rust-ci-setup-self-test.sh`.
+- 2026-10-17 (스위트): `foundation-api` 한 줄을 바꾼 측정용 풀 리퀘스트(#670, 병합하지 않음)의 벽시계는
+  11.8분이었다. Rust 잡은 4.6분(바뀐 1 + 읽는 2 크레이트, 시험 420개 44초), Postgres 레인은 2.3분이었고,
+  임계 경로는 Rust 를 하나도 읽지 않는 Foundation 의 파이썬·노드 스위트(8.4분)와 러너 대기(약 3분)였다.
+  그래서 같은 선택기의 `suites --workspace <dir>` 가 스위트도 고른다: 풀 리퀘스트의 바뀐 경로가 전부
+  Rust 크레이트 안이거나 다른 영역이고, 그 영역의 Rust 가 아닌 소스(.py·.ts·.js·.sh …)가 어느 것도
+  따옴표로 부르지 않을 때에만 `cargo xtask verify <area> --part suites --affected`(와 전체 verify)가
+  스위트를 건너뛴다. 그 밖의 경로, 전부 돌리는 입력, 풀 리퀘스트가 아닌 이벤트는 그대로 돈다. 병합된
+  풀 리퀘스트 30개 재현에서 Foundation 스위트를 건너뛰는 것은 9건(Rust 만 3건, 다른 영역만 6건)이다.
+  시험: `SuitesTest`(심은 결함 — 스위트가 읽는 파일을 무시 — 이 실패), xtask
+  `the_suite_selection_is_read_exactly`.

@@ -467,6 +467,64 @@ def decide_crates(
     )
 
 
+def suite_reads(root: Path, workspace: str, tracked: list[str]) -> set[str]:
+    """Repository paths the workspace's non-Rust sources (the Python and Node suites and what they
+    run) name in quotes, with ADR-0202 §6's reader."""
+    tracked_set = set(tracked)
+    tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
+    reads: set[str] = set()
+    for source in tracked:
+        if not source.startswith(workspace + "/") or source.endswith(".rs") or not source.endswith(SOURCE_SUFFIXES):
+            continue
+        try:
+            text = (root / source).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        reads |= source_reads(source, text, tracked_set, tracked_dirs)
+    return reads
+
+
+def decide_suites(
+    contract: dict,
+    workspace: str,
+    event: str,
+    changed: set[str] | None,
+    members: dict[str, tuple[str, set[str]]],
+    reads: set[str],
+) -> tuple[bool, str]:
+    """(whether the workspace's Python and Node suites run, why).
+
+    They are skipped only on a pull request whose every changed path sits inside a Rust crate, or
+    outside the workspace, and is named by none of the workspace's non-Rust sources. Anything else
+    in the workspace, a run-all input, or an unknown comparison runs them.
+    """
+    selected, _, _, reason = decide_crates(contract, workspace, event, changed, members, {})
+    if selected is None or changed is None:
+        return True, reason
+    for path in sorted(changed):
+        ancestors = {path} | {str(p) for p in PurePosixPath(path).parents}
+        if reads & ancestors:
+            return True, f"a suite reads {path}"
+        if path.startswith(workspace + "/") and owning_member(members, path) is None:
+            return True, f"changed outside every crate: {path}"
+    return False, f"none of {len(changed)} changed paths reaches a suite: only Rust crates or other areas changed"
+
+
+def suites_main(args: argparse.Namespace) -> int:
+    """Print `run <why>` or `skip <why>`, tab-separated, for `cargo xtask verify --part suites --affected`."""
+    event = os.environ.get("CHANGE_SCOPE_EVENT", "")
+    changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
+    workspace = args.workspace.strip("/")
+    members = workspace_members(ROOT, workspace)
+    reads: set[str] = set()
+    if event in CRATE_SELECT_EVENTS and changed is not None:
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
+        reads = suite_reads(ROOT, workspace, sorted({t for t in listed.decode().split("\0") if t} | changed))
+    run, reason = decide_suites(load_contract(), workspace, event, changed, members, reads)
+    print(f"{'run' if run else 'skip'}\t{reason}")
+    return 0
+
+
 def crates_main(args: argparse.Namespace) -> int:
     """Print the selection for xtask, tab-separated: `all <why>` or `some <why>`, then one line per
     member: `changed` (its tests and its dependents' run: nextest `rdeps()`), `reader` (only its own
@@ -505,6 +563,8 @@ def main(argv: list[str] | None = None) -> int:
     crates = sub.add_parser("crates", help="the workspace crates a pull request affects, for xtask --affected")
     crates.add_argument("--workspace", required=True, help="the Cargo workspace directory, from the repository root")
     crates.add_argument("--includes", help="exit 0 when this member is verified, 3 when it is not")
+    suites = sub.add_parser("suites", help="whether a pull request runs a workspace's Python and Node suites")
+    suites.add_argument("--workspace", required=True, help="the Cargo workspace directory, from the repository root")
     select = sub.add_parser("select", help="write affected=true|false for one workflow to $GITHUB_OUTPUT")
     select.add_argument("--workflow", required=True)
     paths = sub.add_parser("paths", help="print one scoped workflow's input globs")
@@ -515,6 +575,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "crates":
         return crates_main(args)
+    if args.command == "suites":
+        return suites_main(args)
     if args.command == "paths":
         entry = load_contract(args.root)["workflows"].get(args.workflow)
         if entry is not None:
