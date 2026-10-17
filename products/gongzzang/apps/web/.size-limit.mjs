@@ -1,4 +1,5 @@
-const DISABLE_TIMING_PLUGINS = ["@size-limit/time"];
+// Sizes only, through @size-limit/file. The app preset also measured run time in headless Chrome
+// (estimo -> puppeteer -> extract-zip, which has two unfixed advisories) and every check disabled that.
 const PRODUCTION_BUNDLE_LIMIT = "450 KB";
 const TURBOPACK_RUNTIME_LIMIT = "20 KB";
 
@@ -7,7 +8,6 @@ const productionBundleCheck = {
   path: ".next/static/chunks/*.js",
   limit: PRODUCTION_BUNDLE_LIMIT,
   gzip: true,
-  disablePlugins: DISABLE_TIMING_PLUGINS,
 };
 
 const turbopackRuntimeCheck = {
@@ -15,7 +15,6 @@ const turbopackRuntimeCheck = {
   path: ".next/static/chunks/turbopack-*.js",
   limit: TURBOPACK_RUNTIME_LIMIT,
   gzip: true,
-  disablePlugins: DISABLE_TIMING_PLUGINS,
 };
 
 export default process.env.GONGZZANG_BAZEL_SIZE_LIMIT === "1"

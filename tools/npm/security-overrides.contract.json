@@ -39,6 +39,16 @@
     },
     {
       "kind": "security",
+      "package": "http-cache-semantics",
+      "version": "4.3.0",
+      "advisories": [
+        "GHSA-ch52-4w7c-c8xp"
+      ],
+      "reason": "max-stale handling could serve one user's cached response to another; 4.3.0 (2026-10-04) is the first release past the affected range. Reached only through the Pulumi deploy tooling (make-fetch-happen).",
+      "date": "2026-10-17"
+    },
+    {
+      "kind": "security",
       "package": "ip-address",
       "version": "10.7.2",
       "advisories": [
@@ -113,13 +123,15 @@
     {
       "kind": "security",
       "package": "postcss",
-      "version": "8.5.15",
+      "version": "8.5.23",
       "advisories": [
         "GHSA-6g55-p6wh-862q",
-        "GHSA-qx2v-qp2m-jg93"
+        "GHSA-fxqj-rqcc-2cmp",
+        "GHSA-qx2v-qp2m-jg93",
+        "GHSA-r28c-9q8g-f849"
       ],
-      "reason": "Parser advisories on the 8.x line; next pins postcss 8.4.31 exactly. Two later advisories on 8.5.15 are accepted in tools/osv-vulnerability-baseline.tsv until the CSS toolchain moves.",
-      "date": "2026-07-23"
+      "reason": "Parser and source-map path traversal advisories on the 8.x line (a sourceMappingURL reads an arbitrary .map file); next pins postcss 8.4.31 exactly, and vite and @tailwindcss/postcss reach it too. 8.5.23 is the first release that fixes both source-map advisories.",
+      "date": "2026-10-17"
     },
     {
       "kind": "security",
