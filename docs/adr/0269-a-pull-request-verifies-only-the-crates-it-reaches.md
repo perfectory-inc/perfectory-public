@@ -106,3 +106,15 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   `run_all` 하나만 둔다.
 - **영역 범위와 따로 크레이트 범위 파일**: 같은 경로 판단을 두 곳에 두게 된다.
 - **고른 크레이트를 잡 여러 개로 나누기**: ADR-0205 대로 병목은 동시 실행 자리다.
+
+## Revisions
+
+- 2026-10-17 (§7 nextest): 작업 공간 여섯 곳(gongzzang·foundation·identity·intelligence·dawneer·xtask)의
+  `.config/nextest.toml` 에 omicron 의 `profile.ci`(`retries = 2`, `flaky-result = "fail"`,
+  `failure-output = "immediate-final"`)를 두고, `scripts/ci/rust-setup.sh` 가 모든 CI 잡에
+  `NEXTEST_PROFILE=ci` 를 건다. 실패한 시험은 두 번 더 돌아 흔들리는 시험이면 `FLAKY` 로 이름이 찍히고,
+  여전히 실패다. `tools/cargo-nextest.env` 는 그대로 남는다: 판과 체크섬은 내려받기 도구의 입력이고,
+  `nextest-version` 을 설정에 두면 같은 판이 두 곳에 산다. `--no-fail-fast` 는 로컬에서도 첫 실패에서
+  멈추지 않는 규칙(ADR-0012 1항)이라 xtask 에 남는다. JUnit 출력은 읽는 곳이 없어 두지 않는다.
+  시험: xtask `every_verified_workspace_defines_the_nextest_ci_profile`(프로필이 없는 작업 공간은
+  nextest 가 시작을 거부한다), `rust-ci-setup-self-test.sh`.
