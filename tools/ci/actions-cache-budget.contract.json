@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0269-a-pull-request-verifies-only-the-crates-it-reaches.md",
+  "rule": "GitHub evicts the least recently used Actions cache entries once the repository passes its limit (tools/github/actions-cache-policy.json max_cache_size_gb). The repository stays under cap_percent_of_limit of it; each key belongs to the entry with the longest matching key_prefix and stays under its max_mb; a protected entry must exist, because the merge queue rebuilds every dependency without it. scripts/ci/actions_cache_budget.py measure reads the live cache list and fails on any breach.",
+  "measured_by": "scripts/ci/actions_cache_budget.py",
+  "cap_percent_of_limit": 90,
+  "entries": [
+    {"key_prefix": "foundation-workspace-build-rust-quality-", "max_mb": 5300, "protected": true, "why": "Foundation workspace crates main last built (ADR-0201); 2.9-5.2 GB measured 2026-10-17."},
+    {"key_prefix": "v0-rust-rust-quality-dependencies-", "max_mb": 2200, "protected": true, "why": "Foundation dependency builds, read by the Rust and Postgres jobs (ADR-0269); 1.9 GB measured."},
+    {"key_prefix": "v0-rust-rust-quality-", "max_mb": 800, "why": "identity rust-quality dependencies."},
+    {"key_prefix": "v0-rust-rust-", "max_mb": 1800, "why": "the `rust` jobs of gongzzang, intelligence and dawneer; 1.1 GB measured for gongzzang."},
+    {"key_prefix": "v0-rust-walking-skeleton-", "max_mb": 800, "why": "gongzzang release build for the walking skeleton; 0.67 GB measured."},
+    {"key_prefix": "v0-rust-traffic-auth-policy-drift-", "max_mb": 600, "why": "gongzzang traffic/auth policy drift job; 0.51 GB measured."},
+    {"key_prefix": "v0-rust-sqlx-cli-", "max_mb": 400, "why": "sqlx-cli build shared by the gongzzang migration and prepare jobs; 0.32 GB measured."},
+    {"key_prefix": "v0-rust-guardrails-", "max_mb": 350, "why": "gongzzang guardrails; 0.27 GB measured."},
+    {"key_prefix": "v0-rust-supply-chain-", "max_mb": 600, "why": "the supply-chain jobs of every area; 0.13 GB measured for Foundation."},
+    {"key_prefix": "v0-rust-cargo-deny-", "max_mb": 150, "why": "gongzzang cargo-deny; 0.09 GB measured."},
+    {"key_prefix": "v0-rust-live-contracts-", "max_mb": 600, "why": "identity live database contracts."},
+    {"key_prefix": "v0-rust-contract-determinism-", "max_mb": 600, "why": "identity OpenAPI determinism."},
+    {"key_prefix": "v0-rust-check-", "max_mb": 400, "why": "dependency advisories check."},
+    {"key_prefix": "v0-rust-kafka-integration-", "max_mb": 2000, "why": "Foundation Kafka gate; runs only when its inputs change."},
+    {"key_prefix": "v0-rust-guard-", "max_mb": 300, "why": "repository guard (xtask)."},
+    {"key_prefix": "v0-rust-suites-", "max_mb": 300, "why": "Foundation suites job (xtask)."},
+    {"key_prefix": "pinned-release-binaries-v1-", "max_mb": 400, "why": "checksum-pinned release binaries (ADR-0197); 0.26 GB measured."},
+    {"key_prefix": "node-cache-", "max_mb": 1000, "why": "setup-node pnpm stores of every Node job; 0.64 GB measured, including copies under merge-queue refs."}
+  ]
+}
