@@ -10,7 +10,12 @@ two kinds a machine can decide are run against the lakehouse through Trino:
 - DATA_SCHEMA (SUPERSET): every column the contract names must exist in the physical table.
 
 The result (SUCCESS or FAILURE, with the counts behind it) is reported on the assertion, so the
-catalog shows when each rule last passed. Rules written as text are not run and are not reported:
+catalog shows when each rule last passed. Each allowed-values result also records the table's Iceberg
+snapshot and a fingerprint of the rules it counted; the catalog keeps every result as a run event, so
+that is the append-only record of what was checked. A table whose current snapshot and rules equal
+those of every field's latest result is not counted again (a full scan of an unchanged table answers
+the same), and those results still count toward the run: a failure stays a failure until the data or
+the rule changes. Rules written as text are not run and are not reported:
 nothing pretends to have checked them. A table the lakehouse does not hold yet is counted and
 named, not failed: a declared status of "implemented" means the code path exists (pipeline graph
 status policy), not that a load has run.
@@ -19,6 +24,7 @@ Exits 1 when any assertion failed, so the scheduler's run fails and alerts.
 """
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -73,7 +79,8 @@ def assertions_of(contract_id):
     urn = f"urn:li:dataset:(urn:li:dataPlatform:odcs,{contract_id},PROD)"
     data = graphql(
         """query($urn: String!) { dataset(urn: $urn) { assertions(start: 0, count: 200) {
-             assertions { urn info { type fieldAssertion { fieldValuesAssertion { field { path } } } } } } } }""",
+             assertions { urn info { type fieldAssertion { fieldValuesAssertion { field { path } } } }
+               runEvents(limit: 1) { runEvents { result { type nativeResults { key value } } } } } } } }""",
         {"urn": urn},
     )
     dataset = data.get("dataset")
@@ -95,6 +102,42 @@ def report(assertion_urn, passed, properties):
     )
     if not data.get("reportAssertionResult"):
         raise RuntimeError(f"the data catalog did not record {assertion_urn}")
+
+
+def current_snapshot(namespace, name):
+    """The table's `main` snapshot id, or None when it has no snapshot."""
+    rows = trino(f"SELECT snapshot_id FROM {TRINO_CATALOG}.{namespace}.\"{name}$refs\" WHERE name = 'main'")
+    return rows[-1][0] if rows and rows[-1] and rows[-1][0].isdigit() else None
+
+
+def rules_fingerprint(field_assertions, allowed):
+    """Which rules a count answered: the fields and their allowed values, order-free."""
+    rules = sorted((field, sorted(allowed[field])) for _, field in field_assertions)
+    return hashlib.sha256(json.dumps(rules, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def last_result(assertion):
+    """(type, {key: value}) of the assertion's latest reported result, or None."""
+    events = ((assertion.get("runEvents") or {}).get("runEvents")) or []
+    if not events or not events[0].get("result"):
+        return None
+    result = events[0]["result"]
+    return result.get("type"), {item["key"]: item["value"] for item in result.get("nativeResults") or []}
+
+
+def unchanged_results(assertions, field_assertions, snapshot, rules):
+    """{assertion urn: latest result} when every field's latest result counted this snapshot under
+    these rules, else None."""
+    if snapshot is None:
+        return None
+    latest = {a["urn"]: last_result(a) for a in assertions}
+    found = {}
+    for urn, _ in field_assertions:
+        result = latest.get(urn)
+        if result is None or result[1].get("snapshot_id") != snapshot or result[1].get("rules") != rules:
+            return None
+        found[urn] = result
+    return found
 
 
 def quote(value):
@@ -127,7 +170,16 @@ def check_contract(path, totals):
         for a in assertions
         if a["info"]["type"] == "FIELD" and (a["info"].get("fieldAssertion") or {}).get("fieldValuesAssertion")
     ]
-    if field_assertions:
+    snapshot = current_snapshot(namespace, name) if field_assertions else None
+    rules = rules_fingerprint(field_assertions, allowed) if field_assertions else None
+    previous = unchanged_results(assertions, field_assertions, snapshot, rules) if field_assertions else None
+    if previous is not None:
+        totals["unchanged"].append(f"{contract['id']} snapshot={snapshot}")
+        for urn, field in field_assertions:
+            kind, values = previous[urn]
+            totals["passed" if kind == "SUCCESS" else "failed"].append(
+                f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot})")
+    elif field_assertions:
         counts = ", ".join(
             f"count_if({field} IS NOT NULL AND {field} NOT IN ({', '.join(quote(v) for v in allowed[field])}))"
             for _, field in field_assertions
@@ -135,7 +187,8 @@ def check_contract(path, totals):
         (row,) = trino(f"SELECT count(*), {counts} FROM {TRINO_CATALOG}.{namespace}.{name}")[-1:]
         rows, invalid = int(row[0]), [int(value) for value in row[1:]]
         for (urn, field), bad in zip(field_assertions, invalid):
-            report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field})
+            report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field,
+                                   "snapshot_id": snapshot or "none", "rules": rules})
             totals["passed" if bad == 0 else "failed"].append(f"{contract['id']}.{field} invalid={bad}")
 
     for assertion in assertions:
@@ -147,7 +200,7 @@ def check_contract(path, totals):
 
 
 def main():
-    totals = {"passed": [], "failed": [], "absent": [], "unregistered": []}
+    totals = {"passed": [], "failed": [], "absent": [], "unregistered": [], "unchanged": []}
     contracts = sorted(CONTRACTS.glob("*.odcs.yaml"))
     if not contracts:
         sys.exit(f"data-quality: no contracts under {CONTRACTS}")
@@ -155,7 +208,8 @@ def main():
         check_contract(path, totals)
     print(
         f"data-quality: contracts={len(contracts)} passed={len(totals['passed'])} failed={len(totals['failed'])} "
-        f"absent_tables={len(totals['absent'])} unregistered={len(totals['unregistered'])}"
+        f"absent_tables={len(totals['absent'])} unregistered={len(totals['unregistered'])} "
+        f"unchanged_tables={len(totals['unchanged'])}"
     )
     for label in ("failed", "absent", "unregistered"):
         for item in totals[label]:
