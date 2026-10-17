@@ -1342,6 +1342,7 @@ dependencies = [
  "intelligence-normalization-application",
  "intelligence-normalization-domain",
  "intelligence-normalization-infrastructure",
+ "intelligence-workspace-hack",
  "metrics",
  "metrics-exporter-prometheus",
  "serde",
@@ -1361,6 +1362,7 @@ name = "intelligence-contracts"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "intelligence-workspace-hack",
  "serde",
  "serde_json",
  "uuid",
@@ -1375,6 +1377,7 @@ dependencies = [
  "chrono",
  "intelligence-contracts",
  "intelligence-normalization-domain",
+ "intelligence-workspace-hack",
  "serde",
  "serde_json",
  "sha2",
@@ -1389,6 +1392,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "intelligence-contracts",
+ "intelligence-workspace-hack",
  "serde",
  "serde_json",
  "sha2",
@@ -1406,6 +1410,7 @@ dependencies = [
  "intelligence-contracts",
  "intelligence-normalization-application",
  "intelligence-normalization-domain",
+ "intelligence-workspace-hack",
  "redis",
  "reqwest 0.12.28",
  "serde",
@@ -1428,6 +1433,7 @@ dependencies = [
  "intelligence-normalization-application",
  "intelligence-normalization-domain",
  "intelligence-normalization-infrastructure",
+ "intelligence-workspace-hack",
  "knowledge-application",
  "knowledge-domain",
  "knowledge-infrastructure",
@@ -1441,6 +1447,57 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "intelligence-workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "base64 0.23.1",
+ "bitflags",
+ "byteorder",
+ "cc",
+ "chrono",
+ "crossbeam-utils",
+ "digest",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-sink",
+ "futures-util",
+ "getrandom 0.2.17",
+ "getrandom 0.4.3",
+ "http",
+ "httparse",
+ "libc",
+ "log",
+ "memchr",
+ "num-traits",
+ "percent-encoding",
+ "proc-macro2",
+ "quote",
+ "rand 0.9.5",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "sha2",
+ "slab",
+ "smallvec",
+ "sqlx-core",
+ "sqlx-postgres",
+ "subtle",
+ "syn 2.0.119",
+ "syn 3.0.5",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-core",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1481,6 +1538,7 @@ name = "knowledge-application"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "intelligence-workspace-hack",
  "knowledge-domain",
  "tokio",
 ]
@@ -1489,6 +1547,7 @@ dependencies = [
 name = "knowledge-domain"
 version = "0.1.0"
 dependencies = [
+ "intelligence-workspace-hack",
  "sha2",
  "thiserror",
 ]
@@ -1498,6 +1557,7 @@ name = "knowledge-infrastructure"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "intelligence-workspace-hack",
  "knowledge-application",
  "knowledge-domain",
  "lindera",
@@ -1734,6 +1794,7 @@ dependencies = [
  "axum",
  "chrono",
  "intelligence-contracts",
+ "intelligence-workspace-hack",
  "knowledge-domain",
  "rdkafka",
  "reqwest 0.12.28",

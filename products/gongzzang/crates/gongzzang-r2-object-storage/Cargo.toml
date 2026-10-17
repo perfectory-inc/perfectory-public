@@ -13,6 +13,7 @@ aws-credential-types = "=1.2.14"
 aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
 tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util"] }

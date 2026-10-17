@@ -19,3 +19,4 @@ proj4wkt = { workspace = true }
 serde_json = { workspace = true }
 shapefile = { workspace = true }
 zip = { workspace = true }
+foundation-workspace-hack.workspace = true

@@ -22,6 +22,7 @@ sqlx = { workspace = true }
 staff-identity-application = { workspace = true }
 staff-identity-domain = { workspace = true }
 uuid = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

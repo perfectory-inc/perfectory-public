@@ -48,6 +48,16 @@
       "extension": {"linux": "tar.gz", "windows": "zip"},
       "url": "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-{version}/cargo-nextest-{version}-{target}.{extension}"
     },
+    "cargo-hakari": {
+      "pins": "tools/cargo-hakari.env",
+      "version_variable": "CARGO_HAKARI_VERSION",
+      "sha256_variable": "CARGO_HAKARI_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "windows": "windows"},
+      "arch": {"x86_64": "amd64"},
+      "target": {"linux": "x86_64-unknown-linux-gnu", "windows": "x86_64-pc-windows-msvc"},
+      "extension": {"linux": "tar.gz", "windows": "zip"},
+      "url": "https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-{version}/cargo-hakari-{version}-{target}.{extension}"
+    },
     "syft": {
       "pins": "tools/syft.env",
       "version_variable": "SYFT_VERSION",

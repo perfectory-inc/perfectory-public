@@ -12,6 +12,7 @@ circuit-breaker = { path = "../circuit-breaker", version = "0.1.0" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 chrono = { workspace = true }

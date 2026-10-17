@@ -1374,6 +1374,29 @@ fn test_selections(area: &Area, selection: &Selection) -> Vec<(Vec<String>, Opti
         .collect()
 }
 
+/// The checks oxidecomputer/omicron runs on its workspace-hack crate (root ADR-0269), for a
+/// workspace with `.config/hakari.toml`: the crate is what `cargo hakari generate` would write,
+/// and every member depends on it. Both exit non-zero otherwise. They read `cargo metadata`
+/// only, so they run whatever crates a pull request selects.
+const HAKARI_CHECKS: [[&str; 3]; 2] = [
+    ["hakari", "generate", "--diff"],
+    ["hakari", "manage-deps", "--dry-run"],
+];
+
+fn verify_workspace_hack(dir: &Path, log: &mut FailureLog) {
+    if !dir.join(".config/hakari.toml").is_file() {
+        return;
+    }
+    let Some(hakari) = pinned_tool_dir("cargo-hakari", log) else {
+        return;
+    };
+    for check in HAKARI_CHECKS {
+        let mut cargo = cargo_command(dir, &check);
+        cargo.env("PATH", path_with(&hakari));
+        log.absorb(run_reporting(&mut cargo));
+    }
+}
+
 fn verify_cargo(area: &Area, dir: &Path, selection: &Selection, log: &mut FailureLog) {
     let started = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1400,6 +1423,7 @@ fn summarize_build_times(workspace: &str, started: u64) {
 fn verify_cargo_builds(area: &Area, dir: &Path, selection: &Selection, log: &mut FailureLog) {
     let dir = dir.to_path_buf();
     log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
+    verify_workspace_hack(&dir, log);
     let Some(clippy) = clippy_command(selection) else {
         eprintln!(
             "xtask: {}: this pull request changes no crate; clippy and the Rust tests have nothing to verify",
@@ -1413,7 +1437,7 @@ fn verify_cargo_builds(area: &Area, dir: &Path, selection: &Selection, log: &mut
     // The Rust tests run under cargo-nextest: one process per test, as many at once as the
     // machine has cores, where `cargo test` ran each test binary after the last (root ADR-0205).
     // nextest does not run doctests, so each selection also runs `cargo test --doc`.
-    let Some(nextest) = nextest_dir(log) else {
+    let Some(nextest) = pinned_tool_dir("cargo-nextest", log) else {
         return;
     };
     for (selection, filterset) in test_selections(area, selection) {
@@ -1510,57 +1534,55 @@ fn path_with(directory: &Path) -> std::ffi::OsString {
     std::env::join_paths(paths).unwrap_or_default()
 }
 
-/// The directory holding the pinned `cargo-nextest`, fetched on first use (root ADR-0205).
+/// The directory holding the pinned `cargo-<tool>` (`cargo-nextest`, root ADR-0205;
+/// `cargo-hakari`, root ADR-0269), fetched on first use.
 ///
-/// The version and checksums live in `tools/cargo-nextest.env`; the one pinned fetcher
+/// The version and checksums live in `tools/<tool>.env`; the one pinned fetcher
 /// (`scripts/ci/fetch_pinned.py`, root ADR-0197) downloads and verifies the archive, so CI
 /// restores it from its cache and a laptop fetches it once. Any failure is a recorded failure:
-/// the tests did not run, which is never a pass.
-fn nextest_dir(log: &mut FailureLog) -> Option<PathBuf> {
+/// the check did not run, which is never a pass.
+fn pinned_tool_dir(tool: &str, log: &mut FailureLog) -> Option<PathBuf> {
     let root = repo_root();
-    let pins = std::fs::read_to_string(root.join("tools/cargo-nextest.env")).unwrap_or_default();
+    let pins_file = format!("tools/{tool}.env");
+    let variable = format!("{}_VERSION=", tool.to_uppercase().replace('-', "_"));
+    let pins = std::fs::read_to_string(root.join(&pins_file)).unwrap_or_default();
     let Some(version) = pins
         .lines()
-        .find_map(|line| line.strip_prefix("CARGO_NEXTEST_VERSION="))
+        .find_map(|line| line.strip_prefix(variable.as_str()))
         .map(str::trim)
         .filter(|version| !version.is_empty())
     else {
-        log.record("tools/cargo-nextest.env does not pin CARGO_NEXTEST_VERSION".to_owned());
+        log.record(format!("{pins_file} does not pin {variable}<version>"));
         return None;
     };
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let dir = PathBuf::from(home)
         .join(".cache/perfectory/bin")
-        .join(format!("cargo-nextest-{version}"));
-    let binary = dir.join(if cfg!(windows) {
-        "cargo-nextest.exe"
+        .join(format!("{tool}-{version}"));
+    let member = if cfg!(windows) {
+        format!("{tool}.exe")
     } else {
-        "cargo-nextest"
-    });
+        tool.to_owned()
+    };
+    let binary = dir.join(&member);
     if binary.is_file() {
         return Some(dir);
     }
-    let member = binary
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("cargo-nextest");
     let fetched = run_reporting(
         Command::new("python3")
             .current_dir(&root)
             .args([
                 "scripts/ci/fetch_pinned.py",
                 "tool",
-                "cargo-nextest",
+                tool,
                 "--member",
-                member,
+                &member,
             ])
             .arg("--output")
             .arg(&binary),
     );
     if let Err(message) = fetched {
-        log.record(format!(
-            "could not install the pinned cargo-nextest: {message}"
-        ));
+        log.record(format!("could not install the pinned {tool}: {message}"));
         return None;
     }
     Some(dir)
@@ -2444,6 +2466,43 @@ mod tests {
             assert!(
                 parse_suite_selection(broken).is_err(),
                 "{broken:?} must be refused"
+            );
+        }
+    }
+
+    /// Every workspace with more than one member keeps a hakari workspace-hack crate (root
+    /// ADR-0269), so `-p` subsets and `--workspace` build dependencies with one feature set; one
+    /// member has nothing to unify. A workspace that grows a second member without one fails here.
+    #[test]
+    fn every_multi_member_workspace_keeps_a_workspace_hack() {
+        for area in AREAS {
+            let dir = repo_root().join(area.dir);
+            let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+            let members = manifest
+                .split_once("members = [")
+                .and_then(|(_, rest)| rest.split_once(']'))
+                .map_or(0, |(list, _)| list.matches('"').count() / 2);
+            let config = std::fs::read_to_string(dir.join(".config/hakari.toml")).ok();
+            if members <= 1 {
+                assert!(
+                    config.is_none(),
+                    "{}: one member has nothing to unify",
+                    area.dir
+                );
+                continue;
+            }
+            let config =
+                config.unwrap_or_else(|| panic!("{} has no .config/hakari.toml", area.dir));
+            let package = format!("{}-workspace-hack", area.slug);
+            assert!(
+                config.contains(&format!("hakari-package = \"{package}\"")),
+                "{}: hakari-package must be {package}",
+                area.dir
+            );
+            assert!(
+                manifest.contains(&format!("\"crates/{package}\"")),
+                "{}: crates/{package} must be a member",
+                area.dir
             );
         }
     }

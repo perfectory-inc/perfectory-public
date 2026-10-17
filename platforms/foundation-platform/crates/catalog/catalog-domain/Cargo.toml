@@ -23,3 +23,4 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 foundation-shared-kernel = { workspace = true }
 uuid = { workspace = true }
+foundation-workspace-hack.workspace = true

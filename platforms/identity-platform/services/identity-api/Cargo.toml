@@ -37,6 +37,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 utoipa = { workspace = true }
 uuid = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 jsonwebtoken = { workspace = true }

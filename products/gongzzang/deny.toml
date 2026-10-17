@@ -2,6 +2,10 @@
 # https://embarkstudios.github.io/cargo-deny/
 
 [graph]
+# hakari writes the workspace-hack crate (root ADR-0269); its plain version lines are the point,
+# not a second declaration. Every crate it names is a dependency of a member, so out of the graph
+# it takes nothing out of the licence, advisory and ban checks.
+exclude = ["gongzzang-workspace-hack"]
 all-features = false
 no-default-features = false
 

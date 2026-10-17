@@ -12,6 +12,7 @@ shared-kernel = { path = "../shared-kernel", version = "0.1.0" }
 async-trait = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -23,6 +23,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 tower = "0.5"
 tracing = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

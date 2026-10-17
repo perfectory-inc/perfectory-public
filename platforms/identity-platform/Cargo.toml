@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/identity-contracts",
     "crates/identity-shared-kernel",
+    "crates/identity-workspace-hack",
     "crates/staff-identity/staff-identity-domain",
     "crates/staff-identity/staff-identity-application",
     "crates/staff-identity/staff-identity-infrastructure",
@@ -43,6 +44,7 @@ print_stdout = "deny"
 print_stderr = "deny"
 
 [workspace.dependencies]
+identity-workspace-hack = { path = "crates/identity-workspace-hack" }
 anyhow = "1"
 async-trait = "0.1"
 axum = "0.8"

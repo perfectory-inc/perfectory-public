@@ -14,6 +14,20 @@ use serde::Deserialize;
 pub const JOB_LIST: &str = "orchestration/jobs.v1.json";
 /// The systemd units, relative to the platform root.
 pub const UNIT_DIR: &str = "infra/systemd";
+/// Lines every job unit carries, the same for every job (root ADR-0270 §1).
+///
+/// A one-shot run as the platform account, its failure reported, inside the sandbox; the list does
+/// not repeat them. A unit without one is refused, not rendered: where a line goes is the unit's.
+pub const JOB_UNIT_LINES: &[&str] = &[
+    "Type=oneshot",
+    "User=foundation-platform",
+    "Group=foundation-platform",
+    "OnFailure=foundation-unit-failed@%n.service",
+    "NoNewPrivileges=true",
+    "PrivateTmp=true",
+    "ProtectHome=true",
+    "ProtectSystem=strict",
+];
 /// What a reader of the units is told when one differs from its rendering.
 pub const GENERATE: &str =
     "cargo run -p foundation-jobs -- generate (from platforms/foundation-platform)";
@@ -193,6 +207,26 @@ pub fn stop_seconds(unit: &str) -> Result<u32, String> {
         .ok_or_else(|| format!("TimeoutStopSec={value} is not seconds or minutes"))
 }
 
+/// The [`JOB_UNIT_LINES`] a unit does not carry, each as its own problem, and any second value of
+/// one of their keys (a later line would override it).
+#[must_use]
+pub fn job_unit_line_problems(file: &str, unit: &str) -> Vec<String> {
+    let lines: Vec<&str> = unit.lines().collect();
+    JOB_UNIT_LINES
+        .iter()
+        .filter_map(|required| {
+            let key = required.split_once('=').map_or(*required, |(key, _)| key);
+            let values: Vec<&&str> = lines
+                .iter()
+                .filter(|line| line.split_once('=').is_some_and(|(found, _)| found == key))
+                .collect();
+            (values.len() != 1 || values.first().is_none_or(|line| **line != *required)).then(
+                || format!("{file}: a job unit carries exactly one {required} (root ADR-0270 §1)"),
+            )
+        })
+        .collect()
+}
+
 /// One job unit: what its file holds now and what the job list says it should hold.
 #[derive(Debug)]
 pub struct Unit {
@@ -268,6 +302,7 @@ pub fn render(
                         Err(error) => problems.push(format!("{}: {error}", unit.file)),
                     }
                 }
+                problems.extend(job_unit_line_problems(&unit.file, &unit.current));
                 units.push(unit);
             }
             Err(error) => problems.push(format!("{file}: {error}")),
@@ -305,7 +340,26 @@ mod tests {
 
     type TestResult = Result<(), String>;
 
-    const UNIT: &str = "[Service]\nType=oneshot\nTimeoutStartSec=150m\nNoNewPrivileges=true\n";
+    const UNIT: &str = "[Unit]\nOnFailure=foundation-unit-failed@%n.service\n\n[Service]\n\
+        Type=oneshot\nUser=foundation-platform\nGroup=foundation-platform\nTimeoutStartSec=150m\n\
+        NoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\n";
+
+    #[test]
+    fn a_job_unit_without_its_sandbox_or_alert_is_refused() {
+        assert_eq!(
+            job_unit_line_problems("a.service", UNIT),
+            Vec::<String>::new()
+        );
+        let unsandboxed = UNIT.replace("ProtectSystem=strict\n", "");
+        assert_eq!(job_unit_line_problems("a.service", &unsandboxed).len(), 1);
+        let silent = UNIT.replace("OnFailure=foundation-unit-failed@%n.service\n", "");
+        assert_eq!(job_unit_line_problems("a.service", &silent).len(), 1);
+        let loosened = format!("{UNIT}ProtectSystem=full\n");
+        assert_eq!(job_unit_line_problems("a.service", &loosened).len(), 1);
+        let jobs = list(&[("a", "a.service", 150)]);
+        let reading_unsandboxed = move |_: &str| Ok(unsandboxed.clone());
+        assert_eq!(check(&jobs, &reading_unsandboxed).len(), 1);
+    }
 
     fn list(jobs: &[(&str, &str, u32)]) -> JobList {
         JobList {
@@ -394,15 +448,13 @@ mod tests {
         assert_eq!(stop_seconds("TimeoutStopSec=2min\n"), Ok(120));
         assert!(stop_seconds("TimeoutStopSec=infinity\n").is_err());
         let mut jobs = list(&[("a", "a.service", 150)]);
-        let slow_stop = "[Service]\nTimeoutStartSec=150m\nTimeoutStopSec=6min\n";
-        assert_eq!(
-            check(&jobs, &move |_: &str| Ok(slow_stop.to_owned())).len(),
-            1
-        );
+        let slow_stop = format!("{UNIT}TimeoutStopSec=6min\n");
+        let reading_slow_stop = move |_: &str| Ok(slow_stop.clone());
+        assert_eq!(check(&jobs, &reading_slow_stop).len(), 1);
         if let Some(job) = jobs.jobs.first_mut() {
             job.stop_grace_minutes = 7;
         }
-        assert!(check(&jobs, &move |_: &str| Ok(slow_stop.to_owned())).is_empty());
+        assert!(check(&jobs, &reading_slow_stop).is_empty());
     }
 
     #[test]
@@ -425,7 +477,7 @@ mod tests {
         let units = render(&jobs, &reading(UNIT)).map_err(|problems| problems.join("; "))?;
         let rendered = &units.first().ok_or("no unit rendered")?.rendered;
         assert!(rendered.contains("\nTimeoutStartSec=160m\n"), "{rendered}");
-        assert!(rendered.ends_with("NoNewPrivileges=true\n"), "{rendered}");
+        assert!(rendered.ends_with("ProtectSystem=strict\n"), "{rendered}");
         Ok(())
     }
 

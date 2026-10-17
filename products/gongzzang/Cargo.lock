@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -50,6 +51,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -136,6 +138,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -706,6 +709,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -724,6 +728,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -803,6 +808,7 @@ dependencies = [
 name = "circuit-breaker"
 version = "0.1.0"
 dependencies = [
+ "gongzzang-workspace-hack",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -871,6 +877,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -1151,6 +1158,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -1207,6 +1215,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "circuit-breaker",
+ "gongzzang-workspace-hack",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -1398,6 +1407,7 @@ dependencies = [
  "foundation-platform-client",
  "gongzzang-persistence",
  "gongzzang-r2-object-storage",
+ "gongzzang-workspace-hack",
  "listing-domain",
  "listing-photo-domain",
  "notification-domain",
@@ -1430,6 +1440,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "outbox-event-domain",
  "serde_json",
  "shared-kernel",
@@ -1450,6 +1461,7 @@ dependencies = [
  "gongzzang-outbox",
  "gongzzang-persistence",
  "gongzzang-r2-object-storage",
+ "gongzzang-workspace-hack",
  "outbox-event-domain",
  "reqwest 0.12.28",
  "serde",
@@ -1478,6 +1490,7 @@ dependencies = [
  "featured-content-domain",
  "geo-types",
  "gongzzang-outbox",
+ "gongzzang-workspace-hack",
  "listing-domain",
  "listing-photo-domain",
  "listing-report-domain",
@@ -1502,8 +1515,64 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "gongzzang-workspace-hack",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "gongzzang-workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags",
+ "cc",
+ "chrono",
+ "crypto-common 0.1.7",
+ "digest 0.10.7",
+ "either",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+ "getrandom 0.2.17",
+ "getrandom 0.4.3",
+ "indexmap",
+ "libc",
+ "log",
+ "memchr",
+ "num-integer",
+ "num-traits",
+ "percent-encoding",
+ "regex-automata",
+ "regex-syntax",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "sha2 0.10.9",
+ "slab",
+ "smallvec",
+ "sqlx-core",
+ "sqlx-postgres",
+ "subtle",
+ "syn 2.0.119",
+ "syn 3.0.5",
+ "sync_wrapper",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+ "typenum",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -2131,6 +2200,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2145,6 +2215,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -2157,6 +2228,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -2169,6 +2241,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -2296,6 +2369,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -2584,6 +2658,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -2601,6 +2676,7 @@ name = "parcel-lookup"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "gongzzang-workspace-hack",
  "serde",
  "shared-kernel",
  "thiserror 1.0.69",
@@ -2753,6 +2829,7 @@ dependencies = [
  "axum",
  "chrono",
  "deadpool-redis",
+ "gongzzang-workspace-hack",
  "jsonwebtoken",
  "reqwest 0.12.28",
  "serde",
@@ -2936,6 +3013,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "geo-types",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -3021,6 +3099,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "repo-guard"
 version = "0.1.0"
 dependencies = [
+ "gongzzang-workspace-hack",
  "serde_json",
 ]
 
@@ -3362,6 +3441,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -3619,6 +3699,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "geo-types",
+ "gongzzang-workspace-hack",
  "regex",
  "serde",
  "serde_json",
@@ -4004,6 +4085,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
@@ -4434,6 +4516,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gongzzang-workspace-hack",
  "serde",
  "serde_json",
  "shared-kernel",
