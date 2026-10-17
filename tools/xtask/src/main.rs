@@ -1322,7 +1322,8 @@ fn clippy_command(selection: &Selection) -> Option<Vec<String>> {
             .flat_map(|package| ["-p".to_owned(), package.clone()])
             .collect(),
     };
-    let head = ["clippy", "--locked"].map(str::to_owned);
+    // `--timings` writes the per-crate build report `summarize_build_times` reads (root ADR-0269).
+    let head = ["clippy", "--locked", "--timings"].map(str::to_owned);
     let tail = ["--all-features", "--all-targets", "--", "-D", "warnings"].map(str::to_owned);
     Some(head.into_iter().chain(packages).chain(tail).collect())
 }
@@ -1374,6 +1375,29 @@ fn test_selections(area: &Area, selection: &Selection) -> Vec<(Vec<String>, Opti
 }
 
 fn verify_cargo(area: &Area, dir: &Path, selection: &Selection, log: &mut FailureLog) {
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    verify_cargo_builds(area, dir, selection, log);
+    summarize_build_times(area.dir, started);
+}
+
+/// Prints the crates this run spent the longest building, from the `--timings` reports its clippy
+/// and test builds wrote (root ADR-0269, as omicron's build analysis). A report, never a verdict:
+/// the script prints why when there is nothing to show and always exits 0.
+fn summarize_build_times(workspace: &str, started: u64) {
+    let since = started.to_string();
+    let summary = Command::new("python3")
+        .current_dir(repo_root())
+        .args(["scripts/ci/cargo_timings.py", "summarize", "--workspace"])
+        .args([workspace, "--since", since.as_str()])
+        .status();
+    if let Err(error) = summary {
+        eprintln!("xtask: no build-time summary: could not run python3: {error}");
+    }
+}
+
+fn verify_cargo_builds(area: &Area, dir: &Path, selection: &Selection, log: &mut FailureLog) {
     let dir = dir.to_path_buf();
     log.absorb(cargo_reporting(&dir, &["fmt", "--all", "--", "--check"]));
     let Some(clippy) = clippy_command(selection) else {
@@ -1394,6 +1418,7 @@ fn verify_cargo(area: &Area, dir: &Path, selection: &Selection, log: &mut Failur
     };
     for (selection, filterset) in test_selections(area, selection) {
         let [mut tests, doctests] = nextest_commands(&selection);
+        tests.push("--timings".to_owned());
         if let Some(filterset) = filterset {
             // A selected crate may have no tests of its own; the whole-workspace run keeps
             // nextest's default, which fails when nothing runs.
@@ -2478,8 +2503,9 @@ mod tests {
         };
         let clippy = clippy_command(&some).unwrap();
         assert!(!clippy.contains(&"--workspace".to_owned()));
+        assert_eq!(clippy[..3], names(&["clippy", "--locked", "--timings"])[..]);
         assert_eq!(
-            clippy[2..8],
+            clippy[3..9],
             names(&[
                 "-p",
                 "catalog-application",
