@@ -107,3 +107,5 @@ Silver 쪽 사실:
 - 지역 실행(`--region-prefix`·`--pnu-prefix`)과 `--price-source-snapshot-id` 는 증분과 함께 쓸 수 없다(거부).
 - 후속: (1) 다음 표제부 릴리스에서 단계별 시간 측정. (2) 흩어진 변경의 파일 복사를 줄이려면 굽기의 delete 파일 읽기
   후 merge-on-read 검토. (3) 필지 계보 이어붙이기는 아직 측정 전 입력이다(ADR-0139 11항) — 증분에서도 같다.
+
+- 2026-10-18 개정 주석: §2·§4 의 `WHOLE_TABLE_INPUTS`(용도지역 코드·계보·코드 변경은 전량)는 [ADR-0273](./0273-panel-gold-maps-code-zone-and-lineage-changes-to-pnus.md) 으로 바뀌었다 — 세 입력도 PNU 로 사상한다.

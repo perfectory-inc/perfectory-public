@@ -76,6 +76,7 @@ from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
 import legal_dong_code_change_views as code_change_views
+from code_go_kr_legal_dong import code_level
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -164,11 +165,14 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
     LINEAGE_SOURCE: ("predecessor_pnu", "successor_pnu", "relation", "cardinality", "effective_date", "grade",
                      "evidence_kind", "evidence_ref"),
 }
-# Inputs whose change the incremental rebuild cannot map to PNUs: a zone code's anchor reaches
-# every parcel zoned under it. A change to one rebuilds whole (root ADR-0180).
-# A lineage edge is keyed by two PNUs, not one, and lands in both parcels' lineage section.
-# A code pair re-keys every row under its code.
-WHOLE_TABLE_INPUTS: tuple[str, ...] = (ZONE_CODE_SOURCE, LINEAGE_SOURCE, CODE_CHANGE_SOURCE)
+# Inputs whose change the incremental rebuild cannot map to PNUs. None since root ADR-0273: a code
+# pair reaches the parcels under its two codes, a zone code the parcels zoned under a code whose
+# anchor moved, a lineage edge both its parcels (`affected_pnus`).
+WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
+# The inputs keyed by the Gold row's own PNU.
+PNU_KEYED_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES)
+# How many leading PNU digits a code of each level fixes.
+CODE_LEVEL_DIGITS = {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10}
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -1418,15 +1422,24 @@ def affected_pnus(
 ) -> DataFrame:
     """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
 
-    Every section is keyed by its own PNU. Through the lineage, a successor also reads its
+    Every section is keyed by its own PNU. A changed code pair reaches the parcels under either of
+    its codes, a changed zone code the parcels zoned under a code whose anchor moved, and a changed
+    lineage edge both its parcels (root ADR-0273). Through the lineage, a successor also reads its
     predecessors' sections, so a changed predecessor reaches it; a changed lineage reaches the
     successors whose candidates differ.
     """
 
     keyed = [
         incremental.trimmed_keys(incremental.changed_rows(old[name], new[name], ("pnu",)), trim=False)
-        for name in changed if name in new
+        for name in changed if name in new and name in PNU_KEYED_SOURCES
     ]
+    if CODE_CHANGE_SOURCE in changed and CODE_CHANGE_SOURCE in new:
+        keyed.extend(code_change_pnus(old, new))
+    if ZONE_CODE_SOURCE in changed and ZONE_CODE_SOURCE in new:
+        keyed.extend(zone_code_pnus(old, new))
+    if LINEAGE_SOURCE in changed and LINEAGE_SOURCE in new and LINEAGE_SOURCE in old:
+        edges = incremental.changed_rows(old[LINEAGE_SOURCE], new[LINEAGE_SOURCE], ("predecessor_pnu", "successor_pnu"))
+        keyed.extend(incremental.trimmed_keys(edges, side, trim=False) for side in ("predecessor_pnu", "successor_pnu"))
     candidates = [c for c in (old_candidates, new_candidates) if c is not None]
     if keyed and candidates:
         direct = incremental.union_keys(keyed)
@@ -1439,6 +1452,37 @@ def affected_pnus(
     if not keyed:
         return new[PARCEL_SOURCE].select("pnu").limit(0)
     return incremental.union_keys(keyed)
+
+
+def code_change_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list[DataFrame]:
+    """The parcels under either code of a code change row that differs: the rows they are built
+    from are re-keyed by it (`read_renumbering`) and the coverage guard counts by it."""
+
+    rows = incremental.changed_rows(old[CODE_CHANGE_SOURCE], new[CODE_CHANGE_SOURCE], ("old_code", "new_code"))
+    codes = {code for row in rows.collect() for code in (row.old_code, row.new_code) if code and len(code) == 10}
+    by_digits: dict[int, list[str]] = {}
+    for code in sorted(codes):
+        digits = CODE_LEVEL_DIGITS[code_level(code)]
+        by_digits.setdefault(digits, []).append(code[:digits])
+    if not by_digits:
+        return []
+    under = F.lit(False)
+    for digits, prefixes in sorted(by_digits.items()):
+        under = under | F.substring("pnu", 1, digits).isin(prefixes)
+    return [frames[PARCEL_SOURCE].where(under).select("pnu") for frames in (old, new) if PARCEL_SOURCE in frames]
+
+
+def zone_code_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list[DataFrame]:
+    """The parcels zoned under a zone code whose anchor differs between the two code tables: the
+    zonings section reads a zone code only through its anchor (`resolve_zoning_anchors`)."""
+
+    before = resolve_zoning_anchors(old[ZONE_CODE_SOURCE]) if ZONE_CODE_SOURCE in old else {}
+    after = resolve_zoning_anchors(new[ZONE_CODE_SOURCE])
+    moved = sorted(code for code in before.keys() | after.keys() if before.get(code) != after.get(code))
+    if not moved:
+        return []
+    return [frames[ZONING_SOURCE].where(F.col("zone_code").isin(moved)).select("pnu")
+            for frames in (old, new) if ZONING_SOURCE in frames]
 
 
 def restrict_inputs(
@@ -1454,7 +1498,8 @@ def restrict_inputs(
     restricted = {
         PARCEL_SOURCE: incremental.rows_matching_any(frames[PARCEL_SOURCE], [("pnu", keys, "pnu", False)]),
     }
-    for name in WHOLE_TABLE_INPUTS:
+    # Lookup tables, read whole: a Gold row reads them through its own parcel's rows.
+    for name in (ZONE_CODE_SOURCE, LINEAGE_SOURCE, CODE_CHANGE_SOURCE):
         if name in frames:
             restricted[name] = frames[name]
     for name in ATTRIBUTE_SOURCES:
