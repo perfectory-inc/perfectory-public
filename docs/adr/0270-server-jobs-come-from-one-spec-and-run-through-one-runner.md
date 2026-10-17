@@ -7,7 +7,8 @@
   [ADR-0184](./0184-one-answer-for-running-jobs-and-a-release-the-kernel-keeps-immutable.md)(불변 릴리스),
   [ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md)(결과 한 줄),
   ADR-0266(작업의 쓰기 경로는 한 목록, PR #648 — 아직 병합 전)
-- Would change: [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md) §4(빌드는 혼자 돈다),
+- Would change: [ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md) §1(결과 어휘에
+  `skipped <이유>` 를 더함), [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md) §4(빌드는 혼자 돈다),
   [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md) §1·§2(손으로 정한 슬롯, `takes_turns`),
   [ADR-0159](./0159-the-host-deploys-main-by-itself-once-its-checks-pass.md) 의 0단계("돌던 작업이 끝날 때까지 기다림")
 - Stories: [도메인 스토리](../domain-stories/README.md) — 지금 4개, 바뀐 뒤 4개
@@ -61,12 +62,16 @@
 | `run_as`, `environment_files` | 실행 계정, 읽는 env 파일 | 유닛 |
 | `state_paths` | 실행이 끝나도 남는 쓰기 경로 (ADR-0266) | 유닛 `ReadWritePaths`·스크립트·env |
 | `scratch` | 실행마다 새로 만들고 지우는 폴더의 뿌리(`/data/...`), 실패 시 보존 시간 | 스크립트마다 따로 |
-| `time_limit_minutes` | 시간 상한 **하나** | `timeout_minutes` + `TimeoutStartSec` |
+| `time_limit_minutes` | **도는** 시간 상한 하나 | `timeout_minutes` + `TimeoutStartSec` |
+| `stall_limit_minutes` | 출력 없이 지나도 되는 시간(진척 없음 상한) | 없음 |
+| `wait_limit_minutes` | 자리·표 리스를 **기다리는** 시간 상한. 도는 시간과 따로 센다(Maestro `WAITING_FOR_PERMITS` ≠ `RUNNING`) | 없음(배포 0단계의 5시간이 유일) |
+| `starting_deadline_minutes` | 예정 시각에서 이만큼 지나면 그 회차는 돌지 않고 `skipped late` 로 남긴다(재부팅·배포 뒤 몰아 돌기 방지, K8s `startingDeadlineSeconds`) | 없음 |
+| `idempotent` | 같은 입력으로 두 번 돌아도 결과가 같다(`true`/`false`). **재시도·따라잡기·배포 뒤 한 번 실행은 `true` 인 작업만**(GitLab `idempotent!`). CI 가 거부 | 없음 |
 | `resources.memory` | 계약(`tools/host-memory-budget.contract.json`)이 적은 측정 상한을 **가리킨다**(값을 베끼지 않는다) | 예산 계약 + 슬롯 손 매핑 |
 | `concurrency` | 무거운 묶음 `heavy` 에 드는지, 우선순위 | `pool`·`pool_slots`·`priority_weight`·`takes_turns` |
-| `pipeline_graph_edges` | 입력·출력 자산(데이터 지도 연결). 쓰는 표 목록은 여기서 **계산**한다 | 그대로 |
+| `pipeline_graph_edges` | 입력·출력 자산(데이터 지도 연결). **Airflow 가 실제로 읽는다**: `foundation_jobs.py` 의 `AssetOrTimeSchedule`(입력이 바뀌면 시작)·`outlets`(출력 자산 이벤트)·OpenLineage `inlets`/`outlets`. 쓰는 표 목록(§3 리스)도 여기서 **계산**한다. 새 데이터 의존 칸은 만들지 않는다 | 그대로 |
 | `outcome` | ADR-0260 어휘(고정). 러너가 강제 | 스크립트마다 |
-| `retries` | 횟수와 간격 | Airflow 칸 |
+| `on_failure` | `next_period`(기본: 다음 주기가 재시도, omicron 배경 작업 방식) 또는 `retry {count, delay}`(주기가 길고 `idempotent` 인 작업만) | Airflow `retries`(22개 작업) |
 | `alert` | 알림 경로(기본: Alertmanager 하나) | `OnFailure` + Alertmanager 두 길 |
 | `schedule`, `started_by`, `started_once_after_deploy`, `enabled` | 그대로 | 그대로 |
 
@@ -76,12 +81,13 @@
 |---|---|
 | `infra/systemd/foundation-<job>.service` 전체 | `ExecStart` 는 러너, `TimeoutStartSec` = 상한 + 정리 여유, 샌드박스(`ProtectSystem=strict`, `ReadWritePaths` = `state_paths` + `scratch`) |
 | `tmpfiles.d` 한 파일 | 모든 `state_paths`·`scratch` 뿌리를 소유자·모드와 함께. 배포의 **첫 단계**가 `systemd-tmpfiles --create` 를 돌려, 어떤 마운트보다 먼저 폴더가 있다(#625 의 부류를 없앰) |
-| sudoers 줄 | 작업 유닛의 start·stop 만 |
+| sudoers 줄 | Airflow 문지기의 작업 유닛 start·stop 만(지금 그대로). 운영자 조작은 sudo 를 쓰지 않는다(§2 스위치) |
 | Airflow DAG·풀·자산 | `orchestration/dags/job_specs.py` 가 명세를 읽는 지금 방식 유지. `execution_timeout` = 상한 + 여유 |
 | 데이터 흐름 지도 노드 | `job-dependencies` 그대로 |
 
-생성기는 `cargo xtask jobs generate|check` 다(Rust). Airflow DAG 파일만 Airflow 가 요구하므로 Python 으로 남고,
-명세를 읽기만 한다.
+생성기는 `cargo xtask jobs generate|check` 다(Rust). **작게 둔다**: 만드는 것은 위의 유닛·tmpfiles·sudoers
+세 가지뿐이고, 템플릿 언어·플러그인·조건부 생성은 없다(GitLab 도 `all_queues.yml` 하나를 rake 작업 하나로 만들고 CI 가
+대조한다). Airflow DAG 파일은 Airflow 가 요구하므로 Python 으로 남아 명세를 **읽기만** 한다 — 생성물이 아니다.
 
 ### 2. Rust 러너 하나 — `foundation-job-run`
 
@@ -103,8 +109,28 @@
    명령은 마지막 줄을 쓸 수 없으므로 #656 같은 어긋남이 생길 수 없다.
 8. **실행 기록**: `/var/lib/foundation-jobs/runs/<job>/<invocation>.json` 에 릴리스·대기 시작·실행 시작·끝·결과·기다린 이유.
 
-`stop <job>` 은 도는 실행을 멈추고 `failed stopped by <운영자>` 로 끝낸다. 운영자 계정의 sudo 허용(작업 유닛의
-start·stop)은 명세에서 생성하므로, 새 작업도 첫날부터 사장 sudo 없이 멈출 수 있다.
+**운영자 스위치(작업마다, sudo 없음, 감사 기록)**
+
+| 명령 | 뜻 | 본뜬 것 |
+|---|---|---|
+| `pause <job> --reason <이유>` | 새 회차를 시작하지 않는다. 회차는 `skipped paused` 로 남는다 | K8s CronJob `suspend`, Nomad `enabled=false`, GitLab `run_sidekiq_jobs_X=false` |
+| `pause <job> --drop-pending` | 위 + 쌓인 회차(미뤄진 것·따라잡기)를 버린다 | GitLab `drop_sidekiq_jobs_X` |
+| `resume <job>` | 다시 돈다 | — |
+| `run-now <job>` | 지금 한 번 돈다(같은 대기열·리스를 지난다) | omicron `omdb nexus background-tasks activate` |
+| `stop <job>` | 도는 회차를 멈추고 `failed stopped by <운영자>` 로 끝낸다 | — |
+
+스위치는 `/var/lib/foundation-jobs/switches/<job>` 파일이고, 운영자 그룹(`foundation-operators`)이 쓸 수 있다. 러너는
+시작할 때와 도는 중에 이 파일을 읽는다. 모든 조작은 `/var/lib/foundation-jobs/switches.log` 에 **덧붙이기만** 한다(누가·언제·
+무엇을·이유). 그래서 사장 sudo 없이, 기록을 남기며 멈추고 켤 수 있다. Airflow DAG 정지는 운영자 스위치로 쓰지 않는다 — Airflow
+밖에서 시작한 회차를 못 막기 때문이다.
+
+**늦은 회차와 기다림**
+
+- 러너는 Airflow 가 넘긴 예정 시각을 받는다. 지금이 예정 시각 + `starting_deadline_minutes` 를 넘었으면 돌지 않고
+  `skipped late <예정 시각>` 으로 끝난다. 조용히 사라지지 않고 지도에 보인다.
+- 자리·표 리스를 `wait_limit_minutes` 넘게 기다리면 `failed wait limit <무엇을 기다렸나>` 로 끝난다(용량 문제이므로 알림).
+  도는 시간 상한은 실제로 돌기 시작한 때부터 센다.
+- ADR-0260 의 결과 어휘에 `skipped <이유>` 하나를 더한다: 실패가 아니고, 하류를 깨우지 않고, 지도에 이유와 함께 보인다.
 
 **네트워크 요청마다 시간 상한**: 러너의 상한은 마지막 안전망이다. 바깥으로 나가는 모든 클라이언트는 요청마다 연결·첫
 바이트 상한을 갖는다. 지금 `outbound-http-infrastructure` 의 정책(`ICEBERG` 등 10초/30초)이 HTTP 클라이언트에는 있지만,
@@ -197,13 +223,32 @@ Google Shell Style Guide 를 따른다: **100줄이 넘거나 단순하지 않�
 CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtask` 인 기존 파일이
 늘어나면 거부한다(줄 수는 가드가 직접 센다; 목록은 줄어들기만 한다).
 
+## 실제 저장소와 비교 (2026-10-17 사장 승인으로 개정)
+
+문서 요약이 아니라 각 저장소의 실제 파일을 읽고 비교했다.
+
+| 우리에게 필요한 것 | omicron (Oxide, Rust) | GitLab (Sidekiq) | Netflix Maestro | Kubernetes CronJob / Nomad | 이 ADR 의 선택 |
+|---|---|---|---|---|---|
+| 작업 정의가 한 곳 | [`nexus/src/app/background/init.rs`](https://github.com/oxidecomputer/omicron/blob/main/nexus/src/app/background/init.rs): 모든 배경 작업을 한 곳에서 등록, 주기는 설정 | [`app/workers/all_queues.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/workers/all_queues.yml): 워커 속성에서 **생성**(`lib/tasks/gitlab/sidekiq.rake` 의 `all_queues_yml:generate`), "손으로 고치지 말 것" | 워크플로 정의 JSON | Job spec 하나 | 명세 하나, 생성물 셋, CI 가 대조(§1) |
+| 실패하면 | [`mod.rs`](https://github.com/oxidecomputer/omicron/blob/main/nexus/src/app/background/mod.rs): "재시도하지 말고 다음 주기의 재활성화에 맡겨라" | 재시도 + `idempotent!` 선언 | [`RetryPolicy.java`](https://github.com/Netflix/maestro/blob/main/maestro-common/src/main/java/com/netflix/maestro/models/definition/RetryPolicy.java): 단계마다 재시도 정책 | `backoffLimit` | 기본 `next_period`; 재시도는 주기가 길고 `idempotent` 인 작업만 |
+| 두 번 돌아도 안전한가 | 작업 함수는 멱등이어야 한다(mod.rs) | [`worker_attributes.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/workers/concerns/worker_attributes.rb) `idempotent!`, `deduplicate` | — | — | `idempotent` 필수 칸; 재시도·따라잡기·배포 뒤 한 번은 `true` 만 |
+| 운영자 스위치 | `omdb nexus background-tasks activate` (지금 한 번) | `run_sidekiq_jobs_X=false`(미룸), `drop_sidekiq_jobs_X`(버림) — [feature flags 문서](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/development/feature_flags/_index.md#controlling-sidekiq-worker-behavior-with-feature-flags) | 워크플로 비활성/중지 | CronJob `suspend`, Nomad `periodic.enabled` | `pause`·`pause --drop-pending`·`resume`·`run-now`·`stop`, sudo 없음, 덧붙이기 기록 |
+| 너무 늦은 회차 | 주기 재활성화라 따라잡기 없음 | — | — | `startingDeadlineSeconds`: 넘으면 그 회차를 건너뜀 | `starting_deadline_minutes` → `skipped late` 로 기록 |
+| 기다림 vs 실행 시간 | — | — | [`TimeoutPhase.java`](https://github.com/Netflix/maestro/blob/main/maestro-common/src/main/java/com/netflix/maestro/models/definition/TimeoutPhase.java): `WAITING_FOR_PERMITS`·`RUNNING` 을 따로, [`StepTimeouts.java`](https://github.com/Netflix/maestro/blob/main/maestro-common/src/main/java/com/netflix/maestro/models/definition/StepTimeouts.java) | `activeDeadlineSeconds`(실행 전체) | `wait_limit_minutes` 와 `time_limit_minutes` 를 따로, 그리고 `stall_limit_minutes` |
+| 겹침 | 한 Nexus 안에서 한 번에 하나 | `deduplicate` | [`RunStrategy.java`](https://github.com/Netflix/maestro/blob/main/maestro-common/src/main/java/com/netflix/maestro/models/definition/RunStrategy.java) `FIRST_ONLY` 등 | `concurrencyPolicy: Forbid`, Nomad `prohibit_overlap` | 작업마다 배타 잠금, 이미 돌면 붙음 |
+| 무거운 일 몇 개만 | — | 큐·`resource_boundary`·`urgency` | tag permits (`TagPermitManager`) | — | 메모리 무게 대기열 하나(§4) |
+
+**버린 것(이 비교로)**: 주기마다 다시 맞추는 작업의 Airflow 재시도(다음 주기가 재시도다); 소비자가 없는 데이터 의존 칸(우리
+`pipeline_graph_edges` 는 Airflow 가 읽으므로 남긴다); 큰 생성기(템플릿·조건부 생성).
+
 ## Evidence — 가져온 것과 가져오지 않은 것
 
 | 출처(1차 자료) | 가져온 것 | 가져오지 않은 것 |
 |---|---|---|
 | [systemd.service `WatchdogSec`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) | "살아 있다는 신호가 끊기면 멈춘 것" → 진척 없음 상한 | `sd_notify` 를 작업마다 심기(출력 줄로 대신) |
 | [AWS SDK for Rust — timeouts](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/timeouts.html) | 기본은 연결 상한(3.1초)뿐, 첫 바이트·시도·작업 상한은 "없음"; 멈춘 본문 보호는 본문에만 → 응답 머리를 기다리는 요청은 클라이언트를 만드는 곳에서 상한을 건다 | — |
-| [Kubernetes Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/) | `activeDeadlineSeconds`(실행 전체 시간 상한 하나) → `time_limit_minutes`; `backoffLimit` → `retries`; `ttlSecondsAfterFinished` → 실행 폴더 보존 시간 | 클러스터·컨트롤러 |
+| [Kubernetes Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/) | `activeDeadlineSeconds` → `time_limit_minutes`; `backoffLimit` → `on_failure.retry`; `ttlSecondsAfterFinished` → 실행 폴더 보존 시간 | 클러스터·컨트롤러 |
+| [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) | `suspend` → `pause`; `startingDeadlineSeconds` → `starting_deadline_minutes`; `concurrencyPolicy: Forbid` → 겹침 금지 | `Replace`(돌던 것을 죽이고 새로) |
 | [Airflow pools](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html), [assets](https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/assets.html) | 풀·`pool_slots`·`priority_weight` 는 생성해서 유지; 자산으로 잇기(ADR-0171) 유지 | 풀을 동시성의 권위로 쓰기(Airflow 밖 시작을 못 봄) |
 | [Nomad periodic](https://developer.hashicorp.com/nomad/docs/job-specification/periodic) | `prohibit_overlap`(같은 작업 겹침 금지), 작업 하나 = 명세 하나(jobspec) | Nomad 자체 |
 | [systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) · [tmpfiles.d](https://www.freedesktop.org/software/systemd/man/latest/tmpfiles.d.html) | `ProtectSystem=strict` + `ReadWritePaths` 를 명세에서 생성; 폴더는 tmpfiles 로 마운트 전에 | 유닛을 손으로 쓰기 |
@@ -231,6 +276,8 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 | Dagster 로 이전 | 큰 이전이다. 막는 자산 검사 아이디어만 가져온다 |
 | 유닛에서 명세를 거꾸로 생성 | 유닛은 자산·일정·재시도를 표현하지 못한다 |
 | 러너가 매 실행 폴더를 `mkdir` 만 함(tmpfiles 없이) | 컨테이너 마운트가 러너보다 먼저 일어나는 경로(#625 의 migrate)를 막지 못한다 |
+| Maestro 엔진 도입 | 워크플로 엔진·DB·API 서버를 하나 더 둔다. 시간 상한을 단계별로 나누는 생각과 tag permit 만 가져온다 |
+| GitLab 식 비율 롤아웃 스위치(10%만 실행) | 작업 30개, 회차가 하루 몇 번이라 비율이 뜻이 없다. 켬/끔/버림만 |
 | 슬롯 수를 손으로 유지 | 메모리 측정과 슬롯 매핑이 두 곳이 된다. 무게를 측정 상한에서 읽으면 하나다 |
 
 ## Consequences

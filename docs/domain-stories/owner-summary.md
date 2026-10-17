@@ -30,6 +30,23 @@ last_reviewed: 2026-10-17
 | 행 수만 셈 → 토지권리 섹션이 조용히 빠짐(#660) | 섹션·지역별 채움률 하한(데이터 가드 작업자가 만듦) |
 | 셸 262개(100줄 넘는 것 124개) | 러너로 70개, `cargo xtask` 로 172개, 그대로 16개, 지움 4개 ([목록](./shell-inventory.csv)) |
 
+## 큰 회사 실제 코드와 비교해서 더한 것·뺀 것 (10-17 개정)
+
+| 더한 것 | 왜 | 본뜬 실제 코드 |
+|---|---|---|
+| 작업마다 **멈춤·버림·지금 한 번·멈추기** 스위치, sudo 없이, 기록 남김 | 10-17 처럼 사장님 sudo 없이는 아무도 못 멈추는 일을 없앰 | GitLab `run_sidekiq_jobs_X`·`drop_sidekiq_jobs_X`, K8s `suspend`, Nomad `enabled`, omicron `omdb ... activate` |
+| 작업마다 "두 번 돌아도 안전한가"(`idempotent`) 표시 | 재시도·따라잡기는 안전한 작업만 | GitLab `idempotent!` |
+| 너무 늦은 회차는 건너뛰고 "늦어서 건너뜀"으로 기록 | 재부팅·배포 뒤 밀린 회차가 한꺼번에 돌지 않게 | K8s `startingDeadlineSeconds` |
+| 기다리는 시간 상한과 도는 시간 상한을 따로 | 자리를 기다린 시간이 실행 시간을 갉아먹지 않게 | Netflix Maestro `WAITING_FOR_PERMITS` / `RUNNING` |
+
+| 뺀 것 | 왜 | 근거 |
+|---|---|---|
+| 주기마다 도는 작업의 재시도 | 다음 주기가 곧 재시도 | omicron 배경 작업 설명(`mod.rs`) |
+| 쓰이지 않는 데이터 의존 칸 | 지금 칸은 Airflow 가 실제로 읽으므로 남기고, 새 칸은 만들지 않음 | `foundation_jobs.py` |
+| 큰 생성기 | 만드는 것은 유닛·폴더 목록·sudoers 셋뿐 | GitLab `all_queues.yml` 생성 방식 |
+
+출처 파일 링크는 [ADR-0270 "실제 저장소와 비교"](../adr/0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md) 표에 있습니다.
+
 ## 옮기는 단계와 "끝났다"의 기준
 
 시간 추정은 측정 전이라 적지 않습니다. 단계마다 작은 PR 여러 개입니다.
@@ -39,6 +56,7 @@ last_reviewed: 2026-10-17
 | 0 | 이 문서 | 사장 결정 |
 | 1 | 명세 v2 + 생성기(`cargo xtask jobs`) | 작업 유닛의 `TimeoutStartSec`·`ReadWritePaths` 를 손으로 쓴 곳 0개. 생성물을 손으로 고치면 CI 실패(심어서 확인) |
 | 2 | 러너를 작업 2개에 | 가벼운 1개·무거운 1개가 러너로 7일 연속 돌고, 결과 줄과 종료 코드가 다른 실행 0건 |
+| 2b | 운영자 스위치·늦은 회차·기다림 상한 | `pause`·`run-now`·`stop` 을 운영자가 sudo 없이 써서 기록이 남음(훈련 1회); `skipped late` 가 지도에 보임; `idempotent` 없는 작업의 재시도를 CI 가 거부(심어서 확인) |
 | 3 | 무거운 대기열 | `takes_turns` 칸 0개, "미뤄진 작업" 기록 0건, 빌드가 대기열로 자리를 얻음 |
 | 4 | 배포가 기다리지 않음 | 무거운 작업이 도는 중에 나간 배포 10번 연속: 멈춘 DAG 0, 죽은 작업 0, 로그에 "작업 끝 기다림" 0 |
 | 5 | 나머지 작업 옮기기 | 유닛이 부르는 `scripts/ops` 셸 0개 |
