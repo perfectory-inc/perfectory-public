@@ -953,8 +953,9 @@ if __name__ == "__main__":
 
 
 class EveryJobWritesInsideItsSandbox(unittest.TestCase):
-    """Root ADR-0266: a job's state paths are its jobs.v1.json `state_paths`, its unit's
-    ReadWritePaths are rendered from them, and no state root comes from an EnvironmentFile."""
+    """Root ADR-0266: a job's state paths are its jobs.v1.json `state_paths`, and no state root comes
+    from an EnvironmentFile. Rendering the units' ReadWritePaths from them, and refusing a unit that
+    differs or jobs sharing a unit with other paths, is the crate foundation-jobs (root ADR-0270 §1)."""
 
     def test_the_real_lists_pass(self):
         self.assertEqual(job_specs.state_path_problems(), [])
@@ -965,13 +966,6 @@ class EveryJobWritesInsideItsSandbox(unittest.TestCase):
         files = files or {}
         return job_specs.state_path_problems(
             jobs=jobs, read=lambda path: files.get(path.name, path.read_text(encoding="utf-8")))
-
-    def test_a_state_path_the_unit_does_not_allow_is_refused(self):
-        def moved(jobs):
-            job = next(job for job in jobs["jobs"] if job["id"] == "parcel_registry")
-            job["state_paths"] = ["/var/lib/foundation-platform/map-edit-fold", *job["state_paths"][1:]]
-        problems = self.problems(mutate_jobs=moved)
-        self.assertTrue(any("parcel_registry" in p and "ReadWritePaths" in p for p in problems), problems)
 
     def test_a_state_root_taken_from_an_environment_file_is_refused(self):
         # The 2026-10-16 failure: map-edit-fold.env sets FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT.
@@ -988,14 +982,3 @@ class EveryJobWritesInsideItsSandbox(unittest.TestCase):
         problems = self.problems(files={"legal-dong-code-collect.sh": planted})
         self.assertTrue(any("legal_dong_code_changes" in p and "/var/lib/foundation-platform/elsewhere" in p
                             for p in problems), problems)
-
-    def test_jobs_sharing_a_unit_state_the_same_paths_and_the_renderer_writes_them(self):
-        def split(jobs):
-            next(job for job in jobs["jobs"] if job["id"] == "map_edit_fold_admin")["state_paths"] = ["/var/lib/x"]
-        self.assertTrue(any("shares" in p for p in self.problems(mutate_jobs=split)))
-        unit = "[Service]\nProtectSystem=strict\nReadWritePaths=/old\nExecStart=/bin/true\n"
-        self.assertEqual(job_specs.rendered_unit(unit, ["/a", "/b"]),
-                         "[Service]\nProtectSystem=strict\nReadWritePaths=/a /b\nExecStart=/bin/true\n")
-        self.assertEqual(job_specs.rendered_unit(unit, []), "[Service]\nProtectSystem=strict\nExecStart=/bin/true\n")
-        self.assertEqual(job_specs.rendered_unit("[Service]\nProtectSystem=strict\nX=1\n", ["/a"]),
-                         "[Service]\nProtectSystem=strict\nReadWritePaths=/a\nX=1\n")
