@@ -100,7 +100,7 @@ async fn decide_for_staff(
             trace_id: request.trace_id,
         })
         .await
-        .map_err(|_| ApiError::internal("evaluate_staff_access"))?;
+        .map_err(|error| ApiError::internal("evaluate_staff_access", &error))?;
     Ok(Json(PolicyDecisionResponse {
         principal_id: output.principal_id,
         decision: output.decision.decision().clone(),
@@ -143,6 +143,8 @@ async fn decide_for_service(
 fn map_service_error(error: &ServiceIdentityError) -> ApiError {
     match error {
         ServiceIdentityError::InvalidCredential => ApiError::Unauthorized,
-        ServiceIdentityError::Infrastructure(_) => ApiError::internal("authorize_service_call"),
+        ServiceIdentityError::Infrastructure(_) => {
+            ApiError::internal("authorize_service_call", error)
+        }
     }
 }

@@ -5,6 +5,7 @@ mod copy;
 mod namespace;
 mod read_retry;
 mod streaming;
+mod write_retry;
 
 pub use conditional::ConditionalWrite;
 pub use namespace::{
@@ -15,11 +16,12 @@ pub use streaming::{
 };
 
 use std::env;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
-    config::{retry::RetryConfig, BehaviorVersion, Region},
+    config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region},
     Client,
 };
 use sha2::{Digest as _, Sha256};
@@ -50,6 +52,32 @@ const R2_RANGE_READ_CHUNK_BYTES: i64 = 16 * 1024 * 1024;
 /// a copy of a documented number.
 const R2_STREAMING_SINGLE_PUT_BYTES_MAX: u64 = 4 * 1024 * 1024 * 1024;
 const R2_STREAMING_MULTIPART_PART_BYTES: usize = 16 * 1024 * 1024;
+
+/// How long one R2 request waits to connect, and for the first byte of its answer: the `ICEBERG`
+/// HTTP policy's numbers (`outbound-http-infrastructure`). The SDK sets only a connect bound by
+/// default, so a request whose answer never started waited forever: on 2026-10-17 the by-PNU
+/// bake's one-second state read held its unit for six hours, and the deploy behind it for three.
+/// A timed-out attempt is retried like any transient failure.
+const R2_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const R2_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The client's timeouts; `first_byte` `None` leaves only the connect bound.
+fn request_timeouts(first_byte: Option<Duration>) -> TimeoutConfig {
+    let builder = TimeoutConfig::builder().connect_timeout(R2_CONNECT_TIMEOUT);
+    match first_byte {
+        Some(first_byte) => builder.read_timeout(first_byte),
+        None => builder.disable_read_timeout(),
+    }
+    .build()
+}
+
+/// For a request that sends a body or makes R2 copy one. The SDK counts the first-byte bound from
+/// the start of the request, so it would cut off a large upload or copy before R2 could answer;
+/// such a request keeps the connect bound, and the SDK's stalled-stream protection fails an upload
+/// that stops moving. Every other request keeps the client's bound.
+fn body_request_timeouts() -> aws_sdk_s3::config::Builder {
+    aws_sdk_s3::Config::builder().timeout_config(request_timeouts(None))
+}
 
 /// Whether a streaming put of `size_bytes` must use the multipart path.
 pub(super) const fn streaming_put_requires_multipart(size_bytes: u64) -> bool {
@@ -258,6 +286,7 @@ impl R2ObjectStorage {
             // adaptive token bucket slows the whole client down until R2 stops pushing
             // back, which is the only client-side answer to an undocumented ceiling.
             .retry_config(RetryConfig::adaptive().with_max_attempts(8))
+            .timeout_config(request_timeouts(Some(R2_FIRST_BYTE_TIMEOUT)))
             // Every request of this client is put in, and held to, its namespace (root ADR-0177).
             .interceptor(namespace::R2NamespaceInterceptor::new(
                 config.namespace,
@@ -655,6 +684,8 @@ impl R2ObjectStorage {
             .bucket(&self.bucket_name)
             .copy_source(copy_source)
             .key(new_key)
+            .customize()
+            .config_override(body_request_timeouts())
             .send()
             .await
             .map_err(|error| {
@@ -762,9 +793,14 @@ impl R2ObjectStorage {
         if matches!(write_mode, ObjectWriteMode::CreateOnly) {
             builder = builder.if_none_match("*");
         }
-        builder.send().await.map_err(|error| {
-            map_r2_put_error(key, &error, "complete multipart stream for", write_mode)
-        })?;
+        builder
+            .customize()
+            .config_override(body_request_timeouts())
+            .send()
+            .await
+            .map_err(|error| {
+                map_r2_put_error(key, &error, "complete multipart stream for", write_mode)
+            })?;
         Ok(())
     }
 
@@ -787,6 +823,8 @@ impl R2ObjectStorage {
             .upload_id(upload_id)
             .part_number(part_number)
             .body(ByteStream::from(part))
+            .customize()
+            .config_override(body_request_timeouts())
             .send()
             .await
             .map_err(|error| map_r2_put_error(key, &error, "stream part of", write_mode))?;
@@ -815,30 +853,18 @@ impl EvidenceByteReader for R2ObjectStorage {
 #[async_trait]
 impl ObjectStorageService for R2ObjectStorage {
     async fn put_object(&self, request: PutObjectRequest) -> Result<(), PublishError> {
-        let key = request.key;
-        let mut builder = self
-            .client
-            .put_object()
-            .bucket(&self.bucket_name)
-            .key(&key)
-            .content_type(request.content_type)
-            .cache_control(request.cache_control)
-            .body(ByteStream::from(request.body));
-        // CreateOnly => S3/R2 conditional write: the PUT only succeeds when the key does
-        // not yet exist, and a colliding key returns `412 Precondition Failed`.
-        if matches!(request.write_mode, ObjectWriteMode::CreateOnly) {
-            builder = builder.if_none_match("*");
-        }
-        // Stamp `x-amz-meta-sha256` so a later CreateOnly collision can be reconciled by checksum
-        // via `head_object` (read_object_sha256) without re-downloading the body.
-        if let Some(sha256) = request.sha256 {
-            builder = builder.metadata(SHA256_METADATA_KEY, sha256);
-        }
-        builder
-            .send()
-            .await
-            .map_err(|error| map_r2_put_error(&key, &error, "write", request.write_mode))?;
-        Ok(())
+        // CreateOnly => S3/R2 conditional write (`If-None-Match: *`): a colliding key returns
+        // `412 Precondition Failed`. `x-amz-meta-sha256` lets a later collision be reconciled by
+        // checksum (read_object_sha256). Every whole-object write goes through the one R2 policy
+        // the reads use (root ADR-0102, ADR-0261).
+        write_retry::write(
+            &self.client,
+            &self.bucket_name,
+            &self.read_policy,
+            request,
+            SHA256_METADATA_KEY,
+        )
+        .await
     }
 
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError> {
@@ -901,6 +927,8 @@ impl ObjectStorageStreamingService for R2ObjectStorage {
             builder = builder.if_none_match("*");
         }
         builder
+            .customize()
+            .config_override(body_request_timeouts())
             .send()
             .await
             .map_err(|error| map_r2_put_error(&key, &error, "stream", request.write_mode))?;
@@ -1001,8 +1029,8 @@ fn map_r2_put_error<E, R>(
     write_mode: ObjectWriteMode,
 ) -> PublishError
 where
-    E: std::fmt::Display + aws_sdk_s3::error::ProvideErrorMetadata,
-    R: R2HttpStatus,
+    E: std::error::Error + aws_sdk_s3::error::ProvideErrorMetadata + 'static,
+    R: R2HttpStatus + std::fmt::Debug,
 {
     let status = error.raw_response().map(R2HttpStatus::status_code);
     let service_error_code = error.as_service_error().and_then(|error| error.code());
@@ -1017,9 +1045,12 @@ where
     let service_error_message = error
         .as_service_error()
         .and_then(aws_sdk_s3::error::ProvideErrorMetadata::message);
+    // DisplayErrorContext, not Display: an SdkError displays as its kind alone ("dispatch
+    // failure"), and the cause (a reset, a closed connection, TLS) is only in its source chain.
     PublishError::Broadcaster(format!(
-        "failed to {verb} R2 object {key}: {error} \
-         (http_status={status:?} code={service_error_code:?} message={service_error_message:?})"
+        "failed to {verb} R2 object {key}: {} \
+         (http_status={status:?} code={service_error_code:?} message={service_error_message:?})",
+        aws_sdk_s3::error::DisplayErrorContext(error)
     ))
 }
 
@@ -1224,3 +1255,11 @@ mod body_retry_tests;
 #[cfg(test)]
 #[path = "r2/read_retry_tests.rs"]
 mod read_retry_tests;
+
+#[cfg(test)]
+#[path = "r2/write_retry_tests.rs"]
+mod write_retry_tests;
+
+#[cfg(test)]
+#[path = "r2/timeout_tests.rs"]
+mod timeout_tests;

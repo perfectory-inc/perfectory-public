@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 /// Identity implementation identifiers.
+pub mod errors;
 pub mod ids;
 
 pub use ids::{SessionId, StaffId};

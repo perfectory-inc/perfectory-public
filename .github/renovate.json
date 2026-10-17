@@ -1,0 +1,144 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Dependency updates arrive as pull requests from the hosted Renovate app (root ADR-0271).",
+    "Version pins live in tools/technology-versions.contract.json (root ADR-0097): the custom managers below update the contract in the same branch as every file that copies a pin, so the version guards see one value.",
+    "Patch and digest updates open ready pull requests that the merge queue takes once CI is green; minor and major updates open as drafts for a person to review."
+  ],
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Seoul",
+  "schedule": ["before 9am on monday"],
+  "dependencyDashboard": false,
+  "semanticCommits": "enabled",
+  "prConcurrentLimit": 6,
+  "prHourlyLimit": 3,
+  "rangeStrategy": "auto",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": ["at any time"],
+    "draftPR": false,
+    "labels": ["security"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 9am on monday"]
+  },
+  "enabledManagers": ["cargo", "npm", "github-actions", "custom.regex"],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "scripts/guard/container-runtime-policy-self-test.sh",
+    "scripts/guard/technology-version-consistency-self-test.sh",
+    "scripts/guard/container-images-match-the-contract-self-test.sh"
+  ],
+  "customManagers": [
+    {
+      "description": "JS pins in the version contract; the npm manager updates the package.json copies in the same branch.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^tools/technology-versions\\.contract\\.json$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "\"manifest_exact_pins\": \\{[^}]*\\}",
+        "\"(?<depName>[^\"]+)\": \"(?<currentValue>\\d[^\"]*)\""
+      ],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "description": "Container images in the version contract, repository:tag -> digest.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^tools/technology-versions\\.contract\\.json$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "\"container_images\": \\{[^}]*\\}",
+        "\"(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)\": \"(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Every copy of a pinned image reference, the same pattern scripts/catalog/sync-container-images.py checks against the contract.",
+      "customType": "regex",
+      "managerFilePatterns": ["/.*/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9._-]*(?:/[a-z0-9._-]+)*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Runtime and toolchain moves are their own wave with full re-verification (root ADR-0097 decision 1).",
+      "matchDepNames": ["node", "pnpm", "rust", "packageManager"],
+      "enabled": false
+    },
+    {
+      "description": "pnpm.overrides are rendered from tools/npm/security-overrides.contract.json (root ADR-0158), not edited.",
+      "matchDepTypes": ["pnpm.overrides"],
+      "enabled": false
+    },
+    {
+      "description": "Third-party actions are admitted by exact SHA in tools/github/selected-actions.json and the live Actions allowlist; that list moves first.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["Swatinem/rust-cache", "pnpm/action-setup"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    },
+    {
+      "matchDatasources": ["crate"],
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "groupName": "cargo patch updates"
+    },
+    {
+      "matchDatasources": ["npm"],
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "groupName": "npm patch updates"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "groupName": "container image patch updates"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "groupName": "github-actions patch updates"
+    },
+    {
+      "matchDatasources": ["crate"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "cargo minor updates",
+      "draftPR": true
+    },
+    {
+      "matchDatasources": ["npm"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "npm minor updates",
+      "draftPR": true
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "container image minor updates",
+      "draftPR": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "github-actions minor updates",
+      "draftPR": true
+    },
+    {
+      "description": "A major moves one dependency at a time, in a draft (root ADR-0097 decision 1).",
+      "matchUpdateTypes": ["major"],
+      "draftPR": true
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "draftPR": false
+    }
+  ]
+}

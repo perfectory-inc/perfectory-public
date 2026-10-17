@@ -118,11 +118,17 @@ fn only_a_listed_candidate_can_be_linked() {
 }
 
 #[test]
-fn a_lineage_decision_cites_a_reason_and_other_needs_a_note() {
+fn a_reason_and_a_note_are_optional_but_other_needs_a_note() {
     let item = item(ReviewStatus::Pending, false);
-    let mut no_reason = draft(&item, Outcome::NotALink, None);
-    no_reason.reason_code = None;
-    assert!(check_decision(&item, &no_reason, steward(1), None, now()).is_err());
+    for (outcome, code) in [(Outcome::Link, Some(OLD)), (Outcome::NotALink, None)] {
+        let mut bare = draft(&item, outcome, code);
+        bare.reason_code = None;
+        assert_eq!(
+            check_decision(&item, &bare, steward(1), None, now()),
+            Ok(false),
+            "{outcome:?} with neither reason nor note"
+        );
+    }
     let mut other = draft(&item, Outcome::NotALink, None);
     other.reason_code = Some(ReasonCode::Other);
     assert!(check_decision(&item, &other, steward(1), None, now()).is_err());
@@ -332,7 +338,7 @@ fn dong_draft(item: &ReviewItem, outcome: Outcome, code: Option<&str>) -> Decisi
 }
 
 #[test]
-fn a_legal_dong_pair_names_an_offered_code_and_says_why() -> Result<(), StewardshipError> {
+fn a_legal_dong_pair_names_an_offered_code() -> Result<(), StewardshipError> {
     let item = dong_item(ReviewStatus::Steward, &[NEW_DONG]);
     let approve = dong_draft(&item, Outcome::Link, Some(NEW_DONG));
     assert!(!check_decision(&item, &approve, steward(1), None, now())?);
@@ -350,23 +356,27 @@ fn a_legal_dong_pair_names_an_offered_code_and_says_why() -> Result<(), Stewards
         Err(StewardshipError::NotACandidate(OTHER_DONG.to_owned())),
         "a code the run did not offer is refused"
     );
-    let silent = DecisionDraft {
+    let one_click = DecisionDraft {
+        reason_code: None,
         note: " ".to_owned(),
         ..approve
     };
-    assert!(
-        matches!(
-            check_decision(&item, &silent, steward(1), None, now()),
-            Err(StewardshipError::InvalidInput(_))
-        ),
-        "an approval says why"
+    assert_eq!(
+        check_decision(&item, &one_click, steward(1), None, now()),
+        Ok(false),
+        "an approval needs neither a reason nor a note"
     );
     Ok(())
 }
 
 #[test]
 fn a_split_or_a_change_awaiting_data_can_never_be_approved() {
+    assert!(
+        !ReviewStatus::Steward.data_decides(),
+        "the default list keeps what a person decides"
+    );
     for status in [ReviewStatus::Split, ReviewStatus::AwaitingData] {
+        assert!(status.data_decides(), "{status} leaves the default list");
         let item = dong_item(status, &[NEW_DONG, OTHER_DONG]);
         for (outcome, code) in [(Outcome::Link, Some(NEW_DONG)), (Outcome::NotALink, None)] {
             assert_eq!(

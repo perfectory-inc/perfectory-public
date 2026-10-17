@@ -67,6 +67,9 @@ class ParcelKindSparkTest(unittest.TestCase):
             types = {c["name"]: c["logical_type"] for c in load_lakehouse_contract(name)["columns"]}
             schema = ", ".join(f"{c} {spark_sql_type(types[c])}" for c in panel.BUILD_COLUMNS[name])
             frames[name] = spark.createDataFrame(rows, schema)
+        # The rows are already under the served codes; the build never reads the change table itself.
+        frames[panel.CODE_CHANGE_SOURCE] = spark.createDataFrame(
+            [], ", ".join(f"{c} string" for c in panel.BUILD_COLUMNS[panel.CODE_CHANGE_SOURCE]))
         args = argparse.Namespace(published_at_utc="2099-09-01T00:00:00Z", allow_intra_snapshot_duplicates=False)
         panel_rows = panel.build_panel(spark, args, frames, cand, {}, "snap")
         return args, frames, cand, panel_rows

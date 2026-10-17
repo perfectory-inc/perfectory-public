@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import re
 import sys
@@ -246,13 +247,12 @@ def steward_rows(
     `approvals` are `OLD=NEW`. OLD must be an open pair item whose status is `steward`: an item
     awaiting data, or a split, is the data's to decide (ADR-0144 §4). NEW must be one of its
     candidates when it has any, and a code the full table holds in every case (`table_codes`; None
-    when staging a decision without the table, the pairing run checks it again).
+    when staging a decision without the table, the pairing run checks it again). `reason` is
+    optional: who, when and which pair are recorded either way (root ADR-0268).
     """
 
     if not STEWARD_ID.fullmatch(steward):
         raise ValueError(f"--steward must be a plain id: {steward!r}")
-    if not reason.strip():
-        raise ValueError("--reason is required: the decision must say why")
     open_pairs = {item["old_code"]: item for item in review if item["kind"] == "pair"}
     source = f"steward:{steward}"
     rows = []
@@ -268,10 +268,39 @@ def steward_rows(
         if (table_codes is not None and new not in table_codes) or (item["candidates"] and new not in item["candidates"]):
             raise ValueError(f"{new} is not a candidate for {old} ({item['candidates'] or 'a code in the full table'})")
         rows.append(change_row("pair", source, old, new, derivation_run_id, now, level=cg.code_level(old),
-                               rule_verdict="steward", detail=reason))
+                               rule_verdict="steward", detail=reason.strip()))
     if not rows:
         raise ValueError("a steward decision needs at least one --approve")
     return rows
+
+
+def rules_version() -> str:
+    """The version of the rules a pairing applies: SHA-256 over every module this job loaded from its own
+    directory (its whole import closure: this job, the pairing rules, the views, the edition and
+    official-history readers) and the two contracts it reads. A deploy that changes any of them owes a
+    re-pairing (`scripts/ops/legal-dong-code-load.sh`), so a fixed rule reaches the record the same day,
+    not only when new data arrives. Walked from this module's own top-level imports, so the host and
+    the Spark run compute the same value and a new import is covered by itself.
+    """
+
+    here = Path(__file__).resolve().parent
+    seen: dict[str, Path] = {}
+    todo = [sys.modules[__name__]]
+    while todo:  # the modules this one imports at its top, and theirs, within this directory
+        module = todo.pop()
+        path = Path(module.__file__).resolve()
+        if path.parent != here or module.__name__ in seen:
+            continue
+        seen[module.__name__] = path
+        for value in vars(module).values():
+            owner = value if isinstance(value, type(sys)) else sys.modules.get(getattr(value, "__module__", "") or "")
+            if owner is not None and getattr(owner, "__file__", None) and owner.__name__ not in seen:
+                todo.append(owner)
+    modules = set(seen.values())
+    digest = hashlib.sha256()
+    for path in sorted(modules) + [cg.CONTRACT_PATH.resolve(), editions.contract_path().resolve()]:
+        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 # --- steward decisions ------------------------------------------------------------------------
@@ -291,7 +320,7 @@ def stage_steward_decision(argv: list[str]) -> int:
     parser.add_argument("--review", required=True, help="steward-review.json the last pairing run wrote")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--steward", required=True)
-    parser.add_argument("--reason", required=True)
+    parser.add_argument("--reason", default="")
     parser.add_argument("--approve", action="append", default=[])
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -686,12 +715,15 @@ def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, n
     _write_json(args.review_handoff_output,
                 review_handoff(plan["review"], rows, official_read, plan["counts"]["official_partial_moves"], now))
     _write_json(args.steward_fold_summary_output, fold_summary(summary.get("steward_decisions", {}), summary["run_id"]))
-    _write_json(args.summary_output, summary)
+    _write_json(args.summary_output, {**summary, "rules_version": rules_version()})
     print("legal-dong-code-change-pairs-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str))
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["rules-version"]:
+        print(rules_version())
+        return 0
     if argv[:1] == ["stage-steward-decision"]:
         return stage_steward_decision(argv[1:])
     args = parse_args(argv)

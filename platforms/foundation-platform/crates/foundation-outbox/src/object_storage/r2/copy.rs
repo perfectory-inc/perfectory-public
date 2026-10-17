@@ -115,6 +115,7 @@ impl R2ObjectStorage {
                 http.headers_mut()
                     .insert("cf-copy-destination-if-none-match", "*");
             })
+            .config_override(super::body_request_timeouts())
             .send()
             .await;
         match conditional {
@@ -269,6 +270,8 @@ impl R2ObjectStorage {
                 // S3 permits a range only when the source exceeds 5 MiB. A one-part copy needs none.
                 .set_copy_source_range((part_count > 1).then(|| format!("bytes={start}-{end}")))
                 .part_number(part_number)
+                .customize()
+                .config_override(super::body_request_timeouts())
                 .send()
                 .await
                 .map_err(|error| {
@@ -292,6 +295,16 @@ impl R2ObjectStorage {
                     .build(),
             );
         }
+        self.complete_copy(request, upload_id, parts).await
+    }
+
+    /// Completes a multipart copy, create-only.
+    async fn complete_copy(
+        &self,
+        request: &CreateOnlyCopyObjectRequest,
+        upload_id: &str,
+        parts: Vec<CompletedPart>,
+    ) -> Result<(), PublishError> {
         let builder = self
             .client
             .complete_multipart_upload()
@@ -303,7 +316,14 @@ impl R2ObjectStorage {
                     .set_parts(Some(parts))
                     .build(),
             );
-        match builder.clone().if_none_match("*").send().await {
+        match builder
+            .clone()
+            .if_none_match("*")
+            .customize()
+            .config_override(super::body_request_timeouts())
+            .send()
+            .await
+        {
             Ok(_) => Ok(()),
             Err(error)
                 if explicitly_rejected_conditional_header(
@@ -354,8 +374,8 @@ fn warn_copy_fallback() {
 fn copy_fallback_config() -> aws_sdk_s3::config::Builder {
     // A retry after a lost response must re-enter through destination HEAD and full reconciliation,
     // never automatically repeat an unconditional mutation after the original absence check.
-    aws_sdk_s3::config::Builder::new()
-        .retry_config(aws_sdk_s3::config::retry::RetryConfig::disabled())
+    // A copy answers only once it is done, so it keeps the body requests' timeouts.
+    super::body_request_timeouts().retry_config(aws_sdk_s3::config::retry::RetryConfig::disabled())
 }
 
 fn explicitly_rejected_conditional_header(

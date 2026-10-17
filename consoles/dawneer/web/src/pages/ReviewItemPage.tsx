@@ -36,6 +36,22 @@ function stewardMayPair(item: ReviewItem): boolean {
   return item.kind === "parcel" || item.status === "steward";
 }
 
+/**
+ * The decision as sent. A reason and a note are optional for every kind; a 법정동 pair stands on the
+ * run's recorded evidence, so it never carries a reason (root ADR-0268).
+ */
+export function decisionRequest(item: ReviewItem, outcome: Outcome, chosen: string, reason: Reason | null, note: string): DecisionRequest {
+  const writesLineage = outcome === "link" || outcome === "not_a_link";
+  const reasonCode = writesLineage && item.kind !== "legal_dong" ? reason : null;
+  return {
+    outcome,
+    note,
+    evidence_etag: item.evidence_etag,
+    ...(outcome === "link" ? { candidate_code: chosen } : {}),
+    ...(reasonCode ? { reason_code: reasonCode } : {}),
+  };
+}
+
 /** One item: what the derivation found, who holds it, the decision form and the decision trail. */
 export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; itemId: string; me: string }) {
   const queries = useQueryClient();
@@ -53,19 +69,8 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
     void queries.invalidateQueries({ queryKey: ["items"] });
   };
   const legalDong = item.data?.kind === "legal_dong";
-  // A 법정동 pair is most often settled by an official document; a parcel by the building register.
-  const reasonCode: Reason = reason ?? (legalDong ? "official_document" : "building_register");
   const writesLineage = outcome === "link" || outcome === "not_a_link";
-  const draft = (): DecisionRequest | null => {
-    if (!item.data) return null;
-    return {
-      outcome,
-      note,
-      evidence_etag: item.data.evidence_etag,
-      ...(outcome === "link" ? { candidate_code: chosen } : {}),
-      ...(writesLineage ? { reason_code: reasonCode } : {}),
-    };
-  };
+  const draft = (): DecisionRequest | null => (item.data ? decisionRequest(item.data, outcome, chosen, reason, note) : null);
 
   const claim = useMutation({ mutationFn: () => client.claim(itemId), onSuccess: refresh, onError: (e) => setNotice(message(e)) });
   const release = useMutation({ mutationFn: () => client.release(itemId), onSuccess: refresh, onError: (e) => setNotice(message(e)) });
@@ -112,7 +117,8 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
   const busy = decide.isPending || dryRun.isPending;
   const outcomeLabel = legalDong ? LEGAL_DONG_OUTCOME_LABEL : OUTCOME_LABEL;
   const mayPair = stewardMayPair(data);
-  const noteMissing = legalDong && writesLineage && !note.trim();
+  // Only "other" must say what it is (the API refuses it without a note).
+  const noteMissing = draft()?.reason_code === "other" && !note.trim();
   const blocked = (outcome === "link" && !chosen) || (writesLineage && !mayPair) || noteMissing;
   const choose = (code: string) => {
     setChosen(code);
@@ -183,10 +189,15 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
             </label>
           ))}
         </div>
-        {writesLineage && (
+        {writesLineage && !legalDong && (
           <label className="block text-sm">
-            <span className="text-slate-500">이유</span>
-            <select className="ml-2 rounded border border-slate-300 px-2 py-1" value={reasonCode} onChange={(e) => setReason(e.target.value as Reason)}>
+            <span className="text-slate-500">이유 (선택)</span>
+            <select
+              className="ml-2 rounded border border-slate-300 px-2 py-1"
+              value={reason ?? ""}
+              onChange={(e) => setReason(e.target.value ? (e.target.value as Reason) : null)}
+            >
+              <option value="">선택 안 함</option>
               {(Object.keys(REASON_LABEL) as Reason[]).map((code) => (
                 <option key={code} value={code}>
                   {REASON_LABEL[code]}
@@ -196,7 +207,7 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
           </label>
         )}
         <label className="block text-sm">
-          <span className="text-slate-500">메모{legalDong && writesLineage ? " (필수: 왜 이렇게 정했는지)" : ""}</span>
+          <span className="text-slate-500">메모 ({noteMissing ? "필수: 기타 이유가 무엇인지" : "선택"})</span>
           <textarea className="mt-1 w-full rounded border border-slate-300 p-2" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
         {outcome === "link" && !chosen && (

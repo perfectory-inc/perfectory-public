@@ -140,6 +140,26 @@
       ]
     }
   },
+  "crates": {
+    "$comment": "Which crates of a Cargo workspace a pull request verifies (root ADR-0269). `cargo xtask verify|integration <area> --affected` asks `change_scope.py crates --workspace <dir>`. A changed path selects the member whose directory holds it, then every member whose Rust sources name it (or a directory above it) in quotes, then every member that depends on those (nextest's rdeps()). Only a pull request narrows: a push to main, the merge queue, the nightly run and a manual run verify every crate. A path matching `run_all` (from the repository root) or `run_all_in_workspace` (from the workspace directory), Rust outside every member, the selector or this file verifies every crate.",
+    "run_all": [
+      "**/Cargo.lock",
+      "rust-toolchain.toml",
+      ".cargo/config.toml",
+      "tools/xtask/**",
+      ".github/workflows/**",
+      "tools/cargo-nextest.env",
+      "tools/pinned-artifacts.json",
+      "scripts/ci/rust-setup.sh",
+      "scripts/ci/workspace_build_cache.py"
+    ],
+    "run_all_in_workspace": [
+      "Cargo.toml",
+      ".config/**",
+      "clippy.toml",
+      "rustfmt.toml"
+    ]
+  },
   "guards": {
     "$comment": "The one ordered list of guards scripts/guard/monorepo-guard.sh runs (root ADR-0207). `paths`: what can change the guard's verdict; its own script and .py, every repository file its scripts name (followed through named scripts), and for <guard>-self-test the scripts of <guard>, reads, are inputs without being listed. `always`: the guard reads every change, and why. A pull request runs the guards whose inputs it touches; main, the merge queue, the daily run, a manual or local run, an unknown comparison, or a change to the runner, scripts/guard/lib, this file or a selector run every guard. Checked by scripts/ci/test_guard_scope.py.",
     "run": [

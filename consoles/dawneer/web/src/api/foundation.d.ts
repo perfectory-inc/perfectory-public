@@ -147,7 +147,7 @@ export interface components {
             candidate_code?: string | null;
             /** @description The `evidence_etag` of the item as read. */
             evidence_etag: string;
-            /** @description Free text; required when the reason is `other`, and on every 법정동 `link` or `not_a_link`. */
+            /** @description Free text; optional, required only when the reason is `other`. */
             note?: string;
             /** @description What was decided. */
             outcome: components["schemas"]["LineageDecisionOutcome"];
@@ -382,6 +382,8 @@ export interface operations {
                 prefix?: string;
                 /** @description Only items without a standing decision on their current evidence. */
                 undecided_only?: boolean;
+                /** @description Leave out items the data decides (`split`, `awaiting_data`): they need no person. */
+                actionable_only?: boolean;
                 /** @description The `next_after` of the previous page. */
                 after?: string;
                 /** @description Page size, at most 200. */
@@ -607,7 +609,7 @@ export interface operations {
                     "application/json": components["schemas"]["LineageDecisionResponse"];
                 };
             };
-            /** @description The decision is malformed, names no candidate, or a 법정동 decision says no why */
+            /** @description The decision is malformed, names no candidate, or cites `other` without a note */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -1062,7 +1062,14 @@ fn validate_zip_entries_do_not_start_with_html(object_key: &str, path: PathBuf) 
         if entry.is_dir() {
             continue;
         }
-        let entry_name = entry.name().to_owned();
+        let entry_name = entry
+            .name()
+            .with_context(|| {
+                format!(
+                    "failed to decode provider acquisition ZIP entry {index} name for {object_key}"
+                )
+            })?
+            .into_owned();
         let mut prefix = [0_u8; 512];
         let read = entry.read(&mut prefix).with_context(|| {
             format!("failed to read provider acquisition ZIP entry {entry_name} for {object_key}")

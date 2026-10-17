@@ -538,14 +538,14 @@ async fn legal_dong_items_list_on_the_same_route_with_their_recorded_evidence(
 }
 
 #[tokio::test]
-async fn a_legal_dong_approval_reaches_the_store_with_its_code_and_a_malformed_code_does_not(
+async fn a_legal_dong_approval_reaches_the_store_with_only_its_code_and_a_malformed_code_does_not(
 ) -> Result<(), Box<dyn Error>> {
     let store = Arc::new(RecordingStewardStore::default());
     let router = app(Arc::default(), store.clone())?;
     let approve = |code: &str| {
         serde_json::json!({
-            "outcome": "link", "candidate_code": code, "reason_code": "official_document",
-            "note": "합성 사유", "evidence_etag": "0".repeat(64),
+            // One click: neither a reason nor a note.
+            "outcome": "link", "candidate_code": code, "evidence_etag": "0".repeat(64),
         })
         .to_string()
     };

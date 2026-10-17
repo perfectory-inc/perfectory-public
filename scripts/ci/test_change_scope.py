@@ -62,6 +62,7 @@ class Fixture:
                 }
             },
             "unscoped": {"guard.yml": {"reason": "reads everything", "owns": ["docs/**"]}},
+            "crates": {"run_all": ["rust-toolchain.toml"], "run_all_in_workspace": [".cargo/config.toml"]},
         }
         self.files = {
             "platforms/example/src/lib.rs": "",
@@ -281,6 +282,162 @@ class ReadScanTest(unittest.TestCase):
 
     def test_read_inside_the_area_needs_nothing(self) -> None:
         self.assertEqual(self.scan("platforms/example/src/b.rs", 'include_str!("lib.rs");\n'), [])
+
+
+class CratesTest(unittest.TestCase):
+    """Which crates of a workspace a pull request verifies (root ADR-0269)."""
+
+    WS = "platforms/ws"
+    # kernel <- domain <- api; tool depends on nothing; app dev-depends on domain.
+    MEMBERS = {
+        "kernel": ("platforms/ws/crates/kernel", set()),
+        "domain": ("platforms/ws/crates/domain", {"kernel"}),
+        "api": ("platforms/ws/services/api", {"domain"}),
+        "app": ("platforms/ws/services/app", {"domain"}),
+        "tool": ("platforms/ws/tools/tool", set()),
+    }
+    CONTRACT = {
+        "crates": {"run_all": ["**/Cargo.lock", "tools/xtask/**"], "run_all_in_workspace": ["Cargo.toml", ".config/**"]}
+    }
+
+    def decide(self, changed, event="pull_request", reads=None):
+        return cs.decide_crates(self.CONTRACT, self.WS, event, changed, self.MEMBERS, reads or {})
+
+    def test_a_change_in_one_crate_selects_it_and_its_dependents_only(self) -> None:
+        selected, direct, _, _ = self.decide({"platforms/ws/crates/domain/src/lib.rs"})
+        self.assertEqual(direct, {"domain"})
+        self.assertEqual(selected, {"domain", "api", "app"})
+
+    def test_a_leaf_crate_selects_itself(self) -> None:
+        selected, _, _, _ = self.decide({"platforms/ws/services/api/tests/route.rs"})
+        self.assertEqual(selected, {"api"})
+
+    def test_a_full_run_trigger_selects_everything(self) -> None:
+        for path in (
+            "platforms/ws/Cargo.lock",
+            "platforms/ws/Cargo.toml",
+            "platforms/ws/.config/nextest.toml",
+            "tools/xtask/src/main.rs",
+            cs.CONTRACT,
+            cs.SELECTOR,
+            "platforms/ws/src/stray.rs",
+        ):
+            with self.subTest(path=path):
+                selected, _, _, reason = self.decide({path, "platforms/ws/services/api/src/lib.rs"})
+                self.assertIsNone(selected, reason)
+
+    def test_events_other_than_a_pull_request_select_everything(self) -> None:
+        for event in ("merge_group", "push", "schedule", "workflow_dispatch", ""):
+            with self.subTest(event=event):
+                self.assertIsNone(self.decide({"platforms/ws/services/api/src/lib.rs"}, event)[0])
+        self.assertIsNone(self.decide(None)[0])
+
+    def test_a_file_outside_every_crate_selects_its_readers(self) -> None:
+        reads = {"api": {"platforms/ws/config/routes.json"}, "kernel": {"platforms/ws/migrations"}}
+        self.assertEqual(self.decide({"platforms/ws/config/routes.json"}, reads=reads)[0], {"api"})
+        selected, direct, _, _ = self.decide({"platforms/ws/migrations/0001_a.sql"}, reads=reads)
+        self.assertEqual(direct, {"kernel"})
+        self.assertEqual(selected, set(self.MEMBERS) - {"tool"})
+
+    def test_a_file_no_crate_reads_selects_nothing(self) -> None:
+        selected, direct, _, _ = self.decide({"platforms/ws/scripts/job.py", "docs/guide.md"})
+        self.assertEqual((selected, direct), (set(), set()))
+
+    def test_member_reads_resolve_quoted_paths_and_deleted_files(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/services/api/src/lib.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text(
+            'const C: &str = include_str!("../../../config/routes.json");\n'
+            'static M: Migrator = sqlx::migrate!("../../migrations");\n',
+            encoding="utf-8",
+        )
+        # routes.json is deleted on this branch: it is in the list only because it changed.
+        tracked = [source, "platforms/ws/config/routes.json", "platforms/ws/migrations/0001_a.sql"]
+        reads = cs.member_reads(root, self.WS, self.MEMBERS, tracked)
+        self.assertEqual(reads["api"], {"platforms/ws/config/routes.json", "platforms/ws/migrations"})
+
+    def test_a_test_that_walks_every_crate_reads_every_crate(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/tools/tool/tests/one_caller.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text(
+            'for top in ["crates", "services", "unrelated"] {}\n// "tools" in a comment is no read\n'
+            'let doc = json!({"tools": {}}); let image = &doc["tools"]["x"];\n',
+            encoding="utf-8",
+        )
+        reads = cs.member_reads(root, self.WS, self.MEMBERS, [source])
+        self.assertEqual(reads["tool"], {"platforms/ws/crates", "platforms/ws/services"})
+        selected, _, _, _ = self.decide({"platforms/ws/services/api/src/lib.rs"}, reads=reads)
+        self.assertEqual(selected, {"api", "tool"})
+
+    def test_a_crate_whose_tests_read_another_crates_source_is_selected_with_it(self) -> None:
+        # tool's test reads kernel's source as text: tool runs, but tool's dependents do not.
+        reads = {"tool": {"platforms/ws/crates/kernel/src/lib.rs"}, "api": {"platforms/ws/crates/domain"}}
+        selected, direct, readers, _ = self.decide({"platforms/ws/crates/kernel/src/lib.rs"}, reads=reads)
+        self.assertEqual((direct, readers), ({"kernel"}, {"tool"}))
+        self.assertEqual(selected, set(self.MEMBERS))
+        _, direct, readers, _ = self.decide({"platforms/ws/crates/domain/src/lib.rs"}, reads=reads)
+        self.assertEqual((direct, readers), ({"domain"}, set()), "api is selected as domain's dependent")
+
+    def test_a_data_file_inside_a_crate_selects_its_readers_with_their_dependents(self) -> None:
+        reads = {"domain": {"platforms/ws/tools/tool/fixtures/rows.json"}}
+        selected, direct, readers, _ = self.decide({"platforms/ws/tools/tool/fixtures/rows.json"}, reads=reads)
+        self.assertEqual((direct, readers), ({"tool", "domain"}, set()))
+        self.assertEqual(selected, {"tool", "domain", "api", "app"})
+
+    def test_closure_follows_dependents_transitively(self) -> None:
+        self.assertEqual(cs.closure(self.MEMBERS, {"kernel"}), {"kernel", "domain", "api", "app"})
+        self.assertEqual(cs.closure(self.MEMBERS, set()), set())
+
+    def test_a_stale_run_all_glob_is_refused(self) -> None:
+        fixture = Fixture(self)
+        fixture.contract["crates"]["run_all"].append("gone/**")
+        self.assertTrue(any("crates.run_all: `gone/**` names no tracked file" in e for e in fixture.errors()))
+
+
+class SuitesTest(unittest.TestCase):
+    """Whether a pull request runs a workspace's Python and Node suites (root ADR-0269)."""
+
+    WS = CratesTest.WS
+    MEMBERS = CratesTest.MEMBERS
+    CONTRACT = CratesTest.CONTRACT
+
+    def decide(self, changed, event="pull_request", reads=frozenset()):
+        return cs.decide_suites(self.CONTRACT, self.WS, event, changed, self.MEMBERS, set(reads))[0]
+
+    def test_a_rust_only_change_skips_the_suites(self) -> None:
+        self.assertFalse(self.decide({"platforms/ws/services/api/src/lib.rs", "platforms/ws/crates/kernel/Cargo.toml"}))
+        self.assertFalse(self.decide({"platforms/other/src/lib.rs", "docs/guide.md"}))
+
+    def test_a_change_outside_every_crate_runs_them(self) -> None:
+        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs", "platforms/ws/scripts/job.py"}))
+
+    def test_a_crate_file_a_suite_reads_runs_them(self) -> None:
+        reads = {"platforms/ws/crates/kernel/fixtures"}
+        self.assertTrue(self.decide({"platforms/ws/crates/kernel/fixtures/rows.json"}, reads=reads))
+        self.assertTrue(self.decide({"docs/contract.json"}, reads={"docs/contract.json"}))
+
+    def test_run_all_and_other_events_run_them(self) -> None:
+        self.assertTrue(self.decide({"platforms/ws/Cargo.lock"}))
+        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs"}, event="merge_group"))
+        self.assertTrue(self.decide(None))
+
+    def test_suite_reads_scan_non_rust_sources_only(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        files = {
+            "platforms/ws/scripts/test_job.py": 'open("platforms/ws/crates/kernel/fixtures/rows.json")\n',
+            "platforms/ws/crates/kernel/src/lib.rs": 'include_str!("../../../config/routes.json");\n',
+            "platforms/ws/crates/kernel/fixtures/rows.json": "[]",
+            "platforms/ws/config/routes.json": "{}",
+        }
+        for path, text in files.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text, encoding="utf-8")
+        self.assertEqual(cs.suite_reads(root, self.WS, list(files)), {"platforms/ws/crates/kernel/fixtures/rows.json"})
 
 
 class RepositoryTest(unittest.TestCase):

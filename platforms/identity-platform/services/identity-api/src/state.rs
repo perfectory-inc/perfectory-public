@@ -151,6 +151,7 @@ impl AppState {
                     .timeout(std::time::Duration::from_secs(2))
                     .build()
                     .context("readiness HTTP client")?,
+                issuer_reachable: std::sync::atomic::AtomicBool::new(true),
             }),
         ))
     }
@@ -194,6 +195,8 @@ struct PgReadinessProbe {
     pool: PgPool,
     discovery_url: String,
     http: reqwest::Client,
+    /// The last issuer outcome, so a change is logged once with its reason instead of every probe.
+    issuer_reachable: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -206,11 +209,27 @@ impl ReadinessProbe for PgReadinessProbe {
     }
 
     async fn issuer_ready(&self) -> bool {
-        self.http
-            .get(&self.discovery_url)
-            .send()
-            .await
-            .is_ok_and(|response| response.status().is_success())
+        let outcome = match self.http.get(&self.discovery_url).send().await {
+            Ok(response) if response.status().is_success() => Ok(()),
+            Ok(response) => Err(format!("HTTP {}", response.status())),
+            Err(error) => Err(identity_shared_kernel::errors::with_causes(&error)),
+        };
+        let reachable = outcome.is_ok();
+        let was = self
+            .issuer_reachable
+            .swap(reachable, std::sync::atomic::Ordering::Relaxed);
+        match outcome {
+            // Every staff and service token check fails while this lasts, though readiness only
+            // says `degraded` (an issuer outage must not cascade into everything waiting on us).
+            Err(cause) if was => tracing::error!(
+                discovery_url = %self.discovery_url, %cause, "identity issuer unreachable"
+            ),
+            Ok(()) if !was => {
+                tracing::info!(discovery_url = %self.discovery_url, "identity issuer reachable again");
+            }
+            _ => {}
+        }
+        reachable
     }
 }
 

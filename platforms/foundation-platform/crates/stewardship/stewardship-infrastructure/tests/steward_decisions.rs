@@ -456,8 +456,9 @@ fn pair(
                 Outcome::NotALink
             },
             candidate_code: code.map(ToOwned::to_owned),
-            reason_code: Some(ReasonCode::OfficialDocument),
-            note: "합성 사유".to_owned(),
+            // One click: a 법정동 decision carries neither a reason nor a note.
+            reason_code: None,
+            note: String::new(),
             evidence_etag: item.evidence_etag(),
             supersedes_decision_id: None,
         },
@@ -481,12 +482,20 @@ async fn legal_dong_pairs_are_decided_on_the_same_tables_and_exported_for_the_pa
         assert_eq!(store.legal_dong_decisions().await?.review_items, 0, "nothing published yet");
         store.replace_review_items(&parse_handoff(&legal_dong_handoff("2099-09-01T00:00:00Z"))?).await?;
         // A parcel item beside them: the kind filter keeps the two apart.
-        item(&pool, NEW_A, ReviewStatus::Pending, false).await?;
+        let (parcel, parcel_etag) = item(&pool, NEW_A, ReviewStatus::Pending, false).await?;
         let dongs = store
             .list_items(ReviewItemFilter { kind: Some(ItemKind::LegalDong), limit: 10, ..ReviewItemFilter::default() }, now())
             .await?;
         assert_eq!(dongs.iter().map(|v| v.item.subject_code.as_str()).collect::<Vec<_>>(), [OLD_DONG_A, OLD_DONG_B, OLD_DONG_SPLIT]);
         let (a, b, split) = (&dongs[0].item, &dongs[1].item, &dongs[2].item);
+        let actionable = store
+            .list_items(ReviewItemFilter { kind: Some(ItemKind::LegalDong), actionable_only: true, limit: 10, ..ReviewItemFilter::default() }, now())
+            .await?;
+        assert_eq!(
+            actionable.iter().map(|v| v.item.subject_code.as_str()).collect::<Vec<_>>(),
+            [OLD_DONG_A, OLD_DONG_B],
+            "the default list hides what the data decides; the split stays in the table"
+        );
         assert!(a.evidence_json.is_some());
 
         let alice = Uuid::from_u128(1);
@@ -510,7 +519,16 @@ async fn legal_dong_pairs_are_decided_on_the_same_tables_and_exported_for_the_pa
         assert_eq!((export.review_items, export.decision_count), (3, 1));
         let decision = &export.decisions[0];
         assert_eq!((decision.decision_id, decision.old_code.as_str(), decision.new_code.as_str(), decision.note.as_str()),
-                   (first.decision_id, OLD_DONG_A, NEW_DONG, "합성 사유"));
+                   (first.decision_id, OLD_DONG_A, NEW_DONG, ""));
+        assert_eq!((decision.decided_by, decision.decided_at, decision.reason_code), (alice, now(), None), "who and when are recorded");
+
+        // A parcel decision may omit its reason too; the table no longer refuses it.
+        let mut bare = decide(parcel, &parcel_etag, alice, "parcel-bare-00001", Outcome::NotALink);
+        bare.draft.reason_code = None;
+        let DecideOutcome::Recorded(parcel_decision) = store.decide(bare).await? else {
+            return Err("the parcel decision was not recorded".into());
+        };
+        assert_eq!((parcel_decision.reason_code, parcel_decision.decided_by), (None, alice));
         assert!(store.foldable_decisions().await?.is_empty(), "a 법정동 decision never folds into parcel lineage");
 
         assert_eq!(store.record_folds(&[decision.decision_id], "legal-dong-pairing-test").await?, 1);

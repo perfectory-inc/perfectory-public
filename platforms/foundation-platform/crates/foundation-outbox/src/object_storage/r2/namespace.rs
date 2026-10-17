@@ -289,6 +289,24 @@ impl R2KeyNamespace {
     }
 }
 
+/// A request this client refuses to send (root ADR-0177). It surfaces from the SDK as a
+/// `dispatch failure`, like a lost connection; the retry policies find it in the error's source
+/// chain and never ask again (`read_retry::request_error_is_transient`).
+#[derive(Debug)]
+pub(super) struct NamespaceRefusal(String);
+
+impl std::fmt::Display for NamespaceRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NamespaceRefusal {}
+
+fn refused(message: String) -> BoxError {
+    Box::new(NamespaceRefusal(message))
+}
+
 /// Puts every request of one client into its namespace and refuses one that leaves it.
 #[derive(Debug)]
 pub(super) struct R2NamespaceInterceptor {
@@ -322,7 +340,8 @@ impl Intercept for R2NamespaceInterceptor {
             .map(ToOwned::to_owned);
         let (uri, copy_source) = self
             .namespace
-            .rewrite(request.uri(), copy_source.as_deref())?;
+            .rewrite(request.uri(), copy_source.as_deref())
+            .map_err(refused)?;
         request.set_uri(uri.as_str())?;
         if let Some(copy_source) = copy_source {
             request
@@ -347,7 +366,7 @@ impl Intercept for R2NamespaceInterceptor {
                 request.uri(),
                 request.headers().get(COPY_SOURCE_HEADER),
             )
-            .map_err(Into::into)
+            .map_err(refused)
     }
 }
 
