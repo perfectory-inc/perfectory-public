@@ -98,6 +98,9 @@ jobs:
       # before 200, then stays down while the fetcher serves the file from its cache.
       - name: Pinned release fetcher tests
         run: python3 scripts/ci/test_fetch_pinned.py -v
+      # The per-crate build-time summary verify prints (root ADR-0269).
+      - name: Build-time summary tests
+        run: python3 scripts/ci/test_cargo_timings.py -v
       # Root ADR-0207: on a pull request the runner keeps the guards whose inputs
       # changed (tools/ci/change-scope.json `guards`); every other event runs them all.
       - name: Repository guard and harness verification

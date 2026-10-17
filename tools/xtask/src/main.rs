@@ -1379,19 +1379,18 @@ fn verify_cargo(area: &Area, dir: &Path, selection: &Selection, log: &mut Failur
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
     verify_cargo_builds(area, dir, selection, log);
-    summarize_build_times(dir, started);
+    summarize_build_times(area.dir, started);
 }
 
 /// Prints the crates this run spent the longest building, from the `--timings` reports its clippy
 /// and test builds wrote (root ADR-0269, as omicron's build analysis). A report, never a verdict:
 /// the script prints why when there is nothing to show and always exits 0.
-fn summarize_build_times(dir: &Path, started: u64) {
+fn summarize_build_times(workspace: &str, started: u64) {
     let since = started.to_string();
-    let workspace = dir.to_string_lossy();
     let summary = Command::new("python3")
         .current_dir(repo_root())
         .args(["scripts/ci/cargo_timings.py", "summarize", "--workspace"])
-        .args([workspace.as_ref(), "--since", since.as_str()])
+        .args([workspace, "--since", since.as_str()])
         .status();
     if let Err(error) = summary {
         eprintln!("xtask: no build-time summary: could not run python3: {error}");
