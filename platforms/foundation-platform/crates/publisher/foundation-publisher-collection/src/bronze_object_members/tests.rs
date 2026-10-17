@@ -60,7 +60,9 @@ fn crate_zip(
             writer.write_all(body).unwrap();
         }
     }
-    writer.set_zip64_comment(zip64_comment);
+    if let Some(comment) = zip64_comment {
+        writer.set_raw_zip64_extensible_data_sector(comment.into_bytes().into_boxed_slice());
+    }
     writer.finish().unwrap().into_inner()
 }
 
@@ -81,7 +83,7 @@ fn crate_reading(bytes: &[u8]) -> Vec<(String, u64, u64, Option<NaiveDateTime>)>
                 )
             });
             (
-                file.name().to_owned(),
+                file.name().unwrap().into_owned(),
                 file.size(),
                 file.compressed_size(),
                 modified,

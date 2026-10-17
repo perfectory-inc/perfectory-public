@@ -624,7 +624,8 @@ fn convert(
         .by_index(member_index)
         .context("failed to reopen the selected ZIP member")?
         .name()
-        .to_owned();
+        .context("failed to decode the selected ZIP member name")?
+        .into_owned();
 
     let compress = config.output.is_compressed();
     let stream_report = {
@@ -672,7 +673,8 @@ fn select_member(
             .by_index(index)
             .with_context(|| format!("failed to inspect ZIP member {index}"))?
             .name()
-            .to_owned();
+            .with_context(|| format!("failed to decode the name of ZIP member {index}"))?
+            .into_owned();
         if (lane.member_matches)(&name) {
             matches.push((index, name));
         }

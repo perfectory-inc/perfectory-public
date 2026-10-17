@@ -261,7 +261,10 @@ fn read_shapefile_from_bronze_zip(object_path: &Path) -> anyhow::Result<Shapefil
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .with_context(|| format!("failed to decode the name of zip entry {index}"))?
+            .into_owned();
         let Some(extension) = name.rsplit('.').next().map(str::to_ascii_lowercase) else {
             continue;
         };
