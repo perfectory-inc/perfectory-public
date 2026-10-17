@@ -410,10 +410,10 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assert_merge_equals_full(job, pins4, pins3, "2099-04-01T00:00:00Z", {pnu(5)})
 
         # The code change row is gone: PNU 6 loses the renumbered right. The pair's codes are the
-        # fixture's whole 시군구, so every parcel is reached (and the renumbered right's own key).
+        # fixture's whole 시군구, so every parcel is reached.
         pins5 = {**pins4, job.CODE_CHANGE_SOURCE: self.put(job.CODE_CHANGE_SOURCE, [])}
         merged = self.assert_merge_equals_full(job, pins5, pins4, "2099-05-01T00:00:00Z",
-                                               {*(pnu(i) for i in range(0, 41) if i != 2), renumbered},
+                                               {pnu(i) for i in range(0, 41) if i != 2},
                                                fraction=1.0)
         self.assertIn(self.rows("parcel_panel", job)[pnu(6)].land_right_total, (0, None), merged["rebuild"])
 
