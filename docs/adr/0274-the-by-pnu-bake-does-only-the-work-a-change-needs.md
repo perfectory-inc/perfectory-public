@@ -1,6 +1,6 @@
 # ADR 0274: by-PNU 굽기는 바뀐 만큼만 일한다 — 같은 Gold 는 비교하지 않고, 한 항목 레인의 압축 문턱은 잰 손익분기를 따르며, 되돌리기는 직전 묶음 세대로 한다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-18
 - Amends: [ADR-0141](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) §5 (누적 변경 비율
   "초기 5%, 첫 운영 측정 뒤 조정"), [ADR-0193](./0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md)
@@ -69,7 +69,7 @@ manifest 로 되돌리면 된다. 7일이 지난 뒤의 되돌리기는 정본�
 비율이 아니라 패치 수가 정한다: Worker 는 manifest 의 시군구 목록으로 해당 없는 패치를 건너뛰고, 패치는 최대
 `max_patches`(7) 개다(ADR-0141 §6).
 
-## Decision (제안)
+## Decision
 
 1. **같은 내용의 Gold 는 비교하지 않는다.** 생산자(`gold_incremental.build_or_merge`)는 커밋할 Gold 의 내용 지문
    — 모든 행 `row_digest` 의 순서 무관 합(SHA-256 앞 64비트의 2^64 모듈러 합)과 행 수 — 을 스냅숏 요약
