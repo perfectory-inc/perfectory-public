@@ -394,12 +394,43 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertIn('"price_per_m2":6000', after[pnu(3)].price_json)
         self.assert_untouched(job, "parcel_panel", before, after, reached - {pnu(50)})
 
-        # A zone code change reaches every parcel zoned under it: the producer rebuilds whole.
-        pins3 = {**pins2, job.ZONE_CODE_SOURCE: self.put(job.ZONE_CODE_SOURCE, [{**zone_codes[0], "uname": "z2"}])}
-        whole = self.run_job(job, pins3, "parcel_panel", "2099-03-01T00:00:00Z", previous=pins2)
-        self.assertEqual(whole["rebuild"]["mode"], "full")
-        self.assertIn("not mapped to PNUs", whole["rebuild"]["full_reason"])
+        # Root ADR-0273: a change to the zone code table, the code change table or the lineage is
+        # mapped to PNUs too. Each merges only the parcels it reaches and equals the full rebuild.
+        # A zone code moves under another anchor: the parcels zoned under it (1, 4, 7, ...) change.
+        moved_zone = [*zone_codes, {"ucode": "UQA110", "parent_ucode": "UQA100", "uname": "child",
+                                    "source_snapshot_id": "zc-v2"}]
+        zone_changes = {
+            job.ZONE_CODE_SOURCE: moved_zone,
+            job.ZONING_SOURCE: zonings + [{**zonings[0], "pnu": pnu(5), "zone_code": "UQA110"}],
+        }
+        pins3 = {**pins2, **{name: self.put(name, rows) for name, rows in zone_changes.items()}}
+        self.assert_merge_equals_full(job, pins3, pins2, "2099-03-01T00:00:00Z", {pnu(5)})
+        pins4 = {**pins3, job.ZONE_CODE_SOURCE: self.put(job.ZONE_CODE_SOURCE, [
+            {**row, "parent_ucode": "UQB001"} if row["ucode"] == "UQA110" else row for row in moved_zone])}
+        self.assert_merge_equals_full(job, pins4, pins3, "2099-04-01T00:00:00Z", {pnu(5)})
+
+        # The code change row is gone: PNU 6 loses the renumbered right. The pair's codes are the
+        # fixture's whole 시군구, so every parcel is reached (and the renumbered right's own key).
+        pins5 = {**pins4, job.CODE_CHANGE_SOURCE: self.put(job.CODE_CHANGE_SOURCE, [])}
+        merged = self.assert_merge_equals_full(job, pins5, pins4, "2099-05-01T00:00:00Z",
+                                               {*(pnu(i) for i in range(0, 41) if i != 2), renumbered},
+                                               fraction=1.0)
+        self.assertIn(self.rows("parcel_panel", job)[pnu(6)].land_right_total, (0, None), merged["rebuild"])
+
+        # A lineage edge 50 -> 7 is added: both its PNUs are reached, and 3, which reads PNU 50.
+        lineage2 = lineage + [{**lineage[0], "successor_pnu": pnu(7)}]
+        pins6 = {**pins5, job.LINEAGE_SOURCE: self.put(job.LINEAGE_SOURCE, lineage2)}
+        self.assert_merge_equals_full(job, pins6, pins5, "2099-06-01T00:00:00Z", {pnu(3), pnu(7), pnu(50)})
+
+    def assert_merge_equals_full(self, job, pins, previous, published, reached, fraction=0.9):
+        """Merges `pins` over `previous` incrementally, reaching exactly `reached`, and compares every
+        PNU with a full rebuild of `pins`."""
+        merged = self.run_job(job, pins, "parcel_panel", published, previous=previous, fraction=fraction)
+        self.assertEqual(merged["rebuild"]["mode"], "incremental", merged["rebuild"])
+        self.assertEqual(merged["rebuild"]["counts"]["affected_pnus"], len(reached), merged["rebuild"])
+        self.run_job(job, pins, "parcel_panel_full", published)
         self.assertEqual(self.content("parcel_panel", job), self.content("parcel_panel_full", job))
+        return merged
 
 
 if __name__ == "__main__":

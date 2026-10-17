@@ -194,13 +194,17 @@ class BuildColumns(unittest.TestCase):
         # verified_building_links fills a missing evidence column with NULL instead of failing.
         self.assertLessEqual(set(evidence_policy()["columns"]), set(building.BUILD_COLUMNS[building.UNIT_SOURCE]))
 
-    def test_whole_table_inputs_are_inputs(self):
-        # A lineage edge is keyed by two PNUs and lands in both parcels' lineage section.
-        # A code pair re-keys every row under its code.
-        whole = (parcel.ZONE_CODE_SOURCE, parcel.LINEAGE_SOURCE, parcel.CODE_CHANGE_SOURCE)
-        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, whole)
-        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), whole)
+    def test_no_input_rebuilds_whole(self):
+        # Root ADR-0273: the zone code table, the code change table and the lineage are mapped to
+        # PNUs (`affected_pnus`), so a change to one merges instead of rebuilding the country.
+        self.assertEqual(parcel.WHOLE_TABLE_INPUTS, ())
+        self.assertEqual(rebuild.producer_whole_table_inputs(parcel), ())
         self.assertEqual(rebuild.producer_whole_table_inputs(building), ())
+
+    def test_a_code_reaches_the_pnus_its_level_fixes(self):
+        self.assertEqual({level: parcel.CODE_LEVEL_DIGITS[parcel.code_level(code)] for level, code in (
+            ("sido", "9900000000"), ("sigungu", "9999900000"), ("eupmyeondong", "9999900100"),
+            ("ri", "9999900101"))}, {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10})
 
 
 if __name__ == "__main__":
