@@ -1,0 +1,30 @@
+name: ci-cache-budget
+# Daily check of the repository's Actions cache against tools/ci/actions-cache-budget.contract.json
+# (root ADR-0269). It gates no pull request: a red run here means GitHub is about to evict, or has
+# evicted, a cache the merge queue needs, or a job saves a cache nobody budgeted.
+on:
+  schedule:
+    - cron: "47 22 * * *"
+  workflow_dispatch:
+# The caches API answers a public repository's job token with contents: read alone (the stash
+# report in foundation-ci.yml reads it the same way).
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  budget:
+    name: Actions cache budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Measure the cache against the budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/actions_cache_budget.py measure

@@ -207,7 +207,13 @@ def restore(repo: Path, stash_dir: Path) -> dict[str, int]:
     return stats
 
 
-CACHE_CAP_BYTES = 10 * 1000**3  # tools/github/actions-cache-policy.json
+# The one place the repository cache limit is written.
+CACHE_CAP_BYTES = int(
+    json.loads((Path(__file__).resolve().parents[2] / "tools/github/actions-cache-policy.json").read_text(encoding="utf-8"))[
+        "max_cache_size_gb"
+    ]
+    * 1000**3
+)
 
 
 def fetch_json(url: str) -> dict:

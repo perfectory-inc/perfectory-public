@@ -101,6 +101,12 @@ jobs:
       # The per-crate build-time summary verify prints (root ADR-0269).
       - name: Build-time summary tests
         run: python3 scripts/ci/test_cargo_timings.py -v
+      # The Actions cache budget's contract and its judge (root ADR-0269); the daily
+      # ci-cache-budget workflow applies them to the live cache list.
+      - name: Actions cache budget tests
+        run: |
+          python3 scripts/ci/test_actions_cache_budget.py -v
+          python3 scripts/ci/actions_cache_budget.py check
       # Root ADR-0207: on a pull request the runner keeps the guards whose inputs
       # changed (tools/ci/change-scope.json `guards`); every other event runs them all.
       - name: Repository guard and harness verification
