@@ -16,6 +16,7 @@ docs/
 ├── README.md                  이 문서 지도
 ├── adr/                       전역 설계 결정
 ├── architecture/             모노레포 전체 구조·경계
+├── domain-stories/            서버 작업의 도메인 스토리(지금/바뀐 뒤)와 사장 요약
 ├── guides/                    전역 개발 안내
 ├── reference/                 전역 조회용 사실
 ├── roadmap/                   전역 작업 목록과 기반 목표·지표
@@ -32,6 +33,7 @@ docs/
 | [기술 스택](./technology-stack.md) | 전역 기술·버전·환경 기준 |
 | [전역 용어집](./glossary.md) | 문서에서 사용하는 한글 용어 정본 |
 | [ADR](./adr/README.md) | 모노레포 전역 설계 결정 |
+| [도메인 스토리](./domain-stories/README.md) | 서버 작업이 도는 이야기 4개(지금·바뀐 뒤)와 사장 요약 |
 | [문서 운영 안내](./guides/documentation-lifecycle.md) | 문서 작성·검토·기록·번역 절차 |
 | [전역 레퍼런스](./reference/README.md) | 조회용 사실 — 외부 사례 조사 등 |
 | [운영 준비 작업 목록](./roadmap/production-readiness.md) | 전역 출시 준비 **할 일**과 완료 순서 |
