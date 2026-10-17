@@ -410,8 +410,9 @@ mod tests {
         if let Some(job) = jobs.jobs.first_mut() {
             job.state_paths = paths(&["/var/lib/foundation-platform/lineage-stewardship"]);
         }
-        let unit = "[Service]\nProtectSystem=strict\nReadWritePaths=/var/lib/foundation-platform/map-edit-fold\nTimeoutStartSec=150m\n";
-        assert_eq!(check(&jobs, &move |_| Ok(unit.to_owned())).len(), 1);
+        let unit = format!("{UNIT}ReadWritePaths=/var/lib/foundation-platform/map-edit-fold\n");
+        let problems = check(&jobs, &move |_: &str| Ok(unit.clone()));
+        assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
     #[test]
