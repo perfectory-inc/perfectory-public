@@ -48,7 +48,12 @@ async fn attempt(
     if let Some(sha256) = &request.sha256 {
         put = put.metadata(sha256_metadata_key, sha256);
     }
-    match put.send().await {
+    match put
+        .customize()
+        .config_override(super::body_request_timeouts())
+        .send()
+        .await
+    {
         Ok(_) => Attempt::Done,
         Err(error) => {
             let status = error.raw_response().map(R2HttpStatus::status_code);

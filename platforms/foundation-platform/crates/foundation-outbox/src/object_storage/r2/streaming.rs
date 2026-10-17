@@ -436,6 +436,8 @@ impl MultipartBackend for R2MultipartBackend {
                     .upload_id(&self.upload_id)
                     .part_number(part_number)
                     .body(ByteStream::from(body))
+                    .customize()
+                    .config_override(super::body_request_timeouts())
                     .send(),
             )
             .map_err(|error| format!("failed to upload R2 part {part_number}: {error}"))?;
@@ -467,6 +469,8 @@ impl MultipartBackend for R2MultipartBackend {
                     .upload_id(&self.upload_id)
                     .multipart_upload(multipart)
                     .if_none_match("*")
+                    .customize()
+                    .config_override(super::body_request_timeouts())
                     .send(),
             )
             .map_err(|error| format!("failed to complete R2 object {}: {error}", self.key))?;

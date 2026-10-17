@@ -80,7 +80,12 @@ impl R2ObjectStorage {
         if let Some(sha256) = request.sha256 {
             builder = builder.metadata(SHA256_METADATA_KEY, sha256);
         }
-        match builder.send().await {
+        match builder
+            .customize()
+            .config_override(super::body_request_timeouts())
+            .send()
+            .await
+        {
             Ok(_) => Ok(ConditionalWrite::Written),
             Err(error) => {
                 let status = error.raw_response().map(R2HttpStatus::status_code);
