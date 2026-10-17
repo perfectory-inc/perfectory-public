@@ -20,6 +20,7 @@ sys.path.insert(0, str(SPARK_DIR / "jobs"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import legal_dong_code_change_pairs as pairs_job  # noqa: E402
+import legal_dong_code_change_views as views  # noqa: E402
 import lineage_review_queue as review_queue  # noqa: E402
 from test_code_go_kr_legal_dong import (  # noqa: E402
     CADASTRAL, CONTRACT, NO_PARCELS_BEFORE, NOW, merged_table, renamed_table, row, table_html, DAY,
@@ -68,6 +69,34 @@ class DatabaseDecisionTest(unittest.TestCase):
         rows, verdicts = pairs_job.fold_steward_decisions(decisions, self.plan["review"], self.codes, NOW)
         self.assertEqual(verdicts, {"db:d-1": "recorded"})
         self.assertEqual((rows[0]["source"], rows[0]["new_code"], rows[0]["detail"]), (f"steward:{DECIDER}", "9911010100", None))
+
+    def test_a_steward_pair_takes_the_code_lists_change_date_not_the_decision_or_run_date(self):
+        # 2026-10-17: two approved pairs were recorded with no date, so the lineage window held
+        # neither and the derivation refused both 동 though a person had approved them.
+        abolished = {r["region_cd"]: r["abolished_date"] for r in self.table}["9811010100"]
+        decisions = pairs_job.db_decisions(export(("d-1", "9811010100", "9911010100")))
+        rows, _ = pairs_job.fold_steward_decisions(decisions, self.plan["review"], self.codes, NOW)
+        self.assertEqual(rows[0]["effective_date"], abolished)
+        self.assertNotEqual(rows[0]["effective_date"], NOW.strftime("%Y%m%d"))
+        window = views.leaf_pairs(rows, abolished, abolished)
+        self.assertEqual(window, {"9811010100": {"9911010100": f"steward:{DECIDER}"}}, "the pair is in its change window")
+
+    def test_an_undated_steward_pair_already_recorded_gets_a_dated_copy_once(self):
+        abolished = {r["region_cd"]: r["abolished_date"] for r in self.table}["9811010100"]
+        undated = pairs_job.change_row("pair", f"steward:{DECIDER}", "9811010100", "9911010100", "old-run", NOW,
+                                       level="eupmyeondong", rule_verdict="steward")
+        self.assertIsNone(undated["effective_date"])
+        self.assertEqual(views.leaf_pairs([undated], abolished, abolished), {}, "an undated pair is in no window")
+        plan = pairs_job.plan_derivation(self.table, [undated], CONTRACT, CADASTRAL, "run-2", NOW, NO_PARCELS_BEFORE)
+        copies = [row for row in plan["fresh_changes"] if row["source"] == f"steward:{DECIDER}"]
+        self.assertEqual([(row["old_code"], row["new_code"], row["effective_date"]) for row in copies],
+                         [("9811010100", "9911010100", abolished)])
+        recorded = [undated, *plan["fresh_changes"]]
+        self.assertEqual(views.leaf_pairs(recorded, abolished, abolished).get("9811010100"),
+                         {"9911010100": f"steward:{DECIDER}"}, "the dated copy wins over the undated row")
+        again = pairs_job.plan_derivation(self.table, recorded, CONTRACT, CADASTRAL, "run-3", NOW, NO_PARCELS_BEFORE)
+        self.assertEqual([row for row in again["fresh_changes"] if row["source"] == f"steward:{DECIDER}"], [],
+                         "the copy is appended once")
 
     def test_the_run_refuses_again_what_the_list_or_the_table_does_not_hold(self):
         # 심은 위반: an approval of a change that is not listed (it was paired by the rule), and one of a

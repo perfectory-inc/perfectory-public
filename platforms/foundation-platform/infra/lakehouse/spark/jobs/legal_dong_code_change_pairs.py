@@ -92,6 +92,42 @@ def decided_pairs(recorded: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]
     ]
 
 
+def dated_steward_corrections(
+    recorded: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, str]],
+    known: set[str],
+    derivation_run_id: str,
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """A dated copy of every recorded steward pair stored without an effective date.
+
+    Steward pairs recorded before the fix carried no date, so no lineage window held them and the
+    derivation refused their 동 though a person had approved the pair. The ledger is append-only:
+    the copy carries the code list's abolished date for OLD under its own key, and the views read a
+    dated row before an undated one of the same pair. Nobody approves again.
+    """
+
+    abolished = {row["region_cd"]: row.get("abolished_date", "") for row in rows}
+    out: list[dict[str, Any]] = []
+    for row in recorded:
+        if row.get("kind") != "pair" or row.get("effective_date") or not str(row.get("source") or "").startswith("steward:"):
+            continue
+        day = abolished.get(str(row["old_code"]), "")
+        key = row["change_key"] + DATED_SUFFIX
+        if not day or key in known:
+            continue
+        known.add(key)
+        dated = change_row("pair", row["source"], row["old_code"], row["new_code"], derivation_run_id, now,
+                           level=row.get("level"), effective_date=day, rule_verdict=row.get("rule_verdict"),
+                           detail=row.get("detail"))
+        out.append({**dated, "change_key": key})
+    return out
+
+
+# The change key of a dated copy of an undated steward pair (`dated_steward_corrections`).
+DATED_SUFFIX = "|dated"
+
+
 def pairing_run_id(table_source_record_id: str, now: datetime) -> str:
     """This run's `derivation_run_id`: the table it paired and the second it ran.
 
@@ -167,6 +203,7 @@ def plan_derivation(
         if row["change_key"] not in known:
             known.add(row["change_key"])
             fresh.append(row)
+    fresh.extend(dated_steward_corrections(recorded, rows, known, derivation_run_id, now))
 
     crosswalk, crosswalk_review = views.sigungu_crosswalk_view([*recorded, *fresh], cadastral)
     review = result.review + crosswalk_review
@@ -267,8 +304,12 @@ def steward_rows(
             raise ValueError(f"{old} is {item['status']} ({item.get('jibun', '')}); the data decides it, not a steward (ADR-0144 §4)")
         if (table_codes is not None and new not in table_codes) or (item["candidates"] and new not in item["candidates"]):
             raise ValueError(f"{new} is not a candidate for {old} ({item['candidates'] or 'a code in the full table'})")
+        # The pair takes effect when the code list says OLD was abolished, never on the day it was
+        # decided or recorded: an undated pair is in no lineage window (`views.leaf_pairs`).
+        if not item.get("as_of"):
+            raise ValueError(f"{old} has no abolished date in the code list; an undated pair cannot be placed in any window")
         rows.append(change_row("pair", source, old, new, derivation_run_id, now, level=cg.code_level(old),
-                               rule_verdict="steward", detail=reason.strip()))
+                               effective_date=item["as_of"], rule_verdict="steward", detail=reason.strip()))
     if not rows:
         raise ValueError("a steward decision needs at least one --approve")
     return rows
