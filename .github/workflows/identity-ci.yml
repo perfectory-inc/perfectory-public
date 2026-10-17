@@ -80,6 +80,7 @@ jobs:
           workspaces: |
             platforms/identity-platform
             tools/xtask
+          shared-key: identity-dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the
       # one flag policy. Runs from the repo root (this workflow defaults to the area).
@@ -136,10 +137,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the area's one dependency cache, which rust-quality saves (root ADR-0269).
           workspaces: |
             platforms/identity-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: identity-dependencies
+          save-if: false
       # `role_grant_postgres` creates and migrates its own throwaway database, but
       # `live_provisioning` connects to the one it is given and writes straight to
       # `identity.service_principal`. The lane runs both, so the shared database
@@ -275,10 +278,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the area's one dependency cache, which rust-quality saves (root ADR-0269).
           workspaces: |
             platforms/identity-platform
             tools/xtask
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: identity-dependencies
+          save-if: false
       - name: Regenerate OpenAPI contract
         run: cargo run --locked --quiet -p identity-api --bin export-openapi -- /tmp/identity.v1.json
       - name: Verify deterministic contract
@@ -310,9 +315,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the area's one dependency cache, which rust-quality saves (root ADR-0269).
           workspaces: |
             platforms/identity-platform
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+            tools/xtask
+          shared-key: identity-dependencies
+          save-if: false
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh
