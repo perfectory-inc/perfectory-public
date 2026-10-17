@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/intelligence-contracts",
+    "crates/intelligence-workspace-hack",
     "crates/knowledge/knowledge-domain",
     "crates/knowledge/knowledge-application",
     "crates/knowledge/knowledge-infrastructure",
@@ -32,6 +33,7 @@ unwrap_used = "deny"
 expect_used = "deny"
 
 [workspace.dependencies]
+intelligence-workspace-hack = { path = "crates/intelligence-workspace-hack" }
 apache-avro = "0.21.0"
 async-trait = "0.1"
 axum = "0.8"

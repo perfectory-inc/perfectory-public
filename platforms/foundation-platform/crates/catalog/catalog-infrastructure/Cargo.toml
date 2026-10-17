@@ -19,6 +19,7 @@ uuid = { workspace = true }
 catalog-domain = { workspace = true }
 catalog-application = { workspace = true }
 foundation-shared-kernel = { workspace = true }
+foundation-workspace-hack.workspace = true
 
 [features]
 default = []

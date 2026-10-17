@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 sqlx.workspace = true
 tokio.workspace = true
+identity-workspace-hack.workspace = true
 
 [lints]
 workspace = true

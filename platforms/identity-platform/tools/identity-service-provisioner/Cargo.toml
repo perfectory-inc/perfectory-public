@@ -18,6 +18,7 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+identity-workspace-hack.workspace = true
 
 [lints]
 workspace = true

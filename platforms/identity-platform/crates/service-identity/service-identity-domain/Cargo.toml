@@ -14,3 +14,4 @@ workspace = true
 authorization-domain = { workspace = true }
 identity-contracts = { workspace = true }
 thiserror = { workspace = true }
+identity-workspace-hack.workspace = true

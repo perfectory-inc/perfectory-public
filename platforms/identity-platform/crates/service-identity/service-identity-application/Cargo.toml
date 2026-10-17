@@ -16,6 +16,7 @@ authorization-domain = { workspace = true }
 chrono = { workspace = true }
 identity-contracts = { workspace = true }
 service-identity-domain = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

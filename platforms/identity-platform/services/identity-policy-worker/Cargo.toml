@@ -23,6 +23,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 wiremock = { workspace = true }

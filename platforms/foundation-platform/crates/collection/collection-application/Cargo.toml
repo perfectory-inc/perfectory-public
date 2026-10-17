@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 collection-domain = { workspace = true }
 foundation-shared-kernel = { workspace = true }
+foundation-workspace-hack.workspace = true
 
 [dev-dependencies]
 anyhow = { workspace = true }

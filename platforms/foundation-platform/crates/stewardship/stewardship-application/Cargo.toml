@@ -15,3 +15,4 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 stewardship-domain = { workspace = true }
 uuid = { workspace = true }
+foundation-workspace-hack.workspace = true

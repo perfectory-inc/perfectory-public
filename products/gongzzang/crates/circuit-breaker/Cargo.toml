@@ -11,6 +11,7 @@ description = "공짱 외부 API 호출 표준 미들웨어 — Policy + Breaker
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros"] }
 tracing = { workspace = true }
+gongzzang-workspace-hack.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

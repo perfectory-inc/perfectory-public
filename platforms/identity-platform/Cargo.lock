@@ -77,6 +77,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "staff-identity-domain",
  "tokio",
  "uuid",
@@ -89,6 +90,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -104,6 +106,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "serde_json",
  "sqlx",
  "staff-identity-application",
@@ -981,6 +984,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "jsonwebtoken",
  "reqwest",
  "serde",
@@ -1006,6 +1010,7 @@ name = "identity-contracts"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "identity-workspace-hack",
  "serde",
  "serde_json",
  "utoipa",
@@ -1016,6 +1021,7 @@ dependencies = [
 name = "identity-database-migrator"
 version = "0.1.0"
 dependencies = [
+ "identity-workspace-hack",
  "sqlx",
  "tokio",
 ]
@@ -1028,6 +1034,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "identity-contracts",
+ "identity-workspace-hack",
  "reqwest",
  "serde_json",
  "sqlx",
@@ -1046,6 +1053,7 @@ dependencies = [
  "authorization-domain",
  "chrono",
  "identity-contracts",
+ "identity-workspace-hack",
  "serde",
  "serde_json",
  "sha2",
@@ -1059,8 +1067,52 @@ dependencies = [
 name = "identity-shared-kernel"
 version = "0.1.0"
 dependencies = [
+ "identity-workspace-hack",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "identity-workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cc",
+ "chrono",
+ "crypto-common",
+ "digest",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-sink",
+ "futures-util",
+ "getrandom 0.4.3",
+ "indexmap",
+ "libc",
+ "log",
+ "memchr",
+ "num-traits",
+ "proc-macro2",
+ "quote",
+ "regex-automata",
+ "regex-syntax",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "sha2",
+ "slab",
+ "smallvec",
+ "sqlx-core",
+ "sqlx-postgres",
+ "syn 2.0.119",
+ "syn 3.0.5",
+ "sync_wrapper",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing-core",
+ "uuid",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1859,6 +1911,7 @@ dependencies = [
  "authorization-domain",
  "chrono",
  "identity-contracts",
+ "identity-workspace-hack",
  "service-identity-domain",
  "tokio",
  "uuid",
@@ -1870,6 +1923,7 @@ version = "0.1.0"
 dependencies = [
  "authorization-domain",
  "identity-contracts",
+ "identity-workspace-hack",
  "thiserror 1.0.69",
 ]
 
@@ -1882,6 +1936,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "jsonwebtoken",
  "reqwest",
  "serde",
@@ -2221,6 +2276,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "staff-identity-domain",
  "tokio",
  "uuid",
@@ -2232,6 +2288,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "serde",
  "thiserror 1.0.69",
 ]
@@ -2244,6 +2301,7 @@ dependencies = [
  "chrono",
  "identity-contracts",
  "identity-shared-kernel",
+ "identity-workspace-hack",
  "jsonwebtoken",
  "reqwest",
  "serde",

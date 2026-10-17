@@ -30,6 +30,7 @@ sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5", "v7"] }
+foundation-workspace-hack.workspace = true
 
 [dev-dependencies]
 foundation-disposable-database = { workspace = true }

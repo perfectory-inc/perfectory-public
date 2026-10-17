@@ -25,6 +25,7 @@ identity-contracts = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 uuid = { workspace = true }
+identity-workspace-hack.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }
