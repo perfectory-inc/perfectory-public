@@ -743,10 +743,54 @@ pub struct ByPnuServingPatchPolicy {
     /// The most patches any reader accepts. Not a tuning knob: it only ever rises.
     pub manifest_patch_ceiling: usize,
     pub max_cumulative_change_ratio: f64,
+    /// Where a patch stops being cheaper than a full bake, measured (root ADR-0274 §2); the bound
+    /// may not exceed it.
+    pub cumulative_change_break_even_ratio: f64,
+    /// The measurement behind both numbers.
+    pub max_cumulative_change_ratio_reason: String,
     pub max_delta_fraction: f64,
     pub pnu_prefix_length: usize,
     pub tombstone_schema_version: String,
     pub tombstone_max_bytes: usize,
+}
+
+/// Refuses patch bounds that cannot all hold, a cumulative bound above the measured break-even, and a
+/// lane of more than one section while the break-even is the one-section measurement (root ADR-0274
+/// §2). `section_counts` is each lane's (name, number of sections).
+fn check_patch_bounds(
+    patches: &ByPnuServingPatchPolicy,
+    section_counts: &[(&str, usize)],
+) -> Result<(), String> {
+    if patches.max_patches == 0
+        || patches.max_patches > patches.manifest_patch_ceiling
+        || !(patches.max_cumulative_change_ratio > 0.0
+            && patches.max_cumulative_change_ratio <= patches.max_delta_fraction
+            && patches.max_delta_fraction <= 1.0)
+        || !PNU_PREFIX_LENGTHS.contains(&patches.pnu_prefix_length)
+    {
+        return Err("by_pnu_serving_patches holds bounds that cannot all hold".to_owned());
+    }
+    if patches.max_cumulative_change_ratio_reason.trim().is_empty() {
+        return Err(
+            "by_pnu_serving_patches.max_cumulative_change_ratio needs its reason".to_owned(),
+        );
+    }
+    if !(patches.max_cumulative_change_ratio <= patches.cumulative_change_break_even_ratio
+        && patches.cumulative_change_break_even_ratio <= 1.0)
+    {
+        return Err(format!(
+            "by_pnu_serving_patches.max_cumulative_change_ratio {} is above the measured break-even {}: \
+             past it a patch costs more than the full bake it avoids (root ADR-0274 §2)",
+            patches.max_cumulative_change_ratio, patches.cumulative_change_break_even_ratio
+        ));
+    }
+    if let Some((lane, sections)) = section_counts.iter().find(|(_, sections)| *sections > 1) {
+        return Err(format!(
+            "lane {lane} serves {sections} sections, but the patch break-even was measured on lanes \
+             of one section (root ADR-0274 §2); measure it before such a lane bakes"
+        ));
+    }
+    Ok(())
 }
 
 /// Bytes of a section pack before its header (root ADR-0147 §2): magic, format version, reserved,
@@ -778,16 +822,21 @@ fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
                     contract.schema_version
                 ));
             }
-            let patches = &contract.by_pnu_serving_patches;
-            if patches.max_patches == 0
-                || patches.max_patches > patches.manifest_patch_ceiling
-                || !(patches.max_cumulative_change_ratio > 0.0
-                    && patches.max_cumulative_change_ratio <= patches.max_delta_fraction
-                    && patches.max_delta_fraction <= 1.0)
-                || !PNU_PREFIX_LENGTHS.contains(&patches.pnu_prefix_length)
-            {
-                return Err("by_pnu_serving_patches holds bounds that cannot all hold".to_owned());
+            let mut sections = Vec::new();
+            for (name, gateway) in [
+                ("parcel", &contract.parcel_by_pnu_gateway),
+                ("building", &contract.building_by_pnu_gateway),
+            ] {
+                if let Some(packs) = &gateway.section_packs {
+                    sections.push((name, packs.sections.len()));
+                }
             }
+            for (name, lane) in &contract.by_pnu_lanes {
+                if let Some(packs) = &lane.gateway.section_packs {
+                    sections.push((name.as_str(), packs.sections.len()));
+                }
+            }
+            check_patch_bounds(&contract.by_pnu_serving_patches, &sections)?;
             check_section_packs(&contract)?;
             Ok(contract)
         })
@@ -966,6 +1015,48 @@ mod tests {
 
     fn written() -> anyhow::Result<Value> {
         Ok(serde_json::from_str(R2_CONNECTION_CONTRACT)?)
+    }
+
+    /// The contract's patch block with `change` applied.
+    fn patch_bounds(change: impl FnOnce(&mut Value)) -> anyhow::Result<ByPnuServingPatchPolicy> {
+        let mut block = written()?["by_pnu_serving_patches"].clone();
+        change(&mut block);
+        Ok(serde_json::from_value(block)?)
+    }
+
+    #[test]
+    fn the_cumulative_bound_stays_under_the_measured_break_even_on_one_section_lanes(
+    ) -> anyhow::Result<()> {
+        // Root ADR-0274 §2: the contract as written holds, with the lanes it names.
+        assert!(by_pnu_serving_patch_policy().is_ok());
+        let one_section = [("parcel", 1), ("building", 1)];
+        check_patch_bounds(&patch_bounds(|_| {})?, &one_section).map_err(anyhow::Error::msg)?;
+        // A bound above the break-even is a patch that costs more than the full bake it avoids.
+        let above = patch_bounds(|block| {
+            block["max_cumulative_change_ratio"] = json!(
+                block["cumulative_change_break_even_ratio"]
+                    .as_f64()
+                    .unwrap_or(1.0)
+                    + 0.01
+            );
+        })?;
+        let refused = check_patch_bounds(&above, &one_section)
+            .err()
+            .unwrap_or_default();
+        assert!(refused.contains("break-even"), "{refused}");
+        // The break-even is the one-section measurement: a lane of more sections must be measured.
+        let refused = check_patch_bounds(&patch_bounds(|_| {})?, &[("parcel", 1), ("building", 4)])
+            .err()
+            .unwrap_or_default();
+        assert!(
+            refused.contains("lane building serves 4 sections"),
+            "{refused}"
+        );
+        // And the numbers carry their measurement.
+        let reasonless =
+            patch_bounds(|block| block["max_cumulative_change_ratio_reason"] = json!(" "))?;
+        assert!(check_patch_bounds(&reasonless, &one_section).is_err());
+        Ok(())
     }
 
     #[test]
