@@ -1777,6 +1777,7 @@ dependencies = [
 name = "foundation-jobs"
 version = "0.1.0"
 dependencies = [
+ "foundation-workspace-hack",
  "serde",
  "serde_json",
 ]
@@ -2165,6 +2166,8 @@ dependencies = [
  "num-traits",
  "once_cell",
  "percent-encoding",
+ "proc-macro2",
+ "quote",
  "regex",
  "regex-automata",
  "regex-syntax",
@@ -2194,6 +2197,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "zerocopy",
+ "zeroize",
  "zlib-rs",
 ]
 

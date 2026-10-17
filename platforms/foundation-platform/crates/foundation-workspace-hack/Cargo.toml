@@ -69,6 +69,7 @@ tracing-core = { version = "0.1" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["serde", "v4", "v5", "v7"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+zeroize = { version = "1", features = ["derive"] }
 zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 
 [build-dependencies]
@@ -101,6 +102,8 @@ num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
+proc-macro2 = { version = "1" }
+quote = { version = "1" }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
@@ -122,6 +125,7 @@ tracing-core = { version = "0.1" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["serde", "v4", "v5", "v7"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+zeroize = { version = "1", features = ["derive"] }
 zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]

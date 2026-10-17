@@ -1077,6 +1077,7 @@ name = "identity-workspace-hack"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cc",
  "chrono",
  "crypto-common",
  "digest",
@@ -1084,6 +1085,7 @@ dependencies = [
  "futures-channel",
  "futures-sink",
  "futures-util",
+ "getrandom 0.4.3",
  "indexmap",
  "libc",
  "log",
@@ -1110,6 +1112,7 @@ dependencies = [
  "tracing-core",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]

@@ -55,6 +55,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 base64 = { version = "0.22" }
@@ -95,6 +96,7 @@ tracing-core = { version = "0.1" }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
