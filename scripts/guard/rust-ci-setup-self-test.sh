@@ -111,6 +111,11 @@ expect_rejected no-cache 'has 0 Rust cache steps'
 plant pr-writes-cache sed "s#save-if: .*#save-if: true#"
 expect_rejected pr-writes-cache 'Rust cache must use save-if'
 
+# A job that only reads the cache another job saves (root ADR-0269) writes nothing anywhere.
+plant reads-only-cache sed "s#save-if: .*#save-if: false#"
+bash "$guard" "$test_root/reads-only-cache" >/dev/null 2>&1 \
+  || fail "rejected a Rust cache that never saves (save-if: false)"
+
 # A cache option outside the admitted set.
 plant cache-extra-option sed 's#^          shared-key: example#          cache-all-crates: true#'
 expect_rejected cache-extra-option 'admits only workspaces, shared-key and save-if'
