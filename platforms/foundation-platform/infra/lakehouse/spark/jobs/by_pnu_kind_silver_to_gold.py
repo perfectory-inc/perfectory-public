@@ -23,6 +23,7 @@ from pyspark.sql import DataFrame, SparkSession, functions as F
 from gold_rebuild import assert_minimum_row_count
 import by_pnu_kinds
 import gold_incremental as incremental
+import section_coverage
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_snapshot_pins import load_source_snapshot_pins
 from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract, partition_column_names, required_column_names, sort_order
@@ -95,6 +96,7 @@ def parse_args(argv=None):
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
     incremental.add_arguments(parser)
+    section_coverage.add_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -127,6 +129,7 @@ def validate_args(args, spec: KindSpec) -> dict[str, str]:
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env(args.iceberg_catalog_name)
     incremental.validate_arguments(args, input_sources(args, spec))
+    section_coverage.validate_arguments(args)
     return load_source_snapshot_pins(args.input_mode, args.source_snapshots_path, input_sources(args, spec),
                                      ANCHOR_SOURCE, args.iceberg_snapshot_id)
 
@@ -251,9 +254,12 @@ def run(spark, args, spec: KindSpec, pins) -> int:
         validate=lambda gold: validate_gold_frame(spec, gold, None),
         content_columns=spec.content_columns, gold_columns=spec.gold_columns,
         whole_table_inputs=spec.whole_table_inputs)
+    # Root ADR-0272: a kind's rows are the PNUs that have its section, so their count is its coverage.
+    coverage = section_coverage.guard_from_arguments(spark, args, table, {spec.kind.section: spec.kind.columns[0]},
+                                                     frames.get(panel.CODE_CHANGE_SOURCE), shares=False)
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table,
                                          lambda gold, expected: validate_gold_frame(spec, gold, expected),
-                                         assert_minimum_row_count)
+                                         assert_minimum_row_count, coverage)
     try:
         if outcome.mode == "full":
             counters.update(assert_parity(spark, args, spec, outcome.gold))

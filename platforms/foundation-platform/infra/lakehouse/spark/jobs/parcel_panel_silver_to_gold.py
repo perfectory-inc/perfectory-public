@@ -69,6 +69,8 @@ from lineage_review_queue import steward_resolved
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
+import by_pnu_kinds
+import section_coverage
 from parcel_attribute_carry import carry_candidates
 from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
@@ -306,6 +308,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional path for a machine-readable lakehouse lineage event JSON file.",
     )
     incremental.add_arguments(parser)
+    section_coverage.add_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -332,6 +335,7 @@ def validate_args(args: argparse.Namespace) -> dict[str, str]:
         raise ValueError("--region-prefix must be 1 to 10 digits")
     if args.minimum_count is not None and args.minimum_count < 0:
         raise ValueError("--minimum-count must be non-negative")
+    section_coverage.validate_arguments(args)
 
     validate_identifier("iceberg catalog name", args.iceberg_catalog_name)
     validate_identifier("source iceberg namespace", args.source_iceberg_namespace)
@@ -1489,9 +1493,14 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         whole_table_inputs=WHOLE_TABLE_INPUTS,
     )
+    # Root ADR-0272: every section a kind line serves from this panel, by its first content column.
+    sections = {kind.section: kind.columns[0] for kind in by_pnu_kinds.kinds().values()
+                if kind.host_panel == GOLD_CONTRACT_NAME}
+    coverage = section_coverage.guard_from_arguments(spark, args, qualified_target_table(args), sections,
+                                                     frames.get(CODE_CHANGE_SOURCE), shares=True)
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous,
                                          qualified_target_table(args), validate_gold_frame,
-                                         assert_minimum_row_count)
+                                         assert_minimum_row_count, coverage)
     try:
         persisted_count, metrics, added_columns = None, outcome.metrics, ()
         success = "validate-ok"
