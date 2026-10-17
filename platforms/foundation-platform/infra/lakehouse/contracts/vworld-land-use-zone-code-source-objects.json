@@ -19,7 +19,7 @@
     },
     "export": "export-land-use-zone-code-silver-handoff",
     "spark": {
-      "master": "local[2]",
+      "master": "local[2,8]",
       "driver_memory": "4g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 1

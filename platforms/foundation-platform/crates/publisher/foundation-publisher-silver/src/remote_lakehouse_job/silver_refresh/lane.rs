@@ -342,6 +342,12 @@ impl LaneContract {
         );
         let spark = block.spark;
         ensure!(
+            master_retries_tasks(&spark.master),
+            "spark.master must be local[N,maxFailures] with maxFailures >= 2: plain local[N] ignores \
+             spark.task.maxFailures, so one reset R2 read aborts the lane (root ADR-0102); got {}",
+            spark.master
+        );
+        ensure!(
             spark.master.starts_with("local[")
                 && spark.master.ends_with(']')
                 && spark.driver_memory.len() >= 2
@@ -349,7 +355,7 @@ impl LaneContract {
                 && spark.driver_memory[..spark.driver_memory.len() - 1]
                     .bytes()
                     .all(|b| b.is_ascii_digit()),
-            "spark.master must be local[N] and spark.driver_memory <N>g"
+            "spark.master must be local[N,M] and spark.driver_memory <N>g"
         );
         if let ExportKind::Land { .. } = kind {
             let export = crate::land_use_silver_export::export_command(&block.export)
@@ -479,5 +485,39 @@ impl LaneContract {
             land: None,
             spark,
         })
+    }
+}
+
+/// `local[N,M]` with `M >= 2`: a failed task runs again (root ADR-0102).
+fn master_retries_tasks(master: &str) -> bool {
+    master
+        .strip_prefix("local[")
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(|inner| inner.split_once(','))
+        .is_some_and(|(threads, failures)| {
+            !threads.trim().is_empty() && failures.trim().parse::<u32>().is_ok_and(|n| n >= 2)
+        })
+}
+
+#[cfg(test)]
+mod master_tests {
+    use super::master_retries_tasks;
+
+    #[test]
+    fn only_a_master_that_runs_a_failed_task_again_is_accepted() {
+        // Built, not written out: the repository scan (test_spark_masters_retry_tasks.py) refuses a
+        // written master without task retries, and these are the refused ones.
+        let master = |threads: &str, failures: &str| format!("local[{threads}{failures}]");
+        assert!(master_retries_tasks(&master("8", ",8")));
+        assert!(master_retries_tasks(&master("*", ",2")));
+        for refused in [
+            master("8", ""),
+            master("8", ",1"),
+            master("", ",8"),
+            master("8", ",x"),
+        ] {
+            assert!(!master_retries_tasks(&refused), "{refused}");
+        }
+        assert!(!master_retries_tasks("yarn"));
     }
 }

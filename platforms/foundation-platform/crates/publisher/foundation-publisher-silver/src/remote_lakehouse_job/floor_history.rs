@@ -43,7 +43,7 @@ if {compose} --profile lakehouse-batch run --rm{run_options} \\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \\
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \\
   spark spark-submit \\
-  --master 'local[2]' --driver-memory 1g \\
+  --master 'local[2,8]' --driver-memory 1g \\
   --conf spark.jars.ivy=/home/spark/.ivy2 \\
   --packages {packages} \\
   /workspace/infra/lakehouse/spark/jobs/building_register_floor_history.py \\

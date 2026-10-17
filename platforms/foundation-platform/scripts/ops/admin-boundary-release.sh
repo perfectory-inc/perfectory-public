@@ -50,7 +50,7 @@ spark() {
     -p foundation-platform-compute --profile lakehouse-batch run --rm \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark spark-submit --master 'local[4]' --driver-memory 12g \
+    spark spark-submit --master 'local[4,8]' --driver-memory 12g \
     --jars "${SPARK_RELEASE_JARS}" "/workspace/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 

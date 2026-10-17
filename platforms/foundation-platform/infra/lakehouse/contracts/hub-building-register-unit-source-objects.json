@@ -15,6 +15,6 @@
     },
     "export": "export-building-register-unit-silver-handoff",
     "export_chunk_rows": 250000,
-    "spark": {"master": "local[8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
+    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
   }
 }

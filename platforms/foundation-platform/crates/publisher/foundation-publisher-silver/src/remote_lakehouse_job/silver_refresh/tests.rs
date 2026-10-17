@@ -606,7 +606,7 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
     let args = execute::spark_arguments(&runtime, &units, &SparkLoad::local(&units));
     let joined = args.join(" ");
     assert!(joined.contains(&format!("-p {}", runtime.project)));
-    assert!(joined.contains("--master local[8] --driver-memory 16g"));
+    assert!(joined.contains("--master local[8,8] --driver-memory 16g"));
     assert!(joined.contains("--input /workspace/target/lakehouse/handoff --input-format parquet"));
     assert!(joined.contains("--contract silver.building_register_units"));
     assert!(joined.contains("--iceberg-write-mode overwrite"));

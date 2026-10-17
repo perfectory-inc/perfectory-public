@@ -149,7 +149,7 @@ spark() {
     -p "foundation-parcel-tile-bake-${INVOCATION_ID}" --profile lakehouse-batch run --rm -v "${scratch}:/scratch" \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark spark-submit --master 'local[8]' --driver-memory 16g \
+    spark spark-submit --master 'local[8,8]' --driver-memory 16g \
     --conf spark.local.dir=/scratch --jars "${SPARK_RELEASE_JARS}" \
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${run_log}" 2>&1
 }
