@@ -1,9 +1,11 @@
 # Server overlay for the identity runtime (root ADR-0080/0081).
-# identity-api joins the shared network where Zitadel lives, and a socat
-# sidecar borrows its network namespace so the configured issuer answers from
-# inside the container. The sidecar is a compose service on purpose:
-# recreating identity-api recreates it too. Port values are derived from
-# config/identity-runtime-endpoints.contract.json by identity-runtime.sh —
+# identity-api and a socat relay share one network namespace so the configured issuer answers on
+# identity-api's own loopback. The namespace belongs to `identity-netns`, a container that only
+# sleeps (the Kubernetes pause-container pattern): identity-api and the relay both join it, so either
+# can restart — Docker's restart policy, a crash, a recreate — and rejoin a live namespace. Before,
+# the relay borrowed identity-api's namespace and kept the dead one whenever Docker restarted
+# identity-api (2026-09-30, again 2026-10-16): every staff token check failed while it looked healthy.
+# Port values are derived from config/identity-runtime-endpoints.contract.json by identity-runtime.sh —
 # a literal here would be a second copy of the decision.
 # Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
 # guard every-container-has-a-memory-cap).
@@ -14,24 +16,41 @@ x-log-cap: &log-cap
     max-file: "3"
 
 services:
-  identity-api:
+  identity-netns:
+    logging: *log-cap
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    entrypoint: ["sleep", "infinity"]
+    mem_limit: 16m
+    restart: unless-stopped
+    # What identity-api published itself before it joined this namespace.
+    ports:
+      - "127.0.0.1:${IDENTITY_API_PORT:-8080}:8080"
     networks:
       default:
+        aliases:
+          - identity-api
       identity-shared:
         aliases:
           - identity-api
+
+  identity-api:
+    network_mode: "service:identity-netns"
+    ports: !reset []
+    depends_on:
+      identity-netns:
+        condition: service_started
 
   zitadel-loopback:
     logging: *log-cap
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     mem_limit: 64m
     restart: unless-stopped
-    network_mode: "service:identity-api"
+    network_mode: "service:identity-netns"
     command:
       - "TCP-LISTEN:${IDENTITY_ZITADEL_LOOPBACK_PORT:?identity-runtime.sh derives this from identity-runtime-endpoints.contract.json},fork,reuseaddr,bind=127.0.0.1"
       - "TCP:zitadel:${IDENTITY_ZITADEL_LOOPBACK_PORT:?}"
     depends_on:
-      identity-api:
+      identity-netns:
         condition: service_started
 
 networks:

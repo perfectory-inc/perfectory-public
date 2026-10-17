@@ -15,6 +15,7 @@ async-trait = { workspace = true }
 authorization-domain = { workspace = true }
 chrono = { workspace = true }
 identity-contracts = { workspace = true }
+identity-shared-kernel = { workspace = true }
 jsonwebtoken = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

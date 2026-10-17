@@ -76,6 +76,14 @@ if overlay is not None:
         failures.append("identity server overlay sidecar does not listen on the contract variable")
     if f"TCP:{issuer_alias}:${{IDENTITY_ZITADEL_LOOPBACK_PORT" not in body:
         failures.append(f"identity server overlay sidecar does not target '{issuer_alias}' on the contract variable")
+    # Both identity-api and its relay join the namespace a sleep-only holder owns: a relay that
+    # borrows identity-api's own namespace keeps a dead one when identity-api restarts (2026-10-16).
+    joins = re.findall(r'network_mode:\s*"?service:([A-Za-z0-9_-]+)"?', body)
+    if not joins or set(joins) != {"identity-netns"}:
+        failures.append(f"identity server overlay shares a namespace other than identity-netns's: {sorted(set(joins))}")
+    holder = re.search(r"^  identity-netns:\n((?:    .*\n|\s*\n)+)", body + "\n", re.M)
+    if holder is None or 'entrypoint: ["sleep", "infinity"]' not in holder.group(1):
+        failures.append("identity server overlay has no sleep-only identity-netns holding the namespace")
 
 bridge = read("platforms/foundation-platform/compose.identity-bridge.yml")
 if bridge is not None:
