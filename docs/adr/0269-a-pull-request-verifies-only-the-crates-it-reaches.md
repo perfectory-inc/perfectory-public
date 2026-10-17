@@ -128,3 +128,8 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   풀 리퀘스트 30개 재현에서 Foundation 스위트를 건너뛰는 것은 9건(Rust 만 3건, 다른 영역만 6건)이다.
   시험: `SuitesTest`(심은 결함 — 스위트가 읽는 파일을 무시 — 이 실패), xtask
   `the_suite_selection_is_read_exactly`.
+- 2026-10-17 (§7 빌드 시간): `cargo xtask verify` 의 clippy 와 nextest 빌드가 `--timings` 로 크레이트별
+  보고서를 쓰고, 끝에서 `scripts/ci/cargo_timings.py summarize` 가 그 실행이 쓴 보고서만 읽어 가장 오래
+  걸린 크레이트 15개(단위 시간의 합)를 CI 요약(`$GITHUB_STEP_SUMMARY`)과 로그에 표로 찍는다. omicron 의
+  빌드 분석처럼 보고일 뿐 판정이 아니다 — 보고서가 없으면 이유를 찍고 0 으로 끝난다. 시험:
+  `scripts/ci/test_cargo_timings.py`(`ci-time-budget-self-test` 가 돌린다), xtask 의 clippy 명령 단언.
