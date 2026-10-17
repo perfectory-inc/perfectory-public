@@ -20,6 +20,7 @@
       "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다.",
       "systemd_service": "foundation-building-register-floor.service",
       "systemd_timer": "foundation-building-register-floor.timer",
+      "state_paths": [],
       "schedule": "20 8 * * *",
       "started_by": "schedule",
       "timeout_minutes": 250,
@@ -38,6 +39,10 @@
       "description": "Daily source sweep: re-plan the hub.go.kr list and the VWorld datasets the endpoint catalog marks source_sweep, skip files already held, land every new one in Bronze; a stopped run resumes (root ADR-0077, ADR-0168, ADR-0172).",
       "systemd_service": "foundation-source-sweep.service",
       "systemd_timer": "foundation-source-sweep.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/source-sweep",
+        "/data/foundation-platform/source-sweep"
+      ],
       "schedule": "40 3 * * *",
       "started_by": "schedule",
       "timeout_minutes": 490,
@@ -55,6 +60,7 @@
       "description": "Outbox publish tick: deliver pending catalog events to their receivers (root ADR-0079).",
       "systemd_service": "foundation-outbox-publish.service",
       "systemd_timer": "foundation-outbox-publish.timer",
+      "state_paths": [],
       "schedule": "0,30 * * * *",
       "started_by": "schedule",
       "timeout_minutes": 20,
@@ -74,6 +80,10 @@
       "description": "Fold staff polygon edits into the administrative boundary tiles (root ADR-0112).",
       "systemd_service": "foundation-map-edit-fold@admin.service",
       "systemd_timer": "foundation-map-edit-fold-admin.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
       "schedule": "35 * * * *",
       "started_by": "schedule",
       "timeout_minutes": 130,
@@ -95,6 +105,10 @@
       "description": "Fold staff polygon edits into the industrial complex tiles (root ADR-0112).",
       "systemd_service": "foundation-map-edit-fold@complex.service",
       "systemd_timer": "foundation-map-edit-fold-complex.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
       "schedule": "5 * * * *",
       "started_by": "schedule",
       "timeout_minutes": 130,
@@ -116,6 +130,12 @@
       "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/lineage-stewardship",
+        "/var/lib/foundation-platform/lakehouse-ivy",
+        "/var/lib/foundation-platform/legal-dong-code",
+        "/var/lib/foundation-platform/parcel-number-change"
+      ],
       "schedule": "50 6 * * *",
       "started_by": "schedule",
       "timeout_minutes": 130,
@@ -144,6 +164,9 @@
       "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
       "systemd_service": "foundation-legal-dong-code.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/legal-dong-code"
+      ],
       "schedule": "15 5 * * *",
       "started_by": "schedule",
       "timeout_minutes": 35,
@@ -161,6 +184,9 @@
       "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the source contract (vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze, measure each ZIP's members by ranged read, and propose the contract entry. No Spark: the Silver load runs from a release whose contract holds the edition (runbook vworld-parcel-editions.md). Exit 3 means an edition awaits the contract, not a fault: the job posts 'new edition waiting for contract entry' itself, and is not retried (a retry would only download and propose the same edition again).",
       "systemd_service": "foundation-vworld-parcel-edition.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/vworld-parcel-edition"
+      ],
       "schedule": "40 4 * * *",
       "started_by": "schedule",
       "timeout_minutes": 190,
@@ -178,6 +204,9 @@
       "description": "VWorld 필지고유번호변동연혁 (MK/30527; root ADR-0144 §4, ADR-0145), the collection half: list the dataset's 시도 files, and only when a file's provider update date changed (the provider reuses file numbers), land it in Bronze, read it back with the reader key, refuse a file whose shape changed, that shrank past the contract's bound or whose dateless rows exceed it, and write a pending-load handoff. No Spark: lineage_stewardship loads the handoff into silver.parcel_number_change_history under its spark slots and the 법정동 code pairing reads the window's links as its official step.",
       "systemd_service": "foundation-parcel-number-change.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/parcel-number-change"
+      ],
       "schedule": "25 5 * * *",
       "started_by": "schedule",
       "timeout_minutes": 50,
@@ -194,6 +223,7 @@
       "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
       "systemd_service": "foundation-data-quality.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "20 7 * * *",
       "started_by": "schedule",
       "timeout_minutes": 40,
@@ -210,6 +240,7 @@
       "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
       "systemd_service": "foundation-shape-ledger-check.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "30 12 * * *",
       "started_by": "schedule",
       "timeout_minutes": 20,
@@ -226,6 +257,9 @@
       "description": "Silver refresh of the 표제부 lane `building-register-titles` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_titles already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-titles.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -245,6 +279,9 @@
       "description": "Silver refresh of the 전유부 lane `building-register-units` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_units already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-units.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -264,6 +301,9 @@
       "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-unit-areas.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -283,6 +323,9 @@
       "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -302,6 +345,9 @@
       "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-exclusive-unit.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -321,6 +367,9 @@
       "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-characteristic.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -340,6 +389,9 @@
       "description": "Silver refresh of the 임야대장 lane `land-forest-ledger` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_forest_ledger already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-forest-ledger.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -359,6 +411,9 @@
       "description": "Silver refresh of the 개별공시지가 lane `land-individual-price` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_individual_price already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-individual-price.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -378,6 +433,9 @@
       "description": "Silver refresh of the 대지권등록 lane `land-right-registration` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_right_registration already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-right-registration.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -397,6 +455,9 @@
       "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-transfer-history.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -416,6 +477,9 @@
       "description": "Silver refresh of the 토지이용계획 lane `land-use-plan` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_plan already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-use-plan.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -435,6 +499,9 @@
       "description": "Silver refresh of the 용도지역 코드표 lane `land-use-zone-code` (root ADR-0169 ③): pick the newest national object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_code already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-use-zone-code.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
       "timeout_minutes": 160,
@@ -454,6 +521,7 @@
       "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "45 8 * * *",
       "started_by": "inputs",
       "timeout_minutes": 165,
@@ -492,6 +560,10 @@
       "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
       "systemd_service": "foundation-admin-boundary-release.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
       "schedule": "30 9 * * *",
       "started_by": "inputs",
       "timeout_minutes": 130,
@@ -515,6 +587,10 @@
       "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
       "systemd_service": "foundation-parcel-registry.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/lineage-stewardship",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
       "schedule": "10 10 * * *",
       "started_by": "schedule",
       "timeout_minutes": 160,
@@ -534,6 +610,10 @@
       "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
       "systemd_service": "foundation-complex-boundary-release.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
       "schedule": "50 9 * * *",
       "started_by": "inputs",
       "timeout_minutes": 130,
@@ -554,6 +634,9 @@
       "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",
       "systemd_service": "foundation-parcel-tile-bake@gold.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/tile-bake"
+      ],
       "schedule": "30 7 * * *",
       "started_by": "schedule",
       "timeout_minutes": 120,
@@ -574,6 +657,9 @@
       "description": "The second half of the national parcel tile bake (root ADR-0133 §7, ADR-0253): take the served Gold run parcel_served_gold made ready and bake, gate and promote it with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh bake): GDAL and tippecanoe in their capped containers, the maxzoom id gate, the first-release equivalence gate against the active release (ADR-0133 §4, ADR-0135, ADR-0251), the create-only upload and the promotion. Started when the Gold half reports a ready run, and daily as the fallback; with none waiting, nothing to do. Nothing reads PostGIS.",
       "systemd_service": "foundation-parcel-tile-bake@bake.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/tile-bake"
+      ],
       "schedule": "45 8 * * *",
       "started_by": "inputs",
       "timeout_minutes": 120,
@@ -593,6 +679,7 @@
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
       "systemd_service": "foundation-gold-kind-rebuild.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "15 9 * * *",
       "started_by": "inputs",
       "timeout_minutes": 165,
@@ -617,6 +704,7 @@
       "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
       "systemd_service": "foundation-lakehouse-maintenance.service",
       "systemd_timer": null,
+      "state_paths": [],
       "schedule": "30 4 * * *",
       "started_by": "schedule",
       "timeout_minutes": 165,
@@ -641,6 +729,9 @@
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
       "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
       "schedule": "15 10 * * *",
       "started_by": "inputs",
       "timeout_minutes": 1260,

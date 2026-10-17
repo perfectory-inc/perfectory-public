@@ -78,7 +78,7 @@ class AdminBoundaryRelease(unittest.TestCase):
         for part in ("scripts/tiles/admin-boundary", "infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
             shutil.copytree(PLATFORM / part, release / part, ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("admin-boundary-release.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("admin-boundary-release.sh", "admitted-writer-runtime.sh", "job-journal.sh", "job-state-root.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
         (release / "scripts/ops/map-edit-fold.sh").write_text(FAKE_FOLD)
         for path in (release / "scripts").rglob("*.sh"):
@@ -106,7 +106,7 @@ class AdminBoundaryRelease(unittest.TestCase):
             "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log), "FAKE_ZIPS": str(self.zips),
             "FAKE_HELD": "false",
             "FOUNDATION_ADMIN_BOUNDARY_RELEASE_STATE_ROOT": str(self.root / "state"),
-            "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.lakehouse),
+            "FOUNDATION_ADMIN_BOUNDARY_RELEASE_LAKEHOUSE_STATE_ROOT": str(self.lakehouse),
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": "bucket", "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": "https://r2.invalid",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID": "reader-id",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY": "reader-secret",

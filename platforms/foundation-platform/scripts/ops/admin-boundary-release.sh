@@ -20,7 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 # 접기 단위의 상태 폴더 안에 둔다: 8 단계가 그 단위를 그대로 부르고, 릴리스가 이미 만들어 둔 곳이다.
 STATE_ROOT="${FOUNDATION_ADMIN_BOUNDARY_RELEASE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/admin-boundary-release}"
-LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/lakehouse}"
+source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
+LAKEHOUSE_STATE_ROOT="${FOUNDATION_ADMIN_BOUNDARY_RELEASE_LAKEHOUSE_STATE_ROOT:-$(job_state_root admin_boundary_release)/lakehouse}"
 SNAPSHOT_PREFIX="vworldkr__boundary_emd-30603-"
 # 쓰기 키는 이 작업의 읽기 단계에 필요 없다: 받기는 읽기 키 한 쌍으로만 한다(root ADR-0152).
 unset FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY

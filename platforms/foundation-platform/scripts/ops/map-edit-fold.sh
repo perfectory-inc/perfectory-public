@@ -20,7 +20,8 @@ UNIT="${1:-${FOUNDATION_MAP_EDIT_FOLD_UNIT:-complex}}"
 STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold}"
 # 전용 폴더다. 공용 /var/lib/foundation-platform/lakehouse 는 Spark(uid 185) 소유라 서비스 계정이 쓸 수 없고,
 # 그 소유를 바꾸면 다른 적재 작업이 깨진다(2026-09-29 첫 설치에서 실제로 그랬다).
-LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/lakehouse}"
+source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
+LAKEHOUSE_STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_LAKEHOUSE_STATE_ROOT:-$(job_state_root "map_edit_fold_${UNIT}")/lakehouse}"
 SLACK_TOKEN_FILE="${FOUNDATION_MAP_EDIT_FOLD_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
 SLACK_CHANNEL="${FOUNDATION_MAP_EDIT_FOLD_SLACK_CHANNEL:-#alerts}"
 # 이보다 오래 접히지 않은 편집은 매시간 접기가 돌지 않았다는 뜻이다.

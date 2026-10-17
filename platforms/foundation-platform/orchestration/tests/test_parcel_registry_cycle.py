@@ -48,7 +48,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         for part in ("infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"):
             shutil.copytree(PLATFORM / part, release / part, ignore=shutil.ignore_patterns("__pycache__"))
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh"):
+        for name in ("parcel-registry-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh", "job-state-root.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
             (release / "scripts/ops" / name).chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
