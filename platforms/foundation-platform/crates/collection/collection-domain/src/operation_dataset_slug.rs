@@ -105,6 +105,19 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`) to its canonical
+/// `dataset_slug` (root ADR-0280).
+///
+/// Returns `None` for any file the platform does not collect; callers must treat `None` as a hard
+/// error rather than inventing a slug.
+#[must_use]
+pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "fileData15105482" => Some("registered_factory"),
+        _ => None,
+    }
+}
+
 /// Resolves a V-World NED attribute-API provider operation to its canonical `dataset_slug`.
 ///
 /// The V-World NED attribute API exposes several land-record operations whose provider-native call id
@@ -145,6 +158,7 @@ pub fn vworld_ned_dataset_slug(operation: &str) -> Option<&'static str> {
 /// - the data.go.kr real-transaction map ([`real_transaction_dataset_slug`]);
 /// - the data.go.kr 행정표준코드 map ([`standard_code_dataset_slug`]);
 /// - the data.go.kr 온비드 map ([`onbid_dataset_slug`]);
+/// - the data.go.kr file-data map ([`file_data_dataset_slug`]);
 /// - the V-World NED attribute map ([`vworld_ned_dataset_slug`]).
 ///
 /// Each map is bijective, so a collapse can NEVER merge two distinct operations onto one key: the
@@ -161,13 +175,14 @@ pub fn operation_collapses_into_slug(operation: &str, source_slug: &str) -> bool
 }
 
 /// Resolves a provider operation to its canonical `dataset_slug` through any of the curated maps
-/// (building-register, real-transaction, 행정표준코드, 온비드, V-World NED), or `None` if no map covers it.
+/// (building-register, real-transaction, 행정표준코드, 온비드, file data, V-World NED), or `None` if no map covers it.
 /// Used by [`operation_collapses_into_slug`] after the byte-equality fast path.
 fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
     building_register_dataset_slug(operation)
         .or_else(|| real_transaction_dataset_slug(operation))
         .or_else(|| standard_code_dataset_slug(operation))
         .or_else(|| onbid_dataset_slug(operation))
+        .or_else(|| file_data_dataset_slug(operation))
         .or_else(|| vworld_ned_dataset_slug(operation))
 }
 
@@ -441,6 +456,14 @@ mod tests {
         assert!(!operation_collapses_into_slug(
             "getRlstCltrList2",
             "datagokr__onbid_item_bid_result"
+        ));
+    }
+
+    #[test]
+    fn collapses_file_data_operation_via_map() {
+        assert!(operation_collapses_into_slug(
+            "fileData15105482",
+            "datagokr__registered_factory"
         ));
     }
 

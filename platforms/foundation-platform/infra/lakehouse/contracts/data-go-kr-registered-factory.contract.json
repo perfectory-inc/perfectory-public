@@ -1,0 +1,47 @@
+{
+  "$comment": "Root ADR-0280. 한국산업단지공단 전국등록공장현황 (data.go.kr file data 15105482): where the file is asked for, what it must look like, and how its rows get a PNU. The collector (`collect-data-go-kr-registered-factory` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py) and their tests read this file; nothing else restates these values. Measured 2026-10-19: one zip (about 6 MB) holding one CP949 CSV of 220,705 rows and five columns, plus a data dictionary; about 93% of addresses are road addresses. The provider publishes about once a year (기준일 in the member name).",
+  "version": 1,
+  "base_url": "https://www.data.go.kr",
+  "user_agent": "foundation-platform-registered-factory-collector/1 (+root ADR-0280; one check per day)",
+  "request_spacing_seconds": 5,
+  "request_timeout_seconds": 120,
+  "dataset_slug": "registered_factory",
+  "operation": "fileData15105482",
+  "file": {
+    "$comment": "The portal's own two steps: the metadata answer names the current file (atchFileId), then the file is fetched by that id. A new atchFileId is a new edition; the same one is never fetched twice.",
+    "metadata_path": "/tcs/dss/selectFileDataDownload.do",
+    "metadata_query": {
+      "recommendDataYn": "Y",
+      "publicDataPk": "15105482",
+      "publicDataDetailPk": "uddi:608a48b9-22d2-40fc-b68e-a83ab17c4497",
+      "fileDetailSn": "1"
+    },
+    "download_path": "/cmm/cmm/fileDownload.do",
+    "download_query": {
+      "fileDetailSn": "1",
+      "insertDataPrcus": "N"
+    }
+  },
+  "member": {
+    "$comment": "The data member of the zip: the CSV whose name ends with _<기준일 YYYYMMDD>.csv. The dictionary members beside it are not data.",
+    "name_pattern": "^(?:.*/)?[^/]*_(\\d{8})\\.csv$",
+    "encoding": "cp949",
+    "header": ["순번", "회사명", "단지명", "생산품", "공장주소"],
+    "bounds": {
+      "$comment": "A refused file loads nothing. min_rows is the first edition's floor (220,705 measured, minus about 10%); max_shrink_share refuses an edition smaller than the last loaded one by more than this share.",
+      "min_rows": 200000,
+      "max_shrink_share": 0.15
+    }
+  },
+  "pnu_resolution": {
+    "$comment": "ADR-0280 §4. The provider gives no PNU. A row's address is read as a jibun address or a road address; each step names itself in pnu_basis, and a row no step resolves keeps pnu null with pnu_unresolved_reason. Never by geometry. jibun_address: 시도·시군구·읍면동(·리) names match reference.legal_dong_code_snapshot's current full_name, plus 산 and 본번-부번, and the PNU must be a current row of silver.parcel_boundaries. road_address: 시도·시군구·도로명·건물번호 match silver.building_register_titles.road_address_raw read the same way, and every matching title must carry the same pnu. A sample of 2,829 road addresses on 2026-10-19 resolved 82.9% to one PNU, 4.7% to several, 12.4% to none.",
+    "bases": ["jibun_address", "road_address"],
+    "unresolved_reasons": ["no_address", "unparsed", "no_legal_dong", "parcel_absent", "road_not_found", "road_ambiguous"],
+    "sido_prefixes": {
+      "$comment": "The first address word's prefix to the two-digit 시도 code of the current codes (강원 51 since 2023-06-11, 전북 52 since 2024-01-18). A word with none of these prefixes is unparsed.",
+      "서울": "11", "부산": "26", "대구": "27", "인천": "28", "광주": "29", "대전": "30", "울산": "31", "세종": "36",
+      "경기": "41", "강원": "51", "충청북": "43", "충북": "43", "충청남": "44", "충남": "44", "전북": "52", "전라북": "52",
+      "전남": "46", "전라남": "46", "경상북": "47", "경북": "47", "경상남": "48", "경남": "48", "제주": "50"
+    }
+  }
+}
