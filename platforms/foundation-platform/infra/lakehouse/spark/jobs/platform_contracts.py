@@ -274,6 +274,12 @@ class CurrentRowLatest:
 
     key: tuple[str, ...]
     newest_first: tuple[str, ...]
+    # The column whose value REMOVED marks the key as gone from its source (root ADR-0275).
+    removal_column: str | None = None
+
+
+# A removal marker's value in its table's `removal_column`; any other value, null included, is a row.
+REMOVED = "removed"
 
 
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
@@ -298,7 +304,10 @@ def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
                 f"lakehouse contract {table} current_row_latest.{part} must list its own columns"
             )
         parts[part] = tuple(listed)
-    return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"])
+    removal = value.get("removal_column")
+    if removal is not None and (not isinstance(removal, str) or removal not in names):
+        raise ValueError(f"lakehouse contract {table} current_row_latest.removal_column must be one of its columns")
+    return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"], removal_column=removal)
 
 
 def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
@@ -306,7 +315,8 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
 
     First the contract's predicate, then, when it declares one, the newest row per key. Two rows of
     one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
-    function does not have (root ADR-0267).
+    function does not have (root ADR-0267). A key whose newest row is a removal marker has no
+    current row (root ADR-0275).
     """
 
     from pyspark.sql import Window, functions as F
@@ -330,7 +340,10 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
             f"{contract.get('table_name')} has {tied_count} keys whose newest rows tie on "
             f"{list(latest.newest_first)}, so no row is current. samples={samples}"
         )
-    return ranked.drop("_current_row_rank")
+    ranked = ranked.drop("_current_row_rank")
+    if latest.removal_column is None:
+        return ranked
+    return ranked.where(F.col(latest.removal_column).isNull() | (F.col(latest.removal_column) != F.lit(REMOVED)))
 
 
 def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:

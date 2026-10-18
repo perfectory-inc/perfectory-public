@@ -46,6 +46,9 @@ pub struct LakehouseCurrentRowLatest {
     pub key: &'static [&'static str],
     /// Columns ordering a key's versions, newest first, each compared descending.
     pub newest_first: &'static [&'static str],
+    /// The column whose value `removed` marks the key as gone from its source: a key whose current
+    /// row is such a marker has no current row (root ADR-0275). `None` when the table never removes.
+    pub removal_column: Option<&'static str>,
 }
 
 /// One column in a lakehouse table contract.
@@ -1819,6 +1822,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["official_complex_code"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
+        removal_column: None,
     }),
     columns: SILVER_INDUSTRIAL_COMPLEXES_COLUMNS,
     // The snapshot, not the province. `sido_code` cannot partition a table that admits a row
