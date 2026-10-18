@@ -15,7 +15,7 @@ export default async function ProfilePage() {
   if (!session) return null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
+    <main className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 p-8">
       <h1 className="text-[length:var(--text-display-sm)] font-semibold tracking-[var(--tracking-display-sm)] text-[var(--color-ink)]">
         {t("title")}
       </h1>

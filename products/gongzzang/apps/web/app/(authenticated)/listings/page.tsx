@@ -10,7 +10,7 @@ export default async function ListingsPage() {
   const t = await getTranslations("listings.page");
 
   return (
-    <main className="flex h-screen flex-col bg-[var(--color-canvas)]">
+    <main className="flex h-full flex-col bg-[var(--color-canvas)]">
       <header className="flex items-center justify-between gap-6 px-6 py-4">
         <h1 className="whitespace-nowrap text-[length:var(--text-title-lg)] font-semibold tracking-[var(--tracking-display-sm)] text-[var(--color-ink)]">
           {t("title")}

@@ -30,8 +30,10 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
     }
   }
   return (
-    <>
-      <header className="flex items-center justify-between border-b border-[var(--color-hairline)] px-4 py-2">
+    // One viewport: the header and the page share it, so a page that fills its height (the maps) does
+    // not run a header's height past the screen and grow a second, page-level scrollbar.
+    <div className="flex h-dvh flex-col">
+      <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-hairline)] px-4 py-2">
         <nav className="flex items-center gap-5" aria-label={t("nav.label")}>
           <Link href={LISTINGS_ROUTE} className="text-sm font-medium text-[var(--color-ink)]">
             {t("brandName")}
@@ -45,7 +47,7 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
         </nav>
         <NotificationBell />
       </header>
-      {children}
-    </>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </div>
   );
 }
