@@ -484,13 +484,9 @@ pub(super) mod tests {
             .context("fixture building is not an object")?;
         object.remove("floors");
         object.remove("units");
-        // The register's names are the document's own: the Postgres Catalog never carried them.
-        assert_eq!(object.remove("purpose_name"), Some(json!("공장")));
-        assert_eq!(
-            object.remove("structure_name"),
-            None,
-            "a name the register did not state is absent, never the code"
-        );
+        // The fixture's register states no names (Gold null): the document leaves them out, so the
+        // golden packs built from it keep their bytes. Named buildings: the focused test below.
+        assert!(object.get("purpose_name").is_none() && object.get("structure_name").is_none());
         object.insert("updated_at".to_owned(), json!("2026-01-01T00:00:00Z"));
         let canonical: foundation_contracts::catalog::BuildingResponse =
             serde_json::from_value(building.clone())?;
