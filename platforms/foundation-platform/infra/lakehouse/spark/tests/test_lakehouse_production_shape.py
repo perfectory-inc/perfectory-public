@@ -66,7 +66,10 @@ class ProductionShape(unittest.TestCase):
             actual_types={name: migrate.live_spark_type(kind) for _, name, kind, _ in live},
             actual_nullability={name: nullable for _, name, _, nullable in live},
         )
-        self.assertEqual((plan["add"], plan["backfill"], plan["reorder"]), (["row_state"], [], False))
+        # Before the deploy of #728 the plan added it; since, production holds it (ledger of 10-18).
+        live_names = {name for _, name, _, _ in live}
+        self.assertEqual(plan["add"], [] if "row_state" in live_names else ["row_state"])
+        self.assertEqual((plan["backfill"], plan["reorder"]), ([], False))
 
     def test_a_required_column_planted_on_a_table_with_rows_is_refused(self) -> None:
         table = "reference.legal_dong_code_snapshot"
