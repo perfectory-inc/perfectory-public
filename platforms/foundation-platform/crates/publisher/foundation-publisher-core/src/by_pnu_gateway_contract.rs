@@ -489,6 +489,10 @@ pub struct ByPnuGatewayPolicy {
     /// The lane's section packs (root ADR-0147); only the lanes that serve from packs name one.
     #[serde(default)]
     pub section_packs: Option<LaneSectionPacks>,
+    /// The lane answers from section packs or not at all (root ADR-0190, ADR-0274): its Worker
+    /// has no object path, so no publish may leave its manifest without packs.
+    #[serde(default)]
+    pub pack_only: bool,
 }
 
 /// One lane's section packs: where they live and which sections a document is split into.

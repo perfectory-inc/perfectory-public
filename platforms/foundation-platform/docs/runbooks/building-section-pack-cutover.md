@@ -15,6 +15,13 @@ last_reviewed: 2026-10-05
 
 전환 관문을 모두 통과하기 전에는 지금의 객체 방식이 그대로 서빙한다. 옛 객체는 지우지 않는다.
 
+> **2026-10-18, [루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md): 전환은 끝났고 레인은 묶음 전용(`pack_only`)이다.** Worker 는 객체를
+> 읽지 않는다(묶음 없는 manifest 는 503). 아래 단계표의 `code`·`packs` 단계와 `*_PACK_SERVING` 바인딩, 계약
+> `fallback` 블록은 은퇴했다 — 이 문서의 해당 부분은 전환 당시의 기록이다. 새 코드는
+> `by-pnu-gateway-canary.sh <레인> --execute rollout` 으로 올리고, 데이터 되돌리기는 직전 묶음 상태로 한다
+> ([parcel-by-pnu-serving-bake.md](parcel-by-pnu-serving-bake.md) 7절). 객체로 되돌리는 것은 거부된다. 객체는 R2 에
+> 그대로 남고, 지우는 것은 이 배포 30일 뒤 이후의 소유자 결정이다.
+
 ## 0. 명령과 환경변수
 
 모든 명령은 발행기(`foundation-outbox-publisher`)의 하위 명령이다. 환경변수 앞머리는
@@ -258,8 +265,9 @@ sudo systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
 
 ### 객체는 남긴다
 
-객체 레인은 감시가 `fallback.objects_kept_clean_days`(30일) 동안 깨끗할 때까지 발행된 채, manifest 되돌리기로
-돌아갈 수 있는 상태로 둔다. 객체를 정리할지는 그 뒤 소유자가 따로 정한다. 승인 없이 지우지 않는다(append-only).
+객체는 R2 에 그대로 남는다. 묶음 굽기가 더는 객체를 쓰지 않아 객체는 낡은 문서이므로 되돌리기 수단이 아니다
+(루트 ADR-0274 5절). 객체를 지울지는 묶음 전용 배포 30일 뒤 이후 소유자가 따로 정한다. 승인 없이 지우지
+않는다(append-only).
 
 ### 확인과 되돌리기
 
@@ -267,14 +275,15 @@ sudo systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
 …_INSPECT_PNU=<PNU> "$PUBLISHER_BIN" inspect-building-by-pnu-section-packs
 ```
 
-항목마다 어느 묶음(`g1`, `g1/p3`)이 답했는지, 상태, 조각, 합친 문서를 낸다. 객체 서빙으로 돌아가려면
-`section_packs` 가 없는 이력 manifest 로 되돌린다(`publish-building-by-pnu-serving-manifest` 의 되돌리기).
+항목마다 어느 묶음(`g1`, `g1/p3`)이 답했는지, 상태, 조각, 합친 문서를 낸다. 되돌리기는 직전 묶음 상태다
+([parcel-by-pnu-serving-bake.md](parcel-by-pnu-serving-bake.md) 7절). `section_packs` 가 없는 이력 manifest 로의
+되돌리기(객체 서빙)는 레인이 묶음 전용이라 발행기가 거부한다(루트 ADR-0274).
 
 **전환 뒤에는 릴리스를 묶음 패치 이전(#337 이전)으로 되돌리지 않는다.** 그 릴리스의 예약 굽기는 객체만
 굽고, 객체 발행은 `section_packs` 블록을 그대로 옮긴다. Worker 는 계속 묶음을 읽으므로 묶음은 낡은 채
-서빙되고, 새 변경은 아무도 읽지 않는 객체에만 쌓인다. 릴리스를 그 이전으로 내려야 하면 먼저 위의
-manifest 되돌리기로 객체 서빙으로 돌아간다. (#336 보다 오래된 발행기는 모르는 칸이 있는 manifest 를 거부하므로
-안전하다.)
+서빙되고, 새 변경은 아무도 읽지 않는 객체에만 쌓인다. 묶음 전용(루트 ADR-0274) 뒤에는 객체 서빙으로
+돌아갈 길이 없으므로 그 이전 릴리스로는 내리지 않는다. (#336 보다 오래된 발행기는 모르는 칸이 있는 manifest 를
+거부하므로 안전하다.)
 
 ## 7. 예약 굽기와 묶음 (완료)
 

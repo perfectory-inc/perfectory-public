@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Gradual rollout of a by-PNU gateway's pack path, by Worker version percentage
-# (root ADR-0151 Revision, contract <lane>_by_pnu_gateway.section_packs.canary). One Worker source
-# serves both lanes (root ADR-0160); the lane picks its contract block and Wrangler config.
+# Gradual rollout of a by-PNU gateway's code, by Worker version percentage (root ADR-0151
+# Revision, contract <lane>_by_pnu_gateway.section_packs.canary). One Worker source serves both
+# lanes (root ADR-0160); the lane picks its contract block and Wrangler config.
 #
-#   by-pnu-gateway-canary.sh <building|parcel> [--execute] code     # new code, packs held off
-#   by-pnu-gateway-canary.sh <building|parcel> [--execute] packs <off-version-id>
+#   by-pnu-gateway-canary.sh <building|parcel> [--execute] rollout
 #   by-pnu-gateway-canary.sh <building|parcel> [--execute] rollback <version-id>
 #   by-pnu-gateway-canary.sh <building|parcel> status
 #
@@ -12,18 +11,14 @@
 # them. Run it from a checkout of the merged release, where wrangler is logged in to the account;
 # it never touches the manifest.
 #
-# The two phases:
-#   code   uploads this checkout with the lane's serving binding off (it serves
-#          objects even when the manifest names packs) and moves traffic from the version now at
-#          100% to it, step by step. After it, `_capabilities` answers [1, 2, 3] and the first
-#          pack publish (runbook §5) can run; nothing a user sees changes.
-#   packs  uploads the same code with the binding on and moves traffic from the off version to
-#          it, step by step. A user reads packs only from here on.
+# `rollout` uploads this checkout and moves traffic from the version now at 100% to it, step by
+# step. Both lanes serve section packs only (root ADR-0274): the code/packs phases and the serving
+# binding that held the pack path off are retired, there is no object path to hold it off to.
 # Every step holds canary.hold_seconds, then the health command judges the new version against
 # the old one (check-<lane>-gateway-version-health: reads pinned to each version, then Cloudflare
 # analytics). A breach rolls all traffic back to the old version at once and stops with exit 1.
-# `rollback` does the same by hand; the manifest revert (runbook §6) is the second line, never
-# needed for a version problem.
+# `rollback` does the same by hand. A data problem is rolled back by the manifest, to the previous
+# pack state (runbook parcel-by-pnu-serving-bake.md §7), never by a version.
 #
 # A deployment that fails leaves traffic where Cloudflare left it, possibly split: the script then
 # prints the deployment as it stands, tries to put every request back on the old version, and
@@ -42,7 +37,7 @@ set -euo pipefail
 # Logs go to stderr: the functions that answer a version id answer it on stdout.
 log() { printf '%s by-pnu-gateway-canary %s: %s\n' "$(date -u +%FT%TZ)" "${LANE:-}" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-gateway-canary.sh <building|parcel> [--execute] code|packs <off-version>|rollback <version>|status"
+USAGE="usage: by-pnu-gateway-canary.sh <building|parcel> [--execute] rollout|rollback <version>|status"
 
 LANE="${1:-}"
 [[ "${LANE}" == building || "${LANE}" == parcel ]] || refuse "${USAGE}"
@@ -71,7 +66,6 @@ PY
 }
 
 WORKER="$(contract "${GATEWAY}.worker_name")"
-BINDING="$(contract "${GATEWAY}.section_packs.serving_binding")"
 STEPS="$(contract "${GATEWAY}.section_packs.canary.steps_percent")"
 HOLD="${CANARY_HOLD_SECONDS:-$(contract "${GATEWAY}.section_packs.canary.hold_seconds")}"
 HEALTH="${CANARY_HEALTH_COMMAND:-${PLATFORM_ROOT}/scripts/ops/by-pnu-gateway-health.sh ${LANE} @NEW@ @OLD@}"
@@ -101,17 +95,16 @@ print(full[0])'
 }
 
 upload() {
-  local serving="$1" message="$2"
+  local message="$1"
   if [[ "${EXECUTE}" != yes ]]; then
-    log "+ npx wrangler versions upload --var ${BINDING}:${serving} --var FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<CORS_ALLOWED_ORIGINS> --message '${message}'"
-    echo "<uploaded-version-${serving}>"
+    log "+ npx wrangler versions upload --var FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<CORS_ALLOWED_ORIGINS> --message '${message}'"
+    echo "<uploaded-version>"
     return
   fi
   [[ -n "${CORS_ALLOWED_ORIGINS:-}" ]] || refuse "CORS_ALLOWED_ORIGINS is required (the live Worker's value)"
   local out id
   out="$(cd "${GATEWAY_DIR}" && npx wrangler versions upload \
     --config "${WRANGLER_CONFIG}" \
-    --var "${BINDING}:${serving}" \
     --var "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:${CORS_ALLOWED_ORIGINS}" \
     --message "${message}" 2>&1)" || { printf '%s\n' "${out}" >&2; refuse "the upload failed" 70; }
   printf '%s\n' "${out}" >&2
@@ -194,22 +187,10 @@ preflight() {
 }
 
 case "${PHASE}" in
-  code)
+  rollout)
     preflight
     old="$(current_version)"
-    new="$(upload off "pack path held off (ADR-0151)")"
-    roll_out "${old}" "${new}"
-    ;;
-  packs)
-    old="${2:-}"
-    [[ -n "${old}" ]] || refuse "usage: by-pnu-gateway-canary.sh ${LANE} [--execute] packs <off-version-id>"
-    preflight
-    # The packs phase starts where the code phase ended, the off version alone at 100%: any other
-    # id would roll packs out against a version that is not serving, and roll back onto it.
-    serving="$(current_version)"
-    [[ "${EXECUTE}" != yes || "${serving}" == "${old}" ]] \
-      || refuse "${old} is not the version at 100% (${serving} is); name the version the code phase left serving" 65
-    new="$(upload on "pack path on (ADR-0151)")"
+    new="$(upload "canary rollout (ADR-0151)")"
     roll_out "${old}" "${new}"
     ;;
   rollback)

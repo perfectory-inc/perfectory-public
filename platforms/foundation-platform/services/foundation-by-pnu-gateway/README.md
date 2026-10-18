@@ -26,19 +26,21 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
 
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한 `/buildings/by-pnu/{pnu}` (PNU 19자리, 11번째
   자리는 대장 구분 `[1289]`)
-- 세대 해석(루트 ADR-0141): manifest(`serving/buildings/by-pnu/manifest.json`)는 기본 세대와 패치 목록(최신이
-  앞)을 싣는다. 응답은 가장 최신 패치부터 기본 세대까지 처음 찾은 객체다. 패치의 `prefixes`(manifest 가 스스로 적은 `pnu_prefix_length` 자리의 PNU 앞자리)에 없는
-  PNU 는 그 패치를 읽지 않는다. 툼스톤(`deleted: true`)을 만나면 더 내려가지 않고 `{"error":"deleted"}` 404
-  (`no-store`)를 낸다. v1 manifest(`current_generation`)는 패치 없는 기본 세대로 읽는다. manifest 해석 결과는 엣지에
-  `manifest_edge_cache_seconds` 동안 캐시된다. 패치 수는 계약의 고정 상한 `manifest_patch_ceiling` 까지 읽는다 —
-  조정값 `max_patches`·`pnu_prefix_length` 는 발행 명령이 새 manifest 를 쓸 때만 본다.
+- 묶음 전용(루트 ADR-0274, 계약 `pack_only`): 모든 레인은 manifest 의 `section_packs` 로만 답한다. 묶음 굽기는
+  PNU 마다의 객체를 더 쓰지 않으므로 객체는 굽기 뒤 옛 문서이고, Worker 는 객체를 읽지 않는다 — 묶음 없는
+  manifest 는 503 이다. 되돌리기는 이전 묶음 상태를 manifest 로 발행하는 것이다(발행 명령의
+  `..._ROLLBACK_TO_PREVIOUS_PACK_STATE=true`, 런북 `docs/runbooks/parcel-by-pnu-serving-bake.md` 7절). 객체는 R2 에 그대로 남는다: 지우는 것은 이 전환 배포 30일 뒤 이후의 소유자
+  결정이다(append-only). 계약이 `pack_only: true` 가 아닌 레인으로는 Worker 가 시작하지 않는다.
+- manifest(`serving/buildings/by-pnu/manifest.json`) 해석 결과는 엣지에 `manifest_edge_cache_seconds` 동안
+  캐시된다. 패치 수는 계약의 고정 상한 `manifest_patch_ceiling` 까지 읽는다 — 조정값 `max_patches`·
+  `pnu_prefix_length` 는 발행 명령이 새 manifest 를 쓸 때만 본다.
 - `GET /buildings/by-pnu/_capabilities` 는 이 Worker 가 읽는 manifest 스키마 목록을 낸다. 발행 명령은 첫 v2
   manifest 를 쓰기 전에 이것을 확인한다 — 게이트웨이를 먼저 배포한다.
 - 묶음 파일(루트 ADR-0147, ADR-0151, `src/packs.ts`): v2 manifest 에 `section_packs` 블록(자체 schema 3)이 있으면
   객체 대신 묶음으로 서빙한다. 건물 레인의 항목은 `documents` 하나이고(계약 `section_packs.sections`), 한 PNU 의
-  항목은 객체 레인이 쓰던 문서 바이트를 gzip 한 덩어리다. Worker 는 법정동 묶음의 머리에서 이분 탐색해 그 덩어리를
+  항목은 문서 바이트를 gzip 한 덩어리다. Worker 는 법정동 묶음의 머리에서 이분 탐색해 그 덩어리를
   풀지도 파싱하지도 않고 `Content-Encoding: gzip` 으로 낸다(gzip 을 받지 않는 클라이언트에게만 풀어 준다). 그래서
-  CPU 는 객체 경로와 같은 일이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
+  CPU 는 저장된 바이트를 내주는 일뿐이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
   1102(503)를 냈다(ADR-0151). gzip 여부는 엣지가 바꿔 쓴 `Accept-Encoding` 이 아니라 클라이언트 원래 값
   (`cf.clientAcceptEncoding`)으로 정한다. `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치이고, 푼 답은 다른 표현이라
   `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 배치는 계약 `placement`(버킷 옆 Tokyo, ADR-0154)를
@@ -62,17 +64,15 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
     옆에 두면(계약 `placement`) 한 번 읽힌 묶음의 R2 읽기가 엣지 조회만큼 싸고, 사본 쓰기가 나머지 읽기보다 CPU 를
     더 썼다.
   - PNU 마다의 엣지 응답 사본(ADR-0154): 한 번 답한 문서의 덩어리를 묶음 계획의 지문(`plan.fingerprint`) 아래
-    합성 주소에 둔다. 같은 서빙 상태에서 그 PNU 를 다시 읽으면 캐시 조회 하나로 답한다(객체 경로의 PNU 캐시와
-    같은 일). 툼스톤과 부재는 두지 않는다. 새 세대나 패치가 발행되면 지문이 바뀌어 옛 사본을 쓰지 않는다.
+    합성 주소에 둔다. 같은 서빙 상태에서 그 PNU 를 다시 읽으면 캐시 조회 하나로 답한다. 툼스톤과 부재는 두지 않는다. 새 세대나 패치가 발행되면 지문이 바뀌어 옛 사본을 쓰지 않는다.
   - R2 일시 오류는 `r2_attempts` 번까지, `r2_deadline_ms` 안에서 전체 지터 백오프로 다시 묻는다. 시도 하나는
     `r2_attempt_timeout_ms` 를 넘기면 버리고 다시 묻는다(멈춘 읽기 하나가 기한을 다 쓰지 않게). 형식 불일치는
     다시 묻지 않는다. 다시 물을 때와 503 마다 구조화된 로그(`pack_read_retry`, `pack_outage`: 항목·키·단계·오류
     종류·경과)를 남긴다.
   - 미리보기 버전은 `Server-Timing` 을 낸다: `outcome`, `r2;dur=…;desc="gets=… retries=…"`, 항목마다
     `pack-{항목};dur=…;desc="{memory|edge|r2}-{whole|head}[+range]"`, `total`.
-  - 바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_SERVING=off` 인 버전은 manifest 가 묶음을 적어도 객체로 답한다.
-    묶음 경로는 이 바인딩만 다른 두 버전 사이의 비율로 올리고 내린다(`scripts/ops/by-pnu-gateway-canary.sh <레인>`,
-    ADR-0151 Revision).
+  - 새 코드는 버전 비율로 올리고 내린다(`scripts/ops/by-pnu-gateway-canary.sh <레인> rollout`, ADR-0151
+    Revision). 묶음 경로를 끄던 `*_PACK_SERVING` 바인딩은 ADR-0274 로 은퇴했다 — 끌 객체 경로가 없다.
   `?packs=g{n}` 은 미리보기 Worker(바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true`, 계약
   `section_packs.preview_worker`, `wrangler.<레인>.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
   manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).
@@ -80,15 +80,15 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.
 - 모든 답은 자기를 만든 버전 id 를 계약 `version_header`(`Foundation-Worker-Version`)에 적는다. 값은 버전
   메타데이터 바인딩(`version_metadata_binding`)에서 오고, 카나리아 단계가 고정 읽기의 도달을 이것으로 센다(ADR-0157).
-- 객체 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.
+- PNU 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.
 - 거부: query, 원시 객체 키, 다른 prefix, traversal, 비정규 PNU는 404; 다른 method는 405;
   미허용 Origin은 403
-- 캐시: 객체는 `public, max-age=3600`. 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(`v{기본}p{최신 패치}`)이
+- 캐시: 문서 응답은 `public, max-age=3600`. 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(묶음 계획의 지문)이
   들어가므로, 새 패치나 새 기본 세대가 발행되면 엣지는 옛 응답을 즉시 쓰지 않는다(manifest 캐시 1분 이내).
   **브라우저는 다르다**: 같은 URL 의 응답을 `max-age`(계약의 `cache_control`) 동안 다시 묻지 않고 쓸 수 있다
   (루트 ADR-0141 2026-10-04 개정 주석).
-- 조건부 요청: R2/Cache API의 ETag와 `If-None-Match` 판단을 사용하고 일치하면 304. 패치의 작은 객체는 먼저
-  본문을 읽어 툼스톤인지 정한다 — 조건부 헤더로 삭제된 PNU 의 304 를 받아 낼 수 없다.
+- 조건부 요청: 묶음 덩어리의 ETag 와 `If-None-Match` 를 약하게 비교해 일치하면 304. 툼스톤은 typed 404 이고
+  조건부 헤더로 삭제된 PNU 의 304 를 받아 낼 수 없다.
 - 권한: R2 binding 하나의 `get`만 타입에 노출; list/write와 S3 자격증명 없음
 
 ## 로컬 검증
@@ -104,9 +104,9 @@ corepack pnpm@9.12.0 run build:check
 corepack pnpm@9.12.0 run verify:local
 ```
 
-`verify:local`은 OS 임시 디렉터리의 Wrangler local R2에 manifest(세대 2)와 v2/v1 객체,
-Bronze 모양 객체를 넣고 `wrangler dev --local`을 실행한다. manifest 가 가리키는 세대의
-바이트가 서빙되는지, 그리고 GET/304/404/405/403을 실제 HTTP로 검증한 뒤 프로세스 트리와
+`verify:local`은 OS 임시 디렉터리의 Wrangler local R2에 묶음 manifest 와 발행자의 골든 묶음,
+읽히면 안 되는 객체 하나, Bronze 모양 객체를 넣고 `wrangler dev --local`을 실행한다. manifest 의 묶음이 담은
+문서가 서빙되는지, 그리고 GET/304/404/405/403을 실제 HTTP로 검증한 뒤 프로세스 트리와
 임시 상태를 제거한다. 원격 R2나 deploy 명령을 호출하지 않는다.
 
 ## Cloudflare 운영 연결

@@ -36,7 +36,7 @@ function envelope(): string {
 describe("foundation unit price gateway (pack-only)", () => {
   let runtime: Miniflare | undefined;
 
-  async function start(serving: string): Promise<Miniflare> {
+  async function start(): Promise<Miniflare> {
     const bundle = await build({
       entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
       define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("unit-price") },
@@ -54,7 +54,6 @@ describe("foundation unit price gateway (pack-only)", () => {
       r2Buckets: [GATEWAY.r2_binding],
       bindings: {
         FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: "https://app.example.test",
-        [GATEWAY.section_packs.serving_binding]: serving,
       },
       cache: true,
     });
@@ -74,15 +73,15 @@ describe("foundation unit price gateway (pack-only)", () => {
     runtime = undefined;
   });
 
-  it.each([["on"], ["off"]])("a manifest without packs is an outage, never an object read (binding %s)", async (serving) => {
-    runtime = await start(serving);
+  it("a manifest without packs is an outage, never an object read", async () => {
+    runtime = await start();
     const response = await runtime.dispatchFetch(URL_OF_PNU);
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("takes a request only as <pnu>/<building id> of the contract's suffix pattern (root ADR-0204)", async () => {
-    runtime = await start("on");
+    runtime = await start();
     const prefix = `https://unit-prices.example.test${GATEWAY.request_path.prefix}`;
     for (const path of [PNU, `${PNU}/`, `${PNU}/not-a-building`, `${PNU}/${BUILDING}/x`, `${PNU}${BUILDING}`, `x/${BUILDING}`]) {
       const response = await runtime.dispatchFetch(`${prefix}${path}`);
@@ -93,7 +92,7 @@ describe("foundation unit price gateway (pack-only)", () => {
   });
 
   it("answers its own capabilities under its own path", async () => {
-    runtime = await start("on");
+    runtime = await start();
     const response = await runtime.dispatchFetch(
       `https://unit-prices.example.test${GATEWAY.request_path.capabilities}`,
     );

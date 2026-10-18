@@ -115,3 +115,10 @@ manifest 로 되돌리면 된다. 7일이 지난 뒤의 되돌리기는 정본�
   같은 행의 재생성이 커밋하지 않음·지문이 다르면 비교함, ② 계약 비율 0.25 와 reason, ③ 패널 레인 은퇴는 #462
   병합 뒤 ADR-0193 의 순서대로, ④ parcel·building `pack_only: true` + `serving_binding`·`fallback`·카나리 두 단계 은퇴 +
   런북 되돌리기 절(시험: 묶음 없는 manifest 에 Worker 가 503, 객체를 읽지 않음), 30일 뒤 객체 삭제는 소유자 승인 별건.
+
+## 구현 주석 (2026-10-18)
+
+④ 구현: parcel·building 계약에 `pack_only: true`, `serving_binding`·`fallback` 은퇴(unit-price 의 바인딩도), 카나리는
+`rollout` 한 단계. Worker 는 객체 경로가 없고 계약이 `pack_only` 가 아닌 레인으로는 시작하지 않는다. 발행기는 묶음 전용
+레인에서 `section_packs` 없는 기록으로의 되돌리기를 거부한다. 앞선 리허설(10-18 08:25Z)은 두 레인 모두 기록된 직전 묶음
+상태를 미리보기로 읽어 통과했다. 객체는 지우지 않았다.

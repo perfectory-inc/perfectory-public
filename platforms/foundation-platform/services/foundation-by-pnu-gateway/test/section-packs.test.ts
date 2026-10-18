@@ -253,58 +253,29 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     await (await runtime.getR2Bucket(R2_BINDING)).delete(packKey(PACKS.anchor_section, 1));
     const outage = await get(PNU_A);
     expect([outage.status, named(outage)]).toEqual([503, VERSION]);
-
-    // The object path (serving binding off) names its version too, cold and from its edge copy.
-    await runtime.dispose();
-    runtime = await start({
-      [GATEWAY.version_metadata_binding]: { id: VERSION, tag: "" },
-      [PACKS.serving_binding]: "off",
-    });
-    await (await runtime.getR2Bucket(R2_BINDING)).put(
-      `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`,
-      `{"pnu":"${PNU_A}"}
-`,
-    );
-    await serve(sectionPacks([]));
-    for (const attempt of ["cold", "edge"]) {
-      const object = await get(PNU_A);
-      expect([attempt, object.status, named(object)]).toEqual([attempt, 200, VERSION]);
-    }
   });
 
-  // Gate (b) holds the pack path to the preview's own object path, both read cold (2026-10-07:
-  // the live route's edge copies, warmed by earlier probes, answered its side of the comparison).
-  it("a preview's object path says where it answered from, under edge copies of its own version", async () => {
-    const object = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;
-    const persist = await mkdtemp(join(tmpdir(), "building-gateway-cache-"));
-    const source = (response: { headers: { get(name: string): string | null } }) =>
-      /object;desc="([^"]+)"/.exec(response.headers.get("server-timing") ?? "")?.[1] ?? null;
-    const preview = async (version: string) => {
+  // Root ADR-0274: the lane is pack-only. Its per-PNU objects are still in R2 (never deleted
+  // without the owner) but hold an older document: no version, binding or manifest reads them.
+  it.each([
+    ["live", {}],
+    ["preview", { [PACKS.preview_binding]: "true" }],
+    ["retired binding off", { FOUNDATION_PLATFORM_BUILDING_PACK_SERVING: "off" }],
+  ])("is pack-only: an object is never read, with or without packs (%s)", async (_label, bindings) => {
+    expect(GATEWAY.pack_only).toBe(true);
+    const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
+    for (const packs of [sectionPacks([]), undefined]) {
       await runtime?.dispose();
-      runtime = await start({ [PACKS.preview_binding]: "true", [GATEWAY.version_metadata_binding]: { id: version, tag: "" } }, persist);
-      await (await runtime.getR2Bucket(R2_BINDING)).put(object, `{"pnu":"${PNU_A}"}
-`);
-      await serve(undefined);
-    };
-    const A = "11111111-1111-4111-8111-111111111111";
-    await preview(A);
-    expect(source(await get(PNU_A))).toBe("r2-object");
-    expect(source(await get(PNU_A))).toBe("edge-answer");
-    // A new upload of the preview does not answer from the earlier version's copy...
-    await preview("22222222-2222-4222-8222-222222222222");
-    expect(source(await get(PNU_A))).toBe("r2-object");
-    // ...while that copy is still there for its own version: the cache did persist across runtimes.
-    await preview(A);
-    expect(source(await get(PNU_A))).toBe("edge-answer");
-    // The live route says nothing about how it answered.
-    await runtime?.dispose();
-    runtime = await start({}, persist);
-    await (await runtime.getR2Bucket(R2_BINDING)).put(object, `{"pnu":"${PNU_A}"}
-`);
-    await serve(undefined);
-    const live = await get(PNU_A);
-    expect(live.status).toBe(200);
-    expect(live.headers.get("server-timing")).toBeNull();
+      runtime = await start(bindings);
+      await (await runtime.getR2Bucket(R2_BINDING)).put(`${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`, object);
+      await serve(packs);
+      const response = await get(PNU_A);
+      if (packs === undefined) {
+        expect([response.status, response.headers.get("cache-control")]).toEqual([503, "no-store"]);
+      } else {
+        expect(await response.text()).toBe(documents.base[PNU_A]);
+      }
+    }
   });
 
   it("a listed pack that is missing, or sections that disagree, are an outage, not a document", async () => {
@@ -397,23 +368,6 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     expect(await (await get(PNU_A)).text()).toBe(documents.base[PNU_A]);
     expect((await get(PNU_A, `?packs=h20260101T000000Z-${"b".repeat(64)}`)).status).toBe(404);
     expect((await get(PNU_A, "?packs=hnot-a-history-name")).status).toBe(404);
-  });
-
-  it("a version whose serving binding is off answers from objects under a pack manifest", async () => {
-    const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
-    const objectKey = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;
-    for (const [binding, expected] of [
-      ["off", object],
-      ["on", documents.base[PNU_A]],
-    ] as const) {
-      await runtime?.dispose();
-      runtime = await start({ [PACKS.serving_binding]: binding });
-      await (await runtime.getR2Bucket(R2_BINDING)).put(objectKey, object);
-      await serve(sectionPacks([]));
-      const response = await get(PNU_A);
-      expect(response.status, binding).toBe(200);
-      expect(await response.text(), binding).toBe(expected);
-    }
   });
 
   it("the gateway says it reads the section_packs block", async () => {

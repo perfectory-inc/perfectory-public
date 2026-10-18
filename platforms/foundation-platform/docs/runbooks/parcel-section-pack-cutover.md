@@ -16,6 +16,12 @@ last_reviewed: 2026-10-09
 그대로 쓰인다. 이 문서는 필지에서 달라지는 것과 순서만 적는다. 각 단계의 판정 기준·되돌리기·비용 설명은 건물 런북의
 같은 절을 따른다.
 
+> **2026-10-18, [루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md): 전환은 끝났고 레인은 묶음 전용(`pack_only`)이다.** Worker 는 객체를
+> 읽지 않는다(묶음 없는 manifest 는 503). 아래 단계표의 `code`·`packs` 단계와 `*_PACK_SERVING` 바인딩, 계약
+> `fallback` 블록은 은퇴했다 — 이 문서의 해당 부분은 전환 당시의 기록이다. 새 코드는
+> `by-pnu-gateway-canary.sh <레인> --execute rollout` 으로 올리고, 데이터 되돌리기는 직전 묶음 상태로 한다
+> ([parcel-by-pnu-serving-bake.md](parcel-by-pnu-serving-bake.md) 7절). 객체로 되돌리는 것은 거부된다. 객체는 R2 에
+> 그대로 남고, 지우는 것은 이 배포 30일 뒤 이후의 소유자 결정이다.
 ## 0. 레인에서 달라지는 것
 
 | 항목 | 건물 | 필지 |

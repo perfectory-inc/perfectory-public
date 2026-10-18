@@ -4,13 +4,10 @@ import { fetchByPnu } from "../src/index";
 
 afterEach(() => vi.unstubAllGlobals());
 
-it.each(["manifest", "object"])("%s read failure is a CORS-readable, uncacheable outage", async (failure) => {
+it("a manifest read failure is a CORS-readable, uncacheable outage", async () => {
   vi.stubGlobal("caches", { default: { match: async () => undefined, put: async () => {} } });
   const policy = contract.building_by_pnu_gateway;
-  const bucket = { get: vi.fn(async (key: string) => {
-    if (failure === "object" && key === policy.object_key.manifest_object) {
-      return { body: null, text: async () => JSON.stringify({ schema_version: 1, unit: "building-by-pnu", current_generation: 1 }) };
-    }
+  const bucket = { get: vi.fn(async () => {
     throw new Error("synthetic R2 failure");
   }) };
   const response = await fetchByPnu(

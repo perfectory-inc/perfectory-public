@@ -124,3 +124,7 @@ CPU 를 줄이려고 잰 것(미리보기, 같은 배치, 600건씩, Workers 분
 
 > 2026-10-06 주석: 결정 2 의 "PNU 마다의 엣지 응답 캐시는 묶음 경로에서 쓰지 않는다"와 결정 3 의 묶음 엣지 사본·
 > `onlyIf.etagMatches` 범위 읽기는 [ADR-0154](./0154-building-pack-read-path-is-placed-beside-the-bucket.md) 가 고친다.
+
+> 2026-10-18 주석: Revision 3 의 서빙 바인딩(`FOUNDATION_PLATFORM_BUILDING_PACK_SERVING`)과 카나리 `code`·`packs` 두
+> 단계는 [ADR-0274](./0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md) ④ 로 은퇴했다: 레인은 묶음 전용이고 끌
+> 객체 경로가 없다. 버전 비율 배포(`by-pnu-gateway-canary.sh <레인> rollout`)와 단계 판정은 그대로다.

@@ -21,6 +21,10 @@ function laneBlock(lane: string): Gateway {
   if (typeof block !== "object" || block === null || "host" in block) {
     throw new Error(`the contract names no by-PNU lane ${lane} with a Worker of its own`);
   }
+  // This Worker has no object path (root ADR-0274): a lane that is not pack-only cannot be built.
+  if (!("pack_only" in block) || block.pack_only !== true) {
+    throw new Error(`the contract's by-PNU lane ${lane} is not pack_only; this Worker serves section packs only`);
+  }
   return block as Gateway;
 }
 
@@ -38,8 +42,6 @@ export interface ServedLane {
   name: string;
   /// The manifest's `unit`, as the publisher writes it (`ByPnuLane::unit`).
   unit: string;
-  /// Answers from section packs or not at all.
-  packOnly: boolean;
   prefix: string;
   capabilities: string;
   acceptedQueries: readonly string[];
@@ -77,7 +79,6 @@ export function resolveLane(name: string, host: Gateway, kind: string, keySuffix
   return {
     name,
     unit: `${name}-by-pnu`,
-    packOnly: true,
     prefix: withKind(host.request_path.prefix, "by-pnu", kind),
     capabilities: withKind(host.request_path.capabilities, "by-pnu", kind),
     acceptedQueries: [],
@@ -93,7 +94,6 @@ export function resolveLane(name: string, host: Gateway, kind: string, keySuffix
 export const OWN: ServedLane = {
   name: LANE,
   unit: `${LANE}-by-pnu`,
-  packOnly: "pack_only" in policy && policy.pack_only === true,
   prefix: policy.request_path.prefix,
   capabilities: policy.request_path.capabilities,
   acceptedQueries: policy.request_path.accepted_queries as readonly string[],

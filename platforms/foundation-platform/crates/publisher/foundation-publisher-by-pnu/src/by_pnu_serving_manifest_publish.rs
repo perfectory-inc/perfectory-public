@@ -1178,6 +1178,14 @@ pub async fn rollback(
         target.base_generation,
         served.base_generation
     );
+    // A pack-only lane's Worker reads no objects (root ADR-0274): a state from before its packs
+    // would be an outage, and its objects hold older documents. Its lever is the previous pack state.
+    ensure!(
+        target.section_packs.is_some() || served.section_packs.is_none() || !lane.policy()?.pack_only,
+        "{history_key} serves no section packs, and the {} lane is pack_only: it rolls back to its \
+         previous pack state, never to its per-PNU objects (root ADR-0274)",
+        lane.noun()
+    );
     // A rollback undoes the newest object patches or the newest pack state, one at a time; the
     // other part must be what the live manifest serves.
     let objects_rolled_back = target.patches.len() < served.patches.len()

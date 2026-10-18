@@ -84,12 +84,13 @@ class Canary(unittest.TestCase):
     def calls(self):
         return self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
 
-    def test_the_code_phase_walks_the_contract_steps_and_judges_each(self):
-        result = self.run_script("--execute", "code")
+    def test_a_rollout_walks_the_contract_steps_and_judges_each(self):
+        result = self.run_script("--execute", "rollout")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         upload = next(call for call in calls if call.startswith("wrangler versions upload"))
-        self.assertIn("FOUNDATION_PLATFORM_BUILDING_PACK_SERVING:off", upload)
+        # Root ADR-0274: the lane is pack-only; no version is uploaded with a pack path switch.
+        self.assertNotIn("PACK_SERVING", upload)
         deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
         steps = CANARY["steps_percent"]
         self.assertEqual(len(deploys), len(steps))
@@ -106,22 +107,18 @@ class Canary(unittest.TestCase):
         self.assertEqual(sum(call.strip() == f"health {NEW}" for call in calls), len(steps) - len(split))
 
     def test_a_breach_rolls_every_request_back_and_stops(self):
-        result = self.run_script("--execute", "packs", OLD, FAIL_AT=str(CANARY["steps_percent"][1]))
+        result = self.run_script("--execute", "rollout", FAIL_AT=str(CANARY["steps_percent"][1]))
         self.assertEqual(result.returncode, 1, result.stderr)
         calls = self.calls()
-        upload = next(call for call in calls if call.startswith("wrangler versions upload"))
-        self.assertIn("FOUNDATION_PLATFORM_BUILDING_PACK_SERVING:on", upload)
         deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
         self.assertIn(f"{OLD}@100%", deploys[-1])
         self.assertEqual(len(deploys), 3, "it went on past the breach")
 
     def test_without_analytics_nothing_is_uploaded(self):
-        for phase in (["code"], ["packs", OLD]):
-            self.log.unlink(missing_ok=True)
-            result = self.run_script("--execute", *phase, FAKE_NO_ANALYTICS="1")
-            self.assertEqual(result.returncode, 78, result.stderr)
-            self.assertIn("cannot read Cloudflare analytics", result.stderr)
-            self.assertEqual(self.calls(), ["health --preflight "], phase)
+        result = self.run_script("--execute", "rollout", FAKE_NO_ANALYTICS="1")
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("cannot read Cloudflare analytics", result.stderr)
+        self.assertEqual(self.calls(), ["health --preflight "])
 
     @unittest.skipIf(pathlib.Path(ENV_FILE).exists(), "this host holds the analytics file")
     def test_the_health_check_names_the_missing_analytics_file(self):
@@ -132,19 +129,22 @@ class Canary(unittest.TestCase):
         self.assertIn(f"{ENV_FILE} does not exist", result.stderr)
 
     def test_an_upload_without_a_version_id_deploys_nothing(self):
-        result = self.run_script("--execute", "code", FAKE_NO_ID="1")
+        result = self.run_script("--execute", "rollout", FAKE_NO_ID="1")
         self.assertEqual(result.returncode, 70, result.stderr)
         self.assertIn("printed no version id", result.stderr)
         self.assertFalse([call for call in self.calls() if "versions deploy" in call])
 
-    def test_the_packs_phase_starts_only_from_the_version_at_100_percent(self):
-        result = self.run_script("--execute", "packs", OLD, FAKE_SERVING=NEW)
-        self.assertEqual(result.returncode, 65, result.stderr)
-        self.assertIn(f"{OLD} is not the version at 100%", result.stderr)
-        self.assertFalse([call for call in self.calls() if call.startswith("wrangler versions")])
+    def test_the_retired_pack_switch_phases_are_refused_before_anything_runs(self):
+        # Root ADR-0274: there is no object path to roll the pack path out from or back to.
+        for phase in (["code"], ["packs", OLD]):
+            self.log.unlink(missing_ok=True)
+            result = self.run_script("--execute", *phase)
+            self.assertEqual(result.returncode, 64, result.stderr)
+            self.assertIn("rollout|rollback", result.stderr)
+            self.assertEqual(self.calls(), [], phase)
 
     def test_a_failed_step_deployment_shows_the_split_and_rolls_back(self):
-        result = self.run_script("--execute", "code", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][1]))
+        result = self.run_script("--execute", "rollout", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][1]))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("traffic may be split", result.stderr)
         calls = self.calls()
@@ -159,7 +159,7 @@ class Canary(unittest.TestCase):
 
     def test_a_failed_rollback_is_shouted_with_the_command_to_finish_it(self):
         result = self.run_script(
-            "--execute", "code", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][0]), FAKE_FAIL_ROLLBACK="1"
+            "--execute", "rollout", FAKE_FAIL_DEPLOY_AT=str(CANARY["steps_percent"][0]), FAKE_FAIL_ROLLBACK="1"
         )
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertIn("THE ROLLBACK FAILED TOO", result.stderr)
@@ -168,13 +168,12 @@ class Canary(unittest.TestCase):
         self.assertEqual(rolled.returncode, 3, rolled.stderr)
         self.assertIn("deployment is shown above", rolled.stderr)
 
-    def test_the_parcel_lane_rolls_out_its_own_worker_with_its_own_binding(self):
+    def test_the_parcel_lane_rolls_out_its_own_worker(self):
         parcel = CONTRACT["parcel_by_pnu_gateway"]
-        result = self.run_script("--execute", "code", lane="parcel")
+        result = self.run_script("--execute", "rollout", lane="parcel")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         upload = next(call for call in calls if call.startswith("wrangler versions upload"))
-        self.assertIn(f"{parcel['section_packs']['serving_binding']}:off", upload)
         self.assertIn("--config wrangler.parcel.jsonc", upload)
         deploys = [call for call in calls if call.startswith("wrangler versions deploy")]
         self.assertEqual(len(deploys), len(parcel["section_packs"]["canary"]["steps_percent"]))
@@ -182,13 +181,13 @@ class Canary(unittest.TestCase):
         self.assertFalse([call for call in calls if "building" in call], calls)
 
     def test_an_unknown_lane_is_refused_before_anything_runs(self):
-        result = self.run_script("--execute", "code", lane="buildings")
+        result = self.run_script("--execute", "rollout", lane="buildings")
         self.assertEqual(result.returncode, 64, result.stderr)
         self.assertIn("<building|parcel>", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_a_dry_run_deploys_nothing(self):
-        result = self.run_script("code")
+        result = self.run_script("rollout")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), [])
         self.assertIn("versions deploy", result.stderr)
