@@ -2941,7 +2941,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "pnu",
+          "transfer_history_seq"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3047,6 +3056,11 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],

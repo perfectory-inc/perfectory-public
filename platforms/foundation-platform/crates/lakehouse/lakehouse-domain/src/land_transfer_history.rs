@@ -1,8 +1,9 @@
 //! Named `AL_D157` CSV attributes; every parcel event remains in the timeline (root ADR-0089).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_TRANSFER_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -111,6 +112,12 @@ const SILVER_LAND_TRANSFER_HISTORY_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // `removed` on a removal marker (root ADR-0275); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 /// Canonical source attributes without a second parcel geometry (root ADR-0089).
@@ -120,7 +127,13 @@ pub const SILVER_LAND_TRANSFER_HISTORY: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only its changed rows and a removal marker per vanished key; a key's
+    // newest row is current (root ADR-0275). The key is one event of one parcel's timeline.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["pnu", "transfer_history_seq"],
+        newest_first: &["ingested_at_utc"],
+        removal_column: Some("row_state"),
+    }),
     columns: SILVER_LAND_TRANSFER_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "transfer_history_seq"],

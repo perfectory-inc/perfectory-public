@@ -8,7 +8,8 @@ use lakehouse_domain::{
     GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
-    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_PARCEL_BOUNDARIES,
+    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES,
+    SILVER_LAND_TRANSFER_HISTORY, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -282,6 +283,12 @@ fn only_versioned_tables_define_a_current_row_rule() {
                     removal_column: None,
                 })
             );
+        } else if contract.table_name == SILVER_LAND_TRANSFER_HISTORY.table_name {
+            // A lane that appends its changes marks vanished keys (root ADR-0275).
+            assert_eq!(contract.current_row_predicate, None);
+            assert!(contract
+                .current_row_latest
+                .is_some_and(|latest| latest.removal_column.is_some()));
         } else {
             assert_eq!(
                 (contract.current_row_predicate, contract.current_row_latest),
