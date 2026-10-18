@@ -335,6 +335,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지별 토지이동이력 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지별 대지권 등록 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 법정동 코드 변경 원장 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |
+| 법정동코드 스냅숏 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 용도지역 판정 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 개별공시지가 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지특성 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
