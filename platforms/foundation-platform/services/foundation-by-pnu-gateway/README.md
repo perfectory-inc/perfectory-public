@@ -77,7 +77,11 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   `section_packs.preview_worker`, `wrangler.<레인>.jsonc` 의 `env.preview`)에서만 미발행 세대를 서빙하고, 운영 경로에서는
   manifest 가 그 세대를 가리킬 때만 답한다(전환 관문, 런북 `docs/runbooks/building-section-pack-cutover.md`).
 - **manifest 를 신뢰할 수 없으면 503** (부재·비파싱·다른 unit/schema/세대 0): 포인터 장애는
-  레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다.
+  레인 전체의 장애다. R2 읽기 실패도 503이며 `no-store`로 캐시되지 않는다. manifest 읽기도 묶음 읽기와
+  같은 재시도·기한(`read_path.r2_attempts`, `r2_deadline_ms`)을 한 요청 안에서 함께 쓴다.
+- 모든 503 은 원인을 `Foundation-Outage`(계약 `read_path.outage_header`)에 적는다: `manifest-unavailable`,
+  `manifest-invalid`, `no-section-packs`, `r2-unavailable`, `pack-inconsistent`, `unexpected`. 감시와 카나리아는
+  실패를 `http-503:<원인>` 으로 기록한다(2026-10-18 감시의 503 한 건은 원인이 남지 않았다).
 - 모든 답은 자기를 만든 버전 id 를 계약 `version_header`(`Foundation-Worker-Version`)에 적는다. 값은 버전
   메타데이터 바인딩(`version_metadata_binding`)에서 오고, 카나리아 단계가 고정 읽기의 도달을 이것으로 센다(ADR-0157).
 - PNU 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.

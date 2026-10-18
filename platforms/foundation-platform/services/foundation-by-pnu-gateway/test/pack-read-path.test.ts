@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { fetchByPnu, warmRequestPath } from "../src/index";
+import { fetchByPnu, forgetPlans, warmRequestPath } from "../src/index";
 import {
   answerCacheUrl,
   PackFormatError,
@@ -371,7 +371,93 @@ describe("R2 retries within a deadline", () => {
     expect(Date.now() - started).toBeLessThan(READ.r2_deadline_ms);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("server-timing")).toContain('outcome;desc="r2-unavailable"');
+    expect(response.headers.get(READ.outage_header)).toBe("r2-unavailable");
     expect(bucket.get.mock.calls.filter(([wanted]) => wanted === key(PACKS.anchor_section))).toHaveLength(READ.r2_attempts);
+  });
+
+  // 2026-10-18 18:19Z: the live parcel-transfer-history route answered one monitor read 503 and the
+  // same read 200 a minute later; the manifest read was the one R2 read with no retry.
+  describe("the live route's manifest read", () => {
+    const LIVE = `https://buildings.example.test${GATEWAY.request_path.prefix}${PNU_A}`;
+    const servedManifest = JSON.stringify({
+      schema_version: 2,
+      unit: "building-by-pnu",
+      base_generation: 7,
+      base_object_count: 2,
+      document_schema_version: "foundation-platform.building_by_pnu_profile.v2",
+      gold_table: "gold.building_panel",
+      gold_iceberg_snapshot_id: "999990000000000001",
+      reflected_gold_iceberg_snapshot_id: "999990000000000001",
+      pnu_prefix_length: 5,
+      patches: [],
+      object_count: 2,
+      published_at_utc: "2026-01-01T00:00:00Z",
+      section_packs: {
+        schema_version: connectionContract.by_pnu_section_packs.manifest_section_packs_schema_version,
+        format_version: connectionContract.by_pnu_section_packs.format_version,
+        unit_prefix_length: connectionContract.by_pnu_section_packs.unit_prefix_length,
+        document_schema_version: "foundation-platform.building_by_pnu_profile.v2",
+        gold_table: "gold.building_panel",
+        reflected_gold_iceberg_snapshot_id: "999990000000000001",
+        document_count: 2,
+        sections: PACKS.sections.map((name) => ({
+          name,
+          generation: 1,
+          gold_iceberg_snapshot_id: "999990000000000001",
+          document_count: 2,
+          pack_count: 1,
+          patch_floor: 0,
+        })),
+        patches: [],
+      },
+    });
+
+    async function live(manifestFailures: number, manifestBody = servedManifest) {
+      forgetPlans();
+      const { bucket: packs } = strictBucket(await goldenPacks());
+      let manifestReads = 0;
+      const bucket = {
+        get: vi.fn(async (wanted: string, options?: unknown) => {
+          if (wanted !== GATEWAY.object_key.manifest_object) return packs.get(wanted, options as R2GetOptions);
+          manifestReads += 1;
+          if (manifestReads <= manifestFailures) throw new Error("get: We encountered an internal error. Please try again. (10001)");
+          return { body: null, etag: "manifest-etag", text: async () => manifestBody };
+        }),
+      };
+      const response = await fetchByPnu(
+        new Request(LIVE),
+        {
+          [GATEWAY.r2_binding]: bucket as unknown as Pick<R2Bucket, "get">,
+          [GATEWAY.allowed_origins_binding]: "https://app.example.test",
+        },
+        ctx,
+      );
+      return { response, manifestReads: () => manifestReads };
+    }
+
+    it("retries a transient R2 error and answers", async () => {
+      const { response, manifestReads } = await live(1);
+      expect(response.status).toBe(200);
+      expect(manifestReads()).toBe(2);
+    });
+
+    it("answers a persistent R2 error with 503 naming the manifest, within the deadline", async () => {
+      const started = Date.now();
+      const { response, manifestReads } = await live(Number.POSITIVE_INFINITY);
+      expect(response.status).toBe(503);
+      expect(response.headers.get(READ.outage_header)).toBe("manifest-unavailable");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(manifestReads()).toBe(READ.r2_attempts);
+      expect(Date.now() - started).toBeLessThan(READ.r2_deadline_ms);
+    });
+
+    it("names an unreadable manifest and one without section packs apart from R2", async () => {
+      expect((await live(0, "not json")).response.headers.get(READ.outage_header)).toBe("manifest-invalid");
+      const withoutPacks = JSON.stringify({ ...JSON.parse(servedManifest), section_packs: undefined });
+      const { response } = await live(0, withoutPacks);
+      expect(response.status).toBe(503);
+      expect(response.headers.get(READ.outage_header)).toBe("no-section-packs");
+    });
   });
 
   it("a PNU read before under the same served state answers from its edge copy, with no pack read", async () => {
