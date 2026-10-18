@@ -91,7 +91,7 @@ export function PanelCard({
       aria-label={titleId ? undefined : ariaLabel}
       tabIndex={-1}
       // motion-safe / motion-reduce: spec § 9 #16
-      className="motion-safe:animate-in motion-safe:slide-in-from-right motion-reduce:animate-none flex h-full w-full flex-col bg-[var(--color-canvas)]"
+      className="motion-safe:animate-in motion-safe:slide-in-from-right motion-reduce:animate-none flex h-full min-h-0 w-full flex-col overflow-y-auto bg-[var(--color-canvas)]"
     >
       {body}
     </div>

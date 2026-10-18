@@ -4,13 +4,14 @@
 
 import { type BuildingsResponse, fetchBuildings } from "@/lib/api/buildings";
 import { type FloorsResponse, fetchFloors } from "@/lib/api/floors";
-import { fetchParcel, type ParcelInfo } from "@/lib/api/parcels";
+import { fetchParcel, type ParcelDocument } from "@/lib/api/parcels";
 import { PNU_PATTERN } from "@/lib/identity/patterns";
-import { fetchListings, type ListingsResponse } from "@/lib/listings/api";
+import type { ListingsResponse } from "@/lib/listings/api";
 import { defineKind, defineView } from "@/lib/panel/registry";
 import { ParcelBuildingsCard } from "./buildings";
 import { ParcelFloorsCard } from "./floors";
 import { ParcelListingsCard } from "./listings";
+import { fetchParcelListings } from "./queries";
 import { ParcelEmptyCard, ParcelErrorCard, ParcelLoadingSkeleton } from "./skeletons";
 import { ParcelSummaryCard } from "./summary";
 import { unitPricesQuery } from "./unit-prices";
@@ -19,7 +20,7 @@ defineKind({
   kind: "parcel",
   idPattern: PNU_PATTERN,
   views: {
-    summary: defineView<"parcel", ParcelInfo>({
+    summary: defineView<"parcel", ParcelDocument>({
       component: ParcelSummaryCard,
       fetcher: (id, signal) => fetchParcel(id, signal),
       staleTime: 5 * 60_000,
@@ -42,24 +43,7 @@ defineKind({
     }),
     listings: defineView<"parcel", ListingsResponse>({
       component: ParcelListingsCard,
-      fetcher: (id, signal) =>
-        fetchListings(
-          {
-            filters: {
-              types: [],
-              transactions: [],
-              minAreaM2: undefined,
-              maxAreaM2: undefined,
-              minPriceKrw: undefined,
-              maxPriceKrw: undefined,
-              sort: "created_at_desc",
-              adminCode: undefined,
-              landUseType: undefined,
-            },
-            pnu: id,
-          },
-          signal,
-        ),
+      fetcher: (id, signal) => fetchParcelListings(id, signal),
       staleTime: 60_000,
       links: [],
     }),
