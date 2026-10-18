@@ -1,5 +1,8 @@
 from pathlib import Path
+import copy
+import sys
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -25,7 +28,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         court = self.read("models/staging/gongzzang/stg_gongzzang__court_auction_observation.sql")
         building = self.read("models/staging/foundation/stg_foundation__building_register_unit.sql")
         self.assertIn("{{ source('gongzzang', 'court_auction_property') }}", court)
-        self.assertIn("{{ source('foundation', 'building_register_unit') }}", building)
+        self.assertIn("{{ foundation_current_rows('building_register_unit') }}", building)
 
     def test_court_auction_source_matches_real_gongzzang_silver_table(self) -> None:
         sources = self.read("models/sources/foundation_sources.yml")
@@ -326,7 +329,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
 
         self.assertIn("name: land_right_registration", sources)
         self.assertIn("identifier: land_right_registration", sources)
-        self.assertIn("{{ source('foundation', 'land_right_registration') }}", staging)
+        self.assertIn("{{ foundation_current_rows('land_right_registration') }}", staging)
         self.assertNotIn("r2://", staging.lower())
         self.assertNotIn("s3://", staging.lower())
 
@@ -512,3 +515,43 @@ class FoundationDbtModelContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FoundationCurrentRowsMacroTest(unittest.TestCase):
+    """Root ADR-0275: dbt reads a Foundation Silver table's current rows by its contract, through the
+    rendered macro, as Spark does through platform_contracts.current_rows."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path.insert(0, str(DBT_ROOT))
+        import render_current_rows
+
+        cls.render = render_current_rows
+
+    def test_the_checked_in_macro_is_what_the_contracts_render(self) -> None:
+        self.assertEqual((DBT_ROOT / "macros" / "foundation_current_rows.sql").read_text(encoding="utf-8"),
+                         self.render.render(), "run python render_current_rows.py")
+
+    def test_the_versioned_lanes_models_read_through_the_macro(self) -> None:
+        for model, name in (("stg_foundation__building_register_unit", "building_register_unit"),
+                            ("stg_foundation__land_right_registration", "land_right_registration")):
+            sql = (DBT_ROOT / "models" / "staging" / "foundation" / f"{model}.sql").read_text(encoding="utf-8")
+            self.assertIn(f"{{{{ foundation_current_rows('{name}') }}}}", sql)
+            self.assertNotIn(f"source('foundation', '{name}')", sql)
+
+    def test_a_declared_newest_per_key_rule_renders_the_newest_row_per_key(self) -> None:
+        real = self.render.load_lakehouse_contract
+
+        def versioned(name):
+            contract = copy.deepcopy(real(name))
+            if name == "silver.land_right_registration":
+                contract["current_row_latest"] = {"key": ["pnu", "right_serial_no"], "newest_first": ["ingested_at_utc"]}
+            return contract
+
+        with mock.patch.object(self.render, "load_lakehouse_contract", side_effect=versioned):
+            macro = self.render.render()
+        self.assertIn("'land_right_registration': {'predicate': none, 'key': ['pnu', 'right_serial_no'], "
+                      "'newest_first': ['ingested_at_utc']},", macro)
+        self.assertIn("'building_register_unit': none,", macro, "an unversioned table is read as it is")
+        self.assertIn("rank() over (", macro)
+        self.assertIn("where _current_row_rank = 1", macro)
