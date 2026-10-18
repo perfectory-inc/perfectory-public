@@ -21,6 +21,11 @@ set -uo pipefail
 jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/orchestration/jobs.v1.json}"
 starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-scheduler/starts}"
 request="${SSH_ORIGINAL_COMMAND:-}"
+# `<job> check` starts the job's check service instead (jobs.v1.json `check_service`, root
+# ADR-0277): it only decides whether the run has work, so it is never deferred, never recorded as
+# the job's start, and its last `foundation-job-check` line is repeated for the DAG.
+checking=false
+[[ "${request}" == *" check" ]] && checking=true && request="${request% check}"
 # `<job>` from a clock start, `<job> triggered` from a run its inputs or an operator started
 # (root ADR-0179): only a clock start can be deferred by takes_turns.
 job="${request% triggered}"
@@ -32,18 +37,20 @@ refuse() {
   exit 64
 }
 
+[[ "${checking}" == true && "${triggered}" == true ]] && refuse "a check is not triggered"
 [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || refuse "expected one job id, got '${job:0:40}'"
-service="$(python3 - "${jobs_file}" "${job}" <<'PY'
+service="$(python3 - "${jobs_file}" "${job}" "${checking}" <<'PY'
 import json, sys
 for entry in json.load(open(sys.argv[1]))["jobs"]:
     if entry["id"] == sys.argv[2] and entry["enabled"]:
-        print(entry["systemd_service"])
+        print((entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"])
 PY
 )" || refuse "cannot read ${jobs_file}"
-[[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}"
+[[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}$([[ "${checking}" == true ]] && echo ' with a check_service')"
 
 mkdir -p "${starts}" || refuse "cannot keep the start record ${starts}"
-turn="$(python3 - "${jobs_file}" "${job}" "${starts}" "${triggered}" <<'PY'
+# A check is not a turn: it is passed as `triggered`, which is never deferred.
+turn="$(python3 - "${jobs_file}" "${job}" "${starts}" "$([[ "${checking}" == true ]] && echo true || echo "${triggered}")" <<'PY'
 import json, pathlib, sys
 listing, job_id, starts = json.load(open(sys.argv[1])), sys.argv[2], pathlib.Path(sys.argv[3])
 jobs = {job["id"]: job for job in listing["jobs"]}
@@ -88,6 +95,12 @@ job_units="$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py"
 deferred="$(python3 -I -B "${job_units}" deferred-dir)" || refuse "cannot read where deferrals are recorded"
 build=0
 "${admission}" release-build-running || build=$?
+if ((build == 75)) && [[ "${checking}" == true ]]; then
+  # The check's own ExecStartPre would refuse and alert. No answer lets the run start, and the run
+  # is the one deferred and recorded.
+  printf 'start-scheduled-job: %s check not started: a release build is running\n' "${job}"
+  exit 0
+fi
 if ((build == 75)); then
   mkdir -p "${deferred}" && date +%s >"${deferred}/${job}" ||
     printf 'start-scheduled-job: cannot record the deferral of %s under %s\n' "${job}" "${deferred}" >&2
@@ -124,20 +137,35 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [[ -n "${invocation}" ]] || refuse "${service} reported no invocation"
-date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
-rm -f "${deferred}/${job}" # it runs now: nothing is owed to it
+if [[ "${checking}" == false ]]; then
+  date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
+  rm -f "${deferred}/${job}" # it runs now: nothing is owed to it
+fi
 printf 'start-scheduled-job: %s invocation=%s\n' "${service}" "${invocation}"
 
-journalctl --no-pager -o cat -f "_SYSTEMD_INVOCATION_ID=${invocation}" &
-follower=$!
+# A check's journal is not streamed: the DAG reads its answer only from the line repeated below,
+# after systemd said the check succeeded.
+if [[ "${checking}" == false ]]; then
+  journalctl --no-pager -o cat -f "_SYSTEMD_INVOCATION_ID=${invocation}" &
+  follower=$!
+fi
 while runs && [[ "$(state InvocationID)" == "${invocation}" ]]; do
-  sleep 5
+  sleep "$([[ "${checking}" == true ]] && echo 1 || echo 5)"
 done
-sleep 2 # let the journal follower print the last lines
-kill "${follower}" 2>/dev/null
-wait "${follower}" 2>/dev/null
+if [[ -n "${follower}" ]]; then
+  sleep 2 # let the journal follower print the last lines
+  kill "${follower}" 2>/dev/null
+  wait "${follower}" 2>/dev/null
+fi
 
 result="$(state Result)"
+if [[ "${checking}" == true ]]; then
+  # The check's answer, read from its own journal; a check that failed gives none.
+  [[ "${result}" == success ]] && journalctl --no-pager -o cat -n 200 "_SYSTEMD_INVOCATION_ID=${invocation}" \
+    | grep -E '^foundation-job-check [^ ]+$' | tail -n 1
+  printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
+  exit 0
+fi
 # The run says how it ended (root ADR-0260 §2): its last outcome line, read from this invocation's
 # own journal, not from what the follower happened to print. A run systemd counts as a success
 # that said nothing, or said `failed`, is a failed run; a run systemd counts as failed ends with a

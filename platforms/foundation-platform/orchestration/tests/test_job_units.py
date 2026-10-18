@@ -89,7 +89,10 @@ class TheOneDefinition(unittest.TestCase):
         result = subprocess.run([sys.executable, "-I", "-B", str(JOB_UNITS), "services", str(JOBS)],
                                 capture_output=True, text=True, check=True)
         jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        self.assertEqual(result.stdout.split(), sorted({job["systemd_service"] for job in jobs}))
+        checks = {job["check_service"] for job in jobs if job.get("check_service")}
+        # Root ADR-0277: a check service is admitted and waited for like the job's own.
+        self.assertTrue(checks, "the registry has a check service to prove this on")
+        self.assertEqual(result.stdout.split(), sorted({job["systemd_service"] for job in jobs} | checks))
         self.assertTrue(any(not job["enabled"] for job in jobs), "the registry has a disabled job to prove this on")
 
 

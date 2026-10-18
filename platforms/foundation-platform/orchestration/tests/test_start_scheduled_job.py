@@ -223,6 +223,49 @@ class TheRunSaysHowItEnded(HostFixture):
             self.assertEqual(self.outcome(result), "failed")
 
 
+class TheCheckBeforeThePool(HostFixture):
+    """Root ADR-0277: `<job> check` starts the job's check service, and only that."""
+
+    def setUp(self):
+        super().setUp()
+        listing = json.loads((self.root / "jobs.json").read_text())
+        listing["jobs"][0]["check_service"] = "foundation-floor-check@lane.service"
+        (self.root / "jobs.json").write_text(json.dumps(listing))
+
+    def test_it_starts_the_check_service_and_repeats_its_answer(self):
+        result, asked = self.start("floor check", FIXTURE_JOURNAL="plan\\nfoundation-job-check unchanged\\n")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-floor-check@lane.service", asked)
+        self.assertNotIn("foundation-floor.service", asked)
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "foundation-job-check unchanged", "start-scheduled-job: foundation-floor-check@lane.service result=success"])
+        self.assertNotIn("foundation-job-outcome", result.stdout, "a check is not a run")
+
+    def test_a_check_is_not_the_jobs_start_and_is_never_deferred(self):
+        self.record("bake", 2000)
+        result, _ = self.start("floor check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.starts / "floor").exists(), "takes_turns counts runs, not checks")
+
+    def test_a_failed_check_gives_no_answer(self):
+        result, _ = self.start("floor check", FIXTURE_RESULT="exit-code",
+                               FIXTURE_JOURNAL="foundation-job-check unchanged\\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("foundation-job-check", result.stdout)
+
+    def test_no_check_starts_during_a_release_build_and_nothing_is_owed(self):
+        result, asked = self.start("floor check", FIXTURE_BUILD="1")
+        self.assertEqual((result.returncode, asked), (0, ""), result.stderr)
+        self.assertNotIn("foundation-job-check", result.stdout)
+        self.assertFalse(self.deferred.exists() and any(self.deferred.iterdir()))
+
+    def test_a_job_without_a_check_and_a_triggered_check_are_refused(self):
+        for request in ("fold check", "floor triggered check", "floor check triggered"):
+            with self.subTest(request):
+                result, asked = self.start(request)
+                self.assertEqual((result.returncode, asked), (64, ""), result.stdout)
+
+
 class AJobDueDuringAReleaseBuild(HostFixture):
     """Root ADR-0260: a release build's lock is a designed wait, not a failed unit and its alert."""
 

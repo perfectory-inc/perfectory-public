@@ -31,6 +31,7 @@
   "state_paths_not_created_here": {},
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "enabled_since_means": "When the job was switched on, UTC (root ADR-0239): every enabled job states it and a disabled job does not. A scheduled start before it is not a start the job missed, so the operations map never calls a job late for a slot from before it was on. The pull request that switches a job on sets it to the time it is merged; job_specs.py refuses an enabled job without it.",
+  "check_service_means": "A systemd service that only decides whether the job has work, and a run of it takes no pool slot (root ADR-0277). When a job names one, its DAG runs it first in default_pool as task `check`, through the same host command (`<job> check`, scripts/ops/start-scheduled-job.sh); its last line `foundation-job-check unchanged` skips the run, so a run with nothing to do never waits for its pool. Any other answer, or none, starts the run, which decides again for itself: the check only saves the wait. foundation-release.sh timers grants the scheduler the service as it grants the job's, and every job service's release admission applies to it.",
   "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
   "jobs": [
     {
@@ -271,6 +272,7 @@
       "id": "silver_refresh_building_register_titles",
       "description": "Silver refresh of the 표제부 lane `building-register-titles` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_titles already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-titles.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-titles.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -293,6 +295,7 @@
       "id": "silver_refresh_building_register_units",
       "description": "Silver refresh of the 전유부 lane `building-register-units` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_units already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-units.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-units.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -315,6 +318,7 @@
       "id": "silver_refresh_building_register_unit_areas",
       "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-unit-areas.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-unit-areas.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -337,6 +341,7 @@
       "id": "silver_refresh_building_register_apartment_price",
       "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -359,6 +364,7 @@
       "id": "silver_refresh_building_register_exclusive_unit",
       "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-exclusive-unit.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-exclusive-unit.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -381,6 +387,7 @@
       "id": "silver_refresh_land_characteristic",
       "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-characteristic.service",
+      "check_service": "foundation-silver-refresh-plan@land-characteristic.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -403,6 +410,7 @@
       "id": "silver_refresh_land_forest_ledger",
       "description": "Silver refresh of the 임야대장 lane `land-forest-ledger` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_forest_ledger already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-forest-ledger.service",
+      "check_service": "foundation-silver-refresh-plan@land-forest-ledger.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -425,6 +433,7 @@
       "id": "silver_refresh_land_individual_price",
       "description": "Silver refresh of the 개별공시지가 lane `land-individual-price` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_individual_price already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-individual-price.service",
+      "check_service": "foundation-silver-refresh-plan@land-individual-price.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -447,6 +456,7 @@
       "id": "silver_refresh_land_right_registration",
       "description": "Silver refresh of the 대지권등록 lane `land-right-registration` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_right_registration already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-right-registration.service",
+      "check_service": "foundation-silver-refresh-plan@land-right-registration.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -469,6 +479,7 @@
       "id": "silver_refresh_land_transfer_history",
       "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-transfer-history.service",
+      "check_service": "foundation-silver-refresh-plan@land-transfer-history.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -491,6 +502,7 @@
       "id": "silver_refresh_land_use_plan",
       "description": "Silver refresh of the 토지이용계획 lane `land-use-plan` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_plan already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-use-plan.service",
+      "check_service": "foundation-silver-refresh-plan@land-use-plan.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"
@@ -513,6 +525,7 @@
       "id": "silver_refresh_land_use_zone_code",
       "description": "Silver refresh of the 용도지역 코드표 lane `land-use-zone-code` (root ADR-0169 ③): pick the newest national object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_code already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@land-use-zone-code.service",
+      "check_service": "foundation-silver-refresh-plan@land-use-zone-code.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/silver-refresh"

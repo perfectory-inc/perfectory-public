@@ -31,4 +31,4 @@ select
     end as floor_label,
     source_snapshot_id as lineage_run_id,
     mgm_bldrgst_pk
-from {{ source('foundation', 'building_register_unit') }}
+from {{ foundation_current_rows('building_register_unit') }}
