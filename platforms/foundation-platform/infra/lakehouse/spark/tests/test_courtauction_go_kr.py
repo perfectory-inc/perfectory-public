@@ -30,14 +30,14 @@ except ImportError:
 CONTRACT = job.load_source_contract()
 NOW = datetime(2099, 1, 2, 3, 4, 5)
 PREFIXES = {"합성": "99"}
-DONGS = address_pnu.legal_dong_index([("9911010100", "합성도 가상시 가나동")])
+DONGS = address_pnu.legal_dong_index([("9999910100", "합성도 가상시 가나동")])
 
 
 def item(sa="20990130000001", **extra):
     base = {"boCd": "B999999", "saNo": sa, "maemulSer": "1", "mokmulSer": "1", "srnSaNo": "2099타경1",
             "gamevalAmt": "100000000", "minmaePrice": "70000000", "maeGiil": "20990115", "maeAmt": "0",
             "jinstatCd": "0002100001", "hjguSido": "합성도", "hjguSigu": "가상시", "hjguDong": "가나동", "hjguRd": "",
-            "daepyoLotno": "7", "rdNm": "", "buldNo": "", "wgs84Xcordi": "127.0", "wgs84Ycordi": "37.0"}
+            "daepyoLotno": "7", "rdNm": "", "buldNo": "", "wgs84Xcordi": "127.1235", "wgs84Ycordi": "36.1235"}
     base.update(extra)
     return base
 
@@ -55,7 +55,7 @@ class RowTest(unittest.TestCase):
         self.assertEqual(job.item_row(item(maeAmt="81000000"))["sale_amount_krw"], 81000000)
 
     def test_the_address_offers_a_jibun_pnu_else_a_road_key(self) -> None:
-        self.assertEqual(job.offer(job.item_row(item()), PREFIXES, DONGS)["jibun_pnu"], "9911010100100070000")
+        self.assertEqual(job.offer(job.item_row(item()), PREFIXES, DONGS)["jibun_pnu"], "9999910100100070000")
         road = job.offer(job.item_row(item(daepyoLotno="", rdNm="가나대로", buldNo="12")), PREFIXES, DONGS)["road"]
         self.assertEqual((road.road, road.main_no), ("가나대로", 12))
 
@@ -113,7 +113,7 @@ class ChangesTest(unittest.TestCase):
                      .config("spark.ui.enabled", "false").config("spark.sql.shuffle.partitions", "2")
                      .config("spark.sql.session.timeZone", "UTC").getOrCreate())
         cls.spark.sparkContext.setLogLevel("ERROR")
-        cls.parcels = cls.spark.createDataFrame([("9911010100100070000",)], "pnu string")
+        cls.parcels = cls.spark.createDataFrame([("9999910100100070000",)], "pnu string")
         cls.titles = cls.spark.createDataFrame([], "pnu string, road_address_raw string")
 
     @classmethod
@@ -141,7 +141,7 @@ class ChangesTest(unittest.TestCase):
         staged, changes = self.changes("item_search", True, [self.vanished()])
         rows = {r.case_no: r for r in changes.collect()}
         self.assertEqual(rows["20990130000009"].row_state, "removed")
-        self.assertEqual(rows["20990130000001"].pnu, "9911010100100070000")
+        self.assertEqual(rows["20990130000001"].pnu, "9999910100100070000")
         self.assertEqual(rows["20990130000002"].pnu_unresolved_reason, "parcel_absent")
 
     def test_an_incomplete_search_and_the_result_search_mark_nothing(self):
