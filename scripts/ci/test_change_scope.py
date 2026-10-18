@@ -440,6 +440,61 @@ class SuitesTest(unittest.TestCase):
         self.assertEqual(cs.suite_reads(root, self.WS, list(files)), {"platforms/ws/crates/kernel/fixtures/rows.json"})
 
 
+class SuiteModulesTest(unittest.TestCase):
+    """Which Python test modules and Node packages a pull request runs (root ADR-0269)."""
+
+    WS = "platforms/ws"
+    FILES = {
+        "platforms/ws/jobs/kernel.py": "VALUE = 1\n",
+        "platforms/ws/jobs/gold.py": "import kernel\n",
+        "platforms/ws/jobs/other.py": "X = 2\n",
+        "platforms/ws/scripts/bake.sh": 'python3 "platforms/ws/jobs/gold.py"\n',
+        "platforms/ws/config/routes.json": "{}\n",
+        "platforms/ws/tests/test_gold.py": "from jobs import gold\n",
+        "platforms/ws/tests/test_bake.py": 'subprocess.run(["bash", "platforms/ws/scripts/bake.sh"])\n',
+        "platforms/ws/tests/test_routes.py": 'open("platforms/ws/config/routes.json")\n',
+        "platforms/ws/tests/test_other.py": "import other\n",
+        "platforms/ws/jobs/mentions.py": 'NOTE = "test_other.py"\n',
+        "platforms/ws/tests/test_mentions.py": "import mentions\n",
+        "platforms/ws/services/gw/package.json": "{}\n",
+        "platforms/ws/services/gw/src/index.ts": 'readFileSync("platforms/ws/config/routes.json")\n',
+        "platforms/ws/data/orphan.csv": "a,b\n",
+    }
+
+    def select(self, changed: set[str]):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        for path, text in self.FILES.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text, encoding="utf-8")
+        tracked = sorted(self.FILES)
+        return cs.select_suite_modules(self.WS, changed, tracked, cs.dependency_graph(root, tracked))
+
+    def test_a_module_selects_the_tests_that_import_it_at_any_depth(self) -> None:
+        tests, nodes, _ = self.select({"platforms/ws/jobs/kernel.py"})
+        self.assertIn("platforms/ws/tests/test_gold.py", tests, "test_gold imports gold, which imports kernel")
+        self.assertIn("platforms/ws/tests/test_bake.py", tests, "test_bake starts bake.sh, which runs gold")
+        self.assertNotIn("platforms/ws/tests/test_other.py", tests)
+        self.assertEqual(nodes, set())
+
+    def test_a_file_selects_the_tests_and_packages_that_name_it(self) -> None:
+        tests, nodes, _ = self.select({"platforms/ws/config/routes.json"})
+        self.assertEqual(tests, {"platforms/ws/tests/test_routes.py"})
+        self.assertEqual(nodes, {"platforms/ws/services/gw"})
+
+    def test_a_changed_test_runs_itself_and_pulls_in_nothing(self) -> None:
+        tests, _, _ = self.select({"platforms/ws/tests/test_other.py"})
+        self.assertEqual(tests, {"platforms/ws/tests/test_other.py"}, "mentions.py names it; code never depends on a test")
+
+    def test_a_file_nothing_names_runs_every_suite(self) -> None:
+        tests, _, reason = self.select({"platforms/ws/data/orphan.csv"})
+        self.assertIsNone(tests, reason)
+
+    def test_documentation_and_rust_reach_no_suite(self) -> None:
+        tests, nodes, _ = self.select({"platforms/ws/README.md", "platforms/ws/crates/a/src/lib.rs"})
+        self.assertEqual((tests, nodes), (set(), set()))
+
+
 class RepositoryTest(unittest.TestCase):
     def test_the_repository_contract_holds(self) -> None:
         self.assertEqual(cs.check(), [])

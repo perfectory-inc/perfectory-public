@@ -1160,17 +1160,66 @@ fn verify(area: &Area, part: VerifyPart, affected: bool, log: &mut FailureLog) {
     );
 }
 
-/// The Python and Node suites, unless `--affected` and the change scope answers that a pull
-/// request reaches none of them: every changed path is inside a Rust crate, or in another area,
-/// and no non-Rust source of this area names it (root ADR-0269). A selector that cannot answer is
-/// a failure.
+/// Which Python test modules and Node packages a `--affected` run verifies, as
+/// `scripts/ci/change_scope.py suites` answers (root ADR-0269). Paths are from the repository root.
+#[derive(Debug, PartialEq, Eq)]
+enum SuiteSelection {
+    All,
+    Some {
+        tests: Vec<String>,
+        nodes: Vec<String>,
+    },
+}
+
+impl SuiteSelection {
+    fn runs_test(&self, path: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Some { tests, .. } => tests.iter().any(|test| test == path),
+        }
+    }
+
+    fn runs_any_under(&self, dir: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Some { tests, .. } => tests
+                .iter()
+                .any(|test| test.starts_with(&format!("{dir}/"))),
+        }
+    }
+
+    fn runs_node(&self, dir: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Some { nodes, .. } => nodes.iter().any(|node| node == dir),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Some { tests, nodes } if tests.is_empty() && nodes.is_empty())
+    }
+}
+
+/// `<area>/<parts…>` with `.` segments dropped, the form the selector prints.
+fn repo_path(area: &Area, parts: &[&str]) -> String {
+    std::iter::once(area.dir)
+        .chain(parts.iter().copied())
+        .flat_map(|part| part.split('/'))
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The Python and Node suites, narrowed with `--affected` to the test modules and packages the
+/// change scope says a pull request reaches (root ADR-0269): a module that changed or imports,
+/// or names, what changed. A selector that cannot answer is a failure.
 fn verify_suites(area: &Area, dir: &Path, affected: bool, log: &mut FailureLog) {
     let has_suites = !area.python_tests.is_empty() || !area.node_tests.is_empty();
-    if affected && has_suites {
-        let Some((run, reason)) = log.absorb(suite_selection(area)) else {
+    let selection = if affected && has_suites {
+        let Some((selection, reason)) = log.absorb(suite_selection(area)) else {
             return;
         };
-        if !run {
+        if selection.is_empty() {
             eprintln!(
                 "xtask: {}: the Python and Node suites have nothing to verify: {reason}",
                 area.slug
@@ -1178,12 +1227,15 @@ fn verify_suites(area: &Area, dir: &Path, affected: bool, log: &mut FailureLog) 
             return;
         }
         eprintln!("xtask: {}: the suites run: {reason}", area.slug);
-    }
-    verify_python_and_node(area, dir, log);
+        selection
+    } else {
+        SuiteSelection::All
+    };
+    verify_python_and_node(area, dir, &selection, log);
 }
 
-/// `scripts/ci/change_scope.py suites`'s answer: whether the suites run, and why.
-fn suite_selection(area: &Area) -> Result<(bool, String), String> {
+/// `scripts/ci/change_scope.py suites`'s answer and its reason.
+fn suite_selection(area: &Area) -> Result<(SuiteSelection, String), String> {
     let mut command = Command::new("python3");
     command.current_dir(repo_root()).args([
         "scripts/ci/change_scope.py",
@@ -1202,17 +1254,29 @@ fn suite_selection(area: &Area) -> Result<(bool, String), String> {
     parse_suite_selection(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Reads the one line `run <why>` or `skip <why>` (tab-separated); anything else is a failure.
-fn parse_suite_selection(stdout: &str) -> Result<(bool, String), String> {
+/// Reads `all <why>`, or `some <why>` followed by `test <path>` and `node <dir>` lines
+/// (tab-separated); anything else is a failure.
+fn parse_suite_selection(stdout: &str) -> Result<(SuiteSelection, String), String> {
+    let refuse = || format!("unreadable suite selection {stdout:?}");
     let mut lines = stdout.lines();
-    match (
-        lines.next().and_then(|line| line.split_once('\t')),
-        lines.next(),
-    ) {
-        (Some(("run", reason)), None) => Ok((true, reason.to_owned())),
-        (Some(("skip", reason)), None) => Ok((false, reason.to_owned())),
-        _ => Err(format!("unreadable suite selection {stdout:?}")),
+    let (kind, reason) = lines
+        .next()
+        .and_then(|line| line.split_once('\t'))
+        .ok_or_else(refuse)?;
+    let (mut tests, mut nodes) = (Vec::new(), Vec::new());
+    for line in lines {
+        match line.split_once('\t') {
+            Some(("test", path)) => tests.push(path.to_owned()),
+            Some(("node", path)) => nodes.push(path.to_owned()),
+            _ => return Err(refuse()),
+        }
     }
+    let selection = match kind {
+        "all" if tests.is_empty() && nodes.is_empty() => SuiteSelection::All,
+        "some" => SuiteSelection::Some { tests, nodes },
+        _ => return Err(refuse()),
+    };
+    Ok((selection, reason.to_owned()))
 }
 
 /// Runs `side` on its own thread while `main` runs on this one, and puts both sides' failures in
@@ -1588,7 +1652,12 @@ fn pinned_tool_dir(tool: &str, log: &mut FailureLog) -> Option<PathBuf> {
     Some(dir)
 }
 
-fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
+fn verify_python_and_node(
+    area: &Area,
+    dir: &Path,
+    selection: &SuiteSelection,
+    log: &mut FailureLog,
+) {
     let dir = dir.to_path_buf();
     // A covers root that points at nothing is a claim no one can honour. The
     // shell guard proves every discovered file is claimed; it cannot prove a
@@ -1611,9 +1680,29 @@ fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
     }
 
     for (suite, plan) in area.python_tests.iter().zip(python_test_plans(area, &dir)) {
+        // A selection keeps the discovered modules it names; a suite that cannot be split runs
+        // whole when a selected test sits under one of its roots (root ADR-0269).
+        let modules = python_discover_modules(&plan).map(|modules| {
+            modules
+                .into_iter()
+                .filter(|args| {
+                    selection.runs_test(&repo_path(area, &[suite.dir, &args[4], &args[6]]))
+                })
+                .collect::<Vec<_>>()
+        });
+        let selected = match &modules {
+            Some(modules) => !modules.is_empty(),
+            None => suite
+                .covers
+                .iter()
+                .any(|root| selection.runs_any_under(&repo_path(area, &[root]))),
+        };
+        if !selected {
+            continue;
+        }
         // A suite that could not run cannot also be judged on its count; recording both would
         // report one failure twice and inflate the total the summary prints.
-        let Some(output) = python_suite_output(&plan, log) else {
+        let Some(output) = python_suite_output(&plan, modules, log) else {
             continue;
         };
         if executed_python_test_count(&output) == 0 {
@@ -1626,6 +1715,9 @@ fn verify_python_and_node(area: &Area, dir: &Path, log: &mut FailureLog) {
     }
 
     for (suite, plan) in area.node_tests.iter().zip(node_test_plans(area, &dir)) {
+        if !selection.runs_node(&repo_path(area, &[suite.dir])) {
+            continue;
+        }
         if !plan.current_dir.join("package.json").is_file()
             || !plan.current_dir.join("pnpm-lock.yaml").is_file()
         {
@@ -1716,8 +1808,12 @@ const PYTHON_MODULE_WORKERS: usize = 4;
 /// would load — it does not descend into a directory without `__init__.py` — and a root that has
 /// a package keeps the single process. Every failing module is recorded, and the summed
 /// `Ran N tests` still decides the zero-tests check.
-fn python_suite_output(plan: &PythonCommandPlan, log: &mut FailureLog) -> Option<String> {
-    let Some(modules) = python_discover_modules(plan) else {
+fn python_suite_output(
+    plan: &PythonCommandPlan,
+    modules: Option<Vec<Vec<String>>>,
+    log: &mut FailureLog,
+) -> Option<String> {
+    let Some(modules) = modules else {
         return log.absorb(python_capturing_output(plan));
     };
     let queue = std::sync::Mutex::new(modules.into_iter());
@@ -2455,19 +2551,54 @@ mod tests {
     #[test]
     fn the_suite_selection_is_read_exactly() {
         assert_eq!(
-            parse_suite_selection("run\ta suite reads x\n"),
-            Ok((true, "a suite reads x".to_owned()))
+            parse_suite_selection("all\ta run-all input changed\n"),
+            Ok((SuiteSelection::All, "a run-all input changed".to_owned()))
         );
-        assert_eq!(
-            parse_suite_selection("skip\tonly Rust\n"),
-            Ok((false, "only Rust".to_owned()))
-        );
-        for broken in ["", "skip\n", "maybe\twhy\n", "skip\twhy\nrun\twhy\n"] {
+        let (some, reason) = parse_suite_selection(
+            "some\t2 test module(s)\ntest\tp/a/tests/test_x.py\nnode\tp/a/services/gw\n",
+        )
+        .unwrap();
+        assert_eq!(reason, "2 test module(s)");
+        assert!(some.runs_test("p/a/tests/test_x.py") && !some.runs_test("p/a/tests/test_y.py"));
+        assert!(some.runs_any_under("p/a/tests") && !some.runs_any_under("p/a/other"));
+        assert!(some.runs_node("p/a/services/gw") && !some.runs_node("p/a/services/other"));
+        assert!(parse_suite_selection("some\tonly Rust\n")
+            .unwrap()
+            .0
+            .is_empty());
+        for broken in [
+            "",
+            "some\n",
+            "maybe\twhy\n",
+            "all\twhy\ntest\tx\n",
+            "some\twhy\nfile\tx\n",
+        ] {
             assert!(
                 parse_suite_selection(broken).is_err(),
                 "{broken:?} must be refused"
             );
         }
+    }
+
+    /// A selection keeps exactly the discovered modules it names, by the repository path the
+    /// selector prints (root ADR-0269): a module the change reaches must run.
+    #[test]
+    fn a_selected_module_is_found_by_its_repository_path() {
+        let foundation = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
+        assert_eq!(
+            repo_path(
+                foundation,
+                &[".", "infra/lakehouse/spark/tests", "test_gold_rebuild.py"]
+            ),
+            "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_rebuild.py"
+        );
+        assert_eq!(
+            repo_path(
+                foundation,
+                &["services/foundation-provider-acquisition-worker/tests"]
+            ),
+            "platforms/foundation-platform/services/foundation-provider-acquisition-worker/tests"
+        );
     }
 
     /// Every workspace with more than one member keeps a hakari workspace-hack crate (root
