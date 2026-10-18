@@ -92,6 +92,7 @@
       ],
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_registry": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_append_measure": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
