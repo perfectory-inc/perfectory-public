@@ -366,6 +366,39 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     expect((await get(PNU_A, "?packs=g1")).status).toBe(200);
   });
 
+  it("a preview version serves one recorded manifest state exactly; the live route never reads the history (root ADR-0274 §5)", async () => {
+    // The rollback rehearsal's read: the recorded state is generation 1 with its patch 1, while the
+    // live manifest serves generation 1 alone.
+    const name = `20260101T000000Z-${"a".repeat(64)}`;
+    const record = async () => {
+      if (runtime === undefined) throw new Error("Miniflare did not start");
+      await (await runtime.getR2Bucket(R2_BINDING)).put(
+        `${GATEWAY.object_key.manifest_history_dir}/${name}.json`,
+        manifest(sectionPacks([{ patch: 1, units: [UNIT] }])),
+      );
+    };
+    await serve(sectionPacks([]));
+    await record();
+    // The live route: the parameter names no state it serves, and the history is not read.
+    expect((await get(PNU_A, `?packs=h${name}`)).status).toBe(404);
+    expect(await (await get(PNU_A)).text()).toBe(documents.base[PNU_A]);
+    if (runtime === undefined) throw new Error("Miniflare did not start");
+    await runtime.dispose();
+    runtime = await start({ [PACKS.preview_binding]: "true" });
+    await serve(sectionPacks([]));
+    await record();
+    const state = await get(PNU_A, `?packs=h${name}`);
+    expect(state.status).toBe(200);
+    expect(await state.text()).toBe(documents.patched[PNU_A]);
+    const deleted = await get(PNU_B, `?packs=h${name}`);
+    expect(deleted.status).toBe(404);
+    expect(await deleted.json()).toEqual({ error: "deleted", pnu: PNU_B });
+    // Without the state, the same preview serves the live manifest; an unrecorded state is a 404.
+    expect(await (await get(PNU_A)).text()).toBe(documents.base[PNU_A]);
+    expect((await get(PNU_A, `?packs=h20260101T000000Z-${"b".repeat(64)}`)).status).toBe(404);
+    expect((await get(PNU_A, "?packs=hnot-a-history-name")).status).toBe(404);
+  });
+
   it("a version whose serving binding is off answers from objects under a pack manifest", async () => {
     const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
     const objectKey = `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`;

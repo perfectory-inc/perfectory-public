@@ -10,8 +10,10 @@
 //! - a p95 within `monitor.latency_p95_max_ms`.
 //!
 //! With `MONITOR_PACK_GENERATION=<n>` it reads `?{preview_query_parameter}=g<n>` from a preview
-//! hostname and holds each answer to generation `n`'s packs instead: the rollback rehearsal (root
-//! ADR-0274 §5) proves a previous generation the lane could roll back to is whole and served.
+//! hostname and holds each answer to generation `n`'s packs instead; with
+//! `MONITOR_HISTORY_STATE=<published>-<sha256>` it reads `?{preview_query_parameter}=h<that>` and
+//! holds each answer to that recorded manifest's packs and pack patches: the rollback rehearsal (root
+//! ADR-0274 §5) proves the state a rollback would serve is whole and served.
 //!
 //! It no longer compares the answer with the per-PNU object documents once packs are served: the
 //! section-pack bake does not write objects, so after a pack bake they hold an older document and
@@ -93,14 +95,17 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
                 lane.env("MONITOR_PACK_GENERATION")
             )
         })?;
-    let report = check_at(
-        &store,
-        &base_url,
-        &pnus,
-        policy.latency_p95_max_ms,
-        generation,
-    )
-    .await?;
+    let target = match (generation, env("MONITOR_HISTORY_STATE")?) {
+        (None, None) => Target::Served,
+        (Some(generation), None) => Target::Generation(generation),
+        (None, Some(name)) => Target::recorded(&store, &name).await?,
+        (Some(_), Some(_)) => anyhow::bail!(
+            "name one of {} or {}",
+            lane.env("MONITOR_PACK_GENERATION"),
+            lane.env("MONITOR_HISTORY_STATE")
+        ),
+    };
+    let report = check_at(&store, &base_url, &pnus, policy.latency_p95_max_ms, &target).await?;
     if let Some(path) = env("MONITOR_REPORT_PATH")? {
         write_evidence(&PathBuf::from(path), &report)?;
     }
@@ -118,8 +123,42 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Reads every PNU from `base_url` and holds it to the lane's documents, or with `generation` the
-/// preview read of that pack generation to its packs.
+/// What a monitor run holds the answers to.
+pub enum Target {
+    /// What the live manifest serves.
+    Served,
+    /// One pack generation, read from a preview by `?packs=g<n>`.
+    Generation(u64),
+    /// One recorded manifest state, read from a preview by `?packs=h<name>`.
+    Recorded(
+        String,
+        Box<crate::by_pnu_section_pack_manifest::SectionPacksState>,
+    ),
+}
+
+impl Target {
+    /// The recorded manifest `name` (`<published>-<sha256>`) of the lane's history.
+    ///
+    /// # Errors
+    /// Returns an error when the name is not a history entry, or it serves no section packs.
+    pub async fn recorded(store: &ByPnuServingStore, name: &str) -> anyhow::Result<Self> {
+        let key = format!(
+            "{}{name}.json",
+            by_pnu::manifest_history_prefix(store.lane())?
+        );
+        ensure!(
+            by_pnu::is_manifest_history_key(store.lane(), &key),
+            "{name} is not a manifest history entry"
+        );
+        let manifest = ServedManifest::parse(store.lane(), &store.read_bytes(&key).await?)?;
+        let state = manifest
+            .section_packs
+            .with_context(|| format!("{key} serves no section packs"))?;
+        Ok(Self::Recorded(name.to_owned(), Box::new(state)))
+    }
+}
+
+/// Reads every PNU from `base_url` and holds it to `target`'s documents.
 ///
 /// # Errors
 /// Returns an error when the manifest or a pack cannot be read.
@@ -128,15 +167,14 @@ pub async fn check_at(
     base_url: &str,
     pnus: &[String],
     latency_p95_max_ms: f64,
-    generation: Option<u64>,
+    target: &Target,
 ) -> anyhow::Result<MonitorReport> {
     let lane = store.lane();
-    let query = match generation {
-        Some(generation) => format!(
-            "?{}=g{generation}",
-            crate::by_pnu_gateway_contract::section_pack_policy()?.preview_query_parameter
-        ),
-        None => String::new(),
+    let parameter = &crate::by_pnu_gateway_contract::section_pack_policy()?.preview_query_parameter;
+    let query = match target {
+        Target::Served => String::new(),
+        Target::Generation(generation) => format!("?{parameter}=g{generation}"),
+        Target::Recorded(name, _) => format!("?{parameter}=h{name}"),
     };
     let prefix = &lane.policy()?.request_path.prefix;
     let client = reqwest::Client::builder()
@@ -172,8 +210,14 @@ pub async fn check_at(
         report.answered += 1;
         latency.push(answer.ms);
         let live = answer.content()?;
-        let served_bytes = if generation.is_some() || served.section_packs.is_some() {
-            let inspected = inspect::inspect(store, pnu, generation).await?;
+        let served_bytes = if !matches!(target, Target::Served) || served.section_packs.is_some() {
+            let inspected = match target {
+                Target::Recorded(_, state) => inspect::inspect_state(store, pnu, state).await?,
+                Target::Generation(generation) => {
+                    inspect::inspect(store, pnu, Some(*generation)).await?
+                }
+                Target::Served => inspect::inspect(store, pnu, None).await?,
+            };
             ensure!(
                 inspected["answer"] == "document",
                 "the packs do not serve {pnu} as a document: {}",

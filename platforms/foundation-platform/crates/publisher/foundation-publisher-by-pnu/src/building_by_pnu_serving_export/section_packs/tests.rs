@@ -1587,13 +1587,25 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
             lane.cut_over(&rows).await?;
             assert!(lane.live().await?.section_packs.is_some());
         }
-        let held =
-            super::monitor::check_at(&lane.store, &faithful.uri(), &pnus, 3_000.0, None).await?;
+        let held = super::monitor::check_at(
+            &lane.store,
+            &faithful.uri(),
+            &pnus,
+            3_000.0,
+            &super::monitor::Target::Served,
+        )
+        .await?;
         assert!(held.passed, "{phase}: {held:?}");
         assert_eq!(held.answered, 2, "{phase}");
 
-        let report =
-            super::monitor::check_at(&lane.store, &drifted.uri(), &pnus, 3_000.0, None).await?;
+        let report = super::monitor::check_at(
+            &lane.store,
+            &drifted.uri(),
+            &pnus,
+            3_000.0,
+            &super::monitor::Target::Served,
+        )
+        .await?;
         assert!(!report.passed, "{phase}: a drifted document passed");
         assert_eq!(
             report.drifted_from_served,
@@ -1601,12 +1613,25 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
             "{phase}"
         );
 
-        let report =
-            super::monitor::check_at(&lane.store, &failing.uri(), &pnus, 3_000.0, None).await?;
+        let report = super::monitor::check_at(
+            &lane.store,
+            &failing.uri(),
+            &pnus,
+            3_000.0,
+            &super::monitor::Target::Served,
+        )
+        .await?;
         assert!(!report.passed, "{phase}: a 503 passed");
         assert_eq!(report.failures.len(), 2, "{phase}: {report:?}");
 
-        let report = super::monitor::check_at(&lane.store, &slow.uri(), &pnus, 100.0, None).await?;
+        let report = super::monitor::check_at(
+            &lane.store,
+            &slow.uri(),
+            &pnus,
+            100.0,
+            &super::monitor::Target::Served,
+        )
+        .await?;
         assert!(!report.passed, "{phase}: a p95 above the bound passed");
         assert!(report.latency_ms.p95 > 100.0, "{phase}: {report:?}");
     }
@@ -1621,7 +1646,14 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
     )?);
     std::fs::remove_file(&object)?;
     std::fs::write(&object, b"{\"stale\":true}\n")?;
-    let held = super::monitor::check_at(&lane.store, &faithful.uri(), &pnus, 3_000.0, None).await?;
+    let held = super::monitor::check_at(
+        &lane.store,
+        &faithful.uri(),
+        &pnus,
+        3_000.0,
+        &super::monitor::Target::Served,
+    )
+    .await?;
     assert!(
         held.passed,
         "an object the packs replaced failed the monitor: {held:?}"

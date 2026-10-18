@@ -90,9 +90,21 @@ pub async fn previous_pack_state_key(
         .into_iter()
         .filter(|key| by_pnu::is_manifest_history_key(lane, key))
         .collect::<Vec<_>>();
-    // History keys begin with their publish time: the newest sorts last.
+    // History keys begin with their publish time (to the second): the newest sorts last. Two
+    // publishes in one second sort by digest, so the state is chosen by what it holds, the closest to
+    // the live one: the newest older generations with the most patches, else the most patches.
     keys.sort();
-    let mut fewer = None;
+    let closeness = |back: &SectionPacksState| {
+        (
+            back.sections
+                .iter()
+                .map(|section| section.generation)
+                .collect::<Vec<_>>(),
+            back.patches.len(),
+        )
+    };
+    let mut older: Option<((Vec<u64>, usize), String)> = None;
+    let mut fewer: Option<((Vec<u64>, usize), String)> = None;
     for key in keys.into_iter().rev() {
         let Ok(target) = ServedManifest::parse(lane, &store.read_bytes(&key).await?) else {
             continue;
@@ -103,14 +115,17 @@ pub async fn previous_pack_state_key(
         if target.patches != served.patches {
             continue;
         }
-        if older_generation(back, live) && ensure_still_held(store, back, live).await.is_ok() {
-            return Ok(key);
-        }
-        if fewer.is_none() && fewer_patches(back, live) {
-            fewer = Some(key);
+        let rank = closeness(back);
+        if older_generation(back, live)
+            && older.as_ref().is_none_or(|(best, _)| rank > *best)
+            && ensure_still_held(store, back, live).await.is_ok()
+        {
+            older = Some((rank, key));
+        } else if fewer_patches(back, live) && fewer.as_ref().is_none_or(|(best, _)| rank > *best) {
+            fewer = Some((rank, key));
         }
     }
-    fewer.with_context(|| {
+    older.or(fewer).map(|(_, key)| key).with_context(|| {
         format!(
             "the {} manifest history holds no previous pack state: no older pack generation still \
              kept (root ADR-0242) and no state of the live generation before its newest patch; the \
