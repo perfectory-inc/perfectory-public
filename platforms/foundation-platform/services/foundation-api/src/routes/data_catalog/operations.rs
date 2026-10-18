@@ -398,7 +398,13 @@ fn typical_duration<'a>(runs: impl Iterator<Item = &'a ScheduledJobRun>) -> Opti
 /// run's start is when the run was queued (`queued_at`), and the first start of a run task inside
 /// the DAG run is when its work started (`started_at`, absent while it still waits). Measured from
 /// the DAG run's start, a run that waited three hours for the pool and ran for a minute read as a
-/// three-hour run and was called slow (2026-10-18). Runs of the task job itself are left as they are.
+/// three-hour run and was called slow (2026-10-18).
+///
+/// Its work ended when its last run task try did (`finished_at`), not when the DAG run did: the
+/// tasks after it wait for the scheduler, and a deploy that pauses every DAG holds them there. On
+/// 2026-10-18 a run task ended 08:33:46, its DAG run 08:54:18, and the screen said 34 minutes for
+/// 14 minutes of work. A DAG run not yet finished keeps no finish. Runs of the task job itself are
+/// left as they are.
 fn with_run_task_starts(
     runs: Vec<(String, ScheduledJobRun, i64)>,
     dag_id: &str,
@@ -406,22 +412,27 @@ fn with_run_task_starts(
 ) -> Vec<(String, ScheduledJobRun, i64)> {
     let dag_job = format!(",{dag_id})");
     let task_job = format!(",{dag_id}.{run_task_id})");
-    let task_starts: Vec<DateTime<Utc>> = runs
+    let task_runs: Vec<(DateTime<Utc>, Option<DateTime<Utc>>)> = runs
         .iter()
         .filter(|(job_urn, _, _)| job_urn.ends_with(&task_job))
-        .filter_map(|(_, run, _)| run.started_at)
+        .filter_map(|(_, run, _)| run.started_at.map(|start| (start, run.finished_at)))
         .collect();
     runs.into_iter()
         .map(|(job_urn, mut run, last_event)| {
             if job_urn.ends_with(&dag_job) {
                 if let Some(queued) = run.started_at {
                     let until = run.finished_at.unwrap_or(DateTime::<Utc>::MAX_UTC);
-                    run.queued_at = Some(queued);
-                    run.started_at = task_starts
+                    let inside: Vec<_> = task_runs
                         .iter()
-                        .copied()
-                        .filter(|start| queued <= *start && *start <= until)
-                        .min();
+                        .filter(|(start, _)| queued <= *start && *start <= until)
+                        .collect();
+                    run.queued_at = Some(queued);
+                    run.started_at = inside.iter().map(|(start, _)| *start).min();
+                    if run.finished_at.is_some() {
+                        if let Some(end) = inside.iter().filter_map(|(_, end)| *end).max() {
+                            run.finished_at = Some(end);
+                        }
+                    }
                 }
             }
             (job_urn, run, last_event)
@@ -829,7 +840,7 @@ mod tests {
         );
         assert_eq!(
             nightly.typical_duration_seconds,
-            Some(660),
+            Some(600),
             "a typical run is its work, not its wait"
         );
 
@@ -859,6 +870,95 @@ mod tests {
             )),
             "a ten-minute run after a three-hour wait is not slow: {:?}",
             statuses[0].problems
+        );
+    }
+
+    /// 2026-10-18, `building_register_floor`: queued 08:20:00, its run task 08:20:01 to 08:33:46,
+    /// then a deploy paused every DAG and the publish task after it ran at 08:54, so the DAG run
+    /// ended 08:54:18. The screen said 34 minutes; the work took 13 minutes 45 seconds.
+    #[test]
+    fn a_run_ends_when_its_run_task_does_not_when_a_paused_dag_run_does() {
+        let now = at("2026-01-02T12:00:00Z");
+        let dag = run(
+            "urn:li:dataProcessInstance:dag-floor",
+            &[
+                event("STARTED", "2026-01-02T08:20:00Z", None),
+                event("COMPLETE", "2026-01-02T08:54:18Z", Some("SUCCESS")),
+            ],
+        );
+        let task = run(
+            "urn:li:dataProcessInstance:task-floor",
+            &[
+                event("STARTED", "2026-01-02T08:20:01Z", None),
+                event("COMPLETE", "2026-01-02T08:33:46Z", Some("SUCCESS")),
+            ],
+        );
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[
+                ("synthetic_nightly", vec![dag]),
+                ("synthetic_nightly.run", vec![task]),
+            ],
+        )];
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let last = statuses[0].last_run.as_ref();
+        assert_eq!(
+            last.and_then(|run| run.started_at),
+            Some(at("2026-01-02T08:20:01Z"))
+        );
+        assert_eq!(
+            last.and_then(|run| run.finished_at),
+            Some(at("2026-01-02T08:33:46Z")),
+            "the work ended with the run task, not with the paused DAG run"
+        );
+        assert_eq!(statuses[0].typical_duration_seconds, Some(825));
+    }
+
+    /// A retried run task: its work spans the first try's start to the last try's end.
+    #[test]
+    fn a_retried_run_spans_its_first_try_to_its_last() {
+        let now = at("2026-01-02T12:00:00Z");
+        let dag = run(
+            "urn:li:dataProcessInstance:dag-retry",
+            &[
+                event("STARTED", "2026-01-02T08:00:00Z", None),
+                event("COMPLETE", "2026-01-02T08:40:00Z", Some("SUCCESS")),
+            ],
+        );
+        let tries = vec![
+            run(
+                "urn:li:dataProcessInstance:task-retry-1",
+                &[
+                    event("STARTED", "2026-01-02T08:05:00Z", None),
+                    event("COMPLETE", "2026-01-02T08:10:00Z", Some("FAILURE")),
+                ],
+            ),
+            run(
+                "urn:li:dataProcessInstance:task-retry-2",
+                &[
+                    event("STARTED", "2026-01-02T08:15:00Z", None),
+                    event("COMPLETE", "2026-01-02T08:30:00Z", Some("SUCCESS")),
+                ],
+            ),
+        ];
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[
+                ("synthetic_nightly", vec![dag]),
+                ("synthetic_nightly.run", tries),
+            ],
+        )];
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let last = statuses[0].last_run.as_ref();
+        assert_eq!(
+            (
+                last.and_then(|run| run.started_at),
+                last.and_then(|run| run.finished_at)
+            ),
+            (
+                Some(at("2026-01-02T08:05:00Z")),
+                Some(at("2026-01-02T08:30:00Z"))
+            )
         );
     }
 
