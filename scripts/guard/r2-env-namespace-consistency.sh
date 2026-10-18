@@ -25,6 +25,8 @@ canonical_keys=(
   FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX
   FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET
   FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST
+  FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET
+  FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST
 )
 
 for key in "${canonical_keys[@]}"; do
@@ -177,10 +179,6 @@ connection_exceptions=(
   # Billing report input: the bucket whose usage rows are being summed, read
   # from a CSV export rather than connected to.
   FOUNDATION_PLATFORM_R2_BILLING_USAGE_METRICS_BUCKET_NAME
-  # The shape ledger check's private ledger bucket (root ADR-0279): only its own optional group
-  # shape-ledger holds these, beside a key that writes that bucket only; not the runtime profile.
-  FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET
-  FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST
 )
 
 # Declared operational control families. A name outside all of them fails.
