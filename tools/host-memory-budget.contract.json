@@ -17,6 +17,11 @@
       {
         "what": "ollama.service",
         "why": "A systemd service, not a container, with MemoryMax=infinity. Models larger than the 8GB GPU spill into host memory; the largest pulled model is 23GB. Left uncapped by decision on 2026-10-01: loading a large model while Spark loads can exhaust the host, and nothing here prevents it."
+      },
+      {
+        "what": "the identity signed-OIDC smoke's containers",
+        "script": "platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh",
+        "why": "A disposable cross-repository smoke an operator runs by hand (no unit, timer or workflow starts it); it removes every container it starts on exit. Its Zitadel, Postgres and relays are not measured in this shape, so they are not capped here; it must not run beside the Spark loads."
       }
     ]
   },
@@ -133,6 +138,10 @@
       ]
     },
     "why": "What each job in a declared Airflow pool runs, one at a time: compose services by host project, containers a contract caps, or its systemd unit's MemoryMax. The guard sums every set of a pool's jobs whose pool_slots fit its slots and counts the largest instead of the largest one-shot job when it is larger. The release build refuses to start while a registered job runs (ADR-0137) and manual Spark loads run with the DAGs paused, so neither adds to it."
+  },
+  "host_scripts": {
+    "paths": ["platforms/foundation-platform/scripts/"],
+    "why": "The scripts the release ships to the host: every container they start with `docker run` states its --memory at the run site, with the measurement it comes from beside it."
   },
   "not_on_host": [
     {

@@ -31,6 +31,11 @@
 # build refuses to start while a registered job runs, and manual loads run with the DAGs paused,
 # so neither ever adds to it.
 #
+# Host scripts start containers with `docker run` too, outside compose and outside every contract
+# above. `host_scripts` names where the scripts that run on the host live; every `docker run` there
+# states `--memory` (a continued line is read whole), or its script is in `host.uncapped` with why.
+# On 2026-10-18 the parcel number change collector's aws-cli ran with no cap, and so did six more.
+#
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
 # anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
 # root disk under the production database twice. And every service that stays up on the host
@@ -439,6 +444,41 @@ if "scheduled_jobs" in contract:
         scheduled = scheduled_load(contract["scheduled_jobs"])
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(f"{CONTRACT}: scheduled_jobs: {error}")
+
+DOCKER_RUN = re.compile(r"\bdocker\s+run\b")
+MEMORY_FLAG = re.compile(r"(?:^|\s)(?:--memory(?:=|\s+)\S|-m\s+\S)")
+
+
+def logical_lines(text: str):
+    """(first line number, the line with its backslash continuations joined), comments skipped."""
+    start, parts = None, []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if not parts and raw.lstrip().startswith("#"):
+            continue
+        start = start or number
+        parts.append(raw.rstrip("\\").rstrip() if raw.rstrip().endswith("\\") else raw)
+        if not raw.rstrip().endswith("\\"):
+            yield start, " ".join(parts)
+            start, parts = None, []
+    if parts:
+        yield start, " ".join(parts)
+
+
+section = contract.get("host_scripts")
+if section is not None:
+    exempt = {entry.get("script") for entry in host.get("uncapped", []) if entry.get("script")}
+    for relative in section.get("paths", []):
+        base = ROOT / relative
+        if not base.exists():
+            errors.append(f"{CONTRACT}: host_scripts names {relative}, which does not exist")
+            continue
+        for path in sorted(p for p in base.rglob("*") if p.is_file() and p.suffix in (".sh", ".py")):
+            name = path.relative_to(ROOT).as_posix()
+            if name in exempt:
+                continue
+            for number, line in logical_lines(path.read_text(encoding="utf-8", errors="replace")):
+                if DOCKER_RUN.search(line) and not MEMORY_FLAG.search(line):
+                    errors.append(f"{name}:{number}: `docker run` with no --memory (a host script's container is capped where it starts)")
 
 heaviest = max(largest_job[0], scheduled[0])
 total = standing_total + heaviest + reserved
