@@ -63,6 +63,7 @@ print_stderr = "deny"
 
 [workspace.dependencies]
 foundation-workspace-hack = { path = "crates/foundation-workspace-hack" }
+foundation-jobs = { path = "crates/ops/foundation-jobs" }
 anyhow = "1"
 apache-avro = "0.21.0"
 base64 = "0.22"

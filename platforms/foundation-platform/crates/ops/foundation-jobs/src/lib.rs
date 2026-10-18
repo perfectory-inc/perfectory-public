@@ -7,6 +7,7 @@
 //! It also renders the host's `tmpfiles.d` file that creates the job state directories, with their
 //! mode and owner, before any unit or container uses them.
 
+pub mod job_run;
 pub mod runner;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -76,6 +77,13 @@ pub struct Job {
     pub stop_grace_minutes: u32,
     /// Where the job writes and keeps state across runs; absolute paths.
     pub state_paths: Vec<String>,
+    /// What the runner runs, relative to the release; a job without it runs its unit's own
+    /// `ExecStart` (root ADR-0270 §2, job by job).
+    #[serde(default)]
+    pub command: Option<Vec<String>>,
+    /// The longest stretch the runner lets the command print nothing, in minutes.
+    #[serde(default)]
+    pub stall_limit_minutes: Option<u32>,
 }
 
 /// What a job unit repeats from the job list. Jobs that share a unit must state the same.
@@ -488,6 +496,8 @@ mod tests {
                     time_limit_minutes: *minutes,
                     stop_grace_minutes: 5,
                     state_paths: Vec::new(),
+                    command: None,
+                    stall_limit_minutes: None,
                 })
                 .collect(),
         }
