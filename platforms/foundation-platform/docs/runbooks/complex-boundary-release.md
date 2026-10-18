@@ -46,7 +46,7 @@ foundation-job-outcome changed|unchanged
 작업은 꺼진 채 등록됐다. 자동배포가 돌지 않을 때:
 
 ```bash
-sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start complex_boundary_release
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start complex_boundary_release --requested-at "$(date +%s)" --reason "<왜 지금 돌리는지>"
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job status complex_boundary_release
 ```
 

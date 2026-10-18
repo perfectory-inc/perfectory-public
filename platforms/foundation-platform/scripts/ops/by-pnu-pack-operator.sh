@@ -15,8 +15,10 @@
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
-#   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
-#   by-pnu-pack-operator.sh job start|status <disabled job id>
+#   by-pnu-pack-operator.sh silver plan|status <silver-lane>
+#   by-pnu-pack-operator.sh silver start <silver-lane> --requested-at <epoch second> --reason <why>
+#   by-pnu-pack-operator.sh job status <disabled job id>
+#   by-pnu-pack-operator.sh job start <disabled job id> --requested-at <epoch second> --reason <why>
 #   by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
@@ -86,7 +88,35 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+
+# An operator start is attended and immediate (root ADR-0270 §2b). On 2026-10-16 a wait script left
+# running under nohup started `job start parcel_registry`, a production Silver write, ten hours after
+# it was written, when the host went quiet. So `job start` and `silver start` name when the operator
+# asked (`--requested-at "$(date +%s)"` typed at the prompt, not computed by a script that runs later)
+# and why; a request older than START_EXPIRY_MINUTES is refused, and nothing here waits for the host
+# to be free: a busy host is refused (75) and the operator asks again. A start also needs a terminal
+# on standard input, which a background script under nohup does not have. Each start is recorded in the
+# journal (`journalctl -t foundation-operator-start`): who, what, when asked, why.
+START_EXPIRY_MINUTES=10
+attended_start() { # <requested-at> <reason>; sets START_REQUEST
+  local now age
+  # A person at a terminal: nohup, a cron line or a script fed from a pipe has none (`ssh -t` for one).
+  [[ -t 0 ]] || refuse "an operator start needs a person at a terminal (standard input is not one; use ssh -t)" 77
+  [[ "$1" =~ ^[0-9]{10}$ ]] || refuse "--requested-at takes the epoch second the operator asked: \"\$(date +%s)\""
+  now="$(date +%s)"
+  age=$((now - 10#$1))
+  ((age >= -60)) || refuse "--requested-at is $((-age)) seconds in the future"
+  ((age <= START_EXPIRY_MINUTES * 60)) \
+    || refuse "this start was asked for $((age / 60)) minutes ago; an operator start expires after ${START_EXPIRY_MINUTES} minutes and never waits for the host (ask again)" 77
+  [[ "$2" == *[![:space:]]* && "${#2}" -le 300 && "$2" != *[[:cntrl:]]* ]] \
+    || refuse "--reason takes why this start is needed, one line of at most 300 characters"
+  START_REQUEST="who=${SUDO_USER:-${USER:-unknown}} requested_at=$1 reason=$2"
+}
+# Records the start about to happen, or refuses it: a start the journal does not hold does not run.
+record_start() {
+  logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
+}
+USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|status <silver-lane> | silver start <silver-lane> --requested-at <epoch second> --reason <why> | job status <disabled job id> | job start <disabled job id> --requested-at <epoch second> --reason <why> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -247,7 +277,13 @@ fi
 
 if [[ "${LANE}" == silver ]]; then
   SILVER_LANE="${1:-}"
-  (($# == 1)) || refuse "silver ${ACTION} takes one Silver refresh lane"
+  if [[ "${ACTION}" == start ]]; then
+    (($# == 5)) && [[ "$2" == --requested-at && "$4" == --reason ]] \
+      || refuse "silver start takes one Silver refresh lane, --requested-at <epoch second> and --reason <why>"
+    attended_start "$3" "$5"
+  else
+    (($# == 1)) || refuse "silver ${ACTION} takes one Silver refresh lane"
+  fi
   # The lanes are the jobs that run the template unit (orchestration/jobs.v1.json, root ADR-0169).
   mapfile -t silver_lanes < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" <<'PY'
 import json, re, sys
@@ -272,6 +308,7 @@ PY
       # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
       refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}"
       refuse_while_pool_full "${SILVER_UNIT}"
+      record_start "${SILVER_UNIT}"
       log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
       exec systemctl start --no-block "${SILVER_UNIT}"
       ;;
@@ -285,7 +322,14 @@ fi
 
 if [[ "${LANE}" == job ]]; then
   JOB_ID="${1:-}"
-  (($# == 1)) || refuse "job ${ACTION} takes one job id"
+  if [[ "${ACTION}" == start ]]; then
+    # A disabled job is off for a reason (jobs.v1.json disabled_reason); starting it needs one too.
+    (($# == 5)) && [[ "$2" == --requested-at && "$4" == --reason ]] \
+      || refuse "job start takes one job id, --requested-at <epoch second> and --reason <why>"
+    attended_start "$3" "$5"
+  else
+    (($# == 1)) || refuse "job ${ACTION} takes one job id"
+  fi
   # The job's service and pool, only when the release lists it as off and it is not a Silver lane.
   read -r JOB_UNIT JOB_POOL < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
 import json, sys
@@ -301,6 +345,7 @@ PY
       # The hand Gold rebuild is a transient unit, not a job, so the pool cannot count it.
       [[ "${JOB_POOL}" != spark ]] || refuse_while_active "${GOLD_UNIT}"
       refuse_while_pool_full "${JOB_ID}"
+      record_start "${JOB_UNIT}"
       log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
       exec systemctl start --no-block "${JOB_UNIT}"
       ;;
