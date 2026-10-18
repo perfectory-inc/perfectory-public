@@ -33,7 +33,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[2]' --driver-memory 2g \
+  spark-small spark-submit --master 'local[2,8]' --driver-memory 2g \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/data_go_kr_onbid.py load \
   --state-dir /workspace/target/lakehouse --allow-non-smoke-write >> "${run_log}" 2>&1
