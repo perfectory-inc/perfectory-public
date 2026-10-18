@@ -99,6 +99,7 @@
       "parcel_registry": [{"project": "foundation-platform-compute", "service": "spark"}],
       "onbid_public_sale_silver": [{"project": "foundation-platform-compute", "service": "spark-small"}],
       "registered_factory": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "court_auction_silver": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
