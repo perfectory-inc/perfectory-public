@@ -190,7 +190,7 @@ def _load(argv: Sequence[str]) -> int:
                                                     "jibun_pnu string, reason string, road_sido string, road_sigungu string, "
                                                     "road_name string, road_main_no int, road_sub_no int, "
                                                     "source_line_number int"))
-            resolved = (address_pnu.resolve(spark, offered, args.iceberg_catalog_name)
+            resolved = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name))
                         .withColumn("source_record_id", F.lit(entry["object_key"]))
                         .withColumn("source_snapshot_id", F.lit(snapshot))
                         .withColumn("ingested_at_utc", F.lit(now).cast("timestamp"))

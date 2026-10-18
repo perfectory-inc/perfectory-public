@@ -167,21 +167,31 @@ def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
     return [(row["region_cd"], row["full_name"]) for row in rows]
 
 
-def resolve(spark: Any, frame: Any, catalog: str) -> Any:
+def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:
+    """The current parcels' PNUs and the building register titles, as ``resolve`` reads them."""
+
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    parcels = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
+                           load_lakehouse_contract("silver.parcel_boundaries")).select("pnu").distinct()
+    titles = spark.table(f"`{catalog}`.`silver`.`building_register_titles`").select("pnu", "road_address_raw")
+    return parcels, titles
+
+
+def resolve(frame: Any, parcels: Any, titles: Any) -> Any:
     """Adds pnu, pnu_basis, pnu_unresolved_reason and pnu_candidate_count to ``frame``.
 
     ``frame`` carries ``row_id`` and the output of ``candidates`` flattened: ``jibun_pnu``,
     ``road_sido``, ``road_sigungu``, ``road_name``, ``road_main_no``, ``road_sub_no``, ``reason``.
+    ``parcels`` holds the current parcels' ``pnu``; ``titles`` the register's ``pnu`` and
+    ``road_address_raw`` (``lakehouse_inputs``).
     """
 
-    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    parcels = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
-                           load_lakehouse_contract("silver.parcel_boundaries")).select("pnu").distinct()
     jibun = (frame.where(F.col("jibun_pnu").isNotNull()).select("row_id", "jibun_pnu")
              .join(parcels.withColumnRenamed("pnu", "jibun_pnu").withColumn("_held", F.lit(True)), "jibun_pnu", "left"))
-    titles = (spark.table(f"`{catalog}`.`silver`.`building_register_titles`")
+    titles = (titles
               .where(F.col("pnu").isNotNull() & (F.col("road_address_raw") != ""))
               .select(F.substring("pnu", 1, 2).alias("road_sido"),
                       F.regexp_extract("road_address_raw", REGISTER_ROAD, 1).alias("road_sigungu"),
