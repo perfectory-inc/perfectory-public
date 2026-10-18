@@ -2948,9 +2948,10 @@
           "transfer_history_seq"
         ],
         "newest_first": [
-          "ingested_at_utc"
+          "source_snapshot_id"
         ],
-        "removal_column": "row_state"
+        "removal_column": "row_state",
+        "keep_ties": true
       },
       "columns": [
         {

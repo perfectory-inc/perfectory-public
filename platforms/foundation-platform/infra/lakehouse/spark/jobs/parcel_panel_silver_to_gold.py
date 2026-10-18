@@ -86,6 +86,7 @@ from lakehouse_engine import (
 )
 from platform_contracts import (
     column_names,
+    current_row_latest,
     current_row_predicate,
     ensure_contract_table,
     current_rows,
@@ -467,8 +468,16 @@ def renumbered(frame: DataFrame, renumbering: DataFrame) -> DataFrame:
 
 
 def assert_single_snapshot(frame: DataFrame, contract_name: str) -> str:
-    """Refuse multi-vintage input rather than approximating the loaders' vintage rules."""
+    """Refuse multi-vintage input rather than approximating the loaders' vintage rules.
 
+    A table that keeps versions holds the current rows of several releases by design (root
+    ADR-0275); `frame` is already its current rows, and the release named is the newest of them.
+    """
+
+    if current_row_latest(load_lakehouse_contract(contract_name)) is not None:
+        # shortcut: a release that only removed keys names no current row, so the one before it is
+        # named; the Iceberg pin beside it (source_iceberg_snapshots_by_dataset) is exact.
+        return frame.agg(F.max("source_snapshot_id")).first()[0]
     snapshot_ids = [
         row.source_snapshot_id
         for row in frame.select("source_snapshot_id").distinct().limit(3).collect()

@@ -53,6 +53,21 @@ class ProductionShape(unittest.TestCase):
         self.assertIn("reference.legal_dong_code_snapshot", self.shapes)
         self.assertTrue(set(self.shapes) - set(self.contracts))
 
+    def test_the_transfer_history_gains_its_removal_column_without_a_backfill(self) -> None:
+        # Root ADR-0275: the lane's first compare needs `row_state` on the table production holds;
+        # every row there is a source row, which a null says.
+        table = "silver.land_transfer_history"
+        shape = self.shapes[table]
+        self.assertTrue(shape["has_rows"])
+        fields = {field[0]: field for field in shape["fields"]}
+        live = [fields[field_id] for field_id in shape["columns"]]
+        plan = migrate.plan_table(
+            self.contracts[table], tuple(name for _, name, _, _ in live), True, table,
+            actual_types={name: migrate.live_spark_type(kind) for _, name, kind, _ in live},
+            actual_nullability={name: nullable for _, name, _, nullable in live},
+        )
+        self.assertEqual((plan["add"], plan["backfill"], plan["reorder"]), (["row_state"], [], False))
+
     def test_a_required_column_planted_on_a_table_with_rows_is_refused(self) -> None:
         table = "reference.legal_dong_code_snapshot"
         self.assertTrue(self.shapes[table]["has_rows"])

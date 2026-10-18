@@ -5,12 +5,13 @@ whose contract declares `compare`, the branch is not published. This job compare
 release with `main`'s current rows (`platform_contracts.current_rows`) by the table's row key and
 the lane's content columns, and appends to `main`, in one commit:
 
-- each staged row whose key is new, or whose content differs from the key's current row;
-- for each key with a current row and no staged row, a removal marker: that row with
+- every staged row of a key that is new, or whose rows differ from the key's current rows (a key's
+  release is a set of rows: the source repeats a key, root ADR-0090);
+- for each key with current rows and no staged row, a removal marker: one of those rows with
   `removal_column = removed`, the release's `source_snapshot_id` and this run's `ingested_at_utc`.
 
-A key whose content is unchanged gets nothing. No row of `main` is rewritten or deleted. The commit
-records every Bronze object of the release (`foundation.ingest-batch-objects`), so "is this release
+A key whose rows are unchanged gets nothing. No row of `main` is rewritten or deleted. The commit
+records every Bronze object of the release in its snapshot summary, as `append_batch_once` does, so "is this release
 loaded" reads the same as for an overwrite, and a re-run after the commit writes nothing. A release
 with no change still commits, empty, to record that it was loaded.
 
@@ -77,32 +78,34 @@ def compare_rule(contract: dict[str, Any], content: list[str]) -> tuple[tuple[st
 
 def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content: list[str], removal: str,
                     source_snapshot_id: str, ingested_at: Any, columns: list[str]) -> Any:
-    """The rows to append: changed or new staged rows, and one removal marker per vanished key."""
+    """The rows to append: every staged row of a key that is new or whose rows changed, and one
+    removal marker per key with current rows and none staged.
 
+    A key's release is a set of rows (the source repeats a key, root ADR-0090), so a key is compared
+    by the multiset of its rows' content fingerprints, repeats counted.
+    """
+
+    from pyspark.sql import Window  # noqa: PLC0415
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     # Null-ness hashed apart from the value, so a null and an empty string differ.
     fingerprint = F.xxhash64(*(F.col(c).isNull() for c in content), *(F.col(c) for c in content))
-    known = current.select(*key, fingerprint.alias("_current"))
-    changed = (staged.withColumn("_staged", fingerprint).join(known, list(key), "left")
-               .where(F.col("_current").isNull() | (F.col("_current") != F.col("_staged"))))
-    removed = (current.join(staged.select(*key), list(key), "left_anti")
+
+    def signatures(frame: Any, name: str) -> Any:
+        return frame.groupBy(*key).agg(F.xxhash64(F.sort_array(F.collect_list(fingerprint))).alias(name))
+
+    old = signatures(current, "_current")
+    changed_keys = (signatures(staged, "_staged").join(old, list(key), "left")
+                    .where(F.col("_current").isNull() | (F.col("_current") != F.col("_staged"))).select(*key))
+    changed = staged.join(changed_keys, list(key), "left_semi")
+    # One marker per vanished key, made from one of its current rows (the required columns need values).
+    first = Window.partitionBy(*key).orderBy(fingerprint)
+    removed = (current.join(staged.select(*key).distinct(), list(key), "left_anti")
+               .withColumn("_n", F.row_number().over(first)).where(F.col("_n") == 1)
                .withColumn(removal, F.lit(REMOVED))
                .withColumn("source_snapshot_id", F.lit(source_snapshot_id))
                .withColumn("ingested_at_utc", ingested_at))
     return changed.select(*columns).unionByName(removed.select(*columns))
-
-
-def refuse_repeated_keys(staged: Any, key: tuple[str, ...], table: str) -> None:
-    """A release holding a key twice has no one row to compare; the reader would refuse the tie."""
-
-    from pyspark.sql import functions as F  # noqa: PLC0415
-
-    repeated = staged.groupBy(*key).count().where(F.col("count") > 1)
-    count = repeated.count()
-    if count:
-        samples = [str(row) for row in repeated.limit(5).toJSON().collect()]
-        raise ValueError(f"the staged release of {table} holds {count} keys more than once: {samples}")
 
 
 def compare_and_append(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
@@ -135,7 +138,6 @@ def compare_and_append(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     columns = column_names(contract)
     staged = (spark.table(f"{unquoted}.branch_{args.branch}")
               .where(F.col("source_snapshot_id") == args.source_snapshot_id).select(*columns))
-    refuse_repeated_keys(staged, key, args.contract)
     current = current_rows(spark.table(unquoted), contract).select(*columns)
     changes = release_changes(staged, current, key=key, content=content, removal=removal,
                               source_snapshot_id=args.source_snapshot_id,
@@ -143,13 +145,15 @@ def compare_and_append(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     counts = changes.groupBy(F.col(removal) == F.lit(REMOVED)).count().collect()
     removed = sum(row["count"] for row in counts if row[0])
     appended = sum(row["count"] for row in counts if not row[0])
+    print(f"{JOB_NAME} {args.contract}: appending {appended} rows of changed keys and {removed} removal markers",
+          flush=True)
 
     writer = changes.writeTo(unquoted)
     for option, value in snapshot_property_options(objects, ingest_batch_token(objects)).items():
         writer = writer.option(option, value)
     writer.append()
     changes.unpersist()
-    return {**report, "outcome": "appended", "staged_rows": staged.count(), "changed_rows": appended,
+    return {**report, "outcome": "appended", "staged_rows": staged.count(), "changed_key_rows": appended,
             "removed_keys": removed}
 
 

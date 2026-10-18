@@ -177,7 +177,9 @@ class LineageInputTest(unittest.TestCase):
 
         args, inputs = self.load()
         spark = mock.Mock()
-        views = bind_input_views(spark, args.iceberg_catalog_name, inputs)
+        # The rows a versioned table keeps current are not this test's question.
+        with mock.patch("platform_contracts.current_rows", side_effect=lambda frame, _: frame):
+            views = bind_input_views(spark, args.iceberg_catalog_name, inputs)
         self.assertEqual(set(views), set(self.sources))
         self.assertEqual(spark.read.format.call_args_list, [mock.call("iceberg")] * 4)
         reader = spark.read.format.return_value
@@ -244,6 +246,7 @@ class LineageInputTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job, "derive", side_effect=derive))
                     stack.enter_context(mock.patch.object(job, "evolve_iceberg_table_to_contract"))
                     stack.enter_context(mock.patch.object(job, "append_batch_once", return_value={"appended": True}))
+                    stack.enter_context(mock.patch("platform_contracts.current_rows", side_effect=lambda frame, _: frame))
                     output = io.StringIO()
                     stack.enter_context(redirect_stdout(output))
                     self.assertEqual(job.main(self.argv(*flags)), 0)

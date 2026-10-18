@@ -824,3 +824,102 @@ fn a_failed_region_export_fails_the_release() {
         .err()
         .is_some_and(|error| error.to_string().contains("the first region failed")));
 }
+
+// ---- a lane that appends a release's changes (root ADR-0275) --------------------------------
+
+#[test]
+fn only_the_transfer_history_lane_compares_and_never_on_its_key_or_load_columns(
+) -> anyhow::Result<()> {
+    for lane in LAND_LANES {
+        let compared = lane.contract()?.compare_content;
+        if lane == Lane::LandTransferHistory {
+            let content = compared.context("the transfer history lane appends its changes")?;
+            for column in [
+                "pnu",
+                "transfer_history_seq",
+                "data_reference_date",
+                "source_record_id",
+            ] {
+                assert!(!content.iter().any(|c| c == column), "compares {column}");
+            }
+        } else {
+            assert_eq!(compared, None, "{lane:?} publishes its release whole");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_compare_the_table_cannot_answer_is_refused() -> anyhow::Result<()> {
+    let compare = |columns: serde_json::Value| {
+        move |v: &mut serde_json::Value| {
+            v["silver_refresh"]["compare"] = serde_json::json!({ "content_columns": columns });
+        }
+    };
+    let refused = [
+        // the key, a column the table lacks, nothing
+        (
+            Lane::LandTransferHistory,
+            compare(serde_json::json!(["pnu"])),
+        ),
+        (
+            Lane::LandTransferHistory,
+            compare(serde_json::json!(["no_such_column"])),
+        ),
+        (Lane::LandTransferHistory, compare(serde_json::json!([]))),
+        // a table that does not mark vanished keys
+        (Lane::LandUsePlan, compare(serde_json::json!(["pnu"]))),
+        // a hub lane publishes whole
+        (Lane::Titles, compare(serde_json::json!(["pnu"]))),
+    ];
+    for (lane, edit) in refused {
+        let text = planted(lane, edit)?;
+        assert!(LaneContract::parse(lane, &text).is_err(), "accepted {text}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Result<()> {
+    let runtime = Runtime {
+        release_root: PathBuf::from("/opt/foundation-platform/releases/synthetic"),
+        lane_root: PathBuf::from("/data/foundation-platform/silver-refresh/land-transfer-history"),
+        spark_jars: "/home/spark/.ivy2/synthetic.jar".to_owned(),
+        jars_dir: PathBuf::from("/opt/foundation-platform/artifacts/synthetic/jars"),
+        project: format!("foundation-silver-refresh-{}", "0".repeat(32)),
+        gid: "999".to_owned(),
+        publisher: PathBuf::from(
+            "/opt/foundation-platform/artifacts/synthetic/foundation-outbox-publisher",
+        ),
+    };
+    let contract = Lane::LandTransferHistory.contract()?;
+    let mut compare = execute::ReleaseCompare {
+        branch: execute::load_branch("synthetic-load"),
+        source_snapshot_id: "vworldkr-land-transfer-history:20990901".to_owned(),
+        objects: vec!["bronze/a.zip".to_owned(), "bronze/b.zip".to_owned()],
+        content_columns: vec!["reason".to_owned(), "moved_at".to_owned()],
+    };
+    let args = execute::compare_arguments(&runtime, &contract, &compare)?;
+    assert!(args
+        .iter()
+        .any(|a| a.ends_with("/spark/jobs/silver_release_compare.py")));
+    for pair in [
+        ["--contract", "silver.land_transfer_history"],
+        ["--branch", compare.branch.as_str()],
+        [
+            "--source-snapshot-id",
+            "vworldkr-land-transfer-history:20990901",
+        ],
+        ["--objects", "bronze/a.zip,bronze/b.zip"],
+        ["--content-columns", "reason,moved_at"],
+    ] {
+        assert!(args.windows(2).any(|w| w == pair), "missing {pair:?}");
+    }
+    // It reads Iceberg only, through the catalog: no R2 reader pair.
+    assert!(!args
+        .iter()
+        .any(|a| a == "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"));
+    compare.objects.push("bronze/c,d.zip".to_owned());
+    assert!(execute::compare_arguments(&runtime, &contract, &compare).is_err());
+    Ok(())
+}
