@@ -41,7 +41,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[8]' --driver-memory "${DRIVER_MEMORY}" \
+  spark spark-submit --master 'local[8,8]' --driver-memory "${DRIVER_MEMORY}" \
   --jars "${SPARK_RELEASE_JARS}" /workspace/infra/lakehouse/spark/jobs/silver_append_measure.py \
   --old-snapshot-id "${OLD_SNAPSHOT_ID}" >> "${run_log}" 2>&1
 
