@@ -208,6 +208,10 @@ def resolve_jars(release, work: Path) -> list[Path]:
     return jars
 
 
+def layout_media_type(blobs: Path, digest: str) -> str:
+    return json.loads((blobs / digest.split(":")[1]).read_text(encoding="utf-8"))["mediaType"]
+
+
 def toolchain() -> str:
     match = re.search(r'(?m)^channel\s*=\s*"([^"]+)"', (ROOT / "rust-toolchain.toml").read_text(encoding="utf-8"))
     if not match:
@@ -239,10 +243,18 @@ def main() -> int:
         started = time.monotonic()
         jars = resolve_jars(release, work)
         measured["jars"] = {"seconds": round(time.monotonic() - started)}
+        # The executable and the jars travel as one image of files (`FROM scratch`), so the registry
+        # holds them as it holds the images; the manifest names each file's own digest as well.
+        tree = work / "files"
+        (tree / "jars").mkdir(parents=True)
         for path, name, mode in [(binary, "foundation-outbox-publisher", FILE_MODES["foundation-outbox-publisher"]),
                                  *((jar, f"jars/{jar.name}", JAR_MODE) for jar in jars)]:
-            digest, size = keep_blob(path, blobs)
-            files[name] = {"sha256": digest, "size": size, "mode": mode}
+            shutil.copyfile(path, tree / name)
+            (tree / name).chmod(int(mode, 8))
+            files[name] = {"sha256": f"sha256:{sha256_of(path)}", "size": path.stat().st_size, "mode": mode}
+        (work / "files.Dockerfile").write_text("FROM scratch\nCOPY . /\n", encoding="utf-8")
+        images["files"], measured["files"] = build_image(release, "files", str(work / "files.Dockerfile"), str(tree), {},
+                                                         work, blobs)
     manifest = {
         "schema_version": SCHEMA,
         "source_commit": commit,
@@ -256,11 +268,20 @@ def main() -> int:
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     named = {f"sha256:{blob.name}" for blob in blobs.iterdir()}
-    wanted = {entry["sha256"] for entry in files.values()} | {d for image in images.values() for d in image.values()}
+    wanted = {d for image in images.values() for d in image.values()}
     if not wanted <= named:
         raise ValueError(f"the manifest names blobs that were not kept: {sorted(wanted - named)}")
+    # One OCI layout over the blobs, each image named, so the exact bytes built here are what the
+    # registry receives (scripts/ci/release-push.sh, skopeo --preserve-digests).
+    (out / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}\n', encoding="utf-8")
+    index = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [
+        {"mediaType": layout_media_type(blobs, image["oci_manifest"]), "digest": image["oci_manifest"],
+         "size": (blobs / image["oci_manifest"].split(":")[1]).stat().st_size,
+         "annotations": {"org.opencontainers.image.ref.name": name}} for name, image in images.items()]}
+    (out / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     subjects = [f"{sha256_of(out / 'manifest.json')}  manifest.json",
-                *(f"{blob.name}  blobs/sha256/{blob.name}" for blob in sorted(blobs.iterdir()))]
+                *(f"{blob.name}  blobs/sha256/{blob.name}" for blob in sorted(blobs.iterdir())),
+                *(f"{entry['sha256'].split(':')[1]}  files/{name}" for name, entry in sorted(files.items()))]
     (out / "subjects.sha256").write_text("\n".join(subjects) + "\n", encoding="utf-8")
     measured["total"] = {"blobs": len(named), "blob_bytes": sum(blob.stat().st_size for blob in blobs.iterdir())}
     (out / "measurements.json").write_text(json.dumps(measured, indent=2) + "\n", encoding="utf-8")

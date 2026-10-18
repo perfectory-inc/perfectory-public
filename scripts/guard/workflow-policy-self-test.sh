@@ -543,6 +543,18 @@ expect_rejected two-signing-jobs "$test_root/release-signer-two-jobs"
 release_signer_fixture release-signer-required
 sed -i 's/^    name: Build$/    name: required\/release/' "$test_root/release-signer-required/foundation-release-build.yml"
 expect_rejected release-build-required-context "$test_root/release-signer-required"
+# The signing job may also push the release package with its own GITHUB_TOKEN; no other job may.
+release_signer_fixture release-signer-packages
+sed -i 's/^      attestations: write$/      attestations: write\n      packages: write/' "$test_root/release-signer-packages/foundation-release-build.yml"
+if ! "$checker" "$test_root/release-signer-packages" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the signing job's packages: write" >&2
+  exit 1
+fi
+release_signer_fixture release-signer-packages-alone
+sed -i '/^      id-token: write$/d; /^      attestations: write$/d; s/^      contents: read$/      contents: read\n      packages: write/' \
+  "$test_root/release-signer-packages-alone/foundation-release-build.yml"
+expect_rejected packages-write-without-signing "$test_root/release-signer-packages-alone"
 
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.

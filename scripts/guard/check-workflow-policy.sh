@@ -123,9 +123,11 @@ for workflow in "${workflows[@]}"; do
   ' "$workflow"; then
     issue_writer=1
   fi
-  # A second (root ADR-0276 §3, §9): the release build, on push to main and workflow_dispatch only,
-  # may add id-token: write and attestations: write to one job-level map, so that job can sign the
-  # release with a Sigstore keyless provenance attestation. No other file, trigger or permission.
+  # A second (root ADR-0276 §3, §5, §9): the release build, on push to main and workflow_dispatch
+  # only, may add id-token: write and attestations: write, and packages: write beside them, to one
+  # job-level map, so that job can sign the release with a Sigstore keyless provenance attestation
+  # and push it to the repository's package with its own GITHUB_TOKEN. No other file, trigger or
+  # permission.
   release_signer=0
   if [ "$(basename "$workflow")" = foundation-release-build.yml ] && awk '
     /^on:[[:space:]]*$/ { in_on=1; next }
@@ -150,13 +152,14 @@ for workflow in "${workflows[@]}"; do
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
     }
     function finish_permissions() {
-      if (child_count != 1 + has_issues_write + has_id_token + has_attestations || !has_contents_read) {
+      if (child_count != 1 + has_issues_write + has_id_token + has_attestations + has_packages || !has_contents_read) {
         fail("permissions must contain exactly contents: read")
       }
       if (has_id_token != has_attestations) fail("a signing job takes id-token: write and attestations: write together")
+      if (has_packages && !has_id_token) fail("only the signing job may write the release package")
       if (has_id_token && signing_jobs++) fail("only one job may sign the release")
       in_permissions=0; base=-1; child_count=0; has_contents_read=0; has_issues_write=0
-      has_id_token=0; has_attestations=0
+      has_id_token=0; has_attestations=0; has_packages=0
     }
     {
       current=indentation($0)
@@ -176,6 +179,8 @@ for workflow in "${workflows[@]}"; do
             if (has_id_token++) fail("duplicate id-token permission")
           } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*attestations:[[:space:]]*write[[:space:]]*$/) {
             if (has_attestations++) fail("duplicate attestations permission")
+          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*packages:[[:space:]]*write[[:space:]]*$/) {
+            if (has_packages++) fail("duplicate packages permission")
           } else {
             fail("permissions may grant only literal contents: read")
           }
@@ -248,7 +253,7 @@ for workflow in "${workflows[@]}"; do
     write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      issues: write$' || true)"
   fi
   if [ "$release_signer" = 1 ]; then
-    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      (id-token|attestations): write$' || true)"
+    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      (id-token|attestations|packages): write$' || true)"
   fi
   if [ -n "$write_grants" ]; then
     echo "FAIL workflow-policy: public workflows must not grant write permissions: $workflow" >&2
