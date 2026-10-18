@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 차세대 온비드 공매의 Silver 적재 절반 (root ADR-0280). 등록된 작업 onbid_public_sale_silver(spark 1칸)가
-# 매시간 수집 뒤에 돌린다.
+# 매시간 수집 뒤에 돌린다. 한 번에 수만 행이라 작은 Spark(spark-small, 계약된 메모리 상한)로 돈다.
 #
 # 수집 작업(onbid-collect.sh)이 쓴 적재 대기 넘김(lakehouse/pending/<실행>/)마다, 오래된 것부터
 # data_go_kr_onbid.py load 가 silver.onbid_real_estate_item 에 내용이 바뀐 회차와(전수가 완전할 때만) 빠진
@@ -33,7 +33,7 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   -p foundation-platform-compute --profile lakehouse-batch run --rm \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[2]' --driver-memory 2g \
+  spark-small spark-submit --master 'local[2]' --driver-memory 2g \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/data_go_kr_onbid.py load \
   --state-dir /workspace/target/lakehouse --allow-non-smoke-write >> "${run_log}" 2>&1
