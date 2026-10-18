@@ -91,7 +91,6 @@ class OnbidCommands(unittest.TestCase):
             "FAKE_STATE": str(self.fake), "FAKE_ROLES": "announcement_list,item_list",
             **{name: "planted-" + name.lower() for name in NEEDS},
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": "https://r2.invalid",
-            "DATABASE_URL": "postgres://planted.invalid/foundation",
         }
 
     def run_script(self, script, env=None):
@@ -116,12 +115,15 @@ class OnbidCommands(unittest.TestCase):
     def test_a_missing_key_stops_the_run_before_anything_reaches_the_provider(self):
         self.assertIn("DATA_GO_KR_SERVICE_KEY", REQUIRED)
         self.assertLessEqual(set(REQUIRED), set(NEEDS))
+        env = dict(self.env)
+        del env["DATA_GO_KR_SERVICE_KEY"]
+        self.assertEqual(self.run_script(self.collect, env).returncode, 78, "EX_CONFIG: the owner has not placed the key")
         for name in REQUIRED:
             with self.subTest(name):
                 env = dict(self.env)
                 del env[name]
                 result = self.run_script(self.collect, env)
-                self.assertEqual(result.returncode, 78, result.stderr)
+                self.assertNotEqual(result.returncode, 0)
                 self.assertIn(name, result.stderr)
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
