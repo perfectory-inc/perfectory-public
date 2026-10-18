@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform 전국등록공장현황 from data.go.kr: land a new edition in Bronze, give its rows a PNU by address and load silver.registered_factory (root ADR-0280)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/registered-factory-cycle.sh
+TimeoutStartSec=90m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/registered-factory
+
+[Install]
+WantedBy=multi-user.target

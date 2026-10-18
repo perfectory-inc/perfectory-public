@@ -384,6 +384,30 @@
       ]
     },
     {
+      "id": "registered_factory",
+      "producers": [],
+      "reads": [
+        {
+          "dataset": "perfectory://source-data-go-kr-file-data",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-data-go-kr-file-data,PROD)",
+          "node_id": "source-data-go-kr-file-data",
+          "title": "data.go.kr 파일 데이터",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.registered_factory",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.registered_factory,PROD)",
+          "node_id": "silver-registered-factory",
+          "title": "전국 등록공장",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "onbid_public_sale_collect",
       "producers": [],
       "reads": [
@@ -507,6 +531,7 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
         "vworld_parcel_edition",
@@ -910,6 +935,7 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
         "vworld_parcel_edition",
@@ -2090,6 +2116,7 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
         "vworld_parcel_edition",

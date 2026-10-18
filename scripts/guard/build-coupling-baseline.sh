@@ -270,7 +270,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the rule's one definition, so the Python copy cannot drift from it unseen.
 # 136 -> 137: root ADR-0280's Onbid collector embeds data-go-kr-onbid.contract.json, the one record of
 # the endpoints, call limits and intervals that the Silver load (data_go_kr_onbid.py) reads too.
-COMPILE_TIME_READ_BASELINE="${3:-137}"
+# 137 -> 138: root ADR-0280's registered-factory collector embeds data-go-kr-registered-factory.contract.json,
+# the one record of the portal paths and the member rules that the Silver load reads too.
+COMPILE_TIME_READ_BASELINE="${3:-138}"
 
 cd "$repo_root"
 
