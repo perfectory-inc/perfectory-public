@@ -2,7 +2,7 @@
 
 The live table is only read: the release before (`--old-snapshot-id`, time travel) and the current
 one. Writes go only to `<catalog>.<scratch namespace>`, which must start with `scratch`. Writing a
-release whole was measured by the first run (2026-10-18: 131.5M rows, 1.44 GB in about 3.5 minutes),
+release whole was measured by the first run (2026-10-18: 131,464,796 rows, 1,442 MB in about 3.5 minutes),
 so this run times only the other path, phase by phase:
 
   copy     the old release, copied as the table the new release lands on;
