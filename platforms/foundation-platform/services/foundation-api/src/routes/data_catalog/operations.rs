@@ -58,15 +58,17 @@ pub(super) struct JobList {
 }
 
 impl JobList {
-    /// Each job's limit for one start in minutes, by job id: its run's time limit plus its stop
-    /// grace (root ADR-0270 §1; `job_specs.scheduler_timeout_minutes` adds the same two).
+    /// Each job's limit for one scheduled start in minutes, by job id: how long it may wait for
+    /// the host, its run's time limit and its stop grace (root ADR-0270 §1, §2b;
+    /// `job_specs.scheduler_timeout_minutes` adds the same three).
     pub(super) fn timeouts(&self) -> BTreeMap<String, u32> {
         self.jobs
             .iter()
             .map(|job| {
                 (
                     job.id.clone(),
-                    job.time_limit_minutes
+                    job.wait_limit_minutes
+                        .saturating_add(job.time_limit_minutes)
                         .saturating_add(job.stop_grace_minutes),
                 )
             })
@@ -93,6 +95,9 @@ struct ListedJob {
     time_limit_minutes: u32,
     /// How much longer than its run the scheduler gives one start.
     stop_grace_minutes: u32,
+    /// How long one scheduled start may wait for the host before its run begins (root ADR-0270
+    /// §2b). Required like the two above.
+    wait_limit_minutes: u32,
     enabled: bool,
     /// When the job was switched on (root ADR-0239): a slot before it is not one it missed.
     #[serde(default)]
@@ -678,6 +683,29 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn a_start_s_limit_is_its_wait_its_run_and_its_grace() {
+        // root ADR-0270 §2b: a start that may wait for the host is late only after all three.
+        let mut jobs = list();
+        jobs.jobs[0].wait_limit_minutes = 45;
+        let timeouts = jobs.timeouts();
+        assert_eq!(timeouts.get("nightly"), Some(&(45 + 55 + 5)));
+        assert_eq!(timeouts.get("half_hourly"), Some(&(55 + 5)));
+    }
+
+    #[test]
+    fn a_job_list_without_a_wait_limit_is_refused() {
+        let listed = r#"{"dag_id_prefix": "synthetic_", "jobs": [{"id": "nightly", "description": "d",
+            "schedule": "20 7 * * *", "time_limit_minutes": 55, "stop_grace_minutes": 5,
+            WAIT"enabled": true, "started_by": "schedule", "pipeline_graph_edges": []}]}"#;
+        assert!(serde_json::from_str::<JobList>(&listed.replace("WAIT", "")).is_err());
+        // The same list with the field is read: the refusal is the missing field's, nothing else's.
+        assert!(serde_json::from_str::<JobList>(
+            &listed.replace("WAIT", r#""wait_limit_minutes": 0, "#)
+        )
+        .is_ok());
+    }
+
     fn list() -> JobList {
         JobList {
             dag_id_prefix: "synthetic_".to_owned(),
@@ -688,6 +716,7 @@ mod tests {
                     schedule: "20 7 * * *".to_owned(),
                     time_limit_minutes: 55,
                     stop_grace_minutes: 5,
+                    wait_limit_minutes: 0,
                     enabled: true,
                     enabled_since: None,
                     disabled_reason: None,
@@ -700,6 +729,7 @@ mod tests {
                     schedule: "0,30 * * * *".to_owned(),
                     time_limit_minutes: 55,
                     stop_grace_minutes: 5,
+                    wait_limit_minutes: 0,
                     enabled: true,
                     enabled_since: None,
                     disabled_reason: None,
@@ -712,6 +742,7 @@ mod tests {
                     schedule: "40 4 * * *".to_owned(),
                     time_limit_minutes: 55,
                     stop_grace_minutes: 5,
+                    wait_limit_minutes: 0,
                     enabled: false,
                     enabled_since: None,
                     disabled_reason: Some("waiting for a supervised run".to_owned()),

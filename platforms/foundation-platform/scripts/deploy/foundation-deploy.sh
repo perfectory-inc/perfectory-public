@@ -57,7 +57,8 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
-        # One start's limit (root ADR-0270 §1), the sum job_specs.scheduler_timeout_minutes makes;
+        # One run's limit (root ADR-0270 §1), the sum job_specs.run_limit_minutes makes: the deploy
+        # starts the unit itself, so it never waits for the host;
         # test_foundation_autodeploy holds the two to the same answer on the real list. one-off: the
         # list read is the release being replaced, and the one this change replaces still states
         # timeout_minutes. Drop that branch once the host runs a release with stop_grace_minutes.

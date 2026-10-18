@@ -714,11 +714,12 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
             with self.subTest(job["id"]):
                 self.assertTrue(job["enabled"], "a disabled job is never started by the deploy")
                 # foundation-deploy.sh waits each one's own limit for one start.
-                self.assertGreater(job_specs.scheduler_timeout_minutes(job), job["time_limit_minutes"])
+                self.assertGreater(job_specs.run_limit_minutes(job), job["time_limit_minutes"])
 
     def test_the_deploy_waits_the_limit_job_specs_gives_each_start(self):
         # foundation-deploy.sh adds time_limit_minutes and stop_grace_minutes itself (the release it
         # reads from may not carry job_specs); it must add them as job_specs does (root ADR-0270 §1).
+        # The deploy starts the unit itself, so the start never waits: a run's limit, not the scheduler's.
         script = (PLATFORM / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
         program = script.split("jobs_of() {\n", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
         waited = subprocess.run([sys.executable, "-c", program, "started-once", str(JOBS)],
@@ -727,13 +728,13 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
         expected = []
         for job in jobs:
             if job["enabled"] and job.get("started_once_after_deploy"):
-                expected += [job["systemd_service"], str(job_specs.scheduler_timeout_minutes(job))]
+                expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job))]
         self.assertTrue(expected)
         self.assertEqual(waited, expected)
 
     def test_systemd_never_stops_a_deploy_halfway(self):
         jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        once = sum(job_specs.scheduler_timeout_minutes(job) + 1 for job in jobs if job.get("started_once_after_deploy"))
+        once = sum(job_specs.run_limit_minutes(job) + 1 for job in jobs if job.get("started_once_after_deploy"))
         unit = (PLATFORM / "infra/systemd/foundation-autodeploy.service").read_text()
         limit = next(line for line in unit.splitlines() if line.startswith("TimeoutStartSec="))
         hours = int(limit.removeprefix("TimeoutStartSec=").removesuffix("h"))
