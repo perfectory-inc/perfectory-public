@@ -258,9 +258,17 @@ jobs:
           set -euo pipefail
           answer="$(python3 scripts/ci/change_scope.py suites --workspace platforms/foundation-platform)"
           echo "$answer"
+          # pnpm and Node are needed only when a Node package runs: every suite (`all`), or a
+          # selection that names one (`node` lines).
           case "${answer%%[[:space:]]*}" in
-            run) echo "FOUNDATION_CI_GATE_SELECTED=true" >>"$GITHUB_ENV" ;;
-            skip) echo "FOUNDATION_CI_GATE_SELECTED=false" >>"$GITHUB_ENV" ;;
+            all) echo "FOUNDATION_CI_GATE_SELECTED=true" >>"$GITHUB_ENV" ;;
+            some)
+              if grep -q '^node[[:space:]]' <<<"$answer"; then
+                echo "FOUNDATION_CI_GATE_SELECTED=true" >>"$GITHUB_ENV"
+              else
+                echo "FOUNDATION_CI_GATE_SELECTED=false" >>"$GITHUB_ENV"
+              fi
+              ;;
             *) echo "unreadable suite selection: $answer" >&2; exit 1 ;;
           esac
 

@@ -490,6 +490,23 @@ class SuiteModulesTest(unittest.TestCase):
         tests, _, reason = self.select({"platforms/ws/data/orphan.csv"})
         self.assertIsNone(tests, reason)
 
+    def test_a_run_all_input_or_another_event_runs_every_suite(self) -> None:
+        """#710 changed a workflow and this selector; the suites must all run, not 7 modules."""
+        contract = CratesTest.CONTRACT
+        members = CratesTest.MEMBERS
+        unreachable = lambda: self.fail("a run-all answer must not need the graph")  # noqa: E731
+        for event, changed in (
+            ("pull_request", {"tools/xtask/src/main.rs", "platforms/ws/scripts/job.py"}),
+            ("pull_request", {cs.SELECTOR}),
+            ("merge_group", {"platforms/ws/scripts/job.py"}),
+            ("pull_request", None),
+        ):
+            with self.subTest(event=event, changed=changed):
+                kind, tests, nodes, reason = cs.suite_answer(
+                    contract, "platforms/ws", event, changed, members, set(), [], unreachable
+                )
+                self.assertEqual(kind, "all", reason)
+
     def test_documentation_and_rust_reach_no_suite(self) -> None:
         tests, nodes, _ = self.select({"platforms/ws/README.md", "platforms/ws/crates/a/src/lib.rs"})
         self.assertEqual((tests, nodes), (set(), set()))

@@ -599,6 +599,30 @@ def select_suite_modules(
     return tests, nodes, f"{len(tests)} test module(s) and {len(nodes)} Node package(s) reach the change"
 
 
+def suite_answer(
+    contract: dict,
+    workspace: str,
+    event: str,
+    changed: set[str] | None,
+    members: dict[str, tuple[str, set[str]]],
+    reads: set[str],
+    tracked: list[str],
+    graph,
+) -> tuple[str, set[str], set[str], str]:
+    """("all" or "some", test files, Node package directories, why). "some" with nothing selected
+    runs nothing. Every event but a pull request, an unknown comparison, and a run-all input (the
+    toolchain, a workflow, xtask, this selector) answer "all"."""
+    if decide_crates(contract, workspace, event, changed, members, {})[0] is None:
+        return "all", set(), set(), decide_crates(contract, workspace, event, changed, members, {})[3]
+    run, reason = decide_suites(contract, workspace, event, changed, members, reads)
+    if not run:
+        return "some", set(), set(), reason
+    selected, nodes, why = select_suite_modules(workspace, changed or set(), tracked, graph())
+    if selected is None:
+        return "all", set(), set(), why
+    return "some", selected, nodes, why
+
+
 def suites_main(args: argparse.Namespace) -> int:
     """Print the suite selection for `cargo xtask verify --part suites --affected`, tab-separated:
     `all <why>` or `some <why>`, then `test <path>` and `node <directory>` lines (none: nothing runs)."""
@@ -612,21 +636,21 @@ def suites_main(args: argparse.Namespace) -> int:
         listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
         tracked = sorted({t for t in listed.decode().split("\0") if t} | changed)
         reads = suite_reads(ROOT, workspace, tracked)
-    run, reason = decide_suites(load_contract(), workspace, event, changed, members, reads)
-    if not run:
-        print(f"some\t{reason}")
+    kind, selected, nodes, why = suite_answer(
+        load_contract(),
+        workspace,
+        event,
+        changed,
+        members,
+        reads,
+        tracked,
+        # The workspace, and the repository scripts and tools its tests start, are the only
+        # sources on a path to its tests; reading every other area's sources only costs time.
+        lambda: dependency_graph(ROOT, tracked, (workspace + "/", "scripts/", "tools/")),
+    )
+    print(f"{kind}\t{why}")
+    if kind == "all":
         return 0
-    if event not in CRATE_SELECT_EVENTS or changed is None or not tracked:
-        print(f"all\t{reason}")
-        return 0
-    # The workspace, and the repository scripts and tools its tests start, are the only sources
-    # on a path to its tests; reading every other area's sources only costs time.
-    graph = dependency_graph(ROOT, tracked, (workspace + "/", "scripts/", "tools/"))
-    selected, nodes, why = select_suite_modules(workspace, changed, tracked, graph)
-    if selected is None:
-        print(f"all\t{why}")
-        return 0
-    print(f"some\t{why}")
     for path in sorted(selected):
         print(f"test\t{path}")
     for path in sorted(nodes):
