@@ -65,15 +65,16 @@ Gold 재생성·굽기·관문·발행·감시 표본·단계 판정은 운영�
 `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh operator-access <계정>`).
 
 ```bash
+# 시작·쓰기 명령은 요청 시각과 이유를 끝에 받는다(10분 안, 사람이 터미널에서; ssh 는 -t, 루트 ADR-0270 2b)
 op=/opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
-sudo -n $op parcel gold-rebuild      # 두 패널 Gold 를 무조건 다시 만든다(이유는 고정), 예약 굽기·묶음 굽기 중에는 거부
+sudo -n $op parcel gold-rebuild --requested-at "$(date +%s)" --reason "<왜>"  # 두 패널 Gold 를 무조건 다시 만든다(이유는 고정), 예약 굽기·묶음 굽기 중에는 거부
 sudo -n $op parcel status 1          # 재생성이 끝났는지(foundation-gold-panel-rebuild-unconditional)
-sudo -n $op parcel bake 1            # 세대 굽기, 레인 잠금 아래 분리 실행; 실패하면 같은 명령이 이어 굽는다
-sudo -n $op parcel equality 1        # 관문 (가), 분리 실행
-sudo -n $op parcel latency 1         # 관문 (나), 미리보기 Worker 를 올린 뒤
+sudo -n $op parcel bake 1 --requested-at "$(date +%s)" --reason "<왜>"  # 세대 굽기, 레인 잠금 아래 분리 실행; 실패하면 같은 명령이 이어 굽는다
+sudo -n $op parcel equality 1 --requested-at "$(date +%s)" --reason "<왜>"  # 관문 (가), 분리 실행
+sudo -n $op parcel latency 1 --requested-at "$(date +%s)" --reason "<왜>"  # 관문 (나), 미리보기 Worker 를 올린 뒤
 sudo -n $op parcel status 1          # 두 실행의 상태와 로그 끝
-sudo -n $op parcel publish 1         # 두 관문이 통과한 뒤
-sudo -n $op parcel monitor-sample 1  # 감시·단계 판정의 표본 파일
+sudo -n $op parcel publish 1 --requested-at "$(date +%s)" --reason "<왜>"  # 두 관문이 통과한 뒤
+sudo -n $op parcel monitor-sample 1 --requested-at "$(date +%s)" --reason "<왜>"  # 감시·단계 판정의 표본 파일
 # 단계 배포: CANARY_HEALTH_COMMAND='ssh <host> sudo -n '$op' parcel health @NEW@ @OLD@'
 ```
 
@@ -81,8 +82,8 @@ sudo -n $op parcel monitor-sample 1  # 감시·단계 판정의 표본 파일
 멈춤 조건·예약 창·Spark 대기의 정본은 `scripts/ops/by-pnu-lane-cutover.sh` 머리말이다.
 
 ```bash
-sudo -n $op lanes cutover 1 --dry-run   # 아직 전환 안 된 레인 전부: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
-sudo -n $op unit-price cutover 1        # 한 레인: Gold → 대등성 → 굽기 → (가) → (나) → 발행 → 감시 표본, 첫 실패에서 멈춘다
+sudo -n $op lanes cutover 1 --dry-run --requested-at "$(date +%s)" --reason "<왜>"  # 아직 전환 안 된 레인 전부: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
+sudo -n $op unit-price cutover 1 --requested-at "$(date +%s)" --reason "<왜>"  # 한 레인: Gold → 대등성 → 굽기 → (가) → (나) → 발행 → 감시 표본, 첫 실패에서 멈춘다
 # 진행: <굽기 뿌리>/cutover/logs/cutover-g1.log, 단계별 시간·결과: <굽기 뿌리>/cutover/<실행 id>.jsonl
 ```
 
