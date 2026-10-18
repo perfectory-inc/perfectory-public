@@ -7,6 +7,7 @@ beside it. sudo, systemctl and journalctl are stand-ins that record what the scr
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,7 @@ esac
 """
 SLEEP = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sleep.log"
+[ -z "${FIXTURE_REAL_SLEEP:-}" ] || exec /bin/sleep 0.2
 """
 SUDO = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sudo.log"
@@ -92,6 +94,41 @@ class HostFixture(unittest.TestCase):
     def record(self, job, seconds):
         self.starts.mkdir(exist_ok=True)
         (self.starts / job).write_text(f"{seconds}\n")
+
+
+class TheRunOutlivesItsConnection(HostFixture):
+    """Root ADR-0270 §3 (deploy D2): a dropped SSH session never stops the service it started."""
+
+    def test_a_dropped_connection_leaves_the_run_running(self):
+        for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log"):
+            path.unlink(missing_ok=True)
+        env = {**self.env, "SSH_ORIGINAL_COMMAND": "fold", "FIXTURE_REAL_SLEEP": "1",
+               "FIXTURE_RUN_STATES": ",".join(["activating"] * 200)}
+        gate = subprocess.Popen(["bash", str(SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        sleeping = self.root / "sleep.log"
+        for _ in range(100):
+            if sleeping.exists():
+                break
+            subprocess.run([sys.executable, "-c", "import time; time.sleep(0.1)"], check=True)
+        self.assertTrue(sleeping.exists(), "the gate never reached its follow loop")
+        gate.send_signal(signal.SIGHUP)
+        gate.communicate(timeout=30)
+        self.assertEqual(gate.returncode, 143)
+        asked = (self.root / "sudo.log").read_text()
+        self.assertIn("systemctl start --no-block foundation-fold.service", asked)
+        self.assertNotIn("stop", asked, "the connection's end stopped the run")
+
+    def test_the_next_try_joins_the_run_in_progress_and_reports_it_once(self):
+        # The run the dropped connection left behind is still going: InvocationID already answers it.
+        (self.root / "started").touch()
+        result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": "fold",
+                                                            "FIXTURE_RUN_STATES": "activating,activating"},
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("foundation-fold.service invocation=new", result.stdout)
+        self.assertEqual(result.stdout.count("foundation-job-outcome changed"), 2,
+                         "the journal's line and the one repeated as the run's own, for one run")
 
 
 class TakingTurns(HostFixture):
