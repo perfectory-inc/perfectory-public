@@ -150,8 +150,7 @@
       ".github/workflows/**",
       "tools/cargo-nextest.env",
       "tools/pinned-artifacts.json",
-      "scripts/ci/rust-setup.sh",
-      "scripts/ci/workspace_build_cache.py"
+      "scripts/ci/rust-setup.sh"
     ],
     "run_all_in_workspace": [
       "Cargo.toml",

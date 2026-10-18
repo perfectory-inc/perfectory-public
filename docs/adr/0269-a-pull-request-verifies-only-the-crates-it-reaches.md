@@ -163,6 +163,10 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
   병합된 PR 13건 재현(Foundation 시험 모듈 148개): 1–7개 5건, 16–38개 4건, 60–67개 4건.
   시험: `SuiteModulesTest`(심은 결함 셋 — 시험을 지나 걷기, 따옴표 이름 무시, TS 소스 미독 — 이 실패),
   xtask `the_suite_selection_is_read_exactly`·`a_selected_module_is_found_by_its_repository_path`.
+- 2026-10-18 (작업 공간 빌드 보관분 은퇴): ADR-0201·0210 의 보관분을 지운다. 크레이트 선택 뒤 Foundation
+  Rust 잡 51개를 재 보니 복원(중앙값 약 90초)이 아끼는 빌드 시간과 비슷했고, 고른 크레이트가 적은 풀
+  리퀘스트에서는 순수한 비용이었으며, 그 2.9–5.2 GB 가 보호해야 할 의존성 캐시를 밀어냈다(ADR-0201
+  Revisions 에 수치). 캐시 예산 계약에서 그 항목을 빼고, 보호 항목은 의존성 캐시 하나가 된다.
 
 ## Measurements
 

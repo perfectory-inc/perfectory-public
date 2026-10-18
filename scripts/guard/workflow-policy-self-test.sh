@@ -339,15 +339,15 @@ named_if_step() {
 }
 main_only="\${{ github.ref == 'refs/heads/main' }}"
 mkdir "$test_root/main-only-save" "$test_root/pull-request-save" "$test_root/main-only-gate"
-named_if_step "Save workspace build" "$main_only" >"$test_root/main-only-save/example.yml"
-named_if_step "Save workspace build" "always()" >"$test_root/pull-request-save/example.yml"
+named_if_step "Save pnpm store" "$main_only" >"$test_root/main-only-save/example.yml"
+named_if_step "Save pnpm store" "always()" >"$test_root/pull-request-save/example.yml"
 named_if_step "Tool" "$main_only" >"$test_root/main-only-gate/example.yml"
 if ! "$checker" "$test_root/main-only-save" "$test_root/ruleset.json" "$test_root/actions.json" \
   --semantic-self-test >/dev/null 2>&1; then
-  echo "FAIL workflow-policy-self-test: rejected the main-only workspace build save" >&2
+  echo "FAIL workflow-policy-self-test: rejected the main-only pnpm store save" >&2
   exit 1
 fi
-expect_rejected workspace-build-saved-from-every-ref "$test_root/pull-request-save"
+expect_rejected pnpm-store-saved-from-every-ref "$test_root/pull-request-save"
 expect_rejected main-only-condition-on-a-gate-step "$test_root/main-only-gate"
 
 mkdir "$test_root/pull-types-filter"
