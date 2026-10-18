@@ -1171,6 +1171,16 @@ fn code_go_kr_legal_dong_collect_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The Onbid public-sale collector (root ADR-0280): one subcommand, every due API in one run.
+#[test]
+fn data_go_kr_onbid_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "collect-data-go-kr-onbid"])?,
+        Command::CollectDataGoKrOnbid
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(

@@ -268,7 +268,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 135 -> 136: root ADR-0280's Onbid source contract restates the PNU rule for the Spark load; the
 # lakehouse-domain test reads that contract from CARGO_MANIFEST_DIR and holds it equal to Pnu::parse,
 # the rule's one definition, so the Python copy cannot drift from it unseen.
-COMPILE_TIME_READ_BASELINE="${3:-136}"
+# 136 -> 137: root ADR-0280's Onbid collector embeds data-go-kr-onbid.contract.json, the one record of
+# the endpoints, call limits and intervals that the Silver load (data_go_kr_onbid.py) reads too.
+COMPILE_TIME_READ_BASELINE="${3:-137}"
 
 cd "$repo_root"
 

@@ -20,6 +20,8 @@
     {"path": "/var/lib/foundation-platform/map-edit-fold/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/lineage-stewardship", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/lineage-stewardship/lakehouse", "mode": "0777"},
+    {"path": "/var/lib/foundation-platform/onbid", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/onbid/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/legal-dong-code", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/vworld-parcel-edition", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/parcel-number-change", "mode": "0755"},
@@ -202,6 +204,49 @@
       "enabled": true,
       "enabled_since": "2026-10-05T03:16:07Z",
       "started_once_after_deploy": true
+    },
+    {
+      "id": "onbid_public_sale_collect",
+      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run and, when it landed items or results, stages a pending-load handoff for onbid_public_sale_silver. No Spark.",
+      "systemd_service": "foundation-onbid-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/onbid"
+      ],
+      "schedule": "7 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "time_limit_minutes": 40,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0280). Off until the owner places /etc/foundation-platform/data-go-kr.env holding DATA_GO_KR_SERVICE_KEY (the runtime-secrets group data-go-kr, optional until then) and the first supervised run (runbook data-go-kr-onbid.md) has landed a complete item pass within the API limits; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "onbid_public_sale_silver",
+      "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): each pending handoff, oldest first, appends to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when no handoff is pending.",
+      "systemd_service": "foundation-onbid-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/onbid"
+      ],
+      "schedule": "50 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "time_limit_minutes": 40,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 10,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0280). Off until the owner places /etc/foundation-platform/data-go-kr.env holding DATA_GO_KR_SERVICE_KEY (the runtime-secrets group data-go-kr, optional until then) and the first supervised run (runbook data-go-kr-onbid.md) has landed a complete item pass within the API limits; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "vworld_parcel_edition",
