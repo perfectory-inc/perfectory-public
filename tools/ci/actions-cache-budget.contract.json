@@ -10,7 +10,6 @@
     {"key_prefix": "v0-rust-gongzzang-dependencies-", "max_mb": 1500, "why": "gongzzang's one dependency cache: rust saves it; cargo-deny, guardrails and traffic-auth-policy-drift read it (ADR-0269); 1.1 GB measured for rust."},
     {"key_prefix": "v0-rust-intelligence-dependencies-", "max_mb": 1600, "why": "intelligence's one dependency cache: rust saves it, supply-chain reads it (ADR-0269). 1.3 GB measured 2026-10-18."},
     {"key_prefix": "v0-rust-dawneer-dependencies-", "max_mb": 500, "why": "dawneer's one dependency cache: rust saves it, supply-chain reads it (ADR-0269)."},
-    {"key_prefix": "v0-rust-walking-skeleton-", "max_mb": 800, "why": "gongzzang release build for the walking skeleton; 0.67 GB measured."},
     {"key_prefix": "sqlx-cli-", "max_mb": 100, "why": "the sqlx-cli executables alone, saved from main and keyed by version (ADR-0269); the gongzzang migration and prepare jobs read the gongzzang dependency cache."},
     {"key_prefix": "v0-rust-check-", "max_mb": 400, "why": "dependency advisories check."},
     {"key_prefix": "v0-rust-guard-", "max_mb": 300, "why": "repository guard (xtask)."},
