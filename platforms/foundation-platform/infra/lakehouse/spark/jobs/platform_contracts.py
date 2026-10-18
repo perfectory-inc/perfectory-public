@@ -333,6 +333,19 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     return ranked.drop("_current_row_rank")
 
 
+def current_rows_of_versioned(frame: Any, contract: dict[str, Any]) -> Any:
+    """``current_rows`` for a table that keeps versions (it declares ``current_row_latest``); any other
+    table as read.
+
+    For readers that pick rows by their own filter (a snapshot id, a history window): a versioned
+    table must still give them one row per key (root ADR-0275), while the predicate of an unversioned
+    table is not theirs to apply (``silver.parcel_boundaries`` closes the rows of an earlier edition
+    that the lineage reads on purpose).
+    """
+
+    return current_rows(frame, contract) if current_row_latest(contract) is not None else frame
+
+
 def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:
     prefix = " " * indent
     return ",\n".join(

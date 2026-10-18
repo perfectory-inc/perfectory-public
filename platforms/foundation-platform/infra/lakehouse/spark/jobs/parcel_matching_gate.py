@@ -41,6 +41,7 @@ import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
+from platform_contracts import current_rows_of_versioned, load_lakehouse_contract
 
 JOB_NAME = "parcel_matching_gate"
 VERDICT_SCHEMA_VERSION = "foundation-platform.parcel_matching_verdict.v1"
@@ -230,7 +231,10 @@ def attribute_frame(spark: Any, cat: str, spec: str, sido: str) -> tuple[str, An
     if where:
         column, value = where.split("=")
         condition += f" AND CAST({column} AS STRING) = '{value}'"
-    return table, spark.sql(f"SELECT DISTINCT pnu FROM {cat}.`{namespace}`.`{name}` WHERE {condition}")
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    rows = current_rows_of_versioned(spark.table(f"{cat}.{namespace}.{name}"), load_lakehouse_contract(table))
+    return table, rows.where(F.expr(condition)).select("pnu").distinct()
 
 
 def main(argv: list[str] | None = None) -> int:
