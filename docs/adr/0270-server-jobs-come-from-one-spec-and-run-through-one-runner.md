@@ -359,5 +359,6 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
   마지막에 `--requested-at`·`--reason` 을 받고, 저널 기록은 동작별 거부보다 먼저 남는다(거부된 요청도 남는다). 묶음 전환
   유닛이 이 스크립트로 부르는 자기 단계는 그 전환의 것이다(`FOUNDATION_OPERATOR_WAIT=1` 이고 `SUDO_USER` 없음; sudo 실행은
   환경을 지우고 `SUDO_USER` 를 가지므로 흉내 낼 수 없다). 단계 배포의 `health` 점검은 읽기라 그대로 돈다.
+- 2b 운영자 스위치의 "누가 파일을 쓰나"는 [ADR-0282](./0282-operator-switches-are-issued-by-foundation-api-and-land-as-files-the-runner-reads.md)(제안)가 다시 정한다: foundation-api 가 직원 신원으로만 내고, 파일은 러너가 읽는다.
 - #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 
