@@ -461,15 +461,19 @@ def pins_property_value(pins: dict[str, str]) -> str:
     return json.dumps(pins, sort_keys=True, separators=(",", ":"))
 
 
-def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any) -> None:
+def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any,
+                        properties: dict[str, str] | None = None) -> None:
     """Commit `frame` to `table` with the Silver pins it was built from in the snapshot summary.
 
     `overwrite` replaces every row in one new snapshot (the old one stays in the history, as with
     INSERT OVERWRITE); `append` adds one. `everything` is the always-true filter (F.lit(True)).
+    `properties` are further snapshot summary entries (the content fingerprint, root ADR-0274).
     """
     writer = frame.writeTo(table)
     if pins:
         writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{SOURCE_SNAPSHOTS_PROPERTY}", pins_property_value(pins))
+    for key, value in (properties or {}).items():
+        writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{key}", value)
     if mode == "overwrite":
         writer.overwrite(everything)
     elif mode == "append":
