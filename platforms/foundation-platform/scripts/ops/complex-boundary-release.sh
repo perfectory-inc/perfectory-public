@@ -50,7 +50,8 @@ finish() {
 }
 
 aws_read() {
-  docker run --rm -v "${work}":/w \
+  # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
+  docker run --rm --memory 512m -v "${work}":/w \
     -e AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
     -e AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \
     amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73 \

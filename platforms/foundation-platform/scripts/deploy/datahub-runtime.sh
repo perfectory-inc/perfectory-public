@@ -110,7 +110,10 @@ ingest() {
     fail "the metadata-shared network is missing; run: $0 up -d"
   }
   local status=0
-  docker run --rm --network metadata-shared --env-file "${names}" \
+  # --memory 1g: the ingestion CLI measured on ai-server 2026-10-18 with the data-contracts recipe (45
+  # contracts, sink to a file): anonymous memory peaked at 124 MiB. The lakehouse-iceberg recipe is
+  # not measured yet (it needs the catalog writer token); a run that outgrows the cap ends with 137.
+  docker run --rm --memory 1g --network metadata-shared --env-file "${names}" \
     -v "${compose_dir}/recipes:/recipes:ro" \
     -v "${root_dir}/contracts/data:/contracts:ro" \
     acryldata/datahub-ingestion:v1.7.0.1@sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620 \
