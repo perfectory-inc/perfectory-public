@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform ADR-0275 step 1: measure one land transfer history release written whole and appended as changes, in a scratch namespace (disabled; operator job start)
+Description=Foundation Platform ADR-0275 step 1: measure one land transfer history release appended as changes, phase by phase, in a scratch namespace (disabled; operator job start)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -13,7 +13,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/silver-append-measure.sh
-TimeoutStartSec=40m
+TimeoutStartSec=2h
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
