@@ -341,5 +341,12 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 - sudoers 는 배포가 이미 `jobs.v1.json` 에서 만들고 `visudo` 로 검사하므로 바꾸지 않았다.
 - 첫 배포(2026-10-18, 릴리스 50a57536): `systemd-sysusers` 가 activate 단계에서 `foundation-spark`(185:185)를 만들었다(배포 로그). 같은 날 Silver 측정 작업의 Spark 컨테이너(uid 185)가 생성된 작업 폴더 `lineage-stewardship/lakehouse`(0777)에 쓰며 정상으로 돌았다. uid 185 와 호스트 스크립트가 함께 쓰는 lakehouse 작업 폴더 둘(0777)의 최소 권한 소유는 분석 중이다.
 - 단계 2 진행 중: ADR-0270 이 승인된 범위이고, 사장이 2026-10-18 2a+2b 와 첫 작업 2개(`shape_ledger_check`, `lakehouse_maintenance`)를 정했다. 2a 러너 핵심 병합(#705), `job-run` 명령(#711). 범위·완료 기준: [사장 요약 "단계 2"](../domain-stories/owner-summary.md).
+- 2b 에 규칙 추가(2026-10-18 사고): **모든 시작은, 예약이든 운영자든, 같은 대기열 자리를 차지한다.** 07:54 운영자가 꺼진 일회성
+  작업(spark 3자리)을 `job start` 로 띄웠고, Airflow 는 자기가 띄운 실행만 세므로 08:20 FLOOR(3자리)를 옆에 띄웠다. /data 가 포화되어
+  (iowait 37%, sda 95%) FLOOR 가 약 1분 대신 13.8분 걸렸고 자동배포가 17분 멈췄다. 운영자 스크립트는 Gold·Silver 단위만 손으로 골라
+  보고 있었다. 이제 `job_units.py pool-full` 하나가 `jobs.v1.json` 의 대기열 구성원 중 systemd 가 돈다고 답하는 것(꺼진 작업, 템플릿
+  작업의 다른 인스턴스 포함)의 자리를 세고, 예약 시작 문은 자리가 없으면 `waiting` 으로 시작하지 않으며, 운영자 `job`·`silver`·
+  `parcel-tiles rehearse` 시작은 거부한다(75). 남은 틈: 세기와 시작 사이의 같은 순간 경쟁, 그리고 작업이 아닌 일시 유닛(운영자 Gold
+  재빌드)은 러너의 호스트 자리 임대가 닫는다.
 - #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 

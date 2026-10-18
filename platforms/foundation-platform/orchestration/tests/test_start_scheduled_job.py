@@ -29,11 +29,16 @@ JOBS = {
 
 # systemctl show answers a fresh invocation once `start` was asked for, and an ended successful run.
 # list-units (job_units.py's question, root ADR-0184) answers the next state of FIXTURE_RUN_STATES,
-# one per question, and then nothing: the run has ended.
+# one per question, and then nothing: the run has ended. A question about several units is the
+# pool's (job_units.py pool-full): it answers the units FIXTURE_HELD names as running, and only them.
 SYSTEMCTL = """#!/bin/sh
 root="$FIXTURE_ROOT"
 case "$*" in
   list-units*)
+    if [ "$#" -gt 7 ]; then
+      for unit; do case ",${FIXTURE_HELD:-}," in *",$unit,"*) echo "$unit loaded activating x fixture" ;; esac; done
+      exit 0
+    fi
     asked=$(cat "$root/listed" 2>/dev/null || echo 0); asked=$((asked + 1)); echo "$asked" > "$root/listed"
     state=$(echo "${FIXTURE_RUN_STATES:-}" | cut -d, -f"$asked")
     for last; do :; done
@@ -129,6 +134,25 @@ class TheRunOutlivesItsConnection(HostFixture):
         self.assertIn("foundation-fold.service invocation=new", result.stdout)
         self.assertEqual(result.stdout.count("foundation-job-outcome changed"), 2,
                          "the journal's line and the one repeated as the run's own, for one run")
+
+
+class EveryStartTakesThePoolsSlots(HostFixture):
+    """Root ADR-0270 §2b: a run Airflow did not start still holds its pool's slots (2026-10-18)."""
+
+    def test_a_job_does_not_start_while_an_operator_started_run_holds_the_pool(self):
+        # The disabled job is what the operator starts; Airflow never sees it.
+        result, asked = self.start("floor", FIXTURE_HELD="foundation-paused.service")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(asked, "", "a job started beside a full pool")
+        self.assertIn("foundation-job-outcome waiting the spark pool has no room for foundation-floor.service",
+                      result.stdout)
+        self.assertIn("foundation-paused.service holds 3", result.stdout)
+        self.assertFalse((self.starts / "floor").exists(), "a start that did not happen was recorded")
+
+    def test_a_job_that_fits_beside_what_runs_starts(self):
+        result, asked = self.start("bake", FIXTURE_HELD="foundation-fold.service")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-bake.service", asked)
 
 
 class TakingTurns(HostFixture):
