@@ -5,7 +5,6 @@
   "measured_by": "scripts/ci/actions_cache_budget.py",
   "cap_percent_of_limit": 90,
   "entries": [
-    {"key_prefix": "foundation-workspace-build-rust-quality-", "max_mb": 5300, "protected": true, "why": "Foundation workspace crates main last built (ADR-0201); 2.9-5.2 GB measured 2026-10-17."},
     {"key_prefix": "v0-rust-rust-quality-dependencies-", "max_mb": 3500, "protected": true, "why": "Foundation's one dependency cache: rust-quality saves it; postgres-integration, kafka-integration and supply-chain read it (ADR-0269); 3.0 GB measured 2026-10-18 after #705."},
     {"key_prefix": "v0-rust-identity-dependencies-", "max_mb": 1000, "why": "identity's one dependency cache: rust-quality saves it; live-contracts, contract-determinism and supply-chain read it (ADR-0269)."},
     {"key_prefix": "v0-rust-gongzzang-dependencies-", "max_mb": 1500, "why": "gongzzang's one dependency cache: rust saves it; cargo-deny, guardrails and traffic-auth-policy-drift read it (ADR-0269); 1.1 GB measured for rust."},

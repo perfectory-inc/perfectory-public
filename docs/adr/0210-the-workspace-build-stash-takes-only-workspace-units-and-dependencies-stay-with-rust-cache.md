@@ -1,6 +1,6 @@
 # ADR 0210: 작업 공간 빌드 보관본은 작업 공간 단위만 가져가고, 의존성 빌드는 rust-cache 에 남긴다
 
-- Status: Accepted
+- Status: Superseded by ADR-0269 (2026-10-18: ADR-0201 의 보관분과 함께 은퇴)
 - Date: 2026-10-13
 - Amends: [ADR-0201](./0201-ci-keeps-the-workspace-crates-main-built-and-restores-the-source-times-they-saw.md)
   (작업 공간 산출물을 가르는 기준, 보관본 키의 대체 복원)
