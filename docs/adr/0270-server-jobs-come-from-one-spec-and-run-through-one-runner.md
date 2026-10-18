@@ -340,5 +340,6 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 - 생성·검사는 크레이트 `foundation-jobs` 하나다(Rust, 시험 18개). 모든 검사는 위반을 심어 거부까지 확인했다.
 - sudoers 는 배포가 이미 `jobs.v1.json` 에서 만들고 `visudo` 로 검사하므로 바꾸지 않았다.
 - 첫 배포(2026-10-18, 릴리스 50a57536): `systemd-sysusers` 가 activate 단계에서 `foundation-spark`(185:185)를 만들었다(배포 로그). 같은 날 Silver 측정 작업의 Spark 컨테이너(uid 185)가 생성된 작업 폴더 `lineage-stewardship/lakehouse`(0777)에 쓰며 정상으로 돌았다. uid 185 와 호스트 스크립트가 함께 쓰는 lakehouse 작업 폴더 둘(0777)의 최소 권한 소유는 분석 중이다.
-- 단계 2 제안(사장 결정 대기): [사장 요약 "단계 2 제안"](../domain-stories/owner-summary.md).
+- 단계 2 진행 중: ADR-0270 이 승인된 범위이고, 사장이 2026-10-18 2a+2b 와 첫 작업 2개(`shape_ledger_check`, `lakehouse_maintenance`)를 정했다. 2a 러너 핵심 병합(#705), `job-run` 명령(#711). 범위·완료 기준: [사장 요약 "단계 2"](../domain-stories/owner-summary.md).
+- #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 
