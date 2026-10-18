@@ -16,7 +16,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/lakehouse-migrate /var/lib/foundation-platform/lakehouse-ivy
+ReadWritePaths=/var/lib/foundation-platform/lakehouse-migrate
 
 [Install]
 WantedBy=multi-user.target
