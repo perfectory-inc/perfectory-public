@@ -123,7 +123,26 @@ for workflow in "${workflows[@]}"; do
   ' "$workflow"; then
     issue_writer=1
   fi
-  awk -v file="$workflow" -v issue_writer="$issue_writer" '
+  # A second (root ADR-0276 §3, §9): the release build, on push to main and workflow_dispatch only,
+  # may add id-token: write and attestations: write to one job-level map, so that job can sign the
+  # release with a Sigstore keyless provenance attestation. No other file, trigger or permission.
+  release_signer=0
+  if [ "$(basename "$workflow")" = foundation-release-build.yml ] && awk '
+    /^on:[[:space:]]*$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  [A-Za-z0-9_-]+:/ {
+      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
+      if (key == "push") push++
+      else if (key != "workflow_dispatch") other++
+      next
+    }
+    in_on && /^    branches:[[:space:]]*\[main\][[:space:]]*$/ { main_only++; next }
+    in_on && /^    / { other++ }
+    END { exit (push == 1 && main_only == 1 && !other) ? 0 : 1 }
+  ' "$workflow"; then
+    release_signer=1
+  fi
+  awk -v file="$workflow" -v issue_writer="$issue_writer" -v release_signer="$release_signer" '
     function indentation(line, copy) {
       copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
     }
@@ -131,10 +150,13 @@ for workflow in "${workflows[@]}"; do
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
     }
     function finish_permissions() {
-      if (child_count != 1 + has_issues_write || !has_contents_read) {
+      if (child_count != 1 + has_issues_write + has_id_token + has_attestations || !has_contents_read) {
         fail("permissions must contain exactly contents: read")
       }
+      if (has_id_token != has_attestations) fail("a signing job takes id-token: write and attestations: write together")
+      if (has_id_token && signing_jobs++) fail("only one job may sign the release")
       in_permissions=0; base=-1; child_count=0; has_contents_read=0; has_issues_write=0
+      has_id_token=0; has_attestations=0
     }
     {
       current=indentation($0)
@@ -150,6 +172,10 @@ for workflow in "${workflows[@]}"; do
             if (has_contents_read++) fail("duplicate contents permission")
           } else if (issue_writer && base == 4 && $0 ~ /^[[:space:]]*issues:[[:space:]]*write[[:space:]]*$/) {
             if (has_issues_write++) fail("duplicate issues permission")
+          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*id-token:[[:space:]]*write[[:space:]]*$/) {
+            if (has_id_token++) fail("duplicate id-token permission")
+          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*attestations:[[:space:]]*write[[:space:]]*$/) {
+            if (has_attestations++) fail("duplicate attestations permission")
           } else {
             fail("permissions may grant only literal contents: read")
           }
@@ -221,6 +247,9 @@ for workflow in "${workflows[@]}"; do
   if [ "$issue_writer" = 1 ]; then
     write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      issues: write$' || true)"
   fi
+  if [ "$release_signer" = 1 ]; then
+    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      (id-token|attestations): write$' || true)"
+  fi
   if [ -n "$write_grants" ]; then
     echo "FAIL workflow-policy: public workflows must not grant write permissions: $workflow" >&2
     exit 1
@@ -255,6 +284,10 @@ for workflow in "${workflows[@]}"; do
     }
     END { print (schedule == 1 && !other) ? 1 : 0 }
   ' "$workflow")"
+  # The release build (above) gates no pull request either: it builds what main already holds.
+  if [ "$release_signer" = 1 ]; then
+    scheduled_only=1
+  fi
 
   # Every required workflow uses the same PR trigger shape. Push-only path
   # filters remain allowed for cost, but PR filters/types cannot suppress checks.

@@ -487,6 +487,63 @@ issue_writer_fixture issue-writer-contents
 sed -i 's/^      contents: read$/      contents: write/' "$test_root/issue-writer-contents/dependency-advisories.yml"
 expect_rejected contents-write-in-advisory-workflow "$test_root/issue-writer-contents"
 
+# Root ADR-0276 §3, §9: only foundation-release-build.yml, on push to main and workflow_dispatch,
+# may add id-token: write and attestations: write, together, to one job-level map.
+release_signer_fixture() {
+  mkdir "$test_root/$1"
+  cp "$test_root/valid/example.yml" "$test_root/$1/example.yml"
+  cat >"$test_root/$1/${2:-foundation-release-build.yml}" <<'YAML'
+name: synthetic-release-build
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Tool
+        uses: example/tool@1111111111111111111111111111111111111111
+YAML
+}
+release_signer_fixture release-signer
+if ! "$checker" "$test_root/release-signer" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the release build's one signing job" >&2
+  exit 1
+fi
+release_signer_fixture release-signer-other-file other-build.yml
+expect_rejected signing-in-another-workflow "$test_root/release-signer-other-file"
+release_signer_fixture release-signer-pull-request
+sed -i '/^  workflow_dispatch:$/a\  pull_request:\n    branches: [main]' "$test_root/release-signer-pull-request/foundation-release-build.yml"
+expect_rejected signing-on-pull-requests "$test_root/release-signer-pull-request"
+release_signer_fixture release-signer-branch
+sed -i 's/^    branches: \[main\]$/    branches: [main, dev]/' "$test_root/release-signer-branch/foundation-release-build.yml"
+expect_rejected signing-from-another-branch "$test_root/release-signer-branch"
+release_signer_fixture release-signer-top-level
+sed -i 's/^  contents: read$/  contents: read\n  id-token: write/' "$test_root/release-signer-top-level/foundation-release-build.yml"
+expect_rejected signing-at-top-level "$test_root/release-signer-top-level"
+release_signer_fixture release-signer-alone
+sed -i '/^      attestations: write$/d' "$test_root/release-signer-alone/foundation-release-build.yml"
+expect_rejected id-token-without-attestations "$test_root/release-signer-alone"
+release_signer_fixture release-signer-contents
+sed -i 's/^      contents: read$/      contents: write/' "$test_root/release-signer-contents/foundation-release-build.yml"
+expect_rejected contents-write-in-release-build "$test_root/release-signer-contents"
+release_signer_fixture release-signer-two-jobs
+sed -n '/^  build:$/,$p' "$test_root/release-signer-two-jobs/foundation-release-build.yml" \
+  | sed 's/^  build:$/  second:/; s/^    name: Build$/    name: Second/' >>"$test_root/release-signer-two-jobs/foundation-release-build.yml"
+expect_rejected two-signing-jobs "$test_root/release-signer-two-jobs"
+release_signer_fixture release-signer-required
+sed -i 's/^    name: Build$/    name: required\/release/' "$test_root/release-signer-required/foundation-release-build.yml"
+expect_rejected release-build-required-context "$test_root/release-signer-required"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \

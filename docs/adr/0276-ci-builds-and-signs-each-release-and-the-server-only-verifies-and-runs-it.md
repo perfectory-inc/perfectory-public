@@ -135,7 +135,7 @@ foundation-platform-releases-prod/          (릴리스 산출물만, 공개 접�
 
 | 경계 | 정함 |
 |---|---|
-| 워크플로 | `.github/workflows/foundation-release-build.yml`, `push` to `main` + 같은 ref 의 `workflow_dispatch`(커밋 다시 빌드) <!-- public-repository-safety: allow-future-workflow --> |
+| 워크플로 | `.github/workflows/foundation-release-build.yml`, `push` to `main` + 같은 ref 의 `workflow_dispatch`(커밋 다시 빌드) |
 | 입력 | 커밋 하나. 빌드 정의는 지금의 Dockerfile 들(`services/foundation-outbox-publisher/Dockerfile.lakehouse-control`, `infra/tiles/tippecanoe/Dockerfile`, `services/foundation-api/Dockerfile`, `infra/postgres/Dockerfile.recovery`)과 jar 해석기 |
 | 출력 | §2 목록 + 블롭 + §3 번들을 §5 위치에, 만들기만. 같은 커밋을 다시 빌드해 다른 바이트가 나와도 이미 있는 목록은 덮어쓰지 않는다(실패로 보고) |
 | 실패 | 목록이 없으면 서버는 배포하지 않는다. 부분 업로드는 목록을 마지막에 올려서 보이지 않게 한다 |
@@ -149,6 +149,33 @@ foundation-platform-releases-prod/          (릴리스 산출물만, 공개 접�
 | R2 | 승인이 목록을 확인하는 명령을 얻음(설치에는 아직 안 씀) | 서버에서 10개 목록 확인 성공, 위조 번들·바뀐 블롭·다른 커밋을 심으면 거부 |
 | R3 | 설치가 빌드 대신 목록을 씀, compose 빌드 금지 | 서버 빌드 0회, 배포 10번 연속 성공, 운영 compose 의 `build:` 실행 0 |
 | R4 | 빌드 코드·ADR-0137 상한·메모리 예산의 빌드 항목 삭제 | 코드 삭제, 예산에서 22g 빠짐 |
+
+### 11. R1 첫 측정 (2026-10-18, 무료 표준 러너)
+
+`foundation-release-build.yml` 을 시험 브랜치에서 돌렸다(실행 39144325130). 러너는 ubuntu-24.04, 4 CPU, 16 GB 메모리다.
+`scripts/ci/release-build-runner-room.sh` 가 쓰지 않는 도구를 지워 / 에 121 GB 를 남기고, /mnt 에 스왑 16 GB 를 더한다.
+빌드 정의는 승인 스크립트(`RELEASE_IMAGES`, 빌드 계약의 인자, Spark 이미지와 엔진 패키지)와 compose 파일의 `build:` 에서 읽는다. 사본은 없다.
+
+| 무엇 | 시간 | 최대 메모리 | 크기 |
+|---|---:|---:|---:|
+| publisher 이미지(빌드 계약의 `CARGO_BUILD_JOBS=2`, 캐시 없음) | 1,670초 | 8.2 GB | 블롭 59 MB(압축), 실행 파일 79 MB |
+| tippecanoe 이미지 | 93초 | 1.9 GB | 53 MB |
+| foundation-api 런타임 이미지(지금은 승인 밖) | 223초 | 5.1 GB | 36 MB |
+| 복구 Postgres 이미지(지금은 승인 밖) | 8초 | 0.9 GB | 196 MB |
+| jar 5개(Spark 이미지의 spark-submit) | 약 20초 | — | 393 MB(그중 aws-java-sdk-bundle 281 MB) |
+| 출처 증명(대상 43개: 목록 + 블롭 42) | 4초 | — | 번들 하나 |
+| 잡 전체 | 36분(빌드 단계 33분 51초) | — | Actions 아티팩트 699 MB |
+
+- publisher 의 최대 메모리는 서버 측정(16.7 GiB, ADR-0137)의 절반이었다. 러너의 16 GB 안에 들어간다.
+- 서버 쪽 확인(스크래치, cosign v3.1.3, 체크섬 확인한 공식 판)에서 목록과 블롭 42개 모두 확인됐다. 신원은 워크플로 경로, ref, 커밋 sha 다.
+  - 목록 1바이트 변경, 다른 ref(`refs/heads/main`), 다른 커밋은 모두 거부됐다.
+- 찾은 것 셋. R2·R3 에서 반영한다.
+  1. `docker load` 는 OCI 레이아웃만 담긴 묶음을 읽지 못한다. BuildKit 의 `docker` 내보내기는 OCI 레이아웃과 Docker 의
+     `manifest.json` 을 한 묶음에 쓴다. 블롭은 그대로 내용 주소이고 `docker load` 도 되며, 불러온 이미지 ID 가 목록의 `config` 와 같다.
+  2. cosign 의 `verify-blob-attestation` 은 128 MiB 넘는 파일을 거부한다(281 MB jar). 그래서 서버는 §3 대로 cosign 으로 **목록 하나**를 확인한다.
+     블롭은 sha256 을 목록, 그리고 서명된 대상 목록과 대조한다(이번 확인에서 둘 다 맞았다).
+  3. 같은 커밋도 빌드마다 레이어 바이트가 조금씩 다르다(publisher 블롭 59,334,786 대 59,334,777). 재현 가능 빌드가 아니므로
+     §9 대로 같은 커밋의 두 번째 목록은 덮어쓰지 않는다.
 
 ## Rejected
 
