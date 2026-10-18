@@ -476,7 +476,9 @@ class PackOperator(OperatorHarness):
         for line in unit.splitlines():
             key = line.split("=", 1)[0]
             if "=" in line and not line.startswith("#") and key not in ("Description", "ExecStart", "OnFailure"):
-                self.assertIn(line, props)
+                # %N, the unit's own name, is the copy's name: its cleanup reads the release its run recorded.
+                self.assertIn(line.replace("%N", "foundation-gold-panel-rebuild-unconditional"), props)
+        self.assertIn("RuntimeDirectory=foundation-gold-panel-rebuild-unconditional", props)
         self.assertIn("OnFailure=foundation-unit-failed@foundation-gold-panel-rebuild-unconditional.service.service",
                       props)
         secrets = subprocess.run(["python3", "scripts/deploy/runtime_secrets.py", "properties",

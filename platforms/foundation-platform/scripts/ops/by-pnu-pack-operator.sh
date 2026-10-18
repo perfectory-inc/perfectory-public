@@ -416,7 +416,8 @@ for raw in open(path, encoding="utf-8"):
             sys.exit(f"{path}: ExecStart is not gold-panel-rebuild.sh all: {value}")
         command = argv[0]
         continue
-    value = value.replace("%n", name)
+    # %N is the name without its suffix: RuntimeDirectory=%N (root ADR-0270 §3) follows the copy's name.
+    value = value.replace("%n", name).replace("%N", name.removesuffix(".service"))
     if "%" in value:
         sys.exit(f"{path}: {key}={value} holds a specifier a transient unit does not expand")
     properties.append(f"{key}={value}")
