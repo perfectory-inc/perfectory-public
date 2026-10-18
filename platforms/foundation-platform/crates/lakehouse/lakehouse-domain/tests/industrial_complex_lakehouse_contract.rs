@@ -280,6 +280,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
                     key: &["official_complex_code"],
                     newest_first: &["valid_from_utc", "ingested_at_utc"],
                     removal_column: None,
+                    keep_ties: false,
                 })
             );
         } else {

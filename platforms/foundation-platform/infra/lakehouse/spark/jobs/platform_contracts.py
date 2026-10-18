@@ -276,6 +276,8 @@ class CurrentRowLatest:
     newest_first: tuple[str, ...]
     # The column whose value REMOVED marks the key as gone from its source (root ADR-0275).
     removal_column: str | None = None
+    # Whether every row tying on `newest_first` is current: a key's version is a set of rows.
+    keep_ties: bool = False
 
 
 # A removal marker's value in its table's `removal_column`; any other value, null included, is a row.
@@ -307,7 +309,11 @@ def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
     removal = value.get("removal_column")
     if removal is not None and (not isinstance(removal, str) or removal not in names):
         raise ValueError(f"lakehouse contract {table} current_row_latest.removal_column must be one of its columns")
-    return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"], removal_column=removal)
+    keep_ties = value.get("keep_ties", False)
+    if not isinstance(keep_ties, bool):
+        raise ValueError(f"lakehouse contract {table} current_row_latest.keep_ties must be true or false")
+    return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"], removal_column=removal,
+                            keep_ties=keep_ties)
 
 
 def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
@@ -315,8 +321,8 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
 
     First the contract's predicate, then, when it declares one, the newest row per key. Two rows of
     one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
-    function does not have (root ADR-0267). A key whose newest row is a removal marker has no
-    current row (root ADR-0275).
+    function does not have (root ADR-0267), unless the rule keeps ties: then every tied row is
+    current. A key whose newest row is a removal marker has no current row (root ADR-0275).
     """
 
     from pyspark.sql import Window, functions as F
@@ -333,7 +339,7 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
         "_current_row_rank", F.rank().over(Window.partitionBy(*latest.key).orderBy(*order))
     ).where(F.col("_current_row_rank") == 1)
     tied = ranked.groupBy(*latest.key).count().where(F.col("count") > 1)
-    tied_count = int(tied.count())
+    tied_count = 0 if latest.keep_ties else int(tied.count())
     if tied_count:
         samples = [str(sample) for sample in tied.limit(5).toJSON().collect()]
         raise ValueError(
