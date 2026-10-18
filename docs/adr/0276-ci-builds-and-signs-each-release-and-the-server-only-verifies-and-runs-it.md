@@ -1,6 +1,6 @@
 # ADR 0276: CI 가 릴리스를 한 번 빌드해 서명하고, 서버는 확인만 하고 돌린다
 
-- Status: Proposed — 방향과 §7(CI 장애 때 서버 빌드 없음)은 사장 결정(2026-10-18), §5 의 릴리스 전용 버킷은 사장 결정 대기. 방향의 근거: [ADR-0270 부록 A](./0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md)). 이 설계는 코디네이터 검토 대기
+- Status: Proposed — 사장 결정 셋을 반영(2026-10-18): 서버 밖 빌드, §5 릴리스 전용 버킷, §7 CI 장애 때 서버 빌드 없음. 설계 검토 대기. 방향의 근거: [ADR-0270 부록 A](./0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md)). 이 설계는 코디네이터 검토 대기
 - Date: 2026-10-18
 - Would change: [ADR-0134](./0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md) §1·§3(서버가 정본 main 을 빌드),
   [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)(서버 빌드의 상한, 빌드는 혼자 돈다)
@@ -54,8 +54,10 @@ CI 는 정본 main 의 커밋 하나마다 **릴리스 목록 하나**와 그것
 
 ### 3. 서명
 
-- CI 는 릴리스 목록 파일의 다이제스트에 GitHub artifact attestation(Sigstore, 키 없는 서명)을 붙이고, 그 번들
-  (`manifest.sigstore.json`)을 목록 옆에 둔다. GitHub API 에 기대지 않고 서버가 번들만으로 확인한다.
+- CI 는 출처 증명(SLSA provenance) 하나를 GitHub artifact attestation(Sigstore, 키 없는 서명)으로 만든다. 그 대상(subject)은
+  **릴리스 목록과 목록에 적힌 모든 산출물의 다이제스트**다 — 산출물 하나하나가 서명된 출처 증명에 이름이 올라 있다. 번들
+  (`manifest.sigstore.json`)은 목록 옆에 둔다. GitHub API 에 기대지 않고 서버가 번들만으로 확인한다.
+- 서버는 목록의 서명을 확인하고(아래), 받은 산출물마다 sha256 이 목록과 **그리고** 출처 증명의 대상 목록 양쪽에 있는지 확인한다.
 - 서버는 고정 판의 `cosign verify-blob` 으로 확인한다(`tools/pinned-artifacts.json` 에 판과 체크섬):
   `--bundle manifest.sigstore.json`,
   `--certificate-oidc-issuer https://token.actions.githubusercontent.com`,
@@ -75,27 +77,41 @@ CI 는 정본 main 의 커밋 하나마다 **릴리스 목록 하나**와 그것
 6. 실행할 때(`verify-current`, 작업의 `ExecStartPre`)도 지금처럼 바이트를 다시 확인하고, compose 는 `pull_policy: never`·빌드
    금지로 목록의 태그만 쓴다. 운영 compose 에 `build:` 를 쓰는 실행은 시험이 거부한다.
 
-### 5. R2 배치와 권한
+### 5. R2 배치와 권한 — 릴리스 전용 버킷 (사장 결정, 2026-10-18)
 
 ```text
-<릴리스 버킷>/
+perfectory-foundation-releases/          (릴리스 산출물만, 공개 접근 없음)
   releases/<sha>/manifest.json
   releases/<sha>/manifest.sigstore.json
   blobs/sha256/<다이제스트>
 ```
 
-- 릴리스 전용 버킷 하나(데이터 버킷과 분리) — **사장 결정 대기**(코디네이터 권고: 분리). 쓰기 열쇠는 CI 의 main 푸시 실행만(보호된 환경), 블롭·목록은 **만들기만**
-  (`If-None-Match: *`; 같은 키에 다른 내용이 오면 실패). 서버는 읽기 열쇠만.
-- PR 실행은 이 버킷에 아무 열쇠도 받지 않는다. 컴파일 캐시(sccache)는 별도 접두어·별도 열쇠로, 쓰기는 main 실행만(오염된 캐시가 릴리스로
-  들어가는 길을 막는다).
+| 누가 | 열쇠 | 할 수 있는 것 |
+|---|---|---|
+| CI 발행 신원 (`foundation-release-build.yml` 의 main 실행, GitHub 보호 환경 `release-publish`) | R2 API 토큰 "Object Read & Write", **이 버킷 하나로 범위 제한** | 블롭·목록 만들기, 주 1회 블롭 정리(§6) |
+| 서버(릴리스 승인) | R2 API 토큰 "Object Read only", **이 버킷 하나로 범위 제한** | 읽기만 |
+| 그 밖의 모두(다른 워크플로, PR 실행, 데이터 작업, Workers) | 없음 | 없음 |
 
-### 6. 보존
+- R2 에는 "쓰기만" 권한이 없다(토큰 종류는 Admin Read & Write / Admin Read only / Object Read & Write / Object Read only 뿐).
+  그래서 CI 토큰은 이 버킷 하나로 범위를 좁힌 Object Read & Write 이고, 덮어쓰기 금지는 아래 버킷 잠금과 만들기 전용 쓰기가 맡는다.
+- **덮어쓰기·삭제 금지 (R2 bucket lock)**: 접두어 `releases/` 는 **무기한** 잠금 — 한 번 발행된 릴리스 목록과 서명은 누구도 바꾸거나
+  지울 수 없다. 접두어 `blobs/` 는 **30일** 잠금. 30일이 지난 블롭을 바꾸더라도 서버는 다이제스트를 대조하므로 바뀐 바이트는 실행되지 않는다.
+- 모든 쓰기는 만들기 전용(`If-None-Match: *`): 같은 키에 다른 내용이 오면 실패로 보고한다. 목록은 마지막에 올려, 블롭이 다 있기 전에는 보이지 않는다.
+- 공개 접근(r2.dev, 사용자 도메인)은 켜지 않는다. 계정 전체(Admin)나 "모든 버킷" 범위의 토큰이 이 버킷에 닿지 않는지는 만들 때 확인한다(런북).
+- 컴파일 캐시(sccache)는 이 버킷에 두지 않는다: 토큰은 버킷 단위로만 범위를 좁힐 수 있으므로, 캐시는 별도 버킷과 별도 토큰을 쓴다(R1 에서 정함).
+- 버킷과 토큰 만들기는 비밀값을 다루는 사장 조작이다: [릴리스 산출물 버킷 런북](../../platforms/foundation-platform/docs/runbooks/release-artifact-bucket.md).
 
-- 목록: 최근 30일에 만든 것, 그리고 기간과 상관없이 서버에 설치된 릴리스(current·previous·비상)의 것은 지우지 않는다.
-- 블롭: 주 1회 **표시 후 정리** — 남길 목록들이 가리키는 블롭만 남긴다(나이 규칙은 쓰지 않는다: 오래된 jar 를 새 목록이 다시 가리킨다).
+### 6. 보존 (숫자)
+
+| 무엇 | 얼마나 | 어떻게 |
+|---|---|---|
+| 릴리스 목록·서명(`releases/`) | **영구** | 무기한 잠금. 목록 하나는 수 KB, 감사 기록으로 남는다 |
+| 블롭(`blobs/`) | 만든 지 **30일** 동안은 지울 수 없음, 그 뒤에는 **최근 30일에 만든 목록이 가리키지 않으면 정리** | 30일 잠금 + 주 1회 정리(CI 발행 신원). 나이만으로는 지우지 않는다: 오래된 jar 를 새 목록이 다시 가리킨다 |
+| 서버에 설치된 릴리스 | 서버가 지울 때까지(지금 prune 규칙: current·previous·비상·최근 셋) | 산출물이 서버에 있으므로 블롭 정리와 상관없이 되돌릴 수 있다 |
+
 - 크기(2026-10-18 실측 기준 추정): 릴리스마다 새로 생기는 바이트는 바뀌는 실행 파일과 이미지 레이어(위 표의 "예" 행)뿐이고, 나머지는
   내용 주소로 다시 쓰인다. 비용 추정은 공개 저장소 규칙에 따라 여기 적지 않는다(비공개 문서).
-- 대량 삭제·복사는 처음 돌리기 전에 대상 수와 크기를 보고하고 승인을 받는다.
+- 정리의 첫 실행과 대량 삭제는 돌리기 전에 대상 수와 크기를 보고하고 승인을 받는다.
 
 ### 7. CI 가 멈췄을 때 — 기다린다 (사장 결정, 2026-10-18)
 
@@ -111,7 +127,8 @@ CI 는 정본 main 의 커밋 하나마다 **릴리스 목록 하나**와 그것
 ### 8. 되돌리기
 
 - 서버에 남은 릴리스로: 지금의 `rollback` 그대로. 활성화 때 보관된 번들로 서명을 다시 확인한다.
-- 서버에서 지운 릴리스로: 보존 기간 안이면 R2 에서 일반 설치(§4)와 똑같이 받아 확인 후 활성화.
+- 서버에서 지운 릴리스로: 만든 지 30일 안이면 R2 에서 일반 설치(§4)와 똑같이 받아 확인 후 활성화. 30일이 지나 블롭이 정리된 릴리스는
+  목록은 남지만 설치할 수 없고, 승인은 "블롭 없음"으로 거부한다(조용히 다른 것을 쓰지 않는다).
 
 ### 9. CI 쪽과의 경계 (ci-a 작업자가 맡는 부분)
 
