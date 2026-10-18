@@ -95,6 +95,9 @@ sys.exit(1 if os.environ.get("FAKE_JOURNAL_DOWN") else 0)
 '''
 
 
+READ_ONLY = ("status", "plan", "health")
+
+
 def fresh(age_seconds=0, reason="the first supervised run"):
     """An operator start's request: asked `age_seconds` ago, for `reason`."""
     return ("--requested-at", str(int(time.time()) - age_seconds), "--reason", reason)
@@ -180,7 +183,13 @@ class OperatorHarness(unittest.TestCase):
         (work / "summaries/shard-11.json").write_text(json.dumps({"gold_iceberg_snapshot_id": "777"}))
         return work
 
-    def run_operator(self, *args, active=(), activating=(), states=None, attended=True, **env):
+    def run_operator(self, *args, active=(), activating=(), states=None, attended=True, flags=True, **env):
+        # Every action that starts or writes takes a fresh request last (root ADR-0270 §2b), unless the
+        # test gives its own or none (flags=False).
+        # A step the cut-over unit runs (FOUNDATION_OPERATOR_WAIT=1) is its own and takes none.
+        if (flags and len(args) >= 2 and args[1] not in READ_ONLY and "--requested-at" not in args
+                and env.get("FOUNDATION_OPERATOR_WAIT") != "1"):
+            args = (*args, *fresh())
         # An operator at a terminal by default: a pseudo-terminal on standard input.
         terminal, stdin = pty.openpty() if attended else (None, subprocess.DEVNULL)
         if terminal is not None:
@@ -192,7 +201,9 @@ class OperatorHarness(unittest.TestCase):
                                      **env},
                                 capture_output=True, text=True, timeout=60)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
-        return result, calls
+        # The journal's record of a request is not something the request ran: kept apart.
+        self.journal = [call["args"] for call in calls if call["tool"] == "logger"]
+        return result, [call for call in calls if call["tool"] != "logger"]
 
     def unit(self, calls):
         (call,) = [call for call in calls if call["tool"] == "systemd-run"]
@@ -390,7 +401,7 @@ class PackOperator(OperatorHarness):
                 result, calls = self.run_operator(*args, *fresh(age_seconds=10 * 3600))
                 self.assertEqual(result.returncode, 77, result.stderr)
                 self.assertIn("expires after 10 minutes and never waits", result.stderr)
-                self.assertEqual(calls, [], "a late start asked systemd or the journal anything")
+                self.assertEqual((calls, self.journal), ([], []), "a late start asked systemd or the journal anything")
             with self.subTest(args=args, case="no terminal: a script under nohup"):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args, *fresh(), attended=False)
@@ -406,7 +417,7 @@ class PackOperator(OperatorHarness):
                         ("--reason", "why", "--requested-at", str(int(time.time()))), ()):
                 with self.subTest(args=args, bad=bad):
                     self.log.unlink(missing_ok=True)
-                    result, calls = self.run_operator(*args, *bad)
+                    result, calls = self.run_operator(*args, *bad, flags=False)
                     self.assertEqual(result.returncode, 64, result.stderr)
                     self.assertEqual(calls, [])
             with self.subTest(args=args, case="attended"):
@@ -414,10 +425,8 @@ class PackOperator(OperatorHarness):
                 result, calls = self.run_operator(*args, *fresh(age_seconds=60, reason="재실행: 원천 회차 확인"),
                                                   SUDO_USER="operator-a")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                tools = [call["tool"] for call in calls]
-                self.assertLess(tools.index("logger"), [i for i, c in enumerate(calls)
-                                                        if c["tool"] == "systemctl" and c["args"][0] == "start"][0])
-                (record,) = [call["args"] for call in calls if call["tool"] == "logger"]
+                self.assertTrue([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+                (record,) = self.journal
                 self.assertEqual(record[:3], ["-t", "foundation-operator-start", "--"])
                 self.assertIn("who=operator-a", record[3])
                 self.assertIn("reason=재실행: 원천 회차 확인", record[3])
@@ -426,6 +435,42 @@ class PackOperator(OperatorHarness):
                 result, calls = self.run_operator(*args, *fresh(), FAKE_JOURNAL_DOWN="1")
                 self.assertEqual(result.returncode, 70, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
+    def test_every_action_that_starts_or_writes_is_attended_and_a_read_is_not(self):
+        # Root ADR-0270 §2b: the rule of job and silver start, for every other action too.
+        self.work()
+        for args in (("parcel", "bake", "1"), ("parcel", "publish", "1"), ("parcel", "equality", "1"),
+                     ("parcel", "monitor-sample", "1"), ("parcel", "gold-rebuild"), ("parcel", "kind-sizes"),
+                     ("parcel", "rollback-rehearsal"), ("gold", "rebuild", "parcel_panel"),
+                     ("parcel-tiles", "rehearse", "bake"), ("raon", "build"), ("raon", "run", "1", "1000")):
+            with self.subTest(args=args, case="no request"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, flags=False)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertIn("--requested-at <epoch second> --reason <why> last", result.stderr)
+                self.assertEqual(calls, [])
+            with self.subTest(args=args, case="an hour late"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(age_seconds=3600))
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertEqual(calls, [])
+        result, calls = self.run_operator("parcel", "status", "1", flags=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.journal, [], "a read is not a start")
+
+    def test_the_cut_overs_own_steps_are_its_and_a_sudo_run_cannot_claim_them(self):
+        # The cut-over unit runs its steps as root with FOUNDATION_OPERATOR_WAIT=1 and no SUDO_USER;
+        # sudo's env_reset removes the variable from a granted run, and a sudo run has SUDO_USER.
+        self.work()
+        result, calls = self.run_operator("parcel", "equality", "1", flags=False, attended=False,
+                                          FOUNDATION_OPERATOR_WAIT="1")
+        self.assertNotIn("--requested-at", result.stderr)
+        self.assertNotIn("needs a person at a terminal", result.stderr)
+        self.log.unlink(missing_ok=True)
+        result, calls = self.run_operator("parcel", "equality", "1", flags=False, attended=False,
+                                          FOUNDATION_OPERATOR_WAIT="1", SUDO_USER="operator-a")
+        self.assertEqual(result.returncode, 64, result.stderr)
+        self.assertEqual(calls, [])
 
     def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
         self.switch_off("silver_refresh_land_use_plan")

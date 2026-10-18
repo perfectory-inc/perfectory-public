@@ -182,7 +182,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   거부한다. 객체는 R2 에 그대로 두고, 지우는 것은 묶음 전용 배포 30일 뒤 이후의 소유자 결정이다.
   1. 위 패치 되돌리기 1과 같이 `foundation_by_pnu_serving_bake` 를 먼저 멈춘다.
   2. 리허설(아무것도 옮기지 않음): `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
-     <parcel|building> rollback-rehearsal`. 발행기가 manifest 기록에서 직전 묶음 상태를 찾아 되돌리기를 검사하고
+     <parcel|building> rollback-rehearsal --requested-at "$(date +%s)" --reason "<왜>"`. 발행기가 manifest 기록에서 직전 묶음 상태를 찾아 되돌리기를 검사하고
      쓸 manifest 를 출력한 뒤(`ROLLBACK_DRY_RUN`), 레인 모니터가 미리보기 주소에서 그 기록 상태(`?packs=h<기록 이름>`:
      그 세대와 묶음 패치 그대로)를 읽어 표본 PNU 를 그 상태의 묶음과 맞댄다. 운영 주소는 이 매개변수에 404 로 답하고
      기록을 읽지 않는다. 결과는 `<bake root>/<lane>-rollback-rehearsal/`(`logs/check.log`, `rehearsal.json`).

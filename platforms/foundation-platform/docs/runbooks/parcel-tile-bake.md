@@ -38,7 +38,7 @@ PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `fou
 예행은 계약이 가진 **가장 새 판**을 굽고, 아무것도 서비스하지 않는다.
 
 1. 서버 창(Spark 가 비는 시간)을 조정자에게 받는다.
-2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold`
+2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold --requested-at "$(date +%s)" --reason "<왜>"`
    를 실행한다. 대조 관문과 서빙본 Gold 를 돌린다. 관문이 거부해도 기록만 하고 계속한다.
 3. `... parcel-tiles status` 로 끝을 확인한 뒤 `... parcel-tiles rehearse bake` 를 실행한다. 모든 관문을 돌리고, build 행·
    업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
