@@ -22,6 +22,7 @@ import {
   strongest,
   summarySentence,
   waitingJobs,
+  runTimes,
 } from "./dataFlow";
 
 const NOW = new Date("2026-01-02T12:00:00Z");
@@ -352,5 +353,25 @@ describe("problems (root ADR-0195)", () => {
     expect(catalogLineageUrl(links, "urn:li:dataset:x")).toBe("https://catalog.example/dataset/urn%3Ali%3Adataset%3Ax/Lineage");
     expect(catalogLineageUrl(links, "urn:li:dataJob:y")).toBe("https://catalog.example/tasks/urn%3Ali%3AdataJob%3Ay/Lineage");
     expect(catalogLineageUrl(links, null)).toBeNull();
+  });
+});
+
+describe("a run that waited for its pool", () => {
+  // 2026-10-18: runs that waited hours for the spark pool and worked a minute were shown as hours-long and slow.
+  const waited: ScheduledJobRun = {
+    ...run("succeeded", "2026-01-02T10:25:00Z", "2026-01-02T10:26:00Z"),
+    queued_at: "2026-01-02T07:00:00Z",
+  };
+  const waiting: ScheduledJobRun = { ...run("running", "2026-01-02T11:00:00Z"), started_at: null, queued_at: "2026-01-02T11:00:00Z" };
+
+  it("shows its wait and its work apart", () => {
+    expect(runTimes(waited, NOW)).toBe("기다림 3시간 25분 · 1분");
+    expect(runTimes(run("succeeded", "2026-01-02T10:00:00Z", "2026-01-02T10:05:00Z"), NOW)).toBe("5분");
+  });
+
+  it("is waiting, not running, until its work starts", () => {
+    expect(jobStates([ran(loadA, waiting)], NOW).get("load_a")?.status).toBe("waiting");
+    expect(runTimes(waiting, NOW)).toBe("기다림 1시간 · —");
+    expect(jobStates([ran(loadA, { ...waiting, started_at: "2026-01-02T11:30:00Z" })], NOW).get("load_a")?.status).toBe("running");
   });
 });

@@ -252,6 +252,7 @@ mod tests {
     #[test]
     fn a_silver_snapshot_names_its_run_and_the_gold_snapshot_built_from_it() {
         let run = ScheduledJobRun {
+            queued_at: None,
             run_urn: "urn:run-1".to_owned(),
             started_at: Utc.timestamp_millis_opt(1_000).single(),
             finished_at: Utc.timestamp_millis_opt(5_000).single(),

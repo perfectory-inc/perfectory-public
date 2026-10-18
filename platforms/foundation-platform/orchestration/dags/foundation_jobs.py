@@ -19,7 +19,7 @@ from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator,
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
-from job_specs import RETRY_DELAY_MINUTES, WITHHOLDS_EVENTS, asset_uri, job_outcome, load_specs
+from job_specs import RETRY_DELAY_MINUTES, RUN_TASK_ID, WITHHOLDS_EVENTS, asset_uri, job_outcome, load_specs
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
 # Defined by airflow-runtime.sh as AIRFLOW_CONN_FOUNDATION_HOST: the host, the scheduler account,
@@ -47,7 +47,7 @@ class PublishOutputs(BaseOperator):
     """Succeeds, and so records an event on each output asset, unless the run did not change them."""
 
     def execute(self, context):
-        outcome = context["ti"].xcom_pull(task_ids="run", key=OUTCOME_KEY)
+        outcome = context["ti"].xcom_pull(task_ids=RUN_TASK_ID, key=OUTCOME_KEY)
         if outcome in WITHHOLDS_EVENTS:
             raise AirflowSkipException(f"the run reported {outcome}: no asset events, nothing downstream starts")
         self.log.info("the run reported %s: recording events on %d output assets", outcome or "nothing", len(self.outlets))
@@ -83,7 +83,7 @@ for spec in load_specs():
         doc_md=f"{spec.description}\n\nRuns systemd service `{spec.systemd_service}` on the host. {started}",
     ) as dag:
         run = RunJob(
-            task_id="run",
+            task_id=RUN_TASK_ID,
             ssh_conn_id=CONNECTION,
             # The host's forced command reads this as the job id, and `triggered` when the run was
             # not started by the clock: a run its inputs started, or one an operator triggered, is

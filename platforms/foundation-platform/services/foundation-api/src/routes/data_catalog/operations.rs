@@ -107,6 +107,8 @@ struct ListedJob {
 #[derive(Debug, Deserialize)]
 struct DependencyDocument {
     schema_version: String,
+    /// The task of every job DAG that runs the job (`job_specs.RUN_TASK_ID`).
+    run_task_id: String,
     jobs: Vec<JobDependencies>,
 }
 
@@ -116,6 +118,9 @@ pub(super) struct JobDependencies {
     producers: Vec<String>,
     pub(super) reads: Vec<ScheduledJobDataset>,
     pub(super) writes: Vec<ScheduledJobDataset>,
+    /// The document's `run_task_id`, carried to each job.
+    #[serde(skip)]
+    run_task_id: String,
 }
 
 /// Every scheduled job, its next start and its latest run.
@@ -272,7 +277,15 @@ fn read_dependencies(path: &Path, list: &JobList) -> Result<Vec<JobDependencies>
             path.display()
         )));
     }
-    Ok(document.jobs)
+    let run_task_id = document.run_task_id;
+    Ok(document
+        .jobs
+        .into_iter()
+        .map(|job| JobDependencies {
+            run_task_id: run_task_id.clone(),
+            ..job
+        })
+        .collect())
 }
 
 fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
@@ -308,6 +321,7 @@ pub(super) fn job_statuses(
                 .filter(|flow| flow["flowId"].as_str() == Some(dag_id.as_str()))
                 .flat_map(child_runs)
                 .collect();
+            let runs = with_run_task_starts(runs, &dag_id, &depends.run_task_id);
             let latest = runs
                 .iter()
                 .max_by_key(|(_, run, last_event)| (*last_event, run.run_urn.clone()));
@@ -378,6 +392,43 @@ fn typical_duration<'a>(runs: impl Iterator<Item = &'a ScheduledJobRun>) -> Opti
     Some((median, u32::try_from(count).unwrap_or(u32::MAX)))
 }
 
+/// The DAG's own runs with their waiting told from their running.
+///
+/// A job's DAG run starts first and its run task waits there for a slot of the job's pool: the DAG
+/// run's start is when the run was queued (`queued_at`), and the first start of a run task inside
+/// the DAG run is when its work started (`started_at`, absent while it still waits). Measured from
+/// the DAG run's start, a run that waited three hours for the pool and ran for a minute read as a
+/// three-hour run and was called slow (2026-10-18). Runs of the task job itself are left as they are.
+fn with_run_task_starts(
+    runs: Vec<(String, ScheduledJobRun, i64)>,
+    dag_id: &str,
+    run_task_id: &str,
+) -> Vec<(String, ScheduledJobRun, i64)> {
+    let dag_job = format!(",{dag_id})");
+    let task_job = format!(",{dag_id}.{run_task_id})");
+    let task_starts: Vec<DateTime<Utc>> = runs
+        .iter()
+        .filter(|(job_urn, _, _)| job_urn.ends_with(&task_job))
+        .filter_map(|(_, run, _)| run.started_at)
+        .collect();
+    runs.into_iter()
+        .map(|(job_urn, mut run, last_event)| {
+            if job_urn.ends_with(&dag_job) {
+                if let Some(queued) = run.started_at {
+                    let until = run.finished_at.unwrap_or(DateTime::<Utc>::MAX_UTC);
+                    run.queued_at = Some(queued);
+                    run.started_at = task_starts
+                        .iter()
+                        .copied()
+                        .filter(|start| queued <= *start && *start <= until)
+                        .min();
+                }
+            }
+            (job_urn, run, last_event)
+        })
+        .collect()
+}
+
 /// The next time a five-field cron schedule starts a job after `now`, in UTC as Airflow reads it.
 fn next_start(schedule: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     let cron = Cron::from_str(schedule).ok()?;
@@ -442,6 +493,7 @@ fn run_from(run: &JsonValue) -> Option<(ScheduledJobRun, i64)> {
     Some((
         ScheduledJobRun {
             run_urn,
+            queued_at: None,
             started_at,
             finished_at: complete.then(|| millis(last_event)).flatten(),
             outcome,
@@ -672,6 +724,7 @@ mod tests {
                 },
                 reads: Vec::new(),
                 writes: Vec::new(),
+                run_task_id: "run".to_owned(),
             })
             .collect()
     }
@@ -697,6 +750,141 @@ mod tests {
 
     fn run(urn: &str, events: &[JsonValue]) -> JsonValue {
         json!({ "urn": urn, "state": events })
+    }
+
+    /// One day's DAG run: the DAG starts at 07:20, its run task at `task_start` (absent while it
+    /// still waits) and completes `run_minutes` after it, and the DAG a minute later (its
+    /// `publish_outputs` task runs last).
+    fn day(day: u32, task_start: Option<&str>, run_minutes: i64) -> (JsonValue, Option<JsonValue>) {
+        let dag_start = format!("2026-01-{day:02}T07:20:00Z");
+        let Some(task_start) = task_start.map(|time| format!("2026-01-{day:02}T{time}:00Z")) else {
+            return (
+                run(
+                    &format!("urn:li:dataProcessInstance:dag-{day}"),
+                    &[event("STARTED", &dag_start, None)],
+                ),
+                None,
+            );
+        };
+        let end = (at(&task_start) + chrono::Duration::minutes(run_minutes)).to_rfc3339();
+        let dag_end = (at(&task_start) + chrono::Duration::minutes(run_minutes + 1)).to_rfc3339();
+        (
+            run(
+                &format!("urn:li:dataProcessInstance:dag-{day}"),
+                &[
+                    event("STARTED", &dag_start, None),
+                    event("COMPLETE", &dag_end, Some("SUCCESS")),
+                ],
+            ),
+            Some(run(
+                &format!("urn:li:dataProcessInstance:task-{day}"),
+                &[
+                    event("STARTED", &task_start, None),
+                    event("COMPLETE", &end, Some("SUCCESS")),
+                ],
+            )),
+        )
+    }
+
+    /// 2026-10-18: `silver_refresh_*` waited about 205 minutes for the spark pool and ran for none, and
+    /// the screen called the run slow, because a run was measured from its DAG run's start.
+    #[test]
+    fn a_run_that_waited_for_its_pool_is_timed_from_its_run_task_and_is_not_slow() {
+        let now = at("2026-01-06T12:00:00Z");
+        let mut dag_runs = Vec::new();
+        let mut task_runs = Vec::new();
+        // Five ordinary days: a minute's wait and ten minutes' work. Then a run that waited three
+        // hours for the pool and worked for ten minutes.
+        for (number, start) in [
+            (1, "07:21"),
+            (2, "07:21"),
+            (3, "07:21"),
+            (4, "07:21"),
+            (5, "07:21"),
+            (6, "10:20"),
+        ] {
+            let (dag, task) = day(number, Some(start), 10);
+            dag_runs.push(dag);
+            task_runs.extend(task);
+        }
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[
+                ("synthetic_nightly", dag_runs),
+                ("synthetic_nightly.run", task_runs),
+            ],
+        )];
+        let mut statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let nightly = &statuses[0];
+        let last = nightly.last_run.as_ref();
+        assert_eq!(
+            last.and_then(|run| run.queued_at),
+            Some(at("2026-01-06T07:20:00Z")),
+            "the run was queued when the DAG started"
+        );
+        assert_eq!(
+            last.and_then(|run| run.started_at),
+            Some(at("2026-01-06T10:20:00Z")),
+            "its work started when the run task did"
+        );
+        assert_eq!(
+            nightly.typical_duration_seconds,
+            Some(660),
+            "a typical run is its work, not its wait"
+        );
+
+        let (timeouts, enabled_since, tables, failures, in_progress) = (
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+        health::annotate(
+            &mut statuses,
+            &health::HealthFacts {
+                timeouts: &timeouts,
+                enabled_since: &enabled_since,
+                tables: &tables,
+                failures: &failures,
+                in_progress: &in_progress,
+                runs_readable: true,
+                now,
+            },
+        );
+        assert!(
+            !statuses[0].problems.iter().any(|problem| matches!(
+                problem,
+                foundation_contracts::data_catalog::ScheduledJobProblem::Slow { .. }
+            )),
+            "a ten-minute run after a three-hour wait is not slow: {:?}",
+            statuses[0].problems
+        );
+    }
+
+    #[test]
+    fn a_run_still_waiting_for_its_pool_has_no_start_yet() {
+        let now = at("2026-01-01T09:00:00Z");
+        let (dag, _) = day(1, None, 0);
+        let flows = vec![flow(
+            "synthetic_nightly",
+            &[("synthetic_nightly", vec![dag])],
+        )];
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let last = statuses[0].last_run.as_ref();
+        assert_eq!(
+            last.and_then(|run| run.queued_at),
+            Some(at("2026-01-01T07:20:00Z"))
+        );
+        assert_eq!(
+            last.and_then(|run| run.started_at),
+            None,
+            "its run task has not started"
+        );
+        assert_eq!(
+            last.map(|run| run.outcome),
+            Some(ScheduledJobRunOutcome::Running)
+        );
     }
 
     #[test]
@@ -1105,6 +1293,7 @@ mod tests {
                 &path,
                 json!({
                     "schema_version": DEPENDENCIES_SCHEMA,
+                    "run_task_id": "run",
                     "jobs": [{ "id": "nightly", "producers": [], "reads": [], "writes": [] }],
                 })
                 .to_string(),

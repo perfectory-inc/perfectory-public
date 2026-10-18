@@ -26,6 +26,10 @@ GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
 # dependency_document() for readers that are not Python (foundation-api, root ADR-0188).
 DEPENDENCIES = PLATFORM_ROOT / "orchestration" / "job-dependencies.v1.json"
 DEPENDENCIES_SCHEMA = "foundation-platform.orchestration_job_dependencies.v1"
+# The task of every job DAG that runs the job; the DAG run starts first and waits in the job's pool
+# until this task gets its slot. Rendered into the dependencies so the data catalog screen tells
+# the run's waiting from its running without a second copy of the name.
+RUN_TASK_ID = "run"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
 CONTRACTS = PLATFORM_ROOT / "contracts" / "data"
 # Where a unit's ExecStart finds the release on the host.
@@ -556,6 +560,7 @@ def dependency_document(jobs=None, graph=None):
     return {
         "schema_version": DEPENDENCIES_SCHEMA,
         "generated_by": "orchestration/dags/job_specs.py --write-dependencies; do not edit by hand",
+        "run_task_id": RUN_TASK_ID,
         "jobs": [
             {
                 "id": job["id"],

@@ -94,7 +94,12 @@ pub enum ScheduledJobRunOutcome {
 pub struct ScheduledJobRun {
     /// The run's identifier in the data catalog.
     pub run_urn: String,
-    /// When the run started, from its first recorded start.
+    /// When the scheduler began the run. The job waited from here for a slot of its pool until
+    /// `started_at`; absent when the catalog holds only the job's own task.
+    #[serde(default)]
+    pub queued_at: Option<DateTime<Utc>>,
+    /// When the job's own work started: its run task's first start, after any wait for a pool slot.
+    /// Absent while the run still waits. How long a run took, and whether it is slow, count from here.
     pub started_at: Option<DateTime<Utc>>,
     /// When the run completed; absent while it runs.
     pub finished_at: Option<DateTime<Utc>>,

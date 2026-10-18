@@ -378,6 +378,7 @@ mod tests {
         let started = at(start);
         ScheduledJobRun {
             run_urn: urn.to_owned(),
+            queued_at: None,
             started_at: Some(started),
             finished_at: (outcome != ScheduledJobRunOutcome::Running)
                 .then(|| started + Duration::minutes(minutes)),
