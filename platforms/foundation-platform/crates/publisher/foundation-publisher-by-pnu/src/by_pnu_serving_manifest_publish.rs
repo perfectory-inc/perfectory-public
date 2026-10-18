@@ -10,7 +10,9 @@
 //!   job wrote (`by_pnu_panel_delta.py`). A change set with nothing in it advances only
 //!   `reflected_gold_iceberg_snapshot_id`;
 //! - **rollback** — a manifest the history holds, accepted only when it is the live manifest
-//!   minus its newest patches.
+//!   minus its newest patches, or its packs a step back to a previous pack generation still kept
+//!   (`ROLLBACK_TO_PREVIOUS_GENERATION=true` finds it; root ADR-0274 §5). With
+//!   `ROLLBACK_DRY_RUN=true` the rollback is checked and its manifest printed, nothing written.
 //!
 //! Every publish first stores the manifest it replaces, create-only, under the lane's manifest
 //! history, so the bucket keeps every state it served. The first v2 manifest a lane gets is
@@ -78,6 +80,15 @@ pub const fn gold_table(lane: ByPnuLane) -> &'static str {
 pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let config = PublishConfig::from_env(lane)?;
     let store = ByPnuServingStore::open(lane, &config.output)?;
+    if config.dry_run {
+        let (key, manifest) = check_rollback(&config, &store).await?;
+        println!(
+            "{}",
+            serde_json::json!({"dry_run": true, "rollback_to": key,
+                               "manifest": serde_json::from_slice::<serde_json::Value>(&manifest.to_bytes()?)?})
+        );
+        return Ok(());
+    }
     let gateway = format!("https://{}", lane.policy()?.public_hostname);
     let manifest = publish(&config, &store, &gateway).await?;
     tracing::info!(
@@ -98,6 +109,8 @@ pub struct PublishConfig {
     pub output: ProfileStoreConfig,
     pub input: PublishInput,
     pub first_publication: bool,
+    /// A rollback that is checked and printed, never written.
+    pub dry_run: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -154,7 +167,22 @@ impl PublishConfig {
         let summary = env("EXPORT_SUMMARY_PATH")?.map(PathBuf::from);
         let listing = flag("PUBLISH_FROM_LISTING")?;
         let patch = flag("PUBLISH_PATCH")?;
-        let rollback = env("ROLLBACK_TO_MANIFEST_KEY")?;
+        let mut rollback = env("ROLLBACK_TO_MANIFEST_KEY")?;
+        if flag("ROLLBACK_TO_PREVIOUS_GENERATION")? {
+            ensure!(
+                rollback.is_none(),
+                "state one of {} or {}=true",
+                lane.env("ROLLBACK_TO_MANIFEST_KEY"),
+                lane.env("ROLLBACK_TO_PREVIOUS_GENERATION")
+            );
+            rollback = Some(previous_generation::PREVIOUS_GENERATION.to_owned());
+        }
+        let dry_run = flag("ROLLBACK_DRY_RUN")?;
+        ensure!(
+            !dry_run || rollback.is_some(),
+            "{}=true checks a rollback; name one",
+            lane.env("ROLLBACK_DRY_RUN")
+        );
         let stated = [summary.is_some(), listing, patch, rollback.is_some()]
             .into_iter()
             .filter(|stated| *stated)
@@ -210,6 +238,7 @@ impl PublishConfig {
             })?,
             input,
             first_publication: flag("FIRST_PUBLICATION")?,
+            dry_run,
         })
     }
 }
@@ -243,7 +272,8 @@ pub async fn publish(
             let existing = existing
                 .as_ref()
                 .context("a rollback needs a live serving manifest to roll back")?;
-            rollback(store, history_key, &existing.manifest).await?
+            let key = resolve_rollback_key(store, history_key, &existing.manifest).await?;
+            rollback(store, &key, &existing.manifest).await?
         }
     };
     keep_section_packs(
@@ -1093,7 +1123,41 @@ async fn served_document_schema(
         .with_context(|| format!("{key} names no schema_version"))
 }
 
-/// The live manifest minus its newest patches, as the history stored it.
+/// The history key a rollback input names: itself, or the previous pack generation's.
+async fn resolve_rollback_key(
+    store: &ByPnuServingStore,
+    named: &str,
+    served: &ServedManifest,
+) -> anyhow::Result<String> {
+    if named == previous_generation::PREVIOUS_GENERATION {
+        previous_generation::previous_generation_key(store, served).await
+    } else {
+        Ok(named.to_owned())
+    }
+}
+
+/// The rollback `config` names, checked against the live manifest and not written: the history key
+/// it resolved to and the manifest it would publish.
+///
+/// # Errors
+/// Refuses as the rollback itself would.
+pub async fn check_rollback(
+    config: &PublishConfig,
+    store: &ByPnuServingStore,
+) -> anyhow::Result<(String, ServingManifest)> {
+    let PublishInput::Rollback(named) = &config.input else {
+        bail!("only a rollback can be checked without publishing");
+    };
+    let existing = read_existing(config, store)
+        .await?
+        .context("a rollback needs a live serving manifest to roll back")?;
+    let key = resolve_rollback_key(store, named, &existing.manifest).await?;
+    let manifest = rollback(store, &key, &existing.manifest).await?;
+    Ok((key, manifest))
+}
+
+/// The live manifest minus its newest patches, or a step back to its previous pack generation,
+/// as the history stored it.
 pub async fn rollback(
     store: &ByPnuServingStore,
     history_key: &str,
@@ -1123,12 +1187,18 @@ pub async fn rollback(
         && match (&target.section_packs, &served.section_packs) {
             (None, Some(_)) => true,
             (Some(back), Some(live)) => {
-                back.sections == live.sections
+                (back.sections == live.sections
                     && back.patches.len() < live.patches.len()
-                    && live.patches.ends_with(&back.patches)
+                    && live.patches.ends_with(&back.patches))
+                    || previous_generation::older_generation(back, live)
             }
             _ => false,
         };
+    if let (Some(back), Some(live)) = (&target.section_packs, &served.section_packs) {
+        if previous_generation::older_generation(back, live) {
+            previous_generation::ensure_still_held(store, back, live).await?;
+        }
+    }
     ensure!(
         objects_rolled_back || packs_rolled_back,
         "{history_key}'s patches are not the live patch list minus its newest entries, and its \
@@ -1232,6 +1302,8 @@ fn optional_env(name: &str) -> anyhow::Result<Option<String>> {
         Err(error) => bail!("invalid {name} environment variable: {error}"),
     }
 }
+
+pub mod previous_generation;
 
 #[cfg(test)]
 mod tests;

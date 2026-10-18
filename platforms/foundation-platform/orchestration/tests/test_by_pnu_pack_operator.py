@@ -30,10 +30,14 @@ import json, os, sys
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"tool": "systemd-run", "args": sys.argv[1:]}) + "\n")
 unit = next((arg for arg in sys.argv[1:] if arg.startswith("--unit=")), "")
-if "gold-panel-rebuild" in unit and os.environ.get("FAKE_GOLD_OUTPUT"):
-    output = next(arg for arg in sys.argv[1:] if arg.startswith("StandardOutput=append:"))
-    with open(output.split(":", 1)[1], "a") as out:
-        out.write(os.environ["FAKE_GOLD_OUTPUT"])
+outputs = json.loads(os.environ.get("FAKE_OUTPUTS", "{}"))
+if os.environ.get("FAKE_GOLD_OUTPUT"):
+    outputs["gold-panel-rebuild"] = os.environ["FAKE_GOLD_OUTPUT"]
+for part, text in outputs.items():
+    if part in unit:
+        output = next(arg for arg in sys.argv[1:] if arg.startswith("StandardOutput=append:"))
+        with open(output.split(":", 1)[1], "a") as out:
+            out.write(text)
 if any(part and part in unit for part in os.environ.get("FAKE_FAIL", "").split(",")):
     sys.exit(3)
 '''
@@ -656,6 +660,56 @@ class MonitorReasons(unittest.TestCase):
                 if block.get("pack_only"):
                     self.assertNotIn("compared with the object documents", reason)
 
+
+
+class RollbackRehearsal(OperatorHarness):
+    """Root ADR-0274 §5: the rehearsal checks the rollback, then reads that generation from the preview."""
+
+    P = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING"
+    CHECKED = json.dumps({"dry_run": True, "rollback_to": "serving/parcels/by-pnu/manifests/x.json",
+                          "manifest": {"section_packs": {"sections": [{"name": "documents", "generation": 2}]}}})
+
+    def units(self, calls):
+        return [call["args"] for call in calls if call["tool"] == "systemd-run"]
+
+    def test_the_rehearsal_checks_the_rollback_then_reads_that_generation_from_the_preview(self):
+        output = json.dumps({"level": "INFO", "fields": {}}) + "\n" + self.CHECKED + "\n"
+        result, calls = self.run_operator("parcel", "rollback-rehearsal",
+                                          FAKE_OUTPUTS=json.dumps({"rollback-rehearsal-check": output}))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        check, preview = self.units(calls)
+        self.assertIn("--unit=foundation-parcel-rollback-rehearsal-check", check)
+        for setting in ("ROLLBACK_TO_PREVIOUS_GENERATION=true", "ROLLBACK_DRY_RUN=true", "OUTPUT_STORAGE_DRIVER=r2"):
+            self.assertIn(f"{self.P}_{setting}", check)
+        self.assertEqual(check[-1], "publish-parcel-by-pnu-serving-manifest")
+        # The generation the check named, read from the lane's preview with the hourly monitor's files.
+        self.assertIn(f"{self.P}_MONITOR_PACK_GENERATION=2", preview)
+        self.assertIn(f"{self.P}_MONITOR_BASE_URL=https://catalog-preview.perfectory.io", preview)
+        self.assertIn("EnvironmentFile=-/etc/foundation-platform/parcel-serving-monitor.env", preview)
+        self.assertEqual(preview[-2:], [str(self.release.parents[1] / "current/scripts/ops/by-pnu-serving-monitor.sh"), "parcel"])
+        self.assertIn("rehearsed: a rollback serves generation 2", result.stderr)
+
+    def test_a_check_that_fails_or_names_no_manifest_reads_nothing_from_the_preview(self):
+        result, calls = self.run_operator("parcel", "rollback-rehearsal", FAKE_FAIL="rollback-rehearsal-check")
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertEqual(len(self.units(calls)), 1)
+        self.log.unlink()
+        result, calls = self.run_operator("parcel", "rollback-rehearsal")
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertIn("printed no manifest", result.stderr)
+        self.assertEqual(len(self.units(calls)), 1)
+
+    def test_a_preview_that_does_not_serve_the_generation_fails_the_rehearsal(self):
+        result, _ = self.run_operator("parcel", "rollback-rehearsal", FAKE_FAIL="rollback-rehearsal-preview",
+                                      FAKE_OUTPUTS=json.dumps({"rollback-rehearsal-check": self.CHECKED + "\n"}))
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertIn("did not serve generation 2", result.stderr)
+
+    def test_a_pack_only_lane_has_no_rollback_rehearsal(self):
+        lane = next(iter(CONTRACT["by_pnu_lanes"]))
+        result, calls = self.run_operator(lane, "rollback-rehearsal")
+        self.assertEqual(result.returncode, 64, result.stderr)
+        self.assertEqual(self.units(calls), [])
 
 if __name__ == "__main__":
     unittest.main()

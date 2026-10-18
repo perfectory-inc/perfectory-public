@@ -83,6 +83,7 @@ impl Fixture {
             },
             input,
             first_publication,
+            dry_run: false,
         }
     }
 

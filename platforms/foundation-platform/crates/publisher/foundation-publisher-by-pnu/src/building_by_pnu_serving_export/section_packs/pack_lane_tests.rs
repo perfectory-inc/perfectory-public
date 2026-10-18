@@ -307,7 +307,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
             .mount(&live_host)
             .await;
     }
-    let report = super::monitor::check(&store, &live_host.uri(), &keys, 3000.0).await?;
+    let report = super::monitor::check_at(&store, &live_host.uri(), &keys, 3000.0, None).await?;
     assert!(report.passed, "{report:?}");
     // And a live answer that is not the packs' document is a breach.
     let drifted = MockServer::start().await;
@@ -315,7 +315,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"units": []})))
         .mount(&drifted)
         .await;
-    let report = super::monitor::check(&store, &drifted.uri(), &keys, 3000.0).await?;
+    let report = super::monitor::check_at(&store, &drifted.uri(), &keys, 3000.0, None).await?;
     assert!(!report.passed);
     assert_eq!(report.drifted_from_served.len(), 3);
     Ok(())

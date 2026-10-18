@@ -9,6 +9,10 @@
 //!   the manifest names them, else the objects);
 //! - a p95 within `monitor.latency_p95_max_ms`.
 //!
+//! With `MONITOR_PACK_GENERATION=<n>` it reads `?{preview_query_parameter}=g<n>` from a preview
+//! hostname and holds each answer to generation `n`'s packs instead: the rollback rehearsal (root
+//! ADR-0274 §5) proves a previous generation the lane could roll back to is whole and served.
+//!
 //! It no longer compares the answer with the per-PNU object documents once packs are served: the
 //! section-pack bake does not write objects, so after a pack bake they hold an older document and
 //! the comparison failed a faithful hostname (2026-10-17, parcel). Before the cut-over the objects
@@ -80,7 +84,23 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         Some(url) => url,
         None => format!("https://{}", lane.policy()?.public_hostname),
     };
-    let report = check(&store, &base_url, &pnus, policy.latency_p95_max_ms).await?;
+    let generation = env("MONITOR_PACK_GENERATION")?
+        .map(|raw| raw.parse::<u64>())
+        .transpose()
+        .with_context(|| {
+            format!(
+                "{} must be a generation number",
+                lane.env("MONITOR_PACK_GENERATION")
+            )
+        })?;
+    let report = check_at(
+        &store,
+        &base_url,
+        &pnus,
+        policy.latency_p95_max_ms,
+        generation,
+    )
+    .await?;
     if let Some(path) = env("MONITOR_REPORT_PATH")? {
         write_evidence(&PathBuf::from(path), &report)?;
     }
@@ -98,17 +118,26 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Reads every PNU from `base_url` and holds it to the lane's documents.
+/// Reads every PNU from `base_url` and holds it to the lane's documents, or with `generation` the
+/// preview read of that pack generation to its packs.
 ///
 /// # Errors
 /// Returns an error when the manifest or a pack cannot be read.
-pub async fn check(
+pub async fn check_at(
     store: &ByPnuServingStore,
     base_url: &str,
     pnus: &[String],
     latency_p95_max_ms: f64,
+    generation: Option<u64>,
 ) -> anyhow::Result<MonitorReport> {
     let lane = store.lane();
+    let query = match generation {
+        Some(generation) => format!(
+            "?{}=g{generation}",
+            crate::by_pnu_gateway_contract::section_pack_policy()?.preview_query_parameter
+        ),
+        None => String::new(),
+    };
     let prefix = &lane.policy()?.request_path.prefix;
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
@@ -129,7 +158,7 @@ pub async fn check(
     let mut latency = Vec::new();
     for pnu in pnus {
         let url = format!(
-            "{}{prefix}{}",
+            "{}{prefix}{}{query}",
             base_url.trim_end_matches('/'),
             crate::r2_layout::by_pnu_packs::request_path_of(pnu)
         );
@@ -143,8 +172,8 @@ pub async fn check(
         report.answered += 1;
         latency.push(answer.ms);
         let live = answer.content()?;
-        let served_bytes = if served.section_packs.is_some() {
-            let inspected = inspect::inspect(store, pnu, None).await?;
+        let served_bytes = if generation.is_some() || served.section_packs.is_some() {
+            let inspected = inspect::inspect(store, pnu, generation).await?;
             ensure!(
                 inspected["answer"] == "document",
                 "the packs do not serve {pnu} as a document: {}",
