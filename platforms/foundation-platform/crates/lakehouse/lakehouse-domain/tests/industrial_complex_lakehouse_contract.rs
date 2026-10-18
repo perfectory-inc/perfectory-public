@@ -279,6 +279,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 Some(LakehouseCurrentRowLatest {
                     key: &["official_complex_code"],
                     newest_first: &["valid_from_utc", "ingested_at_utc"],
+                    removal_column: None,
+                    keep_ties: false,
                 })
             );
         } else {
@@ -299,7 +301,12 @@ fn a_current_row_rule_names_only_the_table_s_own_columns() {
         let Some(latest) = contract.current_row_latest else {
             continue;
         };
-        for column in latest.key.iter().chain(latest.newest_first) {
+        for column in latest
+            .key
+            .iter()
+            .chain(latest.newest_first)
+            .chain(latest.removal_column.as_ref())
+        {
             assert!(
                 contract.columns.iter().any(|c| c.name == *column),
                 "{} current-row rule names {column}, which it does not have",

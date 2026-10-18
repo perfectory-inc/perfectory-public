@@ -175,6 +175,8 @@ class CurrentRowRuleTest(unittest.TestCase):
             {"key": ["official_complex_code"], "newest_first": ["no_such_column"]},
             {"key": [], "newest_first": ["ingested_at_utc"]},
             {"key": ["official_complex_code"]},
+            {"key": ["official_complex_code"], "newest_first": ["ingested_at_utc"], "removal_column": "no_such_column"},
+            {"key": ["official_complex_code"], "newest_first": ["ingested_at_utc"], "keep_ties": "yes"},
             "ingested_at_utc",
         ):
             with self.subTest(broken=broken):

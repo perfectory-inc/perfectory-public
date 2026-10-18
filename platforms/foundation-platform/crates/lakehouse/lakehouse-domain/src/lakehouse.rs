@@ -39,13 +39,20 @@ pub enum LakehouseServingRole {
 
 /// The current row of a key in an append-only table: the newest by `newest_first`.
 ///
-/// A tie on every `newest_first` column is ambiguous, and readers refuse it rather than pick.
+/// A tie on every `newest_first` column is ambiguous, and readers refuse it rather than pick,
+/// unless `keep_ties` says a key's version is a set of rows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LakehouseCurrentRowLatest {
     /// Columns naming one logical row.
     pub key: &'static [&'static str],
     /// Columns ordering a key's versions, newest first, each compared descending.
     pub newest_first: &'static [&'static str],
+    /// The column whose value `removed` marks the key as gone from its source: a key whose current
+    /// row is such a marker has no current row (root ADR-0275). `None` when the table never removes.
+    pub removal_column: Option<&'static str>,
+    /// Whether a key's newest version may be several rows: every row tying on `newest_first` is
+    /// current, none is picked. For a source that repeats a key within one release (root ADR-0275).
+    pub keep_ties: bool,
 }
 
 /// One column in a lakehouse table contract.
@@ -1819,6 +1826,8 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["official_complex_code"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
+        removal_column: None,
+        keep_ties: false,
     }),
     columns: SILVER_INDUSTRIAL_COMPLEXES_COLUMNS,
     // The snapshot, not the province. `sido_code` cannot partition a table that admits a row

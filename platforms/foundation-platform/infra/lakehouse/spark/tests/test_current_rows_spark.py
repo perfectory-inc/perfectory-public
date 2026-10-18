@@ -85,6 +85,40 @@ class CurrentRowsSparkTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tie"):
             current_rows(self.frame(rows), self.contract)
 
+    def test_a_key_whose_newest_row_is_a_removal_marker_has_no_current_row(self):
+        # Root ADR-0275: a key gone from the source gets a marker; an earlier marker is history.
+        rule = {**self.contract["current_row_latest"], "removal_column": "sido_code"}
+        contract = {**self.contract, "current_row_latest": rule}
+        rows = [
+            ("C1", "id-c1", "11", SOURCE_MONTH, None, at(1)),
+            ("C1", "id-c1", "removed", SOURCE_MONTH, None, at(5)),
+            ("C2", "id-c2", "removed", SOURCE_MONTH, None, at(2)),
+            ("C2", "id-c2", "26", SOURCE_MONTH, None, at(8)),
+            ("C3", "id-c3", None, SOURCE_MONTH, None, at(3)),
+        ]
+
+        current = {row["official_complex_code"]: row["sido_code"]
+                   for row in current_rows(self.frame(rows), contract).collect()}
+
+        self.assertEqual(current, {"C2": "26", "C3": None})
+
+    def test_a_rule_that_keeps_ties_returns_the_whole_newest_version(self):
+        # Root ADR-0275: a source that repeats a key within a release has a set of rows per version.
+        rule = {**self.contract["current_row_latest"], "removal_column": "sido_code", "keep_ties": True}
+        contract = {**self.contract, "current_row_latest": rule}
+        rows = [
+            ("C1", "id-c1", "11", SOURCE_MONTH, None, at(1)),
+            ("C1", "id-c1", "12", SOURCE_MONTH, None, at(4)),
+            ("C1", "id-c1", "13", SOURCE_MONTH, None, at(4)),
+            ("C2", "id-c2", "26", SOURCE_MONTH, None, at(2)),
+            ("C2", "id-c2", "removed", SOURCE_MONTH, None, at(6)),
+        ]
+
+        current = sorted((row["official_complex_code"], row["sido_code"])
+                         for row in current_rows(self.frame(rows), contract).collect())
+
+        self.assertEqual(current, [("C1", "12"), ("C1", "13")])
+
     def test_the_boundary_export_joins_one_complex_per_boundary(self):
         from pyspark.sql import functions as F
 
