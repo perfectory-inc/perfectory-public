@@ -9,6 +9,7 @@
 #   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> monitor-sample <generation>
 #   by-pnu-pack-operator.sh <building|parcel|<a by_pnu_lanes lane>> health <new-version-id> [<old-version-id>] | --preflight
 #   by-pnu-pack-operator.sh <building|parcel> status <generation>
+#   by-pnu-pack-operator.sh <building|parcel> rollback-rehearsal
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
@@ -85,7 +86,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -452,6 +453,51 @@ if [[ "${ACTION}" == health ]]; then
   [[ "${1:-}" =~ ${UUID} ]] || refuse "health takes the new version id"
   [[ -z "${2:-}" || "${2}" =~ ${UUID} ]] || refuse "the old version id is not a version id"
   exec "${RELEASE}/scripts/ops/by-pnu-gateway-health.sh" "${LANE}" "$1" ${2:+"$2"}
+fi
+
+if [[ "${ACTION}" == rollback-rehearsal ]]; then
+  # Root ADR-0274 §5: proves the lane's rollback lever, its previous pack generation, and moves
+  # nothing. The publisher checks the rollback against the live manifest and prints the manifest it
+  # would write (ROLLBACK_DRY_RUN); then the lane's monitor reads that generation from the preview
+  # hostname and holds every sample PNU to the generation's own packs. Both must pass.
+  (($# == 0)) || refuse "rollback-rehearsal takes nothing: it finds the previous pack generation itself"
+  WORK="${BAKE_ROOT}/${LANE}-rollback-rehearsal"
+  install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}" "${WORK}/logs"
+  source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
+  read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
+  : >"${WORK}/logs/check.log"
+  "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-check" -p User=foundation-platform \
+    -p MemoryMax=2G -p WorkingDirectory="${RELEASE}" "${props[@]}" -E "${P}_OUTPUT_STORAGE_DRIVER=r2" \
+    -E "${P}_CONFIRM_PUBLISH=true" -E "${P}_ROLLBACK_TO_PREVIOUS_GENERATION=true" -E "${P}_ROLLBACK_DRY_RUN=true" \
+    -p StandardOutput=append:"${WORK}/logs/check.log" -p StandardError=append:"${WORK}/logs/check.log" \
+    "${PUBLISHER_BIN}" "publish-${LANE}-by-pnu-serving-manifest" \
+    || refuse "the rollback check failed; ${WORK}/logs/check.log says why" 65
+  generation="$(python3 -I - "${WORK}/logs/check.log" <<'PY'
+import json, sys
+for line in reversed(open(sys.argv[1], encoding="utf-8").read().splitlines()):
+    if line.startswith("{") and '"dry_run"' in line:
+        print(min(section["generation"] for section in json.loads(line)["manifest"]["section_packs"]["sections"]))
+        break
+else:
+    sys.exit("the rollback check printed no manifest")
+PY
+  )" || refuse "the rollback check printed no manifest; ${WORK}/logs/check.log" 65
+  log "the rollback would serve pack generation ${generation}; reading it from the preview"
+  # The hourly monitor's own environment files, read from its unit.
+  mapfile -t files < <(sed -n 's/^EnvironmentFile=//p' "${RELEASE}/infra/systemd/foundation-by-pnu-serving-monitor@.service")
+  monitor_props=()
+  for file in "${files[@]}"; do monitor_props+=(-p "EnvironmentFile=${file}"); done
+  preview="https://$(contract "${GATEWAY_BLOCK}.section_packs.preview_worker.public_hostname")"
+  rm -f -- "${WORK}/rehearsal.json"
+  : >"${WORK}/logs/preview.log"
+  "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-preview" -p User=foundation-platform \
+    -p MemoryMax=512M -p WorkingDirectory="${RELEASE}" "${monitor_props[@]}" -E "${P}_MONITOR_BASE_URL=${preview}" \
+    -E "${P}_MONITOR_PACK_GENERATION=${generation}" -E "${P}_MONITOR_REPORT_PATH=${WORK}/rehearsal.json" \
+    -p StandardOutput=append:"${WORK}/logs/preview.log" -p StandardError=append:"${WORK}/logs/preview.log" \
+    "${RELEASE}/scripts/ops/by-pnu-serving-monitor.sh" "${LANE}" \
+    || refuse "the preview did not serve generation ${generation} as its packs hold it; ${WORK}/rehearsal.json" 65
+  log "rehearsed: a rollback serves generation ${generation}, and ${preview} serves it whole (${WORK}/rehearsal.json)"
+  exit 0
 fi
 
 GENERATION="${1:-}"

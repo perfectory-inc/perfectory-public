@@ -317,6 +317,7 @@ impl Lane {
                 deletes: self.work.join("deletes.txt"),
             }),
             first_publication: false,
+            dry_run: false,
         }
     }
 }
