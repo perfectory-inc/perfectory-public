@@ -88,6 +88,7 @@ from platform_contracts import (
     column_names,
     current_row_predicate,
     ensure_contract_table,
+    current_rows,
     load_lakehouse_contract,
     partition_column_names,
     required_column_names,
@@ -393,7 +394,8 @@ def read_source(
     missing = sorted(set(expected_columns) - set(frame.columns))
     if missing:
         raise ValueError(f"{contract_name} input is missing columns: {', '.join(missing)}")
-    return frame.select(*expected_columns)
+    # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
+    return current_rows(frame.select(*expected_columns), contract)
 
 
 def filtered_by_region(frame: DataFrame, region_prefix: str | None) -> DataFrame:

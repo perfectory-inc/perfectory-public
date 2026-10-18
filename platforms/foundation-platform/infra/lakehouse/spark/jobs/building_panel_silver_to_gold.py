@@ -24,7 +24,7 @@ from pyspark.storagelevel import StorageLevel
 from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, current_snapshot,
                               iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
-from platform_contracts import (column_names, current_row_predicate, ensure_contract_table,
+from platform_contracts import (column_names, current_row_latest, current_rows, ensure_contract_table,
     load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
@@ -153,6 +153,9 @@ def read_source(spark, args, name, pins, after=None, batches=None):
     missing = set(column_names(contract)) - set(frame.columns)
     if missing:
         raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
+    if (after is not None or batches is not None) and current_row_latest(contract) is not None:
+        # The newest row per key needs every version of the key, not the appends or chosen batches.
+        raise ValueError(f"{name} keeps versions (current_row_latest); it cannot be read by appends or batches")
     frame = frame.select(*column_names(contract))
     if batches is not None:
         frame = frame.where(F.col("source_snapshot_id").isin(*batches))
@@ -166,8 +169,8 @@ def read_source(spark, args, name, pins, after=None, batches=None):
             (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
-    predicate = current_row_predicate(contract)
-    return frame.where(F.expr(predicate)) if predicate else frame
+    # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
+    return current_rows(frame, contract)
 
 
 def assert_single_snapshot(frame, name):
