@@ -6,7 +6,7 @@
 #   jobs_of <which>     the job registry's lists: `enabled` ids, `started-once` "<service> <minutes>",
 #                       `deferred` ids of enabled jobs a release build kept from starting (root ADR-0260)
 #
-# start_once_then_unpause <sha>   steps 6 and 7. Starts once, with every DAG still paused, each job the
+# start_once_then_unpause <sha>   steps 6 and 7. Starts once, with the held DAGs still paused, each job the
 #     registry marks `started_once_after_deploy`, then unpauses every enabled DAG whatever those runs
 #     did. A run that does not succeed (or outlives its limit) does not undo the deploy and does not
 #     keep the schedule off: its unit's OnFailure has posted it to Slack, the next scheduled run tries
@@ -26,6 +26,26 @@
 # On 2026-10-09 the sweep's post-deploy run failed in three deploys in a row; each deploy exited at
 # step 6 before step 7, every DAG (17 of 17) stayed paused, and nothing scheduled ran for about three
 # hours until a person unpaused them by hand.
+
+# deploy_unpause_unheld <hold-file>   after the build (deploy D5, root ADR-0270 §3): unpauses every
+#     enabled DAG the hold file does not name; `*` names every job, so nothing is unpaused. The held
+#     ones stay paused until step 7. A job owed a run waits for step 7 too.
+deploy_unpause_unheld() {
+  local id count=0
+  local -a enabled held
+  mapfile -t held <"$1"
+  if [[ " ${held[*]-} " == *" * "* ]]; then
+    echo "every DAG stays paused until the release is live: it brings a Postgres migration, or what it changes could not be told"
+    return 0
+  fi
+  mapfile -t enabled < <(jobs_of enabled-consumers-first)
+  for id in "${enabled[@]}"; do
+    [[ " ${held[*]-} " == *" ${id} "* ]] && continue
+    airflow dags unpause "foundation_${id}" >/dev/null || return 1
+    count=$((count + 1))
+  done
+  echo "unpaused ${count} DAGs; held until the release is live: ${held[*]:-none}"
+}
 
 deploy_unpause_enabled() {
   local id
@@ -85,7 +105,7 @@ deploy_paused_dags_on_exit() {
       fi
       ;;
     switching)
-      printf 'foundation-deploy: THE DAGS STAY PAUSED: the deploy of %s stopped (exit %s) while activating, migrating or loading the new release; fix it and deploy again, or unpause the enabled jobs of orchestration/jobs.v1.json by hand once the release is known good\n' \
+      printf 'foundation-deploy: THE HELD DAGS STAY PAUSED: the deploy of %s stopped (exit %s) while activating, migrating or loading the new release; the jobs it does not hold run on; fix it and deploy again, or unpause the enabled jobs of orchestration/jobs.v1.json by hand once the release is known good\n' \
         "${sha}" "${status}" >&2
       ;;
     after-switch)

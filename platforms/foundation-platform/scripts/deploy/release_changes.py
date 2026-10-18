@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What a release changes in the stores the jobs write, and which jobs write it (root ADR-0270 §3, deploy D3).
 
-    release_changes.py <running release> <new release>
+    release_changes.py <running release> <new release> [--hold-file <path>]
 
 Both are a Foundation Platform tree (the running one is /opt/foundation-platform/current). Prints:
 
@@ -13,8 +13,12 @@ Both are a Foundation Platform tree (the running one is /opt/foundation-platform
   of the new release);
 - the jobs the graph names no table for, which a caller must count as writers of every table.
 
-A Postgres migration is not mapped to tables yet, so it makes every job a writer. The deploy only
-logs this answer for now (D3); holding only these jobs instead of pausing every DAG is D5.
+A Postgres migration is not mapped to tables yet, so it makes every job a writer.
+
+With --hold-file, the jobs the deploy holds until the new release is live are written there, one id
+per line: the writers and the jobs the graph cannot place when anything changes, nothing when
+nothing does, and `*` (every job) for a Postgres migration (deploy D5). The deploy gives every other
+job its schedule back once the release is built.
 """
 
 from __future__ import annotations
@@ -64,8 +68,11 @@ def writers(new: Path, tables: list[str], every_table: bool) -> tuple[list[str],
 
 
 def main(argv: list[str]) -> int:
+    hold_file = None
+    if len(argv) == 4 and argv[2] == "--hold-file":
+        hold_file, argv = Path(argv[3]), argv[:2]
     if len(argv) != 2:
-        print("usage: release_changes.py <running release> <new release>", file=sys.stderr)
+        print("usage: release_changes.py <running release> <new release> [--hold-file <path>]", file=sys.stderr)
         return 64
     running, new = Path(argv[0]), Path(argv[1])
     tables = changed_tables(running, new)
@@ -77,6 +84,10 @@ def main(argv: list[str]) -> int:
         why = " (a postgres migration: every job)" if migrations else ""
         print(f"jobs that write them{why}: {', '.join(writing) or 'none'}")
         print(f"jobs whose writes the pipeline graph does not name: {', '.join(unknown) or 'none'}")
+    held = ["*"] if migrations else sorted(set(writing) | set(unknown)) if tables else []
+    print(f"jobs the deploy holds until the release is live: {'every job' if held == ['*'] else ', '.join(held) or 'none'}")
+    if hold_file is not None:
+        hold_file.write_text("".join(f"{job}\n" for job in held), encoding="utf-8")
     return 0
 
 

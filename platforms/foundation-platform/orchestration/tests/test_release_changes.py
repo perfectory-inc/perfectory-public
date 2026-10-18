@@ -52,6 +52,7 @@ class ReleaseChanges(unittest.TestCase):
             "postgres migrations this release adds: none",
             "jobs that write them: write_a",
             "jobs whose writes the pipeline graph does not name: maintenance",
+            "jobs the deploy holds until the release is live: maintenance, write_a",
         ])
 
     def test_an_added_or_removed_table_is_a_change(self):
@@ -66,16 +67,19 @@ class ReleaseChanges(unittest.TestCase):
             "postgres migrations this release adds: 0002_second.sql",
             "jobs that write them (a postgres migration: every job): write_a, write_b",
             "jobs whose writes the pipeline graph does not name: maintenance",
+            "jobs the deploy holds until the release is live: every job",
         ])
 
     def test_a_release_that_changes_nothing_names_no_job(self):
         self.assertEqual(self.run_script(), ["lakehouse tables this release changes: none",
-                                             "postgres migrations this release adds: none"])
+                                             "postgres migrations this release adds: none",
+                                             "jobs the deploy holds until the release is live: none"])
 
     def test_the_real_tree_reads(self):
         # The committed inputs have the shape this reads: the release against itself changes nothing.
         self.assertEqual(self.run_script(PLATFORM, PLATFORM), ["lakehouse tables this release changes: none",
-                                                                "postgres migrations this release adds: none"])
+                                                                "postgres migrations this release adds: none",
+                                                                "jobs the deploy holds until the release is live: none"])
         copy = self.new
         shutil.rmtree(copy)
         for relative in ("infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
@@ -90,6 +94,21 @@ class ReleaseChanges(unittest.TestCase):
         lines = self.run_script(PLATFORM, copy)
         self.assertEqual(lines[0], "lakehouse tables this release changes: silver.building_register_floors")
         self.assertIn("building_register_floor", lines[2].split(": ", 1)[1].split(", "))
+
+    def test_the_hold_file_names_the_held_jobs_one_per_line_or_every_job(self):
+        hold = self.running.parent / "hold"
+
+        def held():
+            subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), str(self.running), str(self.new),
+                            "--hold-file", str(hold)], check=True, capture_output=True, timeout=30)
+            return hold.read_text(encoding="utf-8")
+
+        self.assertEqual(held(), "", "nothing changes: nothing is held")
+        changed = {**CONTRACTS, "silver.b": {"columns": []}}
+        self.write(self.new, "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json", {"contracts": changed})
+        self.assertEqual(held(), "maintenance\nwrite_b\n")
+        (self.new / "migrations/0002_second.sql").write_text("select 2;\n")
+        self.assertEqual(held(), "*\n", "a postgres migration holds every job")
 
     def test_two_trees_are_its_arguments(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), str(self.new)], capture_output=True, text=True)
