@@ -149,6 +149,7 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "other_bulk": "학교·공장·인구·교통 등 추가 벌크 (수동 승인)",
         "ilis": "industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처)",
         "code_go_kr": "code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143)",
+        "onbid_open_api": "data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280)",
     }
     for group in sorted(group_counts):
         lines.append(
@@ -165,6 +166,7 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "other_bulk": "기타 공공데이터",
         "ilis": "산업단지 주소 출처",
         "code_go_kr": "법정동 코드 변경 출처",
+        "onbid_open_api": "온비드 공매",
     }
     acquisition_names = {
         "provider_dataset_file": "제공기관 파일",

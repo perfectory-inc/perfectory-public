@@ -265,7 +265,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 134 -> 135: root ADR-0258's business-verification integration test embeds its migration and replays
 # the backfill section over old-shape user rows, so the test runs the shipped SQL, not a copy:
 # a copy could pass while the real migration dropped a verified business.
-COMPILE_TIME_READ_BASELINE="${3:-135}"
+# 135 -> 136: root ADR-0280's Onbid source contract restates the PNU rule for the Spark load; the
+# lakehouse-domain test reads that contract from CARGO_MANIFEST_DIR and holds it equal to Pnu::parse,
+# the rule's one definition, so the Python copy cannot drift from it unseen.
+COMPILE_TIME_READ_BASELINE="${3:-136}"
 
 cd "$repo_root"
 
