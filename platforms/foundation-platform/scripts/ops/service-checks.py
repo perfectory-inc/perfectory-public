@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The operations map's two service checks (root ADR-0209), written to one JSON file:
+"""The operations map's service checks (root ADR-0209), written to one JSON file:
 
 - edge: how Korean visitors reach the live catalog, buildings and tiles hostnames. Every live
   hostname of those three gateways in config/r2-connections.contract.json (the public hostname and
@@ -16,6 +16,11 @@
   runs are fetched once, after the day is over, while the hour's budget stays above the
   autodeploy's share, and kept beside the file; a week is reported once all its days are kept.
   The first fill of CI_WEEKS weeks takes some hours; after that it is a few requests a day.
+- security: the repository's open security advisories (root ADR-0278), for foundation-api's
+  /metrics and so Alertmanager and #alerts: the open Dependabot alerts (with the host's one
+  read-only token), and the advisories the daily OSV and Cargo ratchets on main name in their
+  `advisory` annotations (anonymous; a run already read is not read again). Each source records
+  whether it could be read, with a fixed reason when not. This part is not on the console's panel.
 
 Each part records its own error. Exits 1 only when no hostname could be measured: the unit's
 OnFailure reports that to Slack. foundation-api serves the file at /data-catalog/v1/service-checks.
@@ -28,6 +33,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.request
@@ -50,6 +56,15 @@ API_RESERVE = 30
 REQUESTS_PER_DAY = 20
 OUT = os.environ.get("FOUNDATION_SERVICE_CHECKS_PATH", "/var/lib/foundation-platform/service-checks/service-checks.json")
 CONTROL_ROOT = pathlib.Path(os.environ.get("FOUNDATION_SERVICE_CHECKS_CONTROL_ROOT", "/opt/perfectory-control/current"))
+# Security advisories (root ADR-0278). The token reads Dependabot alerts and nothing else; without it
+# that source says so and the two ratchets, read anonymously, still report.
+SECURITY_TOKEN_ENV = "FOUNDATION_PLATFORM_SECURITY_ALERTS_GITHUB_TOKEN"
+# The daily runs on main that refuse a new advisory, each naming it in an annotation.
+RATCHETS = {"osv-ratchet": "monorepo-guard.yml", "cargo-advisories": "dependency-advisories.yml"}
+ADVISORY_TITLE = "advisory"
+ADVISORY_MESSAGE = re.compile(r"(\S+) (\S+)")
+# The most one ratchet costs in an hour: its runs, a new run's jobs, and the failed jobs' annotations.
+SECURITY_REQUESTS = 6
 
 
 def hostnames(contract: pathlib.Path = CONTRACT) -> list[str]:
@@ -192,6 +207,105 @@ def measure_ci_from_control(store: pathlib.Path, now: datetime, root: pathlib.Pa
     return measure_ci(store, now, ci, repository, budget)
 
 
+def github(path: str, token: str | None = None) -> tuple[object, dict]:
+    """One GitHub API answer and its headers (lower-cased); with the token when there is one."""
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "foundation-service-checks",
+               "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"https://api.github.com{path}", headers=headers)
+    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        return json.load(response), {key.lower(): value for key, value in response.headers.items()}
+
+
+def source_error(reason: str, error: Exception | str) -> dict:
+    """A source that could not be read: a fixed reason for the alert, the detail for the log."""
+    detail = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
+    return {"readable": False, "reason": reason, "error": detail[:300], "findings": []}
+
+
+def dependabot(repository: str, token: str | None, ask=github) -> tuple[dict, str | None]:
+    """The open Dependabot alerts, one finding per advisory and package; and the token's expiry."""
+    if not token:
+        return source_error("no-token", f"{SECURITY_TOKEN_ENV} is not set on this host"), None
+    alerts, headers = ask(f"/repos/{repository}/dependabot/alerts?state=open&per_page=100", token)
+    # shortcut: one page of 100; past that the source says so instead of paging (cursor `after`).
+    if len(alerts) >= 100:
+        return source_error("too-many", "100 or more open Dependabot alerts; read them on GitHub"), None
+    findings = {}
+    for alert in sorted(alerts, key=lambda alert: alert["number"]):
+        package = alert["dependency"]["package"]
+        key = (alert["security_advisory"]["ghsa_id"], f"{package['ecosystem']}/{package['name']}")
+        findings.setdefault(key, {"advisory": key[0], "package": key[1],
+                                  "severity": alert["security_advisory"]["severity"], "link": alert["html_url"]})
+    readable = {"readable": True, "reason": None, "error": None, "findings": list(findings.values())}
+    return readable, headers.get("github-authentication-token-expiration")
+
+
+def ratchet(repository: str, workflow: str, token: str | None, previous: dict | None, ask=github) -> dict:
+    """The advisories the latest completed scheduled run of a ratchet on main names in its
+    `advisory` annotations (`<advisory> <package>`). A run already read is not read again."""
+    runs, _ = ask(f"/repos/{repository}/actions/workflows/{workflow}/runs"
+                  "?branch=main&event=schedule&status=completed&per_page=1", token)
+    if not runs["workflow_runs"]:
+        return source_error("no-run", f"{workflow} has no completed scheduled run on main")
+    run = runs["workflow_runs"][0]
+    if previous and previous.get("readable") and previous.get("run_id") == run["id"]:
+        return previous
+    jobs, _ = ask(f"/repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100", token)
+    # A link that is the same every day: the run's own changes daily and would re-announce.
+    link = f"https://github.com/{repository}/actions/workflows/{workflow}?query=branch%3Amain"
+    findings = {}
+    for job in jobs["jobs"]:
+        if job["conclusion"] in ("success", "skipped"):
+            continue  # the ratchets annotate only when they refuse
+        notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", token)
+        for note in notes:
+            match = ADVISORY_MESSAGE.fullmatch((note.get("message") or "").strip())
+            if note.get("title") == ADVISORY_TITLE and match:
+                findings.setdefault(match.groups(), {"advisory": match[1], "package": match[2], "severity": "", "link": link})
+    return {"readable": True, "reason": None, "error": None, "findings": list(findings.values()), "run_id": run["id"]}
+
+
+def measure_security(repository: str, token: str | None, previous: dict | None, now: datetime,
+                     ask=github, remaining=remaining_requests) -> dict:
+    """Every source on its own: one that cannot be read says so and the others still report."""
+    previous_sources = (previous or {}).get("sources", {})
+
+    def unread(name: str, reason: str, error: Exception | str) -> dict:
+        # What was last known stays: an advisory resolves only when a read finds it gone, so a
+        # source that cannot be read is not announced as fixed and then as new again.
+        return {**source_error(reason, error), "findings": previous_sources.get(name, {}).get("findings", [])}
+
+    sources, expires = {}, None
+    try:
+        sources["dependabot"], expires = dependabot(repository, token, ask)
+    except Exception as error:
+        sources["dependabot"] = unread("dependabot", "github-error", error)
+    for name, workflow in RATCHETS.items():
+        try:
+            # Always anonymous, so the token never needs more than Dependabot alerts. The budget is the
+            # host's (shared with the autodeploy): when it is short, last hour's answer stands.
+            if remaining() < API_RESERVE + SECURITY_REQUESTS:
+                sources[name] = previous_sources.get(name) or unread(name, "github-error", "no anonymous budget left")
+                continue
+            sources[name] = ratchet(repository, workflow, None, previous_sources.get(name), ask)
+        except Exception as error:
+            sources[name] = unread(name, "github-error", error)
+    return {"checked_at": now.isoformat(), "token_expires_at": expires, "sources": sources}
+
+
+def measure_security_from_control(previous: dict | None, now: datetime, root: pathlib.Path = CONTROL_ROOT) -> dict:
+    token = os.environ.get(SECURITY_TOKEN_ENV, "").strip() or None
+    try:
+        repository = json.loads((root / "tools" / "github" / "repository-identity.json").read_text(encoding="utf-8"))["full_name"]
+    except Exception as error:
+        unread = source_error("github-error", error)
+        return {"checked_at": now.isoformat(), "token_expires_at": None,
+                "sources": {name: unread for name in ("dependabot", *RATCHETS)}}
+    return measure_security(repository, token, previous, now)
+
+
 def write_atomically(path: pathlib.Path, document: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
@@ -205,7 +319,14 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     edge = measure_edge(hostnames(), now=now)
     ci = measure_ci_from_control(out.parent / "ci-runs", now)
-    write_atomically(out, {"schema_version": 1, "checked_at": now.isoformat(), "edge": edge, "ci": ci})
+    try:
+        previous = json.loads(out.read_text(encoding="utf-8")).get("security")
+    except (OSError, ValueError, AttributeError):
+        previous = None
+    security = measure_security_from_control(previous, now)
+    write_atomically(out, {"schema_version": 1, "checked_at": now.isoformat(), "edge": edge, "ci": ci, "security": security})
+    for name, source in security["sources"].items():
+        print(f"security {name}: findings={len(source['findings'])} reason={source['reason']}")
     for host in edge["hosts"]:
         print(f"{host['hostname']}: colo={host['colo']} p50={host['p50_ms']}ms p95={host['p95_ms']}ms samples={host['samples']}")
     print(f"reference {REFERENCE_HOST}: colo={edge['reference_colo']}; ci error={ci.get('error')}")

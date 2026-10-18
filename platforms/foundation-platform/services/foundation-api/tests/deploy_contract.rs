@@ -332,6 +332,26 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
             "alert rules are missing {required}"
         );
     }
+    // The repository's open security advisories take the same way (root ADR-0278): one alert per
+    // advisory, the rule's `severity` kept apart from the advisory's, and no reminders.
+    for required in [
+        "alert: FoundationSecurityAdvisory",
+        "expr: foundation_security_advisory == 1",
+        "service: security",
+        "$labels.advisory_severity",
+        "alert: FoundationSecurityAdvisoriesUnreadable",
+        "absent(foundation_security_advisories_readable)",
+        "alert: FoundationSecurityTokenExpiring",
+    ] {
+        assert!(
+            rules.contains(required),
+            "alert rules are missing {required}"
+        );
+    }
+    assert!(
+        alertmanager.contains("- service = \"security\""),
+        "Alertmanager has no route for the security advisories"
+    );
     for required in [
         "- service = \"data-flow\"",
         "repeat_interval: 8760h",

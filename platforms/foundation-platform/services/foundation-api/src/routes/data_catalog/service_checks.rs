@@ -11,7 +11,7 @@ use foundation_contracts::data_catalog::ServiceChecks;
 
 use crate::state::AppState;
 
-const PATH_ENV: &str = "FOUNDATION_PLATFORM_SERVICE_CHECKS_PATH";
+pub(super) const PATH_ENV: &str = "FOUNDATION_PLATFORM_SERVICE_CHECKS_PATH";
 
 /// The edge path from Korea to each live hostname and the CI time trend.
 #[utoipa::path(

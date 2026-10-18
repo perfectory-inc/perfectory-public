@@ -170,3 +170,37 @@ groups:
         annotations:
           summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
           runbook: docs/runbooks/operations-map.md
+      # The repository's open security advisories (root ADR-0278): Dependabot alerts and what the
+      # daily OSV and Cargo ratchets on main refuse, one alert per source, advisory and package.
+      # Alertmanager sends one notice when it opens and one when a read finds it gone; a source
+      # that cannot be read keeps its last findings (services/foundation-api/src/routes/data_catalog/security_alerts.rs).
+      - alert: FoundationSecurityAdvisory
+        expr: foundation_security_advisory == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: security
+        annotations:
+          summary: '보안 권고 [{{ $labels.source }}] {{ $labels.advisory }} {{ $labels.package }}{{ if $labels.advisory_severity }} ({{ $labels.advisory_severity }}){{ end }} — {{ $labels.link }}'
+          runbook: docs/runbooks/security-advisories.md
+      - alert: FoundationSecurityAdvisoriesUnreadable
+        # A source not read for six hours (no token, GitHub refusing, the service checks stopped)
+        # can miss a new advisory; what it last knew still pages.
+        expr: foundation_security_advisories_readable == 0 or absent(foundation_security_advisories_readable)
+        for: 6h
+        labels:
+          severity: ticket
+          service: security
+        annotations:
+          summary: '보안 권고 출처 {{ with $labels.source }}{{ . }}{{ else }}전체{{ end }} 를 6시간째 못 읽어요{{ with $labels.reason }} ({{ . }}){{ end }} — 새 권고가 와도 알림이 안 갈 수 있어요'
+          runbook: docs/runbooks/security-advisories.md
+      - alert: FoundationSecurityTokenExpiring
+        expr: foundation_security_token_expires_days < 14
+        for: 1h
+        labels:
+          severity: ticket
+          service: security
+        annotations:
+          summary: 'Dependabot 알림을 읽는 GitHub 토큰이 {{ $value }}일 뒤 만료돼요 — 런북대로 새 토큰을 넣어 주세요'
+          runbook: docs/runbooks/security-advisories.md

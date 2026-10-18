@@ -134,6 +134,105 @@ class Host(unittest.TestCase):
         )
 
 
+class Security(unittest.TestCase):
+    """Root ADR-0278: the open advisories, each source on its own, labels that stay the same."""
+
+    REPOSITORY = "example-org/example-repo"
+    NOW = datetime(2026, 10, 13, 2, 17, tzinfo=timezone.utc)
+
+    @staticmethod
+    def github(cargo_fails=False, run_ids=None, calls=None):
+        """A fake GitHub: two alerts on one advisory and package, a failed OSV run that annotated one
+        advisory (and a note that is not one), and a Cargo run that cannot be read."""
+        run_ids = run_ids or {"monorepo-guard.yml": 11, "dependency-advisories.yml": 22}
+        alert = lambda number: {"number": number, "html_url": f"https://github.com/x/security/dependabot/{number}",
+                                "dependency": {"package": {"ecosystem": "npm", "name": "example-package"}},
+                                "security_advisory": {"ghsa_id": "GHSA-aaaa-bbbb-cccc", "severity": "high"}}
+
+        def ask(path, token=None):
+            if calls is not None:
+                calls.append((path, token))
+            if "/dependabot/alerts" in path:
+                return [alert(7), alert(3)], {"github-authentication-token-expiration": "2027-10-13 00:00:00 UTC"}
+            if cargo_fails and "dependency-advisories.yml" in path:
+                raise OSError("timed out")
+            for workflow, run_id in run_ids.items():
+                if f"/workflows/{workflow}/runs" in path:
+                    return {"workflow_runs": [{"id": run_id}]}, {}
+            if "/jobs" in path:
+                return {"jobs": [{"id": 1, "conclusion": "success"}, {"id": 2, "conclusion": "failure"}]}, {}
+            if "/check-runs/2/annotations" in path:
+                return [{"title": "advisory", "message": "GHSA-dddd-eeee-ffff crates.io/example-crate"},
+                        {"title": "", "message": "Node.js 20 is deprecated."},
+                        {"title": "advisory", "message": "three words here"}], {}
+            raise AssertionError(f"asked {path}")
+        return ask
+
+    @classmethod
+    def measure(cls, ask, token=None, previous=None, remaining=60):
+        return checks.measure_security(cls.REPOSITORY, token, previous, cls.NOW, ask=ask, remaining=lambda: remaining)
+
+    def test_dependabot_is_one_finding_per_advisory_and_package_with_a_stable_link(self):
+        security = self.measure(self.github(), token="t")
+        dependabot = security["sources"]["dependabot"]
+        self.assertTrue(dependabot["readable"])
+        self.assertEqual(dependabot["findings"], [{"advisory": "GHSA-aaaa-bbbb-cccc", "package": "npm/example-package",
+                                                   "severity": "high", "link": "https://github.com/x/security/dependabot/3"}])
+        self.assertEqual(security["token_expires_at"], "2027-10-13 00:00:00 UTC")
+
+    def test_without_the_token_dependabot_says_so_and_the_ratchets_still_report(self):
+        calls = []
+        security = self.measure(self.github(calls=calls))
+        self.assertEqual(security["sources"]["dependabot"]["reason"], "no-token")
+        self.assertTrue(security["sources"]["osv-ratchet"]["readable"])
+        self.assertFalse(any("/dependabot/" in path for path, _ in calls))
+
+    def test_the_ratchets_are_read_anonymously_from_their_failed_jobs_annotations(self):
+        calls = []
+        osv = self.measure(self.github(calls=calls), token="t")["sources"]["osv-ratchet"]
+        self.assertEqual([(f["advisory"], f["package"]) for f in osv["findings"]],
+                         [("GHSA-dddd-eeee-ffff", "crates.io/example-crate")])
+        self.assertEqual(osv["findings"][0]["link"],
+                         "https://github.com/example-org/example-repo/actions/workflows/monorepo-guard.yml?query=branch%3Amain")
+        self.assertFalse(any("/check-runs/1/" in path for path, _ in calls), "a job that passed is not asked")
+        self.assertTrue(all(token is None for path, token in calls if "/dependabot/" not in path))
+
+    def test_a_run_already_read_is_not_read_again(self):
+        first = self.measure(self.github())
+        calls = []
+        again = self.measure(self.github(calls=calls), previous=first)
+        self.assertEqual(again["sources"]["osv-ratchet"], first["sources"]["osv-ratchet"])
+        self.assertFalse(any("/jobs" in path or "check-runs" in path for path, _ in calls), calls)
+
+    def test_one_source_that_fails_leaves_the_others_and_says_why(self):
+        sources = self.measure(self.github(cargo_fails=True), token="t")["sources"]
+        self.assertEqual((sources["cargo-advisories"]["readable"], sources["cargo-advisories"]["reason"]),
+                         (False, "github-error"))
+        self.assertIn("timed out", sources["cargo-advisories"]["error"])
+        self.assertTrue(sources["osv-ratchet"]["readable"] and sources["dependabot"]["readable"])
+
+    def test_a_source_that_cannot_be_read_keeps_what_it_last_knew(self):
+        known = self.measure(self.github(), token="t")
+        later = self.measure(self.github(cargo_fails=True, run_ids={"monorepo-guard.yml": 12}), token="t", previous=known)
+        # The OSV run is new and its jobs are asked again; the failed Cargo read keeps the last findings.
+        self.assertEqual(later["sources"]["cargo-advisories"]["findings"], known["sources"]["cargo-advisories"]["findings"])
+        broken = self.measure(lambda path, token=None: (_ for _ in ()).throw(OSError("down")), token="t", previous=known)
+        self.assertEqual(broken["sources"]["osv-ratchet"]["findings"], known["sources"]["osv-ratchet"]["findings"])
+        self.assertFalse(broken["sources"]["osv-ratchet"]["readable"])
+
+    def test_the_autodeploys_share_of_the_hour_is_left_alone(self):
+        previous = self.measure(self.github())
+        calls = []
+        short = self.measure(self.github(calls=calls), previous=previous,
+                             remaining=checks.API_RESERVE + checks.SECURITY_REQUESTS - 1)
+        self.assertEqual(calls, [])
+        self.assertEqual(short["sources"]["osv-ratchet"], previous["sources"]["osv-ratchet"])
+
+    def test_the_token_is_never_written(self):
+        security = self.measure(self.github(), token="secret-value-123")
+        self.assertNotIn("secret-value-123", json.dumps(security))
+
+
 class File(unittest.TestCase):
     def test_the_written_file_has_the_shape_foundation_api_reads(self):
         example = json.loads(EXAMPLE.read_text(encoding="utf-8"))
@@ -142,7 +241,9 @@ class File(unittest.TestCase):
             edge = checks.measure_edge(["h"], ask=lambda _host: (12.0, "ICN"))
             with tempfile.TemporaryDirectory() as store:
                 ci = CiTrend("test_days_are_fetched_newest_first_and_a_week_is_reported_only_when_whole").measure(pathlib.Path(store), 60)[0]
-            checks.write_atomically(out, {"schema_version": 1, "checked_at": edge["checked_at"], "edge": edge, "ci": ci})
+            security = Security.measure(Security.github(cargo_fails=True), token="t")
+            checks.write_atomically(out, {"schema_version": 1, "checked_at": edge["checked_at"], "edge": edge, "ci": ci,
+                                          "security": security})
             written = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(shape(written), shape(example))
             self.assertEqual(list(pathlib.Path(tmp).iterdir()), [out], "no temporary file is left")
