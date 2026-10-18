@@ -114,6 +114,19 @@ python3 "${preflight}/platforms/foundation-platform/scripts/deploy/migration-app
 rm -rf "${preflight}"
 ((preflight_status == 0)) || exit "${preflight_status}"
 
+log "pre-flight: what ${sha} changes and which jobs write it (log only, root ADR-0270 §3 deploy D3)"
+# Nothing reads this answer yet: step 0 still pauses every DAG. A deploy that cannot tell says so
+# and goes on.
+changes="$(mktemp -d /var/lib/perfectory/changes-XXXXXX)"
+git --git-dir="${mirror}" archive "${sha}" platforms/foundation-platform/scripts/deploy/release_changes.py \
+  platforms/foundation-platform/orchestration/jobs.v1.json platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json \
+  platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json \
+  platforms/foundation-platform/migrations | tar -x -C "${changes}" \
+  && python3 -I -B "${changes}/platforms/foundation-platform/scripts/deploy/release_changes.py" \
+    "${release_root}/current" "${changes}/platforms/foundation-platform" \
+  || echo "foundation-deploy: cannot tell what ${sha} changes; nothing reads it yet (deploy D3)" >&2
+rm -rf "${changes}"
+
 log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
 # From here until step 7 the DAGs are paused. A deploy that stops before the release switch gives the
 # running release its schedule back; one that stops during the switch says loudly that they stay
