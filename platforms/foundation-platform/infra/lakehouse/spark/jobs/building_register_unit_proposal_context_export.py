@@ -511,12 +511,11 @@ def read_source_frame(spark: Any, args: Any) -> tuple[Any, str]:
             spark.read.parquet(args.input_parquet),
             f"silver_handoff_parquet:{args.input_parquet}",
         )
-    from platform_contracts import current_rows_of_versioned, load_lakehouse_contract  # noqa: PLC0415
+    from platform_contracts import current_rows_of_versioned  # noqa: PLC0415
 
     source_table = qualified_table(args.catalog, args.namespace, args.table)
     # A versioned table's current rows (root ADR-0275); the handoff parquet above is one release.
-    rows = current_rows_of_versioned(spark.sql(f"SELECT * FROM {source_table}"),
-                                     load_lakehouse_contract(f"{args.namespace}.{args.table}"))
+    rows = current_rows_of_versioned(spark.sql(f"SELECT * FROM {source_table}"), f"{args.namespace}.{args.table}")
     return rows, f"{args.catalog}.{args.namespace}.{args.table}"
 
 

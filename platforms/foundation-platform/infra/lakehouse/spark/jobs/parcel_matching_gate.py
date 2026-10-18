@@ -41,7 +41,7 @@ import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
-from platform_contracts import current_rows_of_versioned, load_lakehouse_contract
+from platform_contracts import current_rows_of_versioned
 
 JOB_NAME = "parcel_matching_gate"
 VERDICT_SCHEMA_VERSION = "foundation-platform.parcel_matching_verdict.v1"
@@ -233,7 +233,7 @@ def attribute_frame(spark: Any, cat: str, spec: str, sido: str) -> tuple[str, An
         condition += f" AND CAST({column} AS STRING) = '{value}'"
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    rows = current_rows_of_versioned(spark.table(f"{cat}.{namespace}.{name}"), load_lakehouse_contract(table))
+    rows = current_rows_of_versioned(spark.table(f"{cat}.{namespace}.{name}"), table)
     return table, rows.where(F.expr(condition)).select("pnu").distinct()
 
 

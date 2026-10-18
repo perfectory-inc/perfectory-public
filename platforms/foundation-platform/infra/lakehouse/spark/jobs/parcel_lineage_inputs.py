@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from lakehouse_snapshot_pins import read_pinned_iceberg, read_snapshot_document, snapshot_id
-from platform_contracts import current_rows_of_versioned, load_lakehouse_contract
+from platform_contracts import current_rows_of_versioned
 
 PHYSICAL_TABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*")
 
@@ -82,8 +82,7 @@ def bind_input_views(spark: Any, catalog: str, inputs: LineageInputs) -> dict[st
     views = {}
     for role, binding in physical_inputs(catalog, inputs).items():
         view = f"_parcel_lineage_{role}"
-        contract = load_lakehouse_contract(inputs.sources[role]["table"])
-        current_rows_of_versioned(read_pinned_iceberg(spark, binding["table"], role, pins), contract) \
-            .createOrReplaceTempView(view)
+        frame = read_pinned_iceberg(spark, binding["table"], role, pins)
+        current_rows_of_versioned(frame, inputs.sources[role]["table"]).createOrReplaceTempView(view)
         views[role] = f"`{view}`"
     return views

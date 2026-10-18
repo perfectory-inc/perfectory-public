@@ -84,7 +84,7 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
         spec = f"{name}:base_year=2026"
 
         def held(rule):
-            with mock.patch.object(job, "load_lakehouse_contract", side_effect=lambda _: rule):
+            with mock.patch("platform_contracts.load_lakehouse_contract", side_effect=lambda _: rule):
                 return sorted(r.pnu for r in job.attribute_frame(self.spark, "spark_catalog", spec, "99")[1].collect())
 
         self.assertEqual(held(versioned(contract, ["pnu"])), held(contract), "one row per key: the same parcels")
@@ -105,7 +105,7 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
 
         def bound(frame, rule):
             with mock.patch.object(inputs_module, "read_pinned_iceberg", return_value=frame), \
-                    mock.patch.object(inputs_module, "load_lakehouse_contract", side_effect=lambda _: rule):
+                    mock.patch("platform_contracts.load_lakehouse_contract", side_effect=lambda _: rule):
                 view = inputs_module.bind_input_views(self.spark, "lakehouse", inputs)["history"]
             return sorted((r.pnu, r.reason) for r in self.spark.table(view).select("pnu", "reason").collect())
 
