@@ -626,7 +626,7 @@
     },
     {
       "id": "silver_append_measure",
-      "description": "Measure, once, one land transfer history release written two ways in a scratch namespace (root ADR-0275 step 1; scripts/ops/silver-append-measure.sh): the release written whole, as the lane does today, and the release compared with the one before and only its changed rows appended with removal markers. Reads silver.land_transfer_history (the release before by time travel), writes only <catalog>.scratch_adr0275 and drops it at the end. It holds every spark slot (the 16g Spark of a Silver lane).",
+      "description": "Measure, once, one land transfer history release appended as changes in a scratch namespace (root ADR-0275 step 1; scripts/ops/silver-append-measure.sh): the release before copied, compared with the new one by one shuffle of row fingerprints, and only the changed rows appended with removal markers, each phase logged to the journal as it starts and ends. Writing a release whole was measured by the first run (about 3.5 minutes). Reads silver.land_transfer_history (the release before by time travel), writes only <catalog>.scratch_adr0275 and drops it at the end. It holds every spark slot (the 16g Spark of a Silver lane).",
       "systemd_service": "foundation-silver-append-measure.service",
       "systemd_timer": null,
       "state_paths": [
@@ -636,7 +636,7 @@
       "schedule": "0 13 * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,
-      "time_limit_minutes": 40,
+      "time_limit_minutes": 120,
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 1,
