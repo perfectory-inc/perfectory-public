@@ -226,7 +226,6 @@ describe("Foundation polygon layer setup", () => {
     setupPolygonLayers(
       mb,
       () => undefined,
-      null,
       runtimeManifest({ parcels: parcelsUnit(), complex: complexUnit() }),
       () => undefined,
     );
@@ -251,7 +250,6 @@ describe("Foundation polygon layer setup", () => {
       setupPolygonLayers(
         mb,
         () => undefined,
-        null,
         runtimeManifest({ parcels: parcelsUnit() }),
         () => undefined,
       );
@@ -267,8 +265,9 @@ describe("Foundation polygon layer setup", () => {
     }
   });
 
-  it("registers no runtime unit at all when the manifest carries one this client does not own", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  // Root ADR-0225 step 1b publishes the PNU anchor units before a web release knows them: rejecting
+  // the whole manifest for them took parcels, admin and complex off the map with it.
+  it("skips a unit this client does not own and draws the units it does", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const mb = fakeMapbox();
     const unowned = runtimeManifest({
@@ -286,14 +285,39 @@ describe("Foundation polygon layer setup", () => {
       },
     });
     try {
-      expect(() => validateFoundationVectorManifest(unowned)).toThrow(
-        /unregistered Foundation publication unit/,
-      );
+      expect(() => validateFoundationVectorManifest(unowned)).not.toThrow();
       setupPolygonLayers(
         mb,
         () => undefined,
-        null,
         unowned,
+        () => undefined,
+      );
+
+      expect(mb.sources.has("parcels")).toBe(true);
+      expect(mb.sources.has("complex")).toBe(true);
+      expect(mb.sources.has("anchors")).toBe(false);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("registers no runtime unit at all when a unit it owns drifted", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const mb = fakeMapbox();
+    const parcels = parcelsUnit();
+    const drifted = runtimeManifest({
+      parcels: {
+        ...parcels,
+        layers: { parcel_polygons: { ...parcels.layers.parcels } },
+      },
+      complex: complexUnit(),
+    });
+    try {
+      setupPolygonLayers(
+        mb,
+        () => undefined,
+        drifted,
         () => undefined,
       );
 

@@ -2,7 +2,6 @@ import { env } from "@/lib/env";
 import {
   COMPLEX_CLICK_YIELDS_TO_LAYER_IDS,
   foundationVectorFillLayerId,
-  registerFoundationVectorFillLayers,
   registerFoundationVectorRuntimeUnit,
 } from "@/lib/map/foundation-vector-fill-layers";
 import { validateFoundationVectorManifest } from "@/lib/map/foundation-vector-layer-registry";
@@ -23,17 +22,11 @@ import {
 } from "@/lib/map/marker-tile-contract";
 import {
   buildListingMarkerSourceRegistrations,
-  buildParcelAnchorMarkerLayerRegistrations,
   LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
-  PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
 } from "@/lib/map/marker-tile-style";
 import {
-  buildVectorTileSource,
-  fetchVectorTileManifest,
   fetchVectorTileRuntimeManifest,
-  getVectorTileArtifact,
-  type VectorTileManifest,
   type VectorTileRuntimeManifest,
 } from "@/lib/map/vector-tile-manifest";
 
@@ -80,12 +73,9 @@ export async function setupMapboxRuntime(
   await waitForMapboxStyle(mb, isCancelled);
   if (isCancelled()) return;
 
-  const [manifest, runtimeManifest] = await Promise.all([
-    loadFoundationPlatformVectorTileManifest(),
-    loadFoundationPlatformVectorTileRuntimeManifest(),
-  ]);
-  await setupPolygonLayers(mb, onParcelClick, manifest, runtimeManifest, onComplexClick);
-  await setupMarkerTileLayers(mb, onParcelClick, manifest);
+  // The runtime manifest (v2) is the one answer to what the map draws (root ADR-0225).
+  const runtimeManifest = await loadFoundationPlatformVectorTileRuntimeManifest();
+  setupPolygonLayers(mb, onParcelClick, runtimeManifest, onComplexClick);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
   for (const unit of ["complex", "admin"]) {
@@ -152,17 +142,16 @@ async function waitForMapboxStyle(mb: MapboxGLLike, isCancelled: () => boolean):
 }
 
 /**
- * Registers every Foundation polygon unit the two manifests describe.
+ * Registers every Foundation polygon unit the runtime manifest describes.
  *
- * Exported because this is where "which polygons does a given pair of manifests put on the map"
- * is decided, and the answers that matter — an unpromoted unit draws nothing and breaks nothing, a
- * manifest carrying an unowned unit draws none of them — are not observable from
- * {@link setupMapboxRuntime}, which needs a live Naver GL bridge before it reaches this line.
+ * Exported because this is where "which polygons does a manifest put on the map" is decided, and
+ * the answers that matter — an unpromoted unit draws nothing and breaks nothing, a unit this client
+ * does not own is skipped while the others draw, a drifted owned unit draws none of them — are not
+ * observable from {@link setupMapboxRuntime}, which needs a live Naver GL bridge first.
  */
 export function setupPolygonLayers(
   mb: MapboxGLLike,
   onParcelClick: (pnu: string) => void,
-  manifest: VectorTileManifest | null,
   runtimeManifest: VectorTileRuntimeManifest | null,
   onComplexClick: (lakehouseComplexId: string) => void,
 ): void {
@@ -170,25 +159,19 @@ export function setupPolygonLayers(
     console.warn("[ListingMap] mapbox addSource/addLayer unavailable; polygon layer setup skipped");
     return;
   }
-  if (!manifest && !runtimeManifest) return;
-
   const runtime = acceptRuntimeManifest(runtimeManifest);
+  if (!runtime) return;
   // `complex` first, so it is the bottom of this repo's stack even before any `beforeId` applies:
   // an industrial complex is the context a listing sits in, and it must never be what a user's
   // click or eye lands on instead of the parcel or the marker.
-  setupComplexLayers(mb, manifest, runtime, onComplexClick);
-  setupParcelLayers(mb, onParcelClick, manifest, runtime);
-  setupAdminLayers(mb, manifest, runtime);
+  setupComplexLayers(mb, runtime, onComplexClick);
+  setupParcelLayers(mb, onParcelClick, runtime);
+  setupAdminLayers(mb, runtime);
 }
 
 /**
- * Runs the registry gate once for the whole runtime manifest, and drops the manifest entirely if it
- * fails.
- *
- * The gate used to run inside the `parcels` registration, which made it a statement about one layer
- * when it is a statement about the document: a manifest carrying a unit this client does not own
- * disabled `parcels` and then registered `admin` from that same unchecked manifest. Failing here
- * leaves the static v1 paths — a different, separately validated document — to serve what they can.
+ * Runs the registry gate once for the whole runtime manifest, and drops the manifest entirely if an
+ * owned unit drifted: the gate is a statement about the document, not about one layer.
  */
 function acceptRuntimeManifest(
   runtimeManifest: VectorTileRuntimeManifest | null,
@@ -213,28 +196,15 @@ function hasMapboxLayerApi(mb: MapboxGLLike): mb is MapboxLayerApi {
 function setupParcelLayers(
   mb: MapboxLayerApi,
   onParcelClick: (pnu: string) => void,
-  manifest: VectorTileManifest | null,
-  runtimeManifest: VectorTileRuntimeManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest,
 ): void {
   try {
-    if (runtimeManifest?.publication_units.parcels) {
-      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "parcels");
-      if (registered.length > 0) registerRuntimeParcelClick(mb, onParcelClick);
-      return;
-    }
-    const artifact = manifest ? getVectorTileArtifact(manifest, "parcels") : undefined;
-    if (!manifest || !artifact) {
+    if (!runtimeManifest.publication_units.parcels) {
       logMapLayerUnavailable("parcels");
       return;
     }
-    const registered = registerFoundationVectorFillLayers(mb, "parcels", {
-      sourceId: "parcels",
-      source: buildVectorTileSource(manifest, "parcels", { promoteId: "pnu" }),
-      sourceLayer: artifact.source_layer,
-      minzoom: artifact.render_min_zoom,
-      maxzoom: artifact.render_max_zoom,
-    });
-    if (registered.length > 0) registerLegacyParcelClick(mb, onParcelClick);
+    const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "parcels");
+    if (registered.length > 0) registerRuntimeParcelClick(mb, onParcelClick);
   } catch (err) {
     logMapLayerFailure("parcels-fill", err, { kind: "core", source: "parcels" });
   }
@@ -249,41 +219,13 @@ function registerRuntimeParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: strin
   });
 }
 
-function registerLegacyParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string) => void): void {
-  if (typeof mb.on !== "function") return;
-  mb.on("click", "parcels-fill", (e: unknown) => {
-    const evt = e as {
-      features?: Array<{ properties?: { PNU?: string; pnu?: string } }>;
-    };
-    const props = evt.features?.[0]?.properties;
-    const pnu = props?.PNU ?? props?.pnu;
-    if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
-  });
-}
-
-function setupAdminLayers(
-  mb: MapboxLayerApi,
-  manifest: VectorTileManifest | null,
-  runtimeManifest: VectorTileRuntimeManifest | null,
-): void {
+function setupAdminLayers(mb: MapboxLayerApi, runtimeManifest: VectorTileRuntimeManifest): void {
   try {
-    if (runtimeManifest?.publication_units.admin) {
-      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "admin");
-      if (registered.length > 0) registerMapEditOverlayLayers(mb, "admin");
-      return;
-    }
-    const artifact = manifest ? getVectorTileArtifact(manifest, "admin") : undefined;
-    if (!manifest || !artifact) {
+    if (!runtimeManifest.publication_units.admin) {
       logMapLayerUnavailable("admin");
       return;
     }
-    const registered = registerFoundationVectorFillLayers(mb, "admin", {
-      sourceId: "admin",
-      source: buildVectorTileSource(manifest, "admin"),
-      sourceLayer: artifact.source_layer,
-      minzoom: artifact.render_min_zoom,
-      maxzoom: artifact.render_max_zoom,
-    });
+    const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "admin");
     if (registered.length > 0) registerMapEditOverlayLayers(mb, "admin");
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
@@ -293,41 +235,22 @@ function setupAdminLayers(
 /**
  * Draws the industrial-complex designation boundaries.
  *
- * The runtime manifest is the only path that carries them today — ADR-0006 leaves the static
- * PMTiles release for later — so the v1 branch below exists for the shape of the contract, not for
- * anything a deployment currently publishes. What matters more is the third case: a Catalog that
- * has not promoted this unit is a *normal* environment, not a broken one, and the map must come up
- * with everything else intact. That case is a silent no-op by construction, which is precisely how
- * "the promotion never ran" and "the layer registration threw" become indistinguishable from the
- * outside, so it says so.
+ * A Catalog that has not promoted this unit is a *normal* environment, not a broken one, and the
+ * map must come up with everything else intact. That case is a silent no-op by construction, which
+ * is precisely how "the promotion never ran" and "the layer registration threw" become
+ * indistinguishable from the outside, so it says so.
  */
 function setupComplexLayers(
   mb: MapboxLayerApi,
-  manifest: VectorTileManifest | null,
-  runtimeManifest: VectorTileRuntimeManifest | null,
+  runtimeManifest: VectorTileRuntimeManifest,
   onComplexClick: (lakehouseComplexId: string) => void,
 ): void {
   try {
-    if (runtimeManifest?.publication_units.complex) {
-      const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
-      if (registered.length > 0) {
-        registerMapEditOverlayLayers(mb, "complex");
-        registerComplexClick(mb, onComplexClick);
-      }
-      return;
-    }
-    const artifact = manifest ? getVectorTileArtifact(manifest, "complex") : undefined;
-    if (!manifest || !artifact) {
+    if (!runtimeManifest.publication_units.complex) {
       logMapLayerUnavailable("complex");
       return;
     }
-    const registered = registerFoundationVectorFillLayers(mb, "complex", {
-      sourceId: "complex",
-      source: buildVectorTileSource(manifest, "complex"),
-      sourceLayer: artifact.source_layer,
-      minzoom: artifact.render_min_zoom,
-      maxzoom: artifact.render_max_zoom,
-    });
+    const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "complex");
     if (registered.length > 0) {
       registerMapEditOverlayLayers(mb, "complex");
       registerComplexClick(mb, onComplexClick);
@@ -356,7 +279,7 @@ export function registerComplexClick(
     if (aMoreSpecificLayerOwnsTheClick(mb, evt.point)) return;
     const feature = evt.features?.[0];
     // `properties.complex_id` first and `feature.id` as the fallback: `promoteId` is what puts the
-    // value on `feature.id`, and a source registered from the v1 static manifest carries no
+    // value on `feature.id`, and a source registered without one carries no
     // `promoteId`, so only the property is guaranteed to be there.
     const id =
       feature?.properties?.complex_id ?? (typeof feature?.id === "string" ? feature.id : undefined);
@@ -419,50 +342,6 @@ function aMoreSpecificLayerOwnsTheClick(mb: MapboxGLLike, point: unknown): boole
   } catch (err) {
     logMapLayerFailure("complex-click-precedence", err, { kind: "optional", source: "complex" });
     return false;
-  }
-}
-
-async function setupMarkerTileLayers(
-  mb: MapboxGLLike,
-  onParcelClick: (pnu: string) => void,
-  manifest: VectorTileManifest | null,
-): Promise<void> {
-  if (typeof mb.addSource !== "function" || typeof mb.addLayer !== "function") {
-    console.warn("[ListingMap] mapbox addSource/addLayer unavailable; marker tile setup skipped");
-    return;
-  }
-  if (!manifest) return;
-
-  try {
-    const registrations = buildParcelAnchorMarkerLayerRegistrations({ manifest });
-
-    for (const registration of registrations) {
-      if (!mb.getSource?.(registration.sourceId)) {
-        mb.addSource(registration.sourceId, registration.source);
-      }
-      for (const layer of registration.layers) {
-        if (!mb.getLayer?.(layer.id)) {
-          mb.addLayer(layer);
-        }
-      }
-    }
-    if (typeof mb.on === "function") {
-      mb.on("click", PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID, (e: unknown) => {
-        const evt = e as {
-          features?: Array<{ properties?: { pnu?: string; detail_ref?: string } }>;
-        };
-        const props = evt.features?.[0]?.properties;
-        const pnu = props?.pnu ?? props?.detail_ref;
-        if (typeof pnu === "string" && pnu.length > 0) {
-          onParcelClick(pnu);
-        }
-      });
-    }
-  } catch (err) {
-    logMapLayerFailure("parcel-anchor-markers", err, {
-      kind: "core",
-      source: "foundation-platform-vector-tile-manifest",
-    });
   }
 }
 
@@ -539,16 +418,6 @@ function setupWebGlRecovery(mb: MapboxGLLike): (() => void) | undefined {
     glCanvas.removeEventListener("webglcontextlost", onLost);
     glCanvas.removeEventListener("webglcontextrestored", onRestored);
   };
-}
-
-async function loadFoundationPlatformVectorTileManifest(): Promise<VectorTileManifest | null> {
-  return fetchVectorTileManifest().catch((err: unknown) => {
-    logMapLayerFailure("vector-tile-manifest", err, {
-      kind: "core",
-      source: "foundation-platform",
-    });
-    return null;
-  });
 }
 
 async function loadFoundationPlatformVectorTileRuntimeManifest(): Promise<VectorTileRuntimeManifest | null> {

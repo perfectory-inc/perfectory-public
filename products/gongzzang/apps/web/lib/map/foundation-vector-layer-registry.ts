@@ -67,11 +67,16 @@ export function buildFoundationVectorSource(
   return buildVectorTileRuntimeSource(unit, layerName);
 }
 
-/** Fails closed before a manifest can introduce a source/layer the client does not own. */
+/**
+ * Fails closed on a unit the client owns whose contract drifted. A unit the registry does not name
+ * is never registered (every registration and refresh walks the registry) and is skipped here: the
+ * Catalog publishes a unit before a web release knows it (root ADR-0225 step 1b), and rejecting the
+ * whole manifest for it would take parcels, admin and complex off the map with it.
+ */
 export function validateFoundationVectorManifest(manifest: VectorTileRuntimeManifest): void {
   for (const [unitName, unit] of Object.entries(manifest.publication_units)) {
     const definition = FOUNDATION_VECTOR_LAYER_REGISTRY[unitName];
-    if (!definition) throw new Error(`unregistered Foundation publication unit: ${unitName}`);
+    if (!definition) continue;
     const layerNames = Object.keys(unit.layers);
     if (layerNames.length !== 1 || layerNames[0] !== definition.layerName) {
       throw new Error(`Foundation vector layer contract drift: ${unitName}`);

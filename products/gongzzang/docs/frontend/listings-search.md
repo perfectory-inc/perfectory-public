@@ -59,7 +59,7 @@ NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL=<foundation-platform origin>
 | 증상 | 예상 원인 | 확인 |
 |---|---|---|
 | Map is blank | Naver client ID missing or SDK blocked | Browser console for Naver SDK load errors |
-| Marker layer absent | Foundation Platform vector tile manifest unavailable or missing anchor artifacts | Network request to `/catalog/v1/vector-tiles/manifest` or configured `NEXT_PUBLIC_TILES_MANIFEST_URL` |
+| Parcel anchor markers absent | The runtime manifest has no `parcel_anchor*` units yet (root ADR-0225 step 1b); the map reads only `/catalog/v1/vector-tiles/runtime-manifest` | Network request to `/catalog/v1/vector-tiles/runtime-manifest` and its `publication_units` |
 | Listing count is zero | No active listings or filters too narrow | `SELECT count(*) FROM listing WHERE status='active'` |
 | Filters ignored | URL query and store diverged | Network request query string |
 
