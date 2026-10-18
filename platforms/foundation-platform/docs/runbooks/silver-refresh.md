@@ -33,7 +33,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
 | `land-individual-price` | `silver.land_individual_price` | 개별공시지가 `AL_D151` 시도 전부 | 같음 |
 | `land-right-registration` | `silver.land_right_registration` | 대지권등록 `AL_D006` 시도 전부 | 같음 |
-| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같음 |
+| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275) |
 | `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | 같음 |
 | `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | 한 객체 overwrite |
 
@@ -180,6 +180,13 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 바꿔 쓴다), 나머지는 `append` 다. gold.parcel_panel 이 표마다 `source_snapshot_id` 하나(`vworldkr-<원천>:<판>`)만
 읽기 때문이다. 중간에 끊기면 다음 실행이 기록에 없는 첫 묶음부터 잇는다. 그 사이 표는 판의 일부만 갖는다. Gold
 재생성은 같은 `spark` 풀이라 레인과 겹치지 않고, 잃는 행이 많은 Gold 는 거부한다.
+
+**바뀐 키만 쌓는 레인(ADR-0275).** 계약에 `compare` 가 있는 레인(지금은 토지이동이력)은 묶음을 판의 load branch 에
+올린 뒤 branch 를 발행하지 않는다. `silver_release_compare.py` 가 main 의 현재 행과 키마다 비교해, 바뀌거나 새로 생긴
+키의 행 전부와 사라진 키마다 삭제 표시 행(`row_state = removed`) 하나를 main 에 한 커밋으로 append 하고, branch 는
+지운다. main 의 행은 고치지도 지우지도 않는다. 로그의 `appended the changes staged on load_<…> to main` 줄에 바뀐 키의
+행 수(`changed_key_rows`)와 삭제 표시 수(`removed_keys`)가 있다. 비교 전에 끊기면 다음 실행이 같은 branch 에서
+잇고, 커밋 뒤라면 `already_loaded` 다.
 
 ### 첫 감독 실행 (레인마다)
 

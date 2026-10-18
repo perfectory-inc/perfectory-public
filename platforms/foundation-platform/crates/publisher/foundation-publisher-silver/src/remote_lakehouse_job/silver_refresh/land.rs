@@ -801,7 +801,54 @@ pub(in crate::remote_lakehouse_job) async fn load(
         .map(|(region, _)| format!("export-summary-{region}.json"))
         .collect();
     execute::keep_files(runtime, &evidence_name, &summaries)?;
-    super::publish_load(catalog, &contract.table, &branch, &release.object_keys()).await?;
+    match &contract.compare_content {
+        Some(content) => {
+            append_changes(
+                contract, runtime, catalog, &branch, &identity, release, content,
+            )
+            .await?;
+        }
+        None => {
+            super::publish_load(catalog, &contract.table, &branch, &release.object_keys()).await?;
+        }
+    }
     runtime.reset_work()?;
     Ok(rows)
+}
+
+/// Appends the staged release's changes to `main` instead of publishing the branch, then drops
+/// the branch (root ADR-0275): `main` keeps every row it held. A table that had no snapshot when
+/// the load began was written on `main` directly, whole; there is nothing to compare.
+async fn append_changes(
+    contract: &LaneContract,
+    runtime: &Runtime,
+    catalog: &IcebergRestCatalog,
+    branch: &str,
+    identity: &str,
+    release: &LandRelease,
+    content: &[String],
+) -> anyhow::Result<()> {
+    let table = &contract.table;
+    let objects = release.object_keys();
+    let staged = catalog
+        .load_snapshot_refs(table)
+        .await?
+        .is_some_and(|refs| refs.refs.contains_key(branch));
+    if staged {
+        let compare = execute::ReleaseCompare {
+            branch: branch.to_owned(),
+            source_snapshot_id: identity.to_owned(),
+            objects: objects.clone(),
+            content_columns: content.to_vec(),
+        };
+        let summary = execute::compare(runtime, contract, &compare)?;
+        println!(
+            "silver-refresh {table}: appended the changes staged on {branch} to main: {summary}"
+        );
+        // main moved past the branch's base with that append, so the branch is stale now.
+        if catalog.remove_stale_branch(table, branch).await? {
+            println!("silver-refresh {table}: dropped branch {branch}");
+        }
+    }
+    super::confirm_recorded(catalog, table, &objects).await
 }

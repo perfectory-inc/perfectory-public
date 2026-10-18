@@ -94,10 +94,12 @@ async fn land_transfer_csv_preserves_every_event_and_named_field() -> anyhow::Re
         .collect();
     assert_eq!(
         keys,
+        // Every column but the removal marker's, which the release compare writes (root ADR-0275).
         SILVER_LAND_TRANSFER_HISTORY
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect()
     );
     let mapped: Vec<_> = LAND_TRANSFER_LANE
@@ -113,6 +115,7 @@ async fn land_transfer_csv_preserves_every_event_and_named_field() -> anyhow::Re
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect::<Vec<_>>()
     );
     Ok(())

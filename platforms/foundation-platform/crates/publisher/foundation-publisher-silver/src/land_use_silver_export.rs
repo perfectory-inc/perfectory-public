@@ -1152,11 +1152,18 @@ mod tests {
                 .flatten()
                 .chain(LINEAGE_COLUMNS)
                 .collect();
+            // A removal marker's column is written by the release compare, never by the source
+            // (root ADR-0275); the export leaves it out and the load reads it as null.
+            let removal = lane
+                .contract
+                .current_row_latest
+                .and_then(|latest| latest.removal_column);
             let declared: Vec<&str> = lane
                 .contract
                 .columns
                 .iter()
                 .map(|column| column.name)
+                .filter(|name| Some(*name) != removal)
                 .collect();
             assert_eq!(
                 mapped, declared,

@@ -106,7 +106,8 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     reader = spark.read.format.return_value
                     reader.option.return_value = reader
                     reader.load.return_value.columns = job.column_names(job.load_lakehouse_contract(name))
-                    with mock.patch.object(job.F, "expr", create=True):
+                    # The rows a versioned table keeps current are not this test's question.
+                    with mock.patch.object(job.F, "expr", create=True),                             mock.patch.object(job, "current_rows", side_effect=lambda frame, _: frame):
                         job.read_source(spark, args, name, selected)
                     reader.option.assert_called_once_with("snapshot-id", "11")
                     reader.load.assert_called_once_with(f"r2.{name}")

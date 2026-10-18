@@ -110,6 +110,30 @@ class PanelReadersCurrentRowsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "keeps versions"):
             self.read("building_panel_silver_to_gold", name, rule, root, batches=("release-202609",))
 
+    def test_the_transfer_history_is_read_as_its_contract_states_and_named_by_its_newest_release(self):
+        # Root ADR-0275: releases append their changed keys; a key's release is a set of rows (ADR-0090).
+        import parcel_panel_silver_to_gold as job
+
+        name = "silver.land_transfer_history"
+        june, september = "vworldkr-land-transfer-history:20990601", "vworldkr-land-transfer-history:20990901"
+        at = datetime(2099, 9, 1, tzinfo=timezone.utc)
+        rows = [
+            {"pnu": pnu(1), "transfer_history_seq": 1, "reason": "split", "source_snapshot_id": june},
+            {"pnu": pnu(2), "transfer_history_seq": 1, "reason": "split", "source_snapshot_id": june},
+            # Lot 2 changed in September and repeats its row there, as the source does.
+            {"pnu": pnu(2), "transfer_history_seq": 1, "reason": "merge", "source_snapshot_id": september},
+            {"pnu": pnu(2), "transfer_history_seq": 1, "reason": "merge", "source_snapshot_id": september},
+            {"pnu": pnu(3), "transfer_history_seq": 1, "reason": "gone", "source_snapshot_id": june},
+            {"pnu": pnu(3), "transfer_history_seq": 1, "reason": "gone", "source_snapshot_id": september,
+             "row_state": "removed"},
+        ]
+        contract, root = self.write("parcel_panel_silver_to_gold", name,
+                                    [{**row, "ingested_at_utc": at, "source_record_id": "bronze/x.zip"} for row in rows])
+        current = self.read("parcel_panel_silver_to_gold", name, contract, root)
+        self.assertEqual(self.rows(current, ["pnu", "reason"]),
+                         [(pnu(1), "split"), (pnu(2), "merge"), (pnu(2), "merge")])
+        self.assertEqual(job.assert_single_snapshot(current, name), september)
+
 
 if __name__ == "__main__":
     unittest.main()

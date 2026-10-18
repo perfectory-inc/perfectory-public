@@ -300,58 +300,10 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
     contract: &LaneContract,
     load: &SparkLoad,
 ) -> Vec<String> {
-    let release = runtime.release_root.to_string_lossy().into_owned();
-    let compose_file = format!("{release}/compose.lakehouse.yml");
-    let scratch = format!("{}:/scratch", runtime.scratch().to_string_lossy());
-    // The init service (a write check of the work directory) runs first, as for every Spark job.
-    let mut args: Vec<String> = [
-        "compose",
-        "--project-directory",
-        release.as_str(),
-        "-f",
-        compose_file.as_str(),
-        "-p",
-        runtime.project.as_str(),
-        "--profile",
-        "lakehouse-batch",
-        "run",
-        "--rm",
-        "-v",
-        scratch.as_str(),
-    ]
-    .map(str::to_owned)
-    .to_vec();
-    let mut names = vec![
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
-        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER",
-    ];
-    if load.reads_r2 {
-        names.extend([
-            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-        ]);
-    }
-    for name in names {
-        // By name only: the value stays in this process's environment, out of the argument list.
-        args.extend(["-e".to_owned(), name.to_owned()]);
-    }
-    let spark = &contract.spark;
+    let mut args = submit_arguments(runtime, contract, load.reads_r2);
     let summary = format!("{CONTAINER_ROOT}/{SPARK_SUMMARY}");
     args.extend(
         [
-            "spark",
-            "spark-submit",
-            "--master",
-            spark.master.as_str(),
-            "--driver-memory",
-            spark.driver_memory.as_str(),
-            "--conf",
-            "spark.local.dir=/scratch",
-            "--jars",
-            runtime.spark_jars.as_str(),
             "/workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
             "--input",
             load.input.as_str(),
@@ -382,12 +334,146 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
     args
 }
 
+/// A staged release appended to `main` as its changes (root ADR-0275).
+pub(in crate::remote_lakehouse_job) struct ReleaseCompare {
+    /// The load branch the release is staged on.
+    pub branch: String,
+    pub source_snapshot_id: String,
+    /// Every Bronze object of the release: the append's commit records them.
+    pub objects: Vec<String>,
+    pub content_columns: Vec<String>,
+}
+
+/// The `docker compose` arguments of a release compare (`silver_release_compare.py`).
+pub(in crate::remote_lakehouse_job) fn compare_arguments(
+    runtime: &Runtime,
+    contract: &LaneContract,
+    compare: &ReleaseCompare,
+) -> anyhow::Result<Vec<String>> {
+    ensure!(
+        compare.objects.iter().all(|object| !object.contains(',')),
+        "a release object key holds a comma, which the compare's --objects list cannot carry"
+    );
+    let mut args = submit_arguments(runtime, contract, false);
+    let summary = format!("{CONTAINER_ROOT}/{SPARK_SUMMARY}");
+    args.extend([
+        "/workspace/infra/lakehouse/spark/jobs/silver_release_compare.py".to_owned(),
+        "--contract".to_owned(),
+        contract.table.clone(),
+        "--branch".to_owned(),
+        compare.branch.clone(),
+        "--source-snapshot-id".to_owned(),
+        compare.source_snapshot_id.clone(),
+        "--objects".to_owned(),
+        compare.objects.join(","),
+        "--content-columns".to_owned(),
+        compare.content_columns.join(","),
+        "--summary-output".to_owned(),
+        summary,
+    ]);
+    Ok(args)
+}
+
+/// `docker compose run ... spark-submit` up to the job's script: what every Spark job of a lane
+/// shares.
+fn submit_arguments(runtime: &Runtime, contract: &LaneContract, reads_r2: bool) -> Vec<String> {
+    let release = runtime.release_root.to_string_lossy().into_owned();
+    let compose_file = format!("{release}/compose.lakehouse.yml");
+    let scratch = format!("{}:/scratch", runtime.scratch().to_string_lossy());
+    // The init service (a write check of the work directory) runs first, as for every Spark job.
+    let mut args: Vec<String> = [
+        "compose",
+        "--project-directory",
+        release.as_str(),
+        "-f",
+        compose_file.as_str(),
+        "-p",
+        runtime.project.as_str(),
+        "--profile",
+        "lakehouse-batch",
+        "run",
+        "--rm",
+        "-v",
+        scratch.as_str(),
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let mut names = vec![
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER",
+    ];
+    if reads_r2 {
+        names.extend([
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+        ]);
+    }
+    for name in names {
+        // By name only: the value stays in this process's environment, out of the argument list.
+        args.extend(["-e".to_owned(), name.to_owned()]);
+    }
+    let spark = &contract.spark;
+    args.extend(
+        [
+            "spark",
+            "spark-submit",
+            "--master",
+            spark.master.as_str(),
+            "--driver-memory",
+            spark.driver_memory.as_str(),
+            "--conf",
+            "spark.local.dir=/scratch",
+            "--jars",
+            runtime.spark_jars.as_str(),
+        ]
+        .map(str::to_owned),
+    );
+    args
+}
+
 /// Runs one Spark load and returns its validated summary.
 pub(in crate::remote_lakehouse_job) fn spark(
     runtime: &Runtime,
     contract: &LaneContract,
     load: &SparkLoad,
 ) -> anyhow::Result<lakehouse_domain::SparkRunSummary> {
+    let raw = run_spark(runtime, contract, &spark_arguments(runtime, contract, load))?;
+    super::super::validate_spark_summary(&raw)
+}
+
+/// Runs a release compare and returns its summary (`outcome` `appended` or `already_appended`).
+pub(in crate::remote_lakehouse_job) fn compare(
+    runtime: &Runtime,
+    contract: &LaneContract,
+    compare: &ReleaseCompare,
+) -> anyhow::Result<serde_json::Value> {
+    let raw = run_spark(
+        runtime,
+        contract,
+        &compare_arguments(runtime, contract, compare)?,
+    )?;
+    let summary: serde_json::Value =
+        serde_json::from_str(&raw).context("the release compare summary is not JSON")?;
+    ensure!(
+        matches!(
+            summary["outcome"].as_str(),
+            Some("appended" | "already_appended")
+        ) && summary["source_snapshot_id"].as_str() == Some(compare.source_snapshot_id.as_str()),
+        "the release compare of {} reported {summary}",
+        contract.table
+    );
+    Ok(summary)
+}
+
+/// Runs one Spark job of the lane and returns the summary it wrote.
+fn run_spark(
+    runtime: &Runtime,
+    contract: &LaneContract,
+    args: &[String],
+) -> anyhow::Result<String> {
     let summary_path = runtime.work().join(SPARK_SUMMARY);
     if summary_path.exists() {
         fs::remove_file(&summary_path)?;
@@ -400,7 +486,7 @@ pub(in crate::remote_lakehouse_job) fn spark(
         .stderr(Stdio::null())
         .status();
     let status = Command::new("docker")
-        .args(spark_arguments(runtime, contract, load))
+        .args(args)
         .env("FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT", runtime.work())
         .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE", &runtime.jars_dir)
         .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE", "ro")
@@ -415,9 +501,8 @@ pub(in crate::remote_lakehouse_job) fn spark(
         "the Spark load of {} failed: {status}",
         contract.table
     );
-    let raw = fs::read_to_string(&summary_path)
-        .with_context(|| format!("the Spark load left no {}", summary_path.display()))?;
-    super::super::validate_spark_summary(&raw)
+    fs::read_to_string(&summary_path)
+        .with_context(|| format!("the Spark load left no {}", summary_path.display()))
 }
 
 /// Keeps the run's summaries (the export's fill rates and crosswalk provenance, Spark's counts)

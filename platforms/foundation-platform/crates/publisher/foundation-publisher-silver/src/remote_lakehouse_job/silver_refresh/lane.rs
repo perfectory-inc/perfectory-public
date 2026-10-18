@@ -266,6 +266,17 @@ struct Block {
     #[serde(default)]
     export_chunk_rows: Option<u32>,
     spark: SparkRunner,
+    /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
+    #[serde(default)]
+    compare: Option<CompareBlock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompareBlock {
+    /// The columns a row's content is: never one the load writes (`data_reference_date` changes on
+    /// every row of every release and made each row look changed, root ADR-0275 step 1).
+    content_columns: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -296,6 +307,9 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     /// How a land lane finds its release in the ledger and names its handoffs.
     pub land: Option<LandRule>,
     pub spark: SparkRunner,
+    /// A land lane that appends a release's changes to `main` rather than publishing its staged
+    /// branch (root ADR-0275): the columns compared. `None` publishes the release whole.
+    pub compare_content: Option<Vec<String>>,
 }
 
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
@@ -419,6 +433,10 @@ impl LaneContract {
                 handoff_suffix,
             };
             rule.member_regex()?;
+            let compare_content = block
+                .compare
+                .map(|compare| checked_compare(&block.table, compare.content_columns))
+                .transpose()?;
             return Ok(Self {
                 lane,
                 table: block.table,
@@ -429,11 +447,16 @@ impl LaneContract {
                 handoff_prefix: Some(rule.handoff_prefix.clone()),
                 land: Some(rule),
                 spark,
+                compare_content,
             });
         }
         ensure!(
             block.source.is_none() && block.member_name.is_none() && block.completeness.is_none(),
             "a hub lane reads roles from the ledger month, not land member names"
+        );
+        ensure!(
+            block.compare.is_none(),
+            "a hub lane publishes its release whole; compare is for land lanes (root ADR-0275)"
         );
         let block_roles = block
             .roles
@@ -484,8 +507,33 @@ impl LaneContract {
             handoff_prefix,
             land: None,
             spark,
+            compare_content: None,
         })
     }
+}
+
+/// Content columns a lane may compare: its table's own, the table marks vanished keys, and none is
+/// part of the key (the compare job refuses the load's own columns as well).
+fn checked_compare(table: &str, content: Vec<String>) -> anyhow::Result<Vec<String>> {
+    let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
+        .with_context(|| format!("{table} has no lakehouse contract"))?;
+    let latest = contract
+        .current_row_latest
+        .filter(|latest| latest.removal_column.is_some())
+        .with_context(|| {
+            format!(
+                "{table} must mark vanished keys (current_row_latest.removal_column) to compare"
+            )
+        })?;
+    ensure!(!content.is_empty(), "compare.content_columns lists nothing");
+    for column in &content {
+        ensure!(
+            contract.columns.iter().any(|c| c.name == column)
+                && !latest.key.contains(&column.as_str()),
+            "compare.content_columns names {column}, which is not a non-key column of {table}"
+        );
+    }
+    Ok(content)
 }
 
 /// `local[N,M]` with `M >= 2`: a failed task runs again (root ADR-0102).
