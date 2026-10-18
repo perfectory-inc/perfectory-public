@@ -15,14 +15,18 @@ last_reviewed: 2026-10-18
 
 | 무엇 | 이름 | 넣는 곳 |
 |---|---|---|
-| 버킷 | `perfectory-foundation-releases` | Cloudflare R2 |
-| CI 발행 열쇠 | `foundation-release-publish-ci` (Object Read & Write, 이 버킷만) | GitHub 환경 `release-publish` 의 비밀 |
-| 서버 읽기 열쇠 | `foundation-release-read-server` (Object Read only, 이 버킷만) | 서버 파일 `/etc/foundation-platform/secrets/release-r2-reader.env` |
+| 버킷 | `foundation-platform-releases-prod` | Cloudflare R2 |
+| CI 발행 열쇠 | `foundation-platform-releases-writer-prod` (Object Read & Write, 이 버킷만) | GitHub 환경 `release-publish` 의 비밀 |
+| 서버 읽기 열쇠 | `foundation-platform-releases-reader-prod` (Object Read only, 이 버킷만) | 서버 파일 `/etc/foundation-platform/releases.env` |
+
+## 이름 규칙
+
+이름은 이미 있는 것과 같은 규칙입니다(`config/r2-connections.contract.json`, `config/runtime-secrets.contract.json`, 루트 ADR-0247): 버킷 `foundation-platform-<용도>-prod`(예: `foundation-platform-lakehouse-prod`), 토큰 `foundation-platform-<용도>-<writer|reader>-prod`, 변수 이름은 토큰 이름에서 `-prod` 를 떼고 대문자로 바꾼 것입니다. 서버 파일은 다른 환경 파일처럼 `/etc/foundation-platform/<이름>.env` 입니다.
 
 ## 1. 버킷 만들기 (Cloudflare 대시보드)
 
 1. R2 object storage → Create bucket.
-2. 이름 `perfectory-foundation-releases`, 위치는 서버와 가까운 곳(Asia-Pacific 힌트), 기본 저장 등급 Standard.
+2. 이름 `foundation-platform-releases-prod`, 위치는 서버와 가까운 곳(Asia-Pacific 힌트), 기본 저장 등급 Standard.
 3. 버킷 → Settings 에서 **Public access** 는 그대로 꺼 둡니다(r2.dev·사용자 도메인 연결하지 않음).
 
 ## 2. 덮어쓰기·삭제 금지 (Bucket lock rules)
@@ -42,9 +46,9 @@ R2 object storage → Account Details 의 **API Tokens** 옆 **Manage** → **Cr
 
 | 칸 | CI 발행 열쇠 | 서버 읽기 열쇠 |
 |---|---|---|
-| 이름 | `foundation-release-publish-ci` | `foundation-release-read-server` |
+| 이름 | `foundation-platform-releases-writer-prod` | `foundation-platform-releases-reader-prod` |
 | Permissions | **Object Read and Write** | **Object Read** |
-| 버킷 범위 | **Apply to specific buckets only** → `perfectory-foundation-releases` 하나 | 같음 |
+| 버킷 범위 | **Apply to specific buckets only** → `foundation-platform-releases-prod` 하나 | 같음 |
 | TTL | 1년(만료 한 달 전에 다시 만듦) | 같음 |
 
 만들면 액세스 키 ID 와 시크릿이 한 번만 보입니다. 바로 아래 4·5 의 자리에 넣고, 다른 곳에 적지 마세요.
@@ -53,8 +57,8 @@ R2 object storage → Account Details 의 **API Tokens** 옆 **Manage** → **Cr
 
 1. GitHub 저장소 → Settings → Environments → **New environment** → 이름 `release-publish`.
 2. **Deployment branches and tags** → Selected branches → `main` 만.
-3. Environment secrets 에 둘: `RELEASE_R2_ACCESS_KEY_ID`, `RELEASE_R2_SECRET_ACCESS_KEY`.
-4. Environment variables 에 둘(비밀 아님): `RELEASE_R2_BUCKET` = `perfectory-foundation-releases`, `RELEASE_R2_ENDPOINT` = 계정의 R2 S3 주소.
+3. Environment secrets 에 둘: `FOUNDATION_PLATFORM_RELEASES_WRITER_ACCESS_KEY_ID`, `FOUNDATION_PLATFORM_RELEASES_WRITER_SECRET_ACCESS_KEY`.
+4. Environment variables 에 둘(비밀 아님): `FOUNDATION_PLATFORM_R2_RELEASES_BUCKET` = `foundation-platform-releases-prod`, `FOUNDATION_PLATFORM_R2_RELEASES_ENDPOINT` = 계정의 R2 S3 주소.
 
 저장소 수준 비밀(Repository secrets)에는 넣지 않습니다. 환경 비밀은 main 의 그 환경을 쓰는 작업만 받습니다.
 
@@ -63,15 +67,15 @@ R2 object storage → Account Details 의 **API Tokens** 옆 **Manage** → **Cr
 서버에 접속해 아래 두 줄을 그대로 칩니다(PowerShell 에서 ssh 로 들어간 뒤 서버 셸에서):
 
 ```text
-sudo install -o root -g root -m 0600 /dev/null /etc/foundation-platform/secrets/release-r2-reader.env
-sudo nano /etc/foundation-platform/secrets/release-r2-reader.env
+sudo install -o root -g root -m 0600 /dev/null /etc/foundation-platform/releases.env
+sudo nano /etc/foundation-platform/releases.env
 ```
 
 편집기에 두 줄을 적고 저장합니다(값은 3 에서 받은 것):
 
 ```text
-FOUNDATION_RELEASE_R2_ACCESS_KEY_ID=<서버 읽기 열쇠의 액세스 키 ID>
-FOUNDATION_RELEASE_R2_SECRET_ACCESS_KEY=<서버 읽기 열쇠의 시크릿>
+FOUNDATION_PLATFORM_RELEASES_READER_ACCESS_KEY_ID=<서버 읽기 열쇠의 액세스 키 ID>
+FOUNDATION_PLATFORM_RELEASES_READER_SECRET_ACCESS_KEY=<서버 읽기 열쇠의 시크릿>
 ```
 
 ## 6. 다른 열쇠가 닿지 않는지 확인
