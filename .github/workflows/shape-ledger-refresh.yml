@@ -1,0 +1,33 @@
+name: shape-ledger-refresh
+# Production's table shapes leave the committed ledgers when a deploy migrates or a load creates a
+# table (root ADR-0259 §5). The host's daily check (12:30 UTC) puts its captures in the private ledger
+# bucket; this run reads them with a read-only key held only in the protected environment shape-ledger
+# and writes what differs to the job summary (root ADR-0279). Without the key it says so and skips.
+# It gates no pull request. Opening the refresh pull request is the prepared-PR App's (step 3).
+on:
+  schedule:
+    - cron: "30 13 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  compare:
+    name: Shape ledgers against production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: shape-ledger
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Compare the captured ledgers with main's
+        env:
+          FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST: ${{ secrets.FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST }}
+          FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID: ${{ secrets.FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID }}
+          FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY: ${{ secrets.FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY }}
+        run: python3 platforms/foundation-platform/scripts/ops/shape-ledger-compare.py >> "$GITHUB_STEP_SUMMARY"

@@ -487,6 +487,41 @@ issue_writer_fixture issue-writer-contents
 sed -i 's/^      contents: read$/      contents: write/' "$test_root/issue-writer-contents/dependency-advisories.yml"
 expect_rejected contents-write-in-advisory-workflow "$test_root/issue-writer-contents"
 
+# Root ADR-0279: only the schedule-only shape-ledger-refresh.yml, its job in the environment
+# shape-ledger, may read that environment's three ledger-bucket secrets, each as a whole step env value.
+ledger_reader_fixture() {
+  scheduled_fixture "$1"
+  mv "$test_root/$1/report.yml" "$test_root/$1/${2:-shape-ledger-refresh.yml}"
+  cat >>"$test_root/$1/${2:-shape-ledger-refresh.yml}" <<'YAML'
+      - name: Compare
+        env:
+          FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST: ${{ secrets.FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST }}
+          FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID: ${{ secrets.FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID }}
+          FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY: ${{ secrets.FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY }}
+        run: python3 compare.py
+YAML
+  sed -i 's/^    runs-on: ubuntu-24.04$/    runs-on: ubuntu-24.04\n    environment: shape-ledger/' \
+    "$test_root/$1/${2:-shape-ledger-refresh.yml}"
+}
+ledger_reader_fixture ledger-reader
+if ! "$checker" "$test_root/ledger-reader" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the shape ledger workflow's environment secrets" >&2
+  exit 1
+fi
+ledger_reader_fixture ledger-reader-other-file other-report.yml
+expect_rejected ledger-secrets-in-another-workflow "$test_root/ledger-reader-other-file"
+ledger_reader_fixture ledger-reader-other-secret
+sed -i 's/secrets\.FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST }}/secrets.FOUNDATION_TILE_DERIVATIVE_R2_WRITE_SECRET_ACCESS_KEY }}/' \
+  "$test_root/ledger-reader-other-secret/shape-ledger-refresh.yml"
+expect_rejected another-secret-in-ledger-workflow "$test_root/ledger-reader-other-secret"
+ledger_reader_fixture ledger-reader-no-environment
+sed -i '/^    environment: shape-ledger$/d' "$test_root/ledger-reader-no-environment/shape-ledger-refresh.yml"
+expect_rejected ledger-secrets-outside-the-environment "$test_root/ledger-reader-no-environment"
+ledger_reader_fixture ledger-reader-push
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/ledger-reader-push/shape-ledger-refresh.yml"
+expect_rejected ledger-secrets-with-push-trigger "$test_root/ledger-reader-push"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \

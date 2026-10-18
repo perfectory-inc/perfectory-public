@@ -237,6 +237,23 @@ for workflow in "${workflows[@]}"; do
     /\}\}/ { in_expression=0 }
     /ACTIONS_ID_TOKEN/ { print NR ":" $0 }
   ' "$workflow")"
+  # One exception (root ADR-0279): the schedule-only shape-ledger-refresh workflow, whose one job
+  # runs in the protected environment shape-ledger (main only), may read that environment's three
+  # ledger-bucket secrets as whole step env values; no other secret, no variable, no other file.
+  if [ "$(basename "$workflow")" = shape-ledger-refresh.yml ] && [ -n "$private_context_or_oidc_refs" ]     && [ "$(grep -c '^    environment: shape-ledger$' "$workflow")" = 1 ]     && [ "$(grep -Ec '^[[:space:]]*environment:' "$workflow")" = 1 ]     && awk '
+      /^on:[[:space:]]*$/ { in_on=1; next }
+      in_on && /^[^[:space:]]/ { in_on=0 }
+      in_on && /^  [A-Za-z0-9_-]+:/ {
+        key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
+        if (key == "schedule") schedule++
+        else if (key != "workflow_dispatch") other++
+      }
+      END { exit (schedule == 1 && !other) ? 0 : 1 }
+    ' "$workflow"; then
+    ledger_secret='^[0-9]+:          (FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST|FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID|FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY): \$\{\{ secrets\.\1 \}\}$'
+    private_context_or_oidc_refs="$(printf '%s
+' "$private_context_or_oidc_refs" | grep -Ev "$ledger_secret" || true)"
+  fi
   if [ -n "$private_context_or_oidc_refs" ]; then
     echo "FAIL workflow-policy: public workflows must not reference secrets, variables, or OIDC token channels: $workflow" >&2
     exit 1
