@@ -68,9 +68,15 @@ def stand_ins():
     class SSHOperator(BaseOperator):
         allowed = OPERATOR_ARGUMENTS | SSH_ARGUMENTS
         output = b""
+        error = None  # what connecting or the command raises, as SSHOperator.execute would
 
         def run_ssh_client_command(self, ssh_client, command, context=None):
             return self.output
+
+        def execute(self, context):
+            if self.error:
+                raise self.error
+            return self.run_ssh_client_command(None, self.kwargs["command"], context=context)
 
     def record(kind):
         def make(*args, **kwargs):
@@ -143,6 +149,7 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                 self.assertEqual(run.kwargs["command"],
                                  spec.job_id + "{{ '' if dag_run.run_type == 'scheduled' else ' triggered' }}")
                 self.assertIs(run.kwargs["do_xcom_push"], False, "the journal is not kept as an XCom")
+                tasks.pop("check", None)  # its own test below
                 if spec.outputs:
                     self.assertEqual(set(tasks), {"run", "publish_outputs"})
                     self.assertEqual(run.downstream, ["publish_outputs"])
@@ -222,6 +229,58 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                 else:
                     publish.execute({"ti": ti})
                 ti.xcom_pull.assert_called_once_with(task_ids="run", key="outcome")
+
+
+class TheCheckBeforeThePool(unittest.TestCase):
+    """Root ADR-0277: a job with a check_service asks it, in default_pool, before its run waits for a pool."""
+
+    @classmethod
+    def setUpClass(cls):
+        modules, built = stand_ins()
+        load_dag_file(modules)
+        cls.dags = {dag.dag_id: dag for dag in built["dags"]}
+        cls.specs = job_specs.load_specs()
+
+    def check_of(self, spec):
+        return next((task for task in self.dags[spec.dag_id].tasks if task.task_id == "check"), None)
+
+    def test_every_silver_lane_checks_first_and_nothing_else_does(self):
+        checked = {spec.job_id for spec in self.specs if self.check_of(spec)}
+        self.assertEqual(checked, {spec.job_id for spec in self.specs if spec.check_service})
+        self.assertEqual(checked, {spec.job_id for spec in self.specs if spec.job_id.startswith("silver_refresh_")})
+        for spec in self.specs:
+            check = self.check_of(spec)
+            if check is None:
+                continue
+            with self.subTest(spec.job_id):
+                self.assertEqual(check.kwargs["command"], f"{spec.job_id} check")
+                self.assertEqual(check.kwargs["pool"], "default_pool")
+                self.assertNotIn("pool_slots", check.kwargs)
+                self.assertEqual(check.kwargs["retries"], 0)
+                self.assertEqual(check.downstream, ["run"])
+                self.assertEqual(check.lineage_flags, {"emit_task_events": False})
+
+    def test_only_unchanged_skips_the_run(self):
+        spec = next(spec for spec in self.specs if spec.check_service)
+        check = self.check_of(spec)
+        check.output = b"silver-refresh-plan lane=x outcome=unchanged\nfoundation-job-check unchanged\n"
+        with self.assertRaises(SkipRun):
+            check.execute({})
+        for output in [b"foundation-job-check would_change\n", b"", b"foundation-job-check unchanged but more\n",
+                       b"note: foundation-job-check unchanged\n",
+                       b"foundation-job-check unchanged\nfoundation-job-check would_change\n"]:
+            with self.subTest(output=output):
+                check.output = output
+                self.assertIsNone(check.execute({}))
+
+    def test_a_check_that_cannot_answer_lets_the_run_decide(self):
+        spec = next(spec for spec in self.specs if spec.check_service)
+        check = self.check_of(spec)
+        check.error = RuntimeError("SSH command timed out")
+        try:
+            self.assertIsNone(check.execute({}))
+        finally:
+            check.error = None
 
 
 def airflow_installed():

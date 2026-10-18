@@ -321,6 +321,12 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_two_jobs_on_one_service(self):
         self.refused(lambda jobs: jobs["jobs"][1].update(systemd_service=jobs["jobs"][0]["systemd_service"]))
 
+    def test_a_check_service_the_release_does_not_ship_or_another_job_owns(self):
+        # Root ADR-0277: the scheduler is granted exactly the services the list names.
+        self.refused(lambda jobs: jobs["jobs"][0].update(check_service="foundation-no-such-check.service"))
+        self.refused(lambda jobs: jobs["jobs"][0].update(check_service="ssh.service"))
+        self.refused(lambda jobs: jobs["jobs"][0].update(check_service=jobs["jobs"][1]["systemd_service"]))
+
     def test_an_enabled_flag_that_is_not_a_boolean(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(enabled="yes"))
 

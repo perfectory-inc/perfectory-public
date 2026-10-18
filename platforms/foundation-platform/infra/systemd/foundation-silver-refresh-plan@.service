@@ -1,0 +1,28 @@
+[Unit]
+Description=Foundation Platform Silver refresh check of the %i lane: does the Bronze ledger hold a release the Silver table does not, without Spark (root ADR-0277)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# The lane's plan: it reads the ledger, the table's ingest record and a part lane's manifest, and
+# stages, exports and writes nothing. It takes no lock and starts no container, so it runs beside
+# a running lane. Its last line is `foundation-job-check unchanged|would_change`; the lane's DAG
+# skips the run on `unchanged` before the run waits for the spark pool.
+ExecStart=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i --plan
+# Measured 2026-10-14..18 on every lane: the same decision, as a run that ended unchanged, took
+# 1.4-4.2 s from start to finish.
+TimeoutStartSec=5m
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
