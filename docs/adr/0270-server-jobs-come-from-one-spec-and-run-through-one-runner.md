@@ -324,3 +324,21 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
   고정해 확인하고, 서버가 가끔 같은 커밋을 다시 빌드해 다이제스트를 대조(재현성 표본 검사)할 수 있다.
 - **R2 쓰기 열쇠가 CI 에 들어간다**: main·머지 큐 작업에만 주고, 캐시 전용 버킷·접두어로 범위를 좁힌다.
 
+## 진행 기록 (덧붙임 — 결정 본문은 바꾸지 않는다)
+
+### 2026-10-18 — 단계 1 완료: 명세에서 만들고, CI 가 어긋남을 거부한다
+
+| 무엇 | 결과 (main, 2026-10-18 측정) | PR |
+|---|---|---|
+| 실행 시간 상한 | 작업 32개 모두 `time_limit_minutes` 한 곳. 유닛 19개의 `TimeoutStartSec=` 는 생성물 | #678 |
+| 시작 하나의 상한 | `timeout_minutes` 0개. `time_limit_minutes + stop_grace_minutes` 를 넷(DAG, 배포, foundation-api, 시험)이 같은 방식으로 더함. 실제 값 변화 0건(32개 대조) | #685 |
+| 쓰기 경로 | `ProtectSystem=strict` 유닛 19개의 `ReadWritePaths=` 는 `state_paths` 에서 생성. Python 생성기 삭제(생성기 하나) | #648, #679 |
+| 작업 폴더 | `state_directories` 13개 → 생성 tmpfiles 파일. 배포 스크립트의 손 `install -d` 0줄. `activate` 가 `current` 전환 **전에** 만듦 | #680, #688 |
+| 누구 소유인가 | `lakehouse-ivy` 0777(이름 없는 uid) → 0755 `foundation-spark`(185:185, sysusers). 만들지 않는 상태 경로 0개 | #688 |
+| 모든 작업 유닛의 공통 줄 | 8줄(oneshot, 계정, 실패 알림, 샌드박스 4줄)을 19개 유닛 모두 갖고, 빠지면 거부 | #683 |
+
+- 생성·검사는 크레이트 `foundation-jobs` 하나다(Rust, 시험 18개). 모든 검사는 위반을 심어 거부까지 확인했다.
+- sudoers 는 배포가 이미 `jobs.v1.json` 에서 만들고 `visudo` 로 검사하므로 바꾸지 않았다.
+- 아직 확인하지 못한 것: #680·#688 이 처음 배포될 때 실제 서버에서 `systemd-sysusers`·`systemd-tmpfiles` 가 도는 것. 첫 배포 로그로 확인한다.
+- 단계 2 제안(사장 결정 대기): [사장 요약 "단계 2 제안"](../domain-stories/owner-summary.md).
+
