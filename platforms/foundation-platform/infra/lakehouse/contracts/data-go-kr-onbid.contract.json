@@ -1,0 +1,90 @@
+{
+  "$comment": "Root ADR-0280. How 차세대 온비드 (KAMCO Onbid) public-sale data is fetched from data.go.kr, what a response must look like, and the call budget. The collector (`collect-data-go-kr-onbid` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/data_go_kr_onbid.py) and their tests read this file; nothing else restates these values. The service key is the platform's DATA_GO_KR_SERVICE_KEY and is never written here or into Bronze (the request fingerprint drops it). Measured 2026-10-19: every list item carries a 19-digit ltnoPnu; about 78,400 real-estate items are open (pvctTrgtYn N about 61,600, Y about 16,800); one full item pass is about 95 calls and 137 MB of JSON, 8.8 MB gzipped.",
+  "version": 1,
+  "base_url": "https://apis.data.go.kr/B010003",
+  "user_agent": "foundation-platform-onbid-collector/1 (+root ADR-0280)",
+  "request_spacing_ms": 500,
+  "request_timeout_seconds": 60,
+  "result_type": "json",
+  "result_codes": {
+    "$comment": "header.resultCode (or result.resultCode on an error body). 00 is rows; 03 (NODATA_ERROR) is a valid empty answer for a combination with no open items. Any other code refuses the run: a key, quota or parameter problem must not read as 'no items'.",
+    "ok": "00",
+    "no_data": "03"
+  },
+  "daily_call_limit_per_api": {
+    "$comment": "The data.go.kr development-account limit counts each API (활용신청) separately. The collector stops an API before it would pass its limit for the KST day and records the stop; it never spreads one API's calls over another's quota. Raise these only after the operating-account upgrade is approved.",
+    "item_list": 1000,
+    "announcement_list": 1000,
+    "announcement_bid_result_list": 1000,
+    "item_bid_result": 900
+  },
+  "property_division_codes": {
+    "$comment": "prptDivCd, a mandatory parameter of every list API (the provider's own meanings, swagger 2026-03-20). Every code is asked: a code with no open items costs one call and answers 03.",
+    "0002": "공유재산",
+    "0003": "금융권담보재산",
+    "0004": "불용품",
+    "0005": "기타일반재산",
+    "0006": "유입재산",
+    "0007": "압류재산",
+    "0008": "수탁재산",
+    "0010": "국유재산",
+    "0011": "공공개발재산",
+    "0013": "파산자산"
+  },
+  "item_list": {
+    "$comment": "물건목록 (data.go.kr 15157207). Only open rounds are listed: an item condition (cltrMngNo, pbctCdtnNo) leaves the list when its bidding ends, so a key absent from a complete pass is a closed round and is asked once at item_bid_result. A pass is complete only when every (prptDivCd, pvctTrgtYn) combination was read to its last page; an incomplete pass lands in Bronze but marks nothing removed.",
+    "dataset_slug": "onbid_real_estate_item",
+    "operation": "getRlstCltrList2",
+    "path": "/OnbidRlstListSrvc2/getRlstCltrList2",
+    "page_size": 1000,
+    "private_contract_flags": ["N", "Y"],
+    "every_hours": 3
+  },
+  "announcement_list": {
+    "$comment": "공고목록 (data.go.kr 15157216). cltrTypeCd 0001 is real estate. The window is the 개찰일 range the request names.",
+    "dataset_slug": "onbid_announcement",
+    "operation": "getPbancList2",
+    "path": "/OnbidPbancListSrvc2/getPbancList2",
+    "page_size": 1000,
+    "item_type_code": "0001",
+    "opening_window_days_before": 3,
+    "opening_window_days_after": 60,
+    "every_hours": 1
+  },
+  "announcement_bid_result_list": {
+    "$comment": "공고 입찰결과목록 (data.go.kr 15157222), the announcements whose opening fell in the window.",
+    "dataset_slug": "onbid_announcement_bid_result",
+    "operation": "getPbancBidRsltList2",
+    "path": "/OnbidPbancBidRsltListSrvc2/getPbancBidRsltList2",
+    "page_size": 1000,
+    "item_type_code": "0001",
+    "opening_window_days_before": 3,
+    "opening_window_days_after": 0,
+    "every_hours": 1
+  },
+  "item_bid_result": {
+    "$comment": "물건 입찰결과상세 (data.go.kr 15157254), one call per closed item condition, oldest first, within the daily limit; the rest wait for the next run. A 03 answer is recorded as asked (the provider has no result yet) and asked again after retry_after_hours, at most max_asks times.",
+    "dataset_slug": "onbid_item_bid_result",
+    "operation": "getCltrBidRsltDtl2",
+    "path": "/OnbidCltrBidRsltDtlSrvc2/getCltrBidRsltDtl2",
+    "retry_after_hours": 24,
+    "max_asks": 3,
+    "every_hours": 1
+  },
+  "status_codes": {
+    "$comment": "pbctStatCd, the provider's meanings (swagger). Values only; a consumer maps them to its own words.",
+    "0001": "입찰준비중",
+    "0002": "입찰진행중",
+    "0003": "입찰마감",
+    "0006": "개찰중",
+    "0009": "수의계약가능",
+    "0010": "낙찰",
+    "0011": "유찰",
+    "0012": "취소"
+  },
+  "pnu": {
+    "$comment": "ADR-0280 §3: the provider's ltnoPnu is the key as given. A value Pnu::parse would refuse (not 19 ASCII digits, or a 대장구분 digit outside this list) keeps pnu null and its raw text in ltno_pnu_raw. The Silver load reads these values; a test in lakehouse-domain asserts they are exactly what foundation_shared_kernel::Pnu::parse accepts.",
+    "digits": 19,
+    "ledger_kind_digits": ["1", "2", "8", "9"]
+  }
+}

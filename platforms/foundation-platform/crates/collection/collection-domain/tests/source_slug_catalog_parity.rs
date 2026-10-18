@@ -10,8 +10,8 @@
 use std::{error::Error, path::Path, path::PathBuf};
 
 use collection_domain::{
-    building_register_dataset_slug, provider_id, real_transaction_dataset_slug, source_slug,
-    standard_code_dataset_slug, vworld_ned_dataset_slug,
+    building_register_dataset_slug, onbid_dataset_slug, provider_id, real_transaction_dataset_slug,
+    source_slug, standard_code_dataset_slug, vworld_ned_dataset_slug,
 };
 use serde_json::Value;
 
@@ -84,12 +84,13 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (126 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (130 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
-    // 126th is VWorld 필지고유번호변동연혁 (MK/30527), the official step of the pairing (root ADR-0150).
-    assert_eq!(checked, 126, "expected 126 in-scope catalog entries");
+    // 126th is VWorld 필지고유번호변동연혁 (MK/30527), the official step of the pairing (root ADR-0150); the
+    // 127th–130th are the four data.go.kr 차세대 온비드 public-sale APIs (root ADR-0280).
+    assert_eq!(checked, 130, "expected 130 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
         "expected 10 skipped mixed_public_source entries"
@@ -155,6 +156,7 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     let mut building_checked = 0_usize;
     let mut real_transaction_checked = 0_usize;
     let mut standard_code_checked = 0_usize;
+    let mut onbid_checked = 0_usize;
     for entry in endpoints {
         let provider = entry["provider"]
             .as_str()
@@ -187,6 +189,12 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
                 "standard-code operation->dataset_slug map drifted from catalog for {operation:?}"
             );
             standard_code_checked += 1;
+        } else if let Some(code_slug) = onbid_dataset_slug(operation) {
+            assert_eq!(
+                code_slug, dataset_slug,
+                "onbid operation->dataset_slug map drifted from catalog for {operation:?}"
+            );
+            onbid_checked += 1;
         } else {
             return Err(format!(
                 "catalog data.go.kr operation {operation:?} is not covered by any in-code map"
@@ -206,6 +214,10 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     assert_eq!(
         standard_code_checked, 1,
         "expected the 1 standard-code operation to match the catalog"
+    );
+    assert_eq!(
+        onbid_checked, 4,
+        "expected all 4 onbid operations to match the catalog"
     );
     Ok(())
 }
