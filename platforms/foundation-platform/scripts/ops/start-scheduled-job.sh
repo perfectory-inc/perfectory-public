@@ -4,8 +4,12 @@
 # sshd runs it as `foundation-scheduler` whatever the client asked for; the client's words arrive
 # in SSH_ORIGINAL_COMMAND and are read as one job id, nothing more. A job that is not in the job
 # list, or not switched on there, is refused. The job's systemd service is started, its journal
-# for this run is streamed back, and the exit status says whether systemd recorded success. If the
-# connection drops (Airflow timed out or was stopped), the service is stopped with it.
+# for this run is streamed back, and the exit status says whether systemd recorded success.
+#
+# The run belongs to systemd, not to this connection (root ADR-0270 §3, deploy D2): a dropped
+# connection (a deploy restarted Airflow, or its task timed out) leaves the service running, and
+# the next try of the same job joins that run instead of starting a second one. Stopping a run is
+# an operator's act, never a side effect of a connection.
 #
 # Every start is recorded under the scheduler's home. A `takes_turns` job (the multi-day by-PNU
 # bake) is deferred — reported, exit 0, nothing started — when a job in its pool that cannot run
@@ -110,12 +114,12 @@ if ((build == 75)); then
 fi
 
 follower=""
-stop_job() {
-  sudo -n /usr/bin/systemctl stop "${service}" || true
+# A lost connection ends only this follower; the service keeps running (see the header).
+detach() {
   [[ -n "${follower}" ]] && kill "${follower}" 2>/dev/null
   exit 143
 }
-trap stop_job HUP INT TERM
+trap detach HUP INT TERM
 
 state() { systemctl show -p "$1" --value "${service}"; }
 # A systemd that does not answer whether the service runs is not a run that ended: ask again.
