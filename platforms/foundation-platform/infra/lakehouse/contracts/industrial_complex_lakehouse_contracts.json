@@ -2277,6 +2277,11 @@
           "required": false
         },
         {
+          "name": "legal_dong_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "row_digest",
           "logical_type": "string",
           "required": true

@@ -35,6 +35,11 @@ class BuildingPanelContractTest(unittest.TestCase):
         self.assertEqual(buildings[0]["units"][0]["building_id"], buildings[0]["id"])
         self.assertIsNone(orphan["building_id"])
         self.assertNotIn("updated_at", buildings[0])
+        # The register's names sit beside its codes; this fixture's register states none (so the
+        # golden packs built from it keep their bytes), and a missing name is null, never the code.
+        self.assertEqual((buildings[0]["purpose_code"], buildings[0]["purpose_name"]), ("03000", None))
+        self.assertIsNone(buildings[0]["structure_name"])
+        self.assertLessEqual({"purpose_name_raw", "structure_name_raw"}, set(job.BUILD_COLUMNS[job.TITLE_SOURCE]))
         self.assertEqual(buildings[0]["units"][0]["official_price_history"], [
             {"base_date": "20100601", "price_won": 35000000},
             {"base_date": "20100101", "price_won": 36000000},

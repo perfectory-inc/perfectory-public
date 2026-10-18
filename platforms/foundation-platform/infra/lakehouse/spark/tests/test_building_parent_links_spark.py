@@ -53,9 +53,9 @@ class BuildingParentLinksTest(unittest.TestCase):
     def test_verified_parent_missing_from_titles_stays_visible_as_unlinked(self):
         import json
         titles = self.spark.createDataFrame([
-            (None, "TITLE-1", "03000", None, 0.0, None, 0, None),
-        ], "pnu string,mgm_bldrgst_pk string,purpose_code_raw string,structure_code_raw string,"
-           "floor_area_m2 double,ground_floor_count int,basement_floor_count int,approval_year int")
+            (None, "TITLE-1", "03000", None, None, None, 0.0, None, 0, None),
+        ], "pnu string,mgm_bldrgst_pk string,purpose_code_raw string,purpose_name_raw string,"
+           "structure_code_raw string,structure_name_raw string,floor_area_m2 double,ground_floor_count int,basement_floor_count int,approval_year int")
         areas = self.spark.createDataFrame([], "area_row_id string,mgm_bldrgst_pk string,area_kind string,area_m2 double,usage_name_raw string,structure_name_raw string,floor_kind string")
         floors = self.spark.createDataFrame([], "mgm_bldrgst_pk string,floor_row_id string,floor_kind string,floor_number int,floor_index int,floor_display_ko string")
         prices = self.spark.createDataFrame([], "mgm_bldrgst_pk string,base_date string,price_won long")
