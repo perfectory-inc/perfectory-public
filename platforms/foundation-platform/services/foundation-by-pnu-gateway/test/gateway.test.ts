@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { MANIFEST_SCHEMA_VERSIONS, parseAllowedOrigins, parseManifest } from "../src/index";
+import { startMiniflare } from "./miniflare";
 
 // The HTTP surface every lane's Worker shares, held for the building and the parcel lane on the
 // pack path, the only one they have (root ADR-0274). The packs are the publisher's golden packs
@@ -100,7 +101,7 @@ describe.each(LANES)("foundation $lane gateway", ({ lane, gateway: GATEWAY, docu
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    runtime = new Miniflare({
+    runtime = await startMiniflare({
       compatibilityDate: "2026-04-26",
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [R2_BINDING],

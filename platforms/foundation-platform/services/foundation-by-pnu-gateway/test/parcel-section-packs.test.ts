@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { startMiniflare } from "./miniflare";
 
 // The parcel lane reads section packs with the same code as the building lane (root ADR-0160);
 // these hold it to the parcel contract block: its pack root, its bindings, its manifest unit. The
@@ -78,7 +79,7 @@ describe("foundation parcel gateway section packs (root ADR-0147, ADR-0160)", ()
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = new Miniflare({
+    const started = await startMiniflare({
       compatibilityDate: GATEWAY.compatibility_date,
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [R2_BINDING],

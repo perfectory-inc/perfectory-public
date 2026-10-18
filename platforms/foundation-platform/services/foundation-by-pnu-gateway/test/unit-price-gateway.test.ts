@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { startMiniflare } from "./miniflare";
 
 // A pack-only lane of the contract's `by_pnu_lanes` (root ADR-0190): it never had objects, so a
 // manifest without section packs is an outage and an object at the base key is never read, whatever
@@ -48,7 +49,7 @@ describe("foundation unit price gateway (pack-only)", () => {
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = new Miniflare({
+    const started = await startMiniflare({
       compatibilityDate: "2026-04-26",
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [GATEWAY.r2_binding],

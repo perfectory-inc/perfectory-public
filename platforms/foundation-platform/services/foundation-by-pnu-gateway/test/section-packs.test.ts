@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { findEntry, parseHead, parseSectionPacks } from "../src/packs";
+import { startMiniflare } from "./miniflare";
 
 // The golden packs and documents are written by the publisher's own tests
 // (`foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/tests.rs`), so
@@ -100,7 +101,7 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = new Miniflare({
+    const started = await startMiniflare({
       compatibilityDate: "2026-04-26",
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [R2_BINDING],
