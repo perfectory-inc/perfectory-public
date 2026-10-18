@@ -7,7 +7,7 @@ last_reviewed: 2026-10-19
 
 # 온비드 공매 (data.go.kr) — 수집·적재 런북
 
-[루트 ADR-0280](../../../../docs/adr/0280-public-sale-court-auction-and-factory-registration-are-foundation-parcel-sources.md) 의 운영 절차다.
+루트 ADR-0280(공매·법원경매·등록공장은 Foundation 이 PNU 로 묶는 공공 원천) 의 운영 절차다.
 엔드포인트·호출 상한·주기는 `infra/lakehouse/contracts/data-go-kr-onbid.contract.json` 하나에 있다. 이 문서는 값을 다시 적지 않는다.
 
 ## 흐름
