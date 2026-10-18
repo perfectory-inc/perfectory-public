@@ -216,6 +216,7 @@
       "schedule": "7 * * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
       "pool": "default_pool",
       "pipeline_graph_edges": [
@@ -236,6 +237,7 @@
       "schedule": "50 * * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
       "pool": "spark",
       "pool_slots": 1,
