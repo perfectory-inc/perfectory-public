@@ -51,7 +51,6 @@ pub async fn inspect(
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
     by_pnu::check_key(lane, pnu)?;
-    let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
     let (view, from) = match generation {
         Some(generation) => (
             PackView::unpublished(store, lane, generation).await?,
@@ -69,6 +68,31 @@ pub async fn inspect(
             )
         }
     };
+    inspect_view(store, pnu, &view, from).await
+}
+
+/// The report of one PNU as `state` (a recorded manifest's section packs) serves it.
+///
+/// # Errors
+/// Returns an error when the PNU is malformed or a pack cannot be read.
+pub async fn inspect_state(
+    store: &ByPnuServingStore,
+    pnu: &str,
+    state: &crate::by_pnu_section_pack_manifest::SectionPacksState,
+) -> anyhow::Result<JsonValue> {
+    by_pnu::check_key(store.lane(), pnu)?;
+    let view = PackView::served(store, store.lane(), state).await?;
+    inspect_view(store, pnu, &view, "recorded state".to_owned()).await
+}
+
+async fn inspect_view(
+    store: &ByPnuServingStore,
+    pnu: &str,
+    view: &PackView,
+    from: String,
+) -> anyhow::Result<JsonValue> {
+    let lane = store.lane();
+    let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
     // The one base pack per section that can hold the PNU, asked for by key: listing a parted
     // generation would read hundreds of thousands of keys for one PNU.
     let mut bases = Vec::new();
@@ -79,7 +103,7 @@ pub async fn inspect(
             bases.push((section.name.clone(), unit));
         }
     }
-    let packs = read::load_unit(store, &view, &dong, &|section, unit| {
+    let packs = read::load_unit(store, view, &dong, &|section, unit| {
         bases
             .iter()
             .any(|(name, known)| name == section && known == unit)

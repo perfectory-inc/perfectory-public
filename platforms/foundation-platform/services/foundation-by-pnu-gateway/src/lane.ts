@@ -44,6 +44,8 @@ export interface ServedLane {
   capabilities: string;
   acceptedQueries: readonly string[];
   manifestObject: string;
+  /// Where the publisher keeps every manifest it replaced (a preview reads one state, root ADR-0274 §5).
+  manifestHistoryDir: string;
   packRoot: string;
   /// Prefixed to every served-state fingerprint, so two lanes' edge copies never share a key. The
   /// Worker's own lane keeps the bare fingerprint (and the edge copies it already has).
@@ -80,6 +82,7 @@ export function resolveLane(name: string, host: Gateway, kind: string, keySuffix
     capabilities: withKind(host.request_path.capabilities, "by-pnu", kind),
     acceptedQueries: [],
     manifestObject: withKind(host.object_key.manifest_object, "by-pnu", kind),
+    manifestHistoryDir: withKind(host.object_key.manifest_history_dir, "by-pnu", kind),
     packRoot: withKind(host.section_packs.root, "packs", kind),
     cacheScope: `${name}:`,
     keySuffix,
@@ -95,6 +98,7 @@ export const OWN: ServedLane = {
   capabilities: policy.request_path.capabilities,
   acceptedQueries: policy.request_path.accepted_queries as readonly string[],
   manifestObject: policy.object_key.manifest_object,
+  manifestHistoryDir: policy.object_key.manifest_history_dir,
   packRoot: lanePacks.root,
   cacheScope: "",
   keySuffix: keySuffixOf(policy),

@@ -181,9 +181,9 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   1. 위 패치 되돌리기 1과 같이 `foundation_by_pnu_serving_bake` 를 먼저 멈춘다.
   2. 리허설(아무것도 옮기지 않음): `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
      <parcel|building> rollback-rehearsal`. 발행기가 manifest 기록에서 직전 묶음 상태를 찾아 되돌리기를 검사하고
-     쓸 manifest 를 출력한 뒤(`ROLLBACK_DRY_RUN`), 레인 모니터가 미리보기 주소에서 그 세대(`?packs=g<n>`)를 읽어 표본
-     PNU 를 그 세대의 묶음과 맞댄다. 미리보기는 세대의 기본 묶음만 서빙하므로, 묶음 패치가 남는 상태는 미리보기로
-     읽을 수 없어 리허설이 거부한다. 결과는 `<bake root>/<lane>-rollback-rehearsal/`(`logs/check.log`, `rehearsal.json`).
+     쓸 manifest 를 출력한 뒤(`ROLLBACK_DRY_RUN`), 레인 모니터가 미리보기 주소에서 그 기록 상태(`?packs=h<기록 이름>`:
+     그 세대와 묶음 패치 그대로)를 읽어 표본 PNU 를 그 상태의 묶음과 맞댄다. 운영 주소는 이 매개변수에 404 로 답하고
+     기록을 읽지 않는다. 결과는 `<bake root>/<lane>-rollback-rehearsal/`(`logs/check.log`, `rehearsal.json`).
   3. 실행: 발행 명령을 `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_PREVIOUS_PACK_STATE=true` 로 돌린다(특정 기록은
      `..._ROLLBACK_TO_MANIFEST_KEY`). 직전 세대가 이미 지워졌으면(서빙 시작 7일 뒤, 루트 ADR-0242) 거부한다 — 그때의
      되돌리기는 Gold 에서 다시 굽는 것이다.

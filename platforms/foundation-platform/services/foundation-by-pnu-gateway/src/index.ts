@@ -73,10 +73,13 @@ interface CanonicalRequest {
   pnu: string;
   previewGeneration: number | null;
   previewRun: string | null;
+  /// A manifest-history file name (`<published>-<sha256>`): a preview version serves that recorded
+  /// state exactly, its generations and pack patches (the rollback rehearsal, root ADR-0274 §5).
+  previewState: string | null;
 }
 
 const previewPattern = new RegExp(
-  `^\\?${packPolicy.preview_query_parameter}=g([1-9][0-9]{0,15})(?:-r([0-9a-z]{1,16}))?$`,
+  `^\\?${packPolicy.preview_query_parameter}=(?:g([1-9][0-9]{0,15})(?:-r([0-9a-z]{1,16}))?|h([0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}))$`,
 );
 
 function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | null {
@@ -90,18 +93,19 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
   const prefix = lane.prefix;
   if (!url.pathname.startsWith(prefix)) return null;
   const candidate = url.pathname.slice(prefix.length);
-  const previewGeneration = preview === null ? null : Number(preview[1]);
+  const previewGeneration = preview?.[1] === undefined ? null : Number(preview[1]);
   const previewRun = preview?.[2] ?? null;
+  const previewState = preview?.[3] ?? null;
   if (lane.keySuffix !== null) {
     // `<pnu>/<suffix>`: the key is the two joined, as the bake writes it (root ADR-0204).
     const [pnu, suffix, ...rest] = candidate.split("/");
     if (pnu === undefined || suffix === undefined || rest.length > 0) return null;
     if (!pnuPattern.test(pnu) || !lane.keySuffix.test(suffix)) return null;
-    return { pnu: `${pnu}${suffix}`, previewGeneration, previewRun };
+    return { pnu: `${pnu}${suffix}`, previewGeneration, previewRun, previewState };
   }
   if (!pnuPattern.test(candidate)) return null;
   if (url.pathname !== `${prefix}${candidate}`) return null;
-  return { pnu: candidate, previewGeneration, previewRun };
+  return { pnu: candidate, previewGeneration, previewRun, previewState };
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -512,7 +516,7 @@ async function answerByPnu(
   }
   const canonical = canonicalRequest(url, lane);
   if (canonical === null) return new Response(null, { status: 404 });
-  const { pnu, previewGeneration, previewRun } = canonical;
+  const { pnu, previewGeneration, previewRun, previewState } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
       status: 405,
@@ -560,6 +564,18 @@ async function answerByPnu(
   if (previewGeneration !== null && timing !== null) {
     const preview = previewPlan(previewGeneration, workerVersion(env), lane, previewRun);
     return packResponse(request, bucket, ctx, preview, pnu, origin, allowed, timing);
+  }
+  // Root ADR-0274 §5: one recorded manifest state, served exactly as its packs and patches say, so the
+  // rollback rehearsal reads the state a rollback would serve. Only a preview version reads the
+  // history; the live route never does and answers 404.
+  if (previewState !== null) {
+    const missing = () => withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
+    if (timing === null) return missing();
+    const stored = await bucket.get(`${lane.manifestHistoryDir}/${previewState}.json`).catch(() => null);
+    const recorded = stored === null || !("body" in stored) ? null : parseManifest(await stored.json().catch(() => null), lane);
+    if (recorded?.packs === undefined) return missing();
+    const state = { ...recorded.packs, fingerprint: `${recorded.packs.fingerprint}-preview-h-${workerVersion(env) ?? "local"}` };
+    return packResponse(request, bucket, ctx, state, pnu, origin, allowed, timing);
   }
 
   const plan = await resolvePlan(bucket, ctx, lane).catch(() => null);

@@ -457,10 +457,12 @@ fi
 
 if [[ "${ACTION}" == rollback-rehearsal ]]; then
   # Root ADR-0274 §5: proves the lane's rollback lever, its previous pack state (the previous
-  # generation, or the live one without its newest pack patches), and moves nothing. The publisher checks the rollback against the live manifest and prints the manifest it
-  # would write (ROLLBACK_DRY_RUN); then the lane's monitor reads that generation from the preview
-  # hostname and holds every sample PNU to the generation's own packs. Both must pass.
-  (($# == 0)) || refuse "rollback-rehearsal takes nothing: it finds the previous pack generation itself"
+  # generation, or the live one without its newest pack patches), and moves nothing. The publisher
+  # checks the rollback against the live manifest and prints the manifest it would write
+  # (ROLLBACK_DRY_RUN); then the lane's monitor reads that recorded state from the preview hostname
+  # (?packs=h<history name>: its generations and pack patches, exactly) and holds every sample PNU to
+  # the state's own packs. Both must pass.
+  (($# == 0)) || refuse "rollback-rehearsal takes nothing: it finds the previous pack state itself"
   WORK="${BAKE_ROOT}/${LANE}-rollback-rehearsal"
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${WORK}" "${WORK}/logs"
   source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -472,21 +474,24 @@ if [[ "${ACTION}" == rollback-rehearsal ]]; then
     -p StandardOutput=append:"${WORK}/logs/check.log" -p StandardError=append:"${WORK}/logs/check.log" \
     "${PUBLISHER_BIN}" "publish-${LANE}-by-pnu-serving-manifest" \
     || refuse "the rollback check failed; ${WORK}/logs/check.log says why" 65
-  generation="$(python3 -I - "${WORK}/logs/check.log" <<'PY'
-import json, sys
+  read -r state described < <(python3 -I - "${WORK}/logs/check.log" <<'PY'
+import json, re, sys
 for line in reversed(open(sys.argv[1], encoding="utf-8").read().splitlines()):
     if line.startswith("{") and '"dry_run"' in line:
-        packs = json.loads(line)["manifest"]["section_packs"]
-        # The preview serves a generation's base only: a state that keeps pack patches cannot be read there.
-        if packs.get("patches"):
-            sys.exit(f"the previous pack state keeps {len(packs['patches'])} pack patches, which the preview cannot serve")
-        print(min(section["generation"] for section in packs["sections"]))
+        checked = json.loads(line)
+        name = checked["rollback_to"].rsplit("/", 1)[-1].removesuffix(".json")
+        if not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}", name):
+            sys.exit(f"{checked['rollback_to']} is not a manifest history entry")
+        packs = checked["manifest"]["section_packs"]
+        generations = ",".join(str(section["generation"]) for section in packs["sections"])
+        print(name, f"generation-{generations}+{len(packs.get('patches') or [])}-pack-patches")
         break
 else:
     sys.exit("the rollback check printed no manifest")
 PY
-  )" || refuse "the rollback check named no state the preview can serve; ${WORK}/logs/check.log" 65
-  log "the rollback would serve pack generation ${generation} without patches; reading it from the preview"
+  ) || true
+  [[ -n "${state:-}" ]] || refuse "the rollback check named no recorded state; ${WORK}/logs/check.log" 65
+  log "the rollback would serve ${state} (${described}); reading that state from the preview"
   # The hourly monitor's own environment files, read from its unit.
   mapfile -t files < <(sed -n 's/^EnvironmentFile=//p' "${RELEASE}/infra/systemd/foundation-by-pnu-serving-monitor@.service")
   monitor_props=()
@@ -496,11 +501,11 @@ PY
   : >"${WORK}/logs/preview.log"
   "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-preview" -p User=foundation-platform \
     -p MemoryMax=512M -p WorkingDirectory="${RELEASE}" "${monitor_props[@]}" -E "${P}_MONITOR_BASE_URL=${preview}" \
-    -E "${P}_MONITOR_PACK_GENERATION=${generation}" -E "${P}_MONITOR_REPORT_PATH=${WORK}/rehearsal.json" \
+    -E "${P}_MONITOR_HISTORY_STATE=${state}" -E "${P}_MONITOR_REPORT_PATH=${WORK}/rehearsal.json" \
     -p StandardOutput=append:"${WORK}/logs/preview.log" -p StandardError=append:"${WORK}/logs/preview.log" \
     "${RELEASE}/scripts/ops/by-pnu-serving-monitor.sh" "${LANE}" \
-    || refuse "the preview did not serve generation ${generation} as its packs hold it; ${WORK}/rehearsal.json" 65
-  log "rehearsed: a rollback serves generation ${generation}, and ${preview} serves it whole (${WORK}/rehearsal.json)"
+    || refuse "the preview did not serve ${state} as its packs hold it; ${WORK}/rehearsal.json" 65
+  log "rehearsed: a rollback serves ${state} (${described}), and ${preview} serves it whole (${WORK}/rehearsal.json)"
   exit 0
 fi
 
