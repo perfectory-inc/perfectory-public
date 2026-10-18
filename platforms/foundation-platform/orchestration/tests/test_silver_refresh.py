@@ -43,7 +43,7 @@ def lane_contracts():
 class TheUnit(unittest.TestCase):
     def test_it_runs_the_script_for_its_instance_and_cleans_up_after_every_exit(self):
         self.assertEqual(unit_lines("ExecStart"), ["/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i"])
-        self.assertEqual(unit_lines("ExecStopPost"), ["/opt/foundation-platform/current/scripts/ops/silver-refresh.sh cleanup"])
+        self.assertEqual(unit_lines("ExecStopPost"), ["/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh silver-refresh.sh"])
         self.assertEqual(unit_lines("OnFailure"), ["foundation-unit-failed@%n.service"])
         self.assertEqual(unit_lines("Type"), ["oneshot"])
 

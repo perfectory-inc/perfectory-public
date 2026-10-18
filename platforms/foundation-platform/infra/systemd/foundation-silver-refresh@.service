@@ -21,7 +21,10 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i
 # daemon owns. Spark runs in the Compose project named after this INVOCATION_ID; this removes that
 # project's one-off containers and networks and nothing else (root ADR-0128). It runs after every
 # exit, a success included, with any installed release's publisher.
-ExecStopPost=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh cleanup
+# Cleanup by the release this run started from, not the one `current` names when it stops
+# (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh silver-refresh.sh
+RuntimeDirectory=%N
 # The export runs here, as a child of the publisher, not in a container: this bounds it, as the
 # FLOOR export's container is bounded (lakehouse-engine.contract.json execution_profile). Spark is
 # bounded by the compose `spark` cap, which the Docker daemon, not this unit, holds.

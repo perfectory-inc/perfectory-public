@@ -85,6 +85,15 @@ class LakehouseMaintenance(unittest.TestCase):
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
         return result, calls
 
+    def test_a_run_records_its_release_for_its_cleanup(self):
+        # root ADR-0270 §3: the unit's ExecStopPost (pinned-cleanup.sh) cleans up with this release.
+        runtime = self.root / "run"
+        runtime.mkdir()
+        result, _ = self.run_script(RUNTIME_DIRECTORY=str(runtime))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        recorded = (runtime / "release").read_text().strip()
+        self.assertEqual(recorded, str((self.root / "opt/foundation-platform/releases" / RELEASE_ID).resolve()))
+
     def test_one_spark_run_takes_every_table_under_the_contracts_size_in_this_invocations_project(self):
         result, [call] = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
