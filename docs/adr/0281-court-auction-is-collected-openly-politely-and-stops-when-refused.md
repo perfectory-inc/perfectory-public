@@ -26,7 +26,7 @@
 3. **거절당하면 멈춘다.** HTTP 403·429·503, `Retry-After`, 로그인·CAPTCHA·차단 안내 화면, JSON 이 와야 할 자리에 HTML 이 오는 것 중 하나라도 보면 그 실행을 즉시 끝내고 `refused` 로 기록한다. 같은 날 다시 시도하지 않는다. 사람이 원인을 확인하고 상태 파일을 지울 때까지 다음 실행도 시작하지 않는다.
 4. **피하지 않는다.** 프록시, IP·세션·`User-Agent` 돌리기, stealth·헤드리스 지문 위장, CAPTCHA 풀기, 차단 우회를 쓰지 않는다. Scrapling 은 HTML/JSON 파싱과 평범한 요청에만 쓰고 stealth fetcher(`StealthyFetcher`, `DynamicSession` 의 위장 옵션)는 쓰지 않는다. 검사기가 수집기 코드에서 이 이름들을 거부한다.
 5. **robots.txt 를 매 실행 처음에 읽는다.** 지금은 없지만 생기면 그 규칙을 따른다(막힌 경로는 수집하지 않고, `Crawl-delay` 가 3초보다 길면 그 값을 쓴다).
-6. **출처를 밝힌다.** Silver 행은 원천(`courtauctiongokr__court_auction`)과 Bronze 객체 키를 가진다. 화면에 내보낼 때 출처 표시는 소비자(Gongzzang)의 몫이지만, 데이터 계약(ODCS)에 저작권 보호정책의 출처 표시 의무를 적는다.
+6. **출처를 밝힌다.** Silver 행은 원천(`courtauctiongokr__auction_item`·`courtauctiongokr__auction_sale_result`)과 Bronze 객체 키를 가진다. 화면에 내보낼 때 출처 표시는 소비자(Gongzzang)의 몫이지만, 데이터 계약(ODCS)에 저작권 보호정책의 출처 표시 의무를 적는다.
 7. 승인 제공자 목록(`APPROVED_PROVIDER_DOMAINS`)에 `courtauction.go.kr` 을 더한다(사장 승인 2026-10-19).
 
 ## Consequences
