@@ -552,6 +552,30 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no registered job is running", result.stdout)
         self.assertEqual(self.released()[0], "prepare")
 
+    def test_the_deploy_logs_what_the_release_changes_before_it_pauses_anything(self):
+        # Deploy D3 (root ADR-0270): the tables a release changes and their writer jobs, log only.
+        old = self.root / "opt/foundation-platform/current"
+        for relative in ("scripts/deploy/release_changes.py", "orchestration/jobs.v1.json",
+                         "docs/catalog/pipeline-graph.v1.json",
+                         "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"):
+            target = self.root / "commit/platforms/foundation-platform" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((PLATFORM / relative).read_bytes())
+            if relative.startswith("infra/"):
+                (old / relative).parent.mkdir(parents=True, exist_ok=True)
+                (old / relative).write_bytes((PLATFORM / relative).read_bytes())
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lakehouse tables this release changes: none", result.stdout)
+        self.assertLess(result.stdout.index("lakehouse tables this release changes"), result.stdout.index("0. pause"))
+
+    def test_a_deploy_that_cannot_tell_what_the_release_changes_goes_on(self):
+        # Nothing reads the answer yet (D3): the fixture's commit holds no release_changes.py.
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("cannot tell what", result.stderr)
+        self.assertEqual(self.released()[0], "prepare")
+
     def test_a_deploy_that_cannot_tell_which_jobs_run_does_not_build(self):
         # No answer is not "nothing runs": the deploy stops before the release build.
         result = self.deploy(FIXTURE_NO_ANSWER="1")
