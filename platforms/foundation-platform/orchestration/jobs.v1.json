@@ -626,6 +626,29 @@
       "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "silver_append_measure",
+      "description": "Measure, once, one land transfer history release written two ways in a scratch namespace (root ADR-0275 step 1; scripts/ops/silver-append-measure.sh): the release written whole, as the lane does today, and the release compared with the one before and only its changed rows appended with removal markers. Reads silver.land_transfer_history (the release before by time travel), writes only <catalog>.scratch_adr0275 and drops it at the end. It holds every spark slot (the 16g Spark of a Silver lane).",
+      "systemd_service": "foundation-silver-append-measure.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/lineage-stewardship",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
+      "schedule": "0 13 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "time_limit_minutes": 40,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-transfer-history-to-silver-append-measurement"
+      ],
+      "enabled": false,
+      "disabled_reason": "A one-off measurement (root ADR-0275 step 1), never scheduled: the operator starts it once with `by-pnu-pack-operator.sh job start silver_append_measure`, which refuses while a deploy, a Gold rebuild or a Silver lane runs. The follow-up pull request removes it."
+    },
+    {
       "id": "complex_boundary_release",
       "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
       "systemd_service": "foundation-complex-boundary-release.service",
