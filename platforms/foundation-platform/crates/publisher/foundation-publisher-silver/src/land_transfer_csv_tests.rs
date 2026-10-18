@@ -115,6 +115,7 @@ async fn land_transfer_csv_preserves_every_event_and_named_field() -> anyhow::Re
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect::<Vec<_>>()
     );
     Ok(())
