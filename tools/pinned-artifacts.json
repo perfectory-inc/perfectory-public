@@ -66,6 +66,15 @@
       "arch": {"x86_64": "amd64"},
       "extension": {"linux": "tar.gz"},
       "url": "https://github.com/anchore/syft/releases/download/v{version}/syft_{version}_{os}_{arch}.{extension}"
+    },
+    "cosign": {
+      "pins": "tools/cosign.env",
+      "version_variable": "COSIGN_VERSION",
+      "sha256_variable": "COSIGN_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux"},
+      "arch": {"x86_64": "amd64", "aarch64": "arm64"},
+      "extension": {"linux": ""},
+      "url": "https://github.com/sigstore/cosign/releases/download/v{version}/cosign-{os}-{arch}"
     }
   },
   "contracts": [

@@ -52,7 +52,7 @@ jobs:
       - name: Publish to GitHub's container registry
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/release-push.sh "$RUNNER_TEMP/release" "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release"
+        run: bash scripts/ci/release-push.sh "$RUNNER_TEMP/release" "$GITHUB_REPOSITORY_OWNER"
       - name: Report what was built
         run: python3 scripts/ci/release-build-summary.py "$RUNNER_TEMP/release" >>"$GITHUB_STEP_SUMMARY"
       - name: Upload the release
