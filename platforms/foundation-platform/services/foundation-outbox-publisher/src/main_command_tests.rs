@@ -1204,6 +1204,16 @@ fn plan_silver_load_objects_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The court auction list collector (root ADR-0280, ADR-0281).
+#[test]
+fn courtauction_go_kr_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "collect-courtauction-go-kr"])?,
+        Command::CollectCourtauctionGoKr
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(

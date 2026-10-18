@@ -58,6 +58,7 @@ MODULES = (
     "data_go_kr_onbid",
     "address_pnu",
     "data_go_kr_registered_factory",
+    "courtauction_go_kr",
     "gold_incremental",
     "changelog",
 )

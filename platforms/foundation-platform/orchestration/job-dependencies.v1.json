@@ -384,6 +384,70 @@
       ]
     },
     {
+      "id": "court_auction_collect",
+      "producers": [],
+      "reads": [
+        {
+          "dataset": "perfectory://source-courtauction-go-kr",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-courtauction-go-kr,PROD)",
+          "node_id": "source-courtauction-go-kr",
+          "title": "법원경매정보 (courtauction.go.kr)",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.court_auction_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_item,PROD)",
+          "node_id": "silver-court-auction-item",
+          "title": "법원경매 진행 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_sale_result",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_sale_result,PROD)",
+          "node_id": "silver-court-auction-sale-result",
+          "title": "법원경매 매각결과",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "court_auction_silver",
+      "producers": [],
+      "reads": [
+        {
+          "dataset": "perfectory://source-courtauction-go-kr",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-courtauction-go-kr,PROD)",
+          "node_id": "source-courtauction-go-kr",
+          "title": "법원경매정보 (courtauction.go.kr)",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.court_auction_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_item,PROD)",
+          "node_id": "silver-court-auction-item",
+          "title": "법원경매 진행 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_sale_result",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_sale_result,PROD)",
+          "node_id": "silver-court-auction-sale-result",
+          "title": "법원경매 매각결과",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "registered_factory",
       "producers": [],
       "reads": [
@@ -531,6 +595,8 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "court_auction_collect",
+        "court_auction_silver",
         "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
@@ -951,6 +1017,8 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "court_auction_collect",
+        "court_auction_silver",
         "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
@@ -2148,6 +2216,8 @@
         "map_edit_fold_complex",
         "lineage_stewardship",
         "legal_dong_code_changes",
+        "court_auction_collect",
+        "court_auction_silver",
         "registered_factory",
         "onbid_public_sale_collect",
         "onbid_public_sale_silver",
