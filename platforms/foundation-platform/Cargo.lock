@@ -1877,6 +1877,7 @@ dependencies = [
  "flate2",
  "foundation-contracts",
  "foundation-disposable-database",
+ "foundation-jobs",
  "foundation-normalization-application",
  "foundation-normalization-domain",
  "foundation-normalization-infrastructure",

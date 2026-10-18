@@ -237,6 +237,22 @@ fn default_command_runs_publisher() -> anyhow::Result<()> {
 }
 
 #[test]
+fn job_run_is_the_runner_command() -> anyhow::Result<()> {
+    // root ADR-0270 §2: every job a unit starts through the runner names this command.
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "job-run"])?,
+        Command::JobRun
+    );
+    assert!(parse_command([
+        "foundation-outbox-publisher",
+        "job-run",
+        "shape_ledger_check"
+    ])
+    .is_err());
+    Ok(())
+}
+
+#[test]
 fn smoke_r2_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "smoke-r2"])?,

@@ -60,6 +60,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
 foundation-outbox = { workspace = true }
+foundation-jobs = { workspace = true }
 foundation-publisher-by-pnu = { workspace = true }
 foundation-publisher-collection = { workspace = true }
 foundation-publisher-core = { workspace = true }
