@@ -174,7 +174,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
     큰 번호만 받는다.
   - manifest 쓰기는 발행이 처음 읽은 판 위에서만 된다(R2 `If-Match`). 그 사이 다른 발행이 manifest 를 옮겼으면
     "changed while this publish ran" 으로 거부되고 아무것도 쓰지 않는다 — 지금 판을 보고 다시 판단한다.
-- 묶음 세대 되돌리기([루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md) 5절):
+- 묶음 세대 되돌리기(루트 ADR-0274 5절):
   묶음을 서빙하는 레인(parcel·building)의 되돌리기 수단은 직전 묶음 세대다. per-PNU 객체는 묶음 굽기가 갱신하지
   않으므로 되돌리기 수단이 아니다(낡은 문서를 오류 없이 낸다).
   1. 위 패치 되돌리기 1과 같이 `foundation_by_pnu_serving_bake` 를 먼저 멈춘다.
