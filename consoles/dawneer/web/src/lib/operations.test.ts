@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DataContractQuality, PipelineGraph, ScheduledJobStatus } from "../api/client";
-import { durationLabel, freshnessRows, jobTone, nextStarts, runDuration, runningJobs, summarizeQuality } from "./operations";
+import { durationLabel, freshnessRows, jobTone, nextStarts, runDuration, runningJobs, summarizeQuality, waitSeconds } from "./operations";
 
 function job(overrides: Partial<ScheduledJobStatus>): ScheduledJobStatus {
   return {
@@ -184,5 +184,15 @@ describe("collection freshness", () => {
     expect(rows[0]?.observedAt).toBe("2026-01-02T08:00:00.000Z");
     expect(rows[1]?.title).toBe("silver.silent");
     expect(rows[1]?.observedAt).toBeNull();
+  });
+});
+
+describe("a run waiting for its pool", () => {
+  it("is not running and its wait is counted to its start", () => {
+    const waiting = job({ last_run: { run_urn: "urn:li:dataProcessInstance:w", queued_at: "2026-01-02T07:00:00Z", started_at: null, finished_at: null, outcome: "running" } });
+    expect(runningJobs([waiting], new Date("2026-01-02T08:00:00Z"))).toEqual([]);
+    expect(waitSeconds({ queued_at: "2026-01-02T07:00:00Z", started_at: "2026-01-02T10:25:00Z" })).toBe(12300);
+    expect(waitSeconds({ queued_at: "2026-01-02T07:00:00Z", started_at: "2026-01-02T07:00:30Z" })).toBeNull();
+    expect(waitSeconds({ started_at: "2026-01-02T07:00:00Z" })).toBeNull();
   });
 });

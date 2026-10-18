@@ -6,7 +6,7 @@
 import { maxBy, minBy, orderBy, trimEnd, uniq } from "es-toolkit";
 
 import type { DataContractQuality, FailureCause, OperationsLinks, PipelineGraph, ScheduledJobProblem, ScheduledJobStatus } from "../api/client";
-import { durationLabel, runningJobs, type RunningJob } from "./operations";
+import { durationLabel, isWaitingForPool, runDuration, runningJobs, waitSeconds, type RunningJob } from "./operations";
 
 /** The stages of the flow, left to right. */
 export const STAGES = ["collect", "silver", "gold", "bake", "serve"] as const;
@@ -193,6 +193,19 @@ export type FlowStatus =
   | "outside"
   | "unread";
 
+/**
+ * A run's time as two parts when it waited for its pool: the wait, in the waiting state's word, then
+ * its own work. A run that waited three hours and worked a minute reads as both, not as three hours.
+ */
+export function runTimes(
+  run: { outcome: string; queued_at?: string | null; started_at?: string | null; finished_at?: string | null },
+  now: Date = new Date(),
+): string {
+  const wait = waitSeconds(run, now);
+  const work = runDuration(run.started_at, run.finished_at, now);
+  return wait === null ? work : `${STATUS_TEXT.waiting.word} ${durationLabel(wait)} · ${work}`;
+}
+
 /** One icon and one word per state, so colour is never the only signal. */
 export const STATUS_TEXT: Record<FlowStatus, { icon: string; word: string }> = {
   running: { icon: "⟳", word: "하는 중" },
@@ -252,9 +265,9 @@ export function jobStates(jobs: ScheduledJobStatus[], now: Date, runsReadable = 
                 ? "blocked"
                 : has("slow")
                   ? "slow"
-                  : outcome === "running"
+                  : outcome === "running" && !(job.last_run && isWaitingForPool(job.last_run))
                     ? "running"
-                    : waiting.has(job.job_id) || has("waiting")
+                    : waiting.has(job.job_id) || has("waiting") || (job.last_run !== null && job.last_run !== undefined && isWaitingForPool(job.last_run))
                       ? "waiting"
                       : has("late")
                         ? "late"

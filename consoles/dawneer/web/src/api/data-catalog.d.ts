@@ -497,6 +497,12 @@ export interface components {
             /** @description How it stands. */
             outcome: components["schemas"]["ScheduledJobRunOutcome"];
             /**
+             * Format: date-time
+             * @description When the scheduler began the run. The job waited from here for a slot of its pool until
+             *     `started_at`; absent when the catalog holds only the job's own task.
+             */
+            queued_at?: string | null;
+            /**
              * Format: int64
              * @description Rows the run added to the Iceberg tables it writes: the `added-records` of the `main`
              *     snapshots committed to them while it ran. Absent while it runs, for a job that writes no
@@ -507,7 +513,8 @@ export interface components {
             run_urn: string;
             /**
              * Format: date-time
-             * @description When the run started, from its first recorded start.
+             * @description When the job's own work started: its run task's first start, after any wait for a pool slot.
+             *     Absent while the run still waits. How long a run took, and whether it is slow, count from here.
              */
             started_at?: string | null;
         };

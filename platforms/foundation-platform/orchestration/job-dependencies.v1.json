@@ -1,6 +1,7 @@
 {
   "schema_version": "foundation-platform.orchestration_job_dependencies.v1",
   "generated_by": "orchestration/dags/job_specs.py --write-dependencies; do not edit by hand",
+  "run_task_id": "run",
   "jobs": [
     {
       "id": "building_register_floor",

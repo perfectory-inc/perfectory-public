@@ -63,6 +63,18 @@ export function runDuration(startedAt: string | null | undefined, finishedAt: st
   return durationLabel(secondsBetween(startedAt, end));
 }
 
+/** A run the scheduler began whose own work has not started: it waits for a slot of its pool. */
+export function isWaitingForPool(run: { outcome: string; queued_at?: string | null; started_at?: string | null }): boolean {
+  return run.outcome === "running" && Boolean(run.queued_at) && !run.started_at;
+}
+
+/** How long a run waited for its pool before its work started, or null when it did not wait. */
+export function waitSeconds(run: { queued_at?: string | null; started_at?: string | null }, now: Date = new Date()): number | null {
+  if (!run.queued_at) return null;
+  const seconds = secondsBetween(run.queued_at, run.started_at ? new Date(run.started_at) : now);
+  return seconds >= 60 ? seconds : null;
+}
+
 function secondsBetween(fromIso: string, to: Date): number {
   return Math.max(0, Math.round((to.getTime() - new Date(fromIso).getTime()) / 1000));
 }
@@ -201,6 +213,8 @@ export function runningJobs(jobs: ScheduledJobStatus[], now: Date = new Date()):
   const rows = jobs.flatMap((job): RunningJob[] => {
     const run = job.last_run;
     if (run?.outcome !== "running" && run?.outcome !== "up_for_retry") return [];
+    // Queued but not started: the run waits for its pool, it is not running (`isWaitingForPool`).
+    if (isWaitingForPool(run)) return [];
     const startedAt = run.started_at ?? null;
     const elapsedSeconds = startedAt ? secondsBetween(startedAt, now) : null;
     const typicalSeconds = job.typical_duration_seconds ?? null;

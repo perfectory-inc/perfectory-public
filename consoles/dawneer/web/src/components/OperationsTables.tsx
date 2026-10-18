@@ -14,12 +14,12 @@ import {
   PIPELINE_STATUS_LABEL,
   QUALITY_RESULT_LABEL,
   RUN_OUTCOME_LABEL,
-  runDuration,
   runningJobs,
   summarizeQuality,
   type RunningJob,
   type Tone,
 } from "../lib/operations";
+import { runTimes } from "../lib/dataFlow";
 
 export const TONE_CLASS: Record<Tone, string> = {
   bad: "bg-red-100 text-red-800",
@@ -84,8 +84,8 @@ function JobRow({ job, runsReadable }: { job: ScheduledJobStatus; runsReadable: 
           </div>
         )}
       </td>
-      <td className={`${TD} text-xs`}>{run ? <When iso={run.started_at ?? run.finished_at} /> : runsReadable ? "기록 없음" : "—"}</td>
-      <td className={`${TD} text-xs`}>{run ? runDuration(run.started_at, run.finished_at) : "—"}</td>
+      <td className={`${TD} text-xs`}>{run ? <When iso={run.queued_at ?? run.started_at ?? run.finished_at} /> : runsReadable ? "기록 없음" : "—"}</td>
+      <td className={`${TD} text-xs`}>{run ? runTimes(run) : "—"}</td>
       <td className={TD}>
         {run ? (
           <Badge tone={jobTone(job, runsReadable)}>

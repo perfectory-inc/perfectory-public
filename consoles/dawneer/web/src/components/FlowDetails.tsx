@@ -17,8 +17,9 @@ import {
   statusNote,
   type FlowNode,
   type JobState,
+  runTimes,
 } from "../lib/dataFlow";
-import { durationLabel, QUALITY_RESULT_LABEL, RUN_OUTCOME_LABEL, runDuration } from "../lib/operations";
+import { durationLabel, QUALITY_RESULT_LABEL, RUN_OUTCOME_LABEL } from "../lib/operations";
 import { EntityView } from "./CatalogSearch";
 import { StatusPill } from "./FlowGraph";
 import { Badge, When } from "./OperationsTables";
@@ -121,9 +122,9 @@ function JobCard({
             {job.recent_runs.map((run) => (
               <tr key={run.run_urn} className="border-t border-slate-100">
                 <td className="py-0.5">
-                  <When iso={run.started_at ?? run.finished_at} />
+                  <When iso={run.queued_at ?? run.started_at ?? run.finished_at} />
                 </td>
-                <td className="py-0.5 text-slate-600">{runDuration(run.started_at, run.finished_at, now)}</td>
+                <td className="py-0.5 text-slate-600">{runTimes(run, now)}</td>
                 <td className="py-0.5 text-right tabular-nums text-slate-600">{run.rows_written == null ? "–" : run.rows_written.toLocaleString("ko-KR")}</td>
                 <td className="py-0.5 text-right">
                   <Badge tone={run.outcome === "succeeded" ? "ok" : run.outcome === "failed" || run.outcome === "up_for_retry" ? "bad" : "idle"}>
