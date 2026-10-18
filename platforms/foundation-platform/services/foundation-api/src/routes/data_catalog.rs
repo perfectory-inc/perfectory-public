@@ -34,10 +34,12 @@ mod alerts;
 mod facts;
 mod health;
 mod operations;
+mod security_alerts;
 mod service_checks;
 mod snapshots;
 
 pub(super) use alerts::problem_metrics as scheduled_job_problem_metrics;
+pub(super) use security_alerts::advisory_metrics as security_advisory_metrics;
 
 const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
 const MAX_PAGE: u32 = 50;

@@ -63,6 +63,12 @@ if bash "$script" check "$work/planted.md" "$work/planted" >"$work/planted.log" 
 fi
 grep -q 'RUSTSEC-2021-0003' "$work/planted.md" || fail "the summary does not name RUSTSEC-2021-0003"
 grep -q "planted" "$work/planted.md" || fail "the summary does not name the workspace"
+# In a GitHub run the advisory is also an annotation the host's service checks read (root ADR-0278).
+GITHUB_ACTIONS=true bash "$script" check "$work/annotated.md" "$work/planted" >"$work/annotated.log" 2>/dev/null || true
+grep -Fxq "::error title=advisory::RUSTSEC-2021-0003 cargo:$work/planted" "$work/annotated.log" \
+  || fail "the advisory is not an annotation in a GitHub run"
+GITHUB_ACTIONS= bash "$script" check "$work/plain.md" "$work/planted" >"$work/plain.log" 2>/dev/null || true
+if grep -q '^::' "$work/plain.log"; then fail "an annotation was printed outside GitHub Actions"; fi
 if ! bash "$script" check "$work/clean.md" "$work/clean" >"$work/clean.log" 2>&1; then
   cat "$work/clean.log" >&2
   fail "refused a workspace with no dependency"

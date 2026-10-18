@@ -9,7 +9,9 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
-# Read-only toward everything it asks: Cloudflare's /cdn-cgi/trace and GitHub's public runs API.
+EnvironmentFile=-/etc/foundation-platform/security-alerts.env
+# Read-only toward everything it asks: Cloudflare's /cdn-cgi/trace, GitHub's public runs API, and
+# with the optional read-only token the repository's open Dependabot alerts (root ADR-0278).
 # It reads root ADR-0203's script from the control checkout and writes one file foundation-api serves.
 ExecStart=/opt/foundation-platform/current/scripts/ops/service-checks.py
 TimeoutStartSec=15m

@@ -607,6 +607,8 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
     );
     // The operations map's problems, for Alertmanager to tell Slack (root ADR-0195).
     body.push_str(&data_catalog::scheduled_job_problem_metrics().await);
+    // The repository's open security advisories, for the same Alertmanager (root ADR-0278).
+    body.push_str(&data_catalog::security_advisory_metrics());
     ([(header::CONTENT_TYPE, PROMETHEUS_TEXT_CONTENT_TYPE)], body)
 }
 

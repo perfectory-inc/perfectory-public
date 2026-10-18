@@ -41,6 +41,17 @@ check() {
     refused=1
     echo "REFUSED $dir" >&2
     cat "$log" >&2
+    # In a GitHub run each advisory it names is also an `advisory` annotation, which the host's
+    # service checks read from the daily run on main to page #alerts (root ADR-0278):
+    # `<advisory id> cargo:<workspace>`, a yanked crate as `yanked:<crate>`.
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+      {
+        grep -oE 'ID: (RUSTSEC|GHSA)-[A-Za-z0-9-]+' "$log" | cut -d' ' -f2 || true
+        grep -oE 'cargo update -p [A-Za-z0-9_-]+' "$log" | awk '{ print "yanked:" $4 }' || true
+      } | sort -u | while read -r advisory; do
+        printf '::error title=advisory::%s cargo:%s\n' "$advisory" "$dir"
+      done
+    fi
     {
       printf '### `%s`\n\n```\n' "$dir"
       # The finding lines; a run that stopped before any finding (fetch, metadata) keeps its tail.

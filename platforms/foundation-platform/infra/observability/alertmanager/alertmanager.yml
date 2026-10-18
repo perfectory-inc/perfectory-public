@@ -21,6 +21,18 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 8760h
+    # The repository's open security advisories (root ADR-0278): one notice per advisory when it
+    # opens and one when it is gone, the same way as the operations map's problems.
+    - matchers:
+        - service = "security"
+      group_by:
+        - alertname
+        - source
+        - advisory
+        - package
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 8760h
 
 # A job waiting on a failed one says "blocked"; while any job has failed, its own notice is the
 # one to read, and every blocked job would only repeat it.

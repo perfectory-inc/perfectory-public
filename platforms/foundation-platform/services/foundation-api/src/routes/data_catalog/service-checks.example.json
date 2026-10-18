@@ -41,5 +41,44 @@
     ],
     "pending_days": 3,
     "error": null
+  },
+  "security": {
+    "checked_at": "2026-10-13T02:17:00+00:00",
+    "token_expires_at": "2027-10-13 00:00:00 UTC",
+    "sources": {
+      "dependabot": {
+        "readable": true,
+        "reason": null,
+        "error": null,
+        "findings": [
+          {
+            "advisory": "GHSA-aaaa-bbbb-cccc",
+            "package": "npm/example-package",
+            "severity": "high",
+            "link": "https://github.com/example-org/example-repo/security/dependabot/1"
+          }
+        ]
+      },
+      "osv-ratchet": {
+        "readable": true,
+        "reason": null,
+        "error": null,
+        "run_id": 1,
+        "findings": [
+          {
+            "advisory": "GHSA-dddd-eeee-ffff",
+            "package": "crates.io/example-crate",
+            "severity": "",
+            "link": "https://github.com/example-org/example-repo/actions/workflows/monorepo-guard.yml?query=branch%3Amain"
+          }
+        ]
+      },
+      "cargo-advisories": {
+        "readable": false,
+        "reason": "github-error",
+        "error": "URLError: timed out",
+        "findings": []
+      }
+    }
   }
 }
