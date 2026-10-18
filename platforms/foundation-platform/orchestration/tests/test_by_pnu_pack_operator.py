@@ -11,9 +11,11 @@ import hashlib
 import json
 import os
 import pathlib
+import pty
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
@@ -85,6 +87,19 @@ if args[0] in ("start", "status", "enable"):
 sys.exit(f"fake systemctl: {args}")
 '''
 
+FAKE_LOGGER = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps({"tool": "logger", "args": sys.argv[1:]}) + "\n")
+sys.exit(1 if os.environ.get("FAKE_JOURNAL_DOWN") else 0)
+'''
+
+
+def fresh(age_seconds=0, reason="the first supervised run"):
+    """An operator start's request: asked `age_seconds` ago, for `reason`."""
+    return ("--requested-at", str(int(time.time()) - age_seconds), "--reason", reason)
+
+
 FAKE_JOURNALCTL = r'''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_LOG"], "a") as log:
@@ -137,7 +152,7 @@ class OperatorHarness(unittest.TestCase):
                       "jars/fixture.jar": "0" * 64}}))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        for name, body in (("systemd-run", FAKE_SYSTEMD_RUN), ("systemctl", FAKE_SYSTEMCTL),
+        for name, body in (("systemd-run", FAKE_SYSTEMD_RUN), ("systemctl", FAKE_SYSTEMCTL), ("logger", FAKE_LOGGER),
                            ("journalctl", FAKE_JOURNALCTL), ("curl", FAKE_CURL)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
@@ -165,8 +180,13 @@ class OperatorHarness(unittest.TestCase):
         (work / "summaries/shard-11.json").write_text(json.dumps({"gold_iceberg_snapshot_id": "777"}))
         return work
 
-    def run_operator(self, *args, active=(), activating=(), states=None, **env):
-        result = subprocess.run(["bash", str(SCRIPT), *args],
+    def run_operator(self, *args, active=(), activating=(), states=None, attended=True, **env):
+        # An operator at a terminal by default: a pseudo-terminal on standard input.
+        terminal, stdin = pty.openpty() if attended else (None, subprocess.DEVNULL)
+        if terminal is not None:
+            self.addCleanup(os.close, terminal)
+            self.addCleanup(os.close, stdin)
+        result = subprocess.run(["bash", str(SCRIPT), *args], stdin=stdin,
                                 env={**self.env, "FAKE_ACTIVE": ",".join(active), "FAKE_ACTIVATING": ",".join(activating),
                                      "FAKE_STATES": ",".join(f"{unit}={state}" for unit, state in (states or {}).items()),
                                      **env},
@@ -195,7 +215,7 @@ class PackOperator(OperatorHarness):
         self.assertTrue(any(prop.startswith("EnvironmentFile=") for prop in props), props)
 
     def test_silver_start_and_status_name_the_lanes_scheduled_unit(self):
-        result, calls = self.run_operator("silver", "start", "building-register-titles")
+        result, calls = self.run_operator("silver", "start", "building-register-titles", *fresh())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
                          [["start", "--no-block", "foundation-silver-refresh@building-register-titles.service"]])
@@ -208,7 +228,7 @@ class PackOperator(OperatorHarness):
         for active in (["foundation-silver-refresh@land-use-plan.service"],
                        ["foundation-gold-panel-rebuild.service"]):
             with self.subTest(active=active):
-                result, calls = self.run_operator("silver", "start", "land-characteristic", active=active)
+                result, calls = self.run_operator("silver", "start", "land-characteristic", *fresh(), active=active)
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
@@ -229,7 +249,7 @@ class PackOperator(OperatorHarness):
                                ("foundation-building-pack-bake-g7.service", ("parcel", "gold-rebuild")),
                                ("foundation-parcel-pack-equality-g1.service", ("parcel", "equality", "1")),
                                ("foundation-silver-refresh@land-use-plan.service",
-                                ("silver", "start", "land-characteristic"))):
+                                ("silver", "start", "land-characteristic", *fresh()))):
                 with self.subTest(state=state, unit=unit):
                     self.log.unlink(missing_ok=True)
                     result, calls = self.run_operator(*args, states={unit: state})
@@ -298,7 +318,7 @@ class PackOperator(OperatorHarness):
 
     def test_job_start_and_status_name_the_off_jobs_unit(self):
         self.switch_off("legal_dong_code_changes")
-        result, calls = self.run_operator("job", "start", "legal_dong_code_changes")
+        result, calls = self.run_operator("job", "start", "legal_dong_code_changes", *fresh())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
                          [["start", "--no-block", "foundation-legal-dong-code.service"]])
@@ -315,14 +335,14 @@ class PackOperator(OperatorHarness):
                                ("lineage_stewardship", ["foundation-silver-refresh@land-use-plan.service"])):
             with self.subTest(job=job_id, active=active):
                 self.log.unlink(missing_ok=True)
-                result, calls = self.run_operator("job", "start", job_id, activating=active)
+                result, calls = self.run_operator("job", "start", job_id, *fresh(), activating=active)
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_an_operator_start_takes_the_pools_slots_a_scheduled_run_holds(self):
         # Root ADR-0270 §2b (2026-10-18): an operator's spark one-off beside a scheduled FLOOR run.
         self.switch_off("lineage_stewardship")
-        for args in (("job", "start", "lineage_stewardship"), ("silver", "start", "land-characteristic"),
+        for args in (("job", "start", "lineage_stewardship", *fresh()), ("silver", "start", "land-characteristic", *fresh()),
                      ("parcel-tiles", "rehearse", "bake")):
             with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
@@ -359,6 +379,53 @@ class PackOperator(OperatorHarness):
                 result, calls = self.run_operator(*args)
                 self.assertEqual(result.returncode, 64, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] in ("systemd-run", "systemctl")])
+
+    def test_an_operator_start_is_attended_immediate_and_recorded(self):
+        # Root ADR-0270 §2b (2026-10-16): a nohup wait script started a production Silver write ten
+        # hours after it was written. A start names when it was asked and why; an old request is refused.
+        self.switch_off("parcel_registry")
+        for args in (("job", "start", "parcel_registry"), ("silver", "start", "land-characteristic")):
+            with self.subTest(args=args, case="ten hours late"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(age_seconds=10 * 3600))
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertIn("expires after 10 minutes and never waits", result.stderr)
+                self.assertEqual(calls, [], "a late start asked systemd or the journal anything")
+            with self.subTest(args=args, case="no terminal: a script under nohup"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(), attended=False)
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertIn("needs a person at a terminal", result.stderr)
+                self.assertEqual(calls, [])
+            with self.subTest(args=args, case="just past the expiry"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(age_seconds=11 * 60))
+                self.assertEqual(result.returncode, 77, result.stderr)
+            for bad in (("--requested-at", "soon", "--reason", "x y"), fresh(age_seconds=-3600),
+                        fresh(reason="   "), fresh(reason="two\nlines"), fresh(reason="x" * 301),
+                        ("--reason", "why", "--requested-at", str(int(time.time()))), ()):
+                with self.subTest(args=args, bad=bad):
+                    self.log.unlink(missing_ok=True)
+                    result, calls = self.run_operator(*args, *bad)
+                    self.assertEqual(result.returncode, 64, result.stderr)
+                    self.assertEqual(calls, [])
+            with self.subTest(args=args, case="attended"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(age_seconds=60, reason="재실행: 원천 회차 확인"),
+                                                  SUDO_USER="operator-a")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                tools = [call["tool"] for call in calls]
+                self.assertLess(tools.index("logger"), [i for i, c in enumerate(calls)
+                                                        if c["tool"] == "systemctl" and c["args"][0] == "start"][0])
+                (record,) = [call["args"] for call in calls if call["tool"] == "logger"]
+                self.assertEqual(record[:3], ["-t", "foundation-operator-start", "--"])
+                self.assertIn("who=operator-a", record[3])
+                self.assertIn("reason=재실행: 원천 회차 확인", record[3])
+            with self.subTest(args=args, case="the journal cannot record it"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, *fresh(), FAKE_JOURNAL_DOWN="1")
+                self.assertEqual(result.returncode, 70, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
         self.switch_off("silver_refresh_land_use_plan")
