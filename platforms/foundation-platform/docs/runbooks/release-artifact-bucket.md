@@ -21,7 +21,7 @@ last_reviewed: 2026-10-18
 
 ## 이름 규칙
 
-이름은 이미 있는 것과 같은 규칙입니다(`config/r2-connections.contract.json`, `config/runtime-secrets.contract.json`, 루트 ADR-0247): 버킷 `foundation-platform-<용도>-prod`(예: `foundation-platform-lakehouse-prod`), 토큰 `foundation-platform-<용도>-<writer|reader>-prod`, 변수 이름은 토큰 이름에서 `-prod` 를 떼고 대문자로 바꾼 것입니다. 서버 파일은 다른 환경 파일처럼 `/etc/foundation-platform/<이름>.env` 입니다.
+이름은 이미 있는 것과 같은 규칙이고, 토큰 둘과 서버 파일은 `config/runtime-secrets.contract.json` 에 올라 있습니다(`config/r2-connections.contract.json`, `config/runtime-secrets.contract.json`, 루트 ADR-0247): 버킷 `foundation-platform-<용도>-prod`(예: `foundation-platform-lakehouse-prod`), 토큰 `foundation-platform-<용도>-<writer|reader>-prod`, 변수 이름은 토큰 이름에서 `-prod` 를 떼고 대문자로 바꾼 것입니다. 서버 파일은 다른 환경 파일처럼 `/etc/foundation-platform/<이름>.env` 입니다.
 
 ## 1. 버킷 만들기 (Cloudflare 대시보드)
 
@@ -58,7 +58,8 @@ R2 object storage → Account Details 의 **API Tokens** 옆 **Manage** → **Cr
 1. GitHub 저장소 → Settings → Environments → **New environment** → 이름 `release-publish`.
 2. **Deployment branches and tags** → Selected branches → `main` 만.
 3. Environment secrets 에 둘: `FOUNDATION_PLATFORM_RELEASES_WRITER_ACCESS_KEY_ID`, `FOUNDATION_PLATFORM_RELEASES_WRITER_SECRET_ACCESS_KEY`.
-4. Environment variables 에 둘(비밀 아님): `FOUNDATION_PLATFORM_R2_RELEASES_BUCKET` = `foundation-platform-releases-prod`, `FOUNDATION_PLATFORM_R2_RELEASES_ENDPOINT` = 계정의 R2 S3 주소.
+
+버킷 이름과 주소는 비밀이 아니라 GitHub 에 넣지 않습니다. 빌드 작업이 저장소의 R2 연결 계약에서 읽습니다(R1 에서 추가).
 
 저장소 수준 비밀(Repository secrets)에는 넣지 않습니다. 환경 비밀은 main 의 그 환경을 쓰는 작업만 받습니다.
 

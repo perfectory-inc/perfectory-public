@@ -99,7 +99,7 @@ foundation-platform-releases-prod/          (릴리스 산출물만, 공개 접�
 - 모든 쓰기는 만들기 전용(`If-None-Match: *`): 같은 키에 다른 내용이 오면 실패로 보고한다. 목록은 마지막에 올려, 블롭이 다 있기 전에는 보이지 않는다.
 - 공개 접근(r2.dev, 사용자 도메인)은 켜지 않는다. 계정 전체(Admin)나 "모든 버킷" 범위의 토큰이 이 버킷에 닿지 않는지는 만들 때 확인한다(런북).
 - 컴파일 캐시(sccache)는 이 버킷에 두지 않는다: 토큰은 버킷 단위로만 범위를 좁힐 수 있으므로, 캐시는 별도 버킷과 별도 토큰을 쓴다(R1 에서 정함).
-- 이름은 기존 규칙을 따른다: 버킷 `foundation-platform-<용도>-prod`(`config/r2-connections.contract.json` 의 lakehouse·tile-derivatives·postgres-recovery), 토큰 `foundation-platform-releases-writer-prod`(CI)·`foundation-platform-releases-reader-prod`(서버), 변수 이름은 토큰 이름에서 파생(루트 ADR-0247). 토큰·서버 환경 파일(`/etc/foundation-platform/releases.env`, root:root 0600)은 그것을 읽는 코드가 들어오는 단계(R1·R3)에 `config/runtime-secrets.contract.json` 에 올린다.
+- 이름은 기존 규칙을 따른다: 버킷 `foundation-platform-<용도>-prod`(`config/r2-connections.contract.json` 의 lakehouse·tile-derivatives·postgres-recovery), 토큰 `foundation-platform-releases-writer-prod`(CI)·`foundation-platform-releases-reader-prod`(서버), 변수 이름은 토큰 이름에서 파생(루트 ADR-0247). 토큰 둘과 서버 환경 파일(그룹 `releases`, root:root 0600)은 이름만 `config/runtime-secrets.contract.json` 에 올라 있다. 아무 유닛도 아직 그 그룹을 읽지 않으므로 배포가 그 파일을 요구하지 않는다. 버킷 연결(`connections.releases`)은 그것을 읽는 빌드 작업과 함께 R1 에서 올린다.
 - 버킷과 토큰 만들기는 비밀값을 다루는 사장 조작이다: [릴리스 산출물 버킷 런북](../../platforms/foundation-platform/docs/runbooks/release-artifact-bucket.md).
 
 ### 6. 보존 (숫자)
@@ -135,7 +135,7 @@ foundation-platform-releases-prod/          (릴리스 산출물만, 공개 접�
 
 | 경계 | 정함 |
 |---|---|
-| 워크플로 | `.github/workflows/foundation-release-build.yml`, `push` to `main` + 같은 ref 의 `workflow_dispatch`(커밋 다시 빌드) |
+| 워크플로 | `.github/workflows/foundation-release-build.yml`, `push` to `main` + 같은 ref 의 `workflow_dispatch`(커밋 다시 빌드) <!-- public-repository-safety: allow-future-workflow --> |
 | 입력 | 커밋 하나. 빌드 정의는 지금의 Dockerfile 들(`services/foundation-outbox-publisher/Dockerfile.lakehouse-control`, `infra/tiles/tippecanoe/Dockerfile`, `services/foundation-api/Dockerfile`, `infra/postgres/Dockerfile.recovery`)과 jar 해석기 |
 | 출력 | §2 목록 + 블롭 + §3 번들을 §5 위치에, 만들기만. 같은 커밋을 다시 빌드해 다른 바이트가 나와도 이미 있는 목록은 덮어쓰지 않는다(실패로 보고) |
 | 실패 | 목록이 없으면 서버는 배포하지 않는다. 부분 업로드는 목록을 마지막에 올려서 보이지 않게 한다 |
