@@ -224,7 +224,7 @@ class TheRunSaysHowItEnded(HostFixture):
 
 
 class TheCheckBeforeThePool(HostFixture):
-    """Root ADR-0276: `<job> check` starts the job's check service, and only that."""
+    """Root ADR-0277: `<job> check` starts the job's check service, and only that."""
 
     def setUp(self):
         super().setUp()

@@ -12,7 +12,7 @@ fallback. The run's last `foundation-job-outcome` line says whether it changed i
 so nothing downstream starts.
 
 A job that names a `check_service` runs it first, as task `check` in Airflow's default_pool: when it
-says the run has nothing to do, `run` is skipped before it waits for the job's pool (root ADR-0276).
+says the run has nothing to do, `run` is skipped before it waits for the job's pool (root ADR-0277).
 """
 
 import pendulum
@@ -39,7 +39,7 @@ START = pendulum.datetime(2026, 10, 1, tz="UTC")
 CONNECTION = "foundation_host"
 # The XCom `run` leaves for `publish_outputs`: one word, never the journal.
 OUTCOME_KEY = "outcome"
-# A job's check (jobs.v1.json `check_service`, root ADR-0276) and its bound: the slowest lane's
+# A job's check (jobs.v1.json `check_service`, root ADR-0277) and its bound: the slowest lane's
 # took 4.2 s (2026-10-14..18), the unit's own TimeoutStartSec is 5 minutes.
 CHECK_TASK_ID = "check"
 CHECK_TIMEOUT_MINUTES = 6
@@ -60,7 +60,7 @@ class RunJob(SSHOperator):
 
 
 class CheckJob(SSHOperator):
-    """Asks the job's check service, without a pool slot, whether the run has work (root ADR-0276).
+    """Asks the job's check service, without a pool slot, whether the run has work (root ADR-0277).
 
     `unchanged` skips the run, and with it publish_outputs. Anything else, a failed check included,
     lets the run start: the run decides again for itself, so the check only saves its pool wait.

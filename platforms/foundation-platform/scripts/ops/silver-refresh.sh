@@ -90,7 +90,7 @@ export FOUNDATION_PLATFORM_LAKEHOUSE_GID
 if [[ "${PLAN}" == 1 ]]; then
   # A plan is not a run: it ends with `foundation-job-check unchanged|would_change`, never a job
   # outcome. The scheduled check (foundation-silver-refresh-plan@.service) reads that line to skip a
-  # run with nothing to do before it takes the spark pool (root ADR-0276).
+  # run with nothing to do before it takes the spark pool (root ADR-0277).
   "${PUBLISHER_BIN}" run-silver-refresh | awk '
     { print; fflush() }
     /^silver-refresh-plan / {

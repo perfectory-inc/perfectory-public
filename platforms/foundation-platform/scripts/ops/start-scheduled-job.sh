@@ -22,7 +22,7 @@ jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/or
 starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-scheduler/starts}"
 request="${SSH_ORIGINAL_COMMAND:-}"
 # `<job> check` starts the job's check service instead (jobs.v1.json `check_service`, root
-# ADR-0276): it only decides whether the run has work, so it is never deferred, never recorded as
+# ADR-0277): it only decides whether the run has work, so it is never deferred, never recorded as
 # the job's start, and its last `foundation-job-check` line is repeated for the DAG.
 checking=false
 [[ "${request}" == *" check" ]] && checking=true && request="${request% check}"

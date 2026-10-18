@@ -232,7 +232,7 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
 
 
 class TheCheckBeforeThePool(unittest.TestCase):
-    """Root ADR-0276: a job with a check_service asks it, in default_pool, before its run waits for a pool."""
+    """Root ADR-0277: a job with a check_service asks it, in default_pool, before its run waits for a pool."""
 
     @classmethod
     def setUpClass(cls):

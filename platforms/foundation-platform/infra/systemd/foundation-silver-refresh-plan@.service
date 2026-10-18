@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform Silver refresh check of the %i lane: does the Bronze ledger hold a release the Silver table does not, without Spark (root ADR-0276)
+Description=Foundation Platform Silver refresh check of the %i lane: does the Bronze ledger hold a release the Silver table does not, without Spark (root ADR-0277)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

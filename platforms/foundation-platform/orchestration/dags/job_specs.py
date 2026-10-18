@@ -60,7 +60,7 @@ OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiti
 # The outcomes after which nothing downstream starts: nothing changed, the run waits on someone
 # else, or it failed.
 WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed")
-# The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0276). Only
+# The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0277). Only
 # `unchanged` skips the run; any other word, or none, lets the run decide for itself.
 CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
 # The run's output is the journal of a run that can last a day; the line is at its end.

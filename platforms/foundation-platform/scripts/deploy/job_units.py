@@ -58,7 +58,7 @@ def registered_services(jobs_file) -> list[str]:
     supervised run (2026-10-11: a deploy that waited only for the enabled ones met one running)."""
     with open(jobs_file, encoding="utf-8") as handle:
         jobs = json.load(handle)["jobs"]
-    # A job's check service (root ADR-0276) runs the release's publisher too: admitted and waited for alike.
+    # A job's check service (root ADR-0277) runs the release's publisher too: admitted and waited for alike.
     checks = {job["check_service"] for job in jobs if job.get("check_service")}
     return sorted({job["systemd_service"] for job in jobs} | checks)
 
