@@ -235,6 +235,50 @@ class FoundationCiScopeTest(unittest.TestCase):
             )
 
 
+    def test_a_change_main_made_after_the_branch_point_is_not_this_change(self) -> None:
+        """#700 changed a publisher crate; main had since changed a workflow. Comparing the two
+        trees counted main's workflow as the pull request's and ran every gate."""
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+
+            def git(*args: str) -> str:
+                return subprocess.run(
+                    ["git", "-C", str(repository), *args], check=True, capture_output=True, text=True
+                ).stdout.strip()
+
+            def commit(path: str, message: str) -> str:
+                target = repository / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(message + "\n", encoding="utf-8")
+                git("add", path)
+                git("commit", "-qm", message)
+                return git("rev-parse", "HEAD")
+
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repository)], check=True)
+            git("config", "user.email", "ci@example.test")
+            git("config", "user.name", "CI test")
+            fork = commit("README.md", "start")
+            base = commit(".github/workflows/foundation-ci.yml", "main moves a workflow")
+            git("checkout", "-q", "-b", "change", fork)
+            crate = "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/lib.rs"
+            spark = "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_rebuild.py"
+            head = commit(crate, "a publisher crate")
+
+            self.assertEqual(scope.git_changed_paths(repository, base, head), {crate})
+            selected = scope.path_selected_gates(
+                event_name="pull_request", base=base, head=head, repository=repository
+            )
+            self.assertNotIn("spark-runtime", selected)
+            self.assertNotIn("kafka-integration", selected)
+
+            # A change that must select the Spark gate still does.
+            head = commit(spark, "a Spark job")
+            selected = scope.path_selected_gates(
+                event_name="pull_request", base=base, head=head, repository=repository
+            )
+            self.assertIn("spark-runtime", selected)
+
+
 class FoundationWorkflowScopeContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
