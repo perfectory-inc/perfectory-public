@@ -17,11 +17,11 @@ import address_pnu as a  # noqa: E402
 
 PREFIXES = {"$comment": "synthetic", "합성": "99", "합성특별": "98"}
 DONGS = a.legal_dong_index([
-    ("9911010100", "합성도 가상시 가나동"),
-    ("9911025021", "합성도 가상시 다라면 마바리"),
-    ("9913110100", "합성도 새시 동녘구 사아동"),
-    ("9915010100", "합성도 겹시 같은동"),
-    ("9915020100", "합성도 겹시 같은동"),
+    ("9999910100", "합성도 가상시 가나동"),
+    ("9999925021", "합성도 가상시 다라면 마바리"),
+    ("9999931101", "합성도 새시 동녘구 사아동"),
+    ("9999950101", "합성도 겹시 같은동"),
+    ("9999950201", "합성도 겹시 같은동"),
 ])
 
 
@@ -48,18 +48,18 @@ class ParseTest(unittest.TestCase):
 class CandidateTest(unittest.TestCase):
     def test_a_jibun_address_offers_its_pnu(self) -> None:
         offer = a.candidates("합성도 가상시 다라면 마바리 산 12-3", PREFIXES, DONGS)
-        self.assertEqual((offer["jibun_pnu"], offer["legal_dong_code"]), ("9911025021200120003", "9911025021"))
+        self.assertEqual((offer["jibun_pnu"], offer["legal_dong_code"]), ("9999925021200120003", "9999925021"))
 
     def test_a_name_two_codes_share_is_not_guessed(self) -> None:
         self.assertEqual(a.candidates("합성도 겹시 같은동 1", PREFIXES, DONGS)["reason"], "no_legal_dong")
 
     def test_an_address_without_its_district_finds_the_one_code(self) -> None:
-        self.assertEqual(a.candidates("합성도 새시 사아동 4-1", PREFIXES, DONGS)["jibun_pnu"], "9913110100100040001")
+        self.assertEqual(a.candidates("합성도 새시 사아동 4-1", PREFIXES, DONGS)["jibun_pnu"], "9999931101100040001")
 
     def test_what_neither_reading_takes_says_why(self) -> None:
         self.assertEqual(a.candidates("", PREFIXES, DONGS)["reason"], "no_address")
         self.assertEqual(a.candidates("다른도 어딘가", PREFIXES, DONGS)["reason"], "unparsed")
-        self.assertIsNone(a.jibun_pnu("9911010100", a.JibunKey("99", "가상시 가나동", False, 10000, 0)))
+        self.assertIsNone(a.jibun_pnu("9999910100", a.JibunKey("99", "가상시 가나동", False, 10000, 0)))
 
 
 if __name__ == "__main__":
