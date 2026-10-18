@@ -88,17 +88,42 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the dependency cache gongzzang's `rust` job saves (root ADR-0269); its own 315 MB
+          # entry was a second copy of those builds. sqlx-cli itself is cached alone, below.
           workspaces: |
             products/gongzzang
             tools/xtask
-          shared-key: sqlx-cli
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: gongzzang-dependencies
+          save-if: false
+      # sqlx publishes no release binaries, so the pinned fetcher (ADR-0197) has nothing to verify.
+      # On a miss cargo builds it from crates.io (every crate checked against the index checksum,
+      # dependencies pinned by --locked); only the two executables are kept, keyed by the version.
+      - name: Restore sqlx-cli
+        id: sqlx-cli
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
+        with:
+          path: |
+            ~/.cargo/bin/sqlx
+            ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-0.8.6-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Install sqlx-cli + postgres client
+        env:
+          SQLX_CLI_CACHED: ${{ steps.sqlx-cli.outputs.cache-hit }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
-          cargo install sqlx-cli --version 0.8.6 --locked --no-default-features --features postgres,rustls
+          if [ "${SQLX_CLI_CACHED}" != true ]; then
+            cargo install sqlx-cli --version 0.8.6 --locked --no-default-features --features postgres,rustls
+          fi
+      - name: Save sqlx-cli
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
+        with:
+          path: |
+            ~/.cargo/bin/sqlx
+            ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-0.8.6-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Wait for Postgres
         run: |
