@@ -561,8 +561,13 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
 
 
 def current_fingerprint(spark: Any, table: str) -> str | None:
-    """The current Gold's content fingerprint (root ADR-0274 §1): the one its head snapshot records,
-    else computed from its rows once; None for a table without a current snapshot or a row_digest."""
+    """The current Gold's content fingerprint (root ADR-0274 §1), only as the producer recorded it on
+    the commit the current rows are (compactions may follow it); None otherwise.
+
+    Never computed from the current rows: a row_digest only fingerprints the rows the producer wrote,
+    and a Gold changed by anything else (a backfill, a hand write) may keep digests that no longer
+    say what its rows hold. Such a Gold is rewritten, which records a fingerprint again.
+    """
     import gold_fingerprint
     from lakehouse_engine import current_snapshot
 
@@ -572,7 +577,7 @@ def current_fingerprint(spark: Any, table: str) -> str | None:
         head = current_snapshot(spark, table)
     except ValueError:
         return None
-    return gold_fingerprint.recorded(spark, table, head) or gold_fingerprint.of_frame(spark.table(table))
+    return gold_fingerprint.recorded_for_rows(spark, table, head)
 
 
 def table_property(spark: Any, table: str, name: str) -> str | None:

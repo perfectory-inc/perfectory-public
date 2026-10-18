@@ -97,6 +97,26 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
         self.assertEqual((metrics["upsert_count"], metrics["delete_count"], metrics["unchanged_count"]), (0, 0, 2))
         self.assertEqual((work / "upserts.txt").read_text(), "")
 
+    def test_a_gold_changed_outside_the_producer_is_rewritten_even_when_its_digests_still_match(self):
+        # A write that is not the producer's (a backfill, a hand fix) can change rows and keep their
+        # row_digest; only the fingerprint the producer recorded on the current rows is trusted.
+        table = "proof.gold.fingerprint_tampered"
+        self.spark.sql(f"CREATE TABLE {table} (pnu string, payload string, row_digest string) USING iceberg")
+        import gold_incremental as incremental
+
+        def commit(pin):
+            outcome = incremental.Outcome(mode="full", row_count=len(ROWS), metrics={}, gold=self.frame(ROWS))
+            outcome.commit(self.spark, table, {"silver.example": pin}, "overwrite")
+            return outcome
+
+        commit("11")
+        self.spark.sql(f"UPDATE {table} SET payload = 'tampered' WHERE pnu = '{ROWS[0][0]}'")
+        self.assertFalse(commit("12").content_unchanged)
+        payloads = sorted(row.payload for row in self.spark.table(table).collect())
+        self.assertEqual(payloads, ["a", "b"])
+        # Once the producer recorded it again, the same build is not rewritten.
+        self.assertTrue(commit("13").content_unchanged)
+
 
 if __name__ == "__main__":
     unittest.main()
