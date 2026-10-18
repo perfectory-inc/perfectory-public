@@ -98,6 +98,13 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             building = json.loads(row["buildings_json"])[0]
             self.assertEqual((building["purpose_code"], building["purpose_name"]), ("03000", None))
             self.assertEqual((building["structure_code"], building["structure_name"]), (None, None))
+            self.assertEqual(json.loads(row["buildings_json"])[0]["units"][0]["official_price_history"], [
+                {"base_date": "20100601", "price_won": 35000000},
+                {"base_date": "20100101", "price_won": 36000000},
+            ])
+            self.assertEqual(json.loads(row["unlinked_units_json"])[0]["official_price_history"], [
+                {"base_date": "20100601", "price_won": 100},
+            ])
 
     def test_the_registers_names_travel_beside_its_codes(self):
         titles = self.spark.createDataFrame([
@@ -110,13 +117,6 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         building = json.loads(row.buildings_json)[0]
         self.assertEqual((building["purpose_code"], building["purpose_name"]), ("03000", "공장"))
         self.assertEqual((building["structure_code"], building["structure_name"]), ("21", "철근콘크리트구조"))
-            self.assertEqual(json.loads(row["buildings_json"])[0]["units"][0]["official_price_history"], [
-                {"base_date": "20100601", "price_won": 35000000},
-                {"base_date": "20100101", "price_won": 36000000},
-            ])
-            self.assertEqual(json.loads(row["unlinked_units_json"])[0]["official_price_history"], [
-                {"base_date": "20100601", "price_won": 100},
-            ])
 
     def test_the_panel_reads_the_newest_vintages_batch_of_the_append_only_table(self):
         # Root ADR-0182: every vintage stays in the table; the panel serves the newest one.
