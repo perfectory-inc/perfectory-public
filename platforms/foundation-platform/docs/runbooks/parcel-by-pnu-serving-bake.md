@@ -175,14 +175,16 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   - manifest 쓰기는 발행이 처음 읽은 판 위에서만 된다(R2 `If-Match`). 그 사이 다른 발행이 manifest 를 옮겼으면
     "changed while this publish ran" 으로 거부되고 아무것도 쓰지 않는다 — 지금 판을 보고 다시 판단한다.
 - 묶음 세대 되돌리기([루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md) 5절):
-  묶음을 서빙하는 레인(parcel·building)의 되돌리기 수단은 직전 묶음 세대다. per-PNU 객체는 묶음 굽기가 갱신하지
+  묶음을 서빙하는 레인(parcel·building)의 되돌리기 수단은 직전 묶음 상태다: 직전 묶음 세대, 그것이 없으면(레인이
+  세대 하나뿐일 때) 서빙 세대에서 최신 묶음 패치를 뺀 상태. per-PNU 객체는 묶음 굽기가 갱신하지
   않으므로 되돌리기 수단이 아니다(낡은 문서를 오류 없이 낸다).
   1. 위 패치 되돌리기 1과 같이 `foundation_by_pnu_serving_bake` 를 먼저 멈춘다.
   2. 리허설(아무것도 옮기지 않음): `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
-     <parcel|building> rollback-rehearsal`. 발행기가 manifest 기록에서 직전 묶음 세대를 찾아 되돌리기를 검사하고
+     <parcel|building> rollback-rehearsal`. 발행기가 manifest 기록에서 직전 묶음 상태를 찾아 되돌리기를 검사하고
      쓸 manifest 를 출력한 뒤(`ROLLBACK_DRY_RUN`), 레인 모니터가 미리보기 주소에서 그 세대(`?packs=g<n>`)를 읽어 표본
-     PNU 를 그 세대의 묶음과 맞댄다. 결과는 `<bake root>/<lane>-rollback-rehearsal/`(`logs/check.log`, `rehearsal.json`).
-  3. 실행: 발행 명령을 `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_PREVIOUS_GENERATION=true` 로 돌린다(특정 기록은
+     PNU 를 그 세대의 묶음과 맞댄다. 미리보기는 세대의 기본 묶음만 서빙하므로, 묶음 패치가 남는 상태는 미리보기로
+     읽을 수 없어 리허설이 거부한다. 결과는 `<bake root>/<lane>-rollback-rehearsal/`(`logs/check.log`, `rehearsal.json`).
+  3. 실행: 발행 명령을 `..._CONFIRM_PUBLISH=true ..._ROLLBACK_TO_PREVIOUS_PACK_STATE=true` 로 돌린다(특정 기록은
      `..._ROLLBACK_TO_MANIFEST_KEY`). 직전 세대가 이미 지워졌으면(서빙 시작 7일 뒤, 루트 ADR-0242) 거부한다 — 그때의
      되돌리기는 Gold 에서 다시 굽는 것이다.
 - 기본 세대 복구: 기본 세대는 앞으로만 간다. 과거 기본 세대로 되돌리는 명령은 없다. 기존 객체를 보존하고,
