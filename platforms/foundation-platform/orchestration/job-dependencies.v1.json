@@ -1786,6 +1786,32 @@
       ]
     },
     {
+      "id": "silver_append_measure",
+      "producers": [
+        "silver_refresh_land_transfer_history"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.land_transfer_history",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_transfer_history,PROD)",
+          "node_id": "silver-land-transfer-history",
+          "title": "필지별 토지이동이력",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://silver-append-measurement",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,silver-append-measurement,PROD)",
+          "node_id": "silver-append-measurement",
+          "title": "Silver 쓰기 방식 측정(scratch)",
+          "kind": "serving_surface",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "complex_boundary_release",
       "producers": [
         "source_sweep"

@@ -296,6 +296,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 대지권 by-PNU 묶음 파일 (`parcel-land-rights-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_land_rights 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/land-rights/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
 | 스튜어드 검토 화면 (`steward-review-surface`) | 예정 | 사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항). |
+| Silver 쓰기 방식 측정(scratch) (`silver-append-measurement`) | 실행 경로 있음 | 토지 이동 이력 한 판을 통째로 덮어쓰기와 바뀐 행만 쌓기로 scratch 네임스페이스에 써서 시간과 바이트를 한 번 잰다(루트 ADR-0275 1단계). 운영 표는 읽기만 하고 scratch 표는 끝날 때 지운다. 측정이 끝나면 다음 PR 이 이 노드를 지운다. |
 
 ## 실행 근거
 
@@ -428,6 +429,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 스튜어드 결정 (필지 계보·법정동 짝) → 필지 계보 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_steward_fold.rs`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py` |
 | 필지 계보 검토 목록 → 스튜어드 검토 화면 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 | 필지 ID 원장 → 필지 by-PNU 제공용 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
+| 필지별 토지이동이력 → Silver 쓰기 방식 측정(scratch) | `platforms/foundation-platform/scripts/ops/silver-append-measure.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_append_measure.py` |
 
 ## 이전 지도에서 바뀐 점
 
