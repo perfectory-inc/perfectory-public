@@ -11,8 +11,10 @@ on:
 permissions:
   contents: read
 
+# One group per commit: every commit on main gets its own release (root ADR-0276 §9). Grouped by
+# ref, GitHub keeps one pending run and cancels the others, and the commits between have none.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -20,12 +22,14 @@ jobs:
     name: Build and attest the release
     runs-on: ubuntu-24.04
     timeout-minutes: 150
-    # The one job that signs (root ADR-0276 §3): the OIDC token Sigstore's certificate is issued for,
-    # and the attestation it records. No other job and no other workflow holds either.
+    # The one job that signs and publishes (root ADR-0276 §3, §5): the OIDC token Sigstore's
+    # certificate is issued for, the attestation it records, and its own GITHUB_TOKEN's write to this
+    # repository's package in GitHub's container registry. No stored secret; no other job holds any.
     permissions:
       contents: read
       id-token: write
       attestations: write
+      packages: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
         with:
@@ -45,6 +49,10 @@ jobs:
         env:
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: cp "$BUNDLE" "$RUNNER_TEMP/release/manifest.sigstore.json"
+      - name: Publish to GitHub's container registry
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/release-push.sh "$RUNNER_TEMP/release" "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release"
       - name: Report what was built
         run: python3 scripts/ci/release-build-summary.py "$RUNNER_TEMP/release" >>"$GITHUB_STEP_SUMMARY"
       - name: Upload the release
