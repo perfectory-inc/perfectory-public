@@ -153,6 +153,16 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
     hakari 에는 개발 의존성을 빼는 설정이 없다(omicron·RisingWave 도 같은 값을 치른다).
   - 시험: xtask `every_multi_member_workspace_keeps_a_workspace_hack`; 낡은 workspace-hack(한 줄
     지움)은 `generate --diff` 가, 의존 줄이 빠진 멤버는 `manage-deps --dry-run` 이 종료 코드 1 로 거부했다.
+- 2026-10-18 (스위트 모듈): `suites --workspace <dir>` 가 스위트 전체가 아니라 시험 모듈을 고른다. 시험
+  파일은 그것이 바뀌었거나, 바뀐 파일에 어느 깊이로든 기대면 돈다 — 바뀐 모듈을 import 하거나, 바뀐 파일
+  (그 시험이 시작하는 스크립트, 읽는 계약)을 따옴표로 부르는 경우. 코드는 시험에 기대지 않으므로 이어 걷기는
+  시험에서 멈춘다(어떤 모듈이 시험 파일 이름을 문자열로 적었다고 다른 것이 딸려 오지 않는다). Node 패키지는
+  그 안의 파일이 닿으면 돈다. 워크스페이스 안에서 아무도 import 하지도 부르지도 않는 파일(문서·Rust·
+  파이썬·셸 소스 제외)이 바뀌면 자리를 정할 수 없으니 전부 돈다. 풀 리퀘스트가 아닌 이벤트는 그대로 전부다.
+  xtask 는 discover 스위트에서 고른 모듈만, 나눌 수 없는 스위트는 고른 시험이 그 뿌리 아래 있을 때만 돌린다.
+  병합된 PR 13건 재현(Foundation 시험 모듈 148개): 1–7개 5건, 16–38개 4건, 60–67개 4건.
+  시험: `SuiteModulesTest`(심은 결함 셋 — 시험을 지나 걷기, 따옴표 이름 무시, TS 소스 미독 — 이 실패),
+  xtask `the_suite_selection_is_read_exactly`·`a_selected_module_is_found_by_its_repository_path`.
 
 ## Measurements
 

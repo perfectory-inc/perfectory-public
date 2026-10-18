@@ -510,18 +510,151 @@ def decide_suites(
     return False, f"none of {len(changed)} changed paths reaches a suite: only Rust crates or other areas changed"
 
 
+# A Python module a source imports: `import a.b`, `from a.b import c, d`.
+PY_IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import\s+([\w, ()]+)|import\s+([\w., ]+))", re.M)
+TEST_FILE = re.compile(r"(^|/)test_[^/]*\.py$")
+# Sources whose quoted names are dependencies; only Python also has imports.
+GRAPH_SUFFIXES = (".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".cjs")
+
+
+def dependency_graph(
+    root: Path, tracked: list[str], scope: tuple[str, ...] = ("",)
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """(imports, quotes): file -> the tracked Python modules it imports (matched by module or package
+    name), and file -> every tracked file it names in quotes (a path, or a bare file name). Only
+    sources under `scope` are read; names resolve against the whole tree."""
+    tracked_set = set(tracked)
+    tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
+    by_name: dict[str, set[str]] = {}
+    by_basename: dict[str, set[str]] = {}
+    for path in tracked:
+        pure = PurePosixPath(path)
+        by_basename.setdefault(pure.name, set()).add(path)
+        if pure.suffix == ".py":
+            by_name.setdefault(pure.parent.name if pure.name == "__init__.py" else pure.stem, set()).add(path)
+    imports: dict[str, set[str]] = {}
+    quotes: dict[str, set[str]] = {}
+    for source in tracked:
+        if not source.endswith(GRAPH_SUFFIXES) or not source.startswith(scope):
+            continue
+        try:
+            text = (root / source).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        code = "\n".join(line for line in text.splitlines() if not COMMENT.match(line))
+        imported: set[str] = set()
+        if source.endswith(".py"):
+            for module, names, plain in PY_IMPORT.findall(code):
+                for word in filter(None, re.split(r"[\s,().]+", f"{module} {names} {plain}".strip())):
+                    imported |= by_name.get(word, set())
+        quoted: set[str] = set()
+        for path in source_reads(source, text, tracked_set, tracked_dirs):
+            quoted |= {t for t in tracked_set if t == path or t.startswith(path + "/")}
+        for name in QUOTED_NAME.findall(code):
+            quoted |= by_basename.get(name, set())
+        imports[source] = imported - {source}
+        quotes[source] = quoted - {source}
+    return imports, quotes
+
+
+def select_suite_modules(
+    workspace: str, changed: set[str], tracked: list[str], graph: tuple[dict[str, set[str]], dict[str, set[str]]]
+) -> tuple[set[str] | None, set[str], str]:
+    """(the test files to run, or None for every suite; the Node package directories to run; why).
+
+    A test file runs when it changed, or depends on a changed file at any depth: it imports a module
+    that does, or names in quotes a file (a script it starts, a contract it reads) that does. Code
+    never depends on a test, so the walk stops at tests: a module that merely mentions a test's file
+    name pulls in nothing else. A Node package runs when a file inside it is reached. A changed file
+    of the workspace that nothing imports or names, and that is neither documentation, Rust nor a
+    Python or shell source, cannot be placed: every suite runs.
+    """
+    dependents: dict[str, set[str]] = {}
+    for edges in graph:
+        for source, deps in edges.items():
+            for dep in deps:
+                dependents.setdefault(dep, set()).add(source)
+    reached, stack = set(changed), [path for path in changed if not TEST_FILE.search(path)]
+    while stack:
+        for source in dependents.get(stack.pop(), ()):
+            if source not in reached:
+                reached.add(source)
+                if not TEST_FILE.search(source):
+                    stack.append(source)
+    tests = {path for path in reached if path.startswith(workspace + "/") and TEST_FILE.search(path)}
+    packages = {
+        str(PurePosixPath(path).parent)
+        for path in tracked
+        if path.startswith(workspace + "/") and path.endswith("/package.json") and "node_modules" not in path
+    }
+    nodes = {package for package in packages if any(path.startswith(package + "/") for path in reached)}
+    for path in sorted(changed):
+        if not path.startswith(workspace + "/") or path.endswith((".md", ".rs")) or path.endswith("/Cargo.toml"):
+            continue
+        if path.endswith(GRAPH_SUFFIXES) or dependents.get(path):
+            continue
+        if any(path.startswith(package + "/") for package in packages):
+            continue
+        return None, set(), f"no test, package or source names {path}"
+    return tests, nodes, f"{len(tests)} test module(s) and {len(nodes)} Node package(s) reach the change"
+
+
+def suite_answer(
+    contract: dict,
+    workspace: str,
+    event: str,
+    changed: set[str] | None,
+    members: dict[str, tuple[str, set[str]]],
+    reads: set[str],
+    tracked: list[str],
+    graph,
+) -> tuple[str, set[str], set[str], str]:
+    """("all" or "some", test files, Node package directories, why). "some" with nothing selected
+    runs nothing. Every event but a pull request, an unknown comparison, and a run-all input (the
+    toolchain, a workflow, xtask, this selector) answer "all"."""
+    if decide_crates(contract, workspace, event, changed, members, {})[0] is None:
+        return "all", set(), set(), decide_crates(contract, workspace, event, changed, members, {})[3]
+    run, reason = decide_suites(contract, workspace, event, changed, members, reads)
+    if not run:
+        return "some", set(), set(), reason
+    selected, nodes, why = select_suite_modules(workspace, changed or set(), tracked, graph())
+    if selected is None:
+        return "all", set(), set(), why
+    return "some", selected, nodes, why
+
+
 def suites_main(args: argparse.Namespace) -> int:
-    """Print `run <why>` or `skip <why>`, tab-separated, for `cargo xtask verify --part suites --affected`."""
+    """Print the suite selection for `cargo xtask verify --part suites --affected`, tab-separated:
+    `all <why>` or `some <why>`, then `test <path>` and `node <directory>` lines (none: nothing runs)."""
     event = os.environ.get("CHANGE_SCOPE_EVENT", "")
     changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
     workspace = args.workspace.strip("/")
     members = workspace_members(ROOT, workspace)
     reads: set[str] = set()
+    tracked: list[str] = []
     if event in CRATE_SELECT_EVENTS and changed is not None:
         listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
-        reads = suite_reads(ROOT, workspace, sorted({t for t in listed.decode().split("\0") if t} | changed))
-    run, reason = decide_suites(load_contract(), workspace, event, changed, members, reads)
-    print(f"{'run' if run else 'skip'}\t{reason}")
+        tracked = sorted({t for t in listed.decode().split("\0") if t} | changed)
+        reads = suite_reads(ROOT, workspace, tracked)
+    kind, selected, nodes, why = suite_answer(
+        load_contract(),
+        workspace,
+        event,
+        changed,
+        members,
+        reads,
+        tracked,
+        # The workspace, and the repository scripts and tools its tests start, are the only
+        # sources on a path to its tests; reading every other area's sources only costs time.
+        lambda: dependency_graph(ROOT, tracked, (workspace + "/", "scripts/", "tools/")),
+    )
+    print(f"{kind}\t{why}")
+    if kind == "all":
+        return 0
+    for path in sorted(selected):
+        print(f"test\t{path}")
+    for path in sorted(nodes):
+        print(f"node\t{path}")
     return 0
 
 
