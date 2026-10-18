@@ -13,7 +13,7 @@
   "time_limit_minutes_means": "How long one run may run, in minutes: the one number for it (root ADR-0270 §1). The crate foundation-jobs renders it into the TimeoutStartSec= line of the job's systemd unit (`cargo run -p foundation-jobs -- generate`) and its test refuses a unit that says anything else, and jobs that share a unit with different limits. The scheduler's limit for one start is time_limit_minutes + stop_grace_minutes (see stop_grace_minutes_means).",
   "stop_grace_minutes_means": "How much longer than time_limit_minutes the scheduler gives one start, in minutes: for the unit to stop and clean up (its TimeoutStopSec) and for the outcome to come back. One start's limit is time_limit_minutes + stop_grace_minutes, and every reader adds the two: the DAG's execution_timeout and SSH timeout and the starvation bound (orchestration/dags/job_specs.py scheduler_timeout_minutes), the deploy's wait for a started-once job (scripts/deploy/foundation-deploy.sh), and when the operations map calls a job late (foundation-api data_catalog/operations.rs). The crate foundation-jobs refuses a grace not longer than the unit's TimeoutStopSec (root ADR-0270 §1). It replaced timeout_minutes, which stated the sum by hand.",
   "state_paths_means": "Where a job writes and keeps state across runs, as absolute paths (root ADR-0266). The crate foundation-jobs renders them into the ReadWritePaths= line of the job's ProtectSystem=strict systemd unit and its test refuses a unit that says anything else, and jobs that share a unit with other paths (root ADR-0270 §1). orchestration/dags/job_specs.py refuses a job script whose state root comes from an EnvironmentFile or defaults outside these paths.",
-  "state_directories_means": "Every directory the host makes for the jobs, owned by foundation-platform, with its mode (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group.",
+  "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. lakehouse-ivy, Spark's ivy cache for the runs that mount it read-write, is written only by the Spark containers (compose.lakehouse.yml user FOUNDATION_PLATFORM_LAKEHOUSE_UID, 185): it belongs to foundation-spark, the account infra/sysusers/foundation-spark.conf gives that uid, and is not writable by anyone else (it was 0777 under an unnamed uid until 2026-10-18).",
   "state_directories": [
     {"path": "/var/lib/foundation-platform/map-edit-fold", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/map-edit-fold/lakehouse", "mode": "0777"},
@@ -25,12 +25,11 @@
     {"path": "/data/foundation-platform/by-pnu-bake", "mode": "0755"},
     {"path": "/data/foundation-platform/source-sweep", "mode": "0755"},
     {"path": "/data/foundation-platform/silver-refresh", "mode": "2770"},
-    {"path": "/data/foundation-platform/tile-bake", "mode": "0755"}
+    {"path": "/data/foundation-platform/tile-bake", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/source-sweep", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/lakehouse-ivy", "mode": "0755", "owner": "foundation-spark"}
   ],
-  "state_paths_not_created_here": {
-    "/var/lib/foundation-platform/lakehouse-ivy": "Spark's ivy cache, the bind-mount source of every lakehouse Spark run (compose.lakehouse.yml). No release step makes it and its owner and mode on the host are not recorded yet; recording them moves it to state_directories.",
-    "/var/lib/foundation-platform/source-sweep": "The daily sweep's state under /var/lib. No release step makes it and its owner and mode on the host are not recorded yet; recording them moves it to state_directories."
-  },
+  "state_paths_not_created_here": {},
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
   "enabled_since_means": "When the job was switched on, UTC (root ADR-0239): every enabled job states it and a disabled job does not. A scheduled start before it is not a start the job missed, so the operations map never calls a job late for a slot from before it was on. The pull request that switches a job on sets it to the time it is merged; job_specs.py refuses an enabled job without it.",
   "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
@@ -624,6 +623,29 @@
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "silver_append_measure",
+      "description": "Measure, once, one land transfer history release appended as changes in a scratch namespace (root ADR-0275 step 1; scripts/ops/silver-append-measure.sh): the release before copied, compared with the new one by one shuffle of row fingerprints, and only the changed rows appended with removal markers, each phase logged to the journal as it starts and ends. Writing a release whole was measured by the first run (about 3.5 minutes). Reads silver.land_transfer_history (the release before by time travel), writes only <catalog>.scratch_adr0275 and drops it at the end. It holds every spark slot (the 16g Spark of a Silver lane).",
+      "systemd_service": "foundation-silver-append-measure.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/lineage-stewardship",
+        "/var/lib/foundation-platform/lakehouse-ivy"
+      ],
+      "schedule": "0 13 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "time_limit_minutes": 120,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-transfer-history-to-silver-append-measurement"
+      ],
+      "enabled": false,
+      "disabled_reason": "A one-off measurement (root ADR-0275 step 1), never scheduled: the operator starts it once with `by-pnu-pack-operator.sh job start silver_append_measure`, which refuses while a deploy, a Gold rebuild or a Silver lane runs. The follow-up pull request removes it."
     },
     {
       "id": "complex_boundary_release",

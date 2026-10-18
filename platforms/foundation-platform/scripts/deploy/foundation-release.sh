@@ -348,8 +348,9 @@ PY
   if [[ -n "${current_target}" && "${current_target}" != "${next_target}" ]]; then
     atomic_link "${current_target}" "${release_root}/previous"
   fi
+  # Before the switch: a host that cannot make them keeps the release it runs.
+  prepare_job_state_directories "$(release_path "${release_id}")"
   atomic_link "${next_target}" "${release_root}/current"
-  prepare_job_state_directories
 }
 
 # A release is a tree rooted at platforms/foundation-platform, and this is where that is
@@ -1195,11 +1196,23 @@ prepare_spark_tmp() {
 # 2026-10-15 a directory made only in `timers` was mounted by `migrate` first, Docker made it root
 # 0755, and every deploy stopped (#625). `d` makes a missing directory and resets the owner and mode
 # of one that exists; the file also goes to /etc/tmpfiles.d, so a reboot makes them again. A release
-# from before the file made them in `timers` itself.
+# from before the file made them in `timers` itself. The argument is the release to read them from
+# (activate passes the one it is about to switch to); the current one when absent.
 prepare_job_state_directories() {
-  local conf="${release_root}/current/infra/tmpfiles/foundation-job-state.conf"
+  local release="${1:-${release_root}/current}"
+  local conf="${release}/infra/tmpfiles/foundation-job-state.conf"
+  local accounts="${release}/infra/sysusers/foundation-spark.conf"
   [[ -f "${conf}" ]] || return 0
-  install -d -o root -g root -m 0755 /etc/tmpfiles.d
+  # The accounts the directories name first: foundation-spark is the Spark containers' uid 185.
+  # sysusers picks another uid when the asked one is taken; then Spark could not write what it
+  # owns, so a different uid stops the deploy here instead.
+  install -d -o root -g root -m 0755 /etc/sysusers.d /etc/tmpfiles.d
+  install -o root -g root -m 0644 -t /etc/sysusers.d "${accounts}"
+  systemd-sysusers /etc/sysusers.d/foundation-spark.conf
+  [[ "$(id -u foundation-spark):$(id -g foundation-spark)" == "185:185" ]] || {
+    printf 'foundation-spark is not uid:gid 185:185 (the Spark containers); its directories were not made\n' >&2
+    exit 65
+  }
   install -o root -g root -m 0644 -t /etc/tmpfiles.d "${conf}"
   systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf
 }

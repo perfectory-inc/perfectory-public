@@ -185,11 +185,38 @@ def write_pnus(frame: Any, path: str) -> None:
             handle.write(f"{row.pnu}\n")
 
 
+def unchanged_rows(baseline: str | None, current: str | None) -> int | None:
+    """The row count when both snapshots record the same content fingerprint, else None."""
+    import gold_fingerprint
+
+    if baseline is None or current is None or baseline != current:
+        return None
+    rows = baseline.split(";", 1)[0]
+    if not rows.startswith("rows:") or not rows[5:].isdigit():
+        raise ValueError(f"unreadable {gold_fingerprint.PROPERTY} {baseline!r}")
+    return int(rows[5:])
+
+
+def same_content(spark: Any, table: str, baseline_id: str, current_id: str) -> int | None:
+    """unchanged_rows of the two snapshots' recorded fingerprints (a missing snapshot is left to the scan's refusal)."""
+    import gold_fingerprint
+
+    return unchanged_rows(gold_fingerprint.recorded(spark, table, baseline_id),
+                          gold_fingerprint.recorded(spark, table, current_id))
+
+
 def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
 
     table = GOLD_TABLES[args.unit]
+    unchanged = same_content(spark, f"`{args.iceberg_catalog_name}`.{table}", args.baseline_snapshot_id,
+                             args.current_snapshot_id)
+    if unchanged is not None:
+        # Root ADR-0274 §1: the producer recorded the same content in both snapshots; nothing to scan.
+        write_pnus(spark.createDataFrame([], "pnu string"), args.upsert_output)
+        write_pnus(spark.createDataFrame([], "pnu string"), args.delete_output)
+        return judge({"same": unchanged}, args.max_delta_fraction)
     suffix = KEY_SUFFIX_COLUMNS.get(args.unit)
     baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id, suffix)
     current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id, suffix)

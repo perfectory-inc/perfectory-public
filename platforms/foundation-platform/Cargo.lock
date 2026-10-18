@@ -1778,8 +1778,10 @@ name = "foundation-jobs"
 version = "0.1.0"
 dependencies = [
  "foundation-workspace-hack",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2159,6 +2161,7 @@ dependencies = [
  "httparse",
  "indexmap",
  "libc",
+ "linux-raw-sys 0.12.1",
  "log",
  "memchr",
  "num-bigint 0.4.8",

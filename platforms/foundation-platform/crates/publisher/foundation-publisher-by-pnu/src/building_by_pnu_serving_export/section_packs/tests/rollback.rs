@@ -1,12 +1,14 @@
-//! The rollback lever of a pack lane is its previous pack generation (root ADR-0274 §5).
+//! The rollback lever of a pack lane is its previous pack state (root ADR-0274 §5): the previous
+//! generation, or the live generation without its newest pack patch.
 
 use anyhow::Context as _;
 
 use super::{
-    changed_row, empty_row, joined, live_answering, object, spark_row, Lane, PNU_A, PNU_B, SNAPSHOT,
+    changed_row, empty_row, joined, live_answering, object, spark_row, write_change_set, Lane,
+    NEXT_SNAPSHOT, PNU_A, PNU_B, SNAPSHOT,
 };
 use crate::building_by_pnu_serving_export::section_packs::{monitor, sections};
-use crate::by_pnu_serving_manifest_publish::previous_generation::PREVIOUS_GENERATION;
+use crate::by_pnu_serving_manifest_publish::previous_generation::PREVIOUS_PACK_STATE;
 use crate::by_pnu_serving_manifest_publish::{
     check_rollback, publish, PublishConfig, PublishInput,
 };
@@ -60,7 +62,7 @@ async fn a_rollback_serves_the_previous_pack_generation_while_it_is_kept() -> an
 
     let config = |dry_run| PublishConfig {
         output: lane.output(),
-        input: PublishInput::Rollback(PREVIOUS_GENERATION.to_owned()),
+        input: PublishInput::Rollback(PREVIOUS_PACK_STATE.to_owned()),
         first_publication: false,
         dry_run,
     };
@@ -97,6 +99,81 @@ async fn a_rollback_serves_the_previous_pack_generation_while_it_is_kept() -> an
     assert_eq!(
         generations(lane.live().await?.section_packs.as_ref()),
         vec![1]
+    );
+    assert_eq!(
+        joined(lane.answer(PNU_A).await?)?,
+        object(&rows[0], SNAPSHOT)?
+    );
+    Ok(())
+}
+
+/// A lane that has only ever had one pack generation (the building lane, 2026-10-18): its previous
+/// pack state is that generation without its newest patch, which the preview serves as the base.
+#[tokio::test]
+async fn a_lane_of_one_generation_rolls_back_its_newest_pack_patch() -> anyhow::Result<()> {
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let lane = Lane::serving_objects("rollback-patch", &rows).await?;
+    lane.cut_over(&rows).await?;
+    let changed = changed_row()?;
+    let patch = lane
+        .bake(
+            std::slice::from_ref(&changed),
+            NEXT_SNAPSHOT,
+            Some((1, &[PNU_A], &[])),
+        )
+        .await?;
+    let change_set = write_change_set(
+        &lane.work,
+        (SNAPSHOT, NEXT_SNAPSHOT),
+        (0, 1, 0),
+        &[PNU_A],
+        &[],
+    )?;
+    lane.publish_with(
+        Some(lane.summaries("patch", &[&patch])?),
+        NEXT_SNAPSHOT,
+        2,
+        None,
+        Some(change_set),
+    )
+    .await?;
+    let live = lane.live().await?.section_packs.context("packs")?;
+    assert_eq!((generations(Some(&live)), live.patches.len()), (vec![1], 1));
+    assert_eq!(
+        joined(lane.answer(PNU_A).await?)?,
+        object(&changed, NEXT_SNAPSHOT)?
+    );
+
+    // The preview serves generation 1's base, which is the state the rollback returns to.
+    let pnus = vec![PNU_A.to_owned(), PNU_B.to_owned()];
+    let base = live_answering(&rows, 200, 0, |body| body).await?;
+    let held = monitor::check_at(&lane.store, &base.uri(), &pnus, 3_000.0, Some(1)).await?;
+    assert!(held.passed, "{held:?}");
+
+    let config = |dry_run| PublishConfig {
+        output: lane.output(),
+        input: PublishInput::Rollback(PREVIOUS_PACK_STATE.to_owned()),
+        first_publication: false,
+        dry_run,
+    };
+    let (_, manifest) = check_rollback(&config(true), &lane.store).await?;
+    let back = manifest.section_packs.context("the dry run names packs")?;
+    assert_eq!((generations(Some(&back)), back.patches.len()), (vec![1], 0));
+    assert_eq!(
+        lane.live()
+            .await?
+            .section_packs
+            .context("packs")?
+            .patches
+            .len(),
+        1
+    );
+
+    publish(&config(false), &lane.store, &lane.gateway.uri()).await?;
+    let served = lane.live().await?.section_packs.context("packs")?;
+    assert_eq!(
+        (generations(Some(&served)), served.patches.len()),
+        (vec![1], 0)
     );
     assert_eq!(
         joined(lane.answer(PNU_A).await?)?,

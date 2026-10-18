@@ -10,8 +10,8 @@
 //!   job wrote (`by_pnu_panel_delta.py`). A change set with nothing in it advances only
 //!   `reflected_gold_iceberg_snapshot_id`;
 //! - **rollback** — a manifest the history holds, accepted only when it is the live manifest
-//!   minus its newest patches, or its packs a step back to a previous pack generation still kept
-//!   (`ROLLBACK_TO_PREVIOUS_GENERATION=true` finds it; root ADR-0274 §5). With
+//!   minus its newest patches, or its packs a step back to a previous pack generation still kept;
+//!   `ROLLBACK_TO_PREVIOUS_PACK_STATE=true` finds the previous pack state (root ADR-0274 §5). With
 //!   `ROLLBACK_DRY_RUN=true` the rollback is checked and its manifest printed, nothing written.
 //!
 //! Every publish first stores the manifest it replaces, create-only, under the lane's manifest
@@ -168,14 +168,14 @@ impl PublishConfig {
         let listing = flag("PUBLISH_FROM_LISTING")?;
         let patch = flag("PUBLISH_PATCH")?;
         let mut rollback = env("ROLLBACK_TO_MANIFEST_KEY")?;
-        if flag("ROLLBACK_TO_PREVIOUS_GENERATION")? {
+        if flag("ROLLBACK_TO_PREVIOUS_PACK_STATE")? {
             ensure!(
                 rollback.is_none(),
                 "state one of {} or {}=true",
                 lane.env("ROLLBACK_TO_MANIFEST_KEY"),
-                lane.env("ROLLBACK_TO_PREVIOUS_GENERATION")
+                lane.env("ROLLBACK_TO_PREVIOUS_PACK_STATE")
             );
-            rollback = Some(previous_generation::PREVIOUS_GENERATION.to_owned());
+            rollback = Some(previous_generation::PREVIOUS_PACK_STATE.to_owned());
         }
         let dry_run = flag("ROLLBACK_DRY_RUN")?;
         ensure!(
@@ -1123,14 +1123,14 @@ async fn served_document_schema(
         .with_context(|| format!("{key} names no schema_version"))
 }
 
-/// The history key a rollback input names: itself, or the previous pack generation's.
+/// The history key a rollback input names: itself, or the previous pack state's.
 async fn resolve_rollback_key(
     store: &ByPnuServingStore,
     named: &str,
     served: &ServedManifest,
 ) -> anyhow::Result<String> {
-    if named == previous_generation::PREVIOUS_GENERATION {
-        previous_generation::previous_generation_key(store, served).await
+    if named == previous_generation::PREVIOUS_PACK_STATE {
+        previous_generation::previous_pack_state_key(store, served).await
     } else {
         Ok(named.to_owned())
     }

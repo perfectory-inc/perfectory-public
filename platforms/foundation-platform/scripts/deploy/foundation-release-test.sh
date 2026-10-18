@@ -963,14 +963,20 @@ prune_rehearsal() {
   ln -s "releases/$(prune_id 4)" "${control_releases%/releases}/current"
   # Release 6 is held by a running process (a unit started from an older current), release 7 by a
   # running container through the image ID its build recorded.
-  ( cd "${prune_root}/releases/$(prune_id 6)/scripts" && exec sleep 600 ) &
-  sleeper=$!
+  # Started through Python's Popen, which returns only once the child's exec succeeded (it reads
+  # a close-on-exec pipe until exec closes it): the process already runs `sleep` with its working
+  # directory inside release 6 when prune looks. A backgrounded `( cd … && exec sleep )` could let
+  # prune look first and find a `bash` elsewhere, which failed #680.
+  sleeper="$(python3 -c 'import subprocess, sys
+child = subprocess.Popen(["sleep", "600"], cwd=sys.argv[1], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(child.pid)' "${prune_root}/releases/$(prune_id 6)/scripts")" || return 1
   printf 'c7 /fixture-floor sha256:p%s sha256:p%s /srv/unrelated\n' "$(prune_id 7)" "$(prune_id 7)" \
     >"${REHEARSAL_CONTAINERS}"
   status=0
   FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune \
     >"${test_root}/prune.log" 2>&1 || status=$?
-  kill "${sleeper}"; wait "${sleeper}" 2>/dev/null || true
+  kill "${sleeper}" 2>/dev/null || true
   expect [ "${status}" = 75 ] || return 1
   for n in 1 2 3 5 8 10; do expect present "$(prune_id "${n}")" || return 1; done
   expect gone "$(prune_id 4)" || return 1
@@ -1035,19 +1041,25 @@ prune_rehearsal() {
 
 # Holds admission's release build lock from another process, as a running build does.
 locker=""
+# The holder writes one line to a FIFO once flock returned; reading that line is the wait.
 hold_build_lock() {
-  rm -f "${test_root}/lock-held"
+  local ready="${test_root}/lock-held" line=""
+  rm -f "${ready}"; mkfifo "${ready}"
   python3 -c 'import fcntl, sys, time
 handle = open(sys.argv[1], "a")
 fcntl.flock(handle, fcntl.LOCK_EX)
-open(sys.argv[2], "w").close()
-time.sleep(600)' "${REHEARSAL_BUILD_LOCK}" "${test_root}/lock-held" &
+with open(sys.argv[2], "w") as ready:
+    ready.write("held\n")
+time.sleep(600)' "${REHEARSAL_BUILD_LOCK}" "${ready}" &
   locker=$!
-  local _
-  for _ in $(seq 100); do
-    [[ ! -e "${test_root}/lock-held" ]] || return 0
-    sleep 0.1
-  done
+  # Opened read-write so the open never blocks: a holder that died before writing ends in the
+  # 60 s read limit, not a hang.
+  local fd
+  exec {fd}<>"${ready}"
+  read -r -t 60 -u "${fd}" line || true
+  exec {fd}<&-
+  rm -f "${ready}"
+  [[ "${line}" == held ]] && return 0
   printf 'prune rehearsal: the build lock was never taken\n' >&2
   return 1
 }
