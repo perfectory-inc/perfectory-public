@@ -49,13 +49,16 @@ pub struct JobList {
     pub state_paths_not_created_here: BTreeMap<String, String>,
 }
 
-/// A directory the host makes for the jobs, owned by [`STATE_OWNER`].
+/// A directory the host makes for the jobs.
 #[derive(Debug, Deserialize)]
 pub struct StateDirectory {
     /// The directory, absolute.
     pub path: String,
     /// Its octal mode, four digits (`0755`, `2770`, `0777`).
     pub mode: String,
+    /// The account and group that own it; [`STATE_OWNER`] when absent.
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 /// One job, as far as rendering reads it.
@@ -315,8 +318,9 @@ pub fn render_tmpfiles(list: &JobList) -> Result<String, Vec<String>> {
          # Run: {GENERATE}\n"
     );
     out.extend(list.state_directories.iter().map(|directory| {
+        let owner = directory.owner.as_deref().unwrap_or(STATE_OWNER);
         format!(
-            "d {} {} {STATE_OWNER} {STATE_OWNER} -\n",
+            "d {} {} {owner} {owner} -\n",
             directory.path, directory.mode
         )
     }));
@@ -505,6 +509,7 @@ mod tests {
             .map(|(path, mode)| StateDirectory {
                 path: (*path).to_owned(),
                 mode: (*mode).to_owned(),
+                owner: None,
             })
             .collect();
         jobs.state_paths_not_created_here = elsewhere
@@ -537,6 +542,15 @@ mod tests {
         assert_eq!(
             check_tmpfiles(&jobs, Ok(rendered.replace("0777", "0755"))).len(),
             1
+        );
+        let mut owned = with_state(&["/a"], &[("/a", "0755")], &[]);
+        if let Some(directory) = owned.state_directories.first_mut() {
+            directory.owner = Some("foundation-spark".to_owned());
+        }
+        let rendered_owned = render_tmpfiles(&owned).map_err(|problems| problems.join("; "))?;
+        assert!(
+            rendered_owned.ends_with("\nd /a 0755 foundation-spark foundation-spark -\n"),
+            "{rendered_owned}"
         );
         Ok(())
     }

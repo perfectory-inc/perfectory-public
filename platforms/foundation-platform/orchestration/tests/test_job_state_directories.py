@@ -28,10 +28,11 @@ def timers_branch(script):
     return match.group(1) if match else ""
 
 
-def applied_after_the_switch(script):
+def applied_before_the_switch(script):
     body = function_body(script, "activate_release")
     switch = body.find('atomic_link "${next_target}" "${release_root}/current"')
-    return switch >= 0 and body.find("prepare_job_state_directories", switch) > switch
+    made = body.find('prepare_job_state_directories "$(release_path "${release_id}")"')
+    return 0 <= made < switch
 
 
 def hand_made(script):
@@ -53,13 +54,35 @@ class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
         self.assertIn("systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf", body)
         self.assertTrue(CONF.is_file())
 
-    def test_activate_makes_them_as_soon_as_current_switches(self):
-        self.assertTrue(applied_after_the_switch(self.script))
+    def test_activate_makes_them_from_the_new_release_before_current_switches(self):
+        self.assertTrue(applied_before_the_switch(self.script))
         planted = self.script.replace(
-            'atomic_link "${next_target}" "${release_root}/current"\n  prepare_job_state_directories\n',
-            'atomic_link "${next_target}" "${release_root}/current"\n', 1)
+            '  prepare_job_state_directories "$(release_path "${release_id}")"\n', '', 1)
         self.assertNotEqual(planted, self.script)
-        self.assertFalse(applied_after_the_switch(planted))
+        self.assertFalse(applied_before_the_switch(planted))
+
+    def test_the_spark_account_is_made_first_with_the_containers_uid(self):
+        body = function_body(self.script, "prepare_job_state_directories")
+        self.assertLess(body.index("systemd-sysusers"), body.index("systemd-tmpfiles --create"))
+        self.assertIn('== "185:185" ]]', body)
+        accounts = (PLATFORM / "infra/sysusers/foundation-spark.conf").read_text(encoding="utf-8")
+        rule = next(line.split() for line in accounts.splitlines() if line.startswith("u "))
+        self.assertEqual(rule[1:3], ["foundation-spark", "185:185"])
+        # The group first: `u name uid:gid` does not make a missing group, and sysusers exits 0 anyway.
+        group = next(line.split() for line in accounts.splitlines() if line.startswith("g "))
+        self.assertEqual(group[1:3], ["foundation-spark", "185"])
+        # The uid the Spark containers run as: compose.lakehouse.yml's default for every service.
+        compose = (PLATFORM / "compose.lakehouse.yml").read_text(encoding="utf-8")
+        users = set(re.findall(r'user: "\$\{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-(\d+)\}:\$\{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-(\d+)\}"', compose))
+        self.assertEqual(users, {("185", "185")})
+
+    def test_only_spark_writes_its_ivy_cache(self):
+        directories = {entry["path"]: entry for entry in json.loads(JOBS.read_text(encoding="utf-8"))["state_directories"]}
+        ivy = directories["/var/lib/foundation-platform/lakehouse-ivy"]
+        self.assertEqual(ivy.get("owner"), "foundation-spark")
+        self.assertEqual(int(ivy["mode"], 8) & 0o022, 0, "not writable by its group or by anyone")
+        conf = CONF.read_text(encoding="utf-8")
+        self.assertIn("d /var/lib/foundation-platform/lakehouse-ivy 0755 foundation-spark foundation-spark -\n", conf)
 
     def test_timers_makes_them_too(self):
         self.assertIn("prepare_job_state_directories", timers_branch(self.script))
