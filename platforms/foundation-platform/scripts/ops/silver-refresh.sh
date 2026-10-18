@@ -88,7 +88,18 @@ export FOUNDATION_PLATFORM_SILVER_REFRESH_JARS_DIR="${RELEASE_JARS_DIR}"
 FOUNDATION_PLATFORM_LAKEHOUSE_GID="$(id -g)"
 export FOUNDATION_PLATFORM_LAKEHOUSE_GID
 if [[ "${PLAN}" == 1 ]]; then
-  exec "${PUBLISHER_BIN}" run-silver-refresh
+  # A plan is not a run: it ends with `foundation-job-check unchanged|would_change`, never a job
+  # outcome. The scheduled check (foundation-silver-refresh-plan@.service) reads that line to skip a
+  # run with nothing to do before it takes the spark pool (root ADR-0276).
+  "${PUBLISHER_BIN}" run-silver-refresh | awk '
+    { print; fflush() }
+    /^silver-refresh-plan / {
+      check = ""
+      if ($0 ~ / outcome=unchanged( |$)/) check = "unchanged"
+      if ($0 ~ / outcome=would_change( |$)/) check = "would_change"
+    }
+    END { if (check != "") print "foundation-job-check " check }'
+  exit
 fi
 # Every line passes through as it comes. The publisher's outcome becomes the job's last line, the
 # one every scheduled job ends with (root ADR-0171): `changed` starts the Gold rebuild. A run that

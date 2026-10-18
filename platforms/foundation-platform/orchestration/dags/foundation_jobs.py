@@ -10,6 +10,9 @@ scheduled on them: it runs when another job's run changed one of them, and at it
 fallback. The run's last `foundation-job-outcome` line says whether it changed its outputs; task
 `publish_outputs` then records the output asset events, or is skipped when the run changed nothing,
 so nothing downstream starts.
+
+A job that names a `check_service` runs it first, as task `check` in Airflow's default_pool: when it
+says the run has nothing to do, `run` is skipped before it waits for the job's pool (root ADR-0276).
 """
 
 import pendulum
@@ -19,7 +22,16 @@ from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator,
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
-from job_specs import RETRY_DELAY_MINUTES, RUN_TASK_ID, WITHHOLDS_EVENTS, asset_uri, job_outcome, load_specs
+from job_specs import (
+    DEFAULT_POOL,
+    RETRY_DELAY_MINUTES,
+    RUN_TASK_ID,
+    WITHHOLDS_EVENTS,
+    asset_uri,
+    check_says_unchanged,
+    job_outcome,
+    load_specs,
+)
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
 # Defined by airflow-runtime.sh as AIRFLOW_CONN_FOUNDATION_HOST: the host, the scheduler account,
@@ -27,6 +39,10 @@ START = pendulum.datetime(2026, 10, 1, tz="UTC")
 CONNECTION = "foundation_host"
 # The XCom `run` leaves for `publish_outputs`: one word, never the journal.
 OUTCOME_KEY = "outcome"
+# A job's check (jobs.v1.json `check_service`, root ADR-0276) and its bound: the slowest lane's
+# took 4.2 s (2026-10-14..18), the unit's own TimeoutStartSec is 5 minutes.
+CHECK_TASK_ID = "check"
+CHECK_TIMEOUT_MINUTES = 6
 
 
 class RunJob(SSHOperator):
@@ -40,6 +56,30 @@ class RunJob(SSHOperator):
             # Not a failure and not a success: skipped, which the data flow map shows as waiting with
             # the reason from this log (root ADR-0260). publish_outputs is skipped with it.
             raise AirflowSkipException("the run ended waiting; its last foundation-job-outcome line says for what")
+        return b""
+
+
+class CheckJob(SSHOperator):
+    """Asks the job's check service, without a pool slot, whether the run has work (root ADR-0276).
+
+    `unchanged` skips the run, and with it publish_outputs. Anything else, a failed check included,
+    lets the run start: the run decides again for itself, so the check only saves its pool wait.
+    """
+
+    def execute(self, context):
+        try:
+            super().execute(context)
+            return None  # the answer is the task's state, not an XCom
+        except AirflowSkipException:
+            raise
+        except Exception as error:  # noqa: BLE001 - a check that cannot answer must not stop the run
+            self.log.warning("the check did not answer (%s); the run decides for itself", error)
+            return None
+
+    def run_ssh_client_command(self, ssh_client, command, context=None):
+        output = super().run_ssh_client_command(ssh_client, command, context=context)
+        if check_says_unchanged(output.decode("utf-8", "replace")):
+            raise AirflowSkipException("the check found nothing to do: the run is skipped and takes no pool slot")
         return b""
 
 
@@ -115,4 +155,19 @@ for spec in load_specs():
             # this bookkeeping step reports nothing of its own (Dawneer reads the latest run, ADR-0165).
             extend_global_openlineage_emission_policy(publish, emit_task_events=False)
             run >> publish
+        if spec.check_service:
+            check = CheckJob(
+                task_id=CHECK_TASK_ID,
+                ssh_conn_id=CONNECTION,
+                command=f"{spec.job_id} check",
+                cmd_timeout=CHECK_TIMEOUT_MINUTES * 60,
+                do_xcom_push=False,
+                # Airflow's own pool, never the job's: the point is to decide before taking it.
+                pool=DEFAULT_POOL,
+                retries=0,
+                execution_timeout=pendulum.duration(minutes=CHECK_TIMEOUT_MINUTES),
+            )
+            # Reports nothing to the data catalog; the run reports the job (root ADR-0165).
+            extend_global_openlineage_emission_policy(check, emit_task_events=False)
+            check >> run
     globals()[spec.dag_id] = dag

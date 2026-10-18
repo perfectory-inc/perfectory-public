@@ -60,6 +60,9 @@ OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiti
 # The outcomes after which nothing downstream starts: nothing changed, the run waits on someone
 # else, or it failed.
 WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed")
+# The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0276). Only
+# `unchanged` skips the run; any other word, or none, lets the run decide for itself.
+CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
 
@@ -85,6 +88,7 @@ class JobSpec:
     outputs: list  # (namespace, name)
     started_by: str = "schedule"  # STARTED_BY
     producers: tuple = ()  # the other jobs whose outputs are among its inputs
+    check_service: str | None = None  # decides, without a pool slot, whether the run has work
 
     @property
     def starting_inputs(self):
@@ -124,6 +128,12 @@ def outcome_line(output):
         output = output.encode("utf-8", "replace")
     found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
     return "foundation-job-outcome " + found[-1].decode("utf-8", "replace") if found else None
+
+
+def check_says_unchanged(output):
+    """Whether what a check printed (text) ends `foundation-job-check unchanged`: the run has nothing to do."""
+    found = CHECK_LINE.findall(output or "")
+    return bool(found) and found[-1] == "unchanged"
 
 
 def job_outcome(output):
@@ -655,6 +665,15 @@ def load_specs(jobs=None, graph=None):
         if service in seen_services:
             raise JobListError(f"{job_id}: {service} already belongs to another job")
         seen_services.add(service)
+        check = job.get("check_service")
+        if check is not None:
+            if not (isinstance(check, str) and SERVICE_NAME.fullmatch(check)):
+                raise JobListError(f"{job_id}: check_service {check!r} is not a foundation-*.service name")
+            if not service_unit_file(check).is_file():
+                raise JobListError(f"{job_id}: infra/systemd has no unit for {check}")
+            if check in seen_services:
+                raise JobListError(f"{job_id}: {check} already belongs to another job")
+            seen_services.add(check)
         timer = job["systemd_timer"]
         if timer is not None and not TIMER_NAME.fullmatch(timer):
             raise JobListError(f"{job_id}: {timer!r} is not a foundation-*.timer name")
@@ -689,6 +708,7 @@ def load_specs(jobs=None, graph=None):
                 outputs=outputs,
                 started_by=start,
                 producers=tuple(feeders[job_id]),
+                check_service=check,
             )
         )
     starvation = pool_starvation(jobs, graph)

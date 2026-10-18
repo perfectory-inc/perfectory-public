@@ -18,7 +18,8 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | 레인의 원천 역할·내보내기·Spark 크기·쓰기 방식 | 레인 계약의 `silver_refresh` 블록 (`infra/lakehouse/contracts/hub-building-register-*-source-objects.json`, `vworld-land-*-source-objects.json`) |
 | 판 규칙 | 같은 계약의 `release_rule` (ADR-0169 §2) |
 | 실행 계정·환경 파일·시간·메모리 한계 | `infra/systemd/foundation-silver-refresh@.service` → `scripts/ops/silver-refresh.sh` |
-| 환경 파일 | `config/runtime-secrets.contract.json` 의 유닛 `foundation-silver-refresh@.service`, 실행 `silver-refresh-plan` |
+| 환경 파일 | `config/runtime-secrets.contract.json` 의 유닛 `foundation-silver-refresh@.service`·`foundation-silver-refresh-plan@.service`, 실행 `silver-refresh-plan` |
+| 칸 없는 확인 | `infra/systemd/foundation-silver-refresh-plan@.service`: 레인 DAG 의 `check` task 가 `default_pool` 에서 plan 을 돌리고, `foundation-job-check unchanged` 면 `run` 을 skip 해 spark 풀을 기다리지 않는다(루트 ADR-0276) |
 | 작업 폴더·증거 | `/data/foundation-platform/silver-refresh/<레인>/work`(실행마다 비운다), `…/<레인>/evidence/<identity>/`(요약, 쌓기만) |
 
 | 레인 (유닛 인스턴스) | Silver 표 | 원천 | 쓰기 |
