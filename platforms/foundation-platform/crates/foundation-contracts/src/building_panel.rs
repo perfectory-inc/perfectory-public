@@ -20,8 +20,16 @@ pub struct BuildingPanelBuilding {
     pub register_pk: String,
     /// Source building purpose code. `null` when the register stated nothing (ADR-0076 §1).
     pub purpose_code: Option<String>,
+    /// The register's name for `purpose_code` (주용도코드명) exactly as it wrote it. Absent when
+    /// the register stated none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose_name: Option<String>,
     /// Source building structure code. `null` when the register stated nothing.
     pub structure_code: Option<String>,
+    /// The register's name for `structure_code` (구조코드명) exactly as it wrote it. Absent when
+    /// the register stated none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structure_name: Option<String>,
     /// Official floor area (연면적) in square meters. `null` when the register wrote 0 or
     /// nothing.
     pub floor_area_m2: Option<f64>,

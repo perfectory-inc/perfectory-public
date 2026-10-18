@@ -32,11 +32,13 @@ ROWS = {
                                      (pnu(OLD, 1), "2099", "1", "2000", None)],
     "silver.land_characteristic": [(pnu(NEW, 1), 10.0, "대", "주거", "평지", "정방형", "세로"),
                                    (pnu(OLD, 1), 20.0, "전", "농지", "평지", "부정형", None)],
-    "silver.land_forest_ledger": [(pnu(NEW, 1), 30.0, 1, "임", "1"), (pnu(OLD, 1), 40.0, None, "임", "2")],
+    "silver.land_forest_ledger": [(pnu(NEW, 1), 30.0, 1, "임", "1", "개인"), (pnu(OLD, 1), 40.0, None, "임", "2", None)],
     "silver.land_transfer_history": [(pnu(NEW, 1), 1, "1", "10", "분할", "20990101", None, "대", 10.0, None),
                                      (pnu(OLD, 1), 2, "1", "20", "합병", "20980101", None, "전", 20.0, "1")],
     "silver.land_right_registration": [(pnu(NEW, 1), "1", "가", "101", "1", "101", "", "1/2", "말소", "1"),
                                        (pnu(OLD, 1), "2", "나", "", "", "", "", "1/1", None, None)],
+    # Already the newest snapshot's existing codes (`newest_legal_dong_names`); no kind serves it.
+    "reference.legal_dong_code_snapshot": [(NEW, "synthetic-si synthetic-dong", "synthetic-dong")],
 }
 
 

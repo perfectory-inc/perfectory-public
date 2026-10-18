@@ -80,6 +80,15 @@ const GOLD_PARCEL_PANEL_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: false,
     },
+    // The 법정동 the PNU's first ten digits are, as the newest snapshot of
+    // `reference.legal_dong_code_snapshot` names it: {name, lowest_name}; null when that snapshot
+    // does not hold the code as existing. Nullable so the column reaches the production table
+    // without a backfill (root ADR-0259); the digest skips it while null.
+    LakehouseColumn {
+        name: "legal_dong_json",
+        logical_type: "string",
+        required: false,
+    },
     // Deterministic SHA-256 of the content columns only, lineage excluded (root ADR-0099).
     // The daily delta job compares this fingerprint across snapshots to name the parcels
     // whose serving documents must be re-baked.

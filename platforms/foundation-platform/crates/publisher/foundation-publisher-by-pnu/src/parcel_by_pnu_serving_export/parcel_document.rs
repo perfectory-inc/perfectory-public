@@ -54,6 +54,11 @@ struct ParcelByPnuDocument<'a> {
     schema_version: &'static str,
     pnu: &'a str,
     source: &'a GoldSnapshotProvenance,
+    /// The 법정동 the PNU's first ten digits are, by the source's own names (root ADR-0113 §5).
+    /// Absent when the newest code list does not hold the code, so such documents stay
+    /// byte-identical to before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    legal_dong: Option<ParcelLegalDong>,
     /// Postgres-curated parcel kind (root ADR-0070). The lakehouse carries no producer for it,
     /// so the Gold projection leaves it null until a merge path is decided; the field stays in
     /// the schema so that decision changes data, not shape.
@@ -95,6 +100,16 @@ struct ParcelLineageEdge {
     grade: String,
 }
 
+/// `gold.parcel_panel.legal_dong_json`: names only, never the code they stand for.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ParcelLegalDong {
+    /// The code's full name (전체 이름) exactly as the code list wrote it.
+    name: String,
+    /// The lowest unit's own name (최하위 지역명); null when the snapshot carried none.
+    lowest_name: Option<String>,
+}
+
 /// Section names `attached_via` may name — the document's own section fields.
 const CARRIED_SECTIONS: [&str; 6] = [
     "zonings",
@@ -123,6 +138,7 @@ pub fn build(
         schema_version: PARCEL_DOCUMENT_SCHEMA_VERSION,
         pnu,
         source: provenance,
+        legal_dong: optional_section(row, "legal_dong_json")?,
         kind: optional_string(row, "kind")?,
         area_m2: optional_u64(row, "area_m2")?,
         zonings: required_section(row, "zonings_json")?,
@@ -359,6 +375,67 @@ mod tests {
         );
         let error = build(&provenance(), &extra).expect_err("an unknown edge field must refuse");
         assert!(error.to_string().contains("lineage_json"), "{error}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_legal_dong_and_the_forest_ownership_are_named_as_the_source_wrote_them(
+    ) -> anyhow::Result<()> {
+        let mut named = row();
+        named.insert(
+            "legal_dong_json".to_owned(),
+            JsonValue::String(
+                "{\"name\":\"synthetic-si synthetic-dong\",\"lowest_name\":\"synthetic-dong\"}"
+                    .to_owned(),
+            ),
+        );
+        named.insert(
+            "forest_ledger_json".to_owned(),
+            JsonValue::String(
+                "{\"land_category\":\"synthetic\",\"area_m2\":30.0,\"ownership_kind\":\"01\",\"ownership_kind_name\":\"synthetic-owner-kind\",\"co_owner_count\":1}"
+                    .to_owned(),
+            ),
+        );
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &named)?.body)?;
+        assert_eq!(
+            document["legal_dong"],
+            json!({"name": "synthetic-si synthetic-dong", "lowest_name": "synthetic-dong"})
+        );
+        assert_eq!(document["forest_ledger"]["ownership_kind"], "01");
+        assert_eq!(
+            document["forest_ledger"]["ownership_kind_name"],
+            "synthetic-owner-kind"
+        );
+
+        // A file-sourced snapshot has no lowest name: it stays null, nothing is derived.
+        let mut unlowest = row();
+        unlowest.insert(
+            "legal_dong_json".to_owned(),
+            JsonValue::String(
+                "{\"name\":\"synthetic-si synthetic-dong\",\"lowest_name\":null}".to_owned(),
+            ),
+        );
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &unlowest)?.body)?;
+        assert_eq!(document["legal_dong"]["lowest_name"], JsonValue::Null);
+
+        // No name, no field: such documents keep their bytes.
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &row())?.body)?;
+        assert!(document.get("legal_dong").is_none());
+        let mut null = row();
+        null.insert("legal_dong_json".to_owned(), JsonValue::Null);
+        assert_eq!(build(&provenance(), &null)?, build(&provenance(), &row())?);
+
+        // The code a name stands for is not passed through beside it.
+        let mut coded = row();
+        coded.insert(
+            "legal_dong_json".to_owned(),
+            JsonValue::String(
+                "{\"name\":\"synthetic-dong\",\"lowest_name\":null,\"code\":\"9999900000\"}"
+                    .to_owned(),
+            ),
+        );
+        let error = build(&provenance(), &coded).expect_err("a code beside the name must refuse");
+        assert!(error.to_string().contains("legal_dong_json"), "{error}");
         Ok(())
     }
 

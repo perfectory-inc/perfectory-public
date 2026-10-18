@@ -10,7 +10,7 @@ synthetic (`99999…`); no R2 credentials are needed.
 """
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 import sys
 import tempfile
 import unittest
@@ -342,7 +342,18 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         characteristics = [{"pnu": pnu(i), "area_m2": 10.0 + i, "land_category": "dae", "source_snapshot_id": "ch-v1"}
                            for i in range(1, 41, 2)]
         forest = [{"pnu": pnu(i), "area_m2": 5.0, "land_category": "im", "ownership_kind_code": "1",
-                   "co_owner_count": 1, "source_snapshot_id": "fo-v1"} for i in range(2, 41, 5)]
+                   "ownership_kind_name": "synthetic-owner-kind", "co_owner_count": 1, "source_snapshot_id": "fo-v1"}
+                  for i in range(2, 41, 5)]
+        # The code list: an older snapshot's name is not read, nor an abolished code of the newest.
+        names = [
+            {"region_cd": "9999900000", "full_name": "synthetic-si old-dong", "status": "존재",
+             "snapshot_date": date(2098, 1, 1), "source_record_id": "synthetic-a", "ingested_at_utc": datetime(2098, 1, 1)},
+            {"region_cd": "9999900000", "full_name": "synthetic-si synthetic-dong", "status": "존재",
+             "snapshot_date": date(2099, 1, 1), "source_record_id": "synthetic-b", "ingested_at_utc": datetime(2099, 1, 1),
+             "lowest_name": "synthetic-dong"},
+            {"region_cd": "9999800000", "full_name": "synthetic-si gone-dong", "status": "폐지",
+             "snapshot_date": date(2099, 1, 1), "source_record_id": "synthetic-b", "ingested_at_utc": datetime(2099, 1, 1)},
+        ]
         transfers = [{"pnu": pnu(i), "transfer_history_seq": 1, "parcel_history_seq": "1", "reason": "split",
                       "moved_at": "2020-01-01", "source_snapshot_id": "tr-v1"} for i in range(1, 41)]
         rights = [{"pnu": pnu(i), "right_serial_no": "1", "right_ratio": "1/2", "closure_kind_name": "open",
@@ -360,10 +371,15 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         data = {job.PARCEL_SOURCE: parcels, job.PRICE_SOURCE: prices, job.ZONING_SOURCE: zonings,
                 job.ZONE_CODE_SOURCE: zone_codes, job.CHARACTERISTIC_SOURCE: characteristics,
                 job.FOREST_SOURCE: forest, job.TRANSFER_SOURCE: transfers, job.LAND_RIGHT_SOURCE: rights,
-                job.LINEAGE_SOURCE: lineage, job.CODE_CHANGE_SOURCE: code_changes}
+                job.LINEAGE_SOURCE: lineage, job.CODE_CHANGE_SOURCE: code_changes, job.LEGAL_DONG_SOURCE: names}
         pins1 = {name: self.put(name, rows) for name, rows in data.items()}
         self.run_job(job, pins1, "parcel_panel", "2099-01-01T00:00:00Z")
         before = self.rows("parcel_panel", job)
+        # Names as the sources wrote them, never their codes.
+        self.assertEqual(json.loads(before[pnu(1)].legal_dong_json),
+                         {"name": "synthetic-si synthetic-dong", "lowest_name": "synthetic-dong"})
+        self.assertEqual(json.loads(before[pnu(2)].forest_ledger_json)["ownership_kind_name"], "synthetic-owner-kind")
+        self.assertEqual(json.loads(before[pnu(2)].forest_ledger_json)["ownership_kind"], "1")
         self.assertIn('"price_per_m2":5000', before[pnu(3)].price_json, "the carried price")
         self.assertEqual(before[pnu(6)].land_right_total, 1, "the renumbered right, under the served code")
         self.assertNotIn(renumbered, before)
@@ -421,6 +437,15 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         lineage2 = lineage + [{**lineage[0], "successor_pnu": pnu(7)}]
         pins6 = {**pins5, job.LINEAGE_SOURCE: self.put(job.LINEAGE_SOURCE, lineage2)}
         self.assert_merge_equals_full(job, pins6, pins5, "2099-06-01T00:00:00Z", {pnu(3), pnu(7), pnu(50)})
+
+        # A newer code list renames the 동 every parcel is under: all of them are reached, by its code.
+        renamed = names + [{**names[1], "full_name": "synthetic-si new-dong", "lowest_name": None,
+                            "snapshot_date": date(2099, 7, 1), "source_record_id": "synthetic-c"}]
+        pins7 = {**pins6, job.LEGAL_DONG_SOURCE: self.put(job.LEGAL_DONG_SOURCE, renamed)}
+        self.assert_merge_equals_full(job, pins7, pins6, "2099-07-01T00:00:00Z",
+                                      {pnu(i) for i in range(0, 41) if i != 2}, fraction=1.0)
+        self.assertEqual(json.loads(self.rows("parcel_panel", job)[pnu(1)].legal_dong_json),
+                         {"name": "synthetic-si new-dong", "lowest_name": None})
 
     def assert_merge_equals_full(self, job, pins, previous, published, reached, fraction=0.9):
         """Merges `pins` over `previous` incrementally, reaching exactly `reached`, and compares every

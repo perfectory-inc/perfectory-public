@@ -578,6 +578,7 @@
         "silver-land-transfer-history-to-gold-parcel-panel",
         "silver-land-right-registration-to-gold-parcel-panel",
         "reference-legal-dong-code-change-to-gold-parcel-panel",
+        "reference-legal-dong-code-snapshot-to-gold-parcel-panel",
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
       "enabled": true,

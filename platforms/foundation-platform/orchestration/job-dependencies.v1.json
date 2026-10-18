@@ -1506,6 +1506,7 @@
       "producers": [
         "building_register_floor",
         "lineage_stewardship",
+        "legal_dong_code_changes",
         "vworld_parcel_edition",
         "silver_refresh_building_register_titles",
         "silver_refresh_building_register_units",
@@ -1526,6 +1527,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
           "node_id": "reference-legal-dong-code-change",
           "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://reference.legal_dong_code_snapshot",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_snapshot,PROD)",
+          "node_id": "reference-legal-dong-code-snapshot",
+          "title": "법정동코드 스냅숏",
           "kind": "reference_table",
           "surface_kind": null
         },

@@ -484,6 +484,13 @@ pub(super) mod tests {
             .context("fixture building is not an object")?;
         object.remove("floors");
         object.remove("units");
+        // The register's names are the document's own: the Postgres Catalog never carried them.
+        assert_eq!(object.remove("purpose_name"), Some(json!("공장")));
+        assert_eq!(
+            object.remove("structure_name"),
+            None,
+            "a name the register did not state is absent, never the code"
+        );
         object.insert("updated_at".to_owned(), json!("2026-01-01T00:00:00Z"));
         let canonical: foundation_contracts::catalog::BuildingResponse =
             serde_json::from_value(building.clone())?;
@@ -507,6 +514,43 @@ pub(super) mod tests {
         assert!(document["buildings"][0]["units"][0]
             .get("register_pk")
             .is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn a_building_shows_the_registers_names_beside_its_codes() -> anyhow::Result<()> {
+        let unit = unit(Some(building_id_for_register_pk("BLDG-1")))?;
+        let plain = row_with_building(unit.clone())?;
+        let mut named = plain.clone();
+        let mut buildings: JsonValue = serde_json::from_str(
+            named
+                .get("buildings_json")
+                .and_then(JsonValue::as_str)
+                .context("buildings_json is a string")?,
+        )?;
+        buildings[0]["purpose_name"] = json!("synthetic-purpose");
+        buildings[0]["structure_code"] = json!("21");
+        buildings[0]["structure_name"] = json!("synthetic-structure");
+        named.insert(
+            "buildings_json".to_owned(),
+            json!(serde_json::to_string(&buildings)?),
+        );
+
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &named)?.body)?;
+        let building = &document["buildings"][0];
+        assert_eq!(
+            (&building["purpose_code"], &building["purpose_name"]),
+            (&json!("03000"), &json!("synthetic-purpose"))
+        );
+        assert_eq!(
+            (&building["structure_code"], &building["structure_name"]),
+            (&json!("21"), &json!("synthetic-structure"))
+        );
+
+        // A Gold row without names (every one baked before them) keeps its document bytes.
+        let document: JsonValue = serde_json::from_slice(&build(&provenance(), &plain)?.body)?;
+        assert!(document["buildings"][0].get("purpose_name").is_none());
+        assert!(document["buildings"][0].get("structure_name").is_none());
         Ok(())
     }
 

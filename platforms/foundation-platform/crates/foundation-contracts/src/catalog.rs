@@ -349,6 +349,10 @@ pub struct ParcelForestLedgerResponse {
     pub area_m2: Option<f64>,
     /// Provider ownership category code, not an owner identity.
     pub ownership_kind: Option<String>,
+    /// Provider ownership category name (소유구분명) exactly as the provider wrote it, beside its
+    /// code. Absent where the source carried none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership_kind_name: Option<String>,
     /// Number of co-owners recorded by the provider.
     pub co_owner_count: Option<i32>,
 }

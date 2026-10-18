@@ -166,6 +166,7 @@ class ParcelPanelLineageTest(unittest.TestCase):
                     for name in ("read_source", "filtered_by_region", "with_lineage_sources",
                                  "build_zonings", "build_price", "build_characteristics",
                                  "build_forest_ledger", "build_transfer_history", "build_land_rights", "build_lineage",
+                                 "newest_legal_dong_names", "build_legal_dong",
                                  "carry_section", "build_gold_panel_frame", "renumbered"):
                         stack.enter_context(mock.patch.object(job, name, return_value=frame))
                     stack.enter_context(mock.patch.object(job, "read_renumbering", return_value=(frame, frame)))

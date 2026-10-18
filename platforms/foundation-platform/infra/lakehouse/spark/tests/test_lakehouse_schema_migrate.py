@@ -74,7 +74,8 @@ class PlanTable(unittest.TestCase):
         from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
 
         plan = migrate.plan_table(load_lakehouse_contract("gold.parcel_panel"), production, True, "gold.parcel_panel")
-        self.assertEqual((plan["add"], plan["backfill"]), (["lineage_json"], []))
+        # The 법정동 names column came later the same way: nullable, so no backfill either.
+        self.assertEqual((plan["add"], plan["backfill"]), (["lineage_json", "legal_dong_json"], []))
 
     def test_a_wrong_type_is_blocked_even_when_column_names_match(self) -> None:
         with self.assertRaisesRegex(migrate.MigrationBlocked, "type"):
