@@ -36,18 +36,14 @@ on_error() {
 trap 'on_error ${LINENO}' ERR
 
 docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
-spark_status=0
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-  -p foundation-platform-compute --profile lakehouse-batch run --rm \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[8,8]' --driver-memory "${DRIVER_MEMORY}" \
-  --jars "${SPARK_RELEASE_JARS}" /workspace/infra/lakehouse/spark/jobs/silver_append_measure.py \
-  --old-snapshot-id "${OLD_SNAPSHOT_ID}" 2>&1 | tee -a "${run_log}"   | { grep --line-buffered -a '^silver-append-measure-phase ' || true; } || spark_status=$?
-# pipefail: a failed Spark run fails the pipe even when the phase lines got through.
-((${spark_status:-0} == 0))
+: >>"${run_log}"
+FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml"   -p foundation-platform-compute --profile lakehouse-batch run --rm   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER   spark spark-submit --master 'local[8,8]' --driver-memory "${DRIVER_MEMORY}"   --jars "${SPARK_RELEASE_JARS}" /workspace/infra/lakehouse/spark/jobs/silver_append_measure.py   --old-snapshot-id "${OLD_SNAPSHOT_ID}" >>"${run_log}" 2>&1 &
+spark_pid=$!
+# The phase lines go to the unit journal as they are written, so a run stopped by its limit leaves them.
+{ tail -n +1 -F --pid="${spark_pid}" "${run_log}" 2>/dev/null | grep --line-buffered -a '^silver-append-measure-phase ' || :; } &
+follower=$!
+wait "${spark_pid}"
+wait "${follower}"
 
 measured="$(grep -a '^silver-append-measure ' "${run_log}" | tail -1)"
 [[ -n "${measured}" ]]
