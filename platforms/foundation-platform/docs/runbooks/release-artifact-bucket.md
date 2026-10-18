@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 릴리스 산출물 버킷 — 사장님이 한 번 하는 일
@@ -86,4 +86,48 @@ API Tokens 목록에서 **Admin** 이 붙은 토큰과 버킷 범위가 "All buc
 
 ## 7. 알려 주실 것
 
-"버킷·잠금 규칙 2개·열쇠 2개·환경·서버 파일 완료"와, 6 에서 본 토큰 이름. 값은 알려 주지 않습니다.
+"버킷·잠금 규칙 2개·열쇠 2개·환경·서버 파일 완료"와, 6 에서 본 토큰 이름. 값은 알려 주지 않습니다. 아래 8 을 같은 자리에서
+하셨다면 그것도 함께 알려 주세요.
+
+## 8. 같은 자리에서 함께: 모양 원장 버킷과 준비된 PR 봇
+
+[ADR-0279](../../../../docs/adr/0279-a-stale-shape-ledger-arrives-as-a-prepared-pull-request-from-ci.md)
+서버가 매일 찍는 운영 표 모양 원장을 CI 가 읽어 갱신 PR 을 준비하게 하는 자리입니다. 위 1–5 와 같은 화면에서 하면 됩니다.
+하지 않아도 아무것도 깨지지 않습니다. 서버는 "올리지 못함"을, 워크플로우는 "비밀 없음, 건너뜀"을 말할 뿐입니다.
+
+| 무엇 | 이름 | 넣는 곳 |
+| --- | --- | --- |
+| 버킷 | `foundation-platform-shape-ledger-prod` (Public access 끔, 잠금 규칙 없음: 매일 같은 두 파일을 덮어씁니다) | Cloudflare R2 |
+| 서버 쓰기 열쇠 | `foundation-platform-shape-ledger-writer-prod` (Object Read & Write, 이 버킷만) | 서버 파일 `/etc/foundation-platform/shape-ledger.env` |
+| CI 읽기 열쇠 | `foundation-platform-shape-ledger-reader-prod` (Object Read only, 이 버킷만) | GitHub 보호 환경 `shape-ledger` 의 비밀 |
+| 준비된 PR 봇 | GitHub App (아래 8.4) | 같은 환경의 비밀 |
+
+8.1 버킷: 1 과 같이 만들고 Public access 는 끈 채로 둡니다. 2 의 잠금 규칙은 걸지 않습니다.
+
+8.2 열쇠 둘: 3 과 같이, 버킷 범위는 `foundation-platform-shape-ledger-prod` 하나.
+
+8.3 GitHub 환경: 저장소 Settings → Environments → New environment `shape-ledger` → Deployment branches 를 **main 만**.
+Environment secrets 에 셋:
+
+- `FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID`, `FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY`
+  (CI 읽기 열쇠)
+- `FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST`: `<계정 ID>.r2.cloudflarestorage.com` (비밀은 아니지만 공개
+  워크플로우는 저장소 변수를 읽지 못해(워크플로우 정책 가드) 이 환경에 둡니다)
+
+8.4 준비된 PR 봇 (3단계, 원장 갱신 PR 과 npm 권고 PR 이 함께 씀, ADR-0158 평가 C 의 권한 그대로):
+
+1. Organization settings → Developer settings → GitHub Apps → New GitHub App. 이름 예: `perfectory-prepared-pr`.
+   Webhook 끔. Repository permissions 는 Contents **Read and write**, Pull requests **Read and write**, Metadata Read-only
+   만. "Only on this account".
+2. Install App → Only select repositories → 이 저장소 하나.
+3. `shape-ledger` 환경 비밀에 `PREPARED_PR_APP_ID`, `PREPARED_PR_APP_PRIVATE_KEY`.
+
+8.5 서버 파일: 5 와 같이 `sudo install -m 0640 -o root -g foundation-platform /dev/null /etc/foundation-platform/shape-ledger.env`
+뒤 편집기로 네 줄:
+
+```text
+FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET=foundation-platform-shape-ledger-prod
+FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST=<계정 ID>.r2.cloudflarestorage.com
+FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID=<서버 쓰기 열쇠의 액세스 키 ID>
+FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY=<서버 쓰기 열쇠의 시크릿>
+```

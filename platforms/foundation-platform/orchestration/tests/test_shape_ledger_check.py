@@ -1,11 +1,13 @@
 """The shape ledger check fails on every way production can leave a committed ledger (root ADR-0259)."""
 
+import hashlib
 import importlib.util
 import tempfile
 import unittest.mock
 import json
 import pathlib
 import unittest
+from datetime import datetime, timezone
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("shape_ledger_check", PLATFORM / "scripts/ops/shape-ledger-check.py")
@@ -122,6 +124,64 @@ class TheRefreshPullRequest(unittest.TestCase):
         fake = FakeGitHub(branch_tree="older", open_pr=True)
         self.run_with(fake)
         self.assertIn(("PATCH", f"/repos/o/r/git/refs/heads/{check.BRANCH}"), fake.calls)
+
+
+class Publish(unittest.TestCase):
+    """Root ADR-0279: the host puts its captures in the private ledger bucket; CI reads them there."""
+
+    KEY = dict(zip(check.PUBLISH_ENV, ("ledger-bucket", "account.example.invalid", "key-id", "key-secret")))
+    FILES = {"lakehouse-production-shape.json": "{}\n", "postgres-production-shape.json": "{}\n"}
+
+    def publish(self, environment, r2=None):
+        with unittest.mock.patch.dict(check.os.environ, environment, clear=True), \
+                unittest.mock.patch.object(check, "release_module", return_value=r2) as module:
+            return check.publish(self.FILES), module
+
+    def test_without_the_key_nothing_is_sent_and_the_files_to_copy_are_named(self):
+        said, module = self.publish({})
+        module.assert_not_called()
+        self.assertIn("no ledger bucket key", said)
+
+    def test_each_capture_goes_under_the_prefix_by_its_ledger_file_name(self):
+        r2 = unittest.mock.Mock()
+        said, _ = self.publish(self.KEY, r2)
+        self.assertEqual([c.args[:3] for c in r2.put.call_args_list],
+                         [("https://account.example.invalid", "ledger-bucket", "shape-ledger/" + name)
+                          for name in self.FILES])
+        self.assertIn("published to ledger-bucket/shape-ledger/", said)
+
+    def test_a_failed_upload_is_said_and_does_not_fail_the_run(self):
+        r2 = unittest.mock.Mock()
+        r2.put.side_effect = OSError("connection reset")
+        said, _ = self.publish(self.KEY, r2)
+        self.assertIn("not published (connection reset)", said)
+
+
+r2_spec = importlib.util.spec_from_file_location("r2_object", PLATFORM / "scripts/ops/r2_object.py")
+r2_object = importlib.util.module_from_spec(r2_spec)
+r2_spec.loader.exec_module(r2_object)
+
+
+class SignatureVersion4(unittest.TestCase):
+    def test_the_signature_is_the_s3_documentation_get_object_example(self):
+        # "Example: GET Object" of the S3 Signature Version 4 documentation, its signature included.
+        empty = hashlib.sha256(b"").hexdigest()
+        request, signed = r2_object.canonical_request("GET", "/test.txt", {
+            "host": "examplebucket.s3.amazonaws.com", "range": "bytes=0-9",
+            "x-amz-content-sha256": empty, "x-amz-date": "20130524T000000Z"}, empty)
+        self.assertEqual(signed, "host;range;x-amz-content-sha256;x-amz-date")
+        when = datetime(2013, 5, 24, tzinfo=timezone.utc)
+        self.assertEqual(r2_object.signature("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", when, "us-east-1", request),
+                         "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41")
+
+    def test_a_put_carries_its_body_hash_and_a_path_style_url(self):
+        when = datetime(2026, 10, 19, tzinfo=timezone.utc)
+        request = r2_object.signed_request("PUT", "https://account.example.invalid", "bucket", "shape-ledger/a.json",
+                                           "key-id", "key-secret", b"{}", when)
+        self.assertEqual(request.full_url, "https://account.example.invalid/bucket/shape-ledger/a.json")
+        self.assertEqual(request.get_header("X-amz-content-sha256"), hashlib.sha256(b"{}").hexdigest())
+        self.assertTrue(request.get_header("Authorization").startswith(
+            "AWS4-HMAC-SHA256 Credential=key-id/20261019/auto/s3/aws4_request, "))
 
 
 if __name__ == "__main__":

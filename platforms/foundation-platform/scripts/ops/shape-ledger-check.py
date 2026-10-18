@@ -8,10 +8,12 @@ a table, a load creates a table or its first rows, or a rewrite retires a file s
 captures both again, read-only, right after each deploy (started_once_after_deploy) and daily
 after the loads, and names each table that differs from the release's. Only the shape is
 compared, not when it was captured. A stale ledger is a pull request to take, not a broken
-production: the run opens or updates the one refresh pull request (branch shape-ledger/refresh,
-with the token of the shape-ledger-pr group when the host holds it) and says it is waiting on it
-(root ADR-0260). Stale for more than 48 hours since first seen (first-stale.json), it fails and
-alerts. The fresh ledgers stay in /var/lib/foundation-shape-ledger/ (the unit's StateDirectory).
+production: every run puts both captures in the private ledger bucket (shape-ledger/ in
+foundation-platform-shape-ledger-prod, with the shape-ledger group's write-only-there key), where
+the shape ledger refresh workflow reads and compares them and prepares the pull request; the host
+holds no GitHub token (root ADR-0279). A stale run says it is waiting (root ADR-0260); stale for
+more than 48 hours since first seen (first-stale.json), it fails and alerts. The fresh ledgers
+also stay in /var/lib/foundation-shape-ledger/ (the unit's StateDirectory).
 """
 
 from __future__ import annotations
@@ -44,18 +46,42 @@ def differences(committed: dict, live: dict, key: str) -> list[str]:
             + [f"{table}: shape changed" for table in sorted(set(old) & set(new)) if old[table] != new[table]])
 
 
-def load_capture():
-    path = RELEASE / "scripts/ops/lakehouse-production-shape.py"
-    spec = importlib.util.spec_from_file_location("lakehouse_production_shape", path)
+def release_module(name: str, file: str):
+    spec = importlib.util.spec_from_file_location(name, RELEASE / "scripts/ops" / file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
+def load_capture():
+    return release_module("lakehouse_production_shape", "lakehouse-production-shape.py")
+
+
+# The ledger bucket (root ADR-0279): its name, endpoint host and write-only-there key.
+PUBLISH_PREFIX = "shape-ledger/"
+PUBLISH_ENV = ("FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET", "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST",
+               "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID",
+               "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY")
+
+
+def publish(files: dict[str, str]) -> str:
+    """Puts each capture in the ledger bucket under its ledger's file name; says what happened. A
+    failed or impossible upload never fails the run: the 48-hour escalation still stands."""
+    bucket, host, key, secret = (os.environ.get(name, "") for name in PUBLISH_ENV)
+    if not all((bucket, host, key, secret)):
+        return f"not published (no ledger bucket key on this host); copy {STATE}/*.json into a pull request"
+    r2 = release_module("r2_object", "r2_object.py")
+    try:
+        for name, text in files.items():
+            r2.put(f"https://{host}", bucket, PUBLISH_PREFIX + name, key, secret, text.encode("utf-8"))
+    except OSError as error:
+        return f"not published ({error}); copy {STATE}/*.json into a pull request"
+    return f"published to {bucket}/{PUBLISH_PREFIX}; the shape ledger refresh workflow prepares the pull request"
+
+
 STALE_GRACE_HOURS = 48
 FIRST_SEEN = "first-stale.json"
 BRANCH = "shape-ledger/refresh"
-IDENTITY = Path("/opt/perfectory-control/current/tools/github/repository-identity.json")
 
 
 def verdict(now: datetime, first_seen: datetime, stale: int, pull_request: str) -> tuple[str, int]:
@@ -99,7 +125,8 @@ def github(token: str, method: str, path: str, body: dict | None = None) -> dict
 
 def refresh_pull_request(token: str, repository: str, files: dict[str, str], found: list[str]) -> str:
     """Opens, or brings up to date, the one pull request that carries the captured ledgers: branch
-    shape-ledger/refresh is main plus those files, rewritten only when their content changes."""
+    shape-ledger/refresh is main plus those files, rewritten only when their content changes. The
+    shape ledger refresh workflow calls it with its App's token (root ADR-0279); the host does not."""
     repo = f"/repos/{repository}"
     main_sha = github(token, "GET", f"{repo}/git/ref/heads/main")["object"]["sha"]
     base_tree = github(token, "GET", f"{repo}/git/commits/{main_sha}")["tree"]["sha"]
@@ -144,6 +171,9 @@ def main() -> int:
         json.loads((RELEASE / LAKEHOUSE).read_text(encoding="utf-8")), lakehouse, "tables")]
     found += [f"postgres {line}" for line in differences(
         json.loads((RELEASE / POSTGRES).read_text(encoding="utf-8")), json.loads(postgres_text), "tables_with_rows")]
+    # Current or not: CI compares what production holds now, and says so either way.
+    published = publish({Path(LAKEHOUSE).name: lakehouse_text, Path(POSTGRES).name: postgres_text})
+    print(f"shape-ledger-check: captures {published}")
     now = datetime.now(timezone.utc)
     first_seen = first_seen_at(now, bool(found))
     if first_seen is None:
@@ -152,21 +182,7 @@ def main() -> int:
         return 0
     for line in found:
         print(f"shape-ledger-check: STALE {line}")
-    token = os.environ.get("FOUNDATION_PLATFORM_SHAPE_LEDGER_GITHUB_TOKEN", "")
-    files = {f"platforms/foundation-platform/{LAKEHOUSE}": lakehouse_text,
-             f"platforms/foundation-platform/{POSTGRES}": postgres_text}
-    if not token:
-        pull_request = f"copy {STATE}/*.json into a pull request (no refresh token on this host)"
-    else:
-        repository = os.environ.get("FOUNDATION_SHAPE_LEDGER_REPOSITORY") or json.loads(
-            IDENTITY.read_text(encoding="utf-8"))["full_name"]
-        try:
-            pull_request = refresh_pull_request(token, repository, files, found)
-        except (OSError, RuntimeError, KeyError, TypeError) as error:
-            # The 48-hour escalation still stands; a failed GitHub call alone pages nobody.
-            pull_request = f"refresh pull request not opened ({error}); copy {STATE}/*.json by hand"
-    print(f"shape-ledger-check: refresh: {pull_request}")
-    line, status = verdict(now, first_seen, len(found), pull_request)
+    line, status = verdict(now, first_seen, len(found), published)
     print(line)
     return status
 
