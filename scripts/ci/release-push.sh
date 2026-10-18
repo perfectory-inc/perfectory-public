@@ -2,7 +2,10 @@
 # Push one built and signed release to GitHub's container registry (root ADR-0276 §5, owner decision
 # 2026-10-19), with the job's own GITHUB_TOKEN: no stored secret.
 #
-#   release-push.sh <release-dir> <ghcr.io/<owner>/<package>>
+#   release-push.sh <release-dir> <owner>
+#
+# The package is tools/release-build.contract.json registry.package under <owner>, the one name the
+# server's release admission pulls from too.
 #
 # <release-dir> is what scripts/deploy/foundation-release-build.py wrote (an OCI layout over
 # blobs/sha256 naming each image) plus the workflow's manifest.sigstore.json. Each image goes up
@@ -12,8 +15,11 @@
 # there. A release-<commit> already there with another manifest is never replaced; the run fails.
 set -euo pipefail
 
-release="${1:?usage: release-push.sh <release-dir> <ghcr.io/owner/package>}"
-repository="${2:?usage: release-push.sh <release-dir> <ghcr.io/owner/package>}"
+release="${1:?usage: release-push.sh <release-dir> <owner>}"
+owner="$(printf '%s' "${2:?usage: release-push.sh <release-dir> <owner>}" | tr '[:upper:]' '[:lower:]')"
+contract="$(cd "$(dirname "$0")/../.." && pwd)/tools/release-build.contract.json"
+package="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["registry"]["package"])' "$contract" | tr -d '\r')"
+repository="ghcr.io/$owner/$package"
 : "${GITHUB_TOKEN:?the job token}" "${GITHUB_ACTOR:?}"
 [[ "$repository" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+$ ]] || { echo "FAIL release-push: $repository is not ghcr.io/<owner>/<package>" >&2; exit 1; }
 

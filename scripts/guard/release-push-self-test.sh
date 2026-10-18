@@ -67,7 +67,7 @@ PY
 
 push() {
   PATH="$work/bin:$PATH" FAKE_REGISTRY="$work/registry" GITHUB_TOKEN=fixture GITHUB_ACTOR=fixture \
-    bash "$script" "$work/release" ghcr.io/example-org/foundation-release
+    bash "$script" "$work/release" Example-Org
 }
 
 : >"$work/registry/calls"

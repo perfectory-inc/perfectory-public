@@ -195,6 +195,28 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
   - Public 전환(§5 사장 손일)은 되돌릴 수 없다("Once you make a package public, you cannot make it private again").
   - 그래서 결정권자 확인 뒤에 한다. 익명 pull 의 실증은 전환 뒤로 남는다.
 
+### 12. R2 — 서버의 확인 명령과 스위치 (2026-10-19)
+
+- `foundation-release.sh verify-registry <커밋>` 은 승인의 `verify-registry` 를 부른다. §4 의 2–4 를 스크래치 디렉터리에 모두 하고,
+  아무것도 설치하거나 태그하지 않는다. 순서는 이렇다.
+  1. `release-<커밋>` 을 익명으로 받는다.
+  2. 고정한 cosign(`tools/cosign.env`, 받는 곳은 `tools/pinned-artifacts.json`)으로 `--offline` 확인한다. 신뢰 루트는 고정 파일
+     (`tools/sigstore/public-good.trusted_root.json`)이고, 신원은 워크플로·ref·커밋이다.
+  3. 목록의 모든 다이제스트가 서명된 대상 안에 있는지 본다.
+  4. `files` 이미지의 manifest 와 레이어를 다이제스트로 받아 sha256 을 다시 계산하고, 파일 하나하나를 목록과 대조한다.
+     목록에 없는 파일이 있으면 거부한다.
+  5. publisher 와 tippecanoe 를 다이제스트로 pull 하고, 이미지 ID 가 서명된 `config` 인지 본다.
+- 스위치는 `tools/release-build.contract.json` 의 `artifacts_from` 이다. 기본값은 `server-build` 이고, 지금처럼 서버가 빌드한다.
+  - `registry` 로 바꾸면 승인 `build` 가 빌드 대신 위 확인을 거친 바이트만 `artifacts/<sha>/` 에 두고, 서명된 이미지만 태그한다.
+  - 그 경로는 빌드 잠금이 필요 없고 돌던 작업도 기다리지 않는다.
+  - 실행 파일의 `ldd` 검사와 봉인·재검사는 서버 빌드 때와 같다. 되돌리기는 스위치를 다시 `server-build` 로 바꾸는 것이다.
+- 시험(`tests/release_admission/test_release_from_registry.py`)이 거부를 하나씩 본다.
+  - 서명 거부, 서명되지 않은 다이제스트, 다른 커밋의 목록
+  - 목록에 없는 파일, 다이제스트와 다른 바이트, 서명된 `config` 가 아닌 이미지
+  - 서명이 거부되면 아무것도 pull 하지 않는다.
+  - 대조 검사 둘을 지우면 각각 실패한다.
+- R2 완료는 서버에서 10개 목록을 확인하는 것이다. 익명 pull 이 필요하므로 패키지 공개 전환 뒤에 센다.
+
 ## Rejected
 
 | 대안 | 기각 이유 |
