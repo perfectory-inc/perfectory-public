@@ -1,7 +1,7 @@
 {
  "schema_version": "foundation-platform.lakehouse_production_shape.v1",
  "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
- "captured_at": "2026-10-16T08:54:18Z",
+ "captured_at": "2026-10-18T14:59:55Z",
  "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
  "tables": {
   "gold.administrative_boundary_served": {
@@ -823,10 +823,13 @@
     [18, "source_sigungu_code", "string", true],
     [19, "source_record_id", "string", true],
     [20, "source_snapshot_id", "string", true],
-    [21, "ingested_at_utc", "timestamp", true]
+    [21, "ingested_at_utc", "timestamp", true],
+    [22, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+   ]
   },
   "silver.land_use_plan": {
    "has_rows": true,
@@ -1014,6 +1017,23 @@
     [15, "ingested_at_utc", "timestamp", true]
    ],
    "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+   "earlier": []
+  },
+  "silver.parcel_registry": {
+   "has_rows": true,
+   "fields": [
+    [1, "parcel_id", "string", true],
+    [2, "pnu", "string", true],
+    [3, "status", "string", true],
+    [4, "valid_from", "string", true],
+    [5, "valid_to", "string", true],
+    [6, "redirect_to", "string", true],
+    [7, "to_snapshot_id", "string", true],
+    [8, "id_rules_version", "string", true],
+    [9, "derivation_run_id", "string", true],
+    [10, "recorded_at_utc", "timestamp", true]
+   ],
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
    "earlier": []
   },
   "silver.unit_official_price": {

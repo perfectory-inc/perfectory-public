@@ -2,7 +2,7 @@
   "schema_version": "foundation-platform.postgres_production_shape.v1",
   "decision": "root ADR-0259 \u00a78",
   "captured_by": "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh",
-  "captured_at": "2026-10-16",
+  "captured_at": "2026-10-18",
   "tables_with_rows": [
     "catalog.administrative_boundary_revision",
     "catalog.administrative_unit",
@@ -19,6 +19,8 @@
     "catalog.ingestion_run",
     "catalog.lakehouse_storage_namespace",
     "catalog.lineage_review_item",
+    "catalog.lineage_steward_decision",
+    "catalog.lineage_steward_fold",
     "catalog.outbox_event",
     "catalog.parcel_publication_source_evidence",
     "catalog.publication_revision",
