@@ -28,11 +28,16 @@ from typing import Any
 from lakehouse_engine import apply_catalog_settings, iceberg_packages
 
 JOB_NAME = "silver-append-measure"
-# Columns a reload changes without the content changing: never part of the fingerprint.
-LINEAGE_COLUMNS = frozenset({
-    "source_snapshot_id", "source_record_id", "ingested_at_utc", "bronze_object_key", "source_line_number",
-    "valid_from_utc", "valid_to_utc", "row_checksum_sha256", "source_file_name", "ingest_batch_id",
-})
+# The columns a row's content is, per table: the fingerprint reads these and nothing else. Not "every
+# column but a list": the run of 2026-10-18 05:01 counted every row as changed because the release's
+# own date (data_reference_date) differs on every row, and a column a list forgets does the same.
+CONTENT_COLUMNS: dict[str, tuple[str, ...]] = {
+    "land_transfer_history": (
+        "pnu", "legal_dong_code", "legal_dong_name", "ledger_kind_code", "ledger_kind_name", "jibun",
+        "transfer_history_seq", "closure_seq", "land_category_code", "land_category", "area_m2", "reason_code",
+        "reason", "moved_at", "erased_at", "parcel_history_seq", "source_sigungu_code",
+    ),
+}
 SCRATCH = re.compile(r"^scratch[a-z0-9_]*$")
 NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -59,13 +64,19 @@ def check_args(args: argparse.Namespace) -> None:
             raise ValueError(f"not a plain identifier: {value!r}")
     if args.source_namespace == args.scratch_namespace:
         raise ValueError("the scratch namespace cannot be the source namespace")
+    if args.table not in CONTENT_COLUMNS:
+        raise ValueError(f"{args.table} declares no content columns; known: {sorted(CONTENT_COLUMNS)}")
     if not args.old_snapshot_id.isdigit():
         raise ValueError(f"--old-snapshot-id must be a snapshot id: {args.old_snapshot_id!r}")
 
 
-def content_columns(old: list[str], new: list[str]) -> list[str]:
-    """The columns both releases hold, in the new release's order, without the lineage columns."""
-    return [c for c in new if c in old and c not in LINEAGE_COLUMNS]
+def content_columns(table: str, old: list[str], new: list[str]) -> list[str]:
+    """The table's declared content columns; both releases must hold every one of them."""
+    declared = list(CONTENT_COLUMNS[table])
+    missing = sorted({c for c in declared if c not in old or c not in new})
+    if missing:
+        raise ValueError(f"{table}: a release lacks declared content columns {missing}")
+    return declared
 
 
 def written(spark: Any, table: str) -> dict[str, int]:
@@ -104,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         old = spark.read.option("snapshot-id", args.old_snapshot_id).table(source.replace("`", ""))
         new = spark.table(source.replace("`", ""))
         shared = [c for c in new.columns if c in old.columns]
-        content = content_columns(old.columns, new.columns)
+        content = content_columns(args.table, old.columns, new.columns)
         old, new = old.select(*shared), new.select(*shared)
         report["content_columns"] = content
 
