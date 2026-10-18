@@ -319,6 +319,18 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
+    def test_an_operator_start_takes_the_pools_slots_a_scheduled_run_holds(self):
+        # Root ADR-0270 §2b (2026-10-18): an operator's spark one-off beside a scheduled FLOOR run.
+        self.switch_off("lineage_stewardship")
+        for args in (("job", "start", "lineage_stewardship"), ("silver", "start", "land-characteristic"),
+                     ("parcel-tiles", "rehearse", "bake")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, activating=["foundation-building-register-floor.service"])
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertIn("foundation-building-register-floor.service holds 3", result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
     def test_a_parcel_tile_rehearsal_starts_its_half_and_never_beside_spark_work(self):
         # Root ADR-0253, ADR-0265: the Gold half names its edition; the bake takes what it made ready.
         for args, unit in ((("gold", "202609"), "foundation-parcel-tile-bake@rehearsal-gold-202609.service"),

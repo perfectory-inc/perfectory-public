@@ -113,6 +113,21 @@ if ((build == 75)); then
   exit 0
 fi
 
+# Every start takes its pool's slots, whoever asked for it (root ADR-0270 §2b): Airflow counts only
+# the runs it started, so a run an operator started holds slots it cannot see. A run that does not
+# fit is not started; its next period starts it. A check takes no slots.
+# shortcut: check-then-start is not atomic against an operator start in the same second; the
+# runner's host-side slot lease (ADR-0270 §2b) closes it.
+if [[ "${checking}" == false ]]; then
+  full="$(python3 -I -B "${job_units}" pool-full "${jobs_file}" "${job}")" \
+    || refuse "systemd cannot tell what holds the pool of ${job}"
+  if [[ -n "${full}" ]]; then
+    printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
+    printf 'foundation-job-outcome waiting %s\n' "${full}"
+    exit 0
+  fi
+fi
+
 follower=""
 # A lost connection ends only this follower; the service keeps running (see the header).
 detach() {

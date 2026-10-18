@@ -58,7 +58,7 @@
 #
 # `job` is the same supervised first run for any other job that jobs.v1.json lists as off
 # (`enabled: false`, ADR-0122 §4): `start` starts its systemd service once, never while the
-# autodeploy runs, and a spark-pool job never beside the Gold rebuilds or a Silver lane; `status`
+# autodeploy runs and never while its pool has no room for it (root ADR-0270 §2b); `status`
 # shows the unit and the end of its journal. An enabled job is Airflow's to start
 # (start-scheduled-job.sh), and a Silver lane takes `silver`.
 #
@@ -180,6 +180,15 @@ refuse_while_active() {
   running="$(running_units "${units[@]}")"
   [[ -z "${running}" ]] || refuse "$(cut -d' ' -f1 <<<"${running}" | paste -sd' ') is running" 75
 }
+# Refuses (75) while the pool of the job $1 (an id, its service or an instance of its template) has no room for it, counting
+# every running job of the pool however it started (root ADR-0270 §2b): the scheduler's runs hold
+# slots an operator start must not ignore, as an operator's run holds slots the scheduler reads.
+refuse_while_pool_full() {
+  local full
+  full="$(python3 -I -B "${RELEASE}/scripts/deploy/job_units.py" pool-full "${RELEASE}/orchestration/jobs.v1.json" "$1")" \
+    || refuse "systemd cannot tell what holds the pool of $1" 70
+  [[ -z "${full}" ]] || refuse "${full}" 75
+}
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
@@ -261,9 +270,8 @@ PY
       ;;
     start)
       # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
-      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
-      running="$(running_units 'foundation-silver-refresh@*.service')"
-      [[ -z "${running}" ]] || refuse "another Silver refresh lane is running" 75
+      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}"
+      refuse_while_pool_full "${SILVER_UNIT}"
       log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
       exec systemctl start --no-block "${SILVER_UNIT}"
       ;;
@@ -290,11 +298,9 @@ PY
   case "${ACTION}" in
     start)
       refuse_while_active "${JOB_UNIT}" foundation-autodeploy.service
-      if [[ "${JOB_POOL}" == spark ]]; then
-        refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
-        running="$(running_units 'foundation-silver-refresh@*.service')"
-        [[ -z "${running}" ]] || refuse "a Silver refresh lane is running" 75
-      fi
+      # The hand Gold rebuild is a transient unit, not a job, so the pool cannot count it.
+      [[ "${JOB_POOL}" != spark ]] || refuse_while_active "${GOLD_UNIT}"
+      refuse_while_pool_full "${JOB_ID}"
       log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
       exec systemctl start --no-block "${JOB_UNIT}"
       ;;
@@ -317,9 +323,8 @@ if [[ "${LANE}" == parcel-tiles ]]; then
         (($# == 1)) && [[ "${HALF}" == bake ]] || refuse "parcel-tiles rehearse takes gold <YYYYMM> or bake"
         INSTANCE="rehearsal-bake"
       fi
-      refuse_while_active 'foundation-parcel-tile-bake@*.service' foundation-autodeploy.service "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
-      running="$(running_units 'foundation-silver-refresh@*.service')"
-      [[ -z "${running}" ]] || refuse "a Silver refresh lane is running" 75
+      refuse_while_active 'foundation-parcel-tile-bake@*.service' foundation-autodeploy.service "${GOLD_UNIT}"
+      refuse_while_pool_full "foundation-parcel-tile-bake@${INSTANCE}.service"
       log "starting foundation-parcel-tile-bake@${INSTANCE}.service; follow it with: parcel-tiles status"
       exec systemctl start --no-block "foundation-parcel-tile-bake@${INSTANCE}.service"
       ;;
