@@ -679,7 +679,7 @@ class RollbackRehearsal(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         check, preview = self.units(calls)
         self.assertIn("--unit=foundation-parcel-rollback-rehearsal-check", check)
-        for setting in ("ROLLBACK_TO_PREVIOUS_GENERATION=true", "ROLLBACK_DRY_RUN=true", "OUTPUT_STORAGE_DRIVER=r2"):
+        for setting in ("ROLLBACK_TO_PREVIOUS_PACK_STATE=true", "ROLLBACK_DRY_RUN=true", "OUTPUT_STORAGE_DRIVER=r2"):
             self.assertIn(f"{self.P}_{setting}", check)
         self.assertEqual(check[-1], "publish-parcel-by-pnu-serving-manifest")
         # The generation the check named, read from the lane's preview with the hourly monitor's files.
@@ -696,7 +696,15 @@ class RollbackRehearsal(OperatorHarness):
         self.log.unlink()
         result, calls = self.run_operator("parcel", "rollback-rehearsal")
         self.assertEqual(result.returncode, 65, result.stderr)
-        self.assertIn("printed no manifest", result.stderr)
+        self.assertIn("named no state the preview can serve", result.stderr)
+        self.assertEqual(len(self.units(calls)), 1)
+
+    def test_a_state_that_keeps_pack_patches_is_not_read_from_the_preview(self):
+        kept = json.dumps({"dry_run": True, "rollback_to": "x", "manifest": {"section_packs": {
+            "sections": [{"name": "documents", "generation": 1}], "patches": [{"patch": 1}]}}})
+        result, calls = self.run_operator("parcel", "rollback-rehearsal",
+                                          FAKE_OUTPUTS=json.dumps({"rollback-rehearsal-check": kept + "\n"}))
+        self.assertEqual(result.returncode, 65, result.stderr)
         self.assertEqual(len(self.units(calls)), 1)
 
     def test_a_preview_that_does_not_serve_the_generation_fails_the_rehearsal(self):

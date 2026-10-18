@@ -456,8 +456,8 @@ if [[ "${ACTION}" == health ]]; then
 fi
 
 if [[ "${ACTION}" == rollback-rehearsal ]]; then
-  # Root ADR-0274 §5: proves the lane's rollback lever, its previous pack generation, and moves
-  # nothing. The publisher checks the rollback against the live manifest and prints the manifest it
+  # Root ADR-0274 §5: proves the lane's rollback lever, its previous pack state (the previous
+  # generation, or the live one without its newest pack patches), and moves nothing. The publisher checks the rollback against the live manifest and prints the manifest it
   # would write (ROLLBACK_DRY_RUN); then the lane's monitor reads that generation from the preview
   # hostname and holds every sample PNU to the generation's own packs. Both must pass.
   (($# == 0)) || refuse "rollback-rehearsal takes nothing: it finds the previous pack generation itself"
@@ -468,7 +468,7 @@ if [[ "${ACTION}" == rollback-rehearsal ]]; then
   : >"${WORK}/logs/check.log"
   "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-check" -p User=foundation-platform \
     -p MemoryMax=2G -p WorkingDirectory="${RELEASE}" "${props[@]}" -E "${P}_OUTPUT_STORAGE_DRIVER=r2" \
-    -E "${P}_CONFIRM_PUBLISH=true" -E "${P}_ROLLBACK_TO_PREVIOUS_GENERATION=true" -E "${P}_ROLLBACK_DRY_RUN=true" \
+    -E "${P}_CONFIRM_PUBLISH=true" -E "${P}_ROLLBACK_TO_PREVIOUS_PACK_STATE=true" -E "${P}_ROLLBACK_DRY_RUN=true" \
     -p StandardOutput=append:"${WORK}/logs/check.log" -p StandardError=append:"${WORK}/logs/check.log" \
     "${PUBLISHER_BIN}" "publish-${LANE}-by-pnu-serving-manifest" \
     || refuse "the rollback check failed; ${WORK}/logs/check.log says why" 65
@@ -476,13 +476,17 @@ if [[ "${ACTION}" == rollback-rehearsal ]]; then
 import json, sys
 for line in reversed(open(sys.argv[1], encoding="utf-8").read().splitlines()):
     if line.startswith("{") and '"dry_run"' in line:
-        print(min(section["generation"] for section in json.loads(line)["manifest"]["section_packs"]["sections"]))
+        packs = json.loads(line)["manifest"]["section_packs"]
+        # The preview serves a generation's base only: a state that keeps pack patches cannot be read there.
+        if packs.get("patches"):
+            sys.exit(f"the previous pack state keeps {len(packs['patches'])} pack patches, which the preview cannot serve")
+        print(min(section["generation"] for section in packs["sections"]))
         break
 else:
     sys.exit("the rollback check printed no manifest")
 PY
-  )" || refuse "the rollback check printed no manifest; ${WORK}/logs/check.log" 65
-  log "the rollback would serve pack generation ${generation}; reading it from the preview"
+  )" || refuse "the rollback check named no state the preview can serve; ${WORK}/logs/check.log" 65
+  log "the rollback would serve pack generation ${generation} without patches; reading it from the preview"
   # The hourly monitor's own environment files, read from its unit.
   mapfile -t files < <(sed -n 's/^EnvironmentFile=//p' "${RELEASE}/infra/systemd/foundation-by-pnu-serving-monitor@.service")
   monitor_props=()
