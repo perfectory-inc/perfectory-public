@@ -238,8 +238,10 @@ def git_changed_paths(repository: Path, base: str, head: str) -> set[str]:
         "--name-only",
         "-z",
         "--no-renames",
-        base,
-        head,
+        # Three dots: what the head added since it left the base. Two dots compared the trees, so
+        # every file main changed after the branch point counted as this change (#700 ran all
+        # gates, Spark included, for a publisher crate, because main had moved a workflow).
+        f"{base}...{head}",
     ]
     completed = subprocess.run(command, check=True, capture_output=True)
     return {
