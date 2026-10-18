@@ -19,11 +19,14 @@ SCRIPT = PLATFORM / "scripts/ops/start-scheduled-job.sh"
 JOBS = {
     "pools": {"spark": {"slots": 3, "description": "fixture"}},
     "jobs": [
-        {"id": "floor", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-floor.service", "enabled": True},
-        {"id": "fold", "pool": "spark", "pool_slots": 2, "systemd_service": "foundation-fold.service", "enabled": True},
+        {"id": "floor", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-floor.service", "enabled": True,
+         "wait_limit_minutes": 2},
+        {"id": "fold", "pool": "spark", "pool_slots": 2, "systemd_service": "foundation-fold.service", "enabled": True,
+         "wait_limit_minutes": 0},
         {"id": "bake", "pool": "spark", "pool_slots": 1, "takes_turns": True,
-         "systemd_service": "foundation-bake.service", "enabled": True},
-        {"id": "paused", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-paused.service", "enabled": False},
+         "systemd_service": "foundation-bake.service", "enabled": True, "wait_limit_minutes": 0},
+        {"id": "paused", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-paused.service", "enabled": False,
+         "wait_limit_minutes": 0},
     ],
 }
 
@@ -59,6 +62,11 @@ touch "$FIXTURE_ROOT/started"
 ADMISSION = """#!/bin/sh
 [ "$1" = release-build-running ] || exit 64
 [ -z "${FIXTURE_BUILD:-}" ] || exit 75
+# FIXTURE_BUILD_ANSWERS: a build holds the lock for that many questions, then has finished.
+if [ -n "${FIXTURE_BUILD_ANSWERS:-}" ]; then
+  asked=$(cat "$FIXTURE_ROOT/built" 2>/dev/null || echo 0); asked=$((asked + 1)); echo "$asked" > "$FIXTURE_ROOT/built"
+  [ "$asked" -gt "$FIXTURE_BUILD_ANSWERS" ] || exit 75
+fi
 """
 # The run's journal: FIXTURE_JOURNAL, or a run that ended by saying it changed its outputs.
 JOURNALCTL = """#!/bin/sh
@@ -89,7 +97,8 @@ class HostFixture(unittest.TestCase):
                     "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred)}
 
     def start(self, job, **env):
-        for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log"):
+        for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log",
+                     self.root / "built"):
             path.unlink(missing_ok=True)
         result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": job, **env},
                                 capture_output=True, text=True, timeout=60)
@@ -340,6 +349,32 @@ class AJobDueDuringAReleaseBuild(HostFixture):
         import job_specs  # noqa: E402
         self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
         self.assertEqual(sorted(path.name for path in self.deferred.iterdir()), ["fold"])
+
+    def test_a_job_that_may_wait_starts_when_the_build_finishes_and_owes_nothing(self):
+        # Deploy D4 (root ADR-0270 §2b): floor waits up to 2 minutes; the build ends after 3 questions.
+        result, asked = self.start("floor", FIXTURE_BUILD_ANSWERS="3")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("floor waits up to 2 minutes: a release build is running", result.stdout)
+        self.assertIn("systemctl start --no-block foundation-floor.service", asked)
+        self.assertIn("floor waited 90 seconds for the host", result.stdout)
+        self.assertEqual((self.root / "sleep.log").read_text().split()[:3], ["30", "30", "30"])
+        self.assertFalse(self.deferred.exists() and list(self.deferred.iterdir()), "a start that ran was deferred")
+
+    def test_a_job_still_blocked_at_its_limit_is_deferred_as_before(self):
+        result, asked = self.start("floor", FIXTURE_BUILD="1")
+        self.assertEqual(asked, "")
+        self.assertEqual(result.stdout.splitlines()[-1],
+                         "foundation-job-outcome waiting a release build is running; this job starts after it finishes")
+        self.assertEqual((self.root / "sleep.log").read_text().split(), ["30"] * 4, "2 minutes, asked every 30 s")
+        self.assertEqual(sorted(path.name for path in self.deferred.iterdir()), ["floor"])
+
+    def test_a_job_that_may_wait_waits_for_its_pool_and_reports_at_its_limit(self):
+        result, asked = self.start("floor", FIXTURE_HELD="foundation-paused.service")
+        self.assertEqual(asked, "")
+        self.assertIn("floor waits up to 2 minutes: the spark pool has no room", result.stdout)
+        self.assertIn("foundation-job-outcome waiting the spark pool has no room for foundation-floor.service",
+                      result.stdout)
+        self.assertEqual((self.root / "sleep.log").read_text().split(), ["30"] * 4)
 
     def test_the_record_goes_when_the_job_starts(self):
         self.start("fold", FIXTURE_BUILD="1")
