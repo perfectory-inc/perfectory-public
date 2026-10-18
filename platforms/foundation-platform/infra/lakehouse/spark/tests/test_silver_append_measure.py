@@ -28,10 +28,21 @@ class SilverAppendMeasureTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             measure.parse_args(["--old-snapshot-id", "main"])
 
-    def test_the_fingerprint_reads_shared_content_columns_only(self):
-        old = ["pnu", "seq", "source_snapshot_id", "ingested_at_utc", "dropped"]
-        new = ["pnu", "seq", "added", "source_snapshot_id", "ingested_at_utc"]
-        self.assertEqual(measure.content_columns(old, new), ["pnu", "seq"])
+    def test_the_fingerprint_reads_the_declared_content_columns_only(self):
+        columns = list(measure.CONTENT_COLUMNS["land_transfer_history"])
+        everything = [*columns, "data_reference_date", "source_record_id", "source_snapshot_id", "ingested_at_utc"]
+        content = measure.content_columns("land_transfer_history", everything, everything)
+        self.assertEqual(content, columns)
+        # 2026-10-18: the release's own date differs on every row, so a fingerprint over it counts every
+        # row as changed; no per-release column may be content.
+        for per_release in ("data_reference_date", "source_record_id", "source_snapshot_id", "ingested_at_utc"):
+            self.assertNotIn(per_release, content)
+        with self.assertRaisesRegex(ValueError, "lacks declared content columns"):
+            measure.content_columns("land_transfer_history", everything[1:], everything)
+
+    def test_a_table_without_declared_content_columns_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "declares no content columns"):
+            self.args("--table", "land_use_plan")
 
 
 if __name__ == "__main__":
