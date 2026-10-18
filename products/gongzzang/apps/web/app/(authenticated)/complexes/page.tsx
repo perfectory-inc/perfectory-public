@@ -14,7 +14,7 @@ import { PanelRenderer } from "@/components/panels/panel-renderer";
  */
 export default function ComplexesPage() {
   return (
-    <main className="flex h-screen flex-col bg-[var(--color-canvas)]">
+    <main className="flex h-full flex-col bg-[var(--color-canvas)]">
       <Suspense fallback={null}>
         <ComplexList />
       </Suspense>
