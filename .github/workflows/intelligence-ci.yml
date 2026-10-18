@@ -84,6 +84,7 @@ jobs:
           workspaces: |
             platforms/intelligence-platform
             tools/xtask
+          shared-key: intelligence-dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
       # flag policy and the native deps (cmake+libsasl2 for rdkafka). Runs from the
@@ -131,9 +132,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
+          # Reads the area's one dependency cache, which rust saves (root ADR-0269).
           workspaces: |
             platforms/intelligence-platform
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+            tools/xtask
+          shared-key: intelligence-dependencies
+          save-if: false
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/install-cargo-deny.sh
