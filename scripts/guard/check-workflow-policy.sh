@@ -333,6 +333,7 @@ for workflow in "${workflows[@]}"; do
         || (step_name == "Locate pnpm store" && step_if == foundation_gate) \
         || (step_name == "Restore pnpm store" && step_if == foundation_gate) \
         || (step_name == "Save pnpm store" && step_if == main_only) \
+        || (step_name == "Save sqlx-cli" && step_if == main_only) \
         || (step_name == "Fill pinned release binaries" && step_if == cache_writer) \
         || (step_name == "Save pinned release binaries" && step_if == cache_writer) \
         || (step_name == "Stash workspace build" && step_if == main_only) \
