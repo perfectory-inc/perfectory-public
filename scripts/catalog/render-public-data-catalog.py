@@ -151,6 +151,7 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "code_go_kr": "code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143)",
         "onbid_open_api": "data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280)",
         "data_go_kr_file_data": "data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280)",
+        "court_auction": "courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281)",
     }
     for group in sorted(group_counts):
         lines.append(
@@ -169,6 +170,7 @@ def render(endpoint_doc: dict[str, Any], lane_doc: dict[str, Any]) -> str:
         "code_go_kr": "법정동 코드 변경 출처",
         "onbid_open_api": "온비드 공매",
         "data_go_kr_file_data": "등록공장",
+        "court_auction": "법원경매",
     }
     acquisition_names = {
         "provider_dataset_file": "제공기관 파일",
