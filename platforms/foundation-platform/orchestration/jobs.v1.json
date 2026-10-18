@@ -218,6 +218,7 @@
       "schedule": "20 11 * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
       "time_limit_minutes": 90,
       "pool": "spark",
       "pool_slots": 3,
