@@ -50,7 +50,7 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   const jump = useCallback((id: string) => {
     const scroller = scrollRef.current;
     const target = scroller?.querySelector<HTMLElement>(`[data-section="${id}"]`);
-    if (scroller && target) scroller.scrollTo({ top: target.offsetTop - scroller.offsetTop });
+    if (scroller && target) scroller.scrollTo({ top: target.offsetTop });
   }, []);
 
   return (
@@ -134,9 +134,12 @@ function useScrollSpy(ref: React.RefObject<HTMLDivElement | null>, ids: string):
       if (nodes.length === 0) return setActive(null);
       const top = scroller.scrollTop + 8;
       let current = nodes[0];
-      for (const node of nodes) if (node.offsetTop - scroller.offsetTop <= top) current = node;
-      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2)
+      // The scroller is the sections' offset parent (`relative`): offsetTop is measured from its top.
+      for (const node of nodes) if (node.offsetTop <= top) current = node;
+      const scrolls = scroller.scrollHeight > scroller.clientHeight;
+      if (scrolls && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) {
         current = nodes.at(-1);
+      }
       setActive(current?.dataset.section ?? null);
     };
     update();
