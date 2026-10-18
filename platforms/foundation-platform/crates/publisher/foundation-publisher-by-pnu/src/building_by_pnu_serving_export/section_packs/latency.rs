@@ -876,6 +876,15 @@ pub async fn timed_get(
         .and_then(|name| response.headers().get(name))
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let outage = crate::by_pnu_gateway_contract::section_pack_policy()
+        .ok()
+        .and_then(|policy| {
+            response
+                .headers()
+                .get(policy.read_path.outage_header.as_str())
+        })
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let content_encoding = response
         .headers()
         .get(reqwest::header::CONTENT_ENCODING)
@@ -888,8 +897,13 @@ pub async fn timed_get(
     })?;
     let ms = started.elapsed().as_secs_f64() * 1000.0;
     if status != reqwest::StatusCode::OK {
+        // A 503 names its class (contract `read_path.outage_header`): `http-503:manifest-unavailable`
+        // says which read failed, where `http-503` alone left the 2026-10-18 monitor failure untraced.
         return Err(Failure {
-            class: format!("http-{}", status.as_u16()),
+            class: outage.map_or_else(
+                || format!("http-{}", status.as_u16()),
+                |outage| format!("http-{}:{outage}", status.as_u16()),
+            ),
             detail: format!(
                 "GET {url} answered {status}{}",
                 server_timing

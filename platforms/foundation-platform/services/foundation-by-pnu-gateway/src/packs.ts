@@ -205,6 +205,10 @@ export class ReadTrace {
   readonly parts = new Map<string, string>();
   /// Per section: milliseconds waiting on R2 for its parts index.
   readonly partsR2Ms = new Map<string, number>();
+  /// The lane manifest's R2 reads, apart from the pack reads: it is read once a minute per
+  /// location (edge copy), not once per PNU.
+  manifestGets = 0;
+  manifestR2Ms = 0;
 
   note(section: string, label: string): void {
     const previous = this.sections.get(section);
@@ -378,20 +382,22 @@ function within<T>(work: Promise<T>, milliseconds: number): Promise<T> {
 /// spend the whole deadline (the Tail at Scale: a retry of a slow request usually lands on a fast
 /// path). A pack that is not what it should be (`PackFormatError`) is never retried: retrying cannot
 /// make it right.
-async function withRetry<T>(
+export async function withRetry<T>(
   reads: PackReads,
-  what: { section: string; key: string; phase: "pack" | "range" | "parts" },
+  what: { section: string; key: string; phase: "pack" | "range" | "parts" | "manifest" },
   attempt: () => Promise<T>,
 ): Promise<T> {
   const sleep = reads.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const random = reads.random ?? Math.random;
   const parts = what.phase === "parts";
+  const manifest = what.phase === "manifest";
   let lastClass = "deadline";
   for (let tried = 0; tried < readPolicy.r2_attempts; tried += 1) {
     const left = reads.deadline - Date.now();
     if (left <= 0) break;
     const started = Date.now();
     if (parts) reads.trace.partsGets += 1;
+    else if (manifest) reads.trace.manifestGets += 1;
     else reads.trace.r2Gets += 1;
     try {
       return await within(attempt(), Math.min(left, readPolicy.r2_attempt_timeout_ms));
@@ -414,6 +420,8 @@ async function withRetry<T>(
       const waited = Date.now() - started;
       if (parts) {
         reads.trace.partsR2Ms.set(what.section, (reads.trace.partsR2Ms.get(what.section) ?? 0) + waited);
+      } else if (manifest) {
+        reads.trace.manifestR2Ms += waited;
       } else {
         reads.trace.waited(what.section, waited);
       }

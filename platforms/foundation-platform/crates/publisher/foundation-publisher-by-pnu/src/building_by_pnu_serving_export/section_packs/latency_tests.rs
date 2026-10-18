@@ -968,3 +968,42 @@ async fn both_sides_of_a_pack_only_gate_read_pack_routes_in_this_runs_scope() ->
     );
     Ok(())
 }
+
+/// 2026-10-18 18:19Z: a monitor read answered 503 and the report said only `http-503`; the Worker
+/// now names the class of every 503 and the failure carries it.
+#[tokio::test]
+async fn a_503_failure_carries_the_outage_class_the_worker_named() -> anyhow::Result<()> {
+    let header_name = section_pack_policy()?.read_path.outage_header.clone();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/named"))
+        .respond_with(
+            ResponseTemplate::new(503).insert_header(header_name.as_str(), "manifest-unavailable"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/bare"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    let client = reqwest::Client::new();
+    let class = |url: String| {
+        let client = client.clone();
+        async move {
+            latency::timed_get(ByPnuLane::Building, &client, &url, latency::Accept::Gzip)
+                .await
+                .err()
+                .map(|failure| failure.class)
+        }
+    };
+    assert_eq!(
+        class(format!("{}/named", server.uri())).await.as_deref(),
+        Some("http-503:manifest-unavailable")
+    );
+    assert_eq!(
+        class(format!("{}/bare", server.uri())).await.as_deref(),
+        Some("http-503")
+    );
+    Ok(())
+}
