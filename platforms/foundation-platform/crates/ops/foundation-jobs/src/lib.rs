@@ -7,6 +7,8 @@
 //! It also renders the host's `tmpfiles.d` file that creates the job state directories, with their
 //! mode and owner, before any unit or container uses them.
 
+pub mod runner;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

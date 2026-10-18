@@ -132,14 +132,16 @@ zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 libc = { version = "0.2" }
-rustix = { version = "1", features = ["fs"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
+rustix = { version = "1", features = ["fs", "process"] }
 tower = { version = "0.5", default-features = false, features = ["retry"] }
 tower-http = { version = "0.6", features = ["cors", "follow-redirect", "timeout", "trace"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2" }
-rustix = { version = "1", features = ["fs"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
+rustix = { version = "1", features = ["fs", "process"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
