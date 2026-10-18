@@ -1,11 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  buildVectorTileSource,
-  fetchVectorTileManifest,
-  getVectorTileArtifact,
-} from "@/lib/map/vector-tile-manifest";
+import { buildFoundationVectorSource } from "@/lib/map/foundation-vector-layer-registry";
+import { fetchVectorTileRuntimeManifest } from "@/lib/map/vector-tile-manifest";
 import { loadNaverMaps } from "@/lib/naver-maps";
 
 type MapboxGLLike = {
@@ -38,17 +35,17 @@ async function registerDevParcelLayer(
   setClickedPnu: (pnu: string | null) => void,
   isCancelled: () => boolean,
 ): Promise<void> {
-  setStatus("Fetching foundation-platform manifest...");
-  const manifest = await fetchVectorTileManifest();
+  setStatus("Fetching foundation-platform runtime manifest...");
+  const { manifest } = await fetchVectorTileRuntimeManifest();
   if (isCancelled()) return;
 
-  const artifact = getVectorTileArtifact(manifest, "parcels");
+  const artifact = manifest.publication_units.parcels?.layers.parcels;
   if (!artifact) {
-    setStatus("Foundation Platform manifest has no parcels artifact");
+    setStatus("Foundation Platform runtime manifest has no parcels unit");
     return;
   }
 
-  const vectorSource = buildVectorTileSource(manifest, "parcels", { promoteId: "PNU" });
+  const vectorSource = buildFoundationVectorSource(manifest, "parcels");
   setStatus(`Registering vector tile source: ${vectorSource.tiles[0]}`);
 
   if (!mb.getSource?.("parcels")) {
@@ -80,10 +77,9 @@ async function registerDevParcelLayer(
     });
     mb.on?.("click", "parcels-fill", (event: unknown) => {
       const evt = event as {
-        features?: Array<{ properties?: { PNU?: string; pnu?: string } }>;
+        features?: Array<{ properties?: { pnu?: string } }>;
       };
-      const props = evt.features?.[0]?.properties;
-      const pnu = props?.PNU ?? props?.pnu ?? null;
+      const pnu = evt.features?.[0]?.properties?.pnu ?? null;
       setClickedPnu(typeof pnu === "string" ? pnu : "(no PNU)");
     });
   }

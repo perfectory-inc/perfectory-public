@@ -1,4 +1,4 @@
-import { LISTING_TYPE_COLOR_FALLBACK, MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
+import { LISTING_TYPE_COLOR_FALLBACK } from "@gongzzang/ui/tokens.js";
 import {
   LISTING_MARKER_RENDER_MAX_ZOOM,
   LISTING_MARKER_RENDER_MIN_ZOOM,
@@ -10,19 +10,9 @@ import {
   LISTING_MARKER_TILE_LAYER,
   type MarkerTileSource,
 } from "@/lib/map/marker-tile-contract";
-import {
-  buildVectorTileSource,
-  getVectorTileArtifact,
-  PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER,
-  PARCEL_ANCHOR_VECTOR_TILE_LAYER,
-  type VectorTileManifest,
-} from "@/lib/map/vector-tile-manifest";
-
-export const PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_SOURCE_ID =
-  PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER;
-export const PARCEL_ANCHOR_MARKER_TILE_SOURCE_ID = PARCEL_ANCHOR_VECTOR_TILE_LAYER;
-export const PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_CIRCLE_LAYER_ID =
-  "parcel-anchor-aggregate-markers-circle";
+// The PNU anchor markers' layer id, which a complex click yields to. The markers come back from
+// the v2 runtime manifest's `parcel_anchor*` units (root ADR-0225 step 1); until then no such
+// layer is on the map.
 export const PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID = "parcel-anchor-markers-circle";
 export const LISTING_MARKER_TILE_SOURCE_ID = LISTING_MARKER_TILE_LAYER;
 export const LISTING_MARKER_TILE_CIRCLE_LAYER_ID = "listing-markers-circle";
@@ -50,30 +40,6 @@ type MarkerCircleLayer<
   };
 };
 
-type ParcelAnchorAggregateMarkerLayer = MarkerCircleLayer<
-  typeof PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_CIRCLE_LAYER_ID,
-  typeof PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_SOURCE_ID,
-  string
->;
-
-type ParcelAnchorMarkerLayer = MarkerCircleLayer<
-  typeof PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
-  typeof PARCEL_ANCHOR_MARKER_TILE_SOURCE_ID,
-  string
->;
-
-export type ParcelAnchorAggregateMarkerLayerRegistration = {
-  sourceId: typeof PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_SOURCE_ID;
-  source: MarkerTileSource;
-  layers: [ParcelAnchorAggregateMarkerLayer];
-};
-
-export type ParcelAnchorMarkerLayerRegistration = {
-  sourceId: typeof PARCEL_ANCHOR_MARKER_TILE_SOURCE_ID;
-  source: MarkerTileSource;
-  layers: [ParcelAnchorMarkerLayer];
-};
-
 type ListingMarkerLayer = MarkerCircleLayer<
   typeof LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
   typeof LISTING_MARKER_TILE_SOURCE_ID,
@@ -98,10 +64,6 @@ export type ListingMarkerDeltaLayerRegistration = {
   layers: [ListingMarkerDeltaLayer];
 };
 
-export type BuildParcelAnchorMarkerLayerRegistrationInput = {
-  manifest: VectorTileManifest;
-};
-
 export type BuildListingMarkerLayerRegistrationInput = {
   filterHash: string;
   projectionVersion: number | null;
@@ -116,87 +78,6 @@ export type BuildListingMarkerDeltaLayerRegistrationInput = {
   maxzoom: number;
   origin?: string;
 };
-
-export function buildParcelAnchorMarkerLayerRegistration(
-  input: BuildParcelAnchorMarkerLayerRegistrationInput,
-): ParcelAnchorMarkerLayerRegistration {
-  return buildParcelAnchorMarkerLayerRegistrations(input)[1];
-}
-
-export function buildParcelAnchorMarkerLayerRegistrations(
-  input: BuildParcelAnchorMarkerLayerRegistrationInput,
-): [ParcelAnchorAggregateMarkerLayerRegistration, ParcelAnchorMarkerLayerRegistration] {
-  const aggregateArtifact = getVectorTileArtifact(
-    input.manifest,
-    PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER,
-  );
-  const exactArtifact = getVectorTileArtifact(input.manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER);
-  if (!aggregateArtifact) {
-    throw new Error(
-      `foundation-platform manifest missing ${PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER}`,
-    );
-  }
-  if (!exactArtifact) {
-    throw new Error(`foundation-platform manifest missing ${PARCEL_ANCHOR_VECTOR_TILE_LAYER}`);
-  }
-
-  return [
-    {
-      sourceId: PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_SOURCE_ID,
-      source: buildVectorTileSource(input.manifest, PARCEL_ANCHOR_AGGREGATE_VECTOR_TILE_LAYER),
-      layers: [
-        {
-          id: PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_CIRCLE_LAYER_ID,
-          type: "circle",
-          source: PARCEL_ANCHOR_AGGREGATE_MARKER_TILE_SOURCE_ID,
-          "source-layer": aggregateArtifact.source_layer,
-          minzoom: aggregateArtifact.render_min_zoom,
-          maxzoom: aggregateArtifact.render_max_zoom,
-          paint: {
-            "circle-color": MAP_LAYER_COLORS.parcel.fill,
-            "circle-opacity": 0.42,
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["coalesce", ["get", "count"], 1],
-              1,
-              2.5,
-              1000,
-              6,
-              50000,
-              12,
-            ],
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-opacity": 0.72,
-            "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 8, 0.85, 11, 1],
-          },
-        },
-      ],
-    },
-    {
-      sourceId: PARCEL_ANCHOR_MARKER_TILE_SOURCE_ID,
-      source: buildVectorTileSource(input.manifest, PARCEL_ANCHOR_VECTOR_TILE_LAYER),
-      layers: [
-        {
-          id: PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
-          type: "circle",
-          source: PARCEL_ANCHOR_MARKER_TILE_SOURCE_ID,
-          "source-layer": exactArtifact.source_layer,
-          minzoom: exactArtifact.render_min_zoom,
-          maxzoom: exactArtifact.render_max_zoom,
-          paint: {
-            "circle-color": MAP_LAYER_COLORS.parcel.fill,
-            "circle-opacity": 0.92,
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 3, 14, 5, 18, 7],
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-opacity": 0.95,
-            "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 0.75, 14, 1, 18, 1.5],
-          },
-        },
-      ],
-    },
-  ];
-}
 
 export function buildListingMarkerLayerRegistration(
   input: BuildListingMarkerLayerRegistrationInput,
