@@ -60,7 +60,7 @@ interface ServingPlan {
   /// Names the served state in the per-PNU edge cache key, so a new patch or base never answers
   /// from a response cached under the previous one.
   fingerprint: string;
-  /// The section packs the lane serves from; absent while it serves objects (root ADR-0147).
+  /// The section packs the lane serves from (root ADR-0147); a manifest without them is an outage.
   packs?: PackPlan;
 }
 
@@ -154,16 +154,6 @@ function withCors(
     status: response.status,
     statusText: response.statusText,
     headers,
-  });
-}
-
-function objectHeaders(object: R2Object): Headers {
-  return new Headers({
-    "Cache-Control": policy.cache_control,
-    "Content-Length": object.size.toString(),
-    "Content-Type": policy.content_type,
-    ETag: object.httpEtag,
-    "X-Content-Type-Options": "nosniff",
   });
 }
 
@@ -282,64 +272,6 @@ async function resolvePlan(
   });
   ctx.waitUntil(caches.default.put(manifestCacheUrl(lane), response));
   return plan;
-}
-
-/// The served state's fingerprint without its packs: what an object-only version caches under.
-function objectFingerprint(plan: ServingPlan): string {
-  const newest = plan.patches[0];
-  return newest === undefined ? `v${plan.base}` : `v${plan.base}p${newest.generation}`;
-}
-
-/// The edge cache identity of one PNU's answer under one served state.
-function servingCacheUrl(requestUrl: string, plan: Pick<ServingPlan, "fingerprint">): string {
-  const url = new URL(requestUrl);
-  url.searchParams.set("serving", plan.fingerprint);
-  return url.toString();
-}
-
-type Found =
-  | { kind: "object"; object: R2Object | R2ObjectBody; body?: string }
-  | { kind: "deleted" }
-  | { kind: "absent" };
-
-function isTombstone(body: string): boolean {
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown> | null;
-    return parsed?.deleted === true && parsed.schema_version === patchPolicy.tombstone_schema_version;
-  } catch {
-    return false;
-  }
-}
-
-/// Newest patch first, then the base. A patch whose prefix list lacks the PNU's prefix holds
-/// nothing for it and costs no read. A tombstone ends the search: the PNU is gone (ADR-0141 §2).
-///
-/// The client's validators (If-None-Match, If-Modified-Since) answer only for a document. A small
-/// object may be a tombstone, and whether it is one is read from its stored body before any
-/// validator can turn the deletion into a 304.
-async function findObject(
-  bucket: Pick<R2Bucket, "get">,
-  plan: ServingPlan,
-  pnu: string,
-  conditions: Headers,
-): Promise<Found> {
-  const { root, suffix } = policy.object_key;
-  const pnuPrefix = pnu.slice(0, plan.prefixLength);
-  for (const patch of plan.patches) {
-    if (!patch.prefixes.has(pnuPrefix)) continue;
-    const key = `${root}/v${plan.base}/p${patch.generation}/${pnu}${suffix}`;
-    const object = await bucket.get(key, { onlyIf: conditions });
-    if (object === null) continue;
-    // A document is never as small as a tombstone and is answered as the validators say.
-    if (object.size > patchPolicy.tombstone_max_bytes) return { kind: "object", object };
-    const stored = "body" in object ? object : await bucket.get(key);
-    if (stored === null || !("body" in stored)) continue;
-    const body = await stored.text();
-    if (isTombstone(body)) return { kind: "deleted" };
-    return "body" in object ? { kind: "object", object, body } : { kind: "object", object };
-  }
-  const object = await bucket.get(`${root}/v${plan.base}/${pnu}${suffix}`, { onlyIf: conditions });
-  return object === null ? { kind: "absent" } : { kind: "object", object };
 }
 
 function matchesEtag(request: Request, etag: string): boolean {
@@ -587,91 +519,21 @@ async function answerByPnu(
     );
   }
 
-  // A preview names an unpublished pack generation: only a preview version (its binding set)
-  // serves one, and the live route serves a generation only when the manifest already names it.
-  // A version whose serving binding is off answers from objects while the manifest already names
-  // packs: the pack path is rolled out and back by version percentage (root ADR-0151 §7).
-  // A pack-only lane (root ADR-0190) has no objects to roll back to: it serves packs regardless.
-  const servesPacks = lane.packOnly || env[lanePacks.serving_binding] !== "off";
-  let packs = servesPacks ? plan.packs : undefined;
-  let fingerprint = servesPacks ? plan.fingerprint : objectFingerprint(plan);
-  // A preview version says how it answered (`Server-Timing`); the live route does not, and serves a
-  // named generation only when the manifest already names it.
+  // Every lane answers from section packs or not at all (root ADR-0190, ADR-0274): the pack bake
+  // no longer writes the per-PNU objects, so a manifest without packs is an outage, never an
+  // object read. The rollback lever is the previous pack state, published as a manifest.
+  const packs = plan.packs;
+  // The live route serves a named generation only when the manifest already names it.
   if (previewGeneration !== null) {
     if (packs === undefined || !packs.sections.every((section) => section.generation === previewGeneration)) {
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
     }
   }
-  if (packs !== undefined) {
-    // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
-    return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
-  }
-  if (lane.packOnly) {
-    // A manifest without packs cannot be this lane's: an outage, never an object read.
+  if (packs === undefined) {
     return withCors(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), origin, allowed);
   }
-  // A preview version's object path is what gate (b) holds the pack path to (root ADR-0147 §6):
-  // its edge copies are its own version's, so a fresh preview upload answers its first reads from
-  // R2 on both paths, and it says which it did. The live route's object path is untouched.
-  const version = timing === null ? null : workerVersion(env);
-  if (version !== null) fingerprint = `${fingerprint}-preview-${version}`;
-  const objectTimed = (response: Response, source: string): Response => {
-    if (timing !== null) {
-      response.headers.set(
-        "Server-Timing",
-        `outcome;desc="object", object;desc="${source}", total;dur=${Date.now() - timing.started}`,
-      );
-    }
-    return response;
-  };
-  const cacheUrl = servingCacheUrl(request.url, { fingerprint });
-  if (request.method === "GET") {
-    const ifNoneMatch = request.headers.get("If-None-Match");
-    const cacheRequest =
-      ifNoneMatch === null
-        ? new Request(cacheUrl)
-        : new Request(cacheUrl, { headers: { "If-None-Match": ifNoneMatch } });
-    const cached = await caches.default.match(cacheRequest);
-    if (cached !== undefined) return objectTimed(withCors(cached, origin, allowed), "edge-answer");
-  }
-
-  let found: Found;
-  try {
-    found = await findObject(bucket, plan, pnu, request.headers);
-  } catch {
-    return withCors(
-      new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
-      origin,
-      allowed,
-    );
-  }
-  if (found.kind === "absent") {
-    return withCors(
-      new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }),
-      origin,
-      allowed,
-    );
-  }
-  if (found.kind === "deleted") {
-    return withCors(
-      new Response(`${JSON.stringify({ error: "deleted", pnu })}\n`, {
-        status: 404,
-        headers: { "Cache-Control": "no-store", "Content-Type": policy.content_type },
-      }),
-      origin,
-      allowed,
-    );
-  }
-  const { object } = found;
-  const headers = objectHeaders(object);
-  if (!("body" in object)) {
-    return withCors(new Response(null, { status: 304, headers }), origin, allowed);
-  }
-  const response = new Response(found.body ?? object.body, { status: 200, headers });
-  if (request.method === "GET") {
-    ctx.waitUntil(caches.default.put(new Request(cacheUrl), response.clone()));
-  }
-  return objectTimed(withCors(response, origin, allowed), "r2-object");
+  // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
+  return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
 }
 
 /// The request path's pure steps, run once per isolate at startup (root ADR-0233): global scope
@@ -689,7 +551,6 @@ function warmRequestPath(): boolean {
     answered &&= laneOfPath(url.pathname) === lane && canonicalRequest(url, lane)?.pnu === pnu;
     const plan = previewPlan(1, "warm-up", lane, "warm");
     answerCacheUrl(plan.fingerprint, pnu);
-    servingCacheUrl(url.href, plan);
     for (const section of plan.sections) packKey(section, null, pnu.slice(0, plan.unitLength), lane.packRoot);
   }
   const allowed = parseAllowedOrigins("https://warm-up.invalid");
@@ -720,6 +581,5 @@ export {
   MANIFEST_SCHEMA_VERSIONS,
   parseAllowedOrigins,
   parseManifest,
-  servingCacheUrl,
   warmRequestPath,
 };

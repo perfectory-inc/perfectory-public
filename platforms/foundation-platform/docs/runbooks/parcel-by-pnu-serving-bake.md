@@ -177,7 +177,9 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - 묶음 세대 되돌리기([루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md) 5절):
   묶음을 서빙하는 레인(parcel·building)의 되돌리기 수단은 직전 묶음 상태다: 직전 묶음 세대, 그것이 없으면(레인이
   세대 하나뿐일 때) 서빙 세대에서 최신 묶음 패치를 뺀 상태. per-PNU 객체는 묶음 굽기가 갱신하지
-  않으므로 되돌리기 수단이 아니다(낡은 문서를 오류 없이 낸다).
+  않으므로 되돌리기 수단이 아니다(낡은 문서를 오류 없이 낸다). 두 레인은 계약상 묶음 전용(`pack_only`)이라
+  Worker 는 객체를 읽지 않고(묶음 없는 manifest 는 503), 발행기는 `section_packs` 가 없는 기록으로의 되돌리기를
+  거부한다. 객체는 R2 에 그대로 두고, 지우는 것은 묶음 전용 배포 30일 뒤 이후의 소유자 결정이다.
   1. 위 패치 되돌리기 1과 같이 `foundation_by_pnu_serving_bake` 를 먼저 멈춘다.
   2. 리허설(아무것도 옮기지 않음): `sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh
      <parcel|building> rollback-rehearsal`. 발행기가 manifest 기록에서 직전 묶음 상태를 찾아 되돌리기를 검사하고

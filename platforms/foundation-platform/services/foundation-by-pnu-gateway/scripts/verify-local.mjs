@@ -4,6 +4,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 // One proof per lane (root ADR-0160): `node scripts/verify-local.mjs building|parcel` runs that
 // lane's Wrangler config against a local R2.
@@ -21,9 +22,12 @@ const connection = contract.connections[gateway.connection];
 const bucket = connection.expected_values.FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET;
 // Synthetic PNU in the repository-reserved namespace (scripts/guard/public-fixture-safety.py).
 const pnu = "9999900000100000000";
-const servedGeneration = 2;
-const objectKey = `${gateway.object_key.root}/v${servedGeneration}/${pnu}${gateway.object_key.suffix}`;
-const staleKey = `${gateway.object_key.root}/v1/${pnu}${gateway.object_key.suffix}`;
+const packPolicy = contract.by_pnu_section_packs;
+// The lane serves from section packs only (root ADR-0274): the publisher's golden pack of the
+// PNU's dong, under the lane's pack root. An object at the object lane's key is never read.
+const fixtures = new URL("../test/fixtures/section-packs/", import.meta.url);
+const packKey = `${gateway.section_packs.root}/documents/g1/${pnu.slice(0, packPolicy.unit_prefix_length)}${packPolicy.suffix}`;
+const objectKey = `${gateway.object_key.root}/v7/${pnu}${gateway.object_key.suffix}`;
 const requestPath = `${gateway.request_path.prefix}${pnu}`;
 const bronzeKey = "bronze/vworld/2026/raw.jsonl";
 const port = Number.parseInt(
@@ -33,8 +37,7 @@ const port = Number.parseInt(
 const prefix = join(tmpdir(), `foundation-${lane}-gateway-`);
 const proofRoot = await mkdtemp(prefix);
 const persistDir = join(proofRoot, "r2-state");
-const documentFixture = join(proofRoot, "document.json");
-const staleFixture = join(proofRoot, "stale.json");
+const objectFixture = join(proofRoot, "object.json");
 const manifestFixture = join(proofRoot, "manifest.json");
 const bronzeFixture = join(proofRoot, "bronze.jsonl");
 const wranglerLogPath = join(proofRoot, "wrangler.log");
@@ -135,26 +138,51 @@ async function removeProofRoot(path) {
 }
 
 try {
-  const documentBody = Buffer.from(`{"pnu":"${pnu}","generation":${servedGeneration}}\n`);
-  const staleBody = Buffer.from(`{"pnu":"${pnu}","generation":1}\n`);
+  const documents = JSON.parse(await readFile(new URL("documents.json", fixtures), "utf8"));
+  const documentBody = Buffer.from(documents.base[pnu]);
+  const documentSchema = `foundation-platform.${lane}_by_pnu_profile.v${lane === "building" ? 2 : 1}`;
   const manifestBody = Buffer.from(
     `${JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       unit: `${lane}-by-pnu`,
-      current_generation: servedGeneration,
+      base_generation: 7,
+      base_object_count: 2,
+      document_schema_version: documentSchema,
       gold_table: `gold.${lane}_panel`,
       gold_iceberg_snapshot_id: "999990000000000001",
-      object_count: 1,
+      reflected_gold_iceberg_snapshot_id: "999990000000000001",
+      pnu_prefix_length: 5,
+      patches: [],
+      object_count: 2,
       published_at_utc: "2026-01-01T00:00:00Z",
+      section_packs: {
+        schema_version: packPolicy.manifest_section_packs_schema_version,
+        format_version: packPolicy.format_version,
+        unit_prefix_length: packPolicy.unit_prefix_length,
+        document_schema_version: documentSchema,
+        gold_table: `gold.${lane}_panel`,
+        reflected_gold_iceberg_snapshot_id: "999990000000000001",
+        document_count: 2,
+        sections: [
+          {
+            name: "documents",
+            generation: 1,
+            gold_iceberg_snapshot_id: "999990000000000001",
+            document_count: 2,
+            pack_count: 1,
+            patch_floor: 0,
+          },
+        ],
+        patches: [],
+      },
     })}\n`,
   );
-  await writeFile(documentFixture, documentBody);
-  await writeFile(staleFixture, staleBody);
+  await writeFile(objectFixture, `{"pnu":"${pnu}","served_by":"objects"}\n`);
   await writeFile(manifestFixture, manifestBody);
   await writeFile(bronzeFixture, "{}\n");
   for (const [key, file] of [
-    [objectKey, documentFixture],
-    [staleKey, staleFixture],
+    [packKey, fileURLToPath(new URL("g1-documents.pack", fixtures))],
+    [objectKey, objectFixture],
     [gateway.object_key.manifest_object, manifestFixture],
   ]) {
     runWrangler([
@@ -205,10 +233,10 @@ try {
 
   const canonical = await request(requestPath);
   assertStatus("canonical GET", canonical.status, 200);
-  if (!canonical.body.equals(documentBody)) {
-    throw new Error(
-      "canonical GET bytes drifted — the manifest generation was not the one served",
-    );
+  const served =
+    canonical.headers["content-encoding"] === "gzip" ? gunzipSync(canonical.body) : canonical.body;
+  if (!served.equals(documentBody)) {
+    throw new Error("canonical GET bytes drifted — the manifest's packs were not what was served");
   }
   if (canonical.headers["cache-control"] !== gateway.cache_control) {
     throw new Error(`canonical GET cache-control drifted: ${canonical.headers["cache-control"]}`);

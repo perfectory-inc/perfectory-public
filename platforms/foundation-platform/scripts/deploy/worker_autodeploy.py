@@ -122,6 +122,10 @@ class Worker:
     targets: list[Target]  # preview first when there is one
     # A by-PNU smoke runs the lane's serving monitor; off only for a pack-only lane not cut over yet.
     monitor: bool = True
+    # A lane of `by_pnu_lanes` born pack-only (root ADR-0190): its first publish is its cut-over, so
+    # it may deploy before its monitor file exists. The parcel and building lanes are pack-only too
+    # (ADR-0274) but were cut over long ago: a missing monitor file there is a refusal.
+    born_pack_only: bool = False
     # How much slower than the hostname it is compared with a version may read the sample (held_to_monitor).
     latency_ratio: float = 1.0
 
@@ -187,6 +191,8 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
         workers.append(Worker(id=entry["id"], gateway=block, service_dir=entry["service_dir"],
                               wrangler_config=entry["wrangler_config"], inputs=list(entry["inputs"]),
                               smoke=entry["smoke"], d1_database=d1, targets=targets,
+                              born_pack_only=entry["gateway"].startswith("by_pnu_lanes.")
+                              and block.get("pack_only") is True,
                               latency_ratio=float(contract["monitor_latency"]["ratio_to_compared_hostname"])))
     return workers, int(contract["attempts_per_change"])
 
@@ -615,7 +621,7 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
             if worker.smoke["kind"] == "by-pnu" and not monitor_file(tree, worker.smoke["lane"]).exists():
                 # The operator writes a pack-only lane's monitor file at its cut-over (root ADR-0190):
                 # until then every PNU is a 503 and the capabilities read is the whole smoke.
-                if worker.gateway.get("pack_only") is True:
+                if worker.born_pack_only:
                     worker.monitor = False
                     log(f"{worker.id}: the {worker.smoke['lane']} lane is not cut over "
                         f"({monitor_file(tree, worker.smoke['lane'])} does not exist); its smoke reads capabilities only")

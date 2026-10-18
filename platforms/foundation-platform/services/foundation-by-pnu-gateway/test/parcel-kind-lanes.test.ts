@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { LANES, resolveLane } from "../src/lane";
+import { startMiniflare } from "./miniflare";
 
 // A lane written as a host and a kind (root ADR-0193 §4) is served by its host's Worker under its
 // own paths: its own manifest, pack root, capabilities and edge copies. The pack bytes are the
@@ -72,7 +73,7 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    return new Miniflare({
+    return startMiniflare({
       compatibilityDate: PARCEL.compatibility_date,
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [PARCEL.r2_binding],

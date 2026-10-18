@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { startMiniflare } from "./miniflare";
 
 // The parcel lane reads section packs with the same code as the building lane (root ADR-0160);
 // these hold it to the parcel contract block: its pack root, its bindings, its manifest unit. The
@@ -78,7 +79,7 @@ describe("foundation parcel gateway section packs (root ADR-0147, ADR-0160)", ()
     });
     const output = bundle.outputFiles[0];
     if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = new Miniflare({
+    const started = await startMiniflare({
       compatibilityDate: GATEWAY.compatibility_date,
       modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
       r2Buckets: [R2_BINDING],
@@ -130,17 +131,32 @@ describe("foundation parcel gateway section packs (root ADR-0147, ADR-0160)", ()
     expect(await preview.text()).toBe(documents.base[PNU_A]);
   });
 
-  it("a version whose serving binding is off answers from objects under a pack manifest", async () => {
-    runtime = await start({ [PACKS.serving_binding]: "off" });
+  // Root ADR-0274: the lane is pack-only. Its per-PNU objects are still in R2 (never deleted
+  // without the owner) but hold an older document; the retired serving binding switches nothing.
+  it.each([
+    ["live", {}],
+    ["preview", { [PACKS.preview_binding]: "true" }],
+    ["retired binding off", { FOUNDATION_PLATFORM_PARCEL_PACK_SERVING: "off" }],
+  ])("is pack-only: an object is never read, with or without packs (%s)", async (_label, bindings) => {
+    expect(GATEWAY.pack_only).toBe(true);
+    runtime = await start(bindings);
     const object = `{"pnu":"${PNU_A}","served_by":"objects"}\n`;
     await (await runtime.getR2Bucket(R2_BINDING)).put(
       `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`,
       object,
     );
     await serve(true);
-    const answer = await runtime.dispatchFetch(url());
-    expect(answer.status).toBe(200);
-    expect(await answer.text()).toBe(object);
+    expect(await (await runtime.dispatchFetch(url())).text()).toBe(documents.base[PNU_A]);
+    await runtime.dispose();
+    runtime = await start(bindings);
+    await (await runtime.getR2Bucket(R2_BINDING)).put(
+      `${GATEWAY.object_key.root}/v7/${PNU_A}${GATEWAY.object_key.suffix}`,
+      object,
+    );
+    await serve(false);
+    const outage = await runtime.dispatchFetch(url());
+    expect(outage.status).toBe(503);
+    expect(outage.headers.get("cache-control")).toBe("no-store");
   });
 
   it("refuses the building lane's schema query", async () => {

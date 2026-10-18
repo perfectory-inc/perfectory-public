@@ -299,6 +299,55 @@ async fn the_preview_read_is_held_to_the_recorded_state_with_its_pack_patch() ->
     Ok(())
 }
 
+/// The building lane is pack-only (root ADR-0274): the manifest it served before its cut-over,
+/// objects only, is still in the history, and a rollback to it is refused, dry run or not.
+#[tokio::test]
+async fn a_pack_only_lane_never_rolls_back_to_its_objects() -> anyhow::Result<()> {
+    use crate::r2_layout::by_pnu;
+
+    let rows = vec![spark_row()?, empty_row(PNU_B)];
+    let lane = Lane::serving_objects("rollback-to-objects", &rows).await?;
+    lane.cut_over(&rows).await?;
+    assert!(super::LANE.policy()?.pack_only);
+    let mut objects_only = None;
+    for key in lane
+        .store
+        .list_all(&by_pnu::manifest_history_prefix(super::LANE)?)
+        .await?
+    {
+        let recorded = crate::by_pnu_serving_manifest::ServedManifest::parse(
+            super::LANE,
+            &lane.store.read_bytes(&key).await?,
+        )?;
+        if recorded.section_packs.is_none() {
+            objects_only = Some(key);
+        }
+    }
+    let key = objects_only.context("the history keeps the manifest from before the cut-over")?;
+    for dry_run in [true, false] {
+        let config = PublishConfig {
+            output: lane.output(),
+            input: PublishInput::Rollback(key.clone()),
+            first_publication: false,
+            dry_run,
+        };
+        let refused = if dry_run {
+            check_rollback(&config, &lane.store).await.err()
+        } else {
+            publish(&config, &lane.store, &lane.gateway.uri())
+                .await
+                .err()
+        }
+        .context("a rollback to the objects was accepted")?;
+        assert!(format!("{refused:#}").contains("pack_only"), "{refused:#}");
+    }
+    assert_eq!(
+        generations(lane.live().await?.section_packs.as_ref()),
+        vec![1]
+    );
+    Ok(())
+}
+
 /// A preview that answers `answers` only to a request for the recorded state `name`.
 async fn recorded_preview(
     name: &str,
