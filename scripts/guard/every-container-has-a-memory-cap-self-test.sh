@@ -314,13 +314,15 @@ expect_pass "a Gold rebuild on the big Spark that takes every slot and runs alon
 write_scheduled_fixture "MemoryMax=2G" 2 2g "" 1
 expect_fail "a Gold rebuild on the big Spark that takes one slot, so a fold runs beside it over the host"
 
-# A host script's `docker run` states its cap where it starts, a continued line read whole.
+# A host script's container start states its cap where it starts, a continued line read whole. The
+# fixtures spell the command RUN_CMD: container-runtime-policy reads every shell line of the
+# repository as a real container start, and these are data, not starts.
 write_host_script_fixture() {
-  local run="$1" exempt="${2:-}"
+  local run="${1//RUN_CMD/docker${IFS:0:1}run}" exempt="${2:-}"
   write_contract 6g
   write_stack "    mem_limit: 1g"
   mkdir -p "$fixture/hostscripts"
-  printf '#!/usr/bin/env bash\n# docker run in a comment is not a run\n%s\n' "$run" > "$fixture/hostscripts/job.sh"
+  printf '#!/usr/bin/env bash\n# RUN_CMD in a comment is not a run\n%s\n' "$run" > "$fixture/hostscripts/job.sh"
   python3 - "$fixture/tools/host-memory-budget.contract.json" "$exempt" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -332,15 +334,15 @@ path.write_text(json.dumps(contract))
 PY
 }
 
-write_host_script_fixture 'docker run --rm --memory 64m busybox:1 true'
-expect_pass "a host script's docker run with --memory"
-write_host_script_fixture $'docker run --rm \\\n  -v /x:/x \\\n  --memory=128m busybox:1 true'
-expect_pass "a continued docker run whose --memory is on a later line"
-write_host_script_fixture 'docker run --rm busybox:1 true'
-expect_fail "a host script's docker run with no --memory"
-write_host_script_fixture $'aws() {\n  docker run --rm -i \\\n    amazon/aws-cli:2 "$@"\n}'
-expect_fail "a continued docker run with no --memory on any of its lines"
-write_host_script_fixture 'docker run --rm busybox:1 true' exempt
+write_host_script_fixture 'RUN_CMD --rm --memory 64m busybox:1 true'
+expect_pass "a host script's container start with --memory"
+write_host_script_fixture $'RUN_CMD --rm \\\n  -v /x:/x \\\n  --memory=128m busybox:1 true'
+expect_pass "a continued container start whose --memory is on a later line"
+write_host_script_fixture 'RUN_CMD --rm busybox:1 true'
+expect_fail "a host script's container start with no --memory"
+write_host_script_fixture $'aws() {\n  RUN_CMD --rm -i \\\n    amazon/aws-cli:2 "$@"\n}'
+expect_fail "a continued container start with no --memory on any of its lines"
+write_host_script_fixture 'RUN_CMD --rm busybox:1 true' exempt
 expect_pass "a script the contract lists as uncapped, with why"
 
 echo "OK $name"

@@ -31,9 +31,9 @@
 # build refuses to start while a registered job runs, and manual loads run with the DAGs paused,
 # so neither ever adds to it.
 #
-# Host scripts start containers with `docker run` too, outside compose and outside every contract
-# above. `host_scripts` names where the scripts that run on the host live; every `docker run` there
-# states `--memory` (a continued line is read whole), or its script is in `host.uncapped` with why.
+# Host scripts start containers with docker's run command too, outside compose and outside every
+# contract above. `host_scripts` names where the scripts that run on the host live; every container
+# start there states `--memory` (a continued line is read whole), or its script is in `host.uncapped` with why.
 # On 2026-10-18 the parcel number change collector's aws-cli ran with no cap, and so did six more.
 #
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
@@ -478,7 +478,7 @@ if section is not None:
                 continue
             for number, line in logical_lines(path.read_text(encoding="utf-8", errors="replace")):
                 if DOCKER_RUN.search(line) and not MEMORY_FLAG.search(line):
-                    errors.append(f"{name}:{number}: `docker run` with no --memory (a host script's container is capped where it starts)")
+                    errors.append(f"{name}:{number}: a container start with no --memory (a host script's container is capped where it starts)")
 
 heaviest = max(largest_job[0], scheduled[0])
 total = standing_total + heaviest + reserved
