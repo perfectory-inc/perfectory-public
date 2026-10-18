@@ -11,6 +11,6 @@ select
     nullif(closure_kind_name, '') as closure_kind_name,
     source_snapshot_id,
     source_snapshot_id as lineage_run_id
-from {{ source('foundation', 'land_right_registration') }}
+from {{ foundation_current_rows('land_right_registration') }}
 where nullif(ho_name, '') is not null
   and nullif(pnu, '') is not null
