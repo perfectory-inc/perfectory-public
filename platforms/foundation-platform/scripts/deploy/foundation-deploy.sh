@@ -115,17 +115,21 @@ python3 "${preflight}/platforms/foundation-platform/scripts/deploy/migration-app
 rm -rf "${preflight}"
 ((preflight_status == 0)) || exit "${preflight_status}"
 
-log "pre-flight: what ${sha} changes and which jobs write it (log only, root ADR-0270 §3 deploy D3)"
-# Nothing reads this answer yet: step 0 still pauses every DAG. A deploy that cannot tell says so
-# and goes on.
+log "pre-flight: what ${sha} changes and which jobs write it (root ADR-0270 §3 deploys D3, D5)"
+# The answer names the jobs held until the release is live (step 2b gives every other job its
+# schedule back after the build). A deploy that cannot tell holds every job, as before D5.
 changes="$(mktemp -d /var/lib/perfectory/changes-XXXXXX)"
+hold=("*")
 git --git-dir="${mirror}" archive "${sha}" platforms/foundation-platform/scripts/deploy/release_changes.py \
   platforms/foundation-platform/orchestration/jobs.v1.json platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json \
   platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json \
   platforms/foundation-platform/migrations | tar -x -C "${changes}" \
   && python3 -I -B "${changes}/platforms/foundation-platform/scripts/deploy/release_changes.py" \
-    "${release_root}/current" "${changes}/platforms/foundation-platform" \
-  || echo "foundation-deploy: cannot tell what ${sha} changes; nothing reads it yet (deploy D3)" >&2
+    "${release_root}/current" "${changes}/platforms/foundation-platform" --hold-file "${changes}/hold" \
+  && mapfile -t hold <"${changes}/hold" \
+  || { hold=("*"); echo "foundation-deploy: cannot tell what ${sha} changes; every job is held until the release is live" >&2; }
+: >"${changes}.hold"
+((${#hold[@]} == 0)) || printf '%s\n' "${hold[@]}" >"${changes}.hold"
 rm -rf "${changes}"
 
 log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
@@ -170,6 +174,14 @@ archive="$(mktemp /var/lib/perfectory/foundation-XXXXXX.tar.gz)"
 git --git-dir="${mirror}" archive --format=tar.gz -o "${archive}" "${sha}:platforms/foundation-platform"
 "${release}" prepare "${sha}" "${archive}"
 rm -f "${archive}"
+
+log "2b. the schedule comes back for every job ${sha} does not hold (root ADR-0270 §3, deploy D5)"
+# The build ran alone (root ADR-0137) and is done. A job ${sha} does not hold writes no table it
+# changes and runs no migration, so it may run while the release is switched: a run keeps the
+# release it started with (D1) and outlives the Airflow restart in step 5 (D2), and a run step 6
+# starts is joined, not doubled. The held jobs stay paused until step 7.
+deploy_unpause_unheld "${changes}.hold"
+rm -f "${changes}.hold"
 
 log "3. FLOOR config for ${sha} (from ${old})"
 floor="$(mktemp /var/lib/perfectory/floor-XXXXXX.env)"
