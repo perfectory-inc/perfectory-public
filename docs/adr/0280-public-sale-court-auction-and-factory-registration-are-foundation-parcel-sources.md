@@ -25,7 +25,7 @@
 ## Decision
 
 1. **공매(온비드)·법원경매·등록공장현황은 Foundation 소유 공공 원천이다.** Bronze 는 Foundation R2 의 `bronze/source=<ADR-0014 slug>/` 에, Silver 는 Foundation 레이크하우스 `silver.*` 에 둔다. Gongzzang 은 Foundation 이 낸 계약(ODCS·by-PNU 레인)으로만 읽는다.
-2. **원천 이름(ADR-0014).** `datagokr__onbid_real_estate_item`, `datagokr__onbid_announcement`, `datagokr__onbid_announcement_bid_result`, `datagokr__onbid_item_bid_result`, `datagokr__registered_factory`, `courtauctiongokr__court_auction`. 같은 공장 자료를 가리키던 자리표시 `factoryongokr__factory_registration`(수집 경로 없음)은 `datagokr__registered_factory` 로 대체한다: 실제로 받는 곳이 data.go.kr 이기 때문이다(FP-ADR-0032, 제공자는 받는 곳의 도메인).
+2. **원천 이름(ADR-0014).** `datagokr__onbid_real_estate_item`, `datagokr__onbid_announcement`, `datagokr__onbid_announcement_bid_result`, `datagokr__onbid_item_bid_result`, `datagokr__registered_factory`, `courtauctiongokr__auction_item`(물건 검색), `courtauctiongokr__auction_sale_result`(매각결과 검색). 같은 공장 자료를 가리키던 자리표시 `factoryongokr__factory_registration`(수집 경로 없음)은 `datagokr__registered_factory` 로 대체한다: 실제로 받는 곳이 data.go.kr 이기 때문이다(FP-ADR-0032, 제공자는 받는 곳의 도메인).
 3. **PNU 는 원천이 준 값을 먼저 쓴다.** 온비드 물건은 `ltnoPnu`(19자리), 법원경매 물건은 `pnuNoCtt` 를 그대로 키로 쓴다. 다시 만들거나 고치지 않는다. 형식이 틀린 값은 버리지 않고 Silver 에 `pnu = NULL` 과 원문을 함께 둔다.
 4. **원천이 PNU 를 주지 않으면(등록공장) 주소로 찾되, 어느 단계가 찾았는지 남긴다.** 단계는 (가) 지번 주소 → 법정동 코드(`reference.legal_dong_code_snapshot`) + 산 + 본번·부번 → PNU, 그 PNU 가 `silver.parcel_boundaries` 에 있을 때만, (나) 도로명 주소 → `silver.building_register_titles.road_address_raw` 와 정규화 일치 → 그 행의 `pnu`, 후보가 PNU 하나로 모일 때만. 못 찾으면 `pnu = NULL` 과 이유. 도형 포함관계(좌표가 필지 안)로 정하지 않는다. 적재마다 단계별 건수와 일치율을 남긴다.
 5. **Bronze 는 덧붙이기만 한다.** 응답 원문을 그대로, 요청 지문과 함께 쓴다(`If-None-Match: *`). Silver 는 원천 키 + 내용 해시가 바뀐 행만 새 판으로 쌓는다(덮어쓰지 않음).
