@@ -17,7 +17,10 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh %i
 # daemon owns. Spark runs in the Compose project named after this INVOCATION_ID; this removes that
 # project's one-off containers and networks and nothing else (root ADR-0128). It runs after every
 # exit, a success included, with any installed release's publisher.
-ExecStopPost=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh cleanup
+# Cleanup by the release this run started from, not the one `current` names when it stops
+# (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh parcel-tile-bake.sh
+RuntimeDirectory=%N
 # Each half is under its job's 120 minutes in Airflow (jobs.v1.json), and both are under the spark
 # pool's 165-minute starvation bound (root ADR-0171 §5). Measured nationally (2026-10-14, 202609):
 # gate 13.5 + served Gold 59 minutes; GDAL 18 + tippecanoe 49 minutes plus the gates and upload

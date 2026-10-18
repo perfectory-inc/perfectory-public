@@ -83,5 +83,11 @@ PY
 SPARK_RELEASE_JARS="${admitted_writer_manifest%%$'\n'*}"
 # The tile bake runs the tippecanoe image this release built, not a tag built by hand.
 export FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_TIPPECANOE_IMAGE="${admitted_writer_manifest##*$'\n'}"
+# The run's own release, for its ExecStopPost (scripts/ops/pinned-cleanup.sh, root ADR-0270 §3): a run
+# that outlives a deploy is cleaned up by this release, not by the one `current` names by then.
+if [[ "${admitted_writer_require_current}" == yes && -n "${RUNTIME_DIRECTORY:-}" ]]; then
+  printf '%s\n' "${RELEASE_ROOT}" >"${RUNTIME_DIRECTORY%%:*}/release" ||
+    admitted_writer_refuse 'cannot record the run release in RUNTIME_DIRECTORY'
+fi
 readonly RELEASE_ROOT RELEASE_ID ARTIFACT_ROOT PUBLISHER_BIN RELEASE_JARS_DIR SPARK_RELEASE_JARS
 unset admitted_writer_base admitted_writer_require_current admitted_writer_manifest

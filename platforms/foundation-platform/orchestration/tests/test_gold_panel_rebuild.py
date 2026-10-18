@@ -503,7 +503,7 @@ class Registration(unittest.TestCase):
         unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
         self.assertIn("gold-panel-rebuild.sh all", unit)
         # A timeout kills the client, not the daemon's Spark container: ExecStopPost removes it.
-        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh cleanup$")
+        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
         # systemd stops it before Airflow would (test_job_specs checks every job); a longer
         # timeout pushes the hourly folds past their starvation bound.
         self.assertIn("TimeoutStartSec=160m", unit)
@@ -555,7 +555,7 @@ class Registration(unittest.TestCase):
         self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
         unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
         self.assertIn("gold-panel-rebuild.sh kinds", unit)
-        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh cleanup$")
+        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
         self.assertIn("TimeoutStartSec=160m", unit)
         # It shares the panel rebuild's state directory, where the one-rebuild-at-a-time lock lives.
         self.assertIn("StateDirectory=foundation-gold-panel-rebuild", unit)
