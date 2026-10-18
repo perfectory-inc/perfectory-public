@@ -1,10 +1,10 @@
 // apps/web/lib/api/parcels.ts
 //
 // Parcel detail reads from the R2 edge, not the serving database (root ADR-0096). The browser
-// fetches the pre-baked by-PNU JSON object through the thin Cloudflare Worker at the parcel
-// edge base URL; there is no server hop and no projection database in the path. The edge
-// document is mapped into the panel's existing `ParcelInfo` shape so the summary card is
-// unchanged — only the source moved from Postgres to R2.
+// fetches the baked by-PNU JSON document through the thin Cloudflare Worker at the parcel edge
+// base URL; there is no server hop and no projection database in the path. Every value the panel
+// shows is the source's own (root ADR-0070/0078): names and words as the source gives them, never
+// a code translated here.
 import { z } from "zod";
 
 const parcelEdgeBaseUrl = (): string => {
@@ -13,71 +13,72 @@ const parcelEdgeBaseUrl = (): string => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-/** The panel's view model. Kept stable so `ParcelSummaryCard` needs no change. */
-export const ParcelInfoSchema = z.object({
-  pnu: z.string(),
-  sido_code: z.string(),
-  sigungu_code: z.string(),
-  eupmyeondong_code: z.string(),
-  sido_name: z.string(),
-  sigungu_name: z.string(),
-  eupmyeondong_name: z.string(),
-  land_use_type: z.string(),
-  zoning: z.string().nullish(),
-  official_land_price_per_m2: z.number().int().nullish(),
-  gosi_year_month: z.string().nullish(),
-});
-
-export type ParcelInfo = z.infer<typeof ParcelInfoSchema>;
+const text = z.string().nullish();
+const number = z.number().nullish();
 
 /**
- * The slice of the baked edge document this panel reads. The bake shapes every section like a
- * `foundation-contracts` response DTO (root ADR-0096); unknown sections stay ignored here.
+ * The baked edge document, as the bake shapes it (`foundation-contracts` `ParcelByPnuDocument`).
+ * Sections the panel does not read stay ignored; a field the bake does not write yet is optional.
  */
-const EdgeParcelProfileSchema = z.object({
+const ParcelDocumentSchema = z.object({
   schema_version: z.string(),
   pnu: z.string(),
-  zonings: z.array(z.object({ zone_code: z.string(), zone_name: z.string() })).nullish(),
+  // The legal dong the PNU's first ten digits name, from `reference.legal_dong_code_snapshot`.
+  legal_dong: z.object({ name: z.string(), lowest_name: text }).nullish(),
+  zonings: z
+    .array(
+      z.object({
+        zone_code: z.string(),
+        zone_name: z.string(),
+        // 1 포함, 2 저촉 (토지이용계획); the source's own code, shown by the panel's words for it.
+        inclusion_code: text,
+      }),
+    )
+    .nullish(),
   price: z
     .object({
       price_per_m2: z.number().int(),
       base_year: z.number().int(),
       base_month: z.number().int(),
+      announced_date: text,
     })
     .nullish(),
-  characteristics: z.object({ land_category: z.string().nullish() }).nullish(),
+  characteristics: z
+    .object({
+      land_category: text,
+      area_m2: number,
+      land_use_situation: text,
+      terrain_height: text,
+      terrain_shape: text,
+      road_contact: text,
+    })
+    .nullish(),
+  forest_ledger: z.object({ ownership_kind_name: text, co_owner_count: number }).nullish(),
+  transfer_history: z.array(z.object({ reason: text, moved_at: text })).nullish(),
+  land_rights: z.array(z.object({ building_name: text, dong_name: text, ho_name: text })).nullish(),
+  land_right_total: number,
 });
 
-export type EdgeParcelProfile = z.infer<typeof EdgeParcelProfileSchema>;
+export type ParcelDocument = z.infer<typeof ParcelDocumentSchema>;
 
-/**
- * Maps a baked edge document into the panel view model. Korean admin names are not part of the
- * public parcel document (personal/derived data is served elsewhere), so codes are derived
- * from the PNU — the panel already falls back to a code-based heading when names are absent.
- */
-export function toParcelInfo(profile: EdgeParcelProfile): ParcelInfo {
-  const pnu = profile.pnu;
-  const zoning = profile.zonings?.[0]?.zone_name ?? null;
-  const price = profile.price;
-  return {
-    pnu,
-    // First ten PNU digits are the legal-dong code: 2 sido, 5 sigungu, then eupmyeondong.
-    sido_code: pnu.slice(0, 2),
-    sigungu_code: pnu.slice(0, 5),
-    eupmyeondong_code: pnu.slice(0, 8),
-    sido_name: "",
-    sigungu_name: "",
-    eupmyeondong_name: "",
-    land_use_type: profile.characteristics?.land_category ?? "",
-    zoning,
-    official_land_price_per_m2: price?.price_per_m2 ?? null,
-    gosi_year_month: price
-      ? `${price.base_year}-${String(price.base_month).padStart(2, "0")}`
-      : null,
-  };
+/** Parses the edge document; exported for tests that hold the panel to a document shape. */
+export function parseParcelDocument(input: unknown): ParcelDocument {
+  return ParcelDocumentSchema.parse(input);
 }
 
-/** Raised when the current serving generation holds no object for this parcel. */
+/**
+ * The lot number a PNU spells: its 11th digit is the 대장 구분 (2 is 임야대장, written 산), then
+ * four digits of 본번 and four of 부번, a 부번 of 0 left out. The same rule as dawneer's
+ * `consoles/dawneer/web/src/lib/labels.ts`.
+ */
+export function jibunOf(pnu: string, mountain: string): string {
+  const main = Number(pnu.slice(11, 15));
+  const sub = Number(pnu.slice(15, 19));
+  const lot = sub === 0 ? `${main}` : `${main}-${sub}`;
+  return pnu[10] === "2" ? `${mountain} ${lot}` : lot;
+}
+
+/** Raised when the current serving generation holds no document for this parcel. */
 export class ParcelNotServedError extends Error {
   constructor(pnu: string) {
     super(`parcel ${pnu} is not in the current serving generation`);
@@ -85,10 +86,10 @@ export class ParcelNotServedError extends Error {
   }
 }
 
-export async function fetchParcel(pnu: string, signal?: AbortSignal): Promise<ParcelInfo> {
+export async function fetchParcel(pnu: string, signal?: AbortSignal): Promise<ParcelDocument> {
   const url = `${parcelEdgeBaseUrl()}/parcels/by-pnu/${encodeURIComponent(pnu)}`;
   const response = await fetch(url, { signal, headers: { accept: "application/json" } });
   if (response.status === 404) throw new ParcelNotServedError(pnu);
   if (!response.ok) throw new Error(`parcel edge fetch failed: ${response.status}`);
-  return toParcelInfo(EdgeParcelProfileSchema.parse(await response.json()));
+  return parseParcelDocument(await response.json());
 }

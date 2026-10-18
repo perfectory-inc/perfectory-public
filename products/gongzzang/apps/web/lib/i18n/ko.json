@@ -235,15 +235,67 @@
         "loadFailed": "필지 정보를 불러오지 못했어요"
       },
       "summary": {
-        "landUse": "지목",
-        "zoning": "용도지역",
-        "officialPrice": "공시지가",
-        "officialPricePerM2": "{value} 원/㎡",
-        "viewBuildings": "건축물 보기",
-        "viewFloors": "층 구성 보기",
-        "viewListings": "등록 매물 보기",
-        "codeFallback": "행정코드 {code}",
-        "unknown": "정보 없음"
+        "categoriesLabel": "필지 정보 갈래",
+        "anchorsLabel": "구획",
+        "categories": {
+          "parcel": "필지정보",
+          "listings": "매물"
+        },
+        "sections": {
+          "land": "토지",
+          "buildings": "건물",
+          "rules": "규제"
+        },
+        "mountain": "산",
+        "legalDongCode": "법정동코드 {code}",
+        "priceLine": "개별공시지가 {value}원/㎡ · {year}년 {month}월 기준",
+        "none": "-",
+        "land": {
+          "characteristics": "토지 특성",
+          "characteristicsSource": "토지특성",
+          "category": "지목",
+          "area": "면적",
+          "useSituation": "이용상황",
+          "terrainHeight": "지형높이",
+          "terrainShape": "지형형상",
+          "roadContact": "도로접면",
+          "price": "개별공시지가",
+          "priceBase": "{year}년 {month}월 기준 · 공시 {announced}",
+          "pricePerM2": "㎡당",
+          "priceTotal": "× 면적",
+          "noPrice": "공시된 개별공시지가가 없어요",
+          "ownership": "소유",
+          "ownershipSource": "토지(임야)대장",
+          "ownershipKind": "소유구분",
+          "coOwners": "공유인수",
+          "coOwnerCount": "{count}인",
+          "moves": "토지 이동(변동) 사유",
+          "movesNote": "최근 순",
+          "noMoves": "이동 이력이 없어요"
+        },
+        "buildings": {
+          "title": "건축물 {count}동",
+          "source": "건축물대장",
+          "fallbackName": "건축물",
+          "floorArea": "연면적 {area}",
+          "stories": "지상 {above}층 / 지하 {below}층",
+          "builtYear": "{year}년 사용승인",
+          "units": "호실·공시가격 보기",
+          "floors": "층 구성 보기",
+          "landRights": "대지권",
+          "landRightsSource": "대지권등록",
+          "landRightCount": "대지권 {count}건"
+        },
+        "rules": {
+          "zoning": "용도지역",
+          "zoningSource": "토지이용계획",
+          "included": "포함",
+          "conflicting": "저촉"
+        },
+        "copy": "복사",
+        "copied": "복사됨",
+        "sources": "출처: 국토교통부 토지특성·개별공시지가·토지이용계획·토지이동이력·토지(임야)대장·건축물대장",
+        "notice": "법적 효력이 없는 참고 정보예요"
       },
       "buildings": {
         "title": "건축물",

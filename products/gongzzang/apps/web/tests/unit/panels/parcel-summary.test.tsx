@@ -1,38 +1,142 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/panel/use-panel-stack", () => ({ usePanelStack: () => ({ push: vi.fn() }) }));
 
+const reads = vi.hoisted(() => ({
+  buildings: { buildings: [] as unknown[], unlinked_units: [] as unknown[] },
+  listings: { listings: [] as unknown[], total: 0 },
+}));
+vi.mock("@/components/panels/parcel/queries", () => ({
+  parcelBuildingsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "buildings", pnu],
+    queryFn: async () => reads.buildings,
+  }),
+  parcelListingsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "listings", pnu],
+    queryFn: async () => reads.listings,
+  }),
+}));
+
 import { ParcelSummaryCard } from "@/components/panels/parcel/summary";
-import { type ParcelInfo, toParcelInfo } from "@/lib/api/parcels";
+import { type ParcelDocument, parseParcelDocument } from "@/lib/api/parcels";
 import koMessages from "@/lib/i18n/ko.json";
 
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
-const PNU = "9999900000100000000";
+const PNU = "9999900000100120003";
 const entry = { kind: "parcel", id: PNU, view: "summary" } as const;
 
-function renderCard(data: ParcelInfo): void {
+function parcel(extra: Record<string, unknown> = {}): ParcelDocument {
+  return parseParcelDocument({
+    schema_version: "foundation-platform.parcel_by_pnu_profile.v1",
+    pnu: PNU,
+    ...extra,
+  });
+}
+
+function renderPanel(data: ParcelDocument): void {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <NextIntlClientProvider locale="ko" messages={koMessages} onError={() => {}}>
-      {children}
-    </NextIntlClientProvider>
+    <QueryClientProvider client={client}>
+      <NextIntlClientProvider locale="ko" messages={koMessages} onError={() => {}}>
+        {children}
+      </NextIntlClientProvider>
+    </QueryClientProvider>
   );
   render(<ParcelSummaryCard entry={entry} data={data} />, { wrapper });
 }
 
-describe("ParcelSummaryCard — zoning", () => {
-  it("shows the source's zone name as given, not a message key built from it", () => {
-    renderCard(
-      toParcelInfo({
-        schema_version: "foundation-platform.parcel_by_pnu_profile.v1",
-        pnu: PNU,
-        zonings: [{ zone_code: "UQA122", zone_name: "제2종일반주거지역" }],
+const anchors = () =>
+  within(screen.queryByRole("navigation", { name: "구획" }) ?? document.createElement("nav"))
+    .queryAllByRole("button")
+    .map((button) => button.textContent);
+
+describe("parcel panel header", () => {
+  it("names the legal dong from the document and spells the lot from the PNU", () => {
+    renderPanel(parcel({ legal_dong: { name: "가가시 나나구 다다동", lowest_name: "다다동" } }));
+    expect(screen.getByText("가가시 나나구 다다동")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("다다동 12-3");
+  });
+
+  it("shows the legal dong code, never an invented name, until the document names it", () => {
+    renderPanel(parcel());
+    expect(screen.getByText("법정동코드 9999900000")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("12-3");
+  });
+});
+
+describe("parcel panel sections", () => {
+  it("shows the source's zone names with 포함/저촉, and a 규제 anchor for them", async () => {
+    renderPanel(
+      parcel({
+        zonings: [
+          { zone_code: "UQA122", zone_name: "제2종일반주거지역", inclusion_code: "1" },
+          { zone_code: "UQA220", zone_name: "일반상업지역", inclusion_code: "2" },
+        ],
       }),
     );
+    expect(screen.getAllByText("제2종일반주거지역").length).toBeGreaterThan(0);
+    expect(screen.getByText("저촉")).toBeTruthy();
+    await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+  });
 
-    expect(screen.getByText("제2종일반주거지역")).toBeTruthy();
-    expect(screen.queryByText(/zoningValues/)).toBeNull();
+  it("never shows a code where the source's name is missing", () => {
+    renderPanel(parcel({ forest_ledger: { ownership_kind: "06", co_owner_count: 2 } }));
+    expect(screen.queryByText("06")).toBeNull();
+    expect(screen.getByText("2인")).toBeTruthy();
+  });
+
+  it("adds a 건물 anchor once the parcel's buildings are read", async () => {
+    reads.buildings = {
+      buildings: [
+        {
+          id: "b1",
+          name: "",
+          purpose: "업무시설",
+          structure: "철골철근콘크리트구조",
+          total_area_m2: 1200,
+          stories: 5,
+          below_ground_floors: 1,
+          built_year: 2001,
+          approved_at: null,
+          units: [],
+        },
+      ],
+      unlinked_units: [],
+    };
+    try {
+      renderPanel(parcel());
+      await waitFor(() => expect(anchors()).toEqual(["토지", "건물"]));
+      expect(screen.getByText("업무시설")).toBeTruthy();
+      expect(screen.getByText(/지상 5층 \/ 지하 1층/)).toBeTruthy();
+    } finally {
+      reads.buildings = { buildings: [], unlinked_units: [] };
+    }
+  });
+});
+
+describe("parcel panel categories", () => {
+  it("shows no category bar while 필지정보 is the only category", async () => {
+    renderPanel(parcel());
+    await waitFor(() => expect(screen.getByText("12-3")).toBeTruthy());
+    expect(screen.queryByRole("navigation", { name: "필지 정보 갈래" })).toBeNull();
+  });
+
+  it("adds 매물 with its count when the parcel has listings", async () => {
+    reads.listings = { listings: [], total: 3 };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      expect(
+        within(bar)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["필지정보", "매물 3"]);
+    } finally {
+      reads.listings = { listings: [], total: 0 };
+    }
   });
 });
