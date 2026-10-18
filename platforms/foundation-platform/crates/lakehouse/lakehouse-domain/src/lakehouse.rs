@@ -695,6 +695,7 @@ pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
 pub use crate::onbid_public_sale::{SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM};
 pub use crate::parcel_number_change_history::SILVER_PARCEL_NUMBER_CHANGE_HISTORY;
 pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
+pub use crate::registered_factory::SILVER_REGISTERED_FACTORY;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
@@ -3307,6 +3308,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_PARCEL_NUMBER_CHANGE_HISTORY,
     SILVER_ONBID_REAL_ESTATE_ITEM,
     SILVER_ONBID_ITEM_BID_RESULT,
+    SILVER_REGISTERED_FACTORY,
     SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_REGISTRY,
     GOLD_PLACE_ID_REGISTRY,

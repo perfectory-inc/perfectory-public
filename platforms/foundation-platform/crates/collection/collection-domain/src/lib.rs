@@ -29,9 +29,9 @@ pub use bronze::{
 };
 pub use errors::CollectionError;
 pub use operation_dataset_slug::{
-    building_register_dataset_slug, canonical_page_size, onbid_dataset_slug,
-    operation_collapses_into_slug, real_transaction_dataset_slug, standard_code_dataset_slug,
-    vworld_ned_dataset_slug,
+    building_register_dataset_slug, canonical_page_size, file_data_dataset_slug,
+    onbid_dataset_slug, operation_collapses_into_slug, real_transaction_dataset_slug,
+    standard_code_dataset_slug, vworld_ned_dataset_slug,
 };
 pub use provider_acquisition::{
     ProviderAcquisitionError, ProviderAcquisitionEvidence, ProviderAcquisitionJob,

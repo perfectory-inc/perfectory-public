@@ -10,8 +10,9 @@
 use std::{error::Error, path::Path, path::PathBuf};
 
 use collection_domain::{
-    building_register_dataset_slug, onbid_dataset_slug, provider_id, real_transaction_dataset_slug,
-    source_slug, standard_code_dataset_slug, vworld_ned_dataset_slug,
+    building_register_dataset_slug, file_data_dataset_slug, onbid_dataset_slug, provider_id,
+    real_transaction_dataset_slug, source_slug, standard_code_dataset_slug,
+    vworld_ned_dataset_slug,
 };
 use serde_json::Value;
 
@@ -89,7 +90,8 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
     // 126th is VWorld 필지고유번호변동연혁 (MK/30527), the official step of the pairing (root ADR-0150); the
-    // 127th–130th are the four data.go.kr 차세대 온비드 public-sale APIs (root ADR-0280).
+    // 127th–130th are the four data.go.kr 차세대 온비드 public-sale APIs (root ADR-0280). The
+    // factoryon.go.kr 공장등록현황 placeholder became the data.go.kr file it is fetched as (same count).
     assert_eq!(checked, 130, "expected 130 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
@@ -157,6 +159,7 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     let mut real_transaction_checked = 0_usize;
     let mut standard_code_checked = 0_usize;
     let mut onbid_checked = 0_usize;
+    let mut file_data_checked = 0_usize;
     for entry in endpoints {
         let provider = entry["provider"]
             .as_str()
@@ -195,6 +198,12 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
                 "onbid operation->dataset_slug map drifted from catalog for {operation:?}"
             );
             onbid_checked += 1;
+        } else if let Some(code_slug) = file_data_dataset_slug(operation) {
+            assert_eq!(
+                code_slug, dataset_slug,
+                "file-data operation->dataset_slug map drifted from catalog for {operation:?}"
+            );
+            file_data_checked += 1;
         } else {
             return Err(format!(
                 "catalog data.go.kr operation {operation:?} is not covered by any in-code map"
@@ -218,6 +227,10 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     assert_eq!(
         onbid_checked, 4,
         "expected all 4 onbid operations to match the catalog"
+    );
+    assert_eq!(
+        file_data_checked, 1,
+        "expected the 1 file-data operation to match the catalog"
     );
     Ok(())
 }

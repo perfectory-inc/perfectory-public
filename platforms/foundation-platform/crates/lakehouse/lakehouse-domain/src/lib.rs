@@ -20,6 +20,7 @@ mod land_transfer_history;
 mod onbid_public_sale;
 mod parcel_number_change_history;
 mod parcel_panel;
+mod registered_factory;
 mod unit_official_price;
 mod unit_price_panel;
 
@@ -70,7 +71,7 @@ pub use lakehouse::{
     SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
     SILVER_MAP_EDIT_LEDGER, SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
     SILVER_PARCEL_BOUNDARIES, SILVER_PARCEL_LINEAGE, SILVER_PARCEL_NUMBER_CHANGE_HISTORY,
-    SILVER_PARCEL_REGISTRY,
+    SILVER_PARCEL_REGISTRY, SILVER_REGISTERED_FACTORY,
 };
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,

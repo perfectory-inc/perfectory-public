@@ -818,6 +818,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.registered_factory",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.registered_factory,PROD)",
+          "node_id": "silver-registered-factory",
+          "title": "전국 등록공장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.unit_official_price",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
           "node_id": "silver-unit-official-price",
@@ -1207,6 +1215,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
           "node_id": "silver-parcel-registry",
           "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.registered_factory",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.registered_factory,PROD)",
+          "node_id": "silver-registered-factory",
+          "title": "전국 등록공장",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2377,6 +2393,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
           "node_id": "silver-parcel-registry",
           "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.registered_factory",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.registered_factory,PROD)",
+          "node_id": "silver-registered-factory",
+          "title": "전국 등록공장",
           "kind": "silver_table",
           "surface_kind": null
         },
