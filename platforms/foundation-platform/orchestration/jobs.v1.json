@@ -13,7 +13,7 @@
   "time_limit_minutes_means": "How long one run may run, in minutes: the one number for it (root ADR-0270 §1). The crate foundation-jobs renders it into the TimeoutStartSec= line of the job's systemd unit (`cargo run -p foundation-jobs -- generate`) and its test refuses a unit that says anything else, and jobs that share a unit with different limits. The scheduler's limit for one start is time_limit_minutes + stop_grace_minutes (see stop_grace_minutes_means).",
   "stop_grace_minutes_means": "How much longer than time_limit_minutes the scheduler gives one start, in minutes: for the unit to stop and clean up (its TimeoutStopSec) and for the outcome to come back. One start's limit is time_limit_minutes + stop_grace_minutes, and every reader adds the two: the DAG's execution_timeout and SSH timeout and the starvation bound (orchestration/dags/job_specs.py scheduler_timeout_minutes), the deploy's wait for a started-once job (scripts/deploy/foundation-deploy.sh), and when the operations map calls a job late (foundation-api data_catalog/operations.rs). The crate foundation-jobs refuses a grace not longer than the unit's TimeoutStopSec (root ADR-0270 §1). It replaced timeout_minutes, which stated the sum by hand.",
   "state_paths_means": "Where a job writes and keeps state across runs, as absolute paths (root ADR-0266). The crate foundation-jobs renders them into the ReadWritePaths= line of the job's ProtectSystem=strict systemd unit and its test refuses a unit that says anything else, and jobs that share a unit with other paths (root ADR-0270 §1). orchestration/dags/job_specs.py refuses a job script whose state root comes from an EnvironmentFile or defaults outside these paths.",
-  "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. lakehouse-ivy, Spark's ivy cache for the runs that mount it read-write, is written only by the Spark containers (compose.lakehouse.yml user FOUNDATION_PLATFORM_LAKEHOUSE_UID, 185): it belongs to foundation-spark, the account infra/sysusers/foundation-spark.conf gives that uid, and is not writable by anyone else (it was 0777 under an unnamed uid until 2026-10-18).",
+  "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. No job writes /var/lib/foundation-platform/lakehouse-ivy: every Spark run mounts its release's frozen jars read-only as its Ivy cache (root ADR-0134), so that path is no state path and the release no longer makes it (2026-10-18; the folder is left on the host).",
   "state_directories": [
     {"path": "/var/lib/foundation-platform/map-edit-fold", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/map-edit-fold/lakehouse", "mode": "0777"},
@@ -26,8 +26,7 @@
     {"path": "/data/foundation-platform/source-sweep", "mode": "0755"},
     {"path": "/data/foundation-platform/silver-refresh", "mode": "2770"},
     {"path": "/data/foundation-platform/tile-bake", "mode": "0755"},
-    {"path": "/var/lib/foundation-platform/source-sweep", "mode": "0755"},
-    {"path": "/var/lib/foundation-platform/lakehouse-ivy", "mode": "0755", "owner": "foundation-spark"}
+    {"path": "/var/lib/foundation-platform/source-sweep", "mode": "0755"}
   ],
   "state_paths_not_created_here": {},
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
@@ -100,8 +99,7 @@
       "systemd_service": "foundation-map-edit-fold@admin.service",
       "systemd_timer": "foundation-map-edit-fold-admin.timer",
       "state_paths": [
-        "/var/lib/foundation-platform/map-edit-fold",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/map-edit-fold"
       ],
       "schedule": "35 * * * *",
       "started_by": "schedule",
@@ -125,8 +123,7 @@
       "systemd_service": "foundation-map-edit-fold@complex.service",
       "systemd_timer": "foundation-map-edit-fold-complex.timer",
       "state_paths": [
-        "/var/lib/foundation-platform/map-edit-fold",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/map-edit-fold"
       ],
       "schedule": "5 * * * *",
       "started_by": "schedule",
@@ -151,7 +148,6 @@
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "state_paths": [
         "/var/lib/foundation-platform/lineage-stewardship",
-        "/var/lib/foundation-platform/lakehouse-ivy",
         "/var/lib/foundation-platform/legal-dong-code",
         "/var/lib/foundation-platform/parcel-number-change"
       ],
@@ -580,8 +576,7 @@
       "systemd_service": "foundation-admin-boundary-release.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/map-edit-fold",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/map-edit-fold"
       ],
       "schedule": "30 9 * * *",
       "started_by": "inputs",
@@ -607,8 +602,7 @@
       "systemd_service": "foundation-parcel-registry.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/lineage-stewardship",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/lineage-stewardship"
       ],
       "schedule": "10 10 * * *",
       "started_by": "schedule",
@@ -630,8 +624,7 @@
       "systemd_service": "foundation-silver-append-measure.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/lineage-stewardship",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/lineage-stewardship"
       ],
       "schedule": "0 13 * * *",
       "started_by": "schedule",
@@ -653,8 +646,7 @@
       "systemd_service": "foundation-complex-boundary-release.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/map-edit-fold",
-        "/var/lib/foundation-platform/lakehouse-ivy"
+        "/var/lib/foundation-platform/map-edit-fold"
       ],
       "schedule": "50 9 * * *",
       "started_by": "inputs",

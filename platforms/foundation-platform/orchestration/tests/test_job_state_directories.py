@@ -44,6 +44,27 @@ def hand_made(script):
     return found
 
 
+IVY_FROM_ITS_ENV_FILE = {"building-register-floor-cycle.sh"}
+
+
+def ivy_setting(script):
+    return (PLATFORM / "scripts/ops" / script).read_text(encoding="utf-8")
+
+
+def ivy_cache_problems(replaced=None):
+    replaced = replaced or {}
+    problems = []
+    for path in sorted((PLATFORM / "scripts/ops").glob("*.sh")):
+        text = replaced.get(path.name, path.read_text(encoding="utf-8"))
+        for line in text.splitlines():
+            if "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE=" in line and path.name not in IVY_FROM_ITS_ENV_FILE:
+                if 'IVY_CACHE="${RELEASE_JARS_DIR}"' not in line or "IVY_MODE=ro" not in line:
+                    problems.append(f"{path.name}: an Ivy cache other than the release's jars, read-only")
+    for job in json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]:
+        problems.extend(f"{job['id']}: {state} is an Ivy cache" for state in job["state_paths"] if "ivy" in state)
+    return problems
+
+
 class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
     def setUp(self):
         self.script = RELEASE.read_text(encoding="utf-8")
@@ -76,13 +97,13 @@ class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
         users = set(re.findall(r'user: "\$\{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-(\d+)\}:\$\{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-(\d+)\}"', compose))
         self.assertEqual(users, {("185", "185")})
 
-    def test_only_spark_writes_its_ivy_cache(self):
-        directories = {entry["path"]: entry for entry in json.loads(JOBS.read_text(encoding="utf-8"))["state_directories"]}
-        ivy = directories["/var/lib/foundation-platform/lakehouse-ivy"]
-        self.assertEqual(ivy.get("owner"), "foundation-spark")
-        self.assertEqual(int(ivy["mode"], 8) & 0o022, 0, "not writable by its group or by anyone")
-        conf = CONF.read_text(encoding="utf-8")
-        self.assertIn("d /var/lib/foundation-platform/lakehouse-ivy 0755 foundation-spark foundation-spark -\n", conf)
+    def test_no_job_keeps_an_ivy_cache_of_its_own(self):
+        # Every Spark run mounts its release's frozen jars read-only as its Ivy cache (root
+        # ADR-0134), so no job state path is an Ivy cache: one left in state_paths only widened the
+        # sandbox (lakehouse-ivy, until 2026-10-18). FLOOR names its cache in its own env file.
+        self.assertEqual(ivy_cache_problems(), [])
+        planted = {"map-edit-fold.sh": ivy_setting("map-edit-fold.sh").replace("IVY_MODE=ro", "IVY_MODE=rw")}
+        self.assertEqual(len(ivy_cache_problems(planted)), 1)
 
     def test_timers_makes_them_too(self):
         self.assertIn("prepare_job_state_directories", timers_branch(self.script))
