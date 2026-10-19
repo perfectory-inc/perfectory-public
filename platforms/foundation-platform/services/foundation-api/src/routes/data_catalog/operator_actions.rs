@@ -61,6 +61,13 @@ pub(super) async fn record_operator_action(
             RecordOperatorActionError::Invalid(invalid) => {
                 ApiError::Unprocessable(invalid.to_string())
             }
+            RecordOperatorActionError::SwitchBoard(board) => {
+                tracing::error!(error = %board, "job switch board unavailable");
+                ApiError::Unavailable(
+                    "the job switch board is unavailable; ask again (a request already in the ledger is switched then)"
+                        .to_owned(),
+                )
+            }
             RecordOperatorActionError::Ledger(ledger) => {
                 tracing::error!(error = %ledger, "operator action ledger unavailable");
                 ApiError::Unavailable(

@@ -2,6 +2,7 @@
 //! ACL adapters.
 
 pub mod industrial_complex_transaction;
+pub mod job_switch_board;
 pub mod operator_action_ledger;
 pub mod parcel_marker_anchor_rebuild;
 mod row_map;
@@ -12,6 +13,7 @@ pub use industrial_complex_transaction::{
     IndustrialComplexMutationReceipt, IndustrialComplexSnapshot,
     PgIndustrialComplexTransactionParticipant,
 };
+pub use job_switch_board::{FileJobSwitchBoard, UnconfiguredJobSwitchBoard};
 pub use operator_action_ledger::PgOperatorActionLedger;
 pub use parcel_marker_anchor_rebuild::PgParcelMarkerAnchorRebuilder;
 pub use sqlx_repository::PgCatalogRepository;

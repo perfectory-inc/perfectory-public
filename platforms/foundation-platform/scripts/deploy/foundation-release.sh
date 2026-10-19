@@ -1211,18 +1211,21 @@ prepare_spark_tmp() {
 prepare_job_state_directories() {
   local release="${1:-${release_root}/current}"
   local conf="${release}/infra/tmpfiles/foundation-job-state.conf"
-  local accounts="${release}/infra/sysusers/foundation-spark.conf"
+  local accounts name ids
   [[ -f "${conf}" ]] || return 0
-  # The accounts the directories name first: foundation-spark is the Spark containers' uid 185.
-  # sysusers picks another uid when the asked one is taken; then Spark could not write what it
-  # owns, so a different uid stops the deploy here instead.
+  # The accounts the directories name first, each a container's uid (infra/sysusers): sysusers picks
+  # another uid when the asked one is taken; then the container could not write what it owns, so a
+  # uid other than the one its file states stops the deploy here instead.
   install -d -o root -g root -m 0755 /etc/sysusers.d /etc/tmpfiles.d
-  install -o root -g root -m 0644 -t /etc/sysusers.d "${accounts}"
-  systemd-sysusers /etc/sysusers.d/foundation-spark.conf
-  [[ "$(id -u foundation-spark):$(id -g foundation-spark)" == "185:185" ]] || {
-    printf 'foundation-spark is not uid:gid 185:185 (the Spark containers); its directories were not made\n' >&2
-    exit 65
-  }
+  for accounts in "${release}"/infra/sysusers/*.conf; do
+    install -o root -g root -m 0644 -t /etc/sysusers.d "${accounts}"
+    systemd-sysusers "/etc/sysusers.d/${accounts##*/}"
+    read -r name ids < <(awk '$1 == "u" { print $2, $3; exit }' "${accounts}")
+    [[ "$(id -u "${name}"):$(id -g "${name}")" == "${ids}" ]] || {
+      printf '%s is not uid:gid %s (%s); its directories were not made\n' "${name}" "${ids}" "${accounts##*/}" >&2
+      exit 65
+    }
+  done
   install -o root -g root -m 0644 -t /etc/tmpfiles.d "${conf}"
   systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf
 }

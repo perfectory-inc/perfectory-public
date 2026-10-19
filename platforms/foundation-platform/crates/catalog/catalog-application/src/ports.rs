@@ -1120,3 +1120,28 @@ pub trait OperatorActionLedger: Send + Sync {
     /// Returns [`OperatorActionLedgerError`] when the ledger cannot be written.
     async fn record(&self, record: &OperatorActionRecord) -> Result<(), OperatorActionLedgerError>;
 }
+
+/// Why the switch board did not take a request.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum JobSwitchBoardError {
+    /// The switch board is not configured or cannot be written.
+    #[error("the job switch board is unavailable: {0}")]
+    Unavailable(String),
+}
+
+/// Where the runner reads an operator's switches (root ADR-0282 §3): files on the host.
+pub trait JobSwitchBoard: Send + Sync {
+    /// Whether a switch can be written now; asked before the ledger records anything.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JobSwitchBoardError`] when it cannot.
+    fn ready(&self) -> Result<(), JobSwitchBoardError>;
+
+    /// Writes what a recorded request switches, and its line in the host's operator log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JobSwitchBoardError`] when the switch cannot be written.
+    fn apply(&self, record: &OperatorActionRecord) -> Result<(), JobSwitchBoardError>;
+}

@@ -56,3 +56,12 @@ ADR-0270 §2 는 작업마다 `pause`·`pause --drop-pending`·`resume`·`run-no
   (d) 러너의 `stop` (e) 더니어 화면의 단추 (f) 운영자 스크립트의 `job`·`silver start` 은퇴. 작은 PR 로, 앞 단계에 기대는 것은 draft.
 - 범위 `operations.jobs.operate` 는 처음에 사장 계정에만 준다(2026-10-19). 다른 직원에게 줄지는 사장이 정한다(신원 플랫폼의 직원 역할).
 - 남는 일: 묶음 전환 같은 운영자 스크립트의 나머지 동작은 이 ADR 밖이다(#757 규칙이 계속 지킨다).
+
+## 진행 기록
+
+- 2026-10-19 단계 b2: 스위치 폴더는 `/var/lib/foundation-jobs/switches`(소유 `foundation-api`, 컨테이너 uid 10001, 0755)이고 API
+  컨테이너는 이 폴더만 쓰기로 마운트한다. 그래서 호스트 기록은 §2 의 `/var/lib/foundation-jobs/switches.log` 가 아니라 그 안의
+  `operator-actions.log` 다. 파일 이름: `<job>`(멈춤), `<job>.stop`(중지), `run-now.d/<id>`(한 번 돌리기). 작업 id 에는 점이 없으므로
+  겹치지 않는다. 읽는 쪽(시작 문·러너)은 이 폴더를 **읽기만** 한다: §4 의 "원자적으로 옮긴다" 대신 시작 문이 자기 폴더에 소비
+  표시를 배타적으로 만든다(한 번만 성공). 작업이 스위치를 쓸 수 없으니 스스로 멈춤을 풀 수 없다.
+
