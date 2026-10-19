@@ -167,6 +167,15 @@ class FromTheRegistry(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not the signed"):
             self.module.verify_registry(COMMIT)
 
+    def test_the_containerd_store_names_an_image_by_its_signed_manifest(self):
+        # 2026-10-19 on the host: docker image inspect gave the manifest digest, not the config.
+        self.wrong_image = self.registry.images["tippecanoe"]["oci_manifest"]
+        self.wrong_image_for = "tippecanoe"
+        self.assertIn("files=2", self.module.verify_registry(COMMIT))
+        self.wrong_image = self.registry.images["publisher"]["oci_manifest"]
+        with self.assertRaisesRegex(ValueError, "not the signed"):
+            self.module.verify_registry(COMMIT)
+
     def test_the_switch_defaults_to_the_server_build_and_refuses_anything_else(self):
         contract = Path(self.temp.name) / "release-build.contract.json"
         with mock.patch.object(self.module, "BUILD_CONTRACT", contract):
