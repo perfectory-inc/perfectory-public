@@ -1,0 +1,12 @@
+[Unit]
+Description=Foundation Platform: start each operator run-now request once, before it expires (root ADR-0282 §4)
+Requires=docker.service
+After=docker.service
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+# Root, like the deploy: it triggers a DAG through airflow-runtime.sh as the deploy account.
+ExecStart=/bin/bash /opt/foundation-platform/current/scripts/ops/run-now-dispatch.sh
+StateDirectory=foundation-run-now
+TimeoutStartSec=5m
