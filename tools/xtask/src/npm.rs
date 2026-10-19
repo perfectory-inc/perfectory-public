@@ -417,10 +417,11 @@ fn container_user() -> Result<String, String> {
 
 /// Runs the repository OSV ratchet; whether it passed. Its output goes to `log` when given.
 fn osv_gate(root: &Path, report: &Path, log: Option<fs::File>) -> Result<bool, String> {
-    let mut command = Command::new("bash");
+    // This binary's own `ci osv-gate`, as a process so its output can go to the log.
+    let xtask = std::env::current_exe().map_err(|error| format!("cannot locate xtask: {error}"))?;
+    let mut command = Command::new(xtask);
     command
-        .arg(root.join("scripts/ci/osv-vulnerability-gate.sh"))
-        .arg("--report-path")
+        .args(["ci", "osv-gate", "--report-path"])
         .arg(report)
         .arg(root);
     if let Some(log) = log {

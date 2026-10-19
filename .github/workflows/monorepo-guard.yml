@@ -129,7 +129,7 @@ jobs:
       # Every tracked Cargo.lock and pnpm-lock.yaml in the repository, so the
       # ratchet belongs to the repository context rather than to one area's CI.
       - name: Repository OSV vulnerability ratchet
-        run: bash scripts/ci/osv-vulnerability-gate.sh --report-path target/supply-chain/osv-report.json
+        run: cargo xtask ci osv-gate --report-path target/supply-chain/osv-report.json
       # When the ratchet (or anything before it) fails, raise the npm floors the
       # report asks for, regenerate every lock with the pinned toolchain and keep
       # the result as a patch. Nothing is pushed: no workflow holds a write token

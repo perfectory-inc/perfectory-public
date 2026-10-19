@@ -44,7 +44,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-deny
         shell: bash
-        run: bash scripts/ci/install-cargo-deny.sh
+        run: cargo xtask ci install-cargo-deny
       # Every day the check first refuses a planted advisory, so a check that can no longer fail
       # cannot report a clean main.
       - name: The check refuses a planted advisory

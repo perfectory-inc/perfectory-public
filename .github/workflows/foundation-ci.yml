@@ -28,7 +28,7 @@ on:
       - "scripts/ci/test_foundation_spark_runtime_files.py"
       - "scripts/ci/foundation_postgres_production_shape.py"
       - "scripts/ci/test_foundation_postgres_production_shape.py"
-      - "scripts/ci/foundation-postgres-production-shape.sh"
+      - "tools/xtask/src/ci.rs"
       - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "**/Cargo.lock"
@@ -390,7 +390,7 @@ jobs:
           save-if: false
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
-        run: bash scripts/ci/install-cargo-deny.sh
+        run: cargo xtask ci install-cargo-deny
 
       - name: Install SBOM tool
         shell: bash
@@ -497,7 +497,7 @@ jobs:
         shell: bash
         env:
           SHAPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: bash scripts/ci/foundation-postgres-production-shape.sh "$DATABASE_URL" "$SHAPE_BASE"
+        run: cargo xtask ci postgres-production-shape "$DATABASE_URL" "$SHAPE_BASE"
 
       - name: Run migrations through the production runner
         run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate

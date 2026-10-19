@@ -10,10 +10,12 @@
 //!   cargo xtask verify <area> --affected   # a pull request: only the crates it reaches (ADR-0269)
 //!   cargo xtask docs   # monorepo-wide lychee internal-link check (offline)
 //!   cargo xtask npm <command>   # npm overrides, lockfiles and advisory patches (ADR-0158; src/npm.rs)
+//!   cargo xtask ci <command>    # CI steps: install-cargo-deny, osv-gate, postgres-production-shape (src/ci.rs)
 
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
+mod ci;
 mod npm;
 
 /// One monorepo area and its verification requirements.
@@ -1035,13 +1037,19 @@ fn main() {
             log.finish("integration");
         }
         Some("docs") => docs(),
+        Some("ci") => {
+            if let Err(message) = ci::run(&repo_root(), &args[1..]) {
+                eprintln!("xtask ci: {message}");
+                exit(1);
+            }
+        }
         Some("npm") => {
             if let Err(message) = npm::run(&repo_root(), &args[1..]) {
                 eprintln!("xtask npm: {message}");
                 exit(1);
             }
         }
-        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs | npm <command>>"),
+        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs | npm <command> | ci <command>>"),
     }
 }
 

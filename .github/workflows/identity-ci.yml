@@ -323,7 +323,7 @@ jobs:
           save-if: false
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
-        run: bash scripts/ci/install-cargo-deny.sh
+        run: cargo xtask ci install-cargo-deny
       - name: cargo-deny
         run: cargo-deny --locked check
 
