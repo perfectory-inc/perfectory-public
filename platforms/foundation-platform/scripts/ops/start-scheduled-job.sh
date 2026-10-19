@@ -187,7 +187,8 @@ if [[ -n "${requested}" ]]; then
   elif [[ "$(sed -n 's/^job=//p' "${ask}" | head -n 1)" != "${job}" ]]; then
     why="the request is another job's"
   else
-    expires="$(date -d "$(sed -n 's/^expires_at=//p' "${ask}" | head -n 1)" +%s 2>/dev/null)" || expires=0
+    stamp="$(sed -n '/^expires_at=/{s///p;q}' "${ask}")"
+    expires="$(date -d "${stamp}" +%s 2>/dev/null)" || expires=0
     (($(date +%s) < expires)) || why="the request expired"
   fi
   if [[ -z "${why}" ]]; then
