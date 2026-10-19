@@ -11,9 +11,11 @@ enum Segment {
     Literal(&'static str),
     Uuid,
     OneOf(&'static [&'static str]),
+    /// A scheduled job's id: `[a-z][a-z0-9_]*`, as orchestration/jobs.v1.json names it.
+    JobId,
 }
 
-use Segment::{Literal, OneOf, Uuid};
+use Segment::{JobId, Literal, OneOf, Uuid};
 
 /// The relayed Foundation routes: the steward API (root ADR-0115) and read-only status views.
 const ROUTES: &[(Method, &[Segment])] = &[
@@ -64,7 +66,8 @@ fn is_uuid(value: &str) -> bool {
 }
 
 /// The data catalog routes (root ADR-0119): the browser asks `/api/data-catalog/<path>` and only
-/// these are relayed to `<foundation>/data-catalog/v1/<path>`, read-only.
+/// these are relayed to `<foundation>/data-catalog/v1/<path>`: reads, and the one write an operator
+/// makes, switching a scheduled job (root ADR-0282), which Foundation authorizes per job.
 const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("search")]),
     (Method::GET, &[Literal("entity")]),
@@ -75,6 +78,15 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("dataset-snapshots")]),
     // How Korea reaches the live hostnames and how long pull request CI takes (root ADR-0209).
     (Method::GET, &[Literal("service-checks")]),
+    // Pause, resume, run once now or stop one scheduled job (root ADR-0282).
+    (
+        Method::POST,
+        &[
+            Literal("scheduled-jobs"),
+            JobId,
+            Literal("operator-actions"),
+        ],
+    ),
 ];
 
 /// Whether `method path` (path relative to `/catalog/v1/`) may be relayed.
@@ -89,6 +101,12 @@ pub fn data_catalog_allowed(method: &Method, path: &str) -> bool {
     matches(DATA_CATALOG_ROUTES, method, path)
 }
 
+fn is_job_id(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes.next().is_some_and(|first| first.is_ascii_lowercase())
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 fn matches(routes: &[(Method, &[Segment])], method: &Method, path: &str) -> bool {
     let parts: Vec<&str> = path.split('/').collect();
     routes.iter().any(|(m, segments)| {
@@ -100,6 +118,7 @@ fn matches(routes: &[(Method, &[Segment])], method: &Method, path: &str) -> bool
                 .all(|(segment, part)| match segment {
                     Literal(literal) => literal == part,
                     Uuid => is_uuid(part),
+                    JobId => is_job_id(part),
                     OneOf(options) => options.contains(part),
                 })
     })
@@ -166,6 +185,33 @@ mod tests {
         assert!(
             !allowed(&Method::GET, &format!("lineage-review/items/{ID}/")),
             "trailing segment"
+        );
+    }
+
+    #[test]
+    fn an_operator_switches_one_listed_kind_of_job_id_and_nothing_else() {
+        // Root ADR-0282: the one data catalog write; Foundation decides who may, per job.
+        assert!(data_catalog_allowed(
+            &Method::POST,
+            "scheduled-jobs/shape_ledger_check/operator-actions"
+        ));
+        for path in [
+            "scheduled-jobs/Shape/operator-actions",
+            "scheduled-jobs/../operator-actions",
+            "scheduled-jobs/shape-ledger/operator-actions",
+            "scheduled-jobs//operator-actions",
+            "scheduled-jobs/1job/operator-actions",
+            "scheduled-jobs/shape_ledger_check/operator-actions/x",
+            "scheduled-jobs/shape_ledger_check",
+        ] {
+            assert!(!data_catalog_allowed(&Method::POST, path), "{path}");
+        }
+        assert!(
+            !data_catalog_allowed(
+                &Method::GET,
+                "scheduled-jobs/shape_ledger_check/operator-actions"
+            ),
+            "only the write is listed"
         );
     }
 
