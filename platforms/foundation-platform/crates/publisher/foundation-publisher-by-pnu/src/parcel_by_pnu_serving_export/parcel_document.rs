@@ -114,6 +114,9 @@ struct ParcelLegalDong {
     name: String,
     /// The lowest unit's own name (최하위 지역명); null when the snapshot carried none.
     lowest_name: Option<String>,
+    /// PLANTED VIOLATION (do not merge): a field added without bumping the schema version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    planted_code: Option<String>,
 }
 
 /// Section names `attached_via` may name — the document's own section fields.
