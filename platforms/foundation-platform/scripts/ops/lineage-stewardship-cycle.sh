@@ -80,6 +80,12 @@ publisher() {
 }
 
 # One line per refused lineage group, naming the 동 codes the code change table does not pair (Slack).
+# The queue was built from the lineage's current snapshot ($1, from lineage-queue-check.py) and its
+# last load succeeded ($2, the summary kept only after a load): the queue run would change nothing.
+queue_unchanged() {
+  [[ "$1" == "unchanged "* ]] && [ -s "$2" ]
+}
+
 lineage_refusal_text() {
   PYTHONIOENCODING=utf-8 python3 - "$1" <<'PY'
 import json, sys
@@ -141,14 +147,22 @@ if [ "$(json_field "${work}/fold.json" '["row_count"]')" != 0 ]; then
   folded="$(json_field "${work}/fold-summary.json" '["rows"]')"
 fi
 
-# 2. 목록
-spark lineage_review_queue_to_gold.py --allow-non-smoke-write \
-  --summary-output "${container_work}/queue-summary.json" --handoff-output "${container_work}/queue.json"
-
-# 3. 적재
-FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${work}/queue.json" \
-FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
-  "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
+# 2–3. 목록과 적재. 계보가 지난 목록 이후 그대로면(ADR-0277 의 모양) Spark 도 적재도 건너뛴다: 목록은
+# 그 스냅숏으로 이미 만들어졌고, 적재는 성공했을 때만 남긴 요약이 증명한다. 접기가 계보에 쌓았으면 스냅숏이
+# 달라져 여기서 다시 만든다.
+last_queue_summary="${STATE_ROOT}/last-queue-summary.json"
+queue_check="$(python3 "$(dirname "${BASH_SOURCE[0]}")/lineage-queue-check.py")"
+if queue_unchanged "${queue_check}" "${last_queue_summary}"; then
+  job_journal "${journal}" "stewardship queue unchanged run=${run_id}: ${queue_check}; no Spark, no load"
+  cp "${last_queue_summary}" "${work}/queue-summary.json"
+else
+  spark lineage_review_queue_to_gold.py --allow-non-smoke-write \
+    --summary-output "${container_work}/queue-summary.json" --handoff-output "${container_work}/queue.json"
+  FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${work}/queue.json" \
+  FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
+    "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
+  cp "${work}/queue-summary.json" "${last_queue_summary}"
+fi
 
 # 4. 요약
 summary="$(python3 - "${work}/queue-summary.json" "${folded}" <<'PY'
