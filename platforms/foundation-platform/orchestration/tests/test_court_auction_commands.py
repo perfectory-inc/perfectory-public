@@ -64,7 +64,9 @@ for n in range(int(os.environ["FAKE_OWED"])):
     open(os.path.join(out, local), "wb").write(b"x")
     objects.append({"object_key": "bronze/source=" + slug + "/o" + str(n) + ".gz", "source_slug": slug,
                     "local_path": local, "size_bytes": 1})
-json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "table": table, "objects": objects},
+late = [o["object_key"] for o in objects] if os.environ.get("FAKE_LATE") == "1" else []
+json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "table": table, "objects": objects,
+           "selection": {"late": late}},
           open(os.path.join(out, "plan.json"), "w", encoding="utf-8"))
 """
 
@@ -153,6 +155,14 @@ class CourtAuctionCommands(unittest.TestCase):
                 self.assertIn(name, result.stderr)
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
+
+    def test_a_load_of_late_objects_loads_them_and_fails(self):
+        self.env["FAKE_LATE"] = "1"
+        result = self.run_script(self.load)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
+        self.assertNotIn("foundation-job-outcome", result.stdout)
 
     def test_the_load_with_nothing_owed_ends_without_spark(self):
         self.env["FAKE_OWED"] = "0"

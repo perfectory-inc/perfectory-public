@@ -65,5 +65,16 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^court-auction-summary-json ' "${run_log}" | tail -1)"
+# An object no load recorded for longer than the window means loads have been failing: it is loaded
+# now, and the run fails so the gap raises an alert (the plan names it `late`).
+late="$(python3 -I -c '
+import json, sys
+print(sum(len(json.load(open(p, encoding="utf-8")).get("selection", {}).get("late", [])) for p in sys.argv[1:]))
+' "${work}/items/plan.json" "${work}/results/plan.json")"
+if [ "${late}" != 0 ]; then
+  job_journal "${journal}" "court-auction silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
+  echo "court-auction silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
+  exit 1
+fi
 job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results} ${summary}"
 printf 'foundation-job-outcome changed\n'
