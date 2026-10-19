@@ -53,6 +53,11 @@ class ReleaseAdmissionTests(unittest.TestCase):
             patcher = mock.patch.object(self.module, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # These prove the server build, the rollback while the contract installs from the registry
+        # (root ADR-0276 §13); test_release_from_registry.py proves the registry path.
+        patcher = mock.patch.object(self.module, "artifacts_from", return_value="server-build")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="foundation-release-admission-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
