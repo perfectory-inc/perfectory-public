@@ -72,6 +72,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/scheduled-jobs/{job_id}/operator-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordOperatorAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-catalog/v1/search": {
         parameters: {
             query?: never;
@@ -398,6 +414,41 @@ export interface components {
             catalog_url?: string | null;
             /** @description The scheduler's (Airflow's) web address. */
             scheduler_url?: string | null;
+        };
+        /** @description The ledger's record of an operator request. */
+        OperatorActionRecorded: {
+            /** @description What was asked. */
+            action: string;
+            /** @description The staff member who asked. */
+            actor: string;
+            /** @description Whether a pause also drops the pending runs. */
+            drop_pending: boolean;
+            /**
+             * Format: date-time
+             * @description When a `run_now` stops being consumable; absent for the other actions.
+             */
+            expires_at?: string | null;
+            /** @description The request's id; a `run_now` is consumed by it. */
+            id: string;
+            /** @description The job's id. */
+            job_id: string;
+            /**
+             * Format: date-time
+             * @description When it was asked.
+             */
+            requested_at: string;
+        };
+        /** @description An operator switch of one scheduled job (root ADR-0282): `pause`, `resume`, `run_now` or `stop`. */
+        OperatorActionRequest: {
+            /**
+             * @description `pause` (no new run until resumed), `resume`, `run_now` (once, through the same queue as a
+             *     scheduled start; expires in 10 minutes if not started) or `stop` (end the run in progress).
+             */
+            action: string;
+            /** @description A pause only: also drop the pending runs. */
+            drop_pending?: boolean;
+            /** @description Why, in one line of 1 to 300 characters; kept in the append-only ledger. */
+            reason: string;
         };
         /**
          * @description One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
@@ -809,6 +860,74 @@ export interface operations {
             };
             /** @description The job list could not be read */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalApiErrorResponse"];
+                };
+            };
+        };
+    };
+    recordOperatorAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The job's id in orchestration/jobs.v1.json */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded in the append-only ledger */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorActionRecorded"];
+                };
+            };
+            /** @description Staff identity credential is missing or invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not operate scheduled jobs */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such job in the job list */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, or drop_pending on anything but a pause */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The ledger could not be written; nothing was recorded */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

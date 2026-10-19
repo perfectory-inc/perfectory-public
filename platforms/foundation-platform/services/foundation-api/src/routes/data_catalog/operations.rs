@@ -293,6 +293,17 @@ fn read_dependencies(path: &Path, list: &JobList) -> Result<Vec<JobDependencies>
         .collect())
 }
 
+/// Whether `job_id` is a job the release's job list names (enabled or not).
+///
+/// # Errors
+/// Returns [`ApiError::Internal`] when the job list cannot be read.
+pub(super) fn is_listed_job(job_id: &str) -> Result<bool, ApiError> {
+    Ok(read_job_list(&jobs_path())?
+        .jobs
+        .iter()
+        .any(|job| job.id == job_id))
+}
+
 fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
     let raw = std::fs::read_to_string(path).map_err(|error| {
         ApiError::Internal(format!(

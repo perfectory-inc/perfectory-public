@@ -39,6 +39,9 @@ pub mod promote_vector_tile_manifest;
 /// Use case for rebuilding PNU-backed parcel marker anchors.
 pub mod rebuild_parcel_marker_anchors;
 
+/// Recording an operator switch of a scheduled job (root ADR-0282).
+pub mod record_operator_action;
+
 /// Use case for registering an industrial complex.
 pub mod register_complex;
 
@@ -65,6 +68,9 @@ pub use promote_tile_layer_static::PromoteTileLayerStatic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};
 pub use rebuild_parcel_marker_anchors::{
     RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput,
+};
+pub use record_operator_action::{
+    RecordOperatorAction, RecordOperatorActionError, RecordOperatorActionInput,
 };
 pub use register_complex::{RegisterIndustrialComplex, RegisterIndustrialComplexInput};
 pub use rollback_tile_layer_source::RollbackTileLayerSource;

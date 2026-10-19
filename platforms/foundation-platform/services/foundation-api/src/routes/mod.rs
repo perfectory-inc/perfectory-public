@@ -338,6 +338,12 @@ const STAFF_LINEAGE_ADJUDICATE: IdentityRoutePolicy = IdentityRoutePolicy {
     resource: "foundation.lineage",
     action: "adjudicate",
 };
+/// Switching a scheduled job: pause, resume, run once now, stop (root ADR-0282).
+const STAFF_JOBS_OPERATE: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.operations",
+    action: "operate",
+};
 const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
     resource: "foundation.normalization",
@@ -348,7 +354,7 @@ const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
 /// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
 /// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
 #[cfg(test)]
-const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
+const ROUTE_POLICIES: [IdentityRoutePolicy; 12] = [
     STAFF_CATALOG_WRITE,
     SERVICE_CATALOG_READ,
     STAFF_LAKEHOUSE_BATCH_AUDIT,
@@ -359,6 +365,7 @@ const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
     STAFF_METADATA_READ,
     STAFF_LINEAGE_REVIEW,
     STAFF_LINEAGE_ADJUDICATE,
+    STAFF_JOBS_OPERATE,
     SERVICE_NORMALIZATION_PROPOSE,
 ];
 

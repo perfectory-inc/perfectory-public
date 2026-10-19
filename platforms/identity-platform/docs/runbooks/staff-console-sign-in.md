@@ -51,7 +51,8 @@ cd ~/identity-platform/current && bash scripts/deploy/identity-runtime.sh up -d 
 ```
 
 그 뒤의 직원은 `MASTER_ADMIN` 이 `POST /identity/v1/staff/{staff_id}/roles` 로 역할을 준다
-(`LINEAGE_STEWARD` 검토, `LINEAGE_ADJUDICATOR` 검토 + 승인).
+(`LINEAGE_STEWARD` 검토, `LINEAGE_ADJUDICATOR` 검토 + 승인, `JOB_OPERATOR` 예약 작업 멈춤·재개·한 번 돌리기·중지 —
+Foundation 루트 ADR-0282; 처음에는 아무에게도 주지 않아 `MASTER_ADMIN` 인 사장만 쓴다).
 
 ## 5. 확인
 

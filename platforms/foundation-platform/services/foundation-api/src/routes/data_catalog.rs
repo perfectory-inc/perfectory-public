@@ -10,16 +10,17 @@ use std::time::Duration;
 
 use axum::{
     extract::{Query, State},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use foundation_contracts::data_catalog::{
     CiTimeTrend, CiWeek, DataCatalogEntity, DataCatalogEntityKind, DataCatalogField,
     DataCatalogNeighbourhood, DataCatalogSearchPage, DataContractQuality, DataQualityCheck,
     DataQualityDetail, DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink,
-    DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks, ScheduledJobDataset,
-    ScheduledJobProblem, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
-    ScheduledJobStatus, ScheduledJobsStatus, ServiceChecks,
+    DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks,
+    OperatorActionRecorded, OperatorActionRequest, ScheduledJobDataset, ScheduledJobProblem,
+    ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus,
+    ScheduledJobsStatus, ServiceChecks,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -34,6 +35,7 @@ mod alerts;
 mod facts;
 mod health;
 mod operations;
+mod operator_actions;
 mod security_alerts;
 mod service_checks;
 mod snapshots;
@@ -57,6 +59,7 @@ const MAX_NEIGHBOURS: u32 = 200;
         entity,
         operations::scheduled_jobs,
         operations::quality_checks,
+        operator_actions::record_operator_action,
         snapshots::dataset_snapshots,
         service_checks::service_checks
     ),
@@ -73,6 +76,8 @@ const MAX_NEIGHBOURS: u32 = 200;
         ScheduledJobStart,
         ScheduledJobDataset,
         ScheduledJobProblem,
+        OperatorActionRequest,
+        OperatorActionRecorded,
         FailureCause,
         OperationsLinks,
         DatasetSnapshots,
@@ -147,6 +152,15 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/service-checks",
             super::protected_route(get(service_checks::service_checks), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/scheduled-jobs/{job_id}/operator-actions",
+            super::protected_route(
+                post(operator_actions::record_operator_action),
+                state,
+                super::STAFF_JOBS_OPERATE,
+                Some("job_id"),
+            ),
         )
 }
 

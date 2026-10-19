@@ -103,6 +103,41 @@ fn a_lineage_steward_reviews_and_only_an_adjudicator_rules(
 }
 
 #[test]
+fn only_a_job_operator_and_the_owner_operate_scheduled_jobs(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Foundation root ADR-0282: JOB_OPERATOR is the one listed role; MASTER_ADMIN holds every action.
+    let operates = |role: &str| -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(evaluate_policy(&PolicyInput::resource_action(
+            vec![RoleCode::parse(role)?],
+            "foundation.operations",
+            "operate",
+        ))
+        .is_allowed())
+    };
+    assert!(operates("JOB_OPERATOR")?);
+    assert!(operates("MASTER_ADMIN")?);
+    for role in [
+        "DATA_CATALOG_READER",
+        "CATALOG_ADMIN",
+        "LAKEHOUSE_ADMIN",
+        "VECTOR_TILE_ADMIN",
+        "LINEAGE_STEWARD",
+        "LINEAGE_ADJUDICATOR",
+        "COMPLEX_EDITOR",
+    ] {
+        assert!(!operates(role)?, "{role} operates scheduled jobs");
+    }
+    // Operating jobs grants nothing else.
+    assert!(!evaluate_policy(&PolicyInput::resource_action(
+        vec![RoleCode::parse("JOB_OPERATOR")?],
+        "foundation.metadata",
+        "read",
+    ))
+    .is_allowed());
+    Ok(())
+}
+
+#[test]
 fn every_data_role_reads_the_data_catalog_and_nothing_else_does(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let reads = |role: &str| -> Result<bool, Box<dyn std::error::Error>> {

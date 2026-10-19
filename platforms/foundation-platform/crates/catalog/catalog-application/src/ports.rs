@@ -1080,3 +1080,43 @@ pub trait MapEditStore: Send + Sync {
     /// Returns [`MapEditStoreError`] when the store refuses the edit or cannot be reached.
     async fn append(&self, record: &MapEditRecord) -> Result<MapEditAppended, MapEditStoreError>;
 }
+
+/// One operator request as the ledger records it (root ADR-0282 §2).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorActionRecord {
+    /// The request's id; a `run_now` is consumed by it.
+    pub id: uuid::Uuid,
+    /// The job's id in `orchestration/jobs.v1.json`.
+    pub job_id: String,
+    /// What was asked.
+    pub action: catalog_domain::operator_action::OperatorAction,
+    /// Whether a pause also drops the pending runs.
+    pub drop_pending: bool,
+    /// The authorized staff member.
+    pub actor: StaffId,
+    /// Why, in one line.
+    pub reason: String,
+    /// When it was asked.
+    pub requested_at: chrono::DateTime<chrono::Utc>,
+    /// When a `run_now` stops being consumable; none for the other actions.
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Why the operator action ledger did not record a request.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum OperatorActionLedgerError {
+    /// The ledger could not be written; nothing was recorded.
+    #[error("the operator action ledger is unavailable: {0}")]
+    Unavailable(String),
+}
+
+/// The append-only ledger of operator requests (root ADR-0282 §2).
+#[async_trait]
+pub trait OperatorActionLedger: Send + Sync {
+    /// Appends one request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorActionLedgerError`] when the ledger cannot be written.
+    async fn record(&self, record: &OperatorActionRecord) -> Result<(), OperatorActionLedgerError>;
+}

@@ -33,6 +33,9 @@ pub mod map_edit;
 /// Manufacturer metadata assigned to parcels.
 pub mod manufacturer;
 
+/// Operator switches of scheduled jobs and the rules a request meets (root ADR-0282).
+pub mod operator_action;
+
 /// Request identity for keyed Catalog publication mutations.
 pub mod mutation_idempotency;
 
