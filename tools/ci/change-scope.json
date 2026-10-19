@@ -575,7 +575,7 @@
       {
         "name": "osv-vulnerability-ratchet-self-test",
         "paths": [
-          "scripts/ci/osv-vulnerability-gate.sh",
+          "tools/xtask/src/ci.rs",
           "tools/osv-vulnerability-baseline.tsv"
         ]
       },

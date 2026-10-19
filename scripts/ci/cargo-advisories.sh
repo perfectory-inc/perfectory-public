@@ -27,7 +27,7 @@ check() {
     mapfile -t dirs < <(git ls-files '*Cargo.lock' | xargs -r -n1 dirname | sort -u)
   fi
   [ "${#dirs[@]}" -gt 0 ] || fail "no Cargo workspace to check"
-  command -v cargo-deny >/dev/null || fail "cargo-deny is not on PATH (scripts/ci/install-cargo-deny.sh)"
+  command -v cargo-deny >/dev/null || fail "cargo-deny is not on PATH (cargo xtask ci install-cargo-deny)"
   log="$(mktemp)"
   : >"$summary"
   for dir in "${dirs[@]}"; do
