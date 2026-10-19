@@ -57,9 +57,14 @@ WORKER_ABSENT = "[code: 10007]"
 VARIABLE_TYPES = ("plain_text", "json")
 SECRET_TYPES = ("secret_text", "secret_key")
 WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
-# What decides how a Worker is deployed, under the platform directory of the control checkout.
+# What decides how a Worker is deployed, and whether its smoke passes, under the platform directory
+# of the control checkout. The by-PNU smoke is the release's serving monitor (the script and the
+# publisher code that reads the served documents): on 2026-10-19 the monitor refused a served
+# generation the release had not baked yet, the parcel gateway gave up after three attempts, and the
+# monitor's fix (#803) changed neither the Worker's inputs nor the deployer, so nothing retried.
 TOOL_FILES = ("scripts/deploy/worker_autodeploy.py", "scripts/deploy/worker-wrangler.sh",
-              "config/worker-deploys.contract.json")
+              "config/worker-deploys.contract.json", "scripts/ops/by-pnu-serving-monitor.sh",
+              "crates/publisher/foundation-publisher-by-pnu/src", "crates/publisher/foundation-publisher-core/src")
 
 
 @dataclasses.dataclass(frozen=True)
