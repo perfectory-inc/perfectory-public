@@ -57,6 +57,11 @@ const PROVIDER: &str = "courtauction.go.kr";
 const PREFIX: &str = "FOUNDATION_PLATFORM_COURT_AUCTION";
 const MANIFEST_SCHEMA: &str = "foundation-platform.courtauction_go_kr_collect.v1";
 const REFUSED_FILE: &str = "refused.json";
+/// The one-run waiver of the quiet hours an operator writes (`by-pnu-pack-operator.sh job
+/// start-outside-quiet-hours`), read and removed before the first request.
+pub(crate) const QUIET_HOURS_WAIVER_FILE: &str = "attended-outside-quiet-hours.json";
+/// A waiver older than this is refused: it must come from the start it was written for.
+const QUIET_HOURS_WAIVER_MAX_AGE_SECONDS: i64 = 900;
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const KST_HOURS: i64 = 9;
@@ -246,6 +251,8 @@ pub(crate) struct Collector<'a> {
     base_uri: String,
     spacing: ProviderRequestSpacing,
     pub(crate) sent: u32,
+    /// Set only by an attended waiver for this one run: the quiet hours are not asked.
+    pub(crate) quiet_hours_waived: Option<String>,
 }
 
 /// What a response came to.
@@ -275,6 +282,7 @@ impl<'a> Collector<'a> {
             base_uri: base_uri.trim_end_matches('/').to_owned(),
             spacing,
             sent: 0,
+            quiet_hours_waived: None,
         })
     }
 
@@ -437,7 +445,8 @@ pub(crate) async fn collect(
                     return Ok((results, Some(Stop::RequestBound)));
                 }
                 let at = now();
-                if !in_quiet_hours(&contract.manners, at)? {
+                if collector.quiet_hours_waived.is_none() && !in_quiet_hours(&contract.manners, at)?
+                {
                     return Ok((results, Some(Stop::QuietHoursEnded)));
                 }
                 match collector
@@ -693,6 +702,41 @@ impl Config {
     }
 }
 
+/// Takes the attended waiver of the quiet hours, if an operator wrote one for this start.
+///
+/// The file is removed before anything else, so it serves one run at most. A waiver without a
+/// reason or written more than 15 minutes ago is refused: the run stops without a request.
+pub(crate) fn take_quiet_hours_waiver(
+    state_dir: &Path,
+    now: DateTime<Utc>,
+) -> anyhow::Result<Option<String>> {
+    let path = state_dir.join(QUIET_HOURS_WAIVER_FILE);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()))
+        }
+    };
+    std::fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
+    let value: JsonValue = serde_json::from_slice(&bytes)
+        .with_context(|| format!("{} is not JSON", path.display()))?;
+    let reason = value["reason"].as_str().map(str::trim).unwrap_or_default();
+    ensure!(!reason.is_empty(), "the quiet-hours waiver names no reason");
+    let requested_at = value["requested_at"]
+        .as_i64()
+        .context("the quiet-hours waiver has no requested_at epoch second")?;
+    let age = now.timestamp() - requested_at;
+    ensure!(
+        (-60..=QUIET_HOURS_WAIVER_MAX_AGE_SECONDS).contains(&age),
+        "the quiet-hours waiver was written {age} seconds ago; it serves only the start it was written for"
+    );
+    Ok(Some(format!(
+        "{reason} (who={}, requested_at={requested_at})",
+        value["who"].as_str().unwrap_or("unknown")
+    )))
+}
+
 /// Refuses to start while a refusal is on record.
 pub(crate) fn refusal_on_record(state_dir: &Path) -> anyhow::Result<Option<String>> {
     let path = state_dir.join(REFUSED_FILE);
@@ -723,7 +767,11 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     let started = Utc::now();
-    if !in_quiet_hours(&contract.manners, started)? {
+    let waiver = take_quiet_hours_waiver(&config.state_dir, started)?;
+    if let Some(reason) = &waiver {
+        tracing::warn!(%reason, "courtauction.go.kr: quiet hours waived for this one attended run");
+    }
+    if waiver.is_none() && !in_quiet_hours(&contract.manners, started)? {
         println!("courtauction.go.kr: outside the quiet hours; nothing asked");
         println!("foundation-job-outcome unchanged");
         return Ok(());
@@ -734,6 +782,7 @@ pub async fn run() -> anyhow::Result<()> {
         &config.user_agent,
         config.spacing,
     )?;
+    collector.quiet_hours_waived.clone_from(&waiver);
     let (results, stop) = collect(&contract, &mut collector, Utc::now).await?;
 
     let mut objects = Vec::new();
@@ -765,6 +814,7 @@ pub async fn run() -> anyhow::Result<()> {
             "source_snapshot_id": run_id(started),
             "collected_at_utc": started.to_rfc3339(),
             "requests": collector.sent,
+            "quiet_hours_waived": waiver,
             "stopped": stop,
             "objects": objects,
         }),

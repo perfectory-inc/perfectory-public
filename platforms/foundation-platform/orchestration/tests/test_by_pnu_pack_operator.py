@@ -339,6 +339,30 @@ class PackOperator(OperatorHarness):
         self.assertTrue(any(c["tool"] == "journalctl" and
                             "foundation-legal-dong-code.service" in c["args"] for c in calls))
 
+    def test_only_the_court_auction_collector_takes_a_one_run_waiver_of_its_quiet_hours(self):
+        # Owner decision 2026-10-19: the first court auction collection by day. The waiver is a file
+        # the collector takes and removes before its first request; every other manner stays.
+        path = self.release / "orchestration/jobs.v1.json"
+        jobs = json.loads(path.read_text(encoding="utf-8"))
+        state = self.root / "court-auction"
+        for job in jobs["jobs"]:
+            if job["id"] == "court_auction_collect":
+                job["state_paths"] = [str(state)]
+        path.write_text(json.dumps(jobs), encoding="utf-8")
+        self.switch_off("court_auction_collect", "legal_dong_code_changes")
+        result, calls = self.run_operator("job", "start-outside-quiet-hours", "court_auction_collect",
+                                          *fresh(reason="owner decision 2026-10-19 first run"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        waiver = json.loads((state / "collector/attended-outside-quiet-hours.json").read_text(encoding="utf-8"))
+        self.assertEqual(waiver["reason"], "owner decision 2026-10-19 first run")
+        self.assertLessEqual(abs(waiver["requested_at"] - time.time()), 60)
+        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"],
+                         [["start", "--no-block", "foundation-court-auction-collect.service"]])
+        self.log.unlink(missing_ok=True)
+        result, calls = self.run_operator("job", "start-outside-quiet-hours", "legal_dong_code_changes", *fresh())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+
     def test_job_start_waits_for_its_own_run_and_a_spark_job_for_the_spark_work(self):
         self.switch_off("legal_dong_code_changes", "lineage_stewardship")
         for job_id, active in (("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),

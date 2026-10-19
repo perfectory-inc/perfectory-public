@@ -7,7 +7,8 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
     collect, in_quiet_hours, read_page, read_robots, refusal_on_record, source_contract,
-    user_agent, Collector, Page, Stop, PREFIX, REFUSED_FILE,
+    take_quiet_hours_waiver, user_agent, Collector, Page, Stop, PREFIX, QUIET_HOURS_WAIVER_FILE,
+    REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -308,6 +309,80 @@ fn a_refusal_on_record_is_read_back() -> anyhow::Result<()> {
     assert_eq!(refusal_on_record(&dir)?, None);
     std::fs::write(dir.join(REFUSED_FILE), r#"{"reason": "HTTP 429"}"#)?;
     assert_eq!(refusal_on_record(&dir)?.as_deref(), Some("HTTP 429"));
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_attended_waiver_lets_one_run_ask_by_day_and_nothing_else_changes() -> anyhow::Result<()>
+{
+    let mut contract = source_contract()?;
+    let server = site(50).await?;
+    contract.manners.max_requests_per_run = 4;
+    let midday = || at("2099-01-01T03:00:00Z"); // 12:00 KST
+    let mut collector = Collector::new(
+        &contract,
+        &server.uri(),
+        &user_agent(&contract, None)?,
+        spacing()?,
+    )?;
+    let (_, stop) = collect(&contract, &mut collector, midday).await?;
+    assert_eq!(
+        (stop, collector.sent),
+        (Some(Stop::QuietHoursEnded), 1),
+        "without a waiver only robots.txt is asked"
+    );
+
+    let mut collector = Collector::new(
+        &contract,
+        &server.uri(),
+        &user_agent(&contract, None)?,
+        spacing()?,
+    )?;
+    collector.quiet_hours_waived = Some("owner decision".to_owned());
+    let (_, stop) = collect(&contract, &mut collector, midday).await?;
+    assert_eq!(
+        (stop, collector.sent),
+        (Some(Stop::RequestBound), 4),
+        "the request bound still holds"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_waiver_serves_one_fresh_start_and_needs_a_reason() -> anyhow::Result<()> {
+    let dir = std::env::temp_dir().join(format!("court-auction-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir)?;
+    let now = at("2099-01-01T03:00:00Z");
+    let write = |requested_at: i64, reason: &str| {
+        std::fs::write(
+            dir.join(QUIET_HOURS_WAIVER_FILE),
+            json!({"who": "operator", "requested_at": requested_at, "reason": reason}).to_string(),
+        )
+    };
+    assert_eq!(take_quiet_hours_waiver(&dir, now)?, None);
+
+    write(now.timestamp() - 30, "owner decision 2099-01-01 first run")?;
+    let waiver = take_quiet_hours_waiver(&dir, now)?;
+    assert!(waiver.is_some_and(|reason| reason.starts_with("owner decision 2099-01-01 first run")));
+    assert_eq!(
+        take_quiet_hours_waiver(&dir, now)?,
+        None,
+        "a waiver is removed when taken: one run"
+    );
+
+    write(now.timestamp() - 3_600, "late")?;
+    assert!(
+        take_quiet_hours_waiver(&dir, now).is_err(),
+        "a stale waiver is refused"
+    );
+    assert!(!dir.join(QUIET_HOURS_WAIVER_FILE).exists(), "and removed");
+
+    write(now.timestamp(), "  ")?;
+    assert!(
+        take_quiet_hours_waiver(&dir, now).is_err(),
+        "a waiver needs a reason"
+    );
     std::fs::remove_dir_all(&dir)?;
     Ok(())
 }

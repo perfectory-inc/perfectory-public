@@ -102,6 +102,7 @@ refuse() { log "refused: $1"; exit "${2:-64}"; }
 START_EXPIRY_MINUTES=10
 attended_start() { # <requested-at> <reason>; sets START_REQUEST
   local now age
+  START_REQUESTED_AT="$1" START_REASON="$2"
   # A person at a terminal: nohup, a cron line or a script fed from a pipe has none (`ssh -t` for one).
   [[ -t 0 ]] || refuse "an operator start needs a person at a terminal (standard input is not one; use ssh -t)" 77
   [[ "$1" =~ ^[0-9]{10}$ ]] || refuse "--requested-at takes the epoch second the operator asked: \"\$(date +%s)\""
@@ -120,7 +121,7 @@ record_start() {
   logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
 }
 ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
-USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -350,11 +351,11 @@ if [[ "${LANE}" == job ]]; then
   JOB_ID="${1:-}"
   (($# == 1)) || refuse "job ${ACTION} takes one job id"
   # The job's service and pool, only when the release lists it as off and it is not a Silver lane.
-  read -r JOB_UNIT JOB_POOL < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
+  read -r JOB_UNIT JOB_POOL JOB_STATE < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
 import json, sys
 for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
     if job["id"] == sys.argv[2] and job["enabled"] is False             and not job["systemd_service"].startswith("foundation-silver-refresh@"):
-        print(job["systemd_service"], job["pool"])
+        print(job["systemd_service"], job["pool"], (job.get("state_paths") or ["-"])[0])
 PY
   ) || true
   [[ -n "${JOB_UNIT:-}" ]] || refuse "${JOB_ID:-<none>} is not a job jobs.v1.json lists as off (an enabled job is Airflow's; a Silver lane takes 'silver')"
@@ -366,6 +367,22 @@ PY
       [[ "${JOB_POOL}" != spark ]] || refuse_while_active "${GOLD_UNIT}"
       refuse_while_pool_full "${JOB_ID}"
       log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
+      exec systemctl start --no-block "${JOB_UNIT}"
+      ;;
+    start-outside-quiet-hours)
+      # One attended court auction run outside the contract's quiet hours (owner decision): the
+      # collector takes this file before its first request, removes it, keeps every other manner
+      # (one connection, spacing, request bound, stop on refusal) and names the reason in its
+      # manifest. Only this job asks the quiet hours.
+      [[ "${JOB_ID}" == court_auction_collect ]] || refuse "only court_auction_collect keeps quiet hours to waive"
+      refuse_while_active "${JOB_UNIT}"
+      refuse_while_the_deploy_holds "${JOB_ID}"
+      refuse_while_pool_full "${JOB_ID}"
+      install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${JOB_STATE}/collector"
+      python3 -I -c 'import json, sys; json.dump({"who": sys.argv[1], "requested_at": int(sys.argv[2]), "reason": sys.argv[3]}, open(sys.argv[4], "w", encoding="utf-8"))' \
+        "${SUDO_USER:-${USER:-unknown}}" "${START_REQUESTED_AT}" "${START_REASON}" "${JOB_STATE}/collector/attended-outside-quiet-hours.json"
+      chown "${SERVICE_OWNER}:${SERVICE_GROUP}" "${JOB_STATE}/collector/attended-outside-quiet-hours.json"
+      log "starting ${JOB_UNIT} once outside the quiet hours (attended waiver); follow it with: job status ${JOB_ID}"
       exec systemctl start --no-block "${JOB_UNIT}"
       ;;
     status)
