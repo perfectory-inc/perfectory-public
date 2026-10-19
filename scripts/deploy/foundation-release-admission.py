@@ -696,8 +696,11 @@ def registry_images(release_id: str, manifest: dict, settings: dict[str, str], t
         subprocess.check_output(["/usr/bin/docker", "pull", "--quiet", reference], env=control_environment(), stderr=subprocess.PIPE)
         image_id = subprocess.check_output(["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}", reference],
                                            env=control_environment(), stderr=subprocess.PIPE).decode().strip()
-        if image_id != entry["config"]:
-            raise ValueError(f"the pulled {name} image is {image_id}, not the signed {entry['config']}")
+        # Docker names an image by its config digest in the classic store and by its manifest digest
+        # in the containerd image store (this host's, 2026-10-19); both are signed. Anything else is not
+        # the image the manifest names.
+        if image_id not in (entry["config"], entry["oci_manifest"]):
+            raise ValueError(f"the pulled {name} image is {image_id}, not the signed {entry['oci_manifest']} or {entry['config']}")
         if tag:
             subprocess.check_output(["/usr/bin/docker", "tag", image_id, tag_of(release_id)], env=control_environment(), stderr=subprocess.PIPE)
         images[name] = image_id
