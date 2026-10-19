@@ -10,7 +10,7 @@
 // seven manifests.
 //
 // Zero dependencies on purpose: it runs under any Node the trees' engines admit, in CI and
-// beside the pinned toolchain container that regenerates the lockfiles (refresh-locks.sh).
+// beside the pinned toolchain container that regenerates the lockfiles (`cargo xtask npm refresh-locks`).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -345,11 +345,11 @@ export function check(root) {
         `${tree}/package.json: pnpm.overrides is not the rendering of ${CONTRACT_PATH}` +
           (missing.length ? `; missing or different: ${missing.join(", ")}` : "") +
           (extra.length ? `; not from the contract: ${extra.join(", ")}` : "") +
-          " (run: node tools/npm/security-overrides.mjs render && bash tools/npm/refresh-locks.sh)",
+          " (run: node tools/npm/security-overrides.mjs render && cargo xtask npm refresh-locks)",
       );
     }
     if (!sameMap(Object.fromEntries(lock.overrides), overrides)) {
-      errors.push(`${tree}/pnpm-lock.yaml: its overrides block is not the rendered overrides (run: bash tools/npm/refresh-locks.sh)`);
+      errors.push(`${tree}/pnpm-lock.yaml: its overrides block is not the rendered overrides (run: cargo xtask npm refresh-locks)`);
     }
     for (const entry of entries) {
       if (!entryApplies(entry, tree, lock)) continue;

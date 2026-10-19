@@ -7,7 +7,7 @@ on:
   merge_group:
   # A new advisory reaches main without any commit. The daily run finds it before
   # the next pull request does, and the failed run carries the prepared fix
-  # (root ADR-0158): bash tools/npm/open-advisory-fix-pr.sh <run-id>.
+  # (root ADR-0158): cargo xtask npm open-advisory-fix-pr <run-id>.
   schedule:
     - cron: "17 21 * * *"
 permissions:
@@ -134,10 +134,10 @@ jobs:
       # report asks for, regenerate every lock with the pinned toolchain and keep
       # the result as a patch. Nothing is pushed: no workflow holds a write token
       # (tools/github/workflow-permissions.json). The maintainer applies it with
-      # bash tools/npm/open-advisory-fix-pr.sh <run-id> (root ADR-0158).
+      # cargo xtask npm open-advisory-fix-pr <run-id> (root ADR-0158).
       - name: Prepare npm advisory fix
         if: failure()
-        run: bash tools/npm/prepare-advisory-fix.sh target/supply-chain/osv-report.json target/supply-chain/npm-advisory-fix
+        run: cargo xtask npm prepare-advisory-fix target/supply-chain/osv-report.json target/supply-chain/npm-advisory-fix
       - name: Upload supply-chain artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (SHA pin, ADR 0028)
