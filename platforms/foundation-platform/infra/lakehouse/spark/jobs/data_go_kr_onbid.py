@@ -350,29 +350,6 @@ def ensure_table(spark: Any, args: argparse.Namespace, contract_table: str) -> t
     return table, contract, list(column_names(contract)), schema
 
 
-def append_object(spark: Any, frame: Any, columns: Sequence[str], table: str, object_key: str) -> bool:
-    """Appends one object's rows in a commit that records the object, even with no rows.
-
-    `append_batch_once` names a batch by its rows, so an object with nothing to write would leave
-    no record and be owed again on every run; this records the object itself, as
-    `silver_release_compare` does. False when the table already records it (a plan made before
-    another load finished).
-    """
-
-    from lakehouse_ingest import (  # noqa: PLC0415
-        decide_whether_to_append, ingest_batch_token, read_ingested_objects, snapshot_property_options,
-        unquoted_table_name,
-    )
-
-    if not decide_whether_to_append(read_ingested_objects(spark, table, unquoted_table_name(table)), [object_key]):
-        return False
-    writer = frame.select(*columns).writeTo(table)
-    for option, value in snapshot_property_options([object_key], ingest_batch_token([object_key])).items():
-        writer = writer.option(option, value)
-    writer.append()
-    return True
-
-
 def _load(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="load")
     plan_dir_arguments(parser)
@@ -390,6 +367,7 @@ def _load(argv: Sequence[str]) -> int:
         parser.error("writing the Silver tables needs --allow-non-smoke-write")
 
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
+    from lakehouse_ingest import append_source_object  # noqa: PLC0415
     from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
     from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
     from silver_release_compare import release_changes  # noqa: PLC0415
@@ -424,11 +402,11 @@ def _load(argv: Sequence[str]) -> int:
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).cache()
                 line.update(complete=loads["complete"], rows_with_pnu=sum(1 for row in rows if row["pnu"]),
                             changes=changes.count(), removed=changes.where(F.col("row_state") == REMOVED).count())
-                line["appended"] = append_object(spark, changes, item_columns, item_table, entry["object_key"])
+                line["appended"] = append_source_object(spark, changes, item_columns, item_table, entry["object_key"])
                 changes.unpersist()
             else:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
-                line["appended"] = append_object(spark, frame, result_columns, result_table, entry["object_key"])
+                line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"])
             summary["objects"].append(line)
     finally:
         spark.stop()
