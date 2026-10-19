@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 있고(꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
 team:
   name: "foundation-platform"
 servers:
