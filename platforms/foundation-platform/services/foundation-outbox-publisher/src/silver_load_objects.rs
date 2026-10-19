@@ -7,10 +7,14 @@
 //! no queue beside them: it lists the prefixes, takes away what the table records, and fetches the
 //! rest into a directory of its own run, which the Spark load reads and the script removes.
 //!
-//! Only objects inside the window are owed: an expired snapshot takes its record with it, so an
-//! object older than the snapshot retention would read as unloaded and be appended again. The
-//! window must stay shorter than `lakehouse-maintenance.contract.json`'s `retain_days`; a longer
-//! one is refused. An unrecorded object outside the window is reported, never loaded.
+//! Two bounds. The horizon is how far back a table's record can be believed: an expired snapshot
+//! takes its record with it, so only objects landed within `lakehouse-maintenance.contract.json`'s
+//! `retain_days` (less a margin) are compared at all; an older one would read as unloaded and be
+//! appended again. The window is how late an object may arrive in a healthy pipeline. An
+//! unrecorded object inside the horizon but older than the window is still owed and loaded, and is
+//! named `late` in the plan: the load script fails the run after loading it, so a load that had
+//! been failing for longer than the window cannot pass unseen (a check that sees nothing happening
+//! must not read as green).
 
 use std::{
     collections::BTreeSet,
@@ -31,6 +35,9 @@ const PREFIX: &str = "FOUNDATION_PLATFORM_SILVER_LOAD";
 const MAINTENANCE_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/lakehouse-maintenance.contract.json");
 const LIST_PAGE: i32 = 1000;
+/// Days kept between the horizon and the snapshot retention, so a record about to expire is not
+/// read as an answer.
+const HORIZON_MARGIN_DAYS: i64 = 2;
 
 /// One Bronze object as R2 lists it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,7 +54,10 @@ pub(crate) struct Selection {
     pub(crate) listed: usize,
     pub(crate) recorded: usize,
     pub(crate) beyond_bound: usize,
-    pub(crate) unrecorded_outside_window: Vec<String>,
+    /// Owed objects older than the window: loaded, and the run fails after loading them.
+    pub(crate) late: Vec<String>,
+    /// Objects older than the horizon, whose record may have expired: neither compared nor loaded.
+    pub(crate) beyond_horizon: usize,
 }
 
 /// The snapshot retention the window must stay under.
@@ -68,36 +78,40 @@ fn find_retain_days(value: &JsonValue) -> Option<i64> {
     }
 }
 
-/// Unrecorded objects inside the window, oldest first, at most `max_objects` of them.
+/// Unrecorded objects inside the horizon, oldest first, at most `max_objects` of them; those older
+/// than the window are also named late.
 pub(crate) fn select(
     listed: &[Listed],
     recorded: &BTreeSet<String>,
     now: DateTime<Utc>,
     window_days: i64,
+    horizon_days: i64,
     max_objects: usize,
 ) -> Selection {
-    let since = now - Duration::days(window_days);
-    let mut inside = Vec::new();
+    let late_before = now - Duration::days(window_days);
+    let horizon = now - Duration::days(horizon_days);
+    let mut owed = Vec::new();
     let mut selection = Selection {
         listed: listed.len(),
         ..Selection::default()
     };
     for object in listed {
-        if recorded.contains(&object.key) {
+        if object.last_modified < horizon {
+            selection.beyond_horizon += 1;
+        } else if recorded.contains(&object.key) {
             selection.recorded += 1;
-        } else if object.last_modified < since {
-            selection.unrecorded_outside_window.push(object.key.clone());
         } else {
-            inside.push(object);
+            owed.push(object);
         }
     }
-    inside.sort_by(|a, b| (a.last_modified, &a.key).cmp(&(b.last_modified, &b.key)));
-    selection.beyond_bound = inside.len().saturating_sub(max_objects);
-    selection.owed = inside
-        .into_iter()
-        .take(max_objects)
-        .map(|object| object.key.clone())
-        .collect();
+    owed.sort_by(|a, b| (a.last_modified, &a.key).cmp(&(b.last_modified, &b.key)));
+    selection.beyond_bound = owed.len().saturating_sub(max_objects);
+    for object in owed.into_iter().take(max_objects) {
+        if object.last_modified < late_before {
+            selection.late.push(object.key.clone());
+        }
+        selection.owed.push(object.key.clone());
+    }
     selection
 }
 
@@ -157,10 +171,10 @@ pub async fn run() -> anyhow::Result<()> {
         .parse()
         .with_context(|| format!("{PREFIX}_MAX_OBJECTS must be a whole number"))?;
     let output_dir = PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?);
-    let retain_days = snapshot_retain_days()?;
-    if window_days < 1 || window_days >= retain_days {
+    let horizon_days = snapshot_retain_days()? - HORIZON_MARGIN_DAYS;
+    if window_days < 1 || window_days >= horizon_days {
         bail!(
-            "{PREFIX}_WINDOW_DAYS is {window_days}; it must be at least 1 and shorter than the snapshot retention ({retain_days} days), or an expired load record would read as unloaded"
+            "{PREFIX}_WINDOW_DAYS is {window_days}; it must be at least 1 and shorter than the horizon ({horizon_days} days: the snapshot retention less {HORIZON_MARGIN_DAYS}), past which a load record may have expired"
         );
     }
 
@@ -188,7 +202,14 @@ pub async fn run() -> anyhow::Result<()> {
         .load_ingested_batch_objects(&table)
         .await?
         .unwrap_or_default();
-    let selection = select(&listed, &recorded, Utc::now(), window_days, max_objects);
+    let selection = select(
+        &listed,
+        &recorded,
+        Utc::now(),
+        window_days,
+        horizon_days,
+        max_objects,
+    );
 
     let mut objects = Vec::new();
     for key in &selection.owed {
@@ -214,6 +235,7 @@ pub async fn run() -> anyhow::Result<()> {
         "schema_version": "foundation-platform.silver_load_objects.v1",
         "table": table,
         "window_days": window_days,
+        "horizon_days": horizon_days,
         "selection": selection,
         "objects": objects,
     });
@@ -222,7 +244,7 @@ pub async fn run() -> anyhow::Result<()> {
         "silver-load-plan {}",
         json!({"table": plan["table"], "owed": objects.len(), "listed": selection.listed,
                "recorded": selection.recorded, "beyond_bound": selection.beyond_bound,
-               "unrecorded_outside_window": selection.unrecorded_outside_window.len()})
+               "late": selection.late.len(), "beyond_horizon": selection.beyond_horizon})
     );
     Ok(())
 }
@@ -248,36 +270,45 @@ mod tests {
     }
 
     #[test]
-    fn a_load_owes_the_unrecorded_objects_inside_the_window_oldest_first() {
+    fn a_load_owes_the_unrecorded_objects_inside_the_horizon_oldest_first() {
         let listed = [
             object("c.gz", "2099-01-10T03:00:00Z"),
             object("a.gz", "2099-01-10T00:00:00Z"),
             object("b.gz", "2099-01-09T00:00:00Z"),
-            object("old.gz", "2098-12-01T00:00:00Z"),
+            object("late.gz", "2098-12-25T00:00:00Z"),
+            object("expired.gz", "2098-11-01T00:00:00Z"),
         ];
         let recorded = BTreeSet::from([listed[1].key.clone()]);
-        let selection = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 10);
-        let leaves = selection
-            .owed
-            .iter()
-            .map(|key| key.rsplit('/').next().unwrap_or_default())
-            .collect::<Vec<_>>();
-        assert_eq!(leaves, ["b.gz", "c.gz"]);
-        assert_eq!((selection.listed, selection.recorded), (4, 1));
+        let selection = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 28, 10);
+        let leaves = |keys: &[String]| {
+            keys.iter()
+                .map(|key| key.rsplit('/').next().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(leaves(&selection.owed), ["late.gz", "b.gz", "c.gz"]);
         assert_eq!(
-            selection.unrecorded_outside_window.len(),
-            1,
-            "never loaded, only reported"
+            leaves(&selection.late),
+            ["late.gz"],
+            "a late object is loaded and named, so the run fails after it"
         );
-        let bounded = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 1);
-        assert_eq!((bounded.owed.len(), bounded.beyond_bound), (1, 1));
+        assert_eq!(
+            (
+                selection.listed,
+                selection.recorded,
+                selection.beyond_horizon
+            ),
+            (5, 1, 1),
+            "an object past the horizon may have lost its record; it is not compared"
+        );
+        let bounded = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 28, 1);
+        assert_eq!((bounded.owed.len(), bounded.beyond_bound), (1, 2));
     }
 
     #[test]
-    fn the_window_stays_inside_the_snapshot_retention() -> anyhow::Result<()> {
-        // An expired snapshot takes its load record with it; a window that reached past the
+    fn the_horizon_stays_inside_the_snapshot_retention() -> anyhow::Result<()> {
+        // An expired snapshot takes its load record with it; a horizon that reached past the
         // retention would read a loaded object as owed and append it again.
-        assert!(snapshot_retain_days()? > 7);
+        assert!(snapshot_retain_days()? - super::HORIZON_MARGIN_DAYS > 7);
         Ok(())
     }
 
