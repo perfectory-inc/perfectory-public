@@ -44,7 +44,7 @@ class FoundationCiScopeTest(unittest.TestCase):
                 "platforms/foundation-platform/crates/catalog/catalog-domain/src/vector_tile.rs",
             ),
             "kafka-integration": (
-                "scripts/verify/foundation-kafka-live.sh",
+                "tools/xtask/src/live.rs",
                 "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
                 "platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs",
                 "platforms/foundation-platform/schemas/foundation-platform.catalog.collection-raw-written.v1.avsc",

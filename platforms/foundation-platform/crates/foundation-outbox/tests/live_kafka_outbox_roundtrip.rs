@@ -170,7 +170,7 @@ fn required_live_endpoints() -> TestResult<(String, String)> {
         _ => Err(
             "the live Kafka lane (FOUNDATION_TEST_KAFKA_REQUIRED=1) needs both \
              FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS and FOUNDATION_TEST_KARAPACE_URL; \
-             run scripts/verify/foundation-kafka-live.sh"
+             run cargo xtask live kafka"
                 .into(),
         ),
     }

@@ -21,15 +21,13 @@ on:
       - "scripts/deploy/**"
       - "scripts/tiles/**"
       - "scripts/verify/integration.sh"
-      - "scripts/verify/foundation-kafka-live.sh"
-      - "scripts/verify/foundation-r2-lakehouse-live.sh"
+      - "tools/xtask/src/live.rs"
       - "scripts/verify/foundation-spark-runtime.sh"
       - "scripts/verify/foundation-spark-runtime-files.sh"
       - "scripts/ci/test_foundation_spark_runtime_files.py"
       - "scripts/ci/foundation_postgres_production_shape.py"
       - "scripts/ci/test_foundation_postgres_production_shape.py"
       - "scripts/ci/foundation-postgres-production-shape.sh"
-      - "scripts/guard/foundation-r2-lakehouse-live-self-test.sh"
       - "scripts/guard/foundation-kafka-contract.sh"
       - "**/Cargo.lock"
       - "**/pnpm-lock.yaml"
@@ -169,9 +167,6 @@ jobs:
           timeout --foreground 300s cargo run --locked -p foundation-outbox-publisher -- \
             verify-static-release-toolchain
 
-      - name: Verify R2 live lane fails closed without credentials
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/guard/foundation-r2-lakehouse-live-self-test.sh
 
   suites:
     name: Python and Node suites
@@ -641,7 +636,7 @@ jobs:
             echo "Kafka contracts are unaffected; live gate succeeds without starting Kafka."
             exit 0
           fi
-          bash scripts/verify/foundation-kafka-live.sh
+          cargo xtask live kafka
 
       - name: Clean Kafka compose resources
         if: always()
