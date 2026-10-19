@@ -23,7 +23,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
 /// Wire schema version of the published by-PNU serving document.
-pub const PARCEL_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.parcel_by_pnu_profile.v1";
+pub const PARCEL_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.parcel_by_pnu_profile.v2";
 
 /// One serving artifact, ready to be written under a generation directory.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,6 +38,7 @@ pub struct ParcelServingArtifact {
 
 /// Which Gold snapshot a serving artifact was derived from.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
 pub struct GoldSnapshotProvenance {
     /// Lakehouse table the rows were read from.
     pub table: String,
@@ -49,8 +50,11 @@ pub struct GoldSnapshotProvenance {
     pub manifest_list_location: String,
 }
 
+/// Its fields are recorded per schema version (`contracts/by-pnu-documents`): a field gained, lost
+/// or renamed is a new `PARCEL_DOCUMENT_SCHEMA_VERSION`.
 #[derive(Debug, Serialize)]
-struct ParcelByPnuDocument<'a> {
+#[cfg_attr(test, derive(utoipa::ToSchema))]
+pub(crate) struct ParcelByPnuDocument<'a> {
     schema_version: &'static str,
     pnu: &'a str,
     source: &'a GoldSnapshotProvenance,
@@ -88,6 +92,7 @@ struct ParcelByPnuDocument<'a> {
 /// One `silver.parcel_lineage` edge as `gold.parcel_panel.lineage_json` carries it.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
 struct ParcelLineageEdge {
     /// Null for a `pending` edge: a parcel whose predecessor is not known.
     predecessor_pnu: Option<String>,
@@ -103,6 +108,7 @@ struct ParcelLineageEdge {
 /// `gold.parcel_panel.legal_dong_json`: names only, never the code they stand for.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
 struct ParcelLegalDong {
     /// The code's full name (전체 이름) exactly as the code list wrote it.
     name: String,
@@ -292,7 +298,7 @@ mod tests {
         let document: JsonValue = serde_json::from_slice(&first.body)?;
         assert_eq!(
             document["schema_version"],
-            "foundation-platform.parcel_by_pnu_profile.v1"
+            "foundation-platform.parcel_by_pnu_profile.v2"
         );
         assert_eq!(document["pnu"], "9999900000100000000");
         assert_eq!(document["source"]["table"], "gold.parcel_panel");

@@ -34,14 +34,18 @@ pub(super) struct GoldSnapshotProvenance {
 /// The `source` block: the Gold snapshot a document was baked from.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
 pub struct ServingSource {
     pub table: String,
     pub iceberg_snapshot_id: String,
 }
 
 /// One PNU's served building document, typed. Its field order is the served JSON's key order.
+/// Its fields are recorded per schema version (`contracts/by-pnu-documents`): a field gained, lost
+/// or renamed here or in `foundation-contracts` is a new `BUILDING_DOCUMENT_SCHEMA_VERSION`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
 pub struct BuildingByPnuDocument {
     pub schema_version: String,
     pub pnu: String,

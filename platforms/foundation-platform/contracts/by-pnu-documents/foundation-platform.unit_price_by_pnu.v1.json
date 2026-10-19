@@ -1,0 +1,13 @@
+[
+  {"path": "building_id", "required": true},
+  {"path": "pnu", "required": true},
+  {"path": "schema_version", "required": true},
+  {"path": "source", "required": true},
+  {"path": "source.iceberg_snapshot_id", "required": true},
+  {"path": "source.table", "required": true},
+  {"path": "units", "required": true},
+  {"path": "units[].id", "required": true},
+  {"path": "units[].official_price_history", "required": true},
+  {"path": "units[].official_price_history[].base_date", "required": true},
+  {"path": "units[].official_price_history[].price_won", "required": true}
+]

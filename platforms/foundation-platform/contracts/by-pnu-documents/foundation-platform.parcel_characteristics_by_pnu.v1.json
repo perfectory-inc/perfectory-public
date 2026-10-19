@@ -1,0 +1,15 @@
+[
+  {"path": "attached_via", "required": false},
+  {"path": "characteristics", "required": true},
+  {"path": "characteristics.area_m2", "required": true},
+  {"path": "characteristics.land_category", "required": false},
+  {"path": "characteristics.land_use_situation", "required": false},
+  {"path": "characteristics.road_contact", "required": false},
+  {"path": "characteristics.terrain_height", "required": false},
+  {"path": "characteristics.terrain_shape", "required": false},
+  {"path": "pnu", "required": true},
+  {"path": "schema_version", "required": true},
+  {"path": "source", "required": true},
+  {"path": "source.iceberg_snapshot_id", "required": true},
+  {"path": "source.table", "required": true}
+]

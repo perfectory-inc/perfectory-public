@@ -19,7 +19,8 @@ use crate::by_pnu_gateway_contract::{PackLane, PACK_LANE_NON_CONTENT_COLUMNS};
 
 /// Where a document was read from: the Gold table and its snapshot.
 #[derive(Serialize)]
-struct Source<'a> {
+#[cfg_attr(test, derive(utoipa::ToSchema))]
+pub(crate) struct Source<'a> {
     table: &'a str,
     iceberg_snapshot_id: &'a str,
 }

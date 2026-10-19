@@ -54,7 +54,7 @@ class ParcelKindSparkTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.spark.stop()
 
-    def frames(self):
+    def frames(self, rows=ROWS):
         import parcel_attribute_carry as carry
         import parcel_panel_silver_to_gold as panel
         from parcel_lineage import Link
@@ -65,10 +65,10 @@ class ParcelKindSparkTest(unittest.TestCase):
         cand = spark.createDataFrame([(c.successor_pnu, c.source_pnu, c.hop, c.path) for c in candidates],
                                      "successor_pnu string, source_pnu string, hop int, path string")
         frames = {panel.PARCEL_SOURCE: spark.createDataFrame([(pnu(NEW, n),) for n in (1, 2, 3)], "pnu string")}
-        for name, rows in ROWS.items():
+        for name, source_rows in rows.items():
             types = {c["name"]: c["logical_type"] for c in load_lakehouse_contract(name)["columns"]}
             schema = ", ".join(f"{c} {spark_sql_type(types[c])}" for c in panel.BUILD_COLUMNS[name])
-            frames[name] = spark.createDataFrame(rows, schema)
+            frames[name] = spark.createDataFrame(source_rows, schema)
         # The rows are already under the served codes; the build never reads the change table itself.
         frames[panel.CODE_CHANGE_SOURCE] = spark.createDataFrame(
             [], ", ".join(f"{c} string" for c in panel.BUILD_COLUMNS[panel.CODE_CHANGE_SOURCE]))
@@ -98,6 +98,29 @@ class ParcelKindSparkTest(unittest.TestCase):
                 self.assertEqual(rows[pnu(NEW, 2)].attached_via, "lineage:code_derived")
                 count, _ = job.validate_gold_frame(spec, gold, 2)
                 self.assertEqual(count, 2)
+
+    def test_every_kind_writes_the_fields_its_document_record_holds(self):
+        # A kind's document carries its section's JSON as this job wrote it, so the keys written are
+        # the document's fields: they must be its record's (contracts/by-pnu-documents), and a key
+        # gained, lost or renamed is a new document version. Every value of NEW 1 is present here,
+        # since a null field is left out of the JSON.
+        import by_pnu_kinds
+
+        rows = {**ROWS, "silver.land_transfer_history": [
+            (pnu(NEW, 1), 1, "1", "10", "분할", "20990101", "20990102", "대", 10.0, "1"),
+            *ROWS["silver.land_transfer_history"][1:]]}
+        args, frames, cand, _ = self.frames(rows)
+        job, specs = self.kinds()
+        for spec in specs:
+            with self.subTest(lane=spec.kind.lane):
+                column = spec.kind.columns[0]
+                field = column.removesuffix("_json")
+                gold = job.build_gold_frame(self.spark, args, spec, {n: frames[n] for n in spec.sources}, cand, {}, "snap")
+                written = {p for row in gold.collect() for p in by_pnu_kinds.json_paths(json.loads(row[column]), field)}
+                recorded = {p for p in by_pnu_kinds.document_record(spec.kind.lane.replace("-", "_") + "_by_pnu")
+                            if p.startswith((f"{field}.", f"{field}[]"))}
+                self.assertTrue(recorded, f"the record holds no field of {field}")
+                self.assertEqual(written, recorded)
 
     def test_parity_refuses_a_drifted_panel(self):
         from pyspark.sql import functions as F

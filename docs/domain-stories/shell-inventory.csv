@@ -133,6 +133,8 @@ scripts/guard/bootstrap-creates-what-it-grants-on-self-test.sh,71,true,test-fixt
 scripts/guard/bootstrap-creates-what-it-grants-on.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/build-coupling-baseline-self-test.sh,107,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/build-coupling-baseline.sh,310,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
+scripts/guard/by-pnu-document-records-are-append-only-self-test.sh,57,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/check-container-runtime-policy.sh,705,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
