@@ -211,7 +211,7 @@
     },
     {
       "id": "court_auction_collect",
-      "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified with a contact, only between 01:00 and 06:00 KST and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Stages a pending-load handoff for court_auction_silver. No Spark.",
+      "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Stages a pending-load handoff for court_auction_silver. No Spark.",
       "systemd_service": "foundation-court-auction-collect.service",
       "systemd_timer": null,
       "state_paths": [
@@ -229,7 +229,7 @@
         "source-courtauction-go-kr-to-silver-court-auction-sale-result"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0280, ADR-0281). Off until the owner places /etc/foundation-platform/court-auction.env with FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT (the runtime-secrets group court-auction) and a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0283). Off until a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "court_auction_silver",
@@ -253,7 +253,7 @@
         "source-courtauction-go-kr-to-silver-court-auction-sale-result"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0280, ADR-0281). Off until the owner places /etc/foundation-platform/court-auction.env with FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT (the runtime-secrets group court-auction) and a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0283). Off until a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "registered_factory",

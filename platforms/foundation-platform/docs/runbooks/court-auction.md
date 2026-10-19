@@ -30,15 +30,15 @@ last_reviewed: 2026-10-19
    사장이 결정한다(법원행정처 사용자지원센터 문의 등).
 3. 사람이 결정한 뒤에만 `refused.json` 을 지운다.
 
-## 처음 켜기 (사장 단계)
+## 처음 켜기
 
-1. 연락처 파일: `/etc/foundation-platform/court-auction.env` 에 `FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT=<회사 연락 주소>`
-   (예: `mailto:` 주소 또는 연락 페이지 URL). User-Agent 에 그대로 실린다.
-2. 새벽(01:00–06:00 KST)에 단위를 직접 한 번 시작해 지켜본다:
+1. 새벽(01:00–06:00 KST)에 단위를 직접 한 번 시작해 지켜본다:
    `sudo systemctl start foundation-court-auction-collect.service`. 요청 수·소요 시간·거절 없음을 확인한다.
-3. 적재 단위를 한 번 시작하고 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다.
-4. 첫 밤의 Bronze 크기를 perfectory-ops 비용 추정에 덧붙인다.
-5. 두 작업의 `enabled` 를 켜는 PR.
+   User-Agent 는 `perfectory-foundation-court-auction/<버전>` 이다. 연락처는 선택이다(ADR-0283):
+   `/etc/foundation-platform/court-auction.env` 에 `FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT` 가 있으면 `(+연락처)` 로 붙는다.
+2. 적재 단위를 한 번 시작하고 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다.
+3. 첫 밤의 Bronze 크기를 perfectory-ops 비용 추정에 덧붙인다.
+4. 두 작업의 `enabled` 를 켜는 PR.
 
 ## 출처 표시
 

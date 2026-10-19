@@ -5,8 +5,8 @@ The scripts run from an installed release layout (as in test_parcel_number_chang
 The publisher and docker are stand-ins: the publisher writes the manifest a night would write and
 exits as the collector does (0, or 1 after a refusal); docker records that it was called. What runs
 for real is the scripts: a night that landed objects hands them off and says `changed`; a refused
-night still hands off what it landed and then fails; a missing contact stops the night before any
-request; the load with nothing pending ends without starting Spark.
+night still hands off what it landed and then fails; a missing required variable stops the night
+before any request (the contact is optional, root ADR-0283); the load with nothing pending ends without starting Spark.
 """
 
 import hashlib
@@ -115,8 +115,9 @@ class CourtAuctionCommands(unittest.TestCase):
         self.assertIn("STOPPED", (self.state / "journal.log").read_text(encoding="utf-8"))
         self.assertEqual(len(self.pending()), 1, "what was collected before the refusal is still loaded")
 
-    def test_a_missing_contact_stops_the_night_before_any_request(self):
-        self.assertIn("FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT", REQUIRED)
+    def test_the_contact_is_optional_and_a_missing_variable_stops_the_night_before_any_request(self):
+        # Root ADR-0283: no contact address is needed; the night runs without one.
+        self.assertNotIn("FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT", REQUIRED)
         self.assertLessEqual(set(REQUIRED), set(NEEDS))
         for name in REQUIRED:
             with self.subTest(name):

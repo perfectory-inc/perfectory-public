@@ -2,8 +2,8 @@
 # 법원경매정보 목록을 courtauction.go.kr 에서 받는다 — 수집 절반 (root ADR-0280, ADR-0281). 등록된 작업
 # court_auction_collect(default_pool)가 매일 01:05 KST 에 돌린다. Spark 는 쓰지 않는다.
 #
-# collect-courtauction-go-kr 이 계약(courtauction-go-kr.contract.json)의 예의를 지킨다: 신원을 밝힌 User-Agent
-# (연락처 FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT), 요청 사이 최소 3초, 연결 하나, 새벽(01–06 KST)에만, 실행당 요청
+# collect-courtauction-go-kr 이 계약(courtauction-go-kr.contract.json)의 예의를 지킨다: 우리 이름을 밝힌 User-Agent
+# (연락처는 선택, ADR-0283), 요청 사이 최소 3초, 연결 하나, 새벽(01–06 KST)에만, 실행당 요청
 # 상한, robots.txt 먼저. 403·429·503·Retry-After·HTML 안내 화면·ipcheck=false 중 하나라도 보면 그 자리에서 멈추고,
 # 받은 것까지 Bronze 에 남기고, collector/refused.json 을 쓰고 실패로 끝난다. 그 파일이 있는 동안 다음 실행은 시작하지
 # 않는다: 사람이 원인을 확인하고 지운다(런북 court-auction.md). 우회하는 코드는 없다.
@@ -16,7 +16,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 required_env=(
-  FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID

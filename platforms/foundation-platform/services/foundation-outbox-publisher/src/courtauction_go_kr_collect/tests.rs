@@ -99,14 +99,22 @@ fn the_collector_source_holds_no_disguise_proxy_or_captcha() -> anyhow::Result<(
 }
 
 #[test]
-fn every_request_says_who_we_are_and_how_to_reach_us() -> anyhow::Result<()> {
+fn every_request_says_who_we_are_and_a_contact_only_when_set() -> anyhow::Result<()> {
     let contract = source_contract()?;
+    // Root ADR-0283: the product names us; a contact is optional and never blocks a run.
     assert_eq!(
-        user_agent(&contract, CONTACT)?,
+        user_agent(&contract, None)?,
+        "perfectory-foundation-court-auction/1"
+    );
+    assert_eq!(
+        user_agent(&contract, Some("  "))?,
+        "perfectory-foundation-court-auction/1"
+    );
+    assert_eq!(
+        user_agent(&contract, Some(CONTACT))?,
         "perfectory-foundation-court-auction/1 (+mailto:ops@example.invalid)"
     );
-    assert!(user_agent(&contract, "  ").is_err());
-    assert!(user_agent(&contract, "x)\r\nInjected: 1").is_err());
+    assert!(user_agent(&contract, Some("x)\r\nInjected: 1")).is_err());
     Ok(())
 }
 
@@ -160,7 +168,7 @@ fn every_refusal_signal_reads_as_a_refusal() -> anyhow::Result<()> {
 async fn a_night_reads_every_condition_to_its_last_page_with_our_identity() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let server = site(3).await?;
-    let agent = user_agent(&contract, CONTACT)?;
+    let agent = user_agent(&contract, None)?;
     let mut collector = Collector::new(&contract, &server.uri(), &agent, spacing()?)?;
     let (results, stop) = collect(&contract, &mut collector, night).await?;
     assert_eq!(stop, None);
@@ -216,7 +224,7 @@ async fn a_refusal_stops_the_night_at_once() -> anyhow::Result<()> {
     let mut collector = Collector::new(
         &contract,
         &server.uri(),
-        &user_agent(&contract, CONTACT)?,
+        &user_agent(&contract, None)?,
         spacing()?,
     )?;
     let (results, stop) = collect(&contract, &mut collector, night).await?;
@@ -242,7 +250,7 @@ async fn the_request_bound_and_the_end_of_the_night_stop_without_a_refusal() -> 
     let mut collector = Collector::new(
         &contract,
         &server.uri(),
-        &user_agent(&contract, CONTACT)?,
+        &user_agent(&contract, None)?,
         spacing()?,
     )?;
     let (_, stop) = collect(&contract, &mut collector, night).await?;
@@ -252,7 +260,7 @@ async fn the_request_bound_and_the_end_of_the_night_stop_without_a_refusal() -> 
     let mut collector = Collector::new(
         &contract,
         &server.uri(),
-        &user_agent(&contract, CONTACT)?,
+        &user_agent(&contract, None)?,
         spacing()?,
     )?;
     let calls = std::sync::atomic::AtomicUsize::new(0);
@@ -284,7 +292,7 @@ async fn robots_can_forbid_a_search_and_slow_us_down() -> anyhow::Result<()> {
     let mut collector = Collector::new(
         &contract,
         &server.uri(),
-        &user_agent(&contract, CONTACT)?,
+        &user_agent(&contract, None)?,
         spacing()?,
     )?;
     let (_, stop) = collect(&contract, &mut collector, night).await?;

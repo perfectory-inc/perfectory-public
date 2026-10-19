@@ -4,7 +4,8 @@
 //! only carries them out:
 //!
 //! - one plain HTTP client, no proxy (environment proxies are switched off), one request at a time,
-//!   at least the contract's spacing apart, identified by a fixed User-Agent with a contact address;
+//!   at least the contract's spacing apart, identified by a fixed User-Agent naming our product (a
+//!   contact only when one is set, root ADR-0283);
 //! - only inside the quiet hours (KST), and never more than the per-run request bound;
 //! - robots.txt first, every run: a disallowed search path is not asked;
 //! - any refusal signal (403, 429, 503, a Retry-After header, an HTML page where JSON belongs, the
@@ -122,12 +123,19 @@ pub(crate) fn searches(contract: &SourceContract) -> [(&'static str, &Search); 2
     ]
 }
 
-/// The one User-Agent every request carries: the product and a way to reach us.
-pub(crate) fn user_agent(contract: &SourceContract, contact: &str) -> anyhow::Result<String> {
-    let contact = contact.trim();
+/// The one User-Agent every request carries: our product, and a contact only when one is set
+/// (root ADR-0283). An empty or missing contact does not block the run.
+pub(crate) fn user_agent(
+    contract: &SourceContract,
+    contact: Option<&str>,
+) -> anyhow::Result<String> {
+    let contact = contact.map(str::trim).filter(|contact| !contact.is_empty());
+    let Some(contact) = contact else {
+        return Ok(contract.user_agent_product.clone());
+    };
     ensure!(
-        !contact.is_empty() && contact.is_ascii() && !contact.contains(['(', ')', '\r', '\n']),
-        "{} must name a contact (an e-mail address or URL)",
+        contact.is_ascii() && !contact.contains(['(', ')', '\r', '\n']),
+        "{} must be a plain e-mail address or URL",
         contract.contact_env
     );
     Ok(format!("{} (+{contact})", contract.user_agent_product))
@@ -667,7 +675,10 @@ impl Config {
         Ok(Self {
             base_uri: optional_env_value(&format!("{PREFIX}_BASE_URI"))?
                 .unwrap_or_else(|| contract.base_url.clone()),
-            user_agent: user_agent(contract, &required_env_value(&contract.contact_env)?)?,
+            user_agent: user_agent(
+                contract,
+                optional_env_value(&contract.contact_env)?.as_deref(),
+            )?,
             // A setting may make the run slower, never faster than the contract.
             spacing: ProviderRequestSpacing::try_new(configured.max(floor))?,
             live_write: matches!(
