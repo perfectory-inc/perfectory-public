@@ -7,8 +7,8 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
     collect, in_quiet_hours, read_page, read_robots, refusal_on_record, source_contract,
-    take_quiet_hours_waiver, user_agent, Collector, Page, Stop, PREFIX, QUIET_HOURS_WAIVER_FILE,
-    REFUSED_FILE,
+    take_quiet_hours_waiver, user_agent, Collector, Page, Stop, CONTRACT_JSON, PREFIX,
+    QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -384,5 +384,62 @@ fn a_waiver_serves_one_fresh_start_and_needs_a_reason() -> anyhow::Result<()> {
         "a waiver needs a reason"
     );
     std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[test]
+fn the_detail_pace_stays_inside_the_safety_bounds() -> anyhow::Result<()> {
+    // Root ADR-0285: the code may not exceed these, so the contract itself must stay safe.
+    let contract: Value = serde_json::from_str(CONTRACT_JSON)?;
+    let detail = &contract["detail"];
+    let rate = &detail["rate_control"];
+    let spacing = contract["manners"]["request_spacing_seconds"]
+        .as_f64()
+        .unwrap_or(0.0);
+    let floor = rate["floor_requests_per_second"]
+        .as_f64()
+        .unwrap_or(f64::MAX);
+    assert!(
+        spacing > 0.0 && floor <= 1.0 / spacing,
+        "the floor is the contract's gap or slower"
+    );
+    assert!(
+        rate["ceiling_requests_per_second"]
+            .as_f64()
+            .unwrap_or(f64::MAX)
+            <= 2.0
+    );
+    assert!(rate["max_in_flight"].as_u64().unwrap_or(u64::MAX) <= 2);
+    assert!(rate["decrease_factor"].as_f64().unwrap_or(1.0) <= 0.5);
+    let ends = rate["end_night_signals"].to_string();
+    for signal in ["429", "503", "Retry-After"] {
+        assert!(ends.contains(signal), "{signal} ends the night");
+    }
+    let names = detail["endpoints"]
+        .as_array()
+        .map(|endpoints| {
+            endpoints
+                .iter()
+                .map(|e| {
+                    (
+                        e["name"].as_str().unwrap_or_default(),
+                        e["path"].as_str().unwrap_or_default(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assert!(!names.is_empty());
+    assert!(names
+        .iter()
+        .all(|(_, path)| path.starts_with("/pgj/") && path.ends_with(".on")));
+    let distinct = names
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(distinct.len(), names.len(), "each endpoint is named once");
+    assert!(detail["photo_object_prefix"]
+        .as_str()
+        .is_some_and(|prefix| prefix.starts_with("bronze/source=courtauctiongokr__")));
     Ok(())
 }

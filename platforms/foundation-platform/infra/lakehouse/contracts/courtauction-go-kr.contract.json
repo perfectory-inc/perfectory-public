@@ -49,6 +49,31 @@
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
   },
+  "detail": {
+    "$comment": "Root ADR-0285. Everything the detail collector asks, per case or per goods item, and how fast. The endpoint list is the one record of what is asked; request bodies name only the keys a case or item supplies. rate_control is a ceiling the code may not exceed: one HTTP/2 connection, at most max_in_flight requests in flight, starting at floor_requests_per_second (the 3-second gap), +increase_step after increase_after_clean_responses clean answers up to ceiling_requests_per_second, x decrease_factor at once when the night's p95 latency passes slowdown_latency_ratio times its baseline or a network error occurs. 429, 503 and Retry-After end the night (the next night starts at the floor); every other refusal signal (refusal above, robots.txt answered with HTML) stops until a person clears it. Photos (picFile, base64 in goods detail) are decoded into write-once objects named by SHA-256 under photo_object_prefix; the Bronze response keeps the hash and byte count in their place.",
+    "endpoints": [
+      {"name": "case_detail", "per": "case", "path": "/pgj/pgj15A/selectAuctnCsSrchRslt.on", "body_key": "dma_srchCsDtlInf"},
+      {"name": "document_delivery", "per": "case", "path": "/pgj/pgj15A/selectDlvrOfdocDtsDtl.on", "body_key": "dma_srchDlvrOfdocDts", "fixed": {"srchFlag": "F"}},
+      {"name": "hearing_dates", "per": "case", "path": "/pgj/pgj15A/selectCsDtlDxdyDts.on", "body_key": "dma_srchDxdyDtsLst"},
+      {"name": "status_survey", "per": "case_survey_round", "path": "/pgj/pgj15B/selectCurstExmndc.on", "body_key": "dma_srchCurstExmn", "fixed": {"auctnInfOriginDvsCd": "2"}},
+      {"name": "status_survey_property", "per": "case_survey_round", "path": "/pgj/pgj15B/selectCurstExmnRletIndctLst.on", "body_key": "dma_srchCurstExmndcRletIndctLst", "fixed": {"auctnInfOriginDvsCd": "2"}},
+      {"name": "appraisal_summary", "per": "case", "path": "/pgj/pgj15B/selectAeeWevlInfo.on", "body_key": "dma_srchAeeWevl", "fixed": {"auctnInfOriginDvsCd": "4"}},
+      {"name": "goods_detail", "per": "goods_item", "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on", "body_key": "dma_srchGdsDtlSrch", "carries_photos": true}
+    ],
+    "rate_control": {
+      "max_in_flight": 2,
+      "floor_requests_per_second": 0.33,
+      "ceiling_requests_per_second": 2.0,
+      "increase_after_clean_responses": 200,
+      "increase_step_requests_per_second": 0.1,
+      "decrease_factor": 0.5,
+      "slowdown_latency_ratio": 2.0,
+      "end_night_signals": [429, 503, "Retry-After"]
+    },
+    "night_budget_requests": 30000,
+    "photo_object_prefix": "bronze/source=courtauctiongokr__auction_photo/sha256=",
+    "order": ["new_case", "list_changed", "oldest_stale"]
+  },
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
     "window_days": 7,
