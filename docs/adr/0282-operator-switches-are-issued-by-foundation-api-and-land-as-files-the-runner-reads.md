@@ -1,6 +1,6 @@
 # ADR 0282: 운영자 스위치는 foundation-api 가 직원 신원으로 내고, 러너가 읽는 파일로 남는다
 
-- Status: Proposed
+- Status: Accepted — 코디네이터 승인(2026-10-19, 설계 그대로). 범위 `operations.jobs.operate` 는 사장이 다른 직원을 정할 때까지 사장 계정에만 준다.
 - Date: 2026-10-19
 - Relates to: [ADR-0270](./0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md) §2 운영자 스위치(이 ADR 이 "누가 파일을 쓰나"를 바꾼다), [ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md)(결과 어휘)
 
@@ -54,5 +54,5 @@ ADR-0270 §2 는 작업마다 `pause`·`pause --drop-pending`·`resume`·`run-no
 - 사람이 브라우저 로그인으로만 작업을 멈추고·켜고·한 번 돌린다. 나중에 실행되는 스크립트가 쓸 수 있는 통로가 없다.
 - 단계: (a) `operator_action` 표·마이그레이션(운영 표 모양 원장 시험) (b) API 경로와 범위 (c) 시작 문의 `paused`·`requested <id>`
   (d) 러너의 `stop` (e) 더니어 화면의 단추 (f) 운영자 스크립트의 `job`·`silver start` 은퇴. 작은 PR 로, 앞 단계에 기대는 것은 draft.
-- 범위 `operations.jobs.operate` 를 누가 갖는지는 사장 결정이다(신원 플랫폼의 직원 역할).
+- 범위 `operations.jobs.operate` 는 처음에 사장 계정에만 준다(2026-10-19). 다른 직원에게 줄지는 사장이 정한다(신원 플랫폼의 직원 역할).
 - 남는 일: 묶음 전환 같은 운영자 스크립트의 나머지 동작은 이 ADR 밖이다(#757 규칙이 계속 지킨다).
