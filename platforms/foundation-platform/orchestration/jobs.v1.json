@@ -20,6 +20,8 @@
     {"path": "/var/lib/foundation-platform/map-edit-fold/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/lineage-stewardship", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/lineage-stewardship/lakehouse", "mode": "0777"},
+    {"path": "/var/lib/foundation-platform/registered-factory", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/registered-factory/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/onbid", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/onbid/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/legal-dong-code", "mode": "0755"},
@@ -204,6 +206,29 @@
       "enabled": true,
       "enabled_since": "2026-10-05T03:16:07Z",
       "started_once_after_deploy": true
+    },
+    {
+      "id": "registered_factory",
+      "description": "한국산업단지공단 전국등록공장현황 from data.go.kr (root ADR-0280 §4; scripts/ops/registered-factory-cycle.sh): ask the portal once which file is current and, only when it is not the last one landed, land the zip in Bronze, check its member against the source contract (name, CP949, header, row bounds), give each row the PNU its address resolves to (jibun address through the 법정동 code table and silver.parcel_boundaries, else road address through silver.building_register_titles) and append the edition to silver.registered_factory with its match rate. `unchanged` without Spark on the days the file is the same (the provider publishes about once a year).",
+      "systemd_service": "foundation-registered-factory.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/registered-factory"
+      ],
+      "schedule": "20 11 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 90,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-data-go-kr-file-data-to-silver-registered-factory"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0280). Off until its first supervised run on the data host (runbook data-go-kr-registered-factory.md) has loaded the first edition and its match rate is recorded; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "onbid_public_sale_collect",

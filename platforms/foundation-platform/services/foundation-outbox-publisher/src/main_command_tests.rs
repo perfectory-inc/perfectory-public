@@ -1181,6 +1181,19 @@ fn data_go_kr_onbid_collect_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The registered-factory file collector (root ADR-0280).
+#[test]
+fn data_go_kr_registered_factory_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "collect-data-go-kr-registered-factory"
+        ])?,
+        Command::CollectDataGoKrRegisteredFactory
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(
