@@ -1095,7 +1095,13 @@ pub(super) fn check_round_trip(
     let mut check = UnitCheck::default();
     for document in documents {
         let answer = match read::resolve(&packs, &document.pnu) {
-            Ok(read::Resolved::Document(fragments)) => read::joined_bytes(lane, &fragments).ok(),
+            // The bake reads back what it just wrote, under this release's schema.
+            Ok(read::Resolved::Document(fragments)) => read::joined_bytes(
+                lane,
+                crate::by_pnu_serving_manifest_publish::document_schema_version(lane),
+                &fragments,
+            )
+            .ok(),
             _ => None,
         };
         check.tally(

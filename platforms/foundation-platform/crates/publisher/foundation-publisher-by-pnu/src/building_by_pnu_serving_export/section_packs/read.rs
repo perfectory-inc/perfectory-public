@@ -319,7 +319,11 @@ pub fn resolve(packs: &UnitPacks, pnu: &str) -> anyhow::Result<Resolved> {
 ///
 /// # Errors
 /// Refuses fragments that do not join or are not a document of the lane.
-pub fn joined_bytes(lane: ByPnuLane, fragments: &[(String, Found)]) -> anyhow::Result<Vec<u8>> {
+pub fn joined_bytes(
+    lane: ByPnuLane,
+    schema: &str,
+    fragments: &[(String, Found)],
+) -> anyhow::Result<Vec<u8>> {
     let mut parts = Vec::with_capacity(fragments.len());
     for (name, found) in fragments {
         let Found::Document { bytes, .. } = found else {
@@ -327,7 +331,7 @@ pub fn joined_bytes(lane: ByPnuLane, fragments: &[(String, Found)]) -> anyhow::R
         };
         parts.push((name.as_str(), bytes.as_slice()));
     }
-    sections::join(lane, &parts)?;
+    sections::join(lane, schema, &parts)?;
     let [(_, bytes)] = parts.as_slice() else {
         bail!(
             "a served document is one member, got {} fragments",
