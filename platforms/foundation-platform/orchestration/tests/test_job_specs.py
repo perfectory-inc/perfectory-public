@@ -549,6 +549,48 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2000 minutes")
                             for problem in job_specs.pool_starvation(jobs)))
 
+    def test_the_bound_is_the_one_every_group_of_running_jobs_gives(self):
+        # The search stops at groups of `slots` jobs (2026-10-19: enumerating every size was 2^n, and
+        # one more spark job doubled this file's time). A larger group cannot hold the pool, so the
+        # answer must equal one that tries every group, on random pools.
+        import itertools
+        import random
+
+        def every_group(starved, others, slots):
+            """longest_wait_minutes as it was: the same rule, groups of every size."""
+            need = job_specs.pool_slots(starved)
+            blockers = [j for j in others if job_specs.pool_slots(j) + need > slots]
+            only_running = [j for j in blockers if job_specs.priority_weight(j) < job_specs.priority_weight(starved)
+                            and job_specs.pool_slots(j) >= need]
+            ahead = [j for j in blockers if j not in only_running]
+            running = only_running + [j for j in others if j not in blockers]
+            worst = 0
+            for size in range(1, len(running) + 1):
+                for group in itertools.combinations(running, size):
+                    held = sum(job_specs.pool_slots(j) for j in group)
+                    if held > slots or slots - held >= need:
+                        continue
+                    freed, missing = 0, need - (slots - held)
+                    for j in sorted(group, key=job_specs.hold_minutes):
+                        freed += job_specs.pool_slots(j)
+                        if freed >= missing:
+                            worst = max(worst, job_specs.hold_minutes(j))
+                            break
+            return sum(job_specs.hold_minutes(j) for j in ahead) + worst
+
+        rng = random.Random(20261019)
+        for trial in range(40):
+            slots = rng.choice([2, 3, 4])
+            jobs = [{"id": f"j{n}", "pool_slots": rng.randint(1, slots), "priority_weight": rng.randint(1, 5),
+                     "time_limit_minutes": rng.randint(10, 200), "stop_grace_minutes": 10, "wait_limit_minutes": rng.randint(0, 30),
+                     "retries": rng.randint(0, 1)}
+                    for n in range(9)]
+            for starved in jobs:
+                others = [j for j in jobs if j is not starved]
+                with self.subTest(trial=trial, job=starved["id"]):
+                    total, _ = job_specs.longest_wait_minutes(starved, others, slots)
+                    self.assertEqual(total, every_group(starved, others, slots))
+
     def test_a_lighter_narrower_job_still_counts_every_time(self):
         # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
         # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load.

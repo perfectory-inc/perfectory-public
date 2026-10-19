@@ -419,7 +419,10 @@ def longest_wait_minutes(starved, others, slots):
     total = sum(hold_minutes(job) for job in ahead)
     combined, combined_ids = 0, []
     running = only_running + [job for job in others if job not in blockers]
-    for size in range(1, len(running) + 1):
+    # Every job takes at least one slot, so a group of more jobs than the pool has slots cannot hold
+    # it together and is skipped below anyway. Not enumerating them keeps this cubic, not 2^n: one
+    # more spark job doubled test_job_specs' time (352 s -> 731 s, 1,327 s on a runner, 2026-10-19).
+    for size in range(1, min(len(running), slots) + 1):
         for group in itertools.combinations(running, size):
             held = sum(pool_slots(job) for job in group)
             if held > slots or slots - held >= need:
