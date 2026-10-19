@@ -516,7 +516,11 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
             self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="parcel"), 1)
         self.assertEqual(self.tick(), 0)
         self.assertFalse((self.host.state / "workers/parcel-gateway.json").exists(), "retried after giving up")
-        monitor = self.tree / "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/lib.rs"
+        source = "crates/publisher/foundation-publisher-by-pnu/src/lib.rs"
+        monitor = self.tree / "platforms/foundation-platform" / source
+        if not monitor.exists():
+            monitor.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(PLATFORM / source, monitor)
         monitor.write_text(monitor.read_text() + "// the monitor's fix\n")
         self.assertEqual(self.tick(), 0)
         self.assertTrue((self.host.state / "workers/parcel-gateway.json").exists(), "the monitor's fix did not retry")
