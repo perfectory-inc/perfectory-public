@@ -257,13 +257,16 @@ def seal_artifacts(release_id: str, target: Path, images: dict[str, str],
     jars = [name for name in files if re.fullmatch(r"jars/[A-Za-z0-9_.-]+\.jar", name)]
     if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
         raise ValueError("unexpected build output; a publisher and resolved jars are required")
-    if set(images) != {name for name, _, _, _ in RELEASE_IMAGES} or not all(
+    own = {name for name, _, _, _ in RELEASE_IMAGES}
+    if set(images) not in (own, own | set(COMPOSE_IMAGES)) or not all(
             re.fullmatch(r"sha256:[0-9a-f]{64}", image) for image in images.values()):
         raise ValueError("every release image needs an immutable image ID")
     manifest = {"source": release_id, "files": files}
     for name, tag_of, _, _ in RELEASE_IMAGES:
         manifest[f"{name}_image"] = images[name]
         manifest[f"{name}_tag"] = tag_of(release_id)
+    for name in set(COMPOSE_IMAGES) & set(images):
+        manifest[f"{name}_image"] = images[name]
     for name, index in (caches or {}).items():
         if index is not None and not re.fullmatch(r"[0-9a-f]{64}", index):
             raise ValueError(f"{name} build cache must be named by the sha256 of its index")
@@ -344,6 +347,11 @@ RELEASE_IMAGES = (
     ("publisher", publisher_tag, "services/foundation-outbox-publisher/Dockerfile.lakehouse-control", "."),
     ("tippecanoe", tippecanoe_tag, "infra/tiles/tippecanoe/Dockerfile", "infra/tiles/tippecanoe"),
 )
+# The images a compose file builds (foundation-release-build.py), by their names in the CI manifest.
+# From the registry they are pulled, checked and recorded in build.json like the release's own, but
+# not tagged here: foundation-release.sh tags them as compose names them when it migrates (root
+# ADR-0276 §13), so the server builds none of them.
+COMPOSE_IMAGES = ("foundation-platform-runtime", "foundation-postgres-recovery")
 
 
 def require_release_images(release_id: str, artifacts: Path) -> None:
@@ -690,7 +698,7 @@ def registry_files(manifest: dict, settings: dict[str, str], token: str, output:
 def registry_images(release_id: str, manifest: dict, settings: dict[str, str], tag: bool) -> dict[str, str]:
     """Each image admission runs, pulled by digest; its ID must be the signed config. Tagged only to install."""
     images = {}
-    for name, tag_of, _, _ in RELEASE_IMAGES:
+    for name, tag_of in [(name, tag_of) for name, tag_of, _, _ in RELEASE_IMAGES] + [(name, None) for name in COMPOSE_IMAGES]:
         entry = manifest["images"][name]
         reference = f"{REGISTRY_HOST}/{settings['repository']}@{entry['oci_manifest']}"
         subprocess.check_output(["/usr/bin/docker", "pull", "--quiet", reference], env=control_environment(), stderr=subprocess.PIPE)
@@ -701,7 +709,7 @@ def registry_images(release_id: str, manifest: dict, settings: dict[str, str], t
         # the image the manifest names.
         if image_id not in (entry["config"], entry["oci_manifest"]):
             raise ValueError(f"the pulled {name} image is {image_id}, not the signed {entry['oci_manifest']} or {entry['config']}")
-        if tag:
+        if tag and tag_of:
             subprocess.check_output(["/usr/bin/docker", "tag", image_id, tag_of(release_id)], env=control_environment(), stderr=subprocess.PIPE)
         images[name] = image_id
     return images
@@ -715,6 +723,18 @@ def registry_artifacts(release_id: str, output: Path, tag: bool) -> dict[str, st
         manifest, _ = verified_release(release_id, Path(temporary), settings, token)
     registry_files(manifest, settings, token, output)
     return registry_images(release_id, manifest, settings, tag)
+
+
+def tag_compose_images(release_id: str) -> int:
+    """Tag the compose images a registry release recorded as compose names them; how many (none: built here)."""
+    artifacts = ARTIFACT_ROOT / release_id
+    verify_artifacts(release_id, artifacts)
+    build = json.loads((artifacts / "build.json").read_text(encoding="utf-8"))
+    recorded = [name for name in COMPOSE_IMAGES if f"{name}_image" in build]
+    for name in recorded:
+        subprocess.check_output(["/usr/bin/docker", "tag", build[f"{name}_image"], f"{name}:local"],
+                                env=control_environment(), stderr=subprocess.PIPE)
+    return len(recorded)
 
 
 def verify_registry(release_id: str) -> str:
@@ -953,6 +973,8 @@ def main() -> int:
     # Stage R2 of root ADR-0276: verify the release CI built and signed, install nothing.
     verify_registry_command = sub.add_parser("verify-registry")
     verify_registry_command.add_argument("release_id")
+    # Stage R3: `foundation-release.sh migrate` asks this instead of building the API (75: nothing recorded).
+    sub.add_parser("tag-compose-images")
     # The deploy's wait (foundation-deploy.sh step 0) asks this, the check `build` refuses on: one list.
     sub.add_parser("running-jobs")
     # The scheduler's runner asks this before it starts a job (root ADR-0260): 75 a release build is
@@ -971,6 +993,10 @@ def main() -> int:
         if args.command == "verify-registry":
             print(f"foundation-release-registry=verified {verify_registry(args.release_id)}")
             return 0
+        if args.command == "tag-compose-images":
+            tagged = tag_compose_images(current_release().name)
+            print(f"foundation-release-compose-images={tagged}")
+            return 0 if tagged else 75
         source = CanonicalSource()
         if args.command == "running-jobs":
             running = running_registered_jobs()

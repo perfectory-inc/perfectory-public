@@ -10,6 +10,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -44,7 +46,7 @@ class Registry:
         files_layer = layer(files_layer_files or files)
         files_manifest = self.manifest([files_layer])
         self.images = {"files": {"oci_manifest": files_manifest, "config": digest(b"files-config")}}
-        for name in ("publisher", "tippecanoe"):
+        for name in ("publisher", "tippecanoe", "foundation-platform-runtime", "foundation-postgres-recovery"):
             self.images[name] = {"oci_manifest": digest(f"{name}-manifest".encode()), "config": digest(f"{name}-config".encode())}
         self.release = {"source_commit": commit, "images": self.images,
                         "files": {name: {"sha256": digest(data), "size": len(data), "mode": "0555" if "/" not in name else "0444"}
@@ -127,10 +129,37 @@ class FromTheRegistry(unittest.TestCase):
         output = self.artifacts / "out"
         output.mkdir()
         images = self.module.registry_artifacts(COMMIT, output, tag=True)
-        self.assertEqual(images, {name: self.registry.images[name]["config"] for name in ("publisher", "tippecanoe")})
+        # The compose images are checked and returned; `tag-compose-images` tags them when the API migrates.
+        self.assertEqual(images, {name: image["config"] for name, image in self.registry.images.items() if name != "files"})
         self.assertEqual((output / "foundation-outbox-publisher").read_bytes(), b"\x7fELF publisher")
         tags = [call[-1] for call in self.calls if call[:2] == ["/usr/bin/docker", "tag"]]
         self.assertEqual(tags, [f"foundation-outbox-publisher:{COMMIT}", f"foundation-tippecanoe:{COMMIT}"])
+
+    def test_the_compose_images_are_recorded_all_or_none_and_tagged_as_compose_names_them(self):
+        image = {name: "sha256:" + str(n) * 64 for n, name in enumerate(
+            ("publisher", "tippecanoe", "foundation-platform-runtime", "foundation-postgres-recovery"), start=1)}
+        target = self.artifacts / COMMIT
+        for images, expected in ((image, 2), ({k: image[k] for k in ("publisher", "tippecanoe")}, 0)):
+            with self.subTest(tagged=expected):
+                if target.exists():
+                    for directory, _, _ in os.walk(target):
+                        Path(directory).chmod(0o755)
+                    shutil.rmtree(target)
+                (target / "jars").mkdir(parents=True)
+                (target / "jars/engine.jar").write_bytes(b"PK engine")
+                (target / "foundation-outbox-publisher").write_bytes(b"publisher")
+                self.module.seal_artifacts(COMMIT, target, images)
+                self.calls.clear()
+                with mock.patch.object(self.module, "verify_artifacts") as verified:
+                    self.assertEqual(self.module.tag_compose_images(COMMIT), expected)
+                verified.assert_called_once_with(COMMIT, target)
+                tags = [call[2:] for call in self.calls if call[:2] == ["/usr/bin/docker", "tag"]]
+                self.assertEqual(tags, [[image["foundation-platform-runtime"], "foundation-platform-runtime:local"],
+                                        [image["foundation-postgres-recovery"], "foundation-postgres-recovery:local"]][:expected])
+        for directory, _, _ in os.walk(target):
+            Path(directory).chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "immutable image ID"):
+            self.module.seal_artifacts(COMMIT, target, {k: v for k, v in image.items() if k != "foundation-postgres-recovery"})
 
     def test_a_signature_cosign_refuses_installs_nothing(self):
         self.cosign_refuses = True
