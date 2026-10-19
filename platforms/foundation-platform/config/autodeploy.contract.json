@@ -1,0 +1,6 @@
+{
+  "$comment": "How the host's autodeploy paces itself (root ADR-0159, ADR-0187). scripts/deploy/foundation-autodeploy.sh reads it from the control checkout the host trusts. quiet_minutes_after_a_deploy: after a deploy succeeds, the next one waits this long, then ships main's head with every commit merged meanwhile; operators and scheduled jobs get the host between deploys. A failed deploy leaves the running release as it was, so the commit that fixes it does not wait. A missing file means no quiet window.",
+  "schema_version": 1,
+  "quiet_minutes_after_a_deploy": 15,
+  "quiet_reason": "Measured 2026-10-17 18:30 to 10-19 03:36 UTC from the autodeploy journal: 45 deploys, the host inside a deploy 72% of the time, the median gap between deploys 2.1 minutes (24 of 44 under 5), one chain of 5 deploys over 136 minutes with no 5-minute gap, and half the deploys (22 of 45) shipping one commit. 15 minutes is the coordinator's choice of 2026-10-19; measure the same numbers again after it runs."
+}

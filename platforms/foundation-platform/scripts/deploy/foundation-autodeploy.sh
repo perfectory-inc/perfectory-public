@@ -103,6 +103,21 @@ case "${checks%% *}" in
     ;;
 esac
 
+# A quiet window after each deploy (config/autodeploy.contract.json): the next deploy waits until
+# quiet_minutes_after_a_deploy have passed since the last one was deployed, then ships main's head
+# with every commit merged meanwhile. Operators and scheduled jobs get the host between. A failed
+# deploy left the running release as it was, so the commit that fixes it does not wait.
+quiet="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1]))["quiet_minutes_after_a_deploy"]))' \
+  "${platform}/config/autodeploy.contract.json" 2>/dev/null)" \
+  || { quiet=0; log "no quiet window: ${platform}/config/autodeploy.contract.json cannot be read"; }
+# Before the first deploy the directory does not exist: nothing to wait for.
+last="$({ find "${state}/deployed" -type f -printf '%T@\n' 2>/dev/null || true; } | sort -n | tail -n 1)"
+last="${last%.*}"
+if [[ -n "${last}" ]] && (($(date +%s) - last < quiet * 60)); then
+  log "${head}: waiting for the quiet window after the last deploy (until $(date -u -d "@$((last + quiet * 60))" +%H:%MZ))"
+  exit 0
+fi
+
 # Whether a unit runs is job_units.py's answer (root ADR-0184). A systemd that cannot answer is not
 # "nothing runs": the tick fails, and its OnFailure says so. Assign its output before testing it;
 # a failure inside `[[ -n "$(...)" ]]` would not stop the script.
