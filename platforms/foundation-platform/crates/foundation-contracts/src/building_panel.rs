@@ -6,7 +6,11 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Wire version of one baked building panel.
-pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v2";
+///
+/// v4 is v2 with the register's names beside its codes (`purpose_name`, `structure_name`); v3
+/// stays reserved for v2 without the unit prices (root ADR-0190, ADR-0252). Every version's
+/// fields: `contracts/by-pnu-documents`.
+pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v4";
 
 /// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

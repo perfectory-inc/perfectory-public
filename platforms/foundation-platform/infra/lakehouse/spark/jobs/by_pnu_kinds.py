@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
+# Each by-PNU document's fields per schema version (the publisher's by_pnu_document_records.rs).
+RECORDS_PATH = Path(__file__).resolve().parents[4] / "contracts" / "by-pnu-documents"
 # The panel each host's kinds are sections of, and which the kinds follow while it is served.
 HOST_PANELS = {"parcel_by_pnu_gateway": "gold.parcel_panel", "building_by_pnu_gateway": "gold.building_panel"}
 
@@ -65,6 +67,26 @@ def lane_fields(lane: str, path: Path = CONTRACT_PATH) -> dict[str, str]:
     return {"gold_table": found.gold_table, "latency_baseline_lane": host_lane,
             "documents_follow_lane": entry.get("documents_follow_lane", host_lane),
             "monitor_group": "by-pnu-kind-serving-monitor"}
+
+
+def document_record(document: str, path: Path = RECORDS_PATH) -> set[str]:
+    """The field paths of the newest committed record of a by-PNU document
+    (`foundation-platform.<document>.v<n>.json`): the publisher's test holds the newest to be the
+    version it bakes, so a Gold JSON column the document carries as written is held to it here."""
+    versions = {int(p.name.removesuffix(".json").rsplit(".v", 1)[1]): p
+                for p in path.glob(f"foundation-platform.{document}.v*.json")}
+    if not versions:
+        raise ValueError(f"no record of the {document} document under {path}")
+    return {entry["path"] for entry in json.loads(versions[max(versions)].read_text(encoding="utf-8"))}
+
+
+def json_paths(value: object, at: str) -> set[str]:
+    """Every field path of a JSON value under `at`, in the records' grammar (`a.b`, `a[].b`)."""
+    if isinstance(value, dict):
+        return {p for key, inner in value.items() for p in {f"{at}.{key}"} | json_paths(inner, f"{at}.{key}")}
+    if isinstance(value, list):
+        return {p for item in value for p in json_paths(item, f"{at}[]")}
+    return set()
 
 
 def kind(lane: str, path: Path = CONTRACT_PATH) -> Kind:

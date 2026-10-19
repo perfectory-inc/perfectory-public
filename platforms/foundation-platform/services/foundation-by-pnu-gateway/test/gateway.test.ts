@@ -26,13 +26,13 @@ const LANES = [
   {
     lane: "building",
     gateway: connectionContract.building_by_pnu_gateway,
-    documentSchema: "foundation-platform.building_by_pnu_profile.v2",
+    documentSchema: "foundation-platform.building_by_pnu_profile.v4",
     goldTable: "gold.building_panel",
   },
   {
     lane: "parcel",
     gateway: connectionContract.parcel_by_pnu_gateway,
-    documentSchema: "foundation-platform.parcel_by_pnu_profile.v1",
+    documentSchema: "foundation-platform.parcel_by_pnu_profile.v2",
     goldTable: "gold.parcel_panel",
   },
 ] as const;

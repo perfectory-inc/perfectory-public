@@ -687,6 +687,16 @@
         ]
       },
       {
+        "name": "by-pnu-document-records-are-append-only-self-test",
+        "paths": []
+      },
+      {
+        "name": "by-pnu-document-records-are-append-only",
+        "paths": [
+          "platforms/foundation-platform/contracts/by-pnu-documents/**"
+        ]
+      },
+      {
         "name": "pipeline-graph-covers-every-dataset-self-test",
         "paths": [
           "scripts/catalog/**",

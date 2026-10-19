@@ -36,6 +36,8 @@ use foundation_publisher_core::public_data_control_support;
 use foundation_publisher_core::r2_layout;
 
 pub mod building_by_pnu_serving_export;
+#[cfg(test)]
+mod by_pnu_document_records;
 pub mod by_pnu_pack;
 pub mod by_pnu_section_pack_manifest;
 pub mod by_pnu_serving_generations;

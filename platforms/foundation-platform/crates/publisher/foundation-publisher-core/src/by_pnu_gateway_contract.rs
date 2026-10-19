@@ -158,7 +158,7 @@ struct R2ConnectionContract {
 pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gateway"];
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line.
-const DERIVED_LANE_HAND_FIELDS: [&str; 8] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 10] = [
     "decision",
     "host",
     "kind",
@@ -167,6 +167,8 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 8] = [
     "document_key_suffix",
     "documents_follow_lane",
     "documents_follow_lane_reason",
+    "document_schema_version",
+    "document_schema_version_reason",
 ];
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
@@ -243,10 +245,32 @@ pub fn resolve_lane_entry(
         .as_object_mut()
         .ok_or_else(|| format!("{host} is not an object"))?;
     derived.insert("pack_only".to_owned(), json!(true));
-    derived.insert(
-        "document_schema_version".to_owned(),
-        json!(format!("foundation-platform.{snake}_by_pnu.v1")),
-    );
+    // A kind's document is `.v1` until it gains, loses or renames a field; its line then states the
+    // later version of the same name and why (contracts/by-pnu-documents holds every version).
+    let document = format!("foundation-platform.{snake}_by_pnu.v");
+    let version = match fields.get("document_schema_version") {
+        None => format!("{document}1"),
+        Some(stated) => stated
+            .as_str()
+            .filter(|stated| {
+                stated
+                    .strip_prefix(document.as_str())
+                    .and_then(|number| number.parse::<u32>().ok())
+                    .is_some_and(|number| number > 1)
+                    && fields
+                        .get("document_schema_version_reason")
+                        .and_then(Value::as_str)
+                        .is_some_and(|reason| !reason.trim().is_empty())
+            })
+            .ok_or_else(|| {
+                format!(
+                    "by_pnu_lanes.{name}.document_schema_version must be {document}<n> with n > 1, \
+                     beside a document_schema_version_reason"
+                )
+            })?
+            .to_owned(),
+    };
+    derived.insert("document_schema_version".to_owned(), json!(version));
     derived.insert("gold_table".to_owned(), json!(format!("gold.{snake}")));
     derived.insert("latency_baseline_lane".to_owned(), json!(host_lane));
     derived.insert("documents_follow_lane".to_owned(), json!(host_lane));
@@ -1141,6 +1165,35 @@ mod tests {
                 "{field}"
             );
         }
+        // A stated document version is a later version of the lane's own name, with its reason.
+        let reason = json!("a field was added");
+        for (version, reason) in [
+            ("foundation-platform.parcel_zoning_by_pnu.v2", None),
+            ("foundation-platform.parcel_zoning_by_pnu.v1", Some(&reason)),
+            ("foundation-platform.parcel_price_by_pnu.v2", Some(&reason)),
+            (
+                "foundation-platform.parcel_zoning_by_pnu.v2x",
+                Some(&reason),
+            ),
+        ] {
+            let mut entry = lane.clone();
+            entry["document_schema_version"] = json!(version);
+            if let Some(reason) = reason {
+                entry["document_schema_version_reason"] = reason.clone();
+            }
+            assert!(
+                resolve_lane_entry("parcel-zoning", &entry, &contract).is_err(),
+                "{version}"
+            );
+        }
+        let mut bumped = lane.clone();
+        bumped["document_schema_version"] = json!("foundation-platform.parcel_zoning_by_pnu.v2");
+        bumped["document_schema_version_reason"] = reason;
+        assert_eq!(
+            resolve_lane_entry("parcel-zoning", &bumped, &contract).map_err(anyhow::Error::msg)?
+                ["document_schema_version"],
+            json!("foundation-platform.parcel_zoning_by_pnu.v2")
+        );
         // A lane written whole (root ADR-0190) is read as it is written.
         let whole = json!({"pack_only": true, "worker_name": "w"});
         assert_eq!(
@@ -1166,6 +1219,14 @@ mod tests {
         assert_eq!(
             pack.document_schema_version,
             "foundation-platform.parcel_zoning_by_pnu.v1"
+        );
+        // The forest ledger gained ownership_kind_name (#746): its line states v2.
+        let forest = ByPnuLane::named("parcel-forest-ledger")?
+            .and_then(ByPnuLane::pack_lane)
+            .context("the contract names the forest ledger lane")?;
+        assert_eq!(
+            forest.document_schema_version,
+            "foundation-platform.parcel_forest_ledger_by_pnu.v2"
         );
         assert_eq!(lane.unit(), "parcel-zoning-by-pnu");
         Ok(())

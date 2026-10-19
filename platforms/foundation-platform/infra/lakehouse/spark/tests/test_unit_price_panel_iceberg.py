@@ -227,6 +227,13 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         ta, tb = self.building_id("Ta"), self.building_id("Tb")
         self.assertEqual(sorted(b for p, b in before if p == pnu(200)), sorted([ta, tb, job.UNLINKED_BUILDING_ID]))
         self.assertEqual([len(before[(pnu(200), b)][0]) for b in (ta, tb, job.UNLINKED_BUILDING_ID)], [2, 1, 1])
+        # The lane's document carries units_json as written and no Rust type writes it: the keys
+        # written are the document's fields, its record's (contracts/by-pnu-documents).
+        import by_pnu_kinds
+
+        written = {p for units, _, _ in before.values() for p in by_pnu_kinds.json_paths(units, "units")}
+        recorded = {p for p in by_pnu_kinds.document_record("unit_price_by_pnu") if p.startswith("units[]")}
+        self.assertEqual(written, recorded)
 
         # Ub1 moves to Ta: Tb carries no priced unit any more and its row must go.
         units[2] = {**units[2], "building_mgm_bldrgst_pk": "Ta"}

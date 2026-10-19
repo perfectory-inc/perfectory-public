@@ -38,10 +38,12 @@ export const EdgeFloorSchema = z.object({
   floor_index: z.number().int().nullable(),
 });
 export const EdgeBuildingProfileSchema = z.object({
-  // v3 is v2 without the unit prices (root ADR-0190); both are read until v2 is no longer served.
+  // v3 is v2 without the unit prices (root ADR-0190); v4 is v2 with the register's names beside its
+  // codes. All are read until v2 is no longer served.
   schema_version: z.enum([
     "foundation-platform.building_by_pnu_profile.v2",
     "foundation-platform.building_by_pnu_profile.v3",
+    "foundation-platform.building_by_pnu_profile.v4",
   ]),
   pnu: PnuSchema,
   source: z.object({
