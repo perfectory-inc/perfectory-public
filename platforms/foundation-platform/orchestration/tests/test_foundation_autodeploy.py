@@ -243,6 +243,20 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
         return subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
                               capture_output=True, text=True, check=False).stdout
 
+    def test_newest_released_names_the_first_published_of_the_commits_newest_first(self):
+        building, released, older = HEAD, "1" * 40, "2" * 40
+        for published, expected in (([released, older], released), ([older], older), ([], "")):
+            with self.subTest(published=published):
+                api, _ = self.serve([], published=published)
+                result = subprocess.run([sys.executable, str(CHECKS), "newest-released", "owner/repo",
+                                         building, released, older, "--registry", api],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+        result = subprocess.run([sys.executable, str(CHECKS), "newest-released", "owner/repo", building,
+                                 "--registry", "http://127.0.0.1:9"], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 2)
+
     def test_an_unreadable_registry_exits_2_to_ask_again(self):
         api, _ = self.serve([run("ci"), run("Build and attest the release")])
         result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, "http://127.0.0.1:9"],
@@ -281,9 +295,16 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         (control / "scripts/github/safe-git-transport.sh").write_text(
             '[ -n "$FIXTURE_NO_HEAD" ] && exit 128\nprintf "%s\\trefs/heads/main\\n" "$FIXTURE_HEAD"\n')
         # Answers FIXTURE_CHECKS and records each time it is asked (each is GitHub API requests).
+        # `newest-released` answers the first candidate FIXTURE_RELEASED names (unset: every one).
         (deploy / "release_checks.py").write_text(
             "import os, sys\n"
-            "open(os.path.join(os.environ['FIXTURE_ROOT'], 'asked.log'), 'a').write(sys.argv[3] + '\\n')\n"
+            "root = os.environ['FIXTURE_ROOT']\n"
+            "if sys.argv[1] == 'newest-released':\n"
+            "    open(os.path.join(root, 'candidates.log'), 'a').write(' '.join(sys.argv[3:]) + '\\n')\n"
+            "    released = os.environ.get('FIXTURE_RELEASED')\n"
+            "    print(next((c for c in sys.argv[3:] if released is None or c in released.split()), ''))\n"
+            "    sys.exit(0)\n"
+            "open(os.path.join(root, 'asked.log'), 'a').write(sys.argv[3] + '\\n')\n"
             "print(os.environ['FIXTURE_CHECKS'])\n")
         (deploy / "foundation-deploy.sh").write_text(
             'printf "%s\\n" "$1" >> "$FIXTURE_ROOT/deployed.log"\nexit "${FIXTURE_DEPLOY_EXIT:-0}"\n')
@@ -301,7 +322,8 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.off = root / "autodeploy.off"
         text = SCRIPT.read_text()
         for name, value in (("control_root", control), ("release_root", root / "opt"),
-                            ("state", self.state), ("off_switch", self.off), ("api", "http://127.0.0.1:9")):
+                            ("state", self.state), ("off_switch", self.off), ("api", "http://127.0.0.1:9"),
+                            ("mirror", root / "mirror.git")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         self.script = root / "foundation-autodeploy.sh"
@@ -468,12 +490,54 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.tick(checks="deploy 49 check runs passed").returncode, 0)
         self.assertEqual(self.deployed(), [HEAD], "deployed once it is published")
 
+    def main_after_current(self, count):
+        """A mirror whose main is the running release and then `count` commits; those, newest first."""
+        git = ["git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.test"]
+        work = self.root / "work"
+        subprocess.run([*git, "init", "-q", "-b", "main", str(work)], check=True)
+        commits = []
+        for index in range(count + 1):
+            subprocess.run([*git, "-C", str(work), "commit", "-q", "--allow-empty", "-m", f"c{index}"], check=True)
+            commits.append(subprocess.run(["git", "-C", str(work), "rev-parse", "HEAD"], capture_output=True,
+                                          text=True, check=True).stdout.strip())
+        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(self.root / "mirror.git")], check=True)
+        (self.root / "opt/releases" / commits[0]).mkdir()
+        (self.root / "opt/current").unlink()
+        (self.root / "opt/current").symlink_to(self.root / "opt/releases" / commits[0])
+        return list(reversed(commits[1:]))
+
+    def test_the_newest_released_commit_is_deployed_while_newer_ones_still_build(self):
+        # 2026-10-19: 13e6d650's release was published while the tick waited on b375edaa, still
+        # building; merges came faster than the release build, so nothing deployed.
+        head, released, older = self.main_after_current(3)
+        result = self.tick(head=head, FIXTURE_RELEASED=f"{released} {older}")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [released], "the newest released commit, not main's head")
+        self.assertEqual((self.root / "candidates.log").read_text().split(), [head, released, older])
+        self.assertEqual((self.root / "asked.log").read_text().split(), [released], "only the target's checks are asked")
+
+    def test_nothing_released_after_current_deploys_nothing_and_marks_nothing(self):
+        head, *_ = self.main_after_current(2)
+        result = self.tick(head=head, FIXTURE_RELEASED="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("has a published release yet", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        self.assertFalse((self.root / "asked.log").exists(), "no check run is asked for")
+        self.assertFalse((self.state / "failed").exists() or (self.state / "refused").exists())
+
+    def test_a_failed_commit_is_passed_over_for_the_next_released_one(self):
+        head, failed, older = self.main_after_current(3)
+        (self.state / "failed").mkdir(parents=True)
+        (self.state / "failed" / failed).write_text("synthetic\n")
+        self.assertEqual(self.tick(head=head, FIXTURE_RELEASED=f"{failed} {older}").returncode, 0)
+        self.assertEqual(self.deployed(), [older])
+
     def test_a_refused_commit_is_reported_once_and_never_deployed(self):
         first = self.tick(checks="refuse failed: ci=failure")
         self.assertEqual(first.returncode, 1, "a refusal must reach OnFailure")
         again = self.tick(checks="deploy 49 check runs passed")
         self.assertEqual(again.returncode, 0)
-        self.assertIn("refused before", again.stdout)
+        self.assertIn("was refused or failed before", again.stdout)
         self.assertEqual(self.deployed(), [])
 
     def test_a_failed_deploy_is_reported_once_and_not_retried(self):
