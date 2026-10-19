@@ -20,6 +20,7 @@ last_reviewed: 2026-07-29
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [산업단지 경계 새 판 — 예약 작업](./complex-boundary-release.md)
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
+- [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
 - [필지 ID 원장 첫 등록 — 예약 작업](./parcel-registry.md)

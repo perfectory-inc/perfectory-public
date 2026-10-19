@@ -26,7 +26,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
 | 행정표준코드관리시스템 법정동 | 1 endpoint | 일부 연결 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 매일 받는 법정동 코드 변경의 원천이다(루트 ADR-0143). 코드변경안내 게시판은 원천이 아니다(ADR-0144). 수집 작업은 운영 감독 실행 전까지 꺼져 있다. |
-| 차세대 온비드 공매 (data.go.kr) | 4 endpoint | 예정 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 적재는 뒤 PR 에서 들어온다. |
+| 차세대 온비드 공매 (data.go.kr) | 4 endpoint | 수집 비활성 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 있고, 키(DATA_GO_KR_SERVICE_KEY)가 서버에 놓일 때까지 작업이 꺼져 있다. |
 | data.go.kr 파일 데이터 | 1 endpoint | 예정 — data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재는 뒤 PR 에서 들어온다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
 | 기타 공공 일괄 파일 | 12 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
@@ -209,8 +209,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 표 | 상태 | 이유 |
 |---|---|---|
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
-| `silver.onbid_real_estate_item` | 계약만 있음 | 열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
-| `silver.onbid_item_bid_result` | 계약만 있음 | 목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
+| `silver.onbid_real_estate_item` | 계약만 있음 | 열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 적재 레인은 있고(키를 기다리며 꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
+| `silver.onbid_item_bid_result` | 계약만 있음 | 목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 있고(키를 기다리며 꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -409,6 +409,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 ID 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py` |
 | 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 부동산 물건 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 물건 입찰결과 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |
 | 브이월드 공간·토지 파일 → 필지고유번호변동연혁 | `ingest-vworld-dataset-files`<br>`platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py` |

@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform 차세대 온비드 public sale from data.go.kr, the collection half: land each due API's responses in Bronze within its daily limit, stage a pending-load handoff (root ADR-0280)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/onbid-collect.sh
+TimeoutStartSec=40m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/onbid
+
+[Install]
+WantedBy=multi-user.target
