@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform: start each operator run-now request once, before it expires (root ADR-0282 §4)
+Description=Foundation Platform: start each operator run-now request once, before it expires, and stop what an operator stopped (root ADR-0282 §4, §5)
 Requires=docker.service
 After=docker.service
 OnFailure=foundation-unit-failed@%n.service

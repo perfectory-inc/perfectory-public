@@ -259,7 +259,12 @@ if [[ "${result}" != success ]]; then
   # the by-PNU bake said `changed` for the lane that published and exited 1 for the one that did
   # not). A run that claimed another outcome is named, so the contradiction is not lost.
   claimed="${outcome#foundation-job-outcome }"
-  if [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
+  # An operator's stop names who ended the run (root ADR-0282 §5): foundation-run-now marks the
+  # invocation it stopped before it stops it.
+  stopper="$(grep -lx "invocation=${invocation}" "${FOUNDATION_OPERATOR_STOPS_DIR:-/var/lib/foundation-run-now/stopped}"/* 2>/dev/null | head -n 1)" || stopper=""
+  if [[ -n "${stopper}" ]]; then
+    printf 'foundation-job-outcome failed stopped by %s\n' "$(sed -n 's/^actor=//p' "${stopper}" | head -n 1)"
+  elif [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
     printf 'foundation-job-outcome failed systemd result=%s after the run said %s\n' "${result}" "${claimed}"
   else
     printf 'foundation-job-outcome failed systemd result=%s\n' "${result}"
