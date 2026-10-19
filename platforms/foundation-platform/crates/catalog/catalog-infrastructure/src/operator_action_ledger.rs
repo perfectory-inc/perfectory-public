@@ -24,8 +24,9 @@ impl OperatorActionLedger for PgOperatorActionLedger {
     async fn record(&self, record: &OperatorActionRecord) -> Result<(), OperatorActionLedgerError> {
         sqlx::query(
             "INSERT INTO catalog.operator_action
-                 (id, job_id, action, drop_pending, actor, reason, requested_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                 (id, job_id, action, drop_pending, actor, reason, requested_at, expires_at,
+                  window_start, window_end)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(record.id)
         .bind(&record.job_id)
@@ -35,6 +36,8 @@ impl OperatorActionLedger for PgOperatorActionLedger {
         .bind(&record.reason)
         .bind(record.requested_at)
         .bind(record.expires_at)
+        .bind(&record.window_start)
+        .bind(&record.window_end)
         .execute(&self.pool)
         .await
         .map_err(|error| OperatorActionLedgerError::Unavailable(error.to_string()))?;

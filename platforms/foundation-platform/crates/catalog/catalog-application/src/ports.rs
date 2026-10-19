@@ -1098,8 +1098,12 @@ pub struct OperatorActionRecord {
     pub reason: String,
     /// When it was asked.
     pub requested_at: chrono::DateTime<chrono::Utc>,
-    /// When a `run_now` stops being consumable; none for the other actions.
+    /// When a `run_now` stops being consumable or a `set_window` ends; none for the other actions.
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// A `set_window`'s start, `HH:MM` KST.
+    pub window_start: Option<String>,
+    /// A `set_window`'s end, `HH:MM` KST.
+    pub window_end: Option<String>,
 }
 
 /// Why the operator action ledger did not record a request.

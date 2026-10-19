@@ -144,3 +144,83 @@ async fn the_ledger_is_never_truncated() -> Result<(), sqlx::Error> {
     );
     tx.rollback().await
 }
+
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn a_window_override_names_its_window_and_lasts_at_most_a_week() -> Result<(), sqlx::Error> {
+    let pool = pool().await?;
+    let mut tx = pool.begin().await?;
+    let id = Uuid::new_v4();
+    let insert = |action: &'static str,
+                  expires: &'static str,
+                  start: &'static str,
+                  end: &'static str| {
+        format!(
+            "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at, window_start, window_end)
+             VALUES ($1, 'shape_ledger_check', '{action}', 'staff:owner', 'collect in the day once', {expires}, {start}, {end})"
+        )
+    };
+    for (sql, accepted) in [
+        (
+            insert(
+                "set_window",
+                "now() + interval '3 hours'",
+                "'09:00'",
+                "'18:00'",
+            ),
+            true,
+        ),
+        (
+            insert(
+                "set_window",
+                "now() + interval '8 days'",
+                "'09:00'",
+                "'18:00'",
+            ),
+            false,
+        ),
+        (insert("set_window", "NULL", "'09:00'", "'18:00'"), false),
+        (
+            insert(
+                "set_window",
+                "now() + interval '3 hours'",
+                "'24:00'",
+                "'18:00'",
+            ),
+            false,
+        ),
+        (
+            insert(
+                "set_window",
+                "now() + interval '3 hours'",
+                "'09:00'",
+                "NULL",
+            ),
+            false,
+        ),
+        (insert("pause", "NULL", "'09:00'", "'18:00'"), false),
+        (insert("clear_window", "NULL", "NULL", "NULL"), true),
+    ] {
+        assert_eq!(!refused(&mut tx, &sql, Some(id)).await?, accepted, "{sql}");
+    }
+    let id = Uuid::new_v4();
+    sqlx::query(&insert(
+        "set_window",
+        "now() + interval '3 hours'",
+        "'09:00'",
+        "'18:00'",
+    ))
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    assert!(
+        refused(
+            &mut tx,
+            "UPDATE catalog.operator_action SET window_end = '20:00' WHERE id = $1",
+            Some(id)
+        )
+        .await?,
+        "a window was rewritten"
+    );
+    tx.rollback().await
+}

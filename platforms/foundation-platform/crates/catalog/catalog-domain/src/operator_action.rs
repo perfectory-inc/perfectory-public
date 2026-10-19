@@ -9,6 +9,9 @@ pub const RUN_NOW_EXPIRY_MINUTES: i64 = 10;
 /// The longest reason the ledger keeps, in characters.
 pub const MAX_REASON_CHARS: usize = 300;
 
+/// The longest a window override lasts, in hours: the contract's window always comes back.
+pub const MAX_WINDOW_HOURS: i64 = 7 * 24;
+
 /// What an operator asks of one scheduled job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OperatorAction {
@@ -20,6 +23,10 @@ pub enum OperatorAction {
     RunNow,
     /// End the run in progress.
     Stop,
+    /// Let the job run inside another window (KST) for a bounded time, instead of its contract's.
+    SetWindow,
+    /// End a window override early: the contract's window again.
+    ClearWindow,
 }
 
 impl OperatorAction {
@@ -31,6 +38,8 @@ impl OperatorAction {
             Self::Resume => "resume",
             Self::RunNow => "run_now",
             Self::Stop => "stop",
+            Self::SetWindow => "set_window",
+            Self::ClearWindow => "clear_window",
         }
     }
 
@@ -44,14 +53,17 @@ impl OperatorAction {
             "resume" => Ok(Self::Resume),
             "run_now" => Ok(Self::RunNow),
             "stop" => Ok(Self::Stop),
+            "set_window" => Ok(Self::SetWindow),
+            "clear_window" => Ok(Self::ClearWindow),
             _ => Err(OperatorActionError::UnknownAction),
         }
     }
 
-    /// Whether the request expires (only `run_now`, root ADR-0282 §4).
+    /// Whether the request expires: a `run_now` after [`RUN_NOW_EXPIRY_MINUTES`] (root ADR-0282 §4),
+    /// a `set_window` after the hours it asked for.
     #[must_use]
     pub const fn expires(self) -> bool {
-        matches!(self, Self::RunNow)
+        matches!(self, Self::RunNow | Self::SetWindow)
     }
 }
 
@@ -67,6 +79,50 @@ pub enum OperatorActionError {
     /// `drop_pending` was asked of an action other than `pause`.
     #[error("only a pause drops pending runs")]
     DropPendingIsAPause,
+    /// A window is not two `HH:MM` clock times, or lasts not 1 hour to a week.
+    #[error("a window is two HH:MM times (KST) and lasts 1 to 168 hours")]
+    InvalidWindow,
+    /// A window was given to an action other than `set_window`, or none to `set_window`.
+    #[error("only set_window takes a window, and it must")]
+    WindowIsASetWindow,
+}
+
+/// A run window override: two KST clock times (start inclusive, end exclusive; across midnight
+/// when the end comes first; the whole day when they are equal) and how many hours it lasts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunWindow {
+    /// `HH:MM`, KST.
+    pub start: String,
+    /// `HH:MM`, KST.
+    pub end: String,
+    /// How long the override lasts, 1 to [`MAX_WINDOW_HOURS`].
+    pub hours: i64,
+}
+
+fn is_clock(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 5
+        && bytes[2] == b':'
+        && matches!(
+            (bytes[0], bytes[1]),
+            (b'0' | b'1', b'0'..=b'9') | (b'2', b'0'..=b'3')
+        )
+        && matches!((bytes[3], bytes[4]), (b'0'..=b'5', b'0'..=b'9'))
+}
+
+/// Checks a window the way the ledger does.
+///
+/// # Errors
+/// Returns [`OperatorActionError::InvalidWindow`] when it is not.
+pub fn check_window(window: &RunWindow) -> Result<(), OperatorActionError> {
+    if is_clock(&window.start)
+        && is_clock(&window.end)
+        && (1..=MAX_WINDOW_HOURS).contains(&window.hours)
+    {
+        Ok(())
+    } else {
+        Err(OperatorActionError::InvalidWindow)
+    }
 }
 
 /// Checks a reason the way the ledger does: not blank, at most [`MAX_REASON_CHARS`], no control
@@ -96,6 +152,8 @@ mod tests {
             OperatorAction::Resume,
             OperatorAction::RunNow,
             OperatorAction::Stop,
+            OperatorAction::SetWindow,
+            OperatorAction::ClearWindow,
         ] {
             assert_eq!(OperatorAction::parse(action.as_str()), Ok(action));
         }
@@ -107,6 +165,38 @@ mod tests {
         }
         assert!(OperatorAction::RunNow.expires());
         assert!(!OperatorAction::Pause.expires());
+    }
+
+    #[test]
+    fn a_window_is_two_clock_times_for_one_hour_to_a_week() {
+        let window = |start: &str, end: &str, hours| RunWindow {
+            start: start.to_owned(),
+            end: end.to_owned(),
+            hours,
+        };
+        for good in [
+            window("09:00", "18:00", 2),
+            window("22:00", "06:00", 168),
+            window("00:00", "00:00", 1),
+        ] {
+            assert_eq!(check_window(&good), Ok(()), "{good:?}");
+        }
+        for bad in [
+            window("24:00", "06:00", 2),
+            window("9:00", "18:00", 2),
+            window("09:60", "18:00", 2),
+            window("09:00", "18:00", 0),
+            window("09:00", "18:00", 169),
+            window("09:00 ", "18:00", 2),
+        ] {
+            assert_eq!(
+                check_window(&bad),
+                Err(OperatorActionError::InvalidWindow),
+                "{bad:?}"
+            );
+        }
+        assert!(OperatorAction::SetWindow.expires());
+        assert!(!OperatorAction::ClearWindow.expires());
     }
 
     #[test]

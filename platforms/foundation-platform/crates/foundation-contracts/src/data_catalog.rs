@@ -490,6 +490,17 @@ pub struct OperatorActionRequest {
     /// A pause only: also drop the pending runs.
     #[serde(default)]
     pub drop_pending: bool,
+    /// A `set_window` only: the window's start, `HH:MM` KST.
+    #[serde(default)]
+    pub window_start: Option<String>,
+    /// A `set_window` only: the window's end, `HH:MM` KST (across midnight when it comes first; the
+    /// whole day when it equals the start).
+    #[serde(default)]
+    pub window_end: Option<String>,
+    /// A `set_window` only: how many hours the override lasts, 1 to 168; then the contract's window
+    /// is back.
+    #[serde(default)]
+    pub window_hours: Option<i64>,
 }
 
 /// The ledger's record of an operator request.
@@ -507,6 +518,10 @@ pub struct OperatorActionRecorded {
     pub actor: String,
     /// When it was asked.
     pub requested_at: DateTime<Utc>,
-    /// When a `run_now` stops being consumable; absent for the other actions.
+    /// When a `run_now` stops being consumable or a `set_window` ends; absent for the other actions.
     pub expires_at: Option<DateTime<Utc>>,
+    /// A `set_window`'s start, `HH:MM` KST.
+    pub window_start: Option<String>,
+    /// A `set_window`'s end, `HH:MM` KST.
+    pub window_end: Option<String>,
 }
