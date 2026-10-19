@@ -39,3 +39,5 @@
 ---
 
 개정 각주(2026-10-19): §1 의 연락처 필수 규칙은 [ADR-0283](./0283-the-court-auction-user-agent-names-us-without-a-contact-address.md) 이 고쳤다. User-Agent 는 제품 이름만 필수이고, 연락처는 선택이다.
+
+개정 각주(2026-10-20, 제안): §2 의 속도와 §3 의 429·503 멈춤을 고치는 안이 [ADR-0285](./0285-court-auction-details-with-adaptive-pace-and-content-addressed-photos.md) 에 있다(검토 중).
