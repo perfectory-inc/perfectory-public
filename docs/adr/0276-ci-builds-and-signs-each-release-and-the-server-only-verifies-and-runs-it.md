@@ -228,6 +228,13 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
   - 잡 이름이 바뀌면 관문이 영원히 기다리므로 `scripts/guard/release-build-self-test.sh` 가 계약의 이름이 워크플로에 있는지 본다.
 - 남은 것: 운영 compose 가 `build:` 로 짓는 이미지(foundation-api, recovery)는 아직 서버에서 빌드한다. 이 둘을 목록에서 받고
   compose 빌드를 금지해야 §10 의 R3 기준(서버 빌드 0회)이 된다. 다음 PR 이다.
+- compose 이미지 둘도 목록에서 받는다.
+  - 승인은 `foundation-platform-runtime` 과 `foundation-postgres-recovery` 를 다이제스트로 pull 하고, 서명된 `config` 인지 보고,
+    `build.json` 에 `<이름>_image` 로 적는다. 둘 다 있거나 둘 다 없어야 봉인한다. 태그는 붙이지 않는다.
+  - `foundation-release.sh migrate` 는 `foundation-api` 를 빌드하는 대신 승인의 `tag-compose-images` 를 부른다.
+    봉인을 다시 확인하고 적힌 ID 에 compose 가 쓰는 `:local` 태그를 붙인다. 적힌 것이 없으면(75, 서버 빌드 릴리스) 예전처럼 빌드한다.
+  - 정리(prune)는 `build.json` 의 `_image` 를 모두 읽으므로, 지난 릴리스의 API·복구 이미지도 그 릴리스와 함께 지워진다.
+  - compose 파일의 `build:` 는 남긴다. CI 빌드가 거기서 무엇을 지을지 읽고, 개발 환경도 쓴다.
 
 ## Rejected
 

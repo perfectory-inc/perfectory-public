@@ -1107,7 +1107,15 @@ migrate_runtime() {
     printf 'runtime compose wrapper is missing from the release: %s\n' "${runtime}" >&2
     exit 66
   }
-  "${runtime}" build foundation-api
+  # A release from the registry (root ADR-0276 §13) records the API and recovery images CI built and
+  # admission checked against the signed manifest; they become the images compose names, unbuilt.
+  local tagged=0
+  "${admission}" tag-compose-images || tagged=$?
+  case "${tagged}" in
+    0) ;;
+    75) "${runtime}" build foundation-api ;;
+    *) printf 'release admission refused the recorded compose images\n' >&2; exit 65 ;;
+  esac
   # Asks for the end state, and names no step on the way to it.
   #
   # The compose file already declares the order — postgres, bootstrap, migrate, grants,
