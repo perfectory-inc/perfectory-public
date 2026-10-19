@@ -213,7 +213,7 @@
     },
     {
       "id": "court_auction_collect",
-      "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
+      "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST unless an operator overrides that window for a bounded time (switches/court_auction_collect.window, root ADR-0282), and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
       "systemd_service": "foundation-court-auction-collect.service",
       "systemd_timer": null,
       "state_paths": [

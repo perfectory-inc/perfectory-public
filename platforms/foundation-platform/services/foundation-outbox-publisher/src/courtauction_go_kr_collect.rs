@@ -6,7 +6,9 @@
 //! - one plain HTTP client, no proxy (environment proxies are switched off), one request at a time,
 //!   at least the contract's spacing apart, identified by a fixed User-Agent naming our product (a
 //!   contact only when one is set, root ADR-0283);
-//! - only inside the quiet hours (KST), and never more than the per-run request bound;
+//! - only inside the quiet hours (KST), and never more than the per-run request bound. An operator
+//!   may override the hours for a bounded time (root ADR-0282): `switches/<job>.window`, read before
+//!   every request, so a cleared or expired override takes effect at once;
 //! - robots.txt first, every run: a disallowed search path is not asked;
 //! - any refusal signal (403, 429, 503, a Retry-After header, an HTML page where JSON belongs, the
 //!   site's `ipcheck=false`) ends the run at once, lands what was collected, and writes `refused.json`
@@ -65,6 +67,11 @@ const QUIET_HOURS_WAIVER_MAX_AGE_SECONDS: i64 = 900;
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const KST_HOURS: i64 = 9;
+/// This collection's job in orchestration/jobs.v1.json: its window override is `<switches>/<id>.window`.
+const JOB_ID: &str = "court_auction_collect";
+/// Where foundation-api writes the operators' switches (root ADR-0282 §3).
+const SWITCHES_DIR_ENV: &str = "FOUNDATION_JOB_SWITCHES_DIR";
+const SWITCHES_DIR: &str = "/var/lib/foundation-jobs/switches";
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct QuietHours {
@@ -150,18 +157,57 @@ fn clock(text: &str) -> anyhow::Result<NaiveTime> {
     NaiveTime::parse_from_str(text, "%H:%M").with_context(|| format!("{text:?} is not HH:MM"))
 }
 
-/// Whether `at` falls inside the quiet hours (KST, start inclusive, end exclusive).
-pub(crate) fn in_quiet_hours(manners: &Manners, at: DateTime<Utc>) -> anyhow::Result<bool> {
+/// Whether `at` falls inside `window` (KST, start inclusive, end exclusive; across midnight when the
+/// end comes first; the whole day when the two are equal, which only an operator's override says).
+pub(crate) fn in_quiet_hours(window: &QuietHours, at: DateTime<Utc>) -> anyhow::Result<bool> {
     let local = (at + chrono::Duration::hours(KST_HOURS)).time();
-    let (start, end) = (
-        clock(&manners.quiet_hours_kst.start)?,
-        clock(&manners.quiet_hours_kst.end)?,
-    );
-    Ok(if start <= end {
+    let (start, end) = (clock(&window.start)?, clock(&window.end)?);
+    Ok(if start == end {
+        true
+    } else if start < end {
         start <= local && local < end
     } else {
         local >= start || local < end
     })
+}
+
+/// The window this run may ask in at `at`: an operator's override (`<switches>/<job>.window`, root
+/// ADR-0282) while its `until` lies ahead, else the contract's quiet hours. An override that cannot
+/// be read is not one: the contract's window stays.
+pub(crate) fn run_window(
+    contract: &QuietHours,
+    switches: &Path,
+    at: DateTime<Utc>,
+) -> (QuietHours, Option<String>) {
+    let Ok(text) = std::fs::read_to_string(switches.join(format!("{JOB_ID}.window"))) else {
+        return (contract.clone(), None);
+    };
+    let field = |name: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+            .map(str::to_owned)
+    };
+    let (Some(start), Some(end), Some(until)) = (field("start"), field("end"), field("until"))
+    else {
+        return (contract.clone(), None);
+    };
+    let ahead = DateTime::parse_from_rfc3339(&until).is_ok_and(|until| until > at);
+    // HH:MM exactly, as the ledger keeps it: chrono's %H alone also reads `9:00`.
+    let strict = |text: &str| text.len() == 5 && clock(text).is_ok();
+    if ahead && strict(&start) && strict(&end) {
+        let who = field("actor").unwrap_or_default();
+        let why = field("reason").unwrap_or_default();
+        (
+            QuietHours { start, end },
+            Some(format!("until {until}, set by {who}: {why}")),
+        )
+    } else {
+        (contract.clone(), None)
+    }
+}
+
+fn switches_dir() -> PathBuf {
+    std::env::var_os(SWITCHES_DIR_ENV).map_or_else(|| PathBuf::from(SWITCHES_DIR), PathBuf::from)
 }
 
 /// What robots.txt asks of us: the disallowed path prefixes and a crawl delay, from the groups
@@ -417,11 +463,13 @@ pub(crate) fn read_page(
 }
 
 /// Runs the night: robots, then both searches, stopping at the first refusal, the request bound
-/// or the end of the quiet hours. `now` is asked before every request.
+/// or the end of the window. `now` and `allowed` (whether that time is inside the window) are asked
+/// before every request.
 pub(crate) async fn collect(
     contract: &SourceContract,
     collector: &mut Collector<'_>,
     now: impl Fn() -> DateTime<Utc>,
+    allowed: impl Fn(DateTime<Utc>) -> anyhow::Result<bool>,
 ) -> anyhow::Result<(BTreeMap<&'static str, SearchResult>, Option<Stop>)> {
     let mut results: BTreeMap<&'static str, SearchResult> = BTreeMap::new();
     let robots = match collector.robots().await? {
@@ -445,8 +493,7 @@ pub(crate) async fn collect(
                     return Ok((results, Some(Stop::RequestBound)));
                 }
                 let at = now();
-                if collector.quiet_hours_waived.is_none() && !in_quiet_hours(&contract.manners, at)?
-                {
+                if collector.quiet_hours_waived.is_none() && !allowed(at)? {
                     return Ok((results, Some(Stop::QuietHoursEnded)));
                 }
                 match collector
@@ -771,8 +818,18 @@ pub async fn run() -> anyhow::Result<()> {
     if let Some(reason) = &waiver {
         tracing::warn!(%reason, "courtauction.go.kr: quiet hours waived for this one attended run");
     }
-    if waiver.is_none() && !in_quiet_hours(&contract.manners, started)? {
-        println!("courtauction.go.kr: outside the quiet hours; nothing asked");
+    let switches = switches_dir();
+    let contract_window = contract.manners.quiet_hours_kst.clone();
+    let (window, overridden) = run_window(&contract_window, &switches, started);
+    match &overridden {
+        Some(by) => println!(
+            "courtauction.go.kr: the operator's window {}-{} KST ({by}) instead of the contract's {}-{}",
+            window.start, window.end, contract_window.start, contract_window.end
+        ),
+        None => println!("courtauction.go.kr: the contract's window {}-{} KST", window.start, window.end),
+    }
+    if waiver.is_none() && !in_quiet_hours(&window, started)? {
+        println!("courtauction.go.kr: outside the window; nothing asked");
         println!("foundation-job-outcome unchanged");
         return Ok(());
     }
@@ -783,7 +840,10 @@ pub async fn run() -> anyhow::Result<()> {
         config.spacing,
     )?;
     collector.quiet_hours_waived.clone_from(&waiver);
-    let (results, stop) = collect(&contract, &mut collector, Utc::now).await?;
+    let (results, stop) = collect(&contract, &mut collector, Utc::now, |at| {
+        in_quiet_hours(&run_window(&contract_window, &switches, at).0, at)
+    })
+    .await?;
 
     let mut objects = Vec::new();
     let uow;
