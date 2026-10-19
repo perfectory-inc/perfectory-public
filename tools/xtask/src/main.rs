@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
 mod ci;
+mod live;
 mod npm;
 
 /// One monorepo area and its verification requirements.
@@ -87,7 +88,7 @@ enum LaneGating {
     Feature(&'static str),
 }
 
-/// A single cargo test target, addressed the way `foundation-kafka-live.sh`
+/// A single cargo test target, addressed the way `cargo xtask live kafka`
 /// already addresses it: `-p <package> --test <test>`.
 enum LaneTarget {
     Test {
@@ -152,7 +153,7 @@ const LOCAL_ONLY_SCRIPTS: &[LocalOnlyScript] = &[LocalOnlyScript {
 }];
 
 /// The cargo invocation for each target in a lane — one per target, mirroring
-/// the loop `scripts/verify/foundation-kafka-live.sh` already runs.
+/// the loop `cargo xtask live kafka` already runs.
 ///
 /// The gating style, not a fixed suffix, decides the selecting flags:
 /// `Ignored` needs `-- --ignored`, `Feature(f)` needs `--features f` and must
@@ -568,7 +569,7 @@ const AREAS: &[Area] = &[
         // and need a migrated + seeded Postgres. scripts/verify/integration.sh
         // provisions one locally; CI's postgres-integration job provides its own.
         // The four backends that the Postgres sweep used to run against nothing.
-        // `foundation-kafka-live.sh` already provisions the Kafka stack and runs
+        // `cargo xtask live kafka` already provisions the Kafka stack and runs
         // exactly these three targets; naming them here makes that grouping the
         // harness's own definition rather than a duplicate list inside a script.
         live_lanes: &[
@@ -1043,13 +1044,19 @@ fn main() {
                 exit(1);
             }
         }
+        Some("live") => {
+            if let Err(message) = live::run(&repo_root(), &args[1..]) {
+                eprintln!("xtask live: {message}");
+                exit(1);
+            }
+        }
         Some("npm") => {
             if let Err(message) = npm::run(&repo_root(), &args[1..]) {
                 eprintln!("xtask npm: {message}");
                 exit(1);
             }
         }
-        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs | npm <command> | ci <command>>"),
+        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs | live <kafka|r2-lakehouse> | npm <command> | ci <command>>"),
     }
 }
 

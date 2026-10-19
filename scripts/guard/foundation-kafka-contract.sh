@@ -77,7 +77,7 @@ if ! grep -Fq 'consumer_contract_deduplicates_event_id_and_reads_bronze_claim_ch
 fi
 for required_text in \
   'kafka-integration:' \
-  'scripts/verify/foundation-kafka-live.sh' \
+  'cargo xtask live kafka' \
   'if: always()' \
   'FOUNDATION_TEST_KAFKA_REQUIRED'; do
   if ! grep -Fq "$required_text" "$workflow"; then
@@ -86,13 +86,13 @@ for required_text in \
   fi
 done
 
-harness='scripts/verify/foundation-kafka-live.sh'
+harness='tools/xtask/src/live.rs'
 for required_text in \
-  'trap cleanup EXIT' \
-  'compose down -v --remove-orphans' \
+  'impl Drop for Down' \
+  '"down", "-v", "--remove-orphans"' \
   'rpk topic create' \
-  'FOUNDATION_TEST_KAFKA_REQUIRED=1' \
-  'cargo xtask integration foundation kafka'; do
+  '"FOUNDATION_TEST_KAFKA_REQUIRED", "1"' \
+  'lane_command(root, "kafka")'; do
   if ! grep -Fq "$required_text" "$harness"; then
     echo "FAIL foundation-kafka-contract: live harness is missing $required_text" >&2
     fail=1

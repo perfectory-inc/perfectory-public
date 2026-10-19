@@ -79,7 +79,7 @@ async fn live_kafka_karapace_registers_publishes_consumes_and_commits_raw_writte
 /// foundation` swept the whole workspace with `--ignored`, so the Postgres job —
 /// which provisions no broker and set no such flag — reached this test on every
 /// PR and recorded it green. That sweep is gone: the only callers now are the
-/// Kafka lane and `scripts/verify/foundation-kafka-live.sh`, both of which
+/// Kafka lane and `cargo xtask live kafka`, both of which
 /// export the endpoints, so an absent broker is a provisioning failure.
 fn required_live_endpoints() -> TestResult<(String, String)> {
     let bootstrap = std::env::var("FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS");
@@ -89,7 +89,7 @@ fn required_live_endpoints() -> TestResult<(String, String)> {
         _ => Err(
             "the live Kafka lane (FOUNDATION_TEST_KAFKA_REQUIRED=1) needs both \
              FOUNDATION_TEST_KAFKA_BOOTSTRAP_SERVERS and FOUNDATION_TEST_KARAPACE_URL; \
-             run scripts/verify/foundation-kafka-live.sh"
+             run cargo xtask live kafka"
                 .into(),
         ),
     }

@@ -17,7 +17,7 @@ fi
 # completeness guard proves and the set CI executes drift apart silently.
 # identity-ci did exactly that: the lane declares two targets and the workflow ran
 # one named test inside one of them, which is why `live_provisioning` had never
-# executed. `scripts/verify/foundation-kafka-live.sh` kept its own copy of the
+# executed. the former `scripts/verify/foundation-kafka-live.sh` kept its own copy of the
 # same three target names.
 #
 # `scripts/` is scanned too — the kafka copy lives outside `.github/`, so a

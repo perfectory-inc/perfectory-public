@@ -56,10 +56,11 @@ STARTED_BY = ("schedule", "inputs")
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
 # do on their own.
-OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiting|failed) \S[^\r\n]*)\r?$", re.MULTILINE)
+OUTCOME_LINE = re.compile(rb"^foundation-job-outcome (changed|unchanged|(?:waiting|failed|skipped) \S[^\r\n]*)\r?$", re.MULTILINE)
 # The outcomes after which nothing downstream starts: nothing changed, the run waits on someone
-# else, or it failed.
-WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed")
+# else, it failed, or it was skipped (an operator paused the job, or a run-now that could not be
+# used; root ADR-0282).
+WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed", "skipped")
 # The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0277). Only
 # `unchanged` skips the run; any other word, or none, lets the run decide for itself.
 CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
@@ -137,7 +138,7 @@ def check_says_unchanged(output):
 
 
 def job_outcome(output):
-    """`changed`, `unchanged`, `waiting` or `failed`, from the tail of what a run printed (bytes or text).
+    """`changed`, `unchanged`, `waiting`, `failed` or `skipped`, from the tail of what a run printed (bytes or text).
 
     The last `foundation-job-outcome` line decides; its reason is not kept. No line counts as
     `changed`: the host runner already failed a successful run without one (root ADR-0260 §2), and

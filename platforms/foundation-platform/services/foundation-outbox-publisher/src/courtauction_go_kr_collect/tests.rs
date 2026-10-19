@@ -6,9 +6,9 @@ use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
-    collect, in_quiet_hours, read_page, read_robots, refusal_on_record, source_contract,
-    take_quiet_hours_waiver, user_agent, Collector, Page, Stop, PREFIX, QUIET_HOURS_WAIVER_FILE,
-    REFUSED_FILE,
+    collect, in_quiet_hours, read_page, read_robots, refusal_on_record, run_window,
+    source_contract, take_quiet_hours_waiver, user_agent, Collector, Page, Stop, PREFIX,
+    QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -70,15 +70,24 @@ fn the_contract_keeps_the_manners_adr_0281_names() -> anyhow::Result<()> {
         assert!(contract.refusal.http_statuses.contains(&status));
     }
     assert!(
-        !in_quiet_hours(&contract.manners, at("2099-01-01T03:00:00Z"))?,
+        !in_quiet_hours(
+            &contract.manners.quiet_hours_kst,
+            at("2099-01-01T03:00:00Z")
+        )?,
         "noon KST"
     );
     assert!(
-        in_quiet_hours(&contract.manners, at("2099-01-01T16:00:00Z"))?,
+        in_quiet_hours(
+            &contract.manners.quiet_hours_kst,
+            at("2099-01-01T16:00:00Z")
+        )?,
         "01:00 KST"
     );
     assert!(
-        !in_quiet_hours(&contract.manners, at("2099-01-01T21:00:00Z"))?,
+        !in_quiet_hours(
+            &contract.manners.quiet_hours_kst,
+            at("2099-01-01T21:00:00Z")
+        )?,
         "06:00 KST"
     );
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
@@ -171,7 +180,10 @@ async fn a_night_reads_every_condition_to_its_last_page_with_our_identity() -> a
     let server = site(3).await?;
     let agent = user_agent(&contract, None)?;
     let mut collector = Collector::new(&contract, &server.uri(), &agent, spacing()?)?;
-    let (results, stop) = collect(&contract, &mut collector, night).await?;
+    let (results, stop) = collect(&contract, &mut collector, night, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert_eq!(stop, None);
     let conditions =
         contract.item_search.conditions.len() + contract.sale_result_search.conditions.len();
@@ -228,7 +240,10 @@ async fn a_refusal_stops_the_night_at_once() -> anyhow::Result<()> {
         &user_agent(&contract, None)?,
         spacing()?,
     )?;
-    let (results, stop) = collect(&contract, &mut collector, night).await?;
+    let (results, stop) = collect(&contract, &mut collector, night, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert!(matches!(stop, Some(Stop::Refused(_))), "{stop:?}");
     assert_eq!(
         collector.sent, 3,
@@ -254,7 +269,10 @@ async fn the_request_bound_and_the_end_of_the_night_stop_without_a_refusal() -> 
         &user_agent(&contract, None)?,
         spacing()?,
     )?;
-    let (_, stop) = collect(&contract, &mut collector, night).await?;
+    let (_, stop) = collect(&contract, &mut collector, night, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert_eq!((stop, collector.sent), (Some(Stop::RequestBound), 4));
 
     let contract = source_contract()?;
@@ -273,7 +291,10 @@ async fn the_request_bound_and_the_end_of_the_night_stop_without_a_refusal() -> 
             at("2099-01-01T21:00:00Z")
         }
     };
-    let (_, stop) = collect(&contract, &mut collector, clock).await?;
+    let (_, stop) = collect(&contract, &mut collector, clock, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert_eq!((stop, collector.sent), (Some(Stop::QuietHoursEnded), 3));
     Ok(())
 }
@@ -296,7 +317,10 @@ async fn robots_can_forbid_a_search_and_slow_us_down() -> anyhow::Result<()> {
         &user_agent(&contract, None)?,
         spacing()?,
     )?;
-    let (_, stop) = collect(&contract, &mut collector, night).await?;
+    let (_, stop) = collect(&contract, &mut collector, night, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert!(matches!(stop, Some(Stop::RobotsDisallow(_))));
     assert_eq!(collector.sent, 1, "only robots.txt was asked");
     Ok(())
@@ -326,7 +350,10 @@ async fn an_attended_waiver_lets_one_run_ask_by_day_and_nothing_else_changes() -
         &user_agent(&contract, None)?,
         spacing()?,
     )?;
-    let (_, stop) = collect(&contract, &mut collector, midday).await?;
+    let (_, stop) = collect(&contract, &mut collector, midday, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert_eq!(
         (stop, collector.sent),
         (Some(Stop::QuietHoursEnded), 1),
@@ -340,7 +367,10 @@ async fn an_attended_waiver_lets_one_run_ask_by_day_and_nothing_else_changes() -
         spacing()?,
     )?;
     collector.quiet_hours_waived = Some("owner decision".to_owned());
-    let (_, stop) = collect(&contract, &mut collector, midday).await?;
+    let (_, stop) = collect(&contract, &mut collector, midday, |at| {
+        in_quiet_hours(&contract.manners.quiet_hours_kst, at)
+    })
+    .await?;
     assert_eq!(
         (stop, collector.sent),
         (Some(Stop::RequestBound), 4),
@@ -384,5 +414,58 @@ fn a_waiver_serves_one_fresh_start_and_needs_a_reason() -> anyhow::Result<()> {
         "a waiver needs a reason"
     );
     std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[test]
+fn an_operators_window_overrides_the_contracts_until_it_ends() -> anyhow::Result<()> {
+    // Root ADR-0282: switches/<job>.window, the court auction collection's run window by day.
+    let contract = source_contract()?;
+    let night = &contract.manners.quiet_hours_kst;
+    let dir = tempfile::tempdir()?;
+    let noon_kst = at("2099-01-01T03:00:00Z");
+    let (window, by) = run_window(night, dir.path(), noon_kst);
+    assert_eq!(
+        (window.start.as_str(), by),
+        (night.start.as_str(), None),
+        "no override: the contract's"
+    );
+    std::fs::write(
+        dir.path().join("court_auction_collect.window"),
+        "start=09:00\nend=18:00\nuntil=2099-01-01T06:00:00+00:00\nrequest=x\nactor=staff-a\nreason=day once\n",
+    )?;
+    let (window, by) = run_window(night, dir.path(), noon_kst);
+    assert_eq!(
+        (window.start.as_str(), window.end.as_str()),
+        ("09:00", "18:00")
+    );
+    assert!(by.is_some_and(|by| by.contains("staff-a: day once")));
+    assert!(
+        in_quiet_hours(&window, noon_kst)?,
+        "noon KST inside the operator's window"
+    );
+    let (window, by) = run_window(night, dir.path(), at("2099-01-01T06:00:00Z"));
+    assert_eq!(
+        (window.start.as_str(), by),
+        (night.start.as_str(), None),
+        "an ended override is not one"
+    );
+    std::fs::write(
+        dir.path().join("court_auction_collect.window"),
+        "start=9:00\nend=18:00\nuntil=2099-01-02T00:00:00+00:00\n",
+    )?;
+    assert_eq!(
+        run_window(night, dir.path(), noon_kst).0.start,
+        night.start,
+        "an unreadable override is not one"
+    );
+    let whole_day = super::QuietHours {
+        start: "00:00".to_owned(),
+        end: "00:00".to_owned(),
+    };
+    assert!(
+        in_quiet_hours(&whole_day, noon_kst)?
+            && in_quiet_hours(&whole_day, at("2099-01-01T16:00:00Z"))?
+    );
     Ok(())
 }

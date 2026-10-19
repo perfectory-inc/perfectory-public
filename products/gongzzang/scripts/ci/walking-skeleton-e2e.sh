@@ -45,7 +45,7 @@ sqlx migrate run --source migrations
 # `gongzzang-ci.yml` had already run, and it re-ran the twenty DB targets without being tied to the
 # lane table, so `live-lane-completeness.sh` could prove a set this job did not execute (ADR-0010
 # 남은 부채 1, ADR-0011). The alias resolves `--manifest-path` against the caller's directory, so it
-# has to be invoked from the monorepo root — the same shape `scripts/verify/foundation-kafka-live.sh`
+# has to be invoked from the monorepo root — the same shape `cargo xtask live kafka`
 # uses.
 monorepo_root="$(cd "$repo_root/../.." && pwd)"
 (cd "$monorepo_root" && cargo xtask integration gongzzang postgres)
