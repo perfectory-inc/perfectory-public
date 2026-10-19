@@ -229,8 +229,8 @@
         "source-courtauction-go-kr-to-silver-court-auction-item",
         "source-courtauction-go-kr-to-silver-court-auction-sale-result"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0283). Off until a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-19T17:37:53Z"
     },
     {
       "id": "court_auction_silver",
@@ -253,8 +253,8 @@
         "source-courtauction-go-kr-to-silver-court-auction-item",
         "source-courtauction-go-kr-to-silver-court-auction-sale-result"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0283). Off until a first supervised night (runbook court-auction.md) ran without a refusal; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-19T17:37:53Z"
     },
     {
       "id": "registered_factory",

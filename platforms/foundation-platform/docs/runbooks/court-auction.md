@@ -33,8 +33,10 @@ last_reviewed: 2026-10-19
 
 ## 처음 켜기
 
-1. 새벽(01:00–06:00 KST)에 단위를 직접 한 번 시작해 지켜본다:
-   `sudo systemctl start foundation-court-auction-collect.service`. 요청 수·소요 시간·거절 없음을 확인한다.
+1. 새벽(01:00–06:00 KST)에 운영자 경로로 한 번 시작해 지켜본다(작업이 꺼져 있을 때만 받는다):
+   `ssh -tt ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start court_auction_collect --requested-at "$(date +%s)" --reason "<왜>"'`.
+   요청 수·소요 시간·거절 없음을 확인한다. 2026-10-20 01:02 KST 첫 밤: 1,377요청(물건 1,125 · 매각결과 251 · robots 1),
+   1시간 18분, 거절 없음, Bronze 13.6MB. 적재: 물건 43,821행 중 PNU 86.5%, 매각결과 10,120행 중 97.0%.
    User-Agent 는 `perfectory-foundation-court-auction/<버전>` 이다. 연락처는 선택이다(ADR-0283):
    `/etc/foundation-platform/court-auction.env` 에 `FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT` 가 있으면 `(+연락처)` 로 붙는다.
 2. 적재 단위를 한 번 시작하고 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다.
