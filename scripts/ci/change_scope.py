@@ -440,6 +440,13 @@ def decide_crates(
     run_all += [glob_regex(f"{workspace}/{g}") for g in rules["run_all_in_workspace"]]
     direct: set[str] = set()
     readers: set[str] = set()
+    # The top folders that hold members: a quoted bare word naming one is a test that walks every
+    # crate's sources (member_reads), which reads them as text and compiles none of them in.
+    walked_roots = {
+        f"{workspace}/{PurePosixPath(directory).relative_to(workspace).parts[0]}"
+        for directory, _ in members.values()
+        if directory.startswith(workspace + "/")
+    }
     for path in sorted(changed):
         if any(pattern.match(path) for pattern in run_all):
             return None, set(), set(), f"run-all input changed: {path}"
@@ -449,14 +456,18 @@ def decide_crates(
         elif path.startswith(workspace + "/") and path.endswith(".rs"):
             return None, set(), set(), f"Rust source outside every crate: {path}"
         ancestors = {path} | {str(p) for p in PurePosixPath(path).parents}
-        named_by = {name for name, paths in reads.items() if paths & ancestors}
+        named_by = {name for name, paths in reads.items() if (paths & ancestors) - walked_roots}
+        walkers = {name for name, paths in reads.items() if paths & ancestors & walked_roots}
         # Another crate's source or manifest is text to the test that reads it: the reader's
         # build does not change, so its dependents do not run. Any other file it names may be
-        # compiled in (`include_str!`), and its dependents run as for a change in it.
+        # compiled in (`include_str!`), and its dependents run as for a change in it. A walk over
+        # every crate is text whatever the file (2026-10-19: a JSON fixture inside foundation-api
+        # ran two walkers' 14 dependents, the Postgres job's 8 minutes).
         if owner is not None and (path.endswith(".rs") or path.endswith("/Cargo.toml")):
-            readers |= named_by
+            readers |= named_by | walkers
         else:
             direct |= named_by
+            readers |= walkers
     selected = closure(members, direct)
     readers -= selected
     return (

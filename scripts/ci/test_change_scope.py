@@ -373,6 +373,19 @@ class CratesTest(unittest.TestCase):
         selected, _, _, _ = self.decide({"platforms/ws/services/api/src/lib.rs"}, reads=reads)
         self.assertEqual(selected, {"api", "tool"})
 
+    def test_a_walk_over_every_crate_reruns_the_walker_and_not_its_dependents(self) -> None:
+        # domain's test walks every crate under services/; a data file inside api changes: api runs
+        # (as the crate holding it), domain runs (it reads it), domain's other dependents do not.
+        reads = {"domain": {"platforms/ws/services"}}
+        selected, direct, readers, _ = self.decide({"platforms/ws/services/api/fixtures/example.json"}, reads=reads)
+        self.assertEqual((direct, readers), ({"api"}, {"domain"}))
+        self.assertEqual(selected, {"api", "domain"})
+        # A file a crate names itself may be compiled in: that crate's dependents still run.
+        reads = {"domain": {"platforms/ws/services/api/fixtures/example.json"}}
+        selected, direct, _, _ = self.decide({"platforms/ws/services/api/fixtures/example.json"}, reads=reads)
+        self.assertEqual(direct, {"api", "domain"})
+        self.assertEqual(selected, {"api", "domain", "app"})
+
     def test_a_crate_whose_tests_read_another_crates_source_is_selected_with_it(self) -> None:
         # tool's test reads kernel's source as text: tool runs, but tool's dependents do not.
         reads = {"tool": {"platforms/ws/crates/kernel/src/lib.rs"}, "api": {"platforms/ws/crates/domain"}}
