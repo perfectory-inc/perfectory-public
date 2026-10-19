@@ -1194,6 +1194,16 @@ fn data_go_kr_registered_factory_collect_command_is_explicit() -> anyhow::Result
     Ok(())
 }
 
+/// The Silver load plan: what a table still owes from its Bronze sources, read from R2 (ADR-0280).
+#[test]
+fn plan_silver_load_objects_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "plan-silver-load-objects"])?,
+        Command::PlanSilverLoadObjects
+    );
+    Ok(())
+}
+
 #[test]
 fn artifact_batch_commands_run_with_expanded_stack() {
     assert!(command_requires_expanded_stack(

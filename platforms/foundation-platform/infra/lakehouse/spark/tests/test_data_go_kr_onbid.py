@@ -2,13 +2,14 @@
 
 PNU 는 합성 지역 99 를 쓰고 물건관리번호는 지어낸 것이다. 각 관문은 거부해야 할 것을 심어서 확인한다:
 대장구분 숫자가 틀린 PNU, 19자리가 아닌 PNU, 숫자가 아닌 최저입찰가, 03·429 답, 두 쪽에 걸친 같은 회차,
-키가 없는 행, 다른 형식의 매니페스트.
+키가 없는 행, 끝까지 읽지 못한 조합, 다른 형식의 계획, 이 적재가 맡지 않은 원천.
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -58,15 +59,6 @@ class PnuTest(unittest.TestCase):
         self.assertEqual(job.item_row(item(), CONTRACT)["ltno_pnu_raw"], "9999999999000010000")
 
 
-class OwnershipTest(unittest.TestCase):
-    def test_the_job_only_reads_the_handoffs(self) -> None:
-        # The host script owns pending/ and moves a handoff after the load; the Spark container runs
-        # as another user and could not (2026-10-19 first load: PermissionError on rmdir).
-        source = Path(job.__file__).read_text(encoding="utf-8")
-        for call in ("shutil.move", "os.rename", ".rename(", "rmdir", "unlink("):
-            self.assertNotIn(call, source)
-
-
 class ValueTest(unittest.TestCase):
     def test_provider_minutes_are_korean_time(self) -> None:
         self.assertEqual(job.kst_minute("209901051000"), datetime(2099, 1, 5, 1, 0))
@@ -106,6 +98,13 @@ class ContractTest(unittest.TestCase):
             built = set(build(item())) | {"source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc"}
             self.assertEqual(built | ({"row_state"} & names), names, table)
 
+    def test_the_load_window_is_shorter_than_the_snapshot_retention(self) -> None:
+        # plan-silver-load-objects refuses it too; an expired snapshot takes its load record with it.
+        text = (SPARK_DIR.parent / "contracts" / "lakehouse-maintenance.contract.json").read_text(encoding="utf-8")
+        retain = [int(n) for n in re.findall(r'"retain_days"\s*:\s*(\d+)', text)]
+        self.assertTrue(retain)
+        self.assertLess(CONTRACT["silver_load"]["window_days"], min(retain))
+
     def test_content_leaves_out_the_key_and_what_the_load_writes(self) -> None:
         content = job.content_columns(load_lakehouse_contract(job.ITEM_TABLE))
         for name in (*job.KEY, *job.LOAD_COLUMNS):
@@ -113,37 +112,69 @@ class ContractTest(unittest.TestCase):
         self.assertIn("pbct_stat_cd", content)
 
 
-class HandoffTest(unittest.TestCase):
-    def write(self, root: Path, complete: bool, schema: str = job.MANIFEST_SCHEMA) -> Path:
-        handoff = root / "pending" / "20990102T030405Z"
-        (handoff / "objects").mkdir(parents=True)
+def combos():
+    return [(code, flag) for code in CONTRACT["property_division_codes"] if not code.startswith("$")
+            for flag in CONTRACT["item_list"]["private_contract_flags"]]
+
+
+def asked(line, code, flag):
+    return {**line, "request": {"prptDivCd": code, "pvctTrgtYn": flag, "pageNo": "1"}}
+
+
+class CompletenessTest(unittest.TestCase):
+    def test_a_pass_is_complete_only_when_every_combination_was_read_to_its_end(self) -> None:
+        first, *rest = combos()
+        ended = [asked(page([], code="03"), code, flag) for code, flag in rest]
+        whole = [asked(page([item()]), *first), *ended]
+        self.assertTrue(job.item_pass_complete(whole, CONTRACT))
+        self.assertFalse(job.item_pass_complete(ended, CONTRACT), "a combination never asked")
+        short = {**page([item()]), "body": json.dumps({"header": {"resultCode": "00"},
+                                                        "body": {"items": {"item": [item()]}, "totalCount": 2}})}
+        self.assertFalse(job.item_pass_complete([asked(short, *first), *ended], CONTRACT), "stopped before totalCount")
+        quota = asked({**page([item()]), "http_status": 429}, *first)
+        self.assertFalse(job.item_pass_complete([quota, *ended], CONTRACT), "refused by quota")
+
+
+class PlanTest(unittest.TestCase):
+    ITEM = "bronze/source=datagokr__onbid_real_estate_item/item-list-20990102t030405z.gz"
+    RESULT = "bronze/source=datagokr__onbid_item_bid_result/item-bid-result-20990102t030405z.gz"
+
+    def write(self, root: Path, entries, schema: str = job.PLAN_SCHEMA) -> Path:
         objects = []
-        for role, lines in (("item_list", [page([item()])]), ("item_bid_result", [page([item("X-0009", 3, scfbAmt="30000000")])]),
-                            ("announcement_list", [page([], code="03")])):
-            path = handoff / "objects" / f"{role}.gz"
-            with gzip.open(path, "wt", encoding="utf-8") as out:
+        for key, lines in entries:
+            slug = key.split("/")[1].removeprefix("source=")
+            local = f"objects/{slug}/{key.rsplit('/', 1)[1]}"
+            (root / local).parent.mkdir(parents=True, exist_ok=True)
+            with gzip.open(root / local, "wt", encoding="utf-8") as out:
                 out.write("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines))
-            objects.append({"role": role, "object_key": f"bronze/source=x/{role}.gz", "local_path": f"objects/{role}.gz"})
-        (handoff / "manifest.json").write_text(json.dumps({
-            "schema_version": schema, "source_snapshot_id": "20990102T030405Z",
-            "report": {"item_pass_complete": complete}, "objects": objects}), encoding="utf-8")
-        return handoff
+            objects.append({"object_key": key, "source_slug": slug, "local_path": local, "size_bytes": 1})
+        (root / "plan.json").write_text(json.dumps({"schema_version": schema, "objects": objects}), encoding="utf-8")
+        return root
 
-    def test_a_handoff_gives_item_and_result_rows_and_says_whether_the_pass_was_complete(self) -> None:
+    def test_a_plan_gives_rows_by_source_oldest_run_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            handoff = self.write(Path(tmp), complete=False)
-            loads = job.read_handoff(handoff, CONTRACT, NOW)
-            self.assertFalse(loads["item_pass_complete"])
-            key, rows = loads["items"]
-            self.assertEqual((key, len(rows), rows[0]["pnu"]), ("bronze/source=x/item_list.gz", 1, "9999999999100010000"))
-            self.assertEqual(loads["results"][1][0]["winning_bid_amount_krw"], 30000000)
-            self.assertEqual(job.pending_handoffs(Path(tmp)), [handoff])
+            items = self.write(Path(tmp) / "items", [(self.ITEM, [page([item()])]),
+                                                     (self.ITEM.replace("20990102", "20990101"), [page([item()])])])
+            results = self.write(Path(tmp) / "results", [(self.RESULT, [page([item("X-0009", 3, scfbAmt="30000000")])])])
+            planned = job.planned_objects([items, results], CONTRACT)
+            self.assertEqual([(o["role"], o["source_snapshot_id"]) for o in planned],
+                             [("item_list", "20990101T030405Z"), ("item_bid_result", "20990102T030405Z"),
+                              ("item_list", "20990102T030405Z")])
+            loads = job.read_object(planned[2], CONTRACT, NOW)
+            self.assertFalse(loads["complete"])
+            self.assertEqual((loads["rows"][0]["pnu"], loads["rows"][0]["source_record_id"]),
+                             ("9999999999100010000", self.ITEM))
+            self.assertEqual(job.read_object(planned[1], CONTRACT, NOW)["rows"][0]["winning_bid_amount_krw"], 30000000)
 
-    def test_a_manifest_of_another_kind_is_refused(self) -> None:
+    def test_a_plan_of_another_kind_or_source_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            handoff = self.write(Path(tmp), complete=True, schema="something.else.v1")
             with self.assertRaises(ValueError):
-                job.read_handoff(handoff, CONTRACT, NOW)
+                job.planned_objects([self.write(Path(tmp) / "a", [(self.ITEM, [])], schema="x.v1")], CONTRACT)
+            other = "bronze/source=datagokr__onbid_announcement/announcement-list-20990102t030405z.gz"
+            with self.assertRaises(ValueError):
+                job.planned_objects([self.write(Path(tmp) / "b", [(other, [])])], CONTRACT)
+            with self.assertRaises(ValueError):
+                job.snapshot_id("bronze/source=datagokr__onbid_real_estate_item/no-run-id.gz")
 
 
 if __name__ == "__main__":

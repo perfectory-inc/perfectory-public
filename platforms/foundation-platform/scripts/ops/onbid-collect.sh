@@ -6,8 +6,9 @@
 #             회차의 입찰결과(오래된 것부터)를 API 마다 하루 상한 안에서 받아, API 하나에 gzip JSON Lines
 #             Bronze 객체 하나로 남긴다(data-go-kr-onbid.contract.json). 상한을 다 쓴 API 는 다음 날을
 #             기다린다. 키·파라미터 문제(00·03 이 아닌 답)는 실패다.
-#   2. 넘김 — 물건이나 입찰결과 객체가 생겼으면 실행 폴더를 적재 대기 넘김(lakehouse/pending/<실행>/)으로
-#             옮긴다. 적재는 onbid_public_sale_silver(onbid-silver-load.sh)가 한다.
+#
+# 적재로 넘기는 것은 없다. 적재(onbid_public_sale_silver, onbid-silver-load.sh)는 R2 의 Bronze 와 Silver
+# 표의 커밋 기록만 보고 쌓을 객체를 정한다(plan-silver-load-objects). 성공한 실행 폴더는 지운다.
 #
 # 키(DATA_GO_KR_SERVICE_KEY)는 /etc/foundation-platform/data-go-kr.env 에 있다(runtime-secrets 그룹
 # data-go-kr). 없으면 아무것도 하기 전에 78 로 끝난다. 어느 단계든 실패하면 0 이 아닌 값으로 끝나고,
@@ -44,7 +45,7 @@ COLLECT="FOUNDATION_PLATFORM_DATA_GO_KR_ONBID"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
-mkdir -p "${work}/collect" "${STATE_ROOT}/collector" "${STATE_ROOT}/lakehouse/pending"
+mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
@@ -52,18 +53,8 @@ trap 'job_journal "${journal}" "onbid collect FAILED at line ${LINENO} run=${run
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
   "${PUBLISHER_BIN}" collect-data-go-kr-onbid >> "${run_log}" 2>&1
 
-# 2. 넘김: 적재할 객체(물건·입찰결과)가 있을 때만.
-loadable="$(python3 -I -c '
-import json, sys
-manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-print(sum(1 for o in manifest["objects"] if o["written"] and o["role"] in ("item_list", "item_bid_result")))
-' "${work}/collect/manifest.json")"
-if [ "${loadable}" != 0 ]; then
-  mv "${work}/collect" "${STATE_ROOT}/lakehouse/pending/${run_id}"
-  chmod -R a+rwX "${STATE_ROOT}/lakehouse/pending/${run_id}" # Spark 컨테이너는 uid 185 로 옮긴다.
-  job_journal "${journal}" "onbid collect ok run=${run_id} staged"
-  printf 'foundation-job-outcome changed\n'
-else
-  job_journal "${journal}" "onbid collect ok run=${run_id} nothing to load"
-  printf 'foundation-job-outcome unchanged\n'
-fi
+outcome="$(grep '^foundation-job-outcome ' "${run_log}" | tail -1)"
+job_journal "${journal}" "onbid collect ok run=${run_id} ${outcome#foundation-job-outcome }"
+# The objects are in R2 (the Bronze ledger records them); the local copies are not needed again.
+rm -rf "${work}/collect"
+printf '%s\n' "${outcome:-foundation-job-outcome unchanged}"
