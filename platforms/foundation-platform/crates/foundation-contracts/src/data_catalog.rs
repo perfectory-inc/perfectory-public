@@ -478,3 +478,35 @@ pub struct DataQualityStatus {
     /// The contracts, by id.
     pub contracts: Vec<DataContractQuality>,
 }
+
+/// An operator switch of one scheduled job (root ADR-0282): `pause`, `resume`, `run_now` or `stop`.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct OperatorActionRequest {
+    /// `pause` (no new run until resumed), `resume`, `run_now` (once, through the same queue as a
+    /// scheduled start; expires in 10 minutes if not started) or `stop` (end the run in progress).
+    pub action: String,
+    /// Why, in one line of 1 to 300 characters; kept in the append-only ledger.
+    pub reason: String,
+    /// A pause only: also drop the pending runs.
+    #[serde(default)]
+    pub drop_pending: bool,
+}
+
+/// The ledger's record of an operator request.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct OperatorActionRecorded {
+    /// The request's id; a `run_now` is consumed by it.
+    pub id: String,
+    /// The job's id.
+    pub job_id: String,
+    /// What was asked.
+    pub action: String,
+    /// Whether a pause also drops the pending runs.
+    pub drop_pending: bool,
+    /// The staff member who asked.
+    pub actor: String,
+    /// When it was asked.
+    pub requested_at: DateTime<Utc>,
+    /// When a `run_now` stops being consumable; absent for the other actions.
+    pub expires_at: Option<DateTime<Utc>>,
+}

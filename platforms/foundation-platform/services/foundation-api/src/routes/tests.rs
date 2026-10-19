@@ -364,5 +364,6 @@ mod health_and_metrics;
 mod lineage_review;
 mod map_edits;
 mod normalization;
+mod operator_actions;
 mod route_policies;
 mod routing;

@@ -7,10 +7,11 @@ use std::time::Duration;
 use catalog_application::{
     ports::{MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
-    RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
+    RecordOperatorAction, RegisterIndustrialComplex, RollbackVectorTileManifest,
+    UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
-    PgCatalogRepository, PgCatalogUnitOfWork, PgParcelMarkerAnchorRebuilder,
+    PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger, PgParcelMarkerAnchorRebuilder,
 };
 use foundation_normalization_application::{
     ApplyNormalizationProposal, NormalizationUnitOfWork, ReviewNormalizationProposal,
@@ -295,6 +296,8 @@ pub struct AppState {
     pub rollback_normalization_application: RollbackNormalizationApplication,
     /// Review items, claims, decisions and approvals of parcel lineage (root ADR-0115).
     pub lineage_stewardship: Arc<dyn LineageStewardshipStore>,
+    /// Operator switches of scheduled jobs, into the append-only ledger (root ADR-0282).
+    pub record_operator_action: RecordOperatorAction,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
@@ -684,6 +687,17 @@ impl AppState {
         self
     }
 
+    /// Records operator requests in this ledger instead of the database one (route tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_operator_action_ledger(
+        mut self,
+        ledger: Arc<dyn catalog_application::ports::OperatorActionLedger>,
+    ) -> Self {
+        self.record_operator_action = RecordOperatorAction::new(ledger);
+        self
+    }
+
     /// Sends admin polygon edits to this store instead of refusing them (ADR-0112).
     #[must_use]
     pub fn with_map_edit_store(mut self, store: Arc<dyn MapEditStore>) -> Self {
@@ -761,6 +775,8 @@ impl AppState {
         let rollback_normalization_application =
             RollbackNormalizationApplication::new(normalization_uow);
         let lineage_stewardship = Arc::new(PgLineageStewardshipStore::new(pool.clone()));
+        let record_operator_action =
+            RecordOperatorAction::new(Arc::new(PgOperatorActionLedger::new(pool.clone())));
 
         Self {
             database_pool: pool,
@@ -784,6 +800,7 @@ impl AppState {
             apply_normalization_proposal,
             rollback_normalization_application,
             lineage_stewardship,
+            record_operator_action,
             identity_authorization,
             // Fail closed. Only a deployment that says so turns publication on, so a test
             // harness or a forgotten variable can never publish.

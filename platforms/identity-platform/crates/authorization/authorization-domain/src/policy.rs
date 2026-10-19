@@ -53,6 +53,10 @@ pub const STAFF_ROLE_GRANTS: &[StaffRoleGrant] = &[
     grant("VECTOR_TILE_ADMIN", "foundation.metadata", "read"),
     grant("LINEAGE_STEWARD", "foundation.metadata", "read"),
     grant("LINEAGE_ADJUDICATOR", "foundation.metadata", "read"),
+    // Switching scheduled jobs: pause, resume, run once now, stop (Foundation root ADR-0282). The
+    // role starts with nobody: only MASTER_ADMIN, the owner, operates jobs until the owner grants
+    // JOB_OPERATOR to a staff member (POST /identity/v1/staff/{staff_id}/roles).
+    grant("JOB_OPERATOR", "foundation.operations", "operate"),
 ];
 
 /// Input required to evaluate an authorization policy decision.
