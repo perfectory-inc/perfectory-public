@@ -50,8 +50,11 @@ print("foundation-job-outcome changed")
 """
 
 FAKE_DOCKER = r"""#!/usr/bin/env python3
-import os
+import os, sys
 open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write("called\n")
+if os.environ.get("FAKE_DOCKER_FAIL") == "1":
+    sys.exit(1)
+print('data-go-kr-onbid-summary-json {"status": "loaded"}')
 """
 
 
@@ -127,6 +130,22 @@ class OnbidCommands(unittest.TestCase):
                 self.assertIn(name, result.stderr)
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
+
+    def test_the_host_moves_a_loaded_handoff_and_keeps_a_failed_one(self):
+        # The Spark container runs as another user and only reads the handoffs (2026-10-19: it could
+        # not remove one the host made); the script that owns them moves them after the load.
+        self.run_script(self.collect)
+        [handoff] = self.pending()
+        self.env["FAKE_DOCKER_FAIL"] = "1"
+        failed = self.run_script(self.load)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(self.pending(), [handoff], "a failed load leaves the handoff for the next run")
+        self.env["FAKE_DOCKER_FAIL"] = "0"
+        loaded = self.run_script(self.load)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertEqual(self.pending(), [])
+        self.assertTrue((self.state / "lakehouse/loaded" / handoff.name / "manifest.json").exists())
+        self.assertEqual(loaded.stdout.splitlines()[-1], "foundation-job-outcome changed")
 
     def test_the_load_with_nothing_pending_ends_without_spark(self):
         result = self.run_script(self.load)
