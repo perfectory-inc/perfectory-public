@@ -4,6 +4,7 @@ A `takes_turns` job starts at most once between starts of the jobs in its pool t
 beside it. sudo, systemctl and journalctl are stand-ins that record what the script asked for.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -94,7 +95,10 @@ class HostFixture(unittest.TestCase):
                     "FIXTURE_ROOT": str(self.root), "FOUNDATION_SCHEDULED_JOBS_FILE": str(self.root / "jobs.json"),
                     "FOUNDATION_SCHEDULED_STARTS_DIR": str(self.starts),
                     "FOUNDATION_RELEASE_ADMISSION": str(bin_dir / "admission"),
-                    "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred)}
+                    "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred),
+                    "FOUNDATION_JOB_SWITCHES_DIR": str(self.root / "switches"),
+                    "FOUNDATION_SCHEDULED_CONSUMED_DIR": str(self.root / "consumed")}
+        (self.root / "switches/run-now.d").mkdir(parents=True)
 
     def start(self, job, **env):
         for path in (self.root / "started", self.root / "sudo.log", self.root / "listed", self.root / "sleep.log",
@@ -162,6 +166,81 @@ class EveryStartTakesThePoolsSlots(HostFixture):
         result, asked = self.start("bake", FIXTURE_HELD="foundation-fold.service")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+
+
+class TheOperatorsSwitches(HostFixture):
+    """Root ADR-0282: a paused job starts no run; an operator's run-now runs once, unexpired."""
+
+    REQUEST = "44444444-4444-4444-8444-444444444444"
+
+    def pause(self, job):
+        (self.root / "switches" / job).write_text("paused\nactor=staff\nreason=a stop for the night\n")
+
+    def ask(self, job, minutes=9, request=None):
+        when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+        (self.root / "switches/run-now.d" / (request or self.REQUEST)).write_text(
+            f"request={request or self.REQUEST}\nactor=staff\nreason=a supervised run\njob={job}\n"
+            f"expires_at={when.isoformat()}\n")
+
+    def test_a_paused_job_is_skipped_and_starts_nothing(self):
+        self.pause("floor")
+        for request in ("floor", "floor triggered"):
+            with self.subTest(request=request):
+                result, asked = self.start(request)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(asked, "")
+                self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome skipped paused")
+                self.assertIn("a stop for the night", result.stdout)
+        listing = json.loads((self.root / "jobs.json").read_text())
+        listing["jobs"][0]["check_service"] = "foundation-floor-check@lane.service"
+        (self.root / "jobs.json").write_text(json.dumps(listing))
+        result, asked = self.start("floor check")
+        self.assertEqual((result.returncode, asked), (0, ""), result.stderr)
+        self.assertNotIn("foundation-job-outcome", result.stdout, "a check says no outcome")
+        sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
+        import job_specs  # noqa: E402
+        self.assertEqual(job_specs.job_outcome("foundation-job-outcome skipped paused\n"), "skipped")
+        self.assertIn("skipped", job_specs.WITHHOLDS_EVENTS)
+
+    def test_a_run_now_runs_once_even_while_paused(self):
+        self.pause("floor")
+        self.ask("floor")
+        result, asked = self.start(f"floor requested {self.REQUEST}")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-floor.service", asked)
+        self.assertIn(f"run-now {self.REQUEST} of floor by staff: a supervised run", result.stdout)
+        self.assertTrue((self.root / "consumed" / self.REQUEST).exists())
+        again, asked = self.start(f"floor requested {self.REQUEST}")
+        self.assertEqual((again.returncode, asked), (0, ""), "a run-now was used twice")
+        self.assertEqual(again.stdout.splitlines()[-1], "foundation-job-outcome skipped the request was used already")
+
+    def test_a_run_now_that_expired_or_is_another_jobs_or_unknown_starts_nothing(self):
+        self.ask("floor", minutes=-1)
+        result, asked = self.start(f"floor requested {self.REQUEST}")
+        self.assertEqual((result.returncode, asked), (0, ""))
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome skipped the request expired")
+        other = "55555555-5555-4555-8555-555555555555"
+        self.ask("fold", request=other)
+        result, asked = self.start(f"floor requested {other}")
+        self.assertEqual(asked, "")
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome skipped the request is another job's")
+        result, asked = self.start("floor requested 66666666-6666-4666-8666-666666666666")
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome skipped no such request")
+        self.assertFalse((self.root / "consumed").exists() and list((self.root / "consumed").iterdir()),
+                         "a refused request was marked used")
+        for malformed in ("floor requested ../../x", "floor requested 4444", "floor check requested " + self.REQUEST):
+            with self.subTest(request=malformed):
+                result, asked = self.start(malformed)
+                self.assertEqual((result.returncode, asked), (64, ""), result.stdout)
+
+    def test_a_run_now_starts_a_job_that_is_off(self):
+        # `paused` is listed with enabled false: Airflow never starts it, an operator's run-now may.
+        result, asked = self.start("paused")
+        self.assertEqual((result.returncode, asked), (64, ""))
+        self.ask("paused")
+        result, asked = self.start(f"paused requested {self.REQUEST}")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-paused.service", asked)
 
 
 class TakingTurns(HostFixture):

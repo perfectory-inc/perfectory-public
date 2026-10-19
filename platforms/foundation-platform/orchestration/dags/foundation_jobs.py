@@ -39,6 +39,14 @@ START = pendulum.datetime(2026, 10, 1, tz="UTC")
 CONNECTION = "foundation_host"
 # The XCom `run` leaves for `publish_outputs`: one word, never the journal.
 OUTCOME_KEY = "outcome"
+# What the host's forced command reads after the job id, rendered by Airflow per run: nothing for a
+# clock start, ` triggered` for any other, ` requested <id>` for an operator's run-now. The id is
+# whatever the conf says; the host accepts only a request of its own (root ADR-0282 §4).
+RUN_KIND = (
+    "{{ ' requested ' ~ dag_run.conf['operator_request'] "
+    "if dag_run.conf and dag_run.conf.get('operator_request') "
+    "else ('' if dag_run.run_type == 'scheduled' else ' triggered') }}"
+)
 # A job's check (jobs.v1.json `check_service`, root ADR-0277) and its bound: the slowest lane's
 # took 4.2 s (2026-10-14..18), the unit's own TimeoutStartSec is 5 minutes.
 CHECK_TASK_ID = "check"
@@ -52,10 +60,11 @@ class RunJob(SSHOperator):
         output = super().run_ssh_client_command(ssh_client, command, context=context)
         outcome = job_outcome(output)
         context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
-        if outcome == "waiting":
+        if outcome in ("waiting", "skipped"):
             # Not a failure and not a success: skipped, which the data flow map shows as waiting with
-            # the reason from this log (root ADR-0260). publish_outputs is skipped with it.
-            raise AirflowSkipException("the run ended waiting; its last foundation-job-outcome line says for what")
+            # the reason from this log (root ADR-0260); a paused job or an unusable run-now is
+            # skipped too (root ADR-0282). publish_outputs is skipped with it.
+            raise AirflowSkipException(f"the run ended {outcome}; its last foundation-job-outcome line says why")
         return b""
 
 
@@ -127,8 +136,10 @@ for spec in load_specs():
             ssh_conn_id=CONNECTION,
             # The host's forced command reads this as the job id, and `triggered` when the run was
             # not started by the clock: a run its inputs started, or one an operator triggered, is
-            # never deferred by takes_turns (root ADR-0179). Rendered by Airflow per run.
-            command=spec.job_id + "{{ '' if dag_run.run_type == 'scheduled' else ' triggered' }}",
+            # never deferred by takes_turns (root ADR-0179); `requested <id>` when an operator's
+            # run-now started it (conf `operator_request`, root ADR-0282 §4), which the host checks
+            # and uses once. Rendered by Airflow per run.
+            command=spec.job_id + RUN_KIND,
             # Seconds without output before the run counts as hung; the journal prints as it goes.
             cmd_timeout=spec.timeout_minutes * 60,
             # The journal is not kept as an XCom; the outcome is (RunJob).
