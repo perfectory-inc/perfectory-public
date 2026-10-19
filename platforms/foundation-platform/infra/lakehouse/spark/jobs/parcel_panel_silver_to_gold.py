@@ -94,6 +94,7 @@ from platform_contracts import (
     ensure_contract_table,
     current_rows,
     load_lakehouse_contract,
+    with_contract_columns,
     partition_column_names,
     required_column_names,
     sort_order,
@@ -403,9 +404,8 @@ def read_source(
     else:
         frame = read_pinned_iceberg(spark,
             f"{args.iceberg_catalog_name}.{source_namespace(args, contract_name)}.{table}", contract_name, pins)
-    missing = sorted(set(expected_columns) - set(frame.columns))
-    if missing:
-        raise ValueError(f"{contract_name} input is missing columns: {', '.join(missing)}")
+    # A pinned snapshot predates the columns added since; they read as null (with_contract_columns).
+    frame = with_contract_columns(frame, contract)
     # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
     return current_rows(frame.select(*expected_columns), contract)
 

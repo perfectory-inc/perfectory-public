@@ -316,6 +316,29 @@ def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
                             keep_ties=keep_ties)
 
 
+def with_contract_columns(frame: Any, contract: dict[str, Any]) -> Any:
+    """``frame`` with every contract column: one the table gained after the snapshot ``frame`` was read
+    at is null, as Iceberg reads it from files written before it. A missing required column is refused.
+
+    Time travel by snapshot id reads that snapshot's schema, so a pinned read of a table that gained a
+    nullable column since lacks it; on 2026-10-19 the parcel panel refused its pinned transfer history
+    for lacking ``row_state``, added by the deploy after the pin was taken.
+    """
+
+    have = set(frame.columns)
+    missing = [column for column in columns(contract) if column["name"] not in have]
+    required = sorted(column["name"] for column in missing if column["required"])
+    if required:
+        raise ValueError(f"{contract.get('table_name')} input is missing columns: {', '.join(required)}")
+    if not missing:
+        return frame
+    from pyspark.sql import functions as F
+
+    for column in missing:
+        frame = frame.withColumn(column["name"], F.lit(None).cast(spark_sql_type(column["logical_type"])))
+    return frame
+
+
 def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     """The rows of ``frame`` the contract calls current; the one way a reader selects them.
 
@@ -365,7 +388,9 @@ def current_rows_of_versioned(frame: Any, table_name: str) -> Any:
     if table_name not in load_lakehouse_artifact()["contracts"]:
         return frame
     contract = load_lakehouse_contract(table_name)
-    return current_rows(frame, contract) if current_row_latest(contract) is not None else frame
+    if current_row_latest(contract) is None:
+        return frame
+    return current_rows(with_contract_columns(frame, contract), contract)
 
 
 def create_table_columns_sql(contract: dict[str, Any], indent: int = 12) -> str:

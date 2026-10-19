@@ -25,7 +25,7 @@ from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert
                               iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from platform_contracts import (column_names, current_row_latest, current_rows, ensure_contract_table,
-    load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
+    load_lakehouse_contract, partition_column_names, required_column_names, sort_order, with_contract_columns)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import evidence_policy, verified_building_links
@@ -151,9 +151,8 @@ def read_source(spark, args, name, pins, after=None, batches=None):
         frame = incremental.read_appended(spark, iceberg_table(args, name), after, pins[name])
     else:
         frame = read_pinned_iceberg(spark, iceberg_table(args, name), name, pins)
-    missing = set(column_names(contract)) - set(frame.columns)
-    if missing:
-        raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
+    # A pinned snapshot predates the columns added since; they read as null (with_contract_columns).
+    frame = with_contract_columns(frame, contract)
     if (after is not None or batches is not None) and current_row_latest(contract) is not None:
         # The newest row per key needs every version of the key, not the appends or chosen batches.
         raise ValueError(f"{name} keeps versions (current_row_latest); it cannot be read by appends or batches")
