@@ -54,7 +54,9 @@ for n in range(int(os.environ["FAKE_OWED"])):
     objects.append({"object_key": "bronze/source=datagokr__registered_factory/x.zip",
                     "source_slug": "datagokr__registered_factory",
                     "local_path": "objects/datagokr__registered_factory/x.zip", "size_bytes": 1})
-json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "objects": objects},
+late = [o["object_key"] for o in objects] if os.environ.get("FAKE_LATE") == "1" else []
+json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "objects": objects,
+           "selection": {"late": late}},
           open(os.path.join(out, "plan.json"), "w", encoding="utf-8"))
 """
 
@@ -126,6 +128,14 @@ class RegisteredFactoryCommand(unittest.TestCase):
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         self.assertEqual(call[call.index("--plan-dir") + 1].rsplit("/", 1)[1], "plan")
         self.assertEqual(self.copies(), [])
+
+    def test_a_late_edition_is_loaded_and_fails_the_run(self):
+        self.env.update(FAKE_OWED="1", FAKE_LATE="1")
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
+        self.assertNotIn("foundation-job-outcome", result.stdout)
 
     def test_a_failed_load_removes_its_copy_and_leaves_nothing_to_hand_on(self):
         # The zip has no commit record, so the next run's plan fetches it again from R2.

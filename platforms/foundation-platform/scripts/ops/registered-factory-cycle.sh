@@ -86,5 +86,13 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/plan" --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^registered-factory-summary-json ' "${run_log}" | tail -1)"
+# A zip no load recorded for longer than the window means loads have been failing: it is loaded now,
+# and the run fails so the gap raises an alert (the plan names it `late`).
+late="$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8")).get("selection", {}).get("late", [])))' "${plan_dir}/plan.json")"
+if [ "${late}" != 0 ]; then
+  job_journal "${journal}" "registered-factory LATE run=${run_id}: loaded ${late} zip(s) older than ${window_days} days that no load had recorded ${summary}" >&2
+  echo "registered-factory: ${late} edition(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
+  exit 1
+fi
 job_journal "${journal}" "registered-factory loaded run=${run_id} ${summary}"
 printf 'foundation-job-outcome changed\n'
