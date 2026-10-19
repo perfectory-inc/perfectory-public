@@ -28,6 +28,8 @@ export type CatalogSearchPage = DataCatalogSchemas["DataCatalogSearchPage"];
 export type CatalogNeighbourhood = DataCatalogSchemas["DataCatalogNeighbourhood"];
 export type ScheduledJobsStatus = DataCatalogSchemas["ScheduledJobsStatus"];
 export type ScheduledJobStatus = DataCatalogSchemas["ScheduledJobStatus"];
+export type OperatorActionRequest = DataCatalogSchemas["OperatorActionRequest"];
+export type OperatorActionRecorded = DataCatalogSchemas["OperatorActionRecorded"];
 export type ScheduledJobRunOutcome = DataCatalogSchemas["ScheduledJobRunOutcome"];
 export type ScheduledJobRun = DataCatalogSchemas["ScheduledJobRun"];
 export type ScheduledJobDataset = DataCatalogSchemas["ScheduledJobDataset"];
@@ -236,6 +238,15 @@ export class DawneerClient {
   /** Every scheduled job with its next start and latest run (root ADR-0165). */
   scheduledJobs(): Promise<ScheduledJobsStatus> {
     return this.call("scheduled-jobs", {}, "data-catalog");
+  }
+
+  /** Pauses, resumes, runs once now or stops one scheduled job; recorded with who and why (root ADR-0282). */
+  recordOperatorAction(jobId: string, request: OperatorActionRequest): Promise<OperatorActionRecorded> {
+    return this.call(
+      `scheduled-jobs/${encodeURIComponent(jobId)}/operator-actions`,
+      { method: "POST", body: JSON.stringify(request) },
+      "data-catalog",
+    );
   }
 
   /** A dataset's Iceberg snapshots with the run that made each and what read it (root ADR-0195). */

@@ -20,6 +20,7 @@ import {
   type Tone,
 } from "../lib/operations";
 import { runTimes } from "../lib/dataFlow";
+import { OperatorActions } from "./OperatorActions";
 
 export const TONE_CLASS: Record<Tone, string> = {
   bad: "bg-red-100 text-red-800",
@@ -62,7 +63,7 @@ export function Loading({ what, query }: { what: string; query: { isPending: boo
   return null;
 }
 
-function JobRow({ job, runsReadable }: { job: ScheduledJobStatus; runsReadable: boolean }) {
+function JobRow({ client, job, runsReadable }: { client: DawneerClient; job: ScheduledJobStatus; runsReadable: boolean }) {
   const run = job.last_run;
   return (
     <tr className="border-t border-slate-100">
@@ -95,6 +96,9 @@ function JobRow({ job, runsReadable }: { job: ScheduledJobStatus; runsReadable: 
         ) : (
           <Badge tone={jobTone(job, runsReadable)}>{job.enabled ? (runsReadable ? "실행 기록 없음" : "읽지 못함") : "꺼짐"}</Badge>
         )}
+      </td>
+      <td className={TD}>
+        <OperatorActions client={client} jobId={job.job_id} />
       </td>
     </tr>
   );
@@ -221,11 +225,12 @@ export function ScheduledJobs({ client }: { client: DawneerClient }) {
               <th className={TH}>마지막 실행</th>
               <th className={TH}>걸린 시간</th>
               <th className={TH}>결과</th>
+              <th className={TH}>운영</th>
             </tr>
           </thead>
           <tbody>
             {jobs.data.jobs.map((job) => (
-              <JobRow key={job.job_id} job={job} runsReadable={runsReadable} />
+              <JobRow key={job.job_id} client={client} job={job} runsReadable={runsReadable} />
             ))}
           </tbody>
         </table>
