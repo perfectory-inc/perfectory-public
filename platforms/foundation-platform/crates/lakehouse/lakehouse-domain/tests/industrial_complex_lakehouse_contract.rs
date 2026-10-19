@@ -8,9 +8,9 @@ use lakehouse_domain::{
     GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
-    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES,
-    SILVER_LAND_TRANSFER_HISTORY, SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
-    SILVER_PARCEL_BOUNDARIES,
+    SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_TRANSFER_HISTORY,
+    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -287,13 +287,16 @@ fn only_versioned_tables_define_a_current_row_rule() {
             );
         } else if contract.table_name == SILVER_LAND_TRANSFER_HISTORY.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
+            || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
         {
             // A lane that appends its changes marks vanished keys (root ADR-0275).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest
                 .is_some_and(|latest| latest.removal_column.is_some()));
-        } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name {
+        } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
+            || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
+        {
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
             assert_eq!(contract.current_row_predicate, None);

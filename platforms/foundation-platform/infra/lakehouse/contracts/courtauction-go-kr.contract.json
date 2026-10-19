@@ -1,0 +1,56 @@
+{
+  "$comment": "Root ADR-0280 (ownership), ADR-0281 (collected openly, politely, stopping when refused) and ADR-0283 (the User-Agent names us; a contact is optional). How 법원경매정보 (courtauction.go.kr) is asked, how slowly, when, and what makes a run stop. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values. Checked 2026-10-19: no robots.txt (404); the list searches answer JSON to a plain POST with no session; one condition listed 17,863 items.",
+  "version": 1,
+  "base_url": "https://www.courtauction.go.kr",
+  "user_agent_product": "perfectory-foundation-court-auction/1",
+  "contact_env": "FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT",
+  "contact_required": false,
+  "manners": {
+    "$comment": "ADR-0281 §1-§5. request_spacing_seconds is a floor a setting may only raise; a robots.txt Crawl-delay above it raises it too. One connection, no concurrency. A run starts only inside the quiet hours (KST) and sends no request after they end. max_requests_per_run bounds one night. Retries are for network errors only, never for a refusal.",
+    "request_spacing_seconds": 3,
+    "request_timeout_seconds": 60,
+    "max_requests_per_run": 2500,
+    "network_retries": 2,
+    "quiet_hours_kst": {"start": "01:00", "end": "06:00"},
+    "robots_path": "/robots.txt"
+  },
+  "refusal": {
+    "$comment": "ADR-0281 §3. Any of these ends the run at once as `refused` and blocks later runs until a person removes the state file the collector writes. An HTML body where JSON belongs (a login, notice, block or CAPTCHA page) and the site's own ipcheck=false are refusals too.",
+    "http_statuses": [403, 429, 503],
+    "retry_after_header": true,
+    "json_content_type_required": true,
+    "ipcheck_field": "data.ipcheck"
+  },
+  "forbidden_in_collector": {
+    "$comment": "ADR-0281 §4. The collector's source must not contain these (a test reads it): no proxy, no rotation, no browser disguise, no CAPTCHA, no randomness in timing or identity.",
+    "names": ["Proxy::", ".proxy(", "Stealth", "PlayWright", "playwright", "captcha", "CAPTCHA", "rand::", "fake_user_agent", "Sec-Fetch", "sec-ch-ua", "Mozilla/"]
+  },
+  "item_search": {
+    "$comment": "물건 검색 (진행 물건). cortAuctnSrchCondCd 0004601/0004602 and lclDspslGdsLstUsgCd 10000/20000 are the four combinations the site's own search form sends; the codes are stored as given, their meanings are not restated here. A pass is complete only when every combination was read to its last page.",
+    "dataset_slug": "auction_item",
+    "operation": "searchControllerMain",
+    "path": "/pgj/pgjsearch/searchControllerMain.on",
+    "page_size": 50,
+    "conditions": [
+      {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "10000"},
+      {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "20000"},
+      {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "10000"},
+      {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "20000"}
+    ]
+  },
+  "sale_result_search": {
+    "$comment": "매각결과 검색: the same row shape for items whose sale date has passed, with the sale amount.",
+    "dataset_slug": "auction_sale_result",
+    "operation": "selectDspslSchdRsltSrch",
+    "path": "/pgj/pgjsearch/selectDspslSchdRsltSrch.on",
+    "page_size": 50,
+    "conditions": [
+      {"lclDspslGdsLstUsgCd": "10000"},
+      {"lclDspslGdsLstUsgCd": "20000"}
+    ]
+  },
+  "pnu_resolution": {
+    "$comment": "ADR-0280 §4. The list rows carry no PNU. The 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with the representative lot (daepyoLotno) are read as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py with these 시도 prefixes (the registered-factory contract's, the same values).",
+    "sido_prefixes_from": "data-go-kr-registered-factory.contract.json#/pnu_resolution/sido_prefixes"
+  }
+}

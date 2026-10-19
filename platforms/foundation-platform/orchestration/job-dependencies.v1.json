@@ -781,6 +781,22 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.court_auction_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_item,PROD)",
+          "node_id": "silver-court-auction-item",
+          "title": "법원경매 진행 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_sale_result",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_sale_result,PROD)",
+          "node_id": "silver-court-auction-sale-result",
+          "title": "법원경매 매각결과",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.industrial_complex_boundaries",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.industrial_complex_boundaries,PROD)",
           "node_id": "silver-industrial-complex-boundaries",
@@ -1181,6 +1197,22 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.complex_parcel_memberships,PROD)",
           "node_id": "silver-complex-parcel-memberships",
           "title": "산업단지와 필지 소속",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_item,PROD)",
+          "node_id": "silver-court-auction-item",
+          "title": "법원경매 진행 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_sale_result",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_sale_result,PROD)",
+          "node_id": "silver-court-auction-sale-result",
+          "title": "법원경매 매각결과",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2362,6 +2394,22 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.complex_parcel_memberships,PROD)",
           "node_id": "silver-complex-parcel-memberships",
           "title": "산업단지와 필지 소속",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_item,PROD)",
+          "node_id": "silver-court-auction-item",
+          "title": "법원경매 진행 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.court_auction_sale_result",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.court_auction_sale_result,PROD)",
+          "node_id": "silver-court-auction-sale-result",
+          "title": "법원경매 매각결과",
           "kind": "silver_table",
           "surface_kind": null
         },
