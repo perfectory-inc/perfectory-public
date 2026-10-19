@@ -1,11 +1,12 @@
 """Load 한국산업단지공단 전국등록공장현황 from Bronze into `silver.registered_factory` (root ADR-0280 §4).
 
-The collector (`collect-data-go-kr-registered-factory`) lands each new edition's zip; the collect
-script stages it as a handoff (`pending/<run>/manifest.json` + the zip). For each handoff, oldest
-first, this job reads the data member (the contract's name pattern, CP949, the exact header), refuses
-an edition under the contract's row floor or shrunk past its bound against the last loaded one, gives
-each row the PNU its address resolves to (`address_pnu`: the 지번 step, then the 도로명 step; each row
-names the step or why none), appends the edition once, and moves the handoff to `loaded/`.
+The collector (`collect-data-go-kr-registered-factory`) lands each new edition's zip in Bronze. What
+a load owes is decided from R2 alone (`plan-silver-load-objects`): the zips no commit of the table
+records yet, fetched into a plan directory of the load's own run. For each, oldest first, this job
+reads the data member (the contract's name pattern, CP949, the exact header), refuses an edition
+under the contract's row floor or shrunk past its bound against the latest edition the table holds,
+gives each row the PNU its address resolves to (`address_pnu`: the 지번 step, then the 도로명 step;
+each row names the step or why none), and appends the edition once, in a commit that records the zip.
 
 `parse --zip <file>` reads one zip without Spark and prints what a load would hold. The last stdout
 line is `registered-factory-summary-json {json}`, with the match rate per step.
@@ -18,7 +19,6 @@ import csv
 import io
 import json
 import re
-import shutil
 import sys
 import zipfile
 from collections import Counter
@@ -31,7 +31,7 @@ import address_pnu
 JOB_NAME = "data_go_kr_registered_factory"
 TABLE = "silver.registered_factory"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "data-go-kr-registered-factory.contract.json"
-MANIFEST_SCHEMA = "foundation-platform.data_go_kr_registered_factory_collect.v1"
+PLAN_SCHEMA = "foundation-platform.silver_load_objects.v1"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -117,9 +117,34 @@ def summary_of(resolved: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "match_rate": round((total - basis.get("unresolved", 0)) / total, 4) if total else None}
 
 
-def pending_handoffs(state_dir: Path) -> list[Path]:
-    pending = state_dir / "pending"
-    return sorted(path for path in pending.iterdir() if path.is_dir()) if pending.is_dir() else []
+def source_slug(contract: Mapping[str, Any]) -> str:
+    """The Bronze source this job loads (root ADR-0014 `{provider}__{dataset}`)."""
+
+    return f"datagokr__{contract['dataset_slug']}"
+
+
+def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Every zip the plans fetched, in plan order (oldest first), with its local file."""
+
+    objects = []
+    for plan_dir in plan_dirs:
+        plan = json.loads((plan_dir / "plan.json").read_text(encoding="utf-8"))
+        if plan.get("schema_version") != PLAN_SCHEMA:
+            raise ValueError(f"{plan_dir}: not a {PLAN_SCHEMA} plan")
+        for entry in plan["objects"]:
+            if entry["source_slug"] != source_slug(contract):
+                raise ValueError(f"{entry['object_key']}: {entry['source_slug']} is not the source this job loads")
+            objects.append({"object_key": entry["object_key"], "path": plan_dir / entry["local_path"]})
+    return objects
+
+
+def latest_edition_rows(spark: Any, table: str) -> int | None:
+    """Rows of the newest edition (기준일) the table holds; None while it holds none."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    latest = spark.table(table).groupBy("source_snapshot_id").count().orderBy(F.desc("source_snapshot_id")).first()
+    return int(latest["count"]) if latest else None
 
 
 def _summary_line(summary: Mapping[str, Any]) -> None:
@@ -138,7 +163,8 @@ def _parse(argv: Sequence[str]) -> int:
 
 def _load(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="load")
-    parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--plan-dir", action="append", default=[], required=True,
+                        help="A directory `plan-silver-load-objects` wrote (plan.json + objects/); repeatable")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--table-suffix", default="")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
@@ -160,7 +186,7 @@ def _load(argv: Sequence[str]) -> int:
 
     assert_catalog_env()
     source = load_source_contract()
-    state_dir = Path(args.state_dir)
+    objects = planned_objects([Path(d) for d in args.plan_dir], source)
     now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
     contract = load_lakehouse_contract(TABLE)
     columns = list(column_names(contract))
@@ -175,15 +201,9 @@ def _load(argv: Sequence[str]) -> int:
                   "'write.parquet.compression-codec' = 'zstd')")
         evolve_iceberg_table_to_contract(spark, table, contract)
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
-        last_rows_path = state_dir / "last-loaded-rows.json"
-        for handoff in pending_handoffs(state_dir):
-            manifest = json.loads((handoff / "manifest.json").read_text(encoding="utf-8"))
-            if manifest.get("schema_version") != MANIFEST_SCHEMA:
-                raise ValueError(f"{handoff}: not a {MANIFEST_SCHEMA} manifest")
-            [entry] = manifest["objects"]
-            snapshot, rows = read_member((handoff / entry["local_path"]).read_bytes(), source)
-            previous = json.loads(last_rows_path.read_text(encoding="utf-8"))["rows"] if last_rows_path.exists() else None
-            check_bounds(len(rows), previous, source)
+        for entry in objects:
+            snapshot, rows = read_member(entry["path"].read_bytes(), source)
+            check_bounds(len(rows), latest_edition_rows(spark, table), source)
             offered = spark.createDataFrame(factory_rows(rows, source, dongs),
                                             schema=("row_id int, serial_no long, company_name string, complex_name string, "
                                                     "products string, factory_address_raw string, legal_dong_code string, "
@@ -198,11 +218,8 @@ def _load(argv: Sequence[str]) -> int:
             counts = summary_of([row.asDict() for row in resolved.select("pnu_basis", "pnu_unresolved_reason").collect()])
             appended = append_batch_once(spark, resolved, columns, table, TABLE)["appended"]
             resolved.unpersist()
-            loaded = state_dir / "loaded" / handoff.name
-            loaded.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(handoff), str(loaded))
-            last_rows_path.write_text(json.dumps({"rows": len(rows), "source_snapshot_id": snapshot}) + "\n", encoding="utf-8")
-            summary["editions"].append({"handoff": handoff.name, "source_snapshot_id": snapshot, "appended": appended, **counts})
+            summary["editions"].append({"object": entry["object_key"], "source_snapshot_id": snapshot,
+                                        "appended": appended, **counts})
     finally:
         spark.stop()
     _summary_line(summary)

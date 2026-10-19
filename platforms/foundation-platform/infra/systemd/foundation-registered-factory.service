@@ -13,6 +13,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/registered-factory-cycle.sh
 TimeoutStartSec=90m
 NoNewPrivileges=true
