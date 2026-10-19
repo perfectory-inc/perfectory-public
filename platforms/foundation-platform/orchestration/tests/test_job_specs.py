@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
@@ -107,6 +108,13 @@ class TheUnpauseOrder(unittest.TestCase):
 class TheRealJobList(unittest.TestCase):
     def setUp(self):
         self.specs = job_specs.load_specs()
+
+    def test_the_job_list_loads_well_inside_the_dag_import_timeout(self):
+        # Airflow parses foundation_jobs.py, and so load_specs, under dagbag_import_timeout (30 s by
+        # default, not overridden). #749 alone took over 20 minutes and every DAG failed to import.
+        started = time.perf_counter()
+        job_specs.load_specs()
+        self.assertLess(time.perf_counter() - started, 5, "loading the job list nears Airflow's DAG import timeout")
 
     def test_every_job_builds_a_dag_with_lineage(self):
         self.assertTrue(self.specs, "the job list builds no DAG")
