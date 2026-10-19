@@ -169,12 +169,25 @@ class ARegistryReleaseIsWaitedFor(unittest.TestCase):
 
 
 class TheChecksAreReadPageByPage(unittest.TestCase):
-    def serve(self, runs, queue=()):
+    def serve(self, runs, queue=(), published=()):
         class Handler(http.server.BaseHTTPRequestHandler):
             asked = []
 
+            def do_HEAD(self):
+                # GitHub's container registry: the release tags that are in the package.
+                Handler.asked.append(f"HEAD {self.path}")
+                found = self.headers.get("Authorization") == "Bearer anonymous" and self.path in {
+                    f"/v2/owner/foundation-release/manifests/release-{commit}" for commit in published}
+                self.send_response(200 if found else 404)
+                self.end_headers()
+
             def do_GET(self):
                 Handler.asked.append(self.path)
+                if self.path.startswith("/token?scope=repository:owner/foundation-release:pull"):
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'{"token": "anonymous"}')
+                    return
                 page = int(self.path.rsplit("page=", 1)[1])
                 key, items = ("workflow_runs", queue) if "/actions/runs?" in self.path else ("check_runs", runs)
                 body = json.dumps({"total_count": len(items), key: items[(page - 1) * 100:page * 100]})
@@ -203,13 +216,39 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
         # The release the contract may require has published (ARegistryReleaseIsWaitedFor).
         api, asked = self.serve(
             [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8),
-             run("Build and attest the release", suite=9)], [queue_run(7)]
+             run("Build and attest the release", suite=9)], [queue_run(7)], published=[HEAD]
         )
-        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD],
+        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
         self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&per_page=", "".join(asked))
+
+    def test_a_release_not_in_the_registry_yet_waits_and_is_never_deployed(self):
+        # 2026-10-19: e6fb99e6 was deployed with every check passed and refused at step 2 with 404.
+        # In registry mode (the contract) the tag admission pulls first must be there.
+        runs = [run("ci"), run("Build and attest the release")]
+        for published, expected in (([], "wait "), (["0" * 40], "wait "), ([HEAD], "deploy ")):
+            with self.subTest(published=published):
+                api, asked = self.serve(runs, published=published)
+                result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.startswith(expected), result.stdout)
+                self.assertIn(f"HEAD /v2/owner/foundation-release/manifests/release-{HEAD}", asked)
+        self.assertIn(f"release-{HEAD} is not in owner/foundation-release yet", self.check([], runs))
+
+    def check(self, published, runs):
+        api, _ = self.serve(runs, published=published)
+        return subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
+                              capture_output=True, text=True, check=False).stdout
+
+    def test_an_unreadable_registry_exits_2_to_ask_again(self):
+        api, _ = self.serve([run("ci"), run("Build and attest the release")])
+        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, "http://127.0.0.1:9"],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cannot read whether", result.stderr)
 
     def test_an_unreachable_api_exits_2(self):
         result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],
@@ -417,6 +456,17 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("still running", result.stdout)
         self.assertEqual(self.deployed(), [])
+
+    def test_a_release_not_published_yet_is_waited_for_and_is_no_failure(self):
+        result = self.tick(checks=f"wait release-{HEAD} is not in owner/foundation-release yet")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [], "no deploy is attempted")
+        for outcome in ("failed", "refused"):
+            self.assertFalse((self.state / outcome / HEAD).exists(), f"a missing release is not {outcome}")
+        asked = time.time() - 301  # the next ask, recheck_seconds later
+        os.utime(self.state / "asked" / HEAD, (asked, asked))
+        self.assertEqual(self.tick(checks="deploy 49 check runs passed").returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD], "deployed once it is published")
 
     def test_a_refused_commit_is_reported_once_and_never_deployed(self):
         first = self.tick(checks="refuse failed: ci=failure")
