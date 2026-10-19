@@ -35,18 +35,15 @@ claim-check를 디코드하고 `bronze_object_key`로 fixture Bronze 객체를 �
 
 ## 전체 실시간 게이트 실행
 
-사전 조건은 Docker, `curl`, `DATABASE_URL`이 설정된 일회용 Postgres/PostGIS 데이터베이스다.
-Cargo/Rust 1.96이 `PATH`에 있으면 호스트에서 테스트하고, 없으면 고정된 Rust 검증 컨테이너를
-자동 사용한다. 스크립트가 고정된 Redpanda/Karapace 스택의 수명과 정리를 모두 담당한다.
-Postgres도 컨테이너 네트워크에서만 접근할 수 있으면
-`FOUNDATION_KAFKA_TEST_CONTAINER_DATABASE_URL`에 해당 네트워크 URL을 설정한다.
+사전 조건은 Docker, `curl`, Cargo, `DATABASE_URL`이 설정된 일회용 Postgres/PostGIS 데이터베이스다.
+`cargo xtask live kafka` 가 고정된 Redpanda/Karapace 스택의 수명과 정리를 모두 담당한다.
 
 ```bash
 export DATABASE_URL='postgres://foundation_platform:foundation_platform_dev_2026@127.0.0.1:5432/foundation_platform'
-bash scripts/verify/foundation-kafka-live.sh
+cargo xtask live kafka
 ```
 
-스크립트는 `platforms/intelligence-platform/docker/c2-event-backbone.compose.yml`을 시작하고,
+이 명령은 `platforms/intelligence-platform/docker/c2-event-backbone.compose.yml`을 시작하고,
 두 서비스가 준비될 때까지 기다린 뒤 정본 토픽을 생성·조회하고 필요한 Kafka 변수를 설정한 다음
 다음 ignore 테스트를 `--nocapture`로 실행한다.
 

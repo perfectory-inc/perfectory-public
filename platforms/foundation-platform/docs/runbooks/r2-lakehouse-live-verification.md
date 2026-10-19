@@ -46,16 +46,12 @@ FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN=
 저장소 루트에서 실행한다.
 
 ```bash
-bash scripts/verify/foundation-r2-lakehouse-live.sh
+cargo xtask live r2-lakehouse
 ```
 
-자격 증명이 없을 때는 이름이 표시된 오류와 종료 코드 2가 나와야 한다. 자격 증명을 우연히 사용하지 않았는지 먼저 확인하려면 다음을 실행한다.
-
-```bash
-bash scripts/guard/foundation-r2-lakehouse-live-self-test.sh
-```
-
-이 자체 검사는 네트워크에 연결하지 않고, 엔드포인트·자격 증명·카탈로그 공급자 누락을 모두 실패로 판정하는지 확인한다.
+자격 증명이 없을 때는 이름이 표시된 오류와 종료 코드 1이 나와야 한다. 엔드포인트·자격 증명·카탈로그 공급자 누락과
+운영 승인 없는 production 을 모두 실패로 판정하는지는 네트워크 없이 `tools/xtask/src/live.rs` 의 단위 시험이 확인한다
+(`cargo test --manifest-path tools/xtask/Cargo.toml live`).
 
 ## 증거 해석
 
