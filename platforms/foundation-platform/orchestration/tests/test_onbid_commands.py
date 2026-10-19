@@ -60,7 +60,9 @@ for n in range(int(os.environ["FAKE_OWED"])):
     open(os.path.join(out, local), "wb").write(b"x")
     objects.append({"object_key": "bronze/source=" + slug + "/o" + str(n) + ".gz", "source_slug": slug,
                     "local_path": local, "size_bytes": 1})
-json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "table": table, "objects": objects},
+late = [o["object_key"] for o in objects] if os.environ.get("FAKE_LATE") == "1" else []
+json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "table": table, "objects": objects,
+           "selection": {"owed": [o["object_key"] for o in objects], "late": late}},
           open(os.path.join(out, "plan.json"), "w", encoding="utf-8"))
 """
 
@@ -159,6 +161,17 @@ class OnbidCommands(unittest.TestCase):
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
         self.assertEqual(plans, ["items", "results"])
+
+    def test_a_load_of_late_objects_loads_them_and_fails(self):
+        # An object no load recorded for longer than the window means loads have been failing; it is
+        # loaded, and the run fails so the gap raises an alert instead of a log line.
+        self.env["FAKE_LATE"] = "1"
+        result = self.run_script(self.load)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertIn("waited more than 7 days", result.stderr)
+        self.assertNotIn("foundation-job-outcome", result.stdout)
+        self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
 
     def test_the_load_with_nothing_owed_ends_without_spark(self):
         self.env["FAKE_OWED"] = "0"

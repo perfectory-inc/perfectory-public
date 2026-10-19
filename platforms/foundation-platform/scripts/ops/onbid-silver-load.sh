@@ -10,7 +10,8 @@
 # 답을 쌓는다(root ADR-0275). 쌓을 것이 없으면 Spark 를 띄우지 않고 unchanged 로 끝난다.
 #
 # 대기열이 없으니 옮길 것도 없다. 실패하면 커밋하지 못한 객체는 표에 기록이 없어 다음 실행이 다시 받는다.
-# 받은 사본은 성공하든 실패하든 지운다.
+# 받은 사본은 성공하든 실패하든 지운다. 계획이 늦은 객체(window_days 보다 오래 기록 없이 남은 것)를 내놓으면
+# 쌓은 뒤 실패로 끝난다: 적재가 그만큼 실패해 왔다는 뜻이니 조용히 넘어가면 안 된다(알림이 간다).
 set -Eeuo pipefail
 shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -66,5 +67,14 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^data-go-kr-onbid-summary-json ' "${run_log}" | tail -1)"
+late="$(python3 -I -c '
+import json, sys
+print(sum(len(json.load(open(p, encoding="utf-8"))["selection"].get("late", [])) for p in sys.argv[1:]))
+' "${work}/items/plan.json" "${work}/results/plan.json")"
+if [ "${late}" != 0 ]; then
+  job_journal "${journal}" "onbid silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
+  echo "onbid silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen (run.log names them)" >&2
+  exit 1
+fi
 job_journal "${journal}" "onbid silver load ok run=${run_id} owed=${owed_items}+${owed_results} ${summary}"
 printf 'foundation-job-outcome changed\n'
