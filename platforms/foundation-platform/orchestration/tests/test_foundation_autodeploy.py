@@ -102,6 +102,42 @@ class TheMergeQueueRunDecides(unittest.TestCase):
         self.assertEqual(decision, "wait")
 
 
+class ReportsDoNotDecide(unittest.TestCase):
+    """A schedule's or a dispatch's run reports on the repository, not on this commit (2026-10-19:
+    a cache budget over its line refused fc61aa36)."""
+
+    def report(self, suite, event="schedule"):
+        return {"check_suite_id": suite, "event": event, "status": "completed", "conclusion": "failure"}
+
+    def test_a_failed_report_neither_refuses_nor_hides(self):
+        for event in ("schedule", "workflow_dispatch"):
+            with self.subTest(event):
+                decision, reason = release_checks.verdict(
+                    [run("ci", suite=7), run("Actions cache budget", conclusion="failure", suite=5)],
+                    [queue_run(7), self.report(5, event)],
+                )
+                self.assertEqual(decision, "deploy")
+                self.assertIn("Actions cache budget=failure", reason)
+
+    def test_a_running_report_is_not_waited_for(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("Actions cache budget", status="in_progress", conclusion=None, suite=5)],
+            [{"check_suite_id": 7, "event": "push", "status": "completed", "conclusion": "success"}, self.report(5)],
+        )
+        self.assertEqual(decision, "deploy")
+
+    def test_reports_alone_are_no_verdict(self):
+        decision, _ = release_checks.verdict([run("Actions cache budget", suite=5)], [self.report(5)])
+        self.assertEqual(decision, "wait")
+
+    def test_the_same_check_from_a_push_still_refuses(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("guard", conclusion="failure", suite=6)],
+            [queue_run(7), {"check_suite_id": 6, "event": "push", "status": "completed", "conclusion": "failure"}],
+        )
+        self.assertEqual(decision, "refuse")
+
+
 class TheChecksAreReadPageByPage(unittest.TestCase):
     def serve(self, runs, queue=()):
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -132,7 +168,8 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
         self.assertTrue(result.stdout.startswith("refuse "), result.stdout)
         self.assertEqual(len([path for path in asked if "/check-runs?" in path]), 2)
 
-    def test_the_queue_runs_are_asked_for_this_commit_and_event(self):
+    def test_the_commits_workflow_runs_are_asked_for_every_event(self):
+        # Every event: the merge queue's runs decide early, a schedule's or a dispatch's do not decide.
         api, asked = self.serve(
             [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
         )
@@ -140,7 +177,7 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
-        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&event=merge_group&", "".join(asked))
+        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&per_page=", "".join(asked))
 
     def test_an_unreachable_api_exits_2(self):
         result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],
