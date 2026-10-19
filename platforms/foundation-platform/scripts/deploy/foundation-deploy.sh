@@ -39,6 +39,9 @@ deployer_home="$(getent passwd "${deployer}" | cut -d: -f6)"
 release_root=/opt/foundation-platform
 control_root=/opt/perfectory-control
 mirror=/var/lib/perfectory/control-source.git
+# What this deploy holds, for the operator's starts (by-pnu-pack-operator.sh): its pid, then `*`
+# from step 0 until the build is done, then the jobs its release holds until it is live (D5).
+deploy_hold=/run/foundation-deploy-hold
 identity="${control_root}/current/tools/github/repository-identity.json"
 repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
 
@@ -137,8 +140,9 @@ log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 
 # running release its schedule back; one that stops during the switch says loudly that they stay
 # paused (deploy-start-once.sh, root ADR-0173). A signal (the unit's time limit) ends it the same way.
 phase=before-switch
-trap 'deploy_paused_dags_on_exit "$?" "${phase}" "${sha}"' EXIT
+trap 'status=$?; rm -f "${deploy_hold}"; deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}"' EXIT
 trap 'exit 143' TERM INT HUP
+printf 'pid %s\n*\n' "$$" >"${deploy_hold}"
 for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
 echo "paused ${#jobs[@]} DAGs"
 # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
@@ -181,6 +185,7 @@ log "2b. the schedule comes back for every job ${sha} does not hold (root ADR-02
 # release it started with (D1) and outlives the Airflow restart in step 5 (D2), and a run step 6
 # starts is joined, not doubled. The held jobs stay paused until step 7.
 deploy_unpause_unheld "${changes}.hold"
+{ printf 'pid %s\n' "$$"; cat "${changes}.hold"; } >"${deploy_hold}.next" && mv -f "${deploy_hold}.next" "${deploy_hold}"
 rm -f "${changes}.hold"
 
 log "3. FLOOR config for ${sha} (from ${old})"
@@ -212,6 +217,7 @@ log "6. start once, under the new release, each job its registry marks started_o
 # Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).
 phase=after-switch
 start_once_then_unpause "${sha}"
+rm -f "${deploy_hold}"
 phase=done
 
 # The check every job's ExecStartPre runs: a release this deploy left unadmissible (2026-10-10, root

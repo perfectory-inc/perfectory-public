@@ -170,6 +170,7 @@ class OperatorHarness(unittest.TestCase):
             "FAKE_LOG": str(self.log),
             "FOUNDATION_OPERATOR_RELEASE_ROOT": str(base / "current"),
             "FOUNDATION_OPERATOR_SYSTEMD_RUN": str(bin_dir / "systemd-run"),
+            "FOUNDATION_OPERATOR_DEPLOY_HOLD": str(self.root / "deploy-hold"),
             "FOUNDATION_OPERATOR_BAKE_ROOT": str(self.bake),
             "FOUNDATION_OPERATOR_ETC": str(self.etc),
             "FOUNDATION_OPERATOR_SERVICE_OWNER": owner,
@@ -338,10 +339,9 @@ class PackOperator(OperatorHarness):
         self.assertTrue(any(c["tool"] == "journalctl" and
                             "foundation-legal-dong-code.service" in c["args"] for c in calls))
 
-    def test_job_start_waits_for_the_autodeploy_and_a_spark_job_for_the_spark_work(self):
+    def test_job_start_waits_for_its_own_run_and_a_spark_job_for_the_spark_work(self):
         self.switch_off("legal_dong_code_changes", "lineage_stewardship")
-        for job_id, active in (("legal_dong_code_changes", ["foundation-autodeploy.service"]),
-                               ("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),
+        for job_id, active in (("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),
                                ("lineage_stewardship", ["foundation-gold-panel-rebuild.service"]),
                                ("lineage_stewardship", ["foundation-silver-refresh@land-use-plan.service"])):
             with self.subTest(job=job_id, active=active):
@@ -372,7 +372,7 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
                                  [["start", "--no-block", unit]])
-        for active in (["foundation-autodeploy.service"], ["foundation-parcel-tile-bake@rehearsal-gold-202609.service"],
+        for active in (["foundation-parcel-tile-bake@rehearsal-gold-202609.service"],
                        ["foundation-parcel-tile-bake@gold.service"], ["foundation-gold-panel-rebuild.service"],
                        ["foundation-silver-refresh@land-use-plan.service"]):
             with self.subTest(active=active):
@@ -471,6 +471,52 @@ class PackOperator(OperatorHarness):
                                           FOUNDATION_OPERATOR_WAIT="1", SUDO_USER="operator-a")
         self.assertEqual(result.returncode, 64, result.stderr)
         self.assertEqual(calls, [])
+
+    def hold(self, *lines, pid=None):
+        (self.root / "deploy-hold").write_text(f"pid {pid or os.getpid()}\n" + "".join(f"{line}\n" for line in lines))
+
+    def test_an_operator_start_runs_beside_a_deploy_unless_the_deploy_holds_it(self):
+        # Proposal 1 (2026-10-19): a deploy holds every job until its build is done, then only what
+        # its release changes (D5); an operator start follows the same rule as a scheduled one.
+        self.switch_off("legal_dong_code_changes")
+        starts = (("job", "start", "legal_dong_code_changes"), ("silver", "start", "land-characteristic"),
+                  ("parcel-tiles", "rehearse", "bake"))
+        self.hold("*")
+        for args in starts:
+            with self.subTest(args=args, hold="building"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, active=["foundation-autodeploy.service"])
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertIn("every job waits until the build is done", result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+        self.hold("legal_dong_code_changes", "silver_refresh_land_characteristic", "parcel_tile_bake")
+        for args in starts:
+            with self.subTest(args=args, hold="its writers"):
+                self.log.unlink(missing_ok=True)
+                result, _ = self.run_operator(*args, active=["foundation-autodeploy.service"])
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertIn("until its release is live", result.stderr)
+        self.hold("gold_panel_rebuild")
+        for args in starts:
+            with self.subTest(args=args, hold="another job"):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, active=["foundation-autodeploy.service"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        self.hold("*", pid=gone.pid)
+        result, _ = self.run_operator(*starts[0])
+        self.assertEqual(result.returncode, 0, "a hold its deploy left behind holds nothing: " + result.stderr)
+
+    def test_every_silver_lane_is_held_by_its_job_id(self):
+        jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
+        prefix = "foundation-silver-refresh@"
+        lanes = {job["systemd_service"][len(prefix):-len(".service")]: job["id"]
+                 for job in jobs if job["systemd_service"].startswith(prefix)}
+        self.assertTrue(lanes)
+        for lane, job_id in lanes.items():
+            self.assertEqual("silver_refresh_" + lane.replace("-", "_"), job_id)
 
     def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
         self.switch_off("silver_refresh_land_use_plan")
