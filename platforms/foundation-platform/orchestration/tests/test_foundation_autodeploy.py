@@ -139,6 +139,35 @@ class ReportsDoNotDecide(unittest.TestCase):
         self.assertEqual(decision, "refuse")
 
 
+class ARegistryReleaseIsWaitedFor(unittest.TestCase):
+    """Root ADR-0276 R3: admission installs the release CI published, so the deploy waits for it."""
+
+    RELEASE = "Build and attest the release"
+
+    def test_the_queue_alone_waits_for_the_release(self):
+        runs = [run("ci", suite=7), run(self.RELEASE, status="in_progress", conclusion=None, suite=8)]
+        self.assertEqual(release_checks.verdict(runs, [queue_run(7)])[0], "deploy", "server-build: as before")
+        decision, reason = release_checks.verdict(runs, [queue_run(7)], self.RELEASE)
+        self.assertEqual(decision, "wait")
+        self.assertIn(self.RELEASE, reason)
+
+    def test_a_published_release_deploys_and_a_failed_one_refuses(self):
+        self.assertEqual(release_checks.verdict([run("ci", suite=7), run(self.RELEASE, suite=8)], [queue_run(7)],
+                                                self.RELEASE)[0], "deploy")
+        self.assertEqual(release_checks.verdict([run("ci", suite=7), run(self.RELEASE, conclusion="failure", suite=8)],
+                                                [queue_run(7)], self.RELEASE)[0], "refuse")
+        self.assertEqual(release_checks.verdict([run("ci", suite=7)], [queue_run(7)], self.RELEASE)[0], "wait",
+                         "no release run yet")
+
+    def test_the_contract_names_the_release_check_only_in_registry_mode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            contract = pathlib.Path(temporary) / "release-build.contract.json"
+            contract.write_text(json.dumps({"artifacts_from": "server-build", "registry": {"check_run": self.RELEASE}}))
+            self.assertIsNone(release_checks.required_release_check(contract))
+            contract.write_text(json.dumps({"artifacts_from": "registry", "registry": {"check_run": self.RELEASE}}))
+            self.assertEqual(release_checks.required_release_check(contract), self.RELEASE)
+
+
 class TheChecksAreReadPageByPage(unittest.TestCase):
     def serve(self, runs, queue=()):
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -171,8 +200,10 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
 
     def test_the_commits_workflow_runs_are_asked_for_every_event(self):
         # Every event: the merge queue's runs decide early, a schedule's or a dispatch's do not decide.
+        # The release the contract may require has published (ARegistryReleaseIsWaitedFor).
         api, asked = self.serve(
-            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
+            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8),
+             run("Build and attest the release", suite=9)], [queue_run(7)]
         )
         result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD],
                                 capture_output=True, text=True, check=False)
