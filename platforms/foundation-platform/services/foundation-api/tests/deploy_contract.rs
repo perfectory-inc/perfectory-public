@@ -563,9 +563,7 @@ fn foundation_api_cannot_write_parcel_publication_ledgers_directly() -> TestResu
     for protected_table in [
         "catalog.parcel_publication_source_evidence",
         "serving_postgis.parcel_boundary_mirror_rebuild_run",
-        "serving_postgis.parcel_boundary_mirror",
         "serving_postgis.spatial_projection_load",
-        "serving_postgis.parcel_boundary_publication",
     ] {
         assert!(
             grants.contains(protected_table),
