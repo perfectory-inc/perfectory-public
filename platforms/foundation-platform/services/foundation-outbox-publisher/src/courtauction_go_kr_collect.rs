@@ -4,8 +4,8 @@
 //! only carries them out:
 //!
 //! - one plain HTTP client, no proxy (environment proxies are switched off), one request at a time,
-//!   at least the contract's spacing apart, identified by a fixed User-Agent naming our product (a
-//!   contact only when one is set, root ADR-0283);
+//!   at least the contract's spacing apart, sending the HTTP library's own default request headers:
+//!   no product name, no contact and never a browser's identity (root ADR-0284);
 //! - only inside the quiet hours (KST), and never more than the per-run request bound;
 //! - robots.txt first, every run: a disallowed search path is not asked;
 //! - any refusal signal (403, 429, 503, a Retry-After header, an HTML page where JSON belongs, the
@@ -101,8 +101,6 @@ pub(crate) struct Forbidden {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceContract {
     pub(crate) base_url: String,
-    pub(crate) user_agent_product: String,
-    pub(crate) contact_env: String,
     pub(crate) manners: Manners,
     pub(crate) refusal: Refusal,
     #[cfg(test)]
@@ -123,24 +121,6 @@ pub(crate) fn searches(contract: &SourceContract) -> [(&'static str, &Search); 2
     ]
 }
 
-/// The one User-Agent every request carries: our product, and a contact only when one is set
-/// (root ADR-0283). An empty or missing contact does not block the run.
-pub(crate) fn user_agent(
-    contract: &SourceContract,
-    contact: Option<&str>,
-) -> anyhow::Result<String> {
-    let contact = contact.map(str::trim).filter(|contact| !contact.is_empty());
-    let Some(contact) = contact else {
-        return Ok(contract.user_agent_product.clone());
-    };
-    ensure!(
-        contact.is_ascii() && !contact.contains(['(', ')', '\r', '\n']),
-        "{} must be a plain e-mail address or URL",
-        contract.contact_env
-    );
-    Ok(format!("{} (+{contact})", contract.user_agent_product))
-}
-
 fn clock(text: &str) -> anyhow::Result<NaiveTime> {
     NaiveTime::parse_from_str(text, "%H:%M").with_context(|| format!("{text:?} is not HH:MM"))
 }
@@ -159,20 +139,15 @@ pub(crate) fn in_quiet_hours(manners: &Manners, at: DateTime<Utc>) -> anyhow::Re
     })
 }
 
-/// What robots.txt asks of us: the disallowed path prefixes and a crawl delay, from the groups
-/// naming our product token or `*`. No file (404) asks nothing.
+/// What robots.txt asks of us: the disallowed path prefixes and a crawl delay, from the `*` groups
+/// (we send no product name a group could address). No file (404) asks nothing.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Robots {
     pub(crate) disallow: Vec<String>,
     pub(crate) crawl_delay_seconds: Option<u64>,
 }
 
-pub(crate) fn read_robots(text: &str, product: &str) -> Robots {
-    let token = product
-        .split('/')
-        .next()
-        .unwrap_or(product)
-        .to_ascii_lowercase();
+pub(crate) fn read_robots(text: &str) -> Robots {
     let mut robots = Robots::default();
     let mut applies = false;
     let mut in_agents = false;
@@ -183,8 +158,7 @@ pub(crate) fn read_robots(text: &str, product: &str) -> Robots {
         };
         let (field, value) = (field.trim().to_ascii_lowercase(), value.trim());
         if field == "user-agent" {
-            let agent = value.to_ascii_lowercase();
-            let names_us = agent == "*" || token.starts_with(&agent) || agent.starts_with(&token);
+            let names_us = value == "*";
             applies = if in_agents {
                 applies || names_us
             } else {
@@ -258,13 +232,12 @@ impl<'a> Collector<'a> {
     pub(crate) fn new(
         contract: &'a SourceContract,
         base_uri: &str,
-        user_agent: &str,
         spacing: ProviderRequestSpacing,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             contract,
+            // The library's defaults, set once: nothing here names us or imitates a browser.
             http: reqwest::Client::builder()
-                .user_agent(user_agent)
                 .no_proxy()
                 .timeout(Duration::from_secs(
                     contract.manners.request_timeout_seconds,
@@ -290,7 +263,7 @@ impl<'a> Collector<'a> {
             return Ok(Ok(Robots::default()));
         }
         let text = response.text().await.unwrap_or_default();
-        Ok(Ok(read_robots(&text, &self.contract.user_agent_product)))
+        Ok(Ok(read_robots(&text)))
     }
 
     async fn send(
@@ -657,7 +630,6 @@ fn ingestion_run(
 
 struct Config {
     base_uri: String,
-    user_agent: String,
     spacing: ProviderRequestSpacing,
     live_write: bool,
     output_dir: PathBuf,
@@ -675,10 +647,6 @@ impl Config {
         Ok(Self {
             base_uri: optional_env_value(&format!("{PREFIX}_BASE_URI"))?
                 .unwrap_or_else(|| contract.base_url.clone()),
-            user_agent: user_agent(
-                contract,
-                optional_env_value(&contract.contact_env)?.as_deref(),
-            )?,
             // A setting may make the run slower, never faster than the contract.
             spacing: ProviderRequestSpacing::try_new(configured.max(floor))?,
             live_write: matches!(
@@ -728,12 +696,7 @@ pub async fn run() -> anyhow::Result<()> {
         println!("foundation-job-outcome unchanged");
         return Ok(());
     }
-    let mut collector = Collector::new(
-        &contract,
-        &config.base_uri,
-        &config.user_agent,
-        config.spacing,
-    )?;
+    let mut collector = Collector::new(&contract, &config.base_uri, config.spacing)?;
     let (results, stop) = collect(&contract, &mut collector, Utc::now).await?;
 
     let mut objects = Vec::new();

@@ -6,8 +6,8 @@ The publisher and docker are stand-ins: the publisher answers the collect comman
 does (an outcome, or exit 1 after a refusal) and the plan command with FAKE_OWED objects per table;
 docker records its arguments. What runs for real is the scripts: the collect passes its outcome on and
 keeps no copy; a refused night fails and hands nothing on (what it landed is in Bronze, so the next
-plan finds it); a missing required variable stops the night before any request (the contact is
-optional, root ADR-0283); the load with nothing owed ends without starting Spark; a load hands Spark
+plan finds it); a missing required variable stops the night before any request (no contact
+setting exists, root ADR-0284); the load with nothing owed ends without starting Spark; a load hands Spark
 one plan per table and removes the copies whether it succeeds or not.
 """
 
@@ -142,9 +142,7 @@ class CourtAuctionCommands(unittest.TestCase):
         self.assertIn("STOPPED", (self.state / "journal.log").read_text(encoding="utf-8"))
         self.assertEqual(self.copies(), [], "what it landed before the refusal is in Bronze for the next plan")
 
-    def test_the_contact_is_optional_and_a_missing_variable_stops_the_night_before_any_request(self):
-        # Root ADR-0283: no contact address is needed; the night runs without one.
-        self.assertNotIn("FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT", REQUIRED)
+    def test_a_missing_variable_stops_the_night_before_any_request(self):
         self.assertLessEqual(set(REQUIRED), set(NEEDS))
         for name in REQUIRED:
             with self.subTest(name):

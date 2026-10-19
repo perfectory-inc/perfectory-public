@@ -12,7 +12,6 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
-EnvironmentFile=-/etc/foundation-platform/court-auction.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/court-auction-collect.sh
 TimeoutStartSec=5h
 NoNewPrivileges=true

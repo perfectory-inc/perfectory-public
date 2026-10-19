@@ -39,3 +39,5 @@
 ---
 
 개정 각주(2026-10-19): §1 의 연락처 필수 규칙은 [ADR-0283](./0283-the-court-auction-user-agent-names-us-without-a-contact-address.md) 이 고쳤다. User-Agent 는 제품 이름만 필수이고, 연락처는 선택이다.
+
+개정 각주(2026-10-20): §1 의 신원 표시는 [ADR-0284](./0284-the-court-auction-collector-sends-the-http-librarys-default-headers.md) 가 고쳤다. 요청은 HTTP 라이브러리의 기본 머리글만 싣고(제품 이름·연락처 없음), 브라우저 행세는 여전히 금지다. 나머지 규칙은 그대로다.

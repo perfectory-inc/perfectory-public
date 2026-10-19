@@ -6,13 +6,12 @@ use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
-    collect, in_quiet_hours, read_page, read_robots, refusal_on_record, source_contract,
-    user_agent, Collector, Page, Stop, PREFIX, REFUSED_FILE,
+    collect, in_quiet_hours, read_page, read_robots, refusal_on_record, source_contract, Collector,
+    Page, Stop, PREFIX, REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
 // Synthetic only: made-up case numbers and court codes (public repository).
-const CONTACT: &str = "mailto:ops@example.invalid";
 
 fn at(text: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(text)
@@ -99,35 +98,14 @@ fn the_collector_source_holds_no_disguise_proxy_or_captcha() -> anyhow::Result<(
 }
 
 #[test]
-fn every_request_says_who_we_are_and_a_contact_only_when_set() -> anyhow::Result<()> {
-    let contract = source_contract()?;
-    // Root ADR-0283: the product names us; a contact is optional and never blocks a run.
-    assert_eq!(
-        user_agent(&contract, None)?,
-        "perfectory-foundation-court-auction/1"
-    );
-    assert_eq!(
-        user_agent(&contract, Some("  "))?,
-        "perfectory-foundation-court-auction/1"
-    );
-    assert_eq!(
-        user_agent(&contract, Some(CONTACT))?,
-        "perfectory-foundation-court-auction/1 (+mailto:ops@example.invalid)"
-    );
-    assert!(user_agent(&contract, Some("x)\r\nInjected: 1")).is_err());
-    Ok(())
-}
-
-#[test]
-fn robots_rules_for_us_or_everyone_are_kept() {
+fn robots_rules_for_everyone_are_kept() {
     let robots = read_robots(
         "User-agent: other\nDisallow: /\n\nUser-agent: *\nDisallow: /pgj/pgjsearch/\nCrawl-delay: 4.5\n",
-        "perfectory-foundation-court-auction/1",
     );
     assert!(!robots.allows("/pgj/pgjsearch/searchControllerMain.on"));
     assert!(robots.allows("/pgj/other.on"));
     assert_eq!(robots.crawl_delay_seconds, Some(5));
-    assert!(read_robots("", "x/1").allows("/anything"));
+    assert!(read_robots("").allows("/anything"));
 }
 
 #[test]
@@ -165,11 +143,11 @@ fn every_refusal_signal_reads_as_a_refusal() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn a_night_reads_every_condition_to_its_last_page_with_our_identity() -> anyhow::Result<()> {
+async fn a_night_reads_every_condition_to_its_last_page_with_library_headers_only(
+) -> anyhow::Result<()> {
     let contract = source_contract()?;
     let server = site(3).await?;
-    let agent = user_agent(&contract, None)?;
-    let mut collector = Collector::new(&contract, &server.uri(), &agent, spacing()?)?;
+    let mut collector = Collector::new(&contract, &server.uri(), spacing()?)?;
     let (results, stop) = collect(&contract, &mut collector, night).await?;
     assert_eq!(stop, None);
     let conditions =
@@ -182,13 +160,16 @@ async fn a_night_reads_every_condition_to_its_last_page_with_our_identity() -> a
         6 * contract.item_search.conditions.len() as u64
     );
     for request in server.received_requests().await.unwrap_or_default() {
-        assert_eq!(
-            request
-                .headers
-                .get("user-agent")
-                .and_then(|v| v.to_str().ok()),
-            Some(agent.as_str())
-        );
+        // Root ADR-0284: the library's default, which names neither us nor a browser.
+        let agent = request
+            .headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        for name in ["mozilla", "chrome", "safari", "perfectory"] {
+            assert!(!agent.contains(name), "user agent {agent:?}");
+        }
         for disguise in ["origin", "referer", "sec-fetch-dest", "cookie"] {
             assert!(!request.headers.contains_key(disguise), "{disguise} sent");
         }
@@ -221,12 +202,7 @@ async fn a_refusal_stops_the_night_at_once() -> anyhow::Result<()> {
         .with_priority(5)
         .mount(&server)
         .await;
-    let mut collector = Collector::new(
-        &contract,
-        &server.uri(),
-        &user_agent(&contract, None)?,
-        spacing()?,
-    )?;
+    let mut collector = Collector::new(&contract, &server.uri(), spacing()?)?;
     let (results, stop) = collect(&contract, &mut collector, night).await?;
     assert!(matches!(stop, Some(Stop::Refused(_))), "{stop:?}");
     assert_eq!(
@@ -247,22 +223,12 @@ async fn the_request_bound_and_the_end_of_the_night_stop_without_a_refusal() -> 
     let mut contract = source_contract()?;
     let server = site(50).await?;
     contract.manners.max_requests_per_run = 4;
-    let mut collector = Collector::new(
-        &contract,
-        &server.uri(),
-        &user_agent(&contract, None)?,
-        spacing()?,
-    )?;
+    let mut collector = Collector::new(&contract, &server.uri(), spacing()?)?;
     let (_, stop) = collect(&contract, &mut collector, night).await?;
     assert_eq!((stop, collector.sent), (Some(Stop::RequestBound), 4));
 
     let contract = source_contract()?;
-    let mut collector = Collector::new(
-        &contract,
-        &server.uri(),
-        &user_agent(&contract, None)?,
-        spacing()?,
-    )?;
+    let mut collector = Collector::new(&contract, &server.uri(), spacing()?)?;
     let calls = std::sync::atomic::AtomicUsize::new(0);
     // The quiet hours end after the second page is asked.
     let clock = || {
@@ -289,12 +255,7 @@ async fn robots_can_forbid_a_search_and_slow_us_down() -> anyhow::Result<()> {
         )
         .mount(&server)
         .await;
-    let mut collector = Collector::new(
-        &contract,
-        &server.uri(),
-        &user_agent(&contract, None)?,
-        spacing()?,
-    )?;
+    let mut collector = Collector::new(&contract, &server.uri(), spacing()?)?;
     let (_, stop) = collect(&contract, &mut collector, night).await?;
     assert!(matches!(stop, Some(Stop::RobotsDisallow(_))));
     assert_eq!(collector.sent, 1, "only robots.txt was asked");

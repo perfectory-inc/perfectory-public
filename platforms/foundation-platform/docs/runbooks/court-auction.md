@@ -35,8 +35,7 @@ last_reviewed: 2026-10-19
 
 1. 새벽(01:00–06:00 KST)에 단위를 직접 한 번 시작해 지켜본다:
    `sudo systemctl start foundation-court-auction-collect.service`. 요청 수·소요 시간·거절 없음을 확인한다.
-   User-Agent 는 `perfectory-foundation-court-auction/<버전>` 이다. 연락처는 선택이다(ADR-0283):
-   `/etc/foundation-platform/court-auction.env` 에 `FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT` 가 있으면 `(+연락처)` 로 붙는다.
+   요청 머리글은 HTTP 라이브러리의 기본값 그대로다(ADR-0284): 제품 이름·연락처를 싣지 않고, 브라우저 행세도 하지 않는다.
 2. 적재 단위를 한 번 시작하고 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다.
 3. 첫 밤의 Bronze 크기를 perfectory-ops 비용 추정에 덧붙인다.
 4. 두 작업의 `enabled` 를 켜는 PR.
