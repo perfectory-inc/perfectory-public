@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Whether a main commit may be deployed, by its GitHub check runs (root ADR-0159, ADR-0167).
 
-    release_checks.py <api-base> <owner/repo> <40-hex commit>
+    release_checks.py <api-base> <owner/repo> <40-hex commit> [<registry-base>]
 
 Reads the commit's check runs anonymously (the repository is public, ADR-0136) and prints one line:
 
@@ -19,13 +19,17 @@ line refused fc61aa36). A failed one is named in the reason, and still fails lou
 When release admission installs from GitHub's container registry (tools/release-build.contract.json
 artifacts_from: registry, root ADR-0276 R3), the commit's release must be there first: the check run
 the contract names (the release build's signing job) has to pass too, and the merge queue's early
-answer waits for it; its failure refuses.
+answer waits for it; its failure refuses. Then `release-<commit>` must be in the package (read
+anonymously from GitHub's container registry, or <registry-base> in a test): the tag admission pulls
+first, so a release not there yet is a wait, never a deploy that fails on it (2026-10-19: e6fb99e6's
+deploy refused with 404 at step 2 while its release was still building).
 
 Exit 0 for all three; exit 2 when GitHub cannot be read (the caller asks again next tick).
 """
 
 import json
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -33,6 +37,8 @@ from pathlib import Path
 BUILD_CONTRACT = Path(__file__).resolve().parents[4] / "tools" / "release-build.contract.json"
 
 PASSING = {"success", "skipped", "neutral"}
+REGISTRY = "https://ghcr.io"
+MANIFEST_TYPES = "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
 REPORT_EVENTS = {"schedule", "workflow_dispatch"}
 PAGE = 100
 
@@ -45,6 +51,26 @@ def required_release_check(contract=BUILD_CONTRACT):
     """The check run a deploy must wait for when releases come from the registry, else None."""
     data = json.loads(contract.read_text(encoding="utf-8"))
     return data["registry"]["check_run"] if data.get("artifacts_from") == "registry" else None
+
+
+def release_package(contract=BUILD_CONTRACT):
+    return json.loads(contract.read_text(encoding="utf-8"))["registry"]["package"]
+
+
+def release_published(registry, repository, commit):
+    """Whether `release-<commit>` is in the public package `repository`, asked anonymously."""
+    scope = f"{registry}/token?scope=repository:{repository}:pull"
+    with urllib.request.urlopen(urllib.request.Request(scope), timeout=30) as response:
+        token = json.load(response)["token"]
+    request = urllib.request.Request(f"{registry}/v2/{repository}/manifests/release-{commit}", method="HEAD",
+                                     headers={"Authorization": f"Bearer {token}", "Accept": MANIFEST_TYPES})
+    try:
+        with urllib.request.urlopen(request, timeout=30):
+            return True
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
 
 
 def verdict(check_runs, workflow_runs=(), release_check=None):
@@ -119,17 +145,28 @@ def workflow_runs(api, repository, commit):
 
 
 def main(argv):
-    if len(argv) != 4 or len(argv[3]) != 40:
+    if len(argv) not in (4, 5) or len(argv[3]) != 40:
         print(__doc__, file=sys.stderr)
         return 64
     api, repository, commit = argv[1].rstrip("/"), argv[2], argv[3]
+    registry = argv[4].rstrip("/") if len(argv) == 5 else REGISTRY
+    release_check = required_release_check()
     try:
         runs = check_runs(api, repository, commit)
         queue = workflow_runs(api, repository, commit)
     except (OSError, ValueError, KeyError) as error:
         print(f"cannot read the check runs of {commit}: {error}", file=sys.stderr)
         return 2
-    decision, reason = verdict(runs, queue, required_release_check())
+    decision, reason = verdict(runs, queue, release_check)
+    if release_check and decision == "deploy":
+        package = f"{repository.split('/')[0].lower()}/{release_package()}"
+        try:
+            published = release_published(registry, package, commit)
+        except (OSError, ValueError, KeyError) as error:
+            print(f"cannot read whether release-{commit} is in {package}: {error}", file=sys.stderr)
+            return 2
+        if not published:
+            decision, reason = "wait", f"release-{commit} is not in {package} yet"
     print(f"{decision} {reason}")
     return 0
 
