@@ -17,6 +17,7 @@ from typing import Any
 
 import lineage_review_queue as q
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
+from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX
 from platform_contracts import (
     column_names,
@@ -32,6 +33,9 @@ CONTRACT = load_lakehouse_contract("gold.lineage_review_queue")
 UNIT = "parcel"
 # The daily cycle tells "no lineage yet" (waiting for the first cadastral pair) from a failure.
 NO_LINEAGE_EXIT = 3
+# The lineage snapshot a queue commit was built from; scripts/ops/lineage-queue-check.py reads it so
+# the cycle skips this run while the lineage has not moved (root ADR-0277's shape).
+LINEAGE_SNAPSHOT_PROPERTY = "foundation.lineage-snapshot-id"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -91,7 +95,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"lineage-review-queue-probe lineage_exists={exists}")
         return 0 if exists else NO_LINEAGE_EXIT
     try:
-        lineage = spark.table(f"{cat}.`silver`.`parcel_lineage`")
+        # Read at one snapshot, the one this commit records, so a later append is never counted as built.
+        lineage_snapshot = str(spark.sql(
+            f"SELECT snapshot_id FROM {args.iceberg_catalog_name}.silver.parcel_lineage.refs WHERE name = 'main'"
+        ).first()[0])
+        lineage = spark.read.option("snapshot-id", lineage_snapshot).table(
+            f"{args.iceberg_catalog_name}.silver.parcel_lineage")
         if args.sido:
             lineage = lineage.where(F.substring("successor_pnu", 1, 2).isin(args.sido.split(",")))
         # Only successors that ever had a review-grade row can be on the queue; read all their rows.
@@ -126,19 +135,18 @@ def main(argv: list[str] | None = None) -> int:
              "to_snapshot_id": i.to_snapshot_id or None, "published_at_utc": now}
             for i in items
         ]
-        spark.createDataFrame(out, schema=schema).select(*columns).createOrReplaceTempView("review_queue")
-        if out:
-            spark.sql(f"INSERT OVERWRITE {table} SELECT {', '.join(columns)} FROM review_queue")
-        else:
-            # Dynamic overwrite of an empty frame replaces no partition; an emptied queue must read empty.
-            spark.sql(f"DELETE FROM {table} WHERE unit = '{UNIT}'")
+        # Replaces the unit's rows, an emptied queue included, in one commit that records its lineage.
+        spark.createDataFrame(out, schema=schema).select(*columns).writeTo(
+            f"{args.iceberg_catalog_name}.{args.gold_namespace}.lineage_review_queue").option(
+            SNAPSHOT_PROPERTY_PREFIX + LINEAGE_SNAPSHOT_PROPERTY, lineage_snapshot).overwrite(F.col("unit") == UNIT)
         written = spark.table(table).where(F.col("unit") == UNIT).count()
         if written != len(out):
             raise ValueError(f"wrote {len(out)} review items but the table holds {written}")
         by_sido: dict[str, int] = {}
         for i in items:
             by_sido[i.subject_code[:2]] = by_sido.get(i.subject_code[:2], 0) + 1
-        summary: dict[str, Any] = {"job": JOB_NAME, "unit": UNIT, "open": len(items), **dict(counts), "open_by_sido": by_sido}
+        summary: dict[str, Any] = {"job": JOB_NAME, "unit": UNIT, "open": len(items), **dict(counts), "open_by_sido": by_sido,
+                                   "lineage_snapshot_id": lineage_snapshot}
         if args.handoff_output:
             # Written only after Gold holds the same rows, so the database never gets ahead of it.
             document = q.handoff_document(items, UNIT, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
