@@ -46,10 +46,11 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
             ("history", "silver.land_transfer_history",
              # The key, release and removal columns: the table keeps versions (root ADR-0275).
              "pnu STRING, reason_code STRING, reason STRING, moved_at STRING, erased_at STRING, land_category_code STRING, "
-             "area_m2 DOUBLE, transfer_history_seq BIGINT, source_snapshot_id STRING, row_state STRING",
-             f"('{cls.before}', '10', '지목변경', '2099-05-15', '', '17', 42.0, 1, 'history-0930', NULL), "
-             f"('{cls.after}', '52', '행정관할구역변경', '2099-07-01', '', '17', 42.0, 1, 'history-0930', NULL)",
-             "('9999999999100030000', '52', 'changed head', '2099-07-01', '', '17', 99.0, 1, 'history-1231', NULL)"),
+             "area_m2 DOUBLE, transfer_history_seq BIGINT, source_snapshot_id STRING, row_state STRING, "
+             "source_record_id STRING, ingested_at_utc TIMESTAMP",
+             f"('{cls.before}', '10', '지목변경', '2099-05-15', '', '17', 42.0, 1, 'history-0930', NULL, 'bronze/x.zip', TIMESTAMP '2099-09-30 00:00:00'), "
+             f"('{cls.after}', '52', '행정관할구역변경', '2099-07-01', '', '17', 42.0, 1, 'history-0930', NULL, 'bronze/x.zip', TIMESTAMP '2099-09-30 00:00:00')",
+             "('9999999999100030000', '52', 'changed head', '2099-07-01', '', '17', 99.0, 1, 'history-1231', NULL, 'bronze/y.zip', TIMESTAMP '2099-12-31 00:00:00')"),
             ("buildings_from", "silver.building_register_titles", "mgm_bldrgst_pk STRING, pnu STRING, source_snapshot_id STRING",
              f"('building-1', '{cls.before}', 'building-june')", "('changed', '9999999999100040000', 'building-june')"),
             ("buildings_to", "staging.building_register_titles", "mgm_bldrgst_pk STRING, pnu STRING, source_snapshot_id STRING",
