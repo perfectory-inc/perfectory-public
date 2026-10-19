@@ -217,6 +217,18 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
   - 대조 검사 둘을 지우면 각각 실패한다.
 - R2 완료는 서버에서 10개 목록을 확인하는 것이다. 익명 pull 이 필요하므로 패키지 공개 전환 뒤에 센다.
 
+### 13. R3 — 스위치를 켠다 (2026-10-19)
+
+- R2 를 셌다. 운영 배포와 같은 sudo 경로로 main 커밋 10개를 `verify-registry` 했고 10개 모두 통과했다(한 개 57–95초).
+- 스위치를 `registry` 로 바꾼다. 서버는 그 순간부터 승인 이미지(publisher·tippecanoe)와 파일을 빌드하지 않는다.
+- 찾은 위험: 배포 관문은 merge queue 가 초록이면 바로 배포를 시작하는데(ADR-0167), 릴리스 빌드는 main push 뒤에 돌고 약 31분이
+  걸린다. 그대로 켜면 관문이 통과시킨 커밋의 목록이 아직 없어 `verify-registry` 가 실패하고 배포가 멈춘다.
+  - 그래서 `registry` 모드에서는 관문(`scripts/deploy/release_checks.py`)이 그 커밋의 `registry.check_run`
+    (릴리스 워크플로의 잡 이름) 이 통과할 때까지 기다린다. 실패면 거부한다. 스위치가 `server-build` 면 예전과 같다.
+  - 잡 이름이 바뀌면 관문이 영원히 기다리므로 `scripts/guard/release-build-self-test.sh` 가 계약의 이름이 워크플로에 있는지 본다.
+- 남은 것: 운영 compose 가 `build:` 로 짓는 이미지(foundation-api, recovery)는 아직 서버에서 빌드한다. 이 둘을 목록에서 받고
+  compose 빌드를 금지해야 §10 의 R3 기준(서버 빌드 0회)이 된다. 다음 PR 이다.
+
 ## Rejected
 
 | 대안 | 기각 이유 |

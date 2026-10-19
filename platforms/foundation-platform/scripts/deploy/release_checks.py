@@ -16,12 +16,21 @@ daily guard run) reports on the repository at that hour, not on this commit's co
 whatever commit main's head is, so it never decides a deploy (2026-10-19: a cache budget over its
 line refused fc61aa36). A failed one is named in the reason, and still fails loudly where it ran.
 
+When release admission installs from GitHub's container registry (tools/release-build.contract.json
+artifacts_from: registry, root ADR-0276 R3), the commit's release must be there first: the check run
+the contract names (the release build's signing job) has to pass too, and the merge queue's early
+answer waits for it; its failure refuses.
+
 Exit 0 for all three; exit 2 when GitHub cannot be read (the caller asks again next tick).
 """
 
 import json
 import sys
 import urllib.request
+from pathlib import Path
+
+# The control checkout's own contract: this script runs from it (foundation-autodeploy.sh).
+BUILD_CONTRACT = Path(__file__).resolve().parents[4] / "tools" / "release-build.contract.json"
 
 PASSING = {"success", "skipped", "neutral"}
 REPORT_EVENTS = {"schedule", "workflow_dispatch"}
@@ -32,7 +41,13 @@ def passed(run):
     return run.get("status") == "completed" and run.get("conclusion") in PASSING
 
 
-def verdict(check_runs, workflow_runs=()):
+def required_release_check(contract=BUILD_CONTRACT):
+    """The check run a deploy must wait for when releases come from the registry, else None."""
+    data = json.loads(contract.read_text(encoding="utf-8"))
+    return data["registry"]["check_run"] if data.get("artifacts_from") == "registry" else None
+
+
+def verdict(check_runs, workflow_runs=(), release_check=None):
     """('deploy' | 'wait' | 'refuse', reason) for a commit's check runs.
 
     `workflow_runs` are the commit's workflow runs. The check runs of a `schedule` or
@@ -48,6 +63,10 @@ def verdict(check_runs, workflow_runs=()):
     )
     check_runs = [run for run in check_runs if (run.get("check_suite") or {}).get("id") not in reports]
     decision, reason = _verdict(check_runs, [run for run in workflow_runs if run.get("event") == "merge_group"])
+    if release_check and decision == "deploy":
+        release = [run for run in check_runs if run["name"] == release_check]
+        if not release or not all(map(passed, release)):
+            decision, reason = "wait", f"the release `{release_check}` has not published this commit yet"
     if failed_reports:
         reason += "; reports that do not decide a deploy failed: " + ", ".join(failed_reports)
     return decision, reason
@@ -110,7 +129,7 @@ def main(argv):
     except (OSError, ValueError, KeyError) as error:
         print(f"cannot read the check runs of {commit}: {error}", file=sys.stderr)
         return 2
-    decision, reason = verdict(runs, queue)
+    decision, reason = verdict(runs, queue, required_release_check())
     print(f"{decision} {reason}")
     return 0
 

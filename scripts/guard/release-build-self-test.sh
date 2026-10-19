@@ -39,5 +39,10 @@ with tempfile.TemporaryDirectory() as tmp:
     sample.write_text(f"FROM --platform=linux/amd64 rust:1@sha256:{'a' * 64} AS build\nFROM scratch\nfrom debian:12@sha256:{'b' * 64}\n", encoding="utf-8")
     check(build.base_images(sample) == [f"debian:12@sha256:{'b' * 64}", f"rust:1@sha256:{'a' * 64}"], "pinned FROM lines are not read")
 check(build.toolchain().count(".") == 2, "rust-toolchain.toml's channel is not read")
+# The deploy waits for this check run in registry mode (release_checks.py, root ADR-0276 R3): a name
+# no job reports would hold every deploy back.
+workflow = (root / ".github/workflows/foundation-release-build.yml").read_text(encoding="utf-8").splitlines()
+release_check = json.loads((root / "tools/release-build.contract.json").read_text(encoding="utf-8"))["registry"]["check_run"]
+check(f"    name: {release_check}" in workflow, f"registry.check_run {release_check!r} is no job of the release workflow")
 PY
 echo "OK release-build-self-test"
