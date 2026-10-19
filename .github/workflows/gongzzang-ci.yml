@@ -228,8 +228,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ steps.pnpm-store.outputs.dir }}
-          key: node-cache-${{ runner.os }}-pnpm-${{ hashFiles('products/gongzzang/pnpm-lock.yaml') }}
-          restore-keys: node-cache-${{ runner.os }}-pnpm-
+          key: node-cache-gongzzang-${{ runner.os }}-pnpm-${{ hashFiles('products/gongzzang/pnpm-lock.yaml') }}
+          restore-keys: node-cache-gongzzang-${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
       - name: Regenerate traffic/auth policy artifacts
         run: cargo run -p gongzzang-api --bin generate-traffic-auth-policy
@@ -247,7 +247,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ steps.pnpm-store.outputs.dir }}
-          key: node-cache-${{ runner.os }}-pnpm-${{ hashFiles('products/gongzzang/pnpm-lock.yaml') }}
+          key: node-cache-gongzzang-${{ runner.os }}-pnpm-${{ hashFiles('products/gongzzang/pnpm-lock.yaml') }}
 
   required:
     name: required/gongzzang-core

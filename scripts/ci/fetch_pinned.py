@@ -243,6 +243,9 @@ def contract_pins(
 def all_pins(registry: Mapping[str, Any], system: str, machine: str, root: pathlib.Path = ROOT) -> list[tuple[str, str, str]]:
     result: list[tuple[str, str, str]] = []
     for name in sorted(registry["tools"]):
+        # A tool only the server fetches (cosign, root ADR-0276 §3) is not prefetched into CI's cache.
+        if registry["tools"][name].get("ci", True) is False:
+            continue
         pin = tool_pin(registry, name, system, machine, root)
         if pin is not None:
             result.append((name, *pin))

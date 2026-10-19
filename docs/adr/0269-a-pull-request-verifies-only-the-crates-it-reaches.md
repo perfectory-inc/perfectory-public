@@ -175,6 +175,19 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
     480초로 PR 의 임계 경로였다.
   - 같은 diff 를 지금 선택기로 다시 돌리면 10개다.
   - 특정 파일을 따옴표로 지목한 읽기(`include_str!` 일 수 있다)는 전처럼 의존 크레이트까지 돈다.
+- 2026-10-19 (캐시 초과의 원인): 예산이 넘었다(pinned 571/400 MB 4개, node 1,166/1,000 MB 3개).
+  - pinned: 고정 판 묶음이 바뀌어 새 키가 저장된 뒤에도 옛 키가 남았다. 또 서버만 쓰는 cosign 이 CI 일괄 받기에
+    들어가 Linux 묶음을 52 MB 키웠다.
+  - node: 세 영역(dawneer, Foundation 게이트웨이, gongzzang)이 각자 lockfile 로 스토어를 저장하는데, 키에 영역 이름이 없었다.
+    예산은 스토어가 작던 때의 측정값이었다.
+  - 고친 것:
+    - cosign 은 `"ci": false` 로 CI 일괄 받기에서 뺐다.
+    - node 키에 영역 이름을 넣었다(gongzzang-ci 와 gongzzang-frontend 는 한 스토어를 나눠 쓴다).
+    - 예산은 실측으로 정했다. pinned 300 MB(Linux 162 + Windows 83), node 는 영역마다 450 MB(368–371 MB).
+    - 계약의 `one_key` 항목은 매일 예산 워크플로가 같은 갈래(키 끝의 내용 해시만 다른 것)에서 main 의 최신 키 하나만 남기고
+      지운다. 그 잡 하나에만 `actions: write` 를 허용한다(`check-workflow-policy.sh`, 자기시험이 다른 파일·트리거·최상위·다른
+      쓰기를 거부).
+    - 남은 옛 pinned 키 둘(245 MB)은 손으로 지웠다.
 
 ## Measurements
 

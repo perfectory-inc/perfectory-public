@@ -556,6 +556,32 @@ sed -i '/^      id-token: write$/d; /^      attestations: write$/d; s/^      con
   "$test_root/release-signer-packages-alone/foundation-release-build.yml"
 expect_rejected packages-write-without-signing "$test_root/release-signer-packages-alone"
 
+# Root ADR-0269: only the schedule-only ci-cache-budget.yml may add actions: write, and only to a
+# job-level map beside contents: read, so it deletes the cache keys a newer key replaced.
+cache_pruner_fixture() {
+  scheduled_fixture "$1"
+  mv "$test_root/$1/report.yml" "$test_root/$1/${2:-ci-cache-budget.yml}"
+  sed -i 's/^    runs-on: ubuntu-24.04$/    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n      actions: write/' \
+    "$test_root/$1/${2:-ci-cache-budget.yml}"
+}
+cache_pruner_fixture cache-pruner
+if ! "$checker" "$test_root/cache-pruner" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the cache budget's job-level actions: write" >&2
+  exit 1
+fi
+cache_pruner_fixture cache-pruner-other-file other-report.yml
+expect_rejected actions-write-in-another-workflow "$test_root/cache-pruner-other-file"
+cache_pruner_fixture cache-pruner-push
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/cache-pruner-push/ci-cache-budget.yml"
+expect_rejected actions-write-with-push-trigger "$test_root/cache-pruner-push"
+cache_pruner_fixture cache-pruner-top-level
+sed -i 's/^  contents: read$/  contents: read\n  actions: write/' "$test_root/cache-pruner-top-level/ci-cache-budget.yml"
+expect_rejected actions-write-at-top-level "$test_root/cache-pruner-top-level"
+cache_pruner_fixture cache-pruner-contents
+sed -i 's/^      contents: read$/      contents: write/' "$test_root/cache-pruner-contents/ci-cache-budget.yml"
+expect_rejected contents-write-in-cache-budget "$test_root/cache-pruner-contents"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \

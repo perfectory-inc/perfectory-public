@@ -68,6 +68,7 @@
       "url": "https://github.com/anchore/syft/releases/download/v{version}/syft_{version}_{os}_{arch}.{extension}"
     },
     "cosign": {
+      "ci": false,
       "pins": "tools/cosign.env",
       "version_variable": "COSIGN_VERSION",
       "sha256_variable": "COSIGN_{OS}_{ARCH}_SHA256",
