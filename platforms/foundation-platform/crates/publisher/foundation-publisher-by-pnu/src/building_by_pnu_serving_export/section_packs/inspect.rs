@@ -51,10 +51,12 @@ pub async fn inspect(
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
     by_pnu::check_key(lane, pnu)?;
-    let (view, from) = match generation {
+    let (view, from, schema) = match generation {
+        // An unpublished generation is this release's bake: its schema.
         Some(generation) => (
             PackView::unpublished(store, lane, generation).await?,
             format!("generation {generation}"),
+            crate::by_pnu_serving_manifest_publish::document_schema_version(lane).to_owned(),
         ),
         None => {
             let (bytes, _) = store.read_manifest().await?;
@@ -65,10 +67,11 @@ pub async fn inspect(
             (
                 PackView::served(store, lane, &state).await?,
                 "manifest".to_owned(),
+                state.document_schema_version.clone(),
             )
         }
     };
-    inspect_view(store, pnu, &view, from).await
+    inspect_view(store, pnu, &view, from, &schema).await
 }
 
 /// The report of one PNU as `state` (a recorded manifest's section packs) serves it.
@@ -82,7 +85,14 @@ pub async fn inspect_state(
 ) -> anyhow::Result<JsonValue> {
     by_pnu::check_key(store.lane(), pnu)?;
     let view = PackView::served(store, store.lane(), state).await?;
-    inspect_view(store, pnu, &view, "recorded state".to_owned()).await
+    inspect_view(
+        store,
+        pnu,
+        &view,
+        "recorded state".to_owned(),
+        &state.document_schema_version,
+    )
+    .await
 }
 
 async fn inspect_view(
@@ -90,6 +100,7 @@ async fn inspect_view(
     pnu: &str,
     view: &PackView,
     from: String,
+    schema: &str,
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
     let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
@@ -134,7 +145,7 @@ async fn inspect_view(
     let (answer, document) = match read::resolve(&packs, pnu) {
         Ok(Resolved::Document(fragments)) => (
             "document".to_owned(),
-            serde_json::from_slice::<JsonValue>(&read::joined_bytes(lane, &fragments)?)?,
+            serde_json::from_slice::<JsonValue>(&read::joined_bytes(lane, schema, &fragments)?)?,
         ),
         Ok(Resolved::Tombstone) => ("tombstone".to_owned(), JsonValue::Null),
         Ok(Resolved::Absent) => ("absent".to_owned(), JsonValue::Null),

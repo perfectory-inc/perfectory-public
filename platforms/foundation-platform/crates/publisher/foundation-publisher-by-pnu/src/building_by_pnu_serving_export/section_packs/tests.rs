@@ -542,7 +542,11 @@ async fn serve_capabilities(gateway: &MockServer, versions: &[u32]) {
 
 fn joined(resolved: Resolved) -> anyhow::Result<Vec<u8>> {
     match resolved {
-        Resolved::Document(fragments) => read::joined_bytes(LANE, &fragments),
+        Resolved::Document(fragments) => read::joined_bytes(
+            LANE,
+            crate::by_pnu_serving_manifest_publish::document_schema_version(LANE),
+            &fragments,
+        ),
         other => anyhow::bail!("expected a document, got {other:?}"),
     }
 }

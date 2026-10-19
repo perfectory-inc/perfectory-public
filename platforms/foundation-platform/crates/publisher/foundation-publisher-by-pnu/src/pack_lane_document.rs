@@ -118,12 +118,11 @@ pub fn render(
 ///
 /// # Errors
 /// Names what is missing.
-pub fn check(lane: &PackLane, bytes: &[u8]) -> anyhow::Result<()> {
+pub fn check(lane: &PackLane, schema: &str, bytes: &[u8]) -> anyhow::Result<()> {
     let document: JsonValue =
         serde_json::from_slice(bytes).context("the documents fragment is not JSON")?;
-    let schema = document.get("schema_version").and_then(JsonValue::as_str);
     ensure!(
-        schema == Some(lane.document_schema_version.as_str())
+        document.get("schema_version").and_then(JsonValue::as_str) == Some(schema)
             && document
                 .get("pnu")
                 .and_then(JsonValue::as_str)
@@ -138,8 +137,7 @@ pub fn check(lane: &PackLane, bytes: &[u8]) -> anyhow::Result<()> {
                     .and_then(JsonValue::as_str)
                     .is_some_and(|value| suffix.admits(value))
             }),
-        "the documents fragment is not a {} document",
-        lane.document_schema_version
+        "the documents fragment is not a {schema} document"
     );
     Ok(())
 }
@@ -196,7 +194,7 @@ mod tests {
         );
         let (_, again) = render(lane, "gold.unit_price", "999990000000000001", &row(units))?;
         assert_eq!(bytes, again);
-        check(lane, &bytes)
+        check(lane, &lane.document_schema_version, &bytes)
     }
 
     #[test]
@@ -221,7 +219,12 @@ mod tests {
             .as_object_mut()
             .context("a document is an object")?
             .insert("building_id".to_owned(), JsonValue::Null);
-        assert!(check(lane, &serde_json::to_vec(&without)?).is_err());
+        assert!(check(
+            lane,
+            &lane.document_schema_version,
+            &serde_json::to_vec(&without)?
+        )
+        .is_err());
         // A lane keyed by PNU alone keeps the PNU as its key.
         let zoning = ByPnuLane::named("parcel-zoning")?
             .and_then(ByPnuLane::pack_lane)
@@ -263,7 +266,7 @@ mod tests {
                 )),
                 "{text}"
             );
-            check(lane, &bytes)?;
+            check(lane, &lane.document_schema_version, &bytes)?;
         }
         row.insert(
             "attached_via".to_owned(),
@@ -282,6 +285,7 @@ mod tests {
         assert!(render(lane, "t", "1", &nameless).is_err());
         assert!(check(
             lane,
+            &lane.document_schema_version,
             br#"{"schema_version":"other","pnu":"9999900000100000000"}"#
         )
         .is_err());
@@ -291,7 +295,12 @@ mod tests {
             .as_object_mut()
             .context("a document is an object")?
             .remove("units");
-        assert!(check(lane, &serde_json::to_vec(&without)?).is_err());
+        assert!(check(
+            lane,
+            &lane.document_schema_version,
+            &serde_json::to_vec(&without)?
+        )
+        .is_err());
         Ok(())
     }
 }

@@ -23,7 +23,7 @@ use super::super::building_document::{self, BuildingByPnuDocument};
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
 use crate::pack_lane_document;
-use crate::parcel_by_pnu_serving_export::parcel_document::{self, PARCEL_DOCUMENT_SCHEMA_VERSION};
+use crate::parcel_by_pnu_serving_export::parcel_document;
 
 pub const DOCUMENTS: &str = "documents";
 /// Every section this file can cut.
@@ -180,11 +180,15 @@ pub fn fragment(document: &PackDocument, section: &str) -> anyhow::Result<Vec<u8
 }
 
 /// Checks that the fragments of one PNU, given in [`KNOWN_SECTIONS`] order, hold a document of
-/// `lane`.
+/// `lane` stamped `schema`: the schema the documents were baked under, which for a served state is
+/// what its manifest records (`SectionPacksState::document_schema_version`), not this release's
+/// constant. A release that bumps a document's schema still reads the generation baked before it
+/// until the bake's schema rule replaces that generation (2026-10-19: #780's v2 refused the v1
+/// generation 4 and rolled the parcel gateway's deploy back).
 ///
 /// # Errors
-/// Refuses a missing or extra fragment, and one that is not a document of the lane.
-pub fn join(lane: ByPnuLane, fragments: &[(&str, &[u8])]) -> anyhow::Result<()> {
+/// Refuses a missing or extra fragment, and one that is not a `schema` document of the lane.
+pub fn join(lane: ByPnuLane, schema: &str, fragments: &[(&str, &[u8])]) -> anyhow::Result<()> {
     let names = fragments.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     ensure!(
         names == KNOWN_SECTIONS,
@@ -193,8 +197,13 @@ pub fn join(lane: ByPnuLane, fragments: &[(&str, &[u8])]) -> anyhow::Result<()> 
     let (_, bytes) = fragments[0];
     match lane {
         ByPnuLane::Building => {
-            serde_json::from_slice::<BuildingByPnuDocument>(bytes)
+            let document = serde_json::from_slice::<BuildingByPnuDocument>(bytes)
                 .context("the documents fragment is not a building document")?;
+            ensure!(
+                document.schema_version == schema,
+                "the documents fragment is a {} document, not {schema}",
+                document.schema_version
+            );
             Ok(())
         }
         ByPnuLane::Parcel => {
@@ -203,25 +212,25 @@ pub fn join(lane: ByPnuLane, fragments: &[(&str, &[u8])]) -> anyhow::Result<()> 
             let document: JsonValue =
                 serde_json::from_slice(bytes).context("the documents fragment is not JSON")?;
             ensure!(
-                document.get("schema_version").and_then(JsonValue::as_str)
-                    == Some(PARCEL_DOCUMENT_SCHEMA_VERSION)
+                document.get("schema_version").and_then(JsonValue::as_str) == Some(schema)
                     && document
                         .get("pnu")
                         .and_then(JsonValue::as_str)
                         .is_some_and(
                             |pnu| pnu.len() == 19 && pnu.bytes().all(|b| b.is_ascii_digit())
                         ),
-                "the documents fragment is not a {PARCEL_DOCUMENT_SCHEMA_VERSION} document"
+                "the documents fragment is not a {schema} document"
             );
             Ok(())
         }
-        ByPnuLane::Pack(lane) => pack_lane_document::check(lane, bytes),
+        ByPnuLane::Pack(lane) => pack_lane_document::check(lane, schema, bytes),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
 
     pub fn fixture_document() -> anyhow::Result<BuildingByPnuDocument> {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
@@ -281,6 +290,52 @@ mod tests {
         }
     }
 
+    fn schema_of(lane: ByPnuLane) -> &'static str {
+        crate::by_pnu_serving_manifest_publish::document_schema_version(lane)
+    }
+
+    /// A served generation baked before a schema bump is read under the schema its manifest
+    /// records, and refused under this release's (2026-10-19: generation 4 was stamped
+    /// parcel_by_pnu_profile.v1 when #780 made the constant v2, and the gateway's deploy smoke
+    /// rolled back on it).
+    #[test]
+    fn a_served_document_is_held_to_the_schema_its_state_records() -> anyhow::Result<()> {
+        let parcel = Renderer::Parcel.render(&parcel_provenance(), &parcel_row())?;
+        let mut older: JsonValue = serde_json::from_slice(&parcel.bytes)?;
+        let recorded = "foundation-platform.parcel_by_pnu_profile.v1";
+        assert_ne!(recorded, PARCEL_DOCUMENT_SCHEMA_VERSION);
+        older["schema_version"] = JsonValue::from(recorded);
+        let older = serde_json::to_vec(&older)?;
+        join(
+            ByPnuLane::Parcel,
+            recorded,
+            &[(DOCUMENTS, older.as_slice())],
+        )?;
+        assert!(join(
+            ByPnuLane::Parcel,
+            PARCEL_DOCUMENT_SCHEMA_VERSION,
+            &[(DOCUMENTS, older.as_slice())]
+        )
+        .is_err());
+
+        let building = fixture_document()?;
+        let mut stamped = building.clone();
+        stamped.schema_version = "foundation-platform.building_by_pnu_profile.v2".to_owned();
+        let older = pack_document(&stamped)?;
+        join(
+            ByPnuLane::Building,
+            &stamped.schema_version,
+            &[(DOCUMENTS, older.bytes.as_slice())],
+        )?;
+        assert!(join(
+            ByPnuLane::Building,
+            schema_of(ByPnuLane::Building),
+            &[(DOCUMENTS, older.bytes.as_slice())]
+        )
+        .is_err());
+        Ok(())
+    }
+
     /// The parcel pack holds the object lane's bytes exactly: the renderer is the object
     /// export's own builder, and the validator takes what it wrote.
     #[test]
@@ -299,7 +354,11 @@ mod tests {
         assert_eq!(document.pnu, object.pnu);
         assert_eq!(document.bytes, object.body);
         let bytes = fragment(&document, DOCUMENTS)?;
-        join(ByPnuLane::Parcel, &[(DOCUMENTS, bytes.as_slice())])?;
+        join(
+            ByPnuLane::Parcel,
+            schema_of(ByPnuLane::Parcel),
+            &[(DOCUMENTS, bytes.as_slice())],
+        )?;
         Ok(())
     }
 
@@ -307,13 +366,28 @@ mod tests {
     #[test]
     fn a_parcel_pack_refuses_another_lanes_member() -> anyhow::Result<()> {
         let building = pack_document(&fixture_document()?)?;
-        assert!(join(ByPnuLane::Parcel, &[(DOCUMENTS, building.bytes.as_slice())]).is_err());
+        assert!(join(
+            ByPnuLane::Parcel,
+            schema_of(ByPnuLane::Parcel),
+            &[(DOCUMENTS, building.bytes.as_slice())]
+        )
+        .is_err());
         let parcel = Renderer::Parcel.render(&parcel_provenance(), &parcel_row())?;
-        assert!(join(ByPnuLane::Building, &[(DOCUMENTS, parcel.bytes.as_slice())]).is_err());
+        assert!(join(
+            ByPnuLane::Building,
+            schema_of(ByPnuLane::Building),
+            &[(DOCUMENTS, parcel.bytes.as_slice())]
+        )
+        .is_err());
         let mut nameless: JsonValue = serde_json::from_slice(&parcel.bytes)?;
         nameless["pnu"] = JsonValue::Null;
         let nameless = serde_json::to_vec(&nameless)?;
-        assert!(join(ByPnuLane::Parcel, &[(DOCUMENTS, nameless.as_slice())]).is_err());
+        assert!(join(
+            ByPnuLane::Parcel,
+            schema_of(ByPnuLane::Parcel),
+            &[(DOCUMENTS, nameless.as_slice())]
+        )
+        .is_err());
         Ok(())
     }
 
@@ -328,7 +402,11 @@ mod tests {
             .is_empty());
         let bytes = fragment(&pack_document(&document)?, DOCUMENTS)?;
         assert_eq!(bytes, document.to_bytes()?);
-        join(ByPnuLane::Building, &[(DOCUMENTS, bytes.as_slice())])?;
+        join(
+            ByPnuLane::Building,
+            schema_of(ByPnuLane::Building),
+            &[(DOCUMENTS, bytes.as_slice())],
+        )?;
         Ok(())
     }
 
@@ -337,9 +415,19 @@ mod tests {
         let document = pack_document(&fixture_document()?)?;
         assert!(fragment(&document, "floors").is_err());
         let bytes = fragment(&document, DOCUMENTS)?;
-        assert!(join(ByPnuLane::Building, &[("floors", bytes.as_slice())]).is_err());
-        assert!(join(ByPnuLane::Building, &[]).is_err());
-        assert!(join(ByPnuLane::Building, &[(DOCUMENTS, b"[]".as_slice())]).is_err());
+        assert!(join(
+            ByPnuLane::Building,
+            schema_of(ByPnuLane::Building),
+            &[("floors", bytes.as_slice())]
+        )
+        .is_err());
+        assert!(join(ByPnuLane::Building, schema_of(ByPnuLane::Building), &[]).is_err());
+        assert!(join(
+            ByPnuLane::Building,
+            schema_of(ByPnuLane::Building),
+            &[(DOCUMENTS, b"[]".as_slice())]
+        )
+        .is_err());
         Ok(())
     }
 }
