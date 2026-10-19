@@ -54,13 +54,13 @@
 # `parcel-tiles rehearse gold <YYYYMM>` starts the Gold half of the parcel tile rehearsal (root
 # ADR-0253, ADR-0265) for that edition of the source contract, as
 # foundation-parcel-tile-bake@rehearsal-gold-<YYYYMM>.service; `rehearse bake` then bakes what it made
-# ready (@rehearsal-bake). Nothing is served. Like a spark-pool job, never during the autodeploy,
+# ready (@rehearsal-bake). Nothing is served. Like a spark-pool job, never while a deploy holds it,
 # beside the Gold rebuilds, a Silver lane or another instance of the bake.
 # `status` shows the four instances and the end of the bake's journal.
 #
 # `job` is the same supervised first run for any other job that jobs.v1.json lists as off
 # (`enabled: false`, ADR-0122 §4): `start` starts its systemd service once, never while the
-# autodeploy runs and never while its pool has no room for it (root ADR-0270 §2b); `status`
+# deploy holds it and never while its pool has no room for it (root ADR-0270 §2b, D5); `status`
 # shows the unit and the end of its journal. An enabled job is Airflow's to start
 # (start-scheduled-job.sh), and a Silver lane takes `silver`.
 #
@@ -233,6 +233,24 @@ refuse_while_pool_full() {
     || refuse "systemd cannot tell what holds the pool of $1" 70
   [[ -z "${full}" ]] || refuse "${full}" 75
 }
+# Refuses (75) while a running deploy holds one of the jobs "$@" (root ADR-0270 deploy D5): from its
+# step 0 until its build is done it holds every job, then the jobs its release changes the tables of
+# until the release is live. Any other start runs beside the deploy, as a scheduled one does. A hold
+# left by a deploy that is gone holds nothing.
+DEPLOY_HOLD="${FOUNDATION_OPERATOR_DEPLOY_HOLD:-/run/foundation-deploy-hold}"
+refuse_while_the_deploy_holds() {
+  local pid held job
+  [[ -r "${DEPLOY_HOLD}" ]] || return 0
+  pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${DEPLOY_HOLD}" | head -n 1)"
+  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null || return 0
+  held="$(grep -v '^pid ' "${DEPLOY_HOLD}" || true)"
+  ! grep -qxF '*' <<<"${held}" \
+    || refuse "a deploy is building its release; every job waits until the build is done (ask again)" 75
+  for job in "$@"; do
+    ! grep -qxF -- "${job}" <<<"${held}" \
+      || refuse "the deploy holds ${job} until its release is live: the release changes what ${job} writes" 75
+  done
+}
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
@@ -315,6 +333,7 @@ PY
     start)
       # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
       refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}"
+      refuse_while_the_deploy_holds "silver_refresh_${SILVER_LANE//-/_}"
       refuse_while_pool_full "${SILVER_UNIT}"
       log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
       exec systemctl start --no-block "${SILVER_UNIT}"
@@ -341,7 +360,8 @@ PY
   [[ -n "${JOB_UNIT:-}" ]] || refuse "${JOB_ID:-<none>} is not a job jobs.v1.json lists as off (an enabled job is Airflow's; a Silver lane takes 'silver')"
   case "${ACTION}" in
     start)
-      refuse_while_active "${JOB_UNIT}" foundation-autodeploy.service
+      refuse_while_active "${JOB_UNIT}"
+      refuse_while_the_deploy_holds "${JOB_ID}"
       # The hand Gold rebuild is a transient unit, not a job, so the pool cannot count it.
       [[ "${JOB_POOL}" != spark ]] || refuse_while_active "${GOLD_UNIT}"
       refuse_while_pool_full "${JOB_ID}"
@@ -367,7 +387,9 @@ if [[ "${LANE}" == parcel-tiles ]]; then
         (($# == 1)) && [[ "${HALF}" == bake ]] || refuse "parcel-tiles rehearse takes gold <YYYYMM> or bake"
         INSTANCE="rehearsal-bake"
       fi
-      refuse_while_active 'foundation-parcel-tile-bake@*.service' foundation-autodeploy.service "${GOLD_UNIT}"
+      refuse_while_active 'foundation-parcel-tile-bake@*.service' "${GOLD_UNIT}"
+      # The rehearsal is the served-Gold half and the bake of the parcel tiles.
+      refuse_while_the_deploy_holds parcel_served_gold parcel_tile_bake
       refuse_while_pool_full "foundation-parcel-tile-bake@${INSTANCE}.service"
       log "starting foundation-parcel-tile-bake@${INSTANCE}.service; follow it with: parcel-tiles status"
       exec systemctl start --no-block "foundation-parcel-tile-bake@${INSTANCE}.service"

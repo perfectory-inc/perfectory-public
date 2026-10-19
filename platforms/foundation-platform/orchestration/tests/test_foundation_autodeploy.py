@@ -493,6 +493,8 @@ class TheWholeDeploy(unittest.TestCase):
         new.mkdir(parents=True)
         (new / "foundation-release.sh").write_text(
             '#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$FIXTURE_ROOT/release.log"\n'
+            # What the deploy holds while this step runs (proposal 1, deploy D5).
+            '[[ ! -f "$FIXTURE_ROOT/deploy-hold" ]] || cp "$FIXTURE_ROOT/deploy-hold" "$FIXTURE_ROOT/hold-at-$1"\n'
             '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]]\n')
         (new / "foundation-release.sh").chmod(0o755)
         # The host's release admission: here it refuses what the real one refuses first after a root
@@ -508,7 +510,7 @@ class TheWholeDeploy(unittest.TestCase):
         text = DEPLOY.read_text(encoding="utf-8")
         text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
-                            ("mirror", root / "var/control-source.git")):
+                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
@@ -649,6 +651,26 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("unpaused 1 DAGs; held until the release is live: ", result.stdout)
         self.assertEqual({job: state for job, state in self.dags().items() if job in self.ENABLED},
                          {job: "unpause" for job in self.ENABLED}, "step 7 gives the held jobs their schedule back")
+
+    def test_the_deploy_holds_every_job_while_it_builds_then_only_what_it_holds_and_then_nothing(self):
+        # Proposal 1: the operator's starts read this; it names the deploy's pid first.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        building = (self.root / "hold-at-prepare").read_text().splitlines()
+        live = (self.root / "hold-at-activate").read_text().splitlines()
+        self.assertRegex(building[0], r"^pid [0-9]+$")
+        self.assertEqual(building[1:], ["*"])
+        self.assertEqual(live[0], building[0])
+        self.assertIn("building_register_floor", live[1:])
+        self.assertNotIn("*", live[1:])
+        self.assertFalse((self.root / "deploy-hold").exists(), "a finished deploy holds nothing")
+
+    def test_a_deploy_that_stops_leaves_no_hold_behind(self):
+        result = self.deploy(FIXTURE_FAIL_AT="prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / "hold-at-prepare").read_text().splitlines()[1:], ["*"])
+        self.assertFalse((self.root / "deploy-hold").exists())
 
     def test_a_deploy_that_cannot_tell_what_the_release_changes_goes_on(self):
         # Nothing reads the answer yet (D3): the fixture's commit holds no release_changes.py.
