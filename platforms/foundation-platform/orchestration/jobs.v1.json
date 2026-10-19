@@ -276,8 +276,8 @@
       "pipeline_graph_edges": [
         "source-data-go-kr-file-data-to-silver-registered-factory"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280). Off until its first supervised run on the data host (runbook data-go-kr-registered-factory.md) has loaded the first edition and its match rate is recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-19T14:49:09Z"
     },
     {
       "id": "onbid_public_sale_collect",
