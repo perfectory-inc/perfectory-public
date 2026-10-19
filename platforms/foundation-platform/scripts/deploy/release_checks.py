@@ -2,6 +2,7 @@
 """Whether a main commit may be deployed, by its GitHub check runs (root ADR-0159, ADR-0167).
 
     release_checks.py <api-base> <owner/repo> <40-hex commit> [<registry-base>]
+    release_checks.py newest-released <owner/repo> <commit>... [--registry <registry-base>]
 
 Reads the commit's check runs anonymously (the repository is public, ADR-0136) and prints one line:
 
@@ -25,6 +26,10 @@ first, so a release not there yet is a wait, never a deploy that fails on it (20
 deploy refused with 404 at step 2 while its release was still building).
 
 Exit 0 for all three; exit 2 when GitHub cannot be read (the caller asks again next tick).
+
+`newest-released` prints the first of the commits given (newest first) whose release is published,
+or nothing; without the registry (artifacts_from: server-build) every commit is, so it prints the
+first. foundation-autodeploy.sh deploys that one, never waiting for a newer one still building.
 """
 
 import json
@@ -144,7 +149,32 @@ def workflow_runs(api, repository, commit):
     return listed(f"{api}/repos/{repository}/actions/runs?head_sha={commit}", "workflow_runs")
 
 
+def newest_released(argv):
+    registry = REGISTRY
+    if "--registry" in argv:
+        index = argv.index("--registry")
+        registry, argv = argv[index + 1].rstrip("/"), argv[:index] + argv[index + 2:]
+    repository, commits = argv[2], argv[3:]
+    if not commits or not all(len(commit) == 40 for commit in commits):
+        print(__doc__, file=sys.stderr)
+        return 64
+    if required_release_check() is None:
+        print(commits[0])
+        return 0
+    package = f"{repository.split('/')[0].lower()}/{release_package()}"
+    try:
+        found = next((commit for commit in commits if release_published(registry, package, commit)), None)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"cannot read which releases are in {package}: {error}", file=sys.stderr)
+        return 2
+    if found:
+        print(found)
+    return 0
+
+
 def main(argv):
+    if argv[1:2] == ["newest-released"]:
+        return newest_released(argv)
     if len(argv) not in (4, 5) or len(argv[3]) != 40:
         print(__doc__, file=sys.stderr)
         return 64
