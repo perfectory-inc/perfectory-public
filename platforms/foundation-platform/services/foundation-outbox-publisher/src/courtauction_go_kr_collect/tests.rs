@@ -6,9 +6,9 @@ use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
-    collect, in_quiet_hours, read_page, read_robots, refusal_on_record, run_window,
-    source_contract, take_quiet_hours_waiver, user_agent, Collector, Page, Stop, PREFIX,
-    QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
+    collect, in_quiet_hours, night_summary, read_page, read_robots, refusal_on_record, run_window,
+    source_contract, take_quiet_hours_waiver, user_agent, with_night, Collector, Page, Stop,
+    PREFIX, QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -468,4 +468,28 @@ fn an_operators_window_overrides_the_contracts_until_it_ends() -> anyhow::Result
             && in_quiet_hours(&whole_day, at("2099-01-01T16:00:00Z"))?
     );
     Ok(())
+}
+
+#[test]
+fn every_object_records_the_nights_requests_and_whether_it_was_refused() {
+    // 2026-10-19: the first night's request count had to be estimated from its duration.
+    let refused = night_summary(37, Some(&Stop::Refused("HTTP 429".to_owned())));
+    assert_eq!(
+        (
+            refused["requests_sent"].as_u64(),
+            refused["refused"].as_bool()
+        ),
+        (Some(37), Some(true))
+    );
+    let complete = night_summary(1_377, None);
+    assert_eq!(complete["refused"].as_bool(), Some(false));
+    assert!(complete["stopped"].is_null());
+    let params = with_night(
+        &json!({"operation": "searchControllerMain"}),
+        1_125,
+        &complete,
+    );
+    assert_eq!(params["operation"], "searchControllerMain");
+    assert_eq!(params["requests_in_object"].as_u64(), Some(1_125));
+    assert_eq!(params["night"]["requests_sent"].as_u64(), Some(1_377));
 }

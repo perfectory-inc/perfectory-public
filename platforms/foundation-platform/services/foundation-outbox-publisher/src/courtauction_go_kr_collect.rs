@@ -577,12 +577,24 @@ fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow:
     Ok(relative)
 }
 
-/// Commits one search's object and returns its manifest entry.
+/// What the whole night did, recorded with every object it landed: the ledger answers how many
+/// requests were sent and whether the site refused, so nobody estimates them from a clock.
+pub(crate) fn night_summary(sent: u32, stop: Option<&Stop>) -> JsonValue {
+    json!({
+        "requests_sent": sent,
+        "refused": matches!(stop, Some(Stop::Refused(_))),
+        "stopped": stop,
+    })
+}
+
+/// Commits one search's object, with the night's summary in its ledger row and its run, and
+/// returns its manifest entry.
 pub(crate) async fn persist<Uow, Storage>(
     search: &Search,
     output_dir: &Path,
     lines: &[String],
     at: DateTime<Utc>,
+    night: &JsonValue,
     live: Option<(&Uow, &Storage)>,
 ) -> anyhow::Result<JsonValue>
 where
@@ -603,7 +615,7 @@ where
         .await
         .with_context(|| format!("failed to upsert the {} source", search.dataset_slug))?;
     let run = uow
-        .create_ingestion_run(&ingestion_run(source.id, search, at))
+        .create_ingestion_run(&ingestion_run(source.id, search, night, at))
         .await
         .with_context(|| format!("failed to create the {} run", search.dataset_slug))?;
     let plan = plan(search, bytes, run.id, at)?;
@@ -625,12 +637,12 @@ where
                     source_partition_key: Some(plan.source_partition_key.clone()),
                     source_identity_key: plan.source_identity_key.clone(),
                     dedupe_key: plan.dedupe_key.clone(),
-                    request_params: plan.request_params.clone(),
+                    request_params: with_night(&plan.request_params, lines.len(), night),
                     object_key: plan.object_key.clone(),
                     checksum_sha256: plan.checksum_sha256.clone(),
                     content_type: plan.content_type.clone(),
                     size_bytes: plan.size_bytes,
-                    logical_record_count: None,
+                    logical_record_count: u64::try_from(lines.len()).ok(),
                     collected_at: at,
                     snapshot_period: plan.snapshot_period.clone(),
                     snapshot_date: plan.snapshot_date,
@@ -689,9 +701,24 @@ fn source_catalog_entry(search: &Search, now: DateTime<Utc>) -> anyhow::Result<S
     })
 }
 
+/// The object's request parameters with the requests it holds and the night's summary.
+pub(crate) fn with_night(
+    params: &JsonValue,
+    requests_in_object: usize,
+    night: &JsonValue,
+) -> JsonValue {
+    let mut params = params.clone();
+    if let Some(map) = params.as_object_mut() {
+        map.insert("requests_in_object".to_owned(), json!(requests_in_object));
+        map.insert("night".to_owned(), night.clone());
+    }
+    params
+}
+
 fn ingestion_run(
     source_catalog_id: SourceCatalogId,
     search: &Search,
+    night: &JsonValue,
     now: DateTime<Utc>,
 ) -> IngestionRun {
     IngestionRun {
@@ -699,7 +726,7 @@ fn ingestion_run(
         source_catalog_id,
         trigger: IngestionTrigger::Scheduled,
         status: IngestionRunStatus::Running,
-        request_params: json!({"operation": search.operation}),
+        request_params: json!({"operation": search.operation, "night": night}),
         started_at: now,
         finished_at: None,
         logical_records_seen: 0,
@@ -844,6 +871,7 @@ pub async fn run() -> anyhow::Result<()> {
         in_quiet_hours(&run_window(&contract_window, &switches, at).0, at)
     })
     .await?;
+    let night = night_summary(collector.sent, stop.as_ref());
 
     let mut objects = Vec::new();
     let uow;
@@ -861,7 +889,15 @@ pub async fn run() -> anyhow::Result<()> {
         let Some(result) = results.get(role).filter(|result| !result.lines.is_empty()) else {
             continue;
         };
-        let mut entry = persist(search, &config.output_dir, &result.lines, started, live).await?;
+        let mut entry = persist(
+            search,
+            &config.output_dir,
+            &result.lines,
+            started,
+            &night,
+            live,
+        )
+        .await?;
         entry["role"] = json!(role);
         entry["complete"] = json!(result.complete);
         entry["rows"] = json!(result.rows);
