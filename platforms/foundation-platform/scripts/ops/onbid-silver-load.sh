@@ -4,7 +4,8 @@
 #
 # 수집 작업(onbid-collect.sh)이 쓴 적재 대기 넘김(lakehouse/pending/<실행>/)마다, 오래된 것부터
 # data_go_kr_onbid.py load 가 silver.onbid_real_estate_item 에 내용이 바뀐 회차와(전수가 완전할 때만) 빠진
-# 회차의 삭제 표지를, silver.onbid_item_bid_result 에 입찰결과 답을 쌓고 넘김을 loaded/ 로 옮긴다
+# 회차의 삭제 표지를, silver.onbid_item_bid_result 에 입찰결과 답을 쌓는다. Spark 가 성공하면 이 스크립트가 넘김을
+# loaded/ 로 옮긴다(넘김은 호스트 사용자의 것이고 Spark 컨테이너는 읽기만 한다)
 # (root ADR-0275). 대기 넘김이 없으면 Spark 를 띄우지 않고 unchanged 로 끝난다. 실패하면 넘김이 pending/ 에
 # 남아 다음 실행이 다시 쌓는다: 이미 쌓은 객체는 append_batch_once 가 건너뛴다.
 set -Eeuo pipefail
@@ -16,11 +17,13 @@ LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "${LAKEHOUSE_STATE_ROOT}/pending" "${LAKEHOUSE_STATE_ROOT}/loaded" "${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
-chmod 0777 "${LAKEHOUSE_STATE_ROOT}/loaded" "${LAKEHOUSE_STATE_ROOT}/runs/${run_id}" # Spark 컨테이너는 uid 185 로 쓴다.
 run_log="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}/run.log"
 trap 'job_journal "${journal}" "onbid silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
 
-if ! compgen -G "${LAKEHOUSE_STATE_ROOT}/pending/*/manifest.json" >/dev/null; then
+# The handoffs this run loads, named before Spark starts: one that arrives meanwhile waits for the next.
+mapfile -t handoffs < <(find "${LAKEHOUSE_STATE_ROOT}/pending" -mindepth 2 -maxdepth 2 -name manifest.json -printf '%h
+' | sort)
+if [ "${#handoffs[@]}" -eq 0 ]; then
   job_journal "${journal}" "onbid silver load: nothing pending run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
@@ -38,6 +41,12 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   /workspace/infra/lakehouse/spark/jobs/data_go_kr_onbid.py load \
   --state-dir /workspace/target/lakehouse --allow-non-smoke-write >> "${run_log}" 2>&1
 
+# This script owns the handoffs (the Spark container runs as another user and only reads them): a
+# loaded one moves to loaded/ here, after Spark succeeded. A failed run leaves them pending; the
+# next run loads them again and append_batch_once skips an object the table already records.
+for handoff in "${handoffs[@]}"; do
+  mv "${handoff}" "${LAKEHOUSE_STATE_ROOT}/loaded/"
+done
 summary="$(grep '^data-go-kr-onbid-summary-json ' "${run_log}" | tail -1)"
 job_journal "${journal}" "onbid silver load ok run=${run_id} ${summary}"
 printf 'foundation-job-outcome changed\n'

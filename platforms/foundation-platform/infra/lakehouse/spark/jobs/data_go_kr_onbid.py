@@ -3,13 +3,16 @@
 The collector (`collect-data-go-kr-onbid`) lands, per run, one gzip JSON Lines object per API; each
 line is one request: its parameters, its HTTP status and the response body as received. The collect
 script stages a run as a handoff (`pending/<run>/manifest.json` + the objects). This job loads each
-handoff, oldest first, and moves it to `loaded/`:
+handoff, oldest first:
 
 - the item list object into `silver.onbid_real_estate_item`: every staged row of an item condition
   that is new or whose content changed, and, only when the run read the whole list (the manifest's
   `report.item_pass_complete`), a removal marker for each condition with a current row that the
   pass no longer holds (root ADR-0275, `silver_release_compare.release_changes`);
 - the item bid result object into `silver.onbid_item_bid_result`: every result answer, as given.
+
+The job only reads the handoffs; the host script that owns them moves each one to `loaded/` after
+the job succeeded (the Spark container runs as another user and cannot remove them).
 
 The announcement objects stay in Bronze only. A row keeps the provider's own PNU (`ltnoPnu`) when
 `Pnu::parse` would accept it (the rule's copy in the source contract, held equal by a Rust test),
@@ -25,7 +28,6 @@ import argparse
 import gzip
 import json
 import re
-import shutil
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,13 +50,22 @@ def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
 
 
 def valid_pnu(value: Any, contract: Mapping[str, Any]) -> str | None:
-    """The PNU when Pnu::parse would accept it: the declared digit count, ASCII digits, 대장구분 digit."""
+    """The standard PNU of the provider's ltnoPnu, or None.
+
+    The provider writes the 11th digit in the hub dialect (0 ordinary, 1 mountain); it is converted
+    with the contract's map, then the result must pass what Pnu::parse checks: the declared digit
+    count, ASCII digits and a standard 대장구분 digit.
+    """
 
     rule = contract["pnu"]
     text = str(value or "").strip()
     if len(text) != int(rule["digits"]) or not text.isascii() or not text.isdigit():
         return None
-    return text if text[10] in rule["ledger_kind_digits"] else None
+    standard = rule["provider_ledger_kind_digits"].get(text[10])
+    if standard is None:
+        return None
+    pnu = text[:10] + standard + text[11:]
+    return pnu if pnu[10] in rule["ledger_kind_digits"] else None
 
 
 def kst_minute(value: Any) -> datetime | None:
@@ -340,9 +351,6 @@ def _load(argv: Sequence[str]) -> int:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
                 entry["results"] = len(rows)
                 entry["results_appended"] = append_batch_once(spark, frame, result_columns, result_table, RESULT_TABLE)["appended"]
-            loaded = state_dir / "loaded" / handoff.name
-            loaded.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(handoff), str(loaded))
             summary["handoffs"].append(entry)
     finally:
         spark.stop()

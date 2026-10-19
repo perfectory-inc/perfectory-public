@@ -34,7 +34,7 @@ def page(items, code="00", status=200):
 
 
 def item(cltr="X-0001", condition=1, **extra):
-    base = {"cltrMngNo": cltr, "pbctCdtnNo": condition, "ltnoPnu": "9999999999100010000", "prptDivCd": "0007",
+    base = {"cltrMngNo": cltr, "pbctCdtnNo": condition, "ltnoPnu": "9999999999000010000", "prptDivCd": "0007",
             "pvctTrgtYn": "N", "pbctStatCd": "0001", "apslEvlAmt": 31190000, "lowstBidPrcIndctCont": "28071000",
             "cltrBidBgngDt": "209901051000", "cltrBidEndDt": "209901071700", "mdfcnDt": "20990101093000"}
     base.update(extra)
@@ -42,18 +42,29 @@ def item(cltr="X-0001", condition=1, **extra):
 
 
 class PnuTest(unittest.TestCase):
-    def test_the_provider_pnu_is_kept_only_when_pnu_parse_would_accept_it(self) -> None:
-        self.assertEqual(job.valid_pnu("9999999999100010000", CONTRACT), "9999999999100010000")
-        self.assertEqual(job.valid_pnu("9999999999800010000", CONTRACT), "9999999999800010000")
-        self.assertIsNone(job.valid_pnu("9999999999300010000", CONTRACT))  # 대장구분 3
-        self.assertIsNone(job.valid_pnu("999999999910001000", CONTRACT))  # 18 digits
-        self.assertIsNone(job.valid_pnu("99999999991000100٠0", CONTRACT))  # a non-ASCII digit
+    def test_the_provider_ledger_digit_is_read_in_the_hub_dialect(self) -> None:
+        # ltnoPnu writes 0 for ordinary land and 1 for mountain land (measured on the first load).
+        self.assertEqual(job.valid_pnu("9999999999000010000", CONTRACT), "9999999999100010000")
+        self.assertEqual(job.valid_pnu("9999999999100010000", CONTRACT), "9999999999200010000")
+        self.assertIsNone(job.valid_pnu("9999999999200010000", CONTRACT))  # a block lot has no PNU
+        self.assertIsNone(job.valid_pnu("999999999900001000", CONTRACT))  # 18 digits
+        self.assertIsNone(job.valid_pnu("99999999990000100٠0", CONTRACT))  # a non-ASCII digit
         self.assertIsNone(job.valid_pnu(None, CONTRACT))
 
     def test_a_row_without_a_valid_pnu_keeps_the_raw_text(self) -> None:
         row = job.item_row(item(ltnoPnu="99999-bad"), CONTRACT)
         self.assertIsNone(row["pnu"])
         self.assertEqual(row["ltno_pnu_raw"], "99999-bad")
+        self.assertEqual(job.item_row(item(), CONTRACT)["ltno_pnu_raw"], "9999999999000010000")
+
+
+class OwnershipTest(unittest.TestCase):
+    def test_the_job_only_reads_the_handoffs(self) -> None:
+        # The host script owns pending/ and moves a handoff after the load; the Spark container runs
+        # as another user and could not (2026-10-19 first load: PermissionError on rmdir).
+        source = Path(job.__file__).read_text(encoding="utf-8")
+        for call in ("shutil.move", "os.rename", ".rename(", "rmdir", "unlink("):
+            self.assertNotIn(call, source)
 
 
 class ValueTest(unittest.TestCase):
