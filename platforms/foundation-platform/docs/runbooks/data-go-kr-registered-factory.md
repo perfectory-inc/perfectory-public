@@ -16,13 +16,18 @@ last_reviewed: 2026-10-19
 `scripts/ops/registered-factory-cycle.sh`:
 
 1. `collect-data-go-kr-registered-factory`: 포털 메타데이터를 한 번 묻는다. 파일 id(`atchFileId`)가
-   `collector/accepted.json` 의 것과 같으면 `unchanged` 로 끝난다(Spark 없음). 다르면 zip 을 받아 Bronze 에 남긴다.
-2. 새 판은 `lakehouse/pending/<실행>/` 으로 넘긴다.
-3. `data_go_kr_registered_factory.py load`: 멤버를 검사하고, `address_pnu.py` 로 PNU 를 찾고,
-   `silver.registered_factory` 에 판 전체를 한 번 쌓는다.
+   `collector/accepted.json` 의 것과 같으면 받지 않는다. 다르면 zip 을 받아 Bronze 에 남긴다.
+2. `plan-silver-load-objects`: R2 만 보고 쌓을 판을 정한다. 이 원천의 Bronze zip 가운데 `silver.registered_factory`
+   의 커밋 요약(`foundation.ingest-batch-objects`)이 아직 기록하지 않은 것, 계약의 `silver_load` 범위(최근 7일,
+   한 번에 하나) 안에서 오래된 것부터. 없으면 `unchanged` 로 끝난다(Spark 없음).
+3. `data_go_kr_registered_factory.py load`: 멤버를 검사하고(행 수 한계는 표가 가진 최신 판과 비교), `address_pnu.py`
+   로 PNU 를 찾고, `silver.registered_factory` 에 판 전체를 한 번 쌓는다.
 
-상태: `/var/lib/foundation-platform/registered-factory/`(`collector/accepted.json`, `lakehouse/pending|loaded/`,
-`lakehouse/last-loaded-rows.json`, `journal.log`).
+대기열은 없다. 적재가 실패하면 그 zip 은 표에 기록이 없으니 다음 실행이 다시 받는다. 7일 넘게 실패가 이어지면
+계획이 그 zip 을 쌓지 않고 `unrecorded_outside_window` 로 알린다(스냅숏 보존 30일보다 짧게 둔 범위).
+
+상태: `/var/lib/foundation-platform/registered-factory/`(`collector/accepted.json`, `journal.log`, 실행마다
+`runs/<실행>/run.log`).
 
 ## PNU 찾기 (`pnu_basis`, `pnu_unresolved_reason`)
 

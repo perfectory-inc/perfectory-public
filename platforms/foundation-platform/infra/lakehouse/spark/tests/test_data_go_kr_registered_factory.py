@@ -1,13 +1,15 @@
 """전국등록공장현황 Silver 적재(root ADR-0280 §4)의 판독부를 합성 파일로 본다.
 
 회사명·주소는 지어낸 것이다(시도 코드 99 의 합성 지명). 거부해야 할 것을 심는다: 데이터 멤버가 둘인 zip,
-머리글이 바뀐 파일, CP949 로 읽을 수 없는 바이트, 바닥보다 적은 행, 직전 판보다 한계 넘게 줄어든 판.
+머리글이 바뀐 파일, CP949 로 읽을 수 없는 바이트, 바닥보다 적은 행, 직전 판보다 한계 넘게 줄어든 판, 다른 형식의 계획, 이 적재가 맡지 않은 원천.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import sys
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -84,6 +86,31 @@ class RowTest(unittest.TestCase):
         resolved = {"pnu", "pnu_basis", "pnu_unresolved_reason", "pnu_candidate_count"}
         loaded = {"source_record_id", "source_snapshot_id", "ingested_at_utc"}
         self.assertLessEqual(names, built | resolved | loaded)
+
+
+class PlanTest(unittest.TestCase):
+    KEY = "bronze/source=datagokr__registered_factory/x.zip"
+
+    def write(self, root: Path, slug: str = "datagokr__registered_factory", schema: str = job.PLAN_SCHEMA) -> Path:
+        (root / "objects" / slug).mkdir(parents=True)
+        (root / "objects" / slug / "x.zip").write_bytes(zipped([HEADER]))
+        (root / "plan.json").write_text(json.dumps({"schema_version": schema, "objects": [
+            {"object_key": self.KEY.replace("datagokr__registered_factory", slug), "source_slug": slug,
+             "local_path": f"objects/{slug}/x.zip", "size_bytes": 1}]}), encoding="utf-8")
+        return root
+
+    def test_a_plan_gives_the_zip_it_fetched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            [entry] = job.planned_objects([self.write(Path(tmp))], CONTRACT)
+            self.assertEqual(entry["object_key"], self.KEY)
+            self.assertEqual(job.read_member(entry["path"].read_bytes(), CONTRACT), ("20991231", []))
+
+    def test_a_plan_of_another_kind_or_source_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                job.planned_objects([self.write(Path(tmp) / "a", schema="x.v1")], CONTRACT)
+            with self.assertRaises(ValueError):
+                job.planned_objects([self.write(Path(tmp) / "b", slug="datagokr__onbid_real_estate_item")], CONTRACT)
 
 
 if __name__ == "__main__":

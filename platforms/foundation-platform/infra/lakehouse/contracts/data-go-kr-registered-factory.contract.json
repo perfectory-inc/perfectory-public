@@ -33,6 +33,11 @@
       "max_shrink_share": 0.15
     }
   },
+  "silver_load": {
+    "$comment": "What one Silver load may take (plan-silver-load-objects): zips of this source that no commit of silver.registered_factory records, landed within window_days, oldest first, one per run (each is a whole edition). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
+    "window_days": 7,
+    "max_objects": 1
+  },
   "pnu_resolution": {
     "$comment": "ADR-0280 §4. The provider gives no PNU. A row's address is read as a jibun address or a road address; each step names itself in pnu_basis, and a row no step resolves keeps pnu null with pnu_unresolved_reason. Never by geometry. jibun_address: 시도·시군구·읍면동(·리) names match reference.legal_dong_code_snapshot's current full_name, plus 산 and 본번-부번, and the PNU must be a current row of silver.parcel_boundaries. road_address: 시도·시군구·도로명·건물번호 match silver.building_register_titles.road_address_raw read the same way, and every matching title must carry the same pnu. A sample of 2,829 road addresses on 2026-10-19 resolved 82.9% to one PNU, 4.7% to several, 12.4% to none.",
     "bases": ["jibun_address", "road_address"],
