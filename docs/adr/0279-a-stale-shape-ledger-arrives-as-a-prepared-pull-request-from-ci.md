@@ -19,18 +19,21 @@
    `shape-ledger/<원장 파일 이름>` 에 쓴다. 열쇠는 그 버킷에만 쓰는 `foundation-platform-shape-ledger-writer-prod` 하나,
    묶음 `shape-ledger` 에 든다. 올리기 실패나 열쇠 없음은 실행을 실패시키지 않는다(48시간 경보는 그대로).
    서버의 GitHub 토큰 자리(`shape-ledger-pr`)는 없앤다.
-2. **CI 가 읽고 비교한다.** main 에서만, 예약으로 도는 워크플로우 하나가 GitHub 보호 환경 `shape-ledger` 의
-   읽기 전용 열쇠(`foundation-platform-shape-ledger-reader-prod`, 그 버킷만)로 두 파일을 받아 커밋된 원장과 표 단위로
-   비교하고 실행 요약에 적는다. 비밀이 없으면 "건너뜀"과 이유를 요약에 적고 성공으로 끝난다. 이 파일 하나만 워크플로우
-   정책 가드의 예외다.
-3. **PR 은 App 이 연다(후속).** 같은 워크플로우가 준비된 PR 봇(GitHub App: 이 저장소만, Contents·Pull requests 쓰기)의
-   토큰으로 `shape-ledger/refresh` 브랜치와 PR 을 연다. App 은 ADR-0158 평가 C 의 권한 그대로이며 npm 권고 PR 도 함께 쓴다.
+2. **비공개 ops 저장소가 읽고 비교한다.** 공개 워크플로우는 비밀을 쓰지 않는다(공개 저장소 안전 가드: 실제 운영
+   작업은 비공개 ops 경계에 둔다). 그래서 비교는 비공개 저장소 perfectory-ops 의 예약 워크플로우가 한다. 공개
+   저장소를 토큰 없이 체크아웃해 그 안의 `scripts/ops/shape-ledger-compare.py` 를 돌린다. 보호 환경 `shape-ledger`
+   (main 만)의 읽기 전용 열쇠(`foundation-platform-shape-ledger-reader-prod`, 그 버킷만)로 두 파일을 받아 커밋된 원장과
+   표 단위로 비교하고 실행 요약에 적는다. 비밀이 없으면 "건너뜀"과 이유를 적고 성공으로 끝난다.
+3. **PR 은 App 이 연다(후속).** 같은 워크플로우가 준비된 PR 봇(GitHub App: 공개 저장소에만 설치, Contents·Pull requests
+   쓰기)의 토큰으로 공개 저장소에 `shape-ledger/refresh` 브랜치와 PR 을 연다(`refresh_pull_request`). App 은 ADR-0158 평가 C 의 권한 그대로이며 npm 권고 PR 도 함께 쓴다.
    App 이 생기기 전에는 2 의 요약까지만 한다.
-4. 사장님 할 일(버킷·열쇠 둘·환경·서버 파일·App)은 릴리스 버킷과 한 번에 하도록
-   `platforms/foundation-platform/docs/runbooks/release-artifact-bucket.md` §8 에 모은다.
+4. 사장님 할 일(버킷·열쇠 둘·perfectory-ops 환경·서버 파일·App)은 한 번에 하도록
+   `platforms/foundation-platform/docs/runbooks/shape-ledger-bucket.md` 에 모은다.
 
 ## Consequences
 
-- 서버가 가진 새 열쇠는 원장 버킷 하나에 쓰는 것뿐이다. CI 의 읽기 열쇠도 그 버킷 하나만 읽고, main 의 보호 환경에만 있다.
+- 서버가 가진 새 열쇠는 원장 버킷 하나에 쓰는 것뿐이다. 비교의 읽기 열쇠도 그 버킷 하나만 읽고, perfectory-ops main 의
+  보호 환경에만 있다. 공개 저장소에는 비밀도 가드 예외도 없다.
+- 비공개 저장소의 Actions 는 조직 무료 한도에서 차감된다(하루 1분 남짓, 표준 러너).
 - 버킷은 비공개다(r2.dev·사용자 도메인 없음). 원장 내용은 이미 공개 저장소에 있으나 공개 경로를 새로 만들지 않는다.
 - 병합 판단은 그대로 사람이 한다: PR 의 표별 변화가 예상된 것인지(새 표는 어느 PR 이 만들었나) 확인한다.

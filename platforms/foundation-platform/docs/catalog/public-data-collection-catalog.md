@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **136개**
-- 고유 dataset slug: **117개**
-- 고유 Bronze source slug: **136개**
-- 국가 수집 허용 endpoint: **86개**
+- 엔드포인트 정의: **140개**
+- 고유 dataset slug: **121개**
+- 고유 Bronze source slug: **140개**
+- 국가 수집 허용 endpoint: **91개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -33,8 +33,7 @@ last_reviewed: 2026-07-30
 | 제공기관 | endpoint 수 | 국가 수집 허용 | 기본 실행 | 주요 상태 |
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
-| data.go.kr | 23 | 0 | 0 | API 예정 1, 중복 API 비활성 22 |
-| factoryon.go.kr | 1 | 0 | 0 | 수동 승인 1 |
+| data.go.kr | 28 | 5 | 0 | API 예정 5, 전용 커맨드 1, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
@@ -58,10 +57,12 @@ last_reviewed: 2026-07-30
 | `building_hub_bulk` | 59 | hub.go.kr 건축물·허가·에너지·점검 벌크 파일 |
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
+| `data_go_kr_file_data` | 1 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 3 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
-| `other_bulk` | 13 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
+| `onbid_open_api` | 4 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
+| `other_bulk` | 12 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
 | `vworld_dataset` | 25 | vworld.kr 제공기관 데이터 파일 |
 | `vworld_ned_open_api` | 1 | vworld.kr NED API (현재 기본 실행 제외) |
@@ -103,7 +104,12 @@ last_reviewed: 2026-07-30
 | data.go.kr | 건축물대장 API | 건축물대장 총괄표제부 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 표제부 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 오수정화시설 | 중복 API | false | 중복 API 비활성 |
+| data.go.kr | 등록공장 | 한국산업단지공단 전국등록공장현황 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | mois_standard_code_open_api | 행정표준코드 법정동코드 목록 | 공개 API | false | API 예정 |
+| data.go.kr | 온비드 공매 | 온비드 물건 입찰결과상세 | 공개 API | true | API 예정 |
+| data.go.kr | 온비드 공매 | 온비드 공고 입찰결과목록 | 공개 API | true | API 예정 |
+| data.go.kr | 온비드 공매 | 온비드 공고목록 | 공개 API | true | API 예정 |
+| data.go.kr | 온비드 공매 | 온비드 부동산 물건목록 | 공개 API | true | API 예정 |
 | data.go.kr | 부동산 실거래 | 아파트 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 아파트 매매 상세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 공장창고 실거래가 | 중복 API | false | 중복 API 비활성 |
@@ -116,7 +122,6 @@ last_reviewed: 2026-07-30
 | data.go.kr | 부동산 실거래 | 단독다가구 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 단독다가구 매매 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 아파트 분양권전매 실거래가 | 중복 API | false | 중복 API 비활성 |
-| factoryon.go.kr | 기타 공공데이터 | 공장등록현황 | 벌크(수동 승인) | false | 수동 승인 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 건물 전기 사용량 파일 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(전기,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(가스,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |

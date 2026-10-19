@@ -91,7 +91,7 @@ describe("Foundation vector source refresh", () => {
     ).toThrow(/contract drift/);
   });
 
-  it("fails closed when Catalog publishes an unregistered unit", () => {
+  it("skips a unit the Catalog publishes that this client does not own", () => {
     const previous = manifest(1, "http://127.0.0.1:3110/parcels/{z}/{x}/{y}");
     const parcels = previous.publication_units.parcels;
     if (!parcels) throw new Error("test manifest must contain parcels");
@@ -120,13 +120,17 @@ describe("Foundation vector source refresh", () => {
         },
       },
     });
-    expect(() =>
+    // Root ADR-0225 step 1b: the Catalog publishes a unit before a web release knows it. It is
+    // never registered, and the units this client owns keep refreshing.
+    const added: string[] = [];
+    expect(
       refreshFoundationVectorSources(
-        { getSource: () => ({ setTiles: () => undefined }) },
+        { getSource: () => undefined, addSource: (id) => void added.push(id) },
         previous,
         unknown,
       ),
-    ).toThrow(/unregistered Foundation publication unit/);
+    ).toEqual([]);
+    expect(added).toEqual([]);
   });
 
   it("requires static Martin source ids to match the immutable release filename", () => {

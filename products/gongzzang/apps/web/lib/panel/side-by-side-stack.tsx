@@ -26,7 +26,8 @@ export function SideBySideStack({ stack }: { stack: PanelStack }) {
       style={{ width: "var(--panel-side-by-side-width)" }}
     >
       <Breadcrumb stack={stack} greyedBeforeIndex={top2Start} />
-      <div className="grid flex-1 grid-cols-2 gap-4 overflow-hidden">
+      {/* One row of the stack's own height: an `auto` row grew to the panel's content and clipped it. */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden">
         {visible.map((entry, i) => (
           <PanelEntryView
             // biome-ignore lint/suspicious/noArrayIndexKey: 같은 패널이 다른 깊이에 두 번 설 수 있어 내용만의 key 는 충돌한다 — 위치+내용 복합이 정체성이다.

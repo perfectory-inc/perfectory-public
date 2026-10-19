@@ -256,8 +256,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ steps.pnpm-store.outputs.dir }}
-          key: node-cache-${{ runner.os }}-pnpm-${{ hashFiles('platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml') }}
-          restore-keys: node-cache-${{ runner.os }}-pnpm-
+          key: node-cache-foundation-${{ runner.os }}-pnpm-${{ hashFiles('platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml') }}
+          restore-keys: node-cache-foundation-${{ runner.os }}-pnpm-
 
       # The Python and Node half of `verify foundation` (root ADR-0199): the same suites,
       # declared in xtask, on a runner that does not share its CPU with cargo.
@@ -273,7 +273,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
         with:
           path: ${{ steps.pnpm-store.outputs.dir }}
-          key: node-cache-${{ runner.os }}-pnpm-${{ hashFiles('platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml') }}
+          key: node-cache-foundation-${{ runner.os }}-pnpm-${{ hashFiles('platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml') }}
 
   static-release-toolchain-windows:
     name: Static-release executable toolchain (Windows)

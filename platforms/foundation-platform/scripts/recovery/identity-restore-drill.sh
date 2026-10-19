@@ -96,7 +96,7 @@ host="${ZITADEL_EXTERNALDOMAIN}"
 [[ "${ZITADEL_EXTERNALPORT:-}" =~ ^(|80|443)$ ]] || host="${host}:${ZITADEL_EXTERNALPORT}"
 ask_zitadel() { # <path> [header line]; the token stays off every command line (printf is a builtin)
     printf 'GET %s HTTP/1.1\r\nHost: %s\r\n%sConnection: close\r\n\r\n' "$1" "${host}" "${2:+$2$'\r\n'}" \
-        | docker run --rm -i --network "${drill}" "${SOCAT_IMAGE}" -t 30 - \
+        | docker run --rm -i --memory 32m --network "${drill}" "${SOCAT_IMAGE}" -t 30 - \
             "TCP:${drill}-zitadel-app:${ZITADEL_PORT:-8080},shut-none" 2>/dev/null || true
 }
 keys=""

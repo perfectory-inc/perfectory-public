@@ -25,7 +25,7 @@ from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert
                               iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from platform_contracts import (column_names, current_row_latest, current_rows, ensure_contract_table,
-    load_lakehouse_contract, partition_column_names, required_column_names, sort_order)
+    load_lakehouse_contract, partition_column_names, required_column_names, sort_order, with_contract_columns)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import evidence_policy, verified_building_links
@@ -52,8 +52,9 @@ ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE, PRICE_SOURC
 # column the build reads must be here or the build fails on it. The unit evidence columns are the
 # handoff contract's (verified_building_links would otherwise fill a missing one with NULL).
 BUILD_COLUMNS = {
-    TITLE_SOURCE: ("pnu", "mgm_bldrgst_pk", "purpose_code_raw", "structure_code_raw", "floor_area_m2",
-                   "ground_floor_count", "basement_floor_count", "approval_year"),
+    TITLE_SOURCE: ("pnu", "mgm_bldrgst_pk", "purpose_code_raw", "purpose_name_raw", "structure_code_raw",
+                   "structure_name_raw", "floor_area_m2", "ground_floor_count", "basement_floor_count",
+                   "approval_year"),
     FLOOR_SOURCE: ("mgm_bldrgst_pk", "floor_row_id", "floor_kind", "floor_number", "floor_index",
                    "floor_display_ko"),
     UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
@@ -150,9 +151,8 @@ def read_source(spark, args, name, pins, after=None, batches=None):
         frame = incremental.read_appended(spark, iceberg_table(args, name), after, pins[name])
     else:
         frame = read_pinned_iceberg(spark, iceberg_table(args, name), name, pins)
-    missing = set(column_names(contract)) - set(frame.columns)
-    if missing:
-        raise ValueError(f"{name} input is missing columns: {sorted(missing)}")
+    # A pinned snapshot predates the columns added since; they read as null (with_contract_columns).
+    frame = with_contract_columns(frame, contract)
     if (after is not None or batches is not None) and current_row_latest(contract) is not None:
         # The newest row per key needs every version of the key, not the appends or chosen batches.
         raise ValueError(f"{name} keeps versions (current_row_latest); it cannot be read by appends or batches")
@@ -314,7 +314,10 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
     buildings = buildings.join(nested_units, (buildings.pnu == nested_units.pnu) & (buildings.id == nested_units.building_id), "left").drop(nested_units.pnu).drop(nested_units.building_id)
     buildings = buildings.select("pnu", "id", canonical_id("parcel", F.col("pnu")).alias("parcel_id"),
         F.col("mgm_bldrgst_pk").alias("register_pk"), text_or_null("purpose_code_raw").alias("purpose_code"),
+        # The register's own names beside its codes (주용도코드명, 구조코드명), so a reader never shows a code.
+        text_or_null("purpose_name_raw").alias("purpose_name"),
         text_or_null("structure_code_raw").alias("structure_code"),
+        text_or_null("structure_name_raw").alias("structure_name"),
         F.when(F.col("floor_area_m2") > 0, F.col("floor_area_m2")).alias("floor_area_m2"),
         F.col("ground_floor_count").alias("stories"), F.coalesce("basement_floor_count", F.lit(0)).alias("below_ground_floors"),
         (F.coalesce("_roof", F.lit(0)) == 1).alias("has_rooftop"), "rooftop_area_m2",

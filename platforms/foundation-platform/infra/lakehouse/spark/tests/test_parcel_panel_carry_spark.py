@@ -52,6 +52,7 @@ class PanelCarrySparkTest(unittest.TestCase):
             "transfer_history": "pnu string, transfer_history_json string",
             "land_rights": "pnu string, land_rights_json string, land_right_total long",
             "lineage": "pnu string, lineage_json string",
+            "legal_dong": "pnu string, legal_dong_json string",
         }
         sections = {name: spark.createDataFrame([], schema) for name, schema in empty.items()}
         sections["price"] = spark.createDataFrame(list(own_price.items()), "pnu string, price_json string")
@@ -100,8 +101,10 @@ class PanelCarrySparkTest(unittest.TestCase):
 
         row = self.panel([], {pnu(NEW, 2): '{"price_per_m2":2}'}, [pnu(NEW, 2)])[pnu(NEW, 2)]
         # The fingerprint as it was before the column existed — spelled here, not read from the job.
-        # Neither later column (`attached_via_json`, `lineage_json`) may move it while it is NULL.
-        before = [c for c in job.CONTENT_DIGEST_COLUMNS if c not in ("attached_via_json", "lineage_json")]
+        # No later column (`attached_via_json`, `lineage_json`, `legal_dong_json`) may move it while
+        # it is NULL.
+        before = [c for c in job.CONTENT_DIGEST_COLUMNS
+                  if c not in ("attached_via_json", "lineage_json", "legal_dong_json")]
         values = ["\x00null" if row[c] is None else str(row[c]) for c in before]
         self.assertEqual(row.row_digest, hashlib.sha256("\x1f".join(values).encode()).hexdigest())
 

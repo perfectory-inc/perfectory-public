@@ -35,7 +35,7 @@ export function FullScreenStack({ stack }: { stack: PanelStack }) {
           {total} / {total}
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelEntryView entry={top} depth={total} />
       </div>
     </div>

@@ -159,7 +159,9 @@ export function ListingMap() {
   }, []);
 
   return (
-    <div className="relative h-full w-full">
+    // `isolate`: the map's own stacking (the SDK's copyright at z-index 100) stays inside the map, so a
+    // panel laid over the page (z-50) is never under it.
+    <div className="relative isolate h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       <MapAttribution />
     </div>

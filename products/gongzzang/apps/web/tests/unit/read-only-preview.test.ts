@@ -13,6 +13,12 @@ vi.mock("@opentelemetry/sdk-node", () => ({
     }
   },
 }));
+// register() imports this beside the SDK. The real module's first import took 4 s on a cold disk
+// (2026-10-19), which a full run's contention pushed past the 5 s test limit; the test only counts
+// SDK starts.
+vi.mock("@opentelemetry/instrumentation-fetch", () => ({
+  FetchInstrumentation: class {},
+}));
 
 const FLAG = "NEXT_PUBLIC_GONGZZANG_READ_ONLY_PREVIEW";
 

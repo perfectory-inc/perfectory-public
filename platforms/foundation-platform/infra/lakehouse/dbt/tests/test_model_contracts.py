@@ -390,6 +390,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.building_register_titles": "표제부 동명 — canonical_dong_join_key 로 호↔건물 연결에 사용",
             "silver.building_register_units": "정규화된 전유부 — 본 교차확증의 대상(unit_designation 이 충돌-프리 키)",
             "silver.building_register_unit_areas": "전유공용면적 — 동·호명은 전유부와 같은 계보, 면적 증거 공급원",
+            "silver.registered_factory": "공장이 입주한 단지명 원문 — 표시용(식별은 주소로 찾은 PNU, root ADR-0280)",
         }
         contracts = json.loads(
             (DBT_ROOT.parent / "contracts" / "industrial_complex_lakehouse_contracts.json")

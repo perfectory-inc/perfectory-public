@@ -93,7 +93,7 @@ size_bytes() {
   else
     # A dry run without root measures through Docker, read-only.
     # busybox du counts in KiB.
-    echo $(( $(docker run --rm -v "$1:/m:ro" "${MEASURE_IMAGE}" du -sxk /m | cut -f1) * 1024 ))
+    echo $(( $(docker run --rm --memory 64m -v "$1:/m:ro" "${MEASURE_IMAGE}" du -sxk /m | cut -f1) * 1024 ))
   fi
 }
 on_data_disk() { [[ "$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)" == "${DOCKER_ROOT}" ]]; }

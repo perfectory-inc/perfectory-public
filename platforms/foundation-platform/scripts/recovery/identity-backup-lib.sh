@@ -16,7 +16,8 @@ bucket="${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET:?set FOUNDATION_PLATFO
 endpoint="https://${FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST:?set FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST}"
 
 aws() {
-    docker run --rm -i --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+    # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
+    docker run --rm -i --memory 512m --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
         -e AWS_DEFAULT_REGION=auto "${AWS_IMAGE}" --endpoint-url "${endpoint}" "$@"
 }
 

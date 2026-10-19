@@ -348,5 +348,17 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
   작업의 다른 인스턴스 포함)의 자리를 세고, 예약 시작 문은 자리가 없으면 `waiting` 으로 시작하지 않으며, 운영자 `job`·`silver`·
   `parcel-tiles rehearse` 시작은 거부한다(75). 남은 틈: 세기와 시작 사이의 같은 순간 경쟁, 그리고 작업이 아닌 일시 유닛(운영자 Gold
   재빌드)은 러너의 호스트 자리 임대가 닫는다.
+- 2b 운영자 스위치에 규칙 추가(2026-10-16 사고): **운영자 시작은 즉시이고 한정된다.** 에이전트가 두고 간 nohup 대기 스크립트가 호스트가
+  한가해지자 10시간 뒤 `job start parcel_registry`(운영 Silver 쓰기)를 실행했다. 이제 `job start`·`silver start` 는 요청 시각
+  (`--requested-at`, 10분 지나면 거부 77)과 이유(`--reason`, 한 줄 300자 이하)를 받고, 표준 입력이 터미널이 아니면 거부한다(77).
+  기다렸다 시작하는 길은 없다: 자리가 없거나 배포 중이면 거부(75)하고 사람이 다시 묻는다. 시작마다 누가(`SUDO_USER`)·무엇을·
+  언제 요청·왜를 시스템 저널(`journalctl -t foundation-operator-start`)에 먼저 남기고, 남기지 못하면 시작하지 않는다(70). 남은 틈:
+  사람의 터미널에서 `&` 로 띄운 대기 루프는 터미널을 가진 채 기다릴 수 있다 — 10분 만료가 미리 찍은 시각은 막지만 실행 때 계산한
+  시각은 못 막는다. 2b 의 `run-now`(운영자 그룹, sudo 없이)가 요청을 foundation-api 가 발급·만료시키는 한 번짜리로 받아 닫는다.
+- 2b: 즉시·한정 규칙을 운영자 스크립트의 나머지 동작으로 넓혔다(2026-10-19). `status`·`plan`·`health`(읽기)를 뺀 모든 동작이
+  마지막에 `--requested-at`·`--reason` 을 받고, 저널 기록은 동작별 거부보다 먼저 남는다(거부된 요청도 남는다). 묶음 전환
+  유닛이 이 스크립트로 부르는 자기 단계는 그 전환의 것이다(`FOUNDATION_OPERATOR_WAIT=1` 이고 `SUDO_USER` 없음; sudo 실행은
+  환경을 지우고 `SUDO_USER` 를 가지므로 흉내 낼 수 없다). 단계 배포의 `health` 점검은 읽기라 그대로 돈다.
+- 2b 운영자 스위치의 "누가 파일을 쓰나"는 [ADR-0282](./0282-operator-switches-are-issued-by-foundation-api-and-land-as-files-the-runner-reads.md)(승인 2026-10-19)가 다시 정한다: foundation-api 가 직원 신원으로만 내고, 파일은 러너가 읽는다.
 - #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 

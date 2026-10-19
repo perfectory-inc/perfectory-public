@@ -172,6 +172,18 @@ class TheRealJobList(unittest.TestCase):
                 units = re.findall(r"^Unit=(\S+)$", timer.read_text(encoding="utf-8"), flags=re.MULTILINE)
                 self.assertEqual(units, [spec.systemd_service])
 
+    def test_a_scheduled_start_may_wait_and_a_run_does_not(self):
+        # Root ADR-0270 §2b: the scheduler gives a start its wait, its run and its grace; the deploy's
+        # own start of a unit never waits, so it takes the run's limit alone.
+        job = {"id": "j", "time_limit_minutes": 60, "stop_grace_minutes": 5, "wait_limit_minutes": 45}
+        self.assertEqual(job_specs.scheduler_timeout_minutes(job), 110)
+        self.assertEqual(job_specs.run_limit_minutes(job), 65)
+        self.assertEqual(job_specs.scheduler_timeout_minutes({**job, "wait_limit_minutes": 0}), 65)
+        for bad in ({k: v for k, v in job.items() if k != "wait_limit_minutes"}, {**job, "wait_limit_minutes": -1},
+                    {**job, "wait_limit_minutes": "45"}, {**job, "wait_limit_minutes": True}):
+            with self.subTest(bad=bad), self.assertRaises(job_specs.JobListError):
+                job_specs.scheduler_timeout_minutes(bad)
+
     def test_the_timeout_outlasts_the_service_own_limit(self):
         # Airflow stopping a job systemd would still let finish turns a slow success into a failure.
         for spec in self.specs:
@@ -249,14 +261,15 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight), once by each
         # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, one
         # bake run), and by what already holds the pool when its turn comes: one panel Gold rebuild
-        # (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
+        # (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160. The hourly
+        # Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of it once too.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45)
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake", "onbid_public_sale_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -268,7 +281,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_a_retry_holds_the_slots_again(self):
         # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
-        floor = {"id": "f", "time_limit_minutes": 240, "stop_grace_minutes": 10, "retries": 1}
+        floor = {"id": "f", "time_limit_minutes": 240, "stop_grace_minutes": 10, "wait_limit_minutes": 0, "retries": 1}
         self.assertEqual(job_specs.hold_minutes(floor), 505)
         self.assertEqual(job_specs.hold_minutes({**floor, "retries": 0}), 250)
         # Planted: FLOOR retried three times would keep the hourly folds waiting past the limit,
@@ -538,11 +551,12 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
 
     def test_a_lighter_narrower_job_still_counts_every_time(self):
         # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
-        # start it ahead: it stays among the jobs counted ahead.
+        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load.
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         self.assertIn("by_pnu_serving_bake", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165)
+        self.assertIn("onbid_public_sale_silver", blockers)
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45)
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

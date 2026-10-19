@@ -55,6 +55,9 @@ MODULES = (
     "lineage_steward_fold_to_silver",
     "legal_dong_code_change_pairs",
     "vworld_parcel_number_change_history",
+    "data_go_kr_onbid",
+    "address_pnu",
+    "data_go_kr_registered_factory",
     "gold_incremental",
     "changelog",
 )

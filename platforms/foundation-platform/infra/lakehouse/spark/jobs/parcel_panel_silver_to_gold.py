@@ -31,6 +31,9 @@ lives in the loader:
                the first 200 by (right_serial_no, dong_name, floor_name, ho_name,
                room_name) as text ASC, land_right_total counts the full set — the API's
                page bound.
+  legal_dong   the name (full_name) and lowest name of the 법정동 code the PNU's first ten digits
+               are, from the newest snapshot of reference.legal_dong_code_snapshot, codes that
+               exist (존재) only; NULL when that snapshot does not hold the code.
 
 What this job deliberately does NOT reproduce, stated as refusals instead of drift:
 
@@ -76,7 +79,7 @@ from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
 import legal_dong_code_change_views as code_change_views
-from code_go_kr_legal_dong import code_level
+from code_go_kr_legal_dong import EXISTS, code_level
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -91,6 +94,7 @@ from platform_contracts import (
     ensure_contract_table,
     current_rows,
     load_lakehouse_contract,
+    with_contract_columns,
     partition_column_names,
     required_column_names,
     sort_order,
@@ -125,7 +129,7 @@ CONTENT_DIGEST_COLUMNS: tuple[str, ...] = tuple(
 # Content columns the fingerprint takes only when they hold a value. `concat_ws` skips a NULL,
 # so a row whose every section is its own keeps the digest it had before this column existed —
 # widening the contract must not mark forty million rows as changed (root ADR-0113 §6).
-NULL_SKIPPED_DIGEST_COLUMNS: tuple[str, ...] = ("lineage_json", "attached_via_json")
+NULL_SKIPPED_DIGEST_COLUMNS: tuple[str, ...] = ("lineage_json", "attached_via_json", "legal_dong_json")
 
 PARCEL_SOURCE = "silver.parcel_boundaries"
 ZONING_SOURCE = "silver.land_use_plan"
@@ -139,6 +143,9 @@ LINEAGE_SOURCE = "silver.parcel_lineage"
 # The one record of region code changes (root ADR-0145): an attribute keyed under the other side of a
 # renumbering than the served parcel edition is read under the served code (`read_renumbering`).
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
+# The official 법정동 code list (root ADR-0113 §5, ADR-0143): its newest snapshot names the 동·리 a
+# PNU's first ten digits are, so the document says the name the source wrote, never the code.
+LEGAL_DONG_SOURCE = "reference.legal_dong_code_snapshot"
 ATTRIBUTE_SOURCES = (
     ZONING_SOURCE,
     PRICE_SOURCE,
@@ -147,7 +154,7 @@ ATTRIBUTE_SOURCES = (
     TRANSFER_SOURCE,
     LAND_RIGHT_SOURCE,
 )
-ALL_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE, CODE_CHANGE_SOURCE)
+ALL_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES, ZONE_CODE_SOURCE, CODE_CHANGE_SOURCE, LEGAL_DONG_SOURCE)
 # The columns build_panel reads from each input, and the only ones it is handed: the incremental
 # rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a column the
 # build reads must be here or the build fails on it.
@@ -157,19 +164,24 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
     PRICE_SOURCE: ("pnu", "base_year", "base_month", "price_per_m2", "announced_date"),
     CHARACTERISTIC_SOURCE: ("pnu", "area_m2", "land_category", "land_use_situation",
                             "terrain_height", "terrain_shape", "road_contact"),
-    FOREST_SOURCE: ("pnu", "area_m2", "co_owner_count", "land_category", "ownership_kind_code"),
+    FOREST_SOURCE: ("pnu", "area_m2", "co_owner_count", "land_category", "ownership_kind_code",
+                    "ownership_kind_name"),
     TRANSFER_SOURCE: ("pnu", "transfer_history_seq", "parcel_history_seq", "reason_code", "reason",
                       "moved_at", "erased_at", "land_category", "area_m2", "closure_seq"),
     LAND_RIGHT_SOURCE: ("pnu", "right_serial_no", "building_name", "dong_name", "floor_name",
                         "ho_name", "room_name", "right_ratio", "closure_kind_name", "closure_kind_code"),
     ZONE_CODE_SOURCE: ("ucode", "parent_ucode"),
     CODE_CHANGE_SOURCE: ("kind", "old_code", "new_code", "level"),
+    # The newest snapshot's existing codes only (`newest_legal_dong_names`), so a snapshot that
+    # repeats the names changes nothing here.
+    LEGAL_DONG_SOURCE: ("region_cd", "full_name", "lowest_name"),
     LINEAGE_SOURCE: ("predecessor_pnu", "successor_pnu", "relation", "cardinality", "effective_date", "grade",
                      "evidence_kind", "evidence_ref"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs. None since root ADR-0273: a code
 # pair reaches the parcels under its two codes, a zone code the parcels zoned under a code whose
-# anchor moved, a lineage edge both its parcels (`affected_pnus`).
+# anchor moved, a lineage edge both its parcels, a 법정동 name the parcels under its code
+# (`affected_pnus`).
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # The inputs keyed by the Gold row's own PNU.
 PNU_KEYED_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES)
@@ -392,9 +404,8 @@ def read_source(
     else:
         frame = read_pinned_iceberg(spark,
             f"{args.iceberg_catalog_name}.{source_namespace(args, contract_name)}.{table}", contract_name, pins)
-    missing = sorted(set(expected_columns) - set(frame.columns))
-    if missing:
-        raise ValueError(f"{contract_name} input is missing columns: {', '.join(missing)}")
+    # A pinned snapshot predates the columns added since; they read as null (with_contract_columns).
+    frame = with_contract_columns(frame, contract)
     # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
     return current_rows(frame.select(*expected_columns), contract)
 
@@ -699,12 +710,13 @@ def build_forest_ledger(
         "land_category",
         "area_m2",
         F.col("ownership_kind_code").alias("ownership_kind"),
+        "ownership_kind_name",
         "co_owner_count",
     )
     single = one_row_per_pnu(
         payload,
         FOREST_SOURCE,
-        ("land_category", "area_m2", "ownership_kind", "co_owner_count"),
+        ("land_category", "area_m2", "ownership_kind", "ownership_kind_name", "co_owner_count"),
         allow_duplicates,
         counters,
         "forest_duplicate_rows_dropped",
@@ -712,8 +724,42 @@ def build_forest_ledger(
     return single.select(
         "pnu",
         F.to_json(
-            F.struct("land_category", "area_m2", "ownership_kind", "co_owner_count")
+            F.struct("land_category", "area_m2", "ownership_kind", "ownership_kind_name", "co_owner_count")
         ).alias("forest_ledger_json"),
+    )
+
+
+def newest_legal_dong_names(snapshot: DataFrame) -> DataFrame:
+    """The codes that exist in the newest snapshot of the 법정동 code list the job pinned.
+
+    The table keeps every snapshot it was given (append only, one per snapshot_date); an abolished
+    code names no current parcel. No snapshot at all is no names, not a failure.
+    """
+
+    newest = snapshot.agg(F.max("snapshot_date")).first()[0]
+    return snapshot.where((F.col("snapshot_date") == F.lit(newest)) & (F.col("status") == EXISTS))
+
+
+def build_legal_dong(parcels: DataFrame, names: DataFrame) -> DataFrame:
+    """{name, lowest_name} of the 법정동 code a parcel's first ten digits are, as the source wrote them.
+
+    `lowest_name` is the code.go.kr table's own column; a snapshot loaded from the 전체자료 file has
+    none, and nothing is derived from the full name in its place.
+    """
+
+    named = names.select(
+        F.col("region_cd").alias("_legal_dong_code"),
+        trimmed_or_null("full_name").alias("name"),
+        trimmed_or_null("lowest_name").alias("lowest_name"),
+    ).where(F.col("name").isNotNull())
+    entries = named.select(
+        "_legal_dong_code",
+        F.to_json(F.struct("name", "lowest_name"), {"ignoreNullFields": "false"}).alias("legal_dong_json"),
+    )
+    return (
+        parcels.select("pnu").distinct()
+        .join(F.broadcast(entries), F.substring("pnu", 1, 10) == F.col("_legal_dong_code"))
+        .select("pnu", "legal_dong_json")
     )
 
 
@@ -893,6 +939,9 @@ SECTIONS: tuple[Section, ...] = (
         frames[TRANSFER_SOURCE])),
     Section("land_rights", (LAND_RIGHT_SOURCE,), lambda frames, spark, args, counters: build_land_rights(
         frames[LAND_RIGHT_SOURCE])),
+    # The parcel's own code names it; a predecessor's 동 is not its successor's.
+    Section("legal_dong", (LEGAL_DONG_SOURCE,), lambda frames, spark, args, counters: build_legal_dong(
+        frames[PARCEL_SOURCE], frames[LEGAL_DONG_SOURCE]), carried=False),
     # Reads the lineage only when the run carries it (`--no-carry-lineage` leaves it empty), so the
     # table stays the optional input it is to the planner, not a required one.
     Section("lineage", (), lambda frames, spark, args, counters: build_lineage(
@@ -1008,6 +1057,7 @@ def build_gold_panel_frame(
         .join(sections["transfer_history"], on="pnu", how="left")
         .join(sections["land_rights"], on="pnu", how="left")
         .join(sections["lineage"], on="pnu", how="left")
+        .join(sections["legal_dong"], on="pnu", how="left")
     )
     return joined.select(
         F.col("pnu"),
@@ -1027,6 +1077,8 @@ def build_gold_panel_frame(
         # NULL, not "[]", for a parcel without lineage: the digest skips it (NULL_SKIPPED_DIGEST_COLUMNS).
         F.col("lineage_json"),
         attached_via_json(),
+        # NULL for a code the newest snapshot does not hold: the digest skips it.
+        F.col("legal_dong_json"),
         F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(published_at_utc).alias("published_at_utc"),
     ).withColumn("row_digest", row_digest_column()).select(*GOLD_COLUMNS)
@@ -1285,7 +1337,8 @@ def column_lineage(carry_lineage: bool = True) -> list[dict[str, Any]]:
             "single_row_json",
         ),
         "forest_ledger_json": one(
-            FOREST_SOURCE, "land_category,area_m2,ownership_kind_code,co_owner_count", "single_row_json"
+            FOREST_SOURCE, "land_category,area_m2,ownership_kind_code,ownership_kind_name,co_owner_count",
+            "single_row_json",
         ),
         "transfer_history_json": one(
             TRANSFER_SOURCE,
@@ -1298,6 +1351,9 @@ def column_lineage(carry_lineage: bool = True) -> list[dict[str, Any]]:
             "page_bounded_json",
         ),
         "land_right_total": one(LAND_RIGHT_SOURCE, "right_serial_no", "count_full_set"),
+        "legal_dong_json": one(
+            LEGAL_DONG_SOURCE, "region_cd,full_name,lowest_name,status,snapshot_date", "newest_existing_code_name_json"
+        ) + one(PARCEL_SOURCE, "pnu", "legal_dong_code_prefix"),
         "source_snapshot_id": one(PARCEL_SOURCE, "source_snapshot_id", "identity"),
         "published_at_utc": one(
             "foundation-platform.job_arguments", "published_at_utc", "literal"
@@ -1401,12 +1457,15 @@ def read_inputs(
             )
     if ZONE_CODE_SOURCE in inputs:
         frames[ZONE_CODE_SOURCE] = read_source(spark, args, ZONE_CODE_SOURCE, pins)
+    if LEGAL_DONG_SOURCE in inputs:
+        frames[LEGAL_DONG_SOURCE] = newest_legal_dong_names(read_source(spark, args, LEGAL_DONG_SOURCE, pins))
     if args.carry_lineage and any(not section.carried for section in sections):
         frames[LINEAGE_SOURCE] = read_source(spark, args, LINEAGE_SOURCE, pins)
     if source_snapshots is not None:
-        # The lineage is appended run after run, so it holds many batches by design.
+        # The lineage is appended run after run, so it holds many batches by design; the code list
+        # has no batch id but its snapshot date, and only its newest is read.
         for name, frame in frames.items():
-            if name not in (LINEAGE_SOURCE, CODE_CHANGE_SOURCE):
+            if name not in (LINEAGE_SOURCE, CODE_CHANGE_SOURCE, LEGAL_DONG_SOURCE):
                 source_snapshots[name] = assert_single_snapshot(frame, name)
     return incremental.project_build_inputs(frames, BUILD_COLUMNS), candidates
 
@@ -1448,6 +1507,8 @@ def affected_pnus(
         keyed.extend(code_change_pnus(old, new))
     if ZONE_CODE_SOURCE in changed and ZONE_CODE_SOURCE in new:
         keyed.extend(zone_code_pnus(old, new))
+    if LEGAL_DONG_SOURCE in changed and LEGAL_DONG_SOURCE in new:
+        keyed.extend(legal_dong_pnus(old, new))
     if LINEAGE_SOURCE in changed and LINEAGE_SOURCE in new and LINEAGE_SOURCE in old:
         edges = incremental.changed_rows(old[LINEAGE_SOURCE], new[LINEAGE_SOURCE], ("predecessor_pnu", "successor_pnu"))
         keyed.extend(incremental.trimmed_keys(edges, side, trim=False) for side in ("predecessor_pnu", "successor_pnu"))
@@ -1496,6 +1557,16 @@ def zone_code_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list
             for frames in (old, new) if ZONING_SOURCE in frames]
 
 
+def legal_dong_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list[DataFrame]:
+    """The parcels under a 법정동 code whose name, lowest name or existence differs between the
+    newest snapshots of the two pins: the legal_dong section reads the list only by that code."""
+
+    rows = incremental.changed_rows(old[LEGAL_DONG_SOURCE], new[LEGAL_DONG_SOURCE], ("region_cd",))
+    codes = F.broadcast(rows.select(F.col("region_cd").alias("_legal_dong_code")).distinct())
+    return [frames[PARCEL_SOURCE].join(codes, F.substring("pnu", 1, 10) == F.col("_legal_dong_code"), "left_semi")
+            .select("pnu") for frames in (old, new) if PARCEL_SOURCE in frames]
+
+
 def restrict_inputs(
     frames: dict[str, DataFrame], keys: DataFrame, candidates: DataFrame | None
 ) -> dict[str, DataFrame]:
@@ -1510,7 +1581,7 @@ def restrict_inputs(
         PARCEL_SOURCE: incremental.rows_matching_any(frames[PARCEL_SOURCE], [("pnu", keys, "pnu", False)]),
     }
     # Lookup tables, read whole: a Gold row reads them through its own parcel's rows.
-    for name in (ZONE_CODE_SOURCE, LINEAGE_SOURCE, CODE_CHANGE_SOURCE):
+    for name in (ZONE_CODE_SOURCE, LINEAGE_SOURCE, CODE_CHANGE_SOURCE, LEGAL_DONG_SOURCE):
         if name in frames:
             restricted[name] = frames[name]
     for name in ATTRIBUTE_SOURCES:

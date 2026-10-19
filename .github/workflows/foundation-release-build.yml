@@ -1,0 +1,64 @@
+name: foundation-release-build
+# Each commit on main is built once into the release's artifacts, listed in one manifest and signed
+# with a Sigstore keyless SLSA provenance attestation over the manifest and every blob it names
+# (root ADR-0276 §2, §3, §9; stage R1). The server keeps building for itself until stage R3, so
+# nothing reads this yet. It gates no pull request: a pull request does not build a release.
+# workflow_dispatch rebuilds the same ref.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+
+# One group per commit: every commit on main gets its own release (root ADR-0276 §9). Grouped by
+# ref, GitHub keeps one pending run and cancels the others, and the commits between have none.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and attest the release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    # The one job that signs and publishes (root ADR-0276 §3, §5): the OIDC token Sigstore's
+    # certificate is issued for, the attestation it records, and its own GITHUB_TOKEN's write to this
+    # repository's package in GitHub's container registry. No stored secret; no other job holds any.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      # The publisher's build peaked at 16.7 GiB anonymous memory on the server (ADR-0137); the
+      # runner has 16 GB. Room for the build: the preinstalled toolchains it never uses, and swap.
+      - name: Room for the build
+        run: bash scripts/ci/release-build-runner-room.sh
+      - name: Build the release artifacts
+        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release"
+      - name: Attest the manifest and every blob
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2 (SHA pin, ADR 0028)
+        with:
+          subject-checksums: ${{ runner.temp }}/release/subjects.sha256
+      - name: Keep the bundle beside the manifest
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" "$RUNNER_TEMP/release/manifest.sigstore.json"
+      - name: Publish to GitHub's container registry
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/release-push.sh "$RUNNER_TEMP/release" "$GITHUB_REPOSITORY_OWNER"
+      - name: Report what was built
+        run: python3 scripts/ci/release-build-summary.py "$RUNNER_TEMP/release" >>"$GITHUB_STEP_SUMMARY"
+      - name: Upload the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (SHA pin, ADR 0028)
+        with:
+          name: foundation-release
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7

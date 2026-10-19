@@ -556,6 +556,23 @@
         ]
       },
       {
+        "name": "release-build-self-test",
+        "paths": [
+          "scripts/deploy/foundation-release-admission.py",
+          "tools/release-build.contract.json",
+          "rust-toolchain.toml",
+          "platforms/foundation-platform/docker-compose.yml",
+          "platforms/foundation-platform/compose.recovery.yml",
+          "platforms/foundation-platform/compose.lakehouse.yml"
+        ]
+      },
+      {
+        "name": "release-push-self-test",
+        "paths": [
+          ".github/workflows/foundation-release-build.yml"
+        ]
+      },
+      {
         "name": "osv-vulnerability-ratchet-self-test",
         "paths": [
           "scripts/ci/osv-vulnerability-gate.sh",

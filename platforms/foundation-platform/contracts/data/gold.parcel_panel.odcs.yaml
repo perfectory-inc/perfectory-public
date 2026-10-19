@@ -69,6 +69,10 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: false
+      - name: "legal_dong_json"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "row_digest"
         physicalType: "string"
         logicalType: "string"
@@ -111,6 +115,7 @@ customProperties:
   - property: "upstreamDatasets"
     value:
       - "reference.legal_dong_code_change"
+      - "reference.legal_dong_code_snapshot"
       - "silver.land_characteristic"
       - "silver.land_forest_ledger"
       - "silver.land_individual_price"

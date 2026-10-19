@@ -369,16 +369,27 @@ def priority_weight(job):
     return value
 
 
-def scheduler_timeout_minutes(job):
-    """One start's limit: the run's time_limit_minutes plus its stop_grace_minutes (root ADR-0270 §1).
+def run_limit_minutes(job):
+    """One run's limit: its time_limit_minutes plus its stop_grace_minutes (root ADR-0270 §1).
 
-    The DAG's execution and SSH timeouts, the starvation bound, the deploy's wait for a started-once
-    job and the operations map's lateness all use this sum; jobs.v1.json states its two parts.
+    What a start that does not wait takes: the deploy's wait for a started-once job.
     """
     for field in ("time_limit_minutes", "stop_grace_minutes"):
         if type(job.get(field)) is not int or job[field] < 1:
             raise JobListError(f"{job['id']}: {field} must be a positive integer")
     return job["time_limit_minutes"] + job["stop_grace_minutes"]
+
+
+def scheduler_timeout_minutes(job):
+    """One scheduled start's limit: its wait_limit_minutes plus its run's limit (root ADR-0270 §2b).
+
+    The DAG's execution and SSH timeouts, the starvation bound and the operations map's lateness use
+    this sum; jobs.v1.json states its three parts. A start may wait for the host before it runs.
+    """
+    wait = job.get("wait_limit_minutes")
+    if type(wait) is not int or wait < 0:
+        raise JobListError(f"{job['id']}: wait_limit_minutes must be a whole number of minutes, 0 or more")
+    return wait + run_limit_minutes(job)
 
 
 def hold_minutes(job):

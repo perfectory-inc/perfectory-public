@@ -43,13 +43,16 @@ refuse() {
 
 [[ "${checking}" == true && "${triggered}" == true ]] && refuse "a check is not triggered"
 [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || refuse "expected one job id, got '${job:0:40}'"
-service="$(python3 - "${jobs_file}" "${job}" "${checking}" <<'PY'
+listing="$(python3 - "${jobs_file}" "${job}" "${checking}" <<'PY'
 import json, sys
 for entry in json.load(open(sys.argv[1]))["jobs"]:
     if entry["id"] == sys.argv[2] and entry["enabled"]:
-        print((entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"])
+        service = (entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"]
+        print(service or "-", entry["wait_limit_minutes"])
 PY
 )" || refuse "cannot read ${jobs_file}"
+read -r service wait_limit <<<"${listing}" || true
+[[ "${service:-}" != - ]] || service=""
 [[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}$([[ "${checking}" == true ]] && echo ' with a check_service')"
 
 mkdir -p "${starts}" || refuse "cannot keep the start record ${starts}"
@@ -97,36 +100,46 @@ admission="${FOUNDATION_RELEASE_ADMISSION:-/opt/perfectory-control/current/scrip
 # release (root ADR-0184, ADR-0260).
 job_units="$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py"
 deferred="$(python3 -I -B "${job_units}" deferred-dir)" || refuse "cannot read where deferrals are recorded"
-build=0
-"${admission}" release-build-running || build=$?
-if ((build == 75)) && [[ "${checking}" == true ]]; then
-  # The check's own ExecStartPre would refuse and alert. No answer lets the run start, and the run
-  # is the one deferred and recorded.
-  printf 'start-scheduled-job: %s check not started: a release build is running\n' "${job}"
-  exit 0
-fi
-if ((build == 75)); then
-  mkdir -p "${deferred}" && date +%s >"${deferred}/${job}" ||
-    printf 'start-scheduled-job: cannot record the deferral of %s under %s\n' "${job}" "${deferred}" >&2
-  printf 'start-scheduled-job: %s deferred: a release build is running\n' "${job}"
-  printf 'foundation-job-outcome waiting a release build is running; this job starts after it finishes\n'
-  exit 0
-fi
-
-# Every start takes its pool's slots, whoever asked for it (root ADR-0270 §2b): Airflow counts only
-# the runs it started, so a run an operator started holds slots it cannot see. A run that does not
-# fit is not started; its next period starts it. A check takes no slots.
-# shortcut: check-then-start is not atomic against an operator start in the same second; the
-# runner's host-side slot lease (ADR-0270 §2b) closes it.
-if [[ "${checking}" == false ]]; then
-  full="$(python3 -I -B "${job_units}" pool-full "${jobs_file}" "${job}")" \
-    || refuse "systemd cannot tell what holds the pool of ${job}"
-  if [[ -n "${full}" ]]; then
-    printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
-    printf 'foundation-job-outcome waiting %s\n' "${full}"
+# A start waits for the host before its run, up to the job's wait_limit_minutes (root ADR-0270 §2b,
+# deploy D4): for a release build to finish, or for its pool to have room. It asks every 30 seconds
+# and starts as soon as both clear, so a build no longer makes a job due during it a deferred one.
+# A start still blocked at its limit runs nothing and says why; one blocked by a build is recorded
+# for the deploy to start once the schedule is back (deploy-start-once.sh), as before. A check
+# never waits: it only decides whether the run has work.
+waited=0
+while :; do
+  build=0
+  "${admission}" release-build-running || build=$?
+  full=""
+  if ((build != 75)) && [[ "${checking}" == false ]]; then
+    full="$(python3 -I -B "${job_units}" pool-full "${jobs_file}" "${job}")" \
+      || refuse "systemd cannot tell what holds the pool of ${job}"
+  fi
+  ((build == 75)) || [[ -n "${full}" ]] || break
+  if [[ "${checking}" == true ]]; then
+    # The check's own ExecStartPre would refuse and alert. No answer lets the run start, and the run
+    # is the one deferred and recorded.
+    printf 'start-scheduled-job: %s check not started: a release build is running\n' "${job}"
     exit 0
   fi
-fi
+  if ((waited >= wait_limit * 60)); then
+    if ((build == 75)); then
+      mkdir -p "${deferred}" && date +%s >"${deferred}/${job}" ||
+        printf 'start-scheduled-job: cannot record the deferral of %s under %s\n' "${job}" "${deferred}" >&2
+      printf 'start-scheduled-job: %s deferred: a release build is running\n' "${job}"
+      printf 'foundation-job-outcome waiting a release build is running; this job starts after it finishes\n'
+    else
+      printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
+      printf 'foundation-job-outcome waiting %s\n' "${full}"
+    fi
+    exit 0
+  fi
+  ((waited > 0)) || printf 'start-scheduled-job: %s waits up to %s minutes: %s\n' "${job}" "${wait_limit}" \
+    "$( ((build == 75)) && echo "a release build is running" || echo "${full}")"
+  sleep 30
+  waited=$((waited + 30))
+done
+((waited == 0)) || printf 'start-scheduled-job: %s waited %s seconds for the host\n' "${job}" "${waited}"
 
 follower=""
 # A lost connection ends only this follower; the service keeps running (see the header).

@@ -5,6 +5,7 @@ import {
   answerFromCache,
   PackFormatError,
   PackReadUnavailable,
+  type PackReads,
   packReads,
   parseSectionPacks,
   previewPlan,
@@ -14,6 +15,7 @@ import {
   ReadTrace,
   warmPackPath,
   type Resolved,
+  withRetry,
 } from "./packs";
 import { cacheOrigin, laneOfPath, LANES, lanePacks, OWN, policy, type ServedLane } from "./lane";
 
@@ -232,11 +234,7 @@ function forgetPlans(): void {
   planMemory.clear();
 }
 
-async function resolvePlan(
-  bucket: Pick<R2Bucket, "get">,
-  ctx: ExecutionContext,
-  lane: ServedLane,
-): Promise<ServingPlan | null> {
+async function resolvePlan(reads: PackReads, lane: ServedLane): Promise<ServingPlan> {
   const known = planMemory.get(lane.manifestObject);
   const cached = await caches.default.match(manifestCacheUrl(lane));
   if (cached !== undefined) {
@@ -252,26 +250,47 @@ async function resolvePlan(
       return plan;
     }
   }
-  const object = await bucket.get(lane.manifestObject);
-  if (object === null || !("body" in object)) return null;
-  const text = await object.text();
+  // The manifest is read under the same bounded retries as the packs (contract
+  // `read_path.r2_retry_scope`): one transient R2 error on it answered 503 at once (2026-10-18).
+  const object = await withRetry(reads, { section: "manifest", key: lane.manifestObject, phase: "manifest" }, async () => {
+    const got = await reads.bucket.get(lane.manifestObject);
+    return got === null || !("body" in got) ? null : { text: await got.text(), etag: got.etag };
+  }).catch((error: unknown) => {
+    throw new LaneOutage(error instanceof PackReadUnavailable ? "manifest-unavailable" : "unexpected");
+  });
+  if (object === null) throw new LaneOutage("manifest-invalid");
   let plan: ServingPlan | null = null;
   try {
-    plan = parseManifest(JSON.parse(text), lane);
+    plan = parseManifest(JSON.parse(object.text), lane);
   } catch {
     plan = null;
   }
-  if (plan === null) return null;
+  if (plan === null) throw new LaneOutage("manifest-invalid");
   planMemory.set(lane.manifestObject, { version: object.etag, plan });
-  const response = new Response(text, {
+  const response = new Response(object.text, {
     headers: {
       "Cache-Control": `max-age=${policy.manifest_edge_cache_seconds}`,
       "Content-Type": policy.content_type,
       [MANIFEST_VERSION_HEADER]: object.etag,
     },
   });
-  ctx.waitUntil(caches.default.put(manifestCacheUrl(lane), response));
+  reads.ctx.waitUntil(caches.default.put(manifestCacheUrl(lane), response));
   return plan;
+}
+
+/// A lane that cannot answer at all, in the class its 503 names (contract `read_path.outage_header`).
+class LaneOutage extends Error {
+  constructor(readonly outage: string) {
+    super(outage);
+  }
+}
+
+/// A 503 that says why (contract `read_path.outage_header`), live and preview alike.
+function outageResponse(outage: string): Response {
+  return new Response(null, {
+    status: 503,
+    headers: { "Cache-Control": "no-store", [packPolicy.read_path.outage_header]: outage },
+  });
 }
 
 function matchesEtag(request: Request, etag: string): boolean {
@@ -318,8 +337,8 @@ async function packResponse(
   origin: string | null,
   allowed: ReadonlySet<string>,
   timing: { started: number } | null,
+  reads: PackReads = packReads(bucket, ctx),
 ): Promise<Response> {
-  const reads = packReads(bucket, ctx);
   const timed = (response: Response, outcome: string): Response => {
     if (timing !== null) response.headers.set("Server-Timing", serverTiming(reads.trace, timing.started, outcome));
     return response;
@@ -352,7 +371,7 @@ async function packResponse(
       }),
     );
     return withCors(
-      timed(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), outage),
+      timed(outageResponse(outage), outage),
       origin,
       allowed,
     );
@@ -510,13 +529,15 @@ async function answerByPnu(
     return packResponse(request, bucket, ctx, state, pnu, origin, allowed, timing);
   }
 
-  const plan = await resolvePlan(bucket, ctx, lane).catch(() => null);
-  if (plan === null) {
-    return withCors(
-      new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
-      origin,
-      allowed,
-    );
+  // One request, one R2 deadline: the manifest read and the pack reads share it.
+  const reads = packReads(bucket, ctx);
+  let plan: ServingPlan;
+  try {
+    plan = await resolvePlan(reads, lane);
+  } catch (error) {
+    const outage = error instanceof LaneOutage ? error.outage : "unexpected";
+    console.log(JSON.stringify({ event: "lane_outage", error_class: outage, failures: reads.trace.failures }));
+    return withCors(outageResponse(outage), origin, allowed);
   }
 
   // Every lane answers from section packs or not at all (root ADR-0190, ADR-0274): the pack bake
@@ -529,11 +550,9 @@ async function answerByPnu(
       return withCors(new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }), origin, allowed);
     }
   }
-  if (packs === undefined) {
-    return withCors(new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }), origin, allowed);
-  }
+  if (packs === undefined) return withCors(outageResponse("no-section-packs"), origin, allowed);
   // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
-  return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing);
+  return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing, reads);
 }
 
 /// The request path's pure steps, run once per isolate at startup (root ADR-0233): global scope

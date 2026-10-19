@@ -50,9 +50,10 @@ def main() -> None:
         def sever(graph: dict, node: dict, key: str) -> None:
             graph["edges"] = [e for e in graph["edges"] if e[key] != node["id"]]
 
-        # The baseline must hold both islands: contract_only is the only sanctioned disconnection.
+        # The baseline must hold both original islands: contract_only is the only sanctioned
+        # disconnection. Others may join it (the Onbid tables wait for a consumer, root ADR-0280).
         islands = [n for n in baseline["nodes"] if n["status"] == "contract_only"]
-        assert {n["table_name"] for n in islands} == {"silver.complex_parcel_memberships", "gold.complex_spatial_locator"}, islands
+        assert {"silver.complex_parcel_memberships", "gold.complex_spatial_locator"} <= {n["table_name"] for n in islands}, islands
         cases = [
             ("producer-less dataset", "dataset has no producer edge",
              lambda g: sever(g, dataset(g, "producer"), "to")),
@@ -65,7 +66,8 @@ def main() -> None:
             ("producer-less reference table", "dataset has no producer edge",
              lambda g: sever(g, next(n for n in g["nodes"] if n["type"] == "reference_table"), "to")),
             ("contract_only exemption is status-bound", "dataset has no producer edge",
-             lambda g: next(n for n in g["nodes"] if n["status"] == "contract_only").update(status="implemented")),
+             lambda g: next(n for n in g["nodes"] if n["status"] == "contract_only"
+                            and not any(e["to"] == n["id"] for e in g["edges"])).update(status="implemented")),
         ]
         for label, diagnostic, mutate in cases:
             graph = deepcopy(baseline)

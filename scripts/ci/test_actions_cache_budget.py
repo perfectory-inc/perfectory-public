@@ -65,5 +65,44 @@ class ContractTest(unittest.TestCase):
             self.assertTrue(any(expected in e for e in errors), (expected, errors))
 
 
+
+
+class PruneTest(unittest.TestCase):
+    """A new pin set or lockfile replaces its family's old key (2026-10-19: 571 MB against 400)."""
+
+    CONTRACT = {**CONTRACT, "entries": CONTRACT["entries"] + [
+        {"key_prefix": "pinned-release-binaries-v1-", "max_mb": 300, "one_key": True, "why": "pins"},
+        {"key_prefix": "node-cache-gongzzang-", "max_mb": 450, "one_key": True, "why": "pnpm"},
+    ]}
+
+    def entry(self, key: str, created: str, ref: str = "refs/heads/main") -> dict:
+        return {**cache(key, 100, ref), "id": key, "created_at": created}
+
+    def test_only_the_newest_of_each_family_stays(self) -> None:
+        old, new = "a" * 64, "b" * 64
+        caches = [
+            self.entry(f"pinned-release-binaries-v1-Linux-{old}", "2026-10-18T04:23:00Z"),
+            self.entry(f"pinned-release-binaries-v1-Linux-{new}", "2026-10-18T21:57:00Z"),
+            self.entry(f"pinned-release-binaries-v1-Windows-{old}", "2026-10-18T04:23:00Z"),
+            self.entry(f"pinned-release-binaries-v1-Windows-{new}", "2026-10-18T21:58:00Z"),
+            self.entry(f"node-cache-gongzzang-Linux-pnpm-{new}", "2026-10-18T06:31:00Z"),
+        ]
+        stale = {cache["key"] for cache in acb.superseded(self.CONTRACT, caches)}
+        self.assertEqual(stale, {f"pinned-release-binaries-v1-Linux-{old}", f"pinned-release-binaries-v1-Windows-{old}"})
+
+    def test_an_entry_not_marked_one_key_and_other_refs_are_never_pruned(self) -> None:
+        caches = [
+            self.entry("v0-rust-rust-quality-dependencies-Linux-" + "a" * 64, "2026-10-17T00:00:00Z"),
+            self.entry("v0-rust-rust-quality-dependencies-Linux-" + "b" * 64, "2026-10-18T00:00:00Z"),
+            self.entry("pinned-release-binaries-v1-Linux-" + "a" * 64, "2026-10-17T00:00:00Z", "refs/pull/1/merge"),
+            self.entry("pinned-release-binaries-v1-Linux-" + "b" * 64, "2026-10-18T00:00:00Z"),
+        ]
+        self.assertEqual(acb.superseded(self.CONTRACT, caches), [])
+
+    def test_one_key_on_a_protected_entry_is_refused(self) -> None:
+        bad = {**CONTRACT, "entries": [{**CONTRACT["entries"][0], "one_key": True}] + CONTRACT["entries"][1:]}
+        self.assertTrue(any("one_key" in error for error in acb.check(bad)))
+
+
 if __name__ == "__main__":
     unittest.main()

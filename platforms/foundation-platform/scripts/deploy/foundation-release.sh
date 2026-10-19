@@ -48,6 +48,7 @@ usage:
   foundation-release.sh operator-access <account>
   foundation-release.sh env-set <group> <NAME=value-file>
   foundation-release.sh status
+  foundation-release.sh verify-registry <release-id>
 USAGE
   exit 64
 }
@@ -1491,6 +1492,13 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     assert_current_release
     python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
       set --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}" "$2" "$3"
+    ;;
+  verify-registry)
+    # Stage R2 of root ADR-0276: verify the release CI built and signed for one commit, pulled from
+    # GitHub's container registry by digest and checked offline; nothing is installed or tagged.
+    [[ "$#" == 2 ]] || usage
+    require_release_id "$2"
+    "${admission}" verify-registry "$2"
     ;;
   status)
     [[ "$#" == 1 ]] || usage

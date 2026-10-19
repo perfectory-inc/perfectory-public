@@ -26,8 +26,10 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
 | 행정표준코드관리시스템 법정동 | 1 endpoint | 일부 연결 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 매일 받는 법정동 코드 변경의 원천이다(루트 ADR-0143). 코드변경안내 게시판은 원천이 아니다(ADR-0144). 수집 작업은 운영 감독 실행 전까지 꺼져 있다. |
+| 차세대 온비드 공매 (data.go.kr) | 4 endpoint | 수집 비활성 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 있고, 키(DATA_GO_KR_SERVICE_KEY)가 서버에 놓일 때까지 작업이 꺼져 있다. |
+| data.go.kr 파일 데이터 | 1 endpoint | 수집 비활성 — data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 있고, 첫 감독 실행 전까지 작업이 꺼져 있다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
-| 기타 공공 일괄 파일 | 13 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
+| 기타 공공 일괄 파일 | 12 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
 | 실거래가 API | 12 endpoint | 수집 비활성 — 카탈로그에서 중복 API로 비활성화되어 있다. |
 | 브이월드 공간·토지 파일 | 25 endpoint | 일부 연결 — 필지·용도지역·공시지가·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 나머지는 수집 단계에 남는다. |
 | 브이월드 토지대장 API | 1 endpoint | 예정 — API 수집 예정이며 Silver 계약은 없다. |
@@ -147,6 +149,11 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 건축물대장 총괄표제부 (`datagokr__building_register_master`) | `disabled_api_duplicate` |
 | 건축물대장 API | 건축물대장 부속지번 (`datagokr__building_register_sub_parcel`) | `disabled_api_duplicate` |
 | 건축물대장 API | 건축물대장 지구지역구역 (`datagokr__building_register_district_zone`) | `disabled_api_duplicate` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건목록 (`datagokr__onbid_real_estate_item`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고목록 (`datagokr__onbid_announcement`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고 입찰결과목록 (`datagokr__onbid_announcement_bid_result`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 물건 입찰결과상세 (`datagokr__onbid_item_bid_result`) | `open_api_only` |
+| data.go.kr 파일 데이터 | 한국산업단지공단 전국등록공장현황 (`datagokr__registered_factory`) | `public_web_page` |
 | 주소정보 전자지도 | JUSO 건물 도형 (`jusogokr__building`) | `manual_approval_bulk` |
 | 주소정보 전자지도 | JUSO 기초구간 (`jusogokr__base_interval`) | `manual_approval_bulk` |
 | 주소정보 전자지도 | JUSO 국가기초구역 (`jusogokr__basic_area`) | `manual_approval_bulk` |
@@ -160,7 +167,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 주소정보 전자지도 | JUSO 실폭도로 (`jusogokr__road_width`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 고속도로 접근점 (`public-bulk-highway-access-point`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 학교 위치 (`public-bulk-school-location`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 공장등록현황 (`factoryongokr__factory_registration`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 대학교 (`public-bulk-university`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 세대수 (`moisgokr__household_count`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 동 인구 (`moisgokr__dong_population`) | `manual_approval_bulk` |
@@ -202,6 +208,9 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 표 | 상태 | 이유 |
 |---|---|---|
+| `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 있고(꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
+| `silver.onbid_real_estate_item` | 계약만 있음 | 열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 적재 레인은 있고(키를 기다리며 꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
+| `silver.onbid_item_bid_result` | 계약만 있음 | 목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 있고(키를 기다리며 꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -237,6 +246,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 레이크하우스 저장·접근 정책 | `catalog.lakehouse_storage_namespace`<br>`catalog.lakehouse_access_policy` |
 | 레이크하우스 실행·품질·계보 | `catalog.lakehouse_batch_run`<br>`catalog.lakehouse_quality_check`<br>`catalog.lakehouse_lineage_edge` |
 | 카탈로그 변경 원장 | `catalog.catalog_edit`<br>`catalog.catalog_mutation_idempotency` |
+| 운영자 스위치 원장 | `catalog.operator_action` |
 | 스튜어드 결정 (필지 계보·법정동 짝) | `catalog.lineage_review_claim`<br>`catalog.lineage_review_item`<br>`catalog.lineage_steward_approval`<br>`catalog.lineage_steward_decision`<br>`catalog.lineage_steward_fold` |
 | 정규화 제안·검토 | `catalog.normalization_application`<br>`catalog.normalization_proposal`<br>`catalog.normalization_proposal_review`<br>`catalog.normalization_proposal_submission_audit` |
 | 이벤트 발행·격리 | `catalog.outbox_event`<br>`catalog.outbox_quarantine` |
@@ -335,6 +345,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지별 토지이동이력 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지별 대지권 등록 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 법정동 코드 변경 원장 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py` |
+| 법정동코드 스냅숏 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 용도지역 판정 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 개별공시지가 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지특성 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
@@ -399,6 +410,9 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 ID 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py` |
 | 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 부동산 물건 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 물건 입찰결과 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| data.go.kr 파일 데이터 → 전국 등록공장 | `collect-data-go-kr-registered-factory`<br>`platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |
 | 행정표준코드관리시스템 법정동 → 법정동코드 스냅숏 | `collect-code-go-kr-legal-dong`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 필지 경계 → 법정동 코드 변경 원장 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py` |
 | 브이월드 공간·토지 파일 → 필지고유번호변동연혁 | `ingest-vworld-dataset-files`<br>`platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py` |

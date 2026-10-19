@@ -26,7 +26,8 @@ case "${1:-}" in
         FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY; do
       [[ -n "${!name:-}" ]] || { echo "convert.sh: ${name} is not set" >&2; exit 78; }
     done
-    docker run --rm -v "$WORKDIR":/w \
+    # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
+    docker run --rm --memory 512m -v "$WORKDIR":/w \
       -e AWS_ACCESS_KEY_ID="$FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID" \
       -e AWS_SECRET_ACCESS_KEY="$FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY" \
       amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73 \
@@ -42,7 +43,9 @@ case "${1:-}" in
       b="${z%.zip}"
       # The image is spelled literally at the run site so the container-runtime policy can read
       # the pin; ubuntu-small because alpine-small lacks GEOS and -makevalid fails on it.
-      docker run --rm -v "$WORKDIR":/w -e SHAPE_ENCODING=EUC-KR \
+      # --memory 256m: this ogr2ogr measured on ai-server 2026-10-18 converting the whole merged national
+      # 읍면동 GeoJSON (136 MB, every province at once) peaked at 21 MiB anonymous memory.
+      docker run --rm --memory 256m -v "$WORKDIR":/w -e SHAPE_ENCODING=EUC-KR \
         ghcr.io/osgeo/gdal:ubuntu-small-3.10.2@sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779 \
         ogr2ogr -f GeoJSON "/w/out/$b.geojson" "/vsizip//w/zips/$z" \
         -t_srs EPSG:4326 -makevalid -nlt PROMOTE_TO_MULTI \

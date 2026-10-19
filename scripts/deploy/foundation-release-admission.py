@@ -14,6 +14,7 @@ provide Buildx's docker-container driver.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -30,6 +31,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.request
 
 
 CONTROL_ROOT = Path(__file__).resolve().parents[2]
@@ -559,6 +561,173 @@ def clear_abandoned_build_caches() -> None:
             shutil.rmtree(entry)
 
 
+# Root ADR-0276 §3, §4: the release CI built and signed, pulled from GitHub's container registry and
+# verified before anything is installed. Every byte taken from the registry is checked against a
+# digest the signed manifest names, and the manifest against the Sigstore provenance bound to the
+# workflow, its ref and the commit; nothing unverified reaches the artifact directory or a tag.
+REGISTRY_HOST = "ghcr.io"
+REGISTRY_MANIFEST_TYPES = ", ".join((
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+))
+PINNED_CACHE = Path("/var/lib/perfectory/pinned")
+RELEASE_FILES = ("manifest.json", "manifest.sigstore.json")
+
+
+def artifacts_from() -> str:
+    value = json.loads(BUILD_CONTRACT.read_text(encoding="utf-8")).get("artifacts_from", "server-build")
+    if value not in ("server-build", "registry"):
+        raise ValueError(f"release build contract artifacts_from must be server-build or registry, not {value!r}")
+    return value
+
+
+def registry_settings() -> dict[str, str]:
+    """The package, the signing workflow's identity and the pinned trust root (tools/release-build.contract.json)."""
+    entry = json.loads(BUILD_CONTRACT.read_text(encoding="utf-8"))["registry"]
+    identity = json.loads((CONTROL_ROOT / "tools/github/repository-identity.json").read_text(encoding="utf-8"))
+    repository = identity["full_name"]
+    owner = repository.split("/")[0].lower()
+    for key in ("package", "workflow", "ref", "oidc_issuer", "trusted_root"):
+        if not isinstance(entry.get(key), str) or not entry[key]:
+            raise ValueError(f"release build contract registry.{key} is missing")
+    return {**entry, "repository": f"{owner}/{entry['package']}",
+            "identity": f"https://github.com/{repository}/{entry['workflow']}@{entry['ref']}",
+            "trusted_root": str(CONTROL_ROOT / entry["trusted_root"])}
+
+
+def registry_get(repository: str, path: str, token: str, accept: str | None = None) -> bytes:
+    """One anonymous read of a public package (a manifest or a blob)."""
+    headers = {"Authorization": f"Bearer {token}", **({"Accept": accept} if accept else {})}
+    request = urllib.request.Request(f"https://{REGISTRY_HOST}/v2/{repository}/{path}", headers=headers)
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return response.read()
+
+
+def registry_token(repository: str) -> str:
+    request = urllib.request.Request(f"https://{REGISTRY_HOST}/token?scope=repository:{repository}:pull")
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read())["token"]
+
+
+def by_digest(data: bytes, digest: str, what: str) -> bytes:
+    if f"sha256:{hashlib.sha256(data).hexdigest()}" != digest:
+        raise ValueError(f"{what} from the registry is not {digest}")
+    return data
+
+
+def pinned_cosign() -> Path:
+    """The pinned cosign, fetched and checked by the control checkout's fetcher (root ADR-0197)."""
+    output = PINNED_CACHE / "cosign"
+    PINNED_CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    protected_path(PINNED_CACHE)
+    subprocess.check_output(["/usr/bin/python3", "-I", "-B", str(CONTROL_ROOT / "scripts/ci/fetch_pinned.py"),
+                             "tool", "cosign", "--output", str(output)],
+                            env={**control_environment(), "PERFECTORY_PINNED_CACHE": str(PINNED_CACHE)}, stderr=subprocess.PIPE)
+    output.chmod(0o700)
+    return output
+
+
+def verified_release(release_id: str, work: Path, settings: dict[str, str], token: str) -> tuple[dict, set[str]]:
+    """The signed manifest of release-<commit>, and the digests its provenance attestation signed."""
+    raw = registry_get(settings["repository"], f"manifests/release-{release_id}", token, REGISTRY_MANIFEST_TYPES)
+    layers = json.loads(raw)["layers"]
+    if len(layers) != 1:
+        raise ValueError(f"release-{release_id} must be one layer of {' and '.join(RELEASE_FILES)}")
+    layer = by_digest(registry_get(settings["repository"], f"blobs/{layers[0]['digest']}", token), layers[0]["digest"], "the release layer")
+    with tarfile.open(fileobj=io.BytesIO(layer)) as tar:
+        members = {member.name: member for member in tar.getmembers()}
+        if set(members) != set(RELEASE_FILES) or not all(member.isfile() for member in members.values()):
+            raise ValueError(f"release-{release_id} holds other than {' and '.join(RELEASE_FILES)}")
+        for name in RELEASE_FILES:
+            (work / name).write_bytes(tar.extractfile(members[name]).read())
+    subprocess.check_output([str(pinned_cosign()), "verify-blob-attestation", "--offline",
+                             "--trusted-root", settings["trusted_root"], "--type", "slsaprovenance1",
+                             "--bundle", str(work / "manifest.sigstore.json"),
+                             "--certificate-oidc-issuer", settings["oidc_issuer"],
+                             "--certificate-identity", settings["identity"],
+                             "--certificate-github-workflow-sha", release_id, str(work / "manifest.json")],
+                            env=control_environment(), stderr=subprocess.PIPE)
+    manifest = json.loads((work / "manifest.json").read_text(encoding="utf-8"))
+    bundle = json.loads((work / "manifest.sigstore.json").read_text(encoding="utf-8"))
+    statement = json.loads(base64.b64decode(bundle["dsseEnvelope"]["payload"]))
+    signed = {f"sha256:{subject['digest']['sha256']}" for subject in statement["subject"]}
+    if manifest.get("source_commit") != release_id:
+        raise ValueError(f"the signed manifest is for {manifest.get('source_commit')}, not {release_id}")
+    named = {digest for image in manifest["images"].values() for digest in (image["oci_manifest"], image["config"])}
+    named |= {entry["sha256"] for entry in manifest["files"].values()}
+    if not named <= signed:
+        raise ValueError("the manifest names digests its provenance did not sign")
+    return manifest, signed
+
+
+def registry_files(manifest: dict, settings: dict[str, str], token: str, output: Path) -> None:
+    """The executable and the jars from the files image: each layer by digest, each file by its signed sha256."""
+    image = manifest["images"]["files"]
+    raw = by_digest(registry_get(settings["repository"], f"manifests/{image['oci_manifest']}", token, REGISTRY_MANIFEST_TYPES),
+                    image["oci_manifest"], "the files image")
+    wanted = manifest["files"]
+    found: dict[str, bytes] = {}
+    for layer in json.loads(raw)["layers"]:
+        data = by_digest(registry_get(settings["repository"], f"blobs/{layer['digest']}", token), layer["digest"], "a files layer")
+        with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+            for member in tar.getmembers():
+                name = member.name.removeprefix("./")
+                if member.isdir():
+                    continue
+                if not member.isfile() or name not in wanted:
+                    raise ValueError(f"the files image holds {name!r}, which the manifest does not name")
+                found[name] = tar.extractfile(member).read()
+    if set(found) != set(wanted):
+        raise ValueError("the files image does not hold exactly the manifest's files")
+    for name, data in found.items():
+        if f"sha256:{hashlib.sha256(data).hexdigest()}" != wanted[name]["sha256"] or len(data) != wanted[name]["size"]:
+            raise ValueError(f"{name} in the files image is not the manifest's")
+        path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def registry_images(release_id: str, manifest: dict, settings: dict[str, str], tag: bool) -> dict[str, str]:
+    """Each image admission runs, pulled by digest; its ID must be the signed config. Tagged only to install."""
+    images = {}
+    for name, tag_of, _, _ in RELEASE_IMAGES:
+        entry = manifest["images"][name]
+        reference = f"{REGISTRY_HOST}/{settings['repository']}@{entry['oci_manifest']}"
+        subprocess.check_output(["/usr/bin/docker", "pull", "--quiet", reference], env=control_environment(), stderr=subprocess.PIPE)
+        image_id = subprocess.check_output(["/usr/bin/docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                                           env=control_environment(), stderr=subprocess.PIPE).decode().strip()
+        # Docker names an image by its config digest in the classic store and by its manifest digest
+        # in the containerd image store (this host's, 2026-10-19); both are signed. Anything else is not
+        # the image the manifest names.
+        if image_id not in (entry["config"], entry["oci_manifest"]):
+            raise ValueError(f"the pulled {name} image is {image_id}, not the signed {entry['oci_manifest']} or {entry['config']}")
+        if tag:
+            subprocess.check_output(["/usr/bin/docker", "tag", image_id, tag_of(release_id)], env=control_environment(), stderr=subprocess.PIPE)
+        images[name] = image_id
+    return images
+
+
+def registry_artifacts(release_id: str, output: Path, tag: bool) -> dict[str, str]:
+    """Verify release-<commit> and write its files to `output`; the image IDs it pulled, by name."""
+    settings = registry_settings()
+    token = registry_token(settings["repository"])
+    with tempfile.TemporaryDirectory(prefix=".registry-", dir=ARTIFACT_ROOT) as temporary:
+        manifest, _ = verified_release(release_id, Path(temporary), settings, token)
+    registry_files(manifest, settings, token, output)
+    return registry_images(release_id, manifest, settings, tag)
+
+
+def verify_registry(release_id: str) -> str:
+    """Stage R2: the whole check into a scratch directory, nothing installed or tagged."""
+    require_sha(release_id)
+    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    protected_path(ARTIFACT_ROOT)
+    with tempfile.TemporaryDirectory(prefix=".verify-", dir=ARTIFACT_ROOT) as temporary:
+        images = registry_artifacts(release_id, Path(temporary), tag=False)
+        files = artifact_files(Path(temporary))
+    return f"{release_id} images={','.join(f'{name}={image[7:19]}' for name, image in sorted(images.items()))} files={len(files)}"
+
+
 def build_artifacts(target: Path) -> None:
     """Build admitted source without runtime env/credentials; never accept caller binaries."""
     # Older merged releases ran an external publisher and honored source/cache overrides.
@@ -572,6 +741,21 @@ def build_artifacts(target: Path) -> None:
     protected_path(ARTIFACT_ROOT)
     destination = ARTIFACT_ROOT / release_id
     if destination.exists():
+        verify_artifacts(release_id, destination)
+        return
+    if artifacts_from() == "registry":
+        # Nothing is built, so neither the build lock nor the wait for running jobs applies.
+        with tempfile.TemporaryDirectory(prefix=".registry-", dir=ARTIFACT_ROOT) as temporary:
+            output = Path(temporary) / "output"
+            output.mkdir()
+            images = registry_artifacts(release_id, output, tag=True)
+            # As for a build: the host's loader and libraries must run the executable (ADR-0134 §3).
+            libraries = subprocess.check_output(["/usr/bin/ldd", str(output / "foundation-outbox-publisher")],
+                                                env=control_environment(), stderr=subprocess.PIPE)
+            if b"not found" in libraries:
+                raise ValueError("publisher requires unavailable host runtime libraries")
+            seal_artifacts(release_id, output, images)
+            output.rename(destination)
         verify_artifacts(release_id, destination)
         return
     with release_build_lock():
@@ -766,6 +950,9 @@ def main() -> int:
     seal = sub.add_parser("seal")
     seal.add_argument("target", type=Path)
     sub.add_parser("verify-current")
+    # Stage R2 of root ADR-0276: verify the release CI built and signed, install nothing.
+    verify_registry_command = sub.add_parser("verify-registry")
+    verify_registry_command.add_argument("release_id")
     # The deploy's wait (foundation-deploy.sh step 0) asks this, the check `build` refuses on: one list.
     sub.add_parser("running-jobs")
     # The scheduler's runner asks this before it starts a job (root ADR-0260): 75 a release build is
@@ -781,6 +968,9 @@ def main() -> int:
     try:
         if os.geteuid() != 0:
             raise ValueError("release admission must run as the host administrator")
+        if args.command == "verify-registry":
+            print(f"foundation-release-registry=verified {verify_registry(args.release_id)}")
+            return 0
         source = CanonicalSource()
         if args.command == "running-jobs":
             running = running_registered_jobs()

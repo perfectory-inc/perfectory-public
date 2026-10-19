@@ -50,9 +50,10 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
                      .withColumn("building_link_reason", F.lit(None).cast("string"))
                      .withColumn("normalization_application_id", F.lit(None).cast("string")))
         cls.titles = cls.spark.createDataFrame([
-            (cls.pnu, "BLDG-1", "03000", None, 0.0, None, 0, None),
-        ], "pnu string,mgm_bldrgst_pk string,purpose_code_raw string,structure_code_raw string,"
-           "floor_area_m2 double,ground_floor_count int,basement_floor_count int,approval_year int")
+            # No names: the shared fixture's documents (and the golden packs) stay as they were.
+            (cls.pnu, "BLDG-1", "03000", "  ", None, None, 0.0, None, 0, None),
+        ], "pnu string,mgm_bldrgst_pk string,purpose_code_raw string,purpose_name_raw string,"
+           "structure_code_raw string,structure_name_raw string,floor_area_m2 double,ground_floor_count int,basement_floor_count int,approval_year int")
         cls.areas = cls.spark.createDataFrame([
             ("AREA-1", "UNIT-1", "exclusive", 50.0, "공장", "", "above_ground"),
         ], "area_row_id string,mgm_bldrgst_pk string,area_kind string,area_m2 double,"
@@ -93,6 +94,10 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             if os.environ.get("UPDATE_BUILDING_PRICE_FIXTURE") == "1":
                 fixture.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.assertEqual(row, json.loads(fixture.read_text(encoding="utf-8")))
+            # A blank or absent register name is null beside its code, never the code itself.
+            building = json.loads(row["buildings_json"])[0]
+            self.assertEqual((building["purpose_code"], building["purpose_name"]), ("03000", None))
+            self.assertEqual((building["structure_code"], building["structure_name"]), (None, None))
             self.assertEqual(json.loads(row["buildings_json"])[0]["units"][0]["official_price_history"], [
                 {"base_date": "20100601", "price_won": 35000000},
                 {"base_date": "20100101", "price_won": 36000000},
@@ -100,6 +105,18 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
             self.assertEqual(json.loads(row["unlinked_units_json"])[0]["official_price_history"], [
                 {"base_date": "20100601", "price_won": 100},
             ])
+
+    def test_the_registers_names_travel_beside_its_codes(self):
+        titles = self.spark.createDataFrame([
+            (self.pnu, "BLDG-1", "03000", " 공장 ", "21", "철근콘크리트구조", 0.0, None, 0, None),
+        ], self.titles.schema)
+        frames = {self.gold.PRICE_SOURCE: self.prices, self.gold.UNIT_SOURCE: self.units,
+                  self.gold.TITLE_SOURCE: titles, self.gold.AREA_SOURCE: self.areas,
+                  self.gold.FLOOR_SOURCE: self.floors}
+        row = self.gold.build_gold_panel_frame(frames, "synthetic-source-a", "2099-01-01T00:00:00Z", {}).first()
+        building = json.loads(row.buildings_json)[0]
+        self.assertEqual((building["purpose_code"], building["purpose_name"]), ("03000", "공장"))
+        self.assertEqual((building["structure_code"], building["structure_name"]), ("21", "철근콘크리트구조"))
 
     def test_the_panel_reads_the_newest_vintages_batch_of_the_append_only_table(self):
         # Root ADR-0182: every vintage stays in the table; the panel serves the newest one.

@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -101,6 +102,42 @@ class TheMergeQueueRunDecides(unittest.TestCase):
         self.assertEqual(decision, "wait")
 
 
+class ReportsDoNotDecide(unittest.TestCase):
+    """A schedule's or a dispatch's run reports on the repository, not on this commit (2026-10-19:
+    a cache budget over its line refused fc61aa36)."""
+
+    def report(self, suite, event="schedule"):
+        return {"check_suite_id": suite, "event": event, "status": "completed", "conclusion": "failure"}
+
+    def test_a_failed_report_neither_refuses_nor_hides(self):
+        for event in ("schedule", "workflow_dispatch"):
+            with self.subTest(event):
+                decision, reason = release_checks.verdict(
+                    [run("ci", suite=7), run("Actions cache budget", conclusion="failure", suite=5)],
+                    [queue_run(7), self.report(5, event)],
+                )
+                self.assertEqual(decision, "deploy")
+                self.assertIn("Actions cache budget=failure", reason)
+
+    def test_a_running_report_is_not_waited_for(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("Actions cache budget", status="in_progress", conclusion=None, suite=5)],
+            [{"check_suite_id": 7, "event": "push", "status": "completed", "conclusion": "success"}, self.report(5)],
+        )
+        self.assertEqual(decision, "deploy")
+
+    def test_reports_alone_are_no_verdict(self):
+        decision, _ = release_checks.verdict([run("Actions cache budget", suite=5)], [self.report(5)])
+        self.assertEqual(decision, "wait")
+
+    def test_the_same_check_from_a_push_still_refuses(self):
+        decision, _ = release_checks.verdict(
+            [run("ci", suite=7), run("guard", conclusion="failure", suite=6)],
+            [queue_run(7), {"check_suite_id": 6, "event": "push", "status": "completed", "conclusion": "failure"}],
+        )
+        self.assertEqual(decision, "refuse")
+
+
 class TheChecksAreReadPageByPage(unittest.TestCase):
     def serve(self, runs, queue=()):
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -131,7 +168,8 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
         self.assertTrue(result.stdout.startswith("refuse "), result.stdout)
         self.assertEqual(len([path for path in asked if "/check-runs?" in path]), 2)
 
-    def test_the_queue_runs_are_asked_for_this_commit_and_event(self):
+    def test_the_commits_workflow_runs_are_asked_for_every_event(self):
+        # Every event: the merge queue's runs decide early, a schedule's or a dispatch's do not decide.
         api, asked = self.serve(
             [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
         )
@@ -139,7 +177,7 @@ class TheChecksAreReadPageByPage(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
-        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&event=merge_group&", "".join(asked))
+        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&per_page=", "".join(asked))
 
     def test_an_unreachable_api_exits_2(self):
         result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],
@@ -552,8 +590,8 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no registered job is running", result.stdout)
         self.assertEqual(self.released()[0], "prepare")
 
-    def test_the_deploy_logs_what_the_release_changes_before_it_pauses_anything(self):
-        # Deploy D3 (root ADR-0270): the tables a release changes and their writer jobs, log only.
+    def commit_tells_what_it_changes(self, changed_table=None):
+        """The commit's release_changes.py and its inputs; the running release has the same contracts."""
         old = self.root / "opt/foundation-platform/current"
         for relative in ("scripts/deploy/release_changes.py", "orchestration/jobs.v1.json",
                          "docs/catalog/pipeline-graph.v1.json",
@@ -564,10 +602,53 @@ class TheWholeDeploy(unittest.TestCase):
             if relative.startswith("infra/"):
                 (old / relative).parent.mkdir(parents=True, exist_ok=True)
                 (old / relative).write_bytes((PLATFORM / relative).read_bytes())
+        # The running release has applied the migrations the commit carries: none is new.
+        shutil.copytree(self.root / "commit/platforms/foundation-platform/migrations", old / "migrations")
+        if changed_table:
+            path = (self.root / "commit/platforms/foundation-platform/infra/lakehouse/contracts"
+                    / "industrial_complex_lakehouse_contracts.json")
+            contracts = json.loads(path.read_text(encoding="utf-8"))
+            contracts["contracts"][changed_table]["columns"].append(
+                {"name": "added", "logical_type": "string", "required": False})
+            path.write_text(json.dumps(contracts), encoding="utf-8")
+
+    def test_the_deploy_logs_what_the_release_changes_before_it_pauses_anything(self):
+        # Deploy D3 (root ADR-0270): the tables a release changes and their writer jobs.
+        self.commit_tells_what_it_changes()
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("lakehouse tables this release changes: none", result.stdout)
         self.assertLess(result.stdout.index("lakehouse tables this release changes"), result.stdout.index("0. pause"))
+
+    def test_a_release_that_changes_no_table_gives_every_job_its_schedule_back_after_the_build(self):
+        # Deploy D5 (root ADR-0270 §3): nothing is held, so a deploy that then stops while migrating
+        # leaves every enabled job running, and says only the held ones (none) stay paused.
+        self.commit_tells_what_it_changes()
+        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("jobs the deploy holds until the release is live: none", result.stdout)
+        self.assertIn(f"unpaused {len(self.ENABLED)} DAGs; held until the release is live: none", result.stdout)
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertIn("THE HELD DAGS STAY PAUSED", result.stderr)
+        self.assertLess(result.stdout.index("2b. the schedule comes back"), result.stdout.index("4. activate"))
+
+    def test_a_changed_table_holds_its_writers_and_the_jobs_the_graph_cannot_place(self):
+        # silver.building_register_floors: its writer is not on this fixture host; source_sweep and
+        # outbox_publish name no table in the graph, so they are held; the fold writes another table.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "source_sweep": "pause",
+                                       "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
+
+    def test_the_held_jobs_get_their_schedule_back_once_the_release_is_live(self):
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("unpaused 1 DAGs; held until the release is live: ", result.stdout)
+        self.assertEqual({job: state for job, state in self.dags().items() if job in self.ENABLED},
+                         {job: "unpause" for job in self.ENABLED}, "step 7 gives the held jobs their schedule back")
 
     def test_a_deploy_that_cannot_tell_what_the_release_changes_goes_on(self):
         # Nothing reads the answer yet (D3): the fixture's commit holds no release_changes.py.
@@ -696,7 +777,7 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.dags(), {job: "pause" for job in self.ENABLED + self.DISABLED},
                          "jobs must not run on a release that is activated but not migrated")
-        self.assertIn("THE DAGS STAY PAUSED", result.stderr)
+        self.assertIn("THE HELD DAGS STAY PAUSED", result.stderr)
 
     def test_a_dag_that_cannot_be_unpaused_fails_the_deploy_loudly(self):
         result = self.deploy(FIXTURE_AIRFLOW_FAILS="unpause foundation_outbox_publish")
@@ -714,11 +795,12 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
             with self.subTest(job["id"]):
                 self.assertTrue(job["enabled"], "a disabled job is never started by the deploy")
                 # foundation-deploy.sh waits each one's own limit for one start.
-                self.assertGreater(job_specs.scheduler_timeout_minutes(job), job["time_limit_minutes"])
+                self.assertGreater(job_specs.run_limit_minutes(job), job["time_limit_minutes"])
 
     def test_the_deploy_waits_the_limit_job_specs_gives_each_start(self):
         # foundation-deploy.sh adds time_limit_minutes and stop_grace_minutes itself (the release it
         # reads from may not carry job_specs); it must add them as job_specs does (root ADR-0270 §1).
+        # The deploy starts the unit itself, so the start never waits: a run's limit, not the scheduler's.
         script = (PLATFORM / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
         program = script.split("jobs_of() {\n", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
         waited = subprocess.run([sys.executable, "-c", program, "started-once", str(JOBS)],
@@ -727,13 +809,13 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
         expected = []
         for job in jobs:
             if job["enabled"] and job.get("started_once_after_deploy"):
-                expected += [job["systemd_service"], str(job_specs.scheduler_timeout_minutes(job))]
+                expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job))]
         self.assertTrue(expected)
         self.assertEqual(waited, expected)
 
     def test_systemd_never_stops_a_deploy_halfway(self):
         jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        once = sum(job_specs.scheduler_timeout_minutes(job) + 1 for job in jobs if job.get("started_once_after_deploy"))
+        once = sum(job_specs.run_limit_minutes(job) + 1 for job in jobs if job.get("started_once_after_deploy"))
         unit = (PLATFORM / "infra/systemd/foundation-autodeploy.service").read_text()
         limit = next(line for line in unit.splitlines() if line.startswith("TimeoutStartSec="))
         hours = int(limit.removeprefix("TimeoutStartSec=").removesuffix("h"))

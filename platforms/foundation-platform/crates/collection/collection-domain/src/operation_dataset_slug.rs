@@ -89,6 +89,35 @@ pub fn standard_code_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolves a data.go.kr 차세대 온비드 (KAMCO public sale) `operation` to its canonical `dataset_slug`
+/// (root ADR-0280).
+///
+/// Returns `None` for any operation outside the four public-sale APIs; callers must treat `None` as a
+/// hard error rather than inventing a slug.
+#[must_use]
+pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "getRlstCltrList2" => Some("onbid_real_estate_item"),
+        "getPbancList2" => Some("onbid_announcement"),
+        "getPbancBidRsltList2" => Some("onbid_announcement_bid_result"),
+        "getCltrBidRsltDtl2" => Some("onbid_item_bid_result"),
+        _ => None,
+    }
+}
+
+/// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`) to its canonical
+/// `dataset_slug` (root ADR-0280).
+///
+/// Returns `None` for any file the platform does not collect; callers must treat `None` as a hard
+/// error rather than inventing a slug.
+#[must_use]
+pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "fileData15105482" => Some("registered_factory"),
+        _ => None,
+    }
+}
+
 /// Resolves a V-World NED attribute-API provider operation to its canonical `dataset_slug`.
 ///
 /// The V-World NED attribute API exposes several land-record operations whose provider-native call id
@@ -128,6 +157,8 @@ pub fn vworld_ned_dataset_slug(operation: &str) -> Option<&'static str> {
 /// - the data.go.kr building-register map ([`building_register_dataset_slug`]);
 /// - the data.go.kr real-transaction map ([`real_transaction_dataset_slug`]);
 /// - the data.go.kr 행정표준코드 map ([`standard_code_dataset_slug`]);
+/// - the data.go.kr 온비드 map ([`onbid_dataset_slug`]);
+/// - the data.go.kr file-data map ([`file_data_dataset_slug`]);
 /// - the V-World NED attribute map ([`vworld_ned_dataset_slug`]).
 ///
 /// Each map is bijective, so a collapse can NEVER merge two distinct operations onto one key: the
@@ -144,12 +175,14 @@ pub fn operation_collapses_into_slug(operation: &str, source_slug: &str) -> bool
 }
 
 /// Resolves a provider operation to its canonical `dataset_slug` through any of the curated maps
-/// (building-register, real-transaction, 행정표준코드, V-World NED), or `None` if no map covers it.
+/// (building-register, real-transaction, 행정표준코드, 온비드, file data, V-World NED), or `None` if no map covers it.
 /// Used by [`operation_collapses_into_slug`] after the byte-equality fast path.
 fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
     building_register_dataset_slug(operation)
         .or_else(|| real_transaction_dataset_slug(operation))
         .or_else(|| standard_code_dataset_slug(operation))
+        .or_else(|| onbid_dataset_slug(operation))
+        .or_else(|| file_data_dataset_slug(operation))
         .or_else(|| vworld_ned_dataset_slug(operation))
 }
 
@@ -414,6 +447,26 @@ mod tests {
     }
 
     /// Synthetic/unknown operations have no pinned canonical and are not enforced.
+    #[test]
+    fn collapses_onbid_operation_via_map() {
+        assert!(operation_collapses_into_slug(
+            "getRlstCltrList2",
+            "datagokr__onbid_real_estate_item"
+        ));
+        assert!(!operation_collapses_into_slug(
+            "getRlstCltrList2",
+            "datagokr__onbid_item_bid_result"
+        ));
+    }
+
+    #[test]
+    fn collapses_file_data_operation_via_map() {
+        assert!(operation_collapses_into_slug(
+            "fileData15105482",
+            "datagokr__registered_factory"
+        ));
+    }
+
     #[test]
     fn canonical_page_size_is_none_for_unknown_operation() {
         assert_eq!(canonical_page_size("getTradeInfo"), None);

@@ -961,6 +961,11 @@ export interface components {
             land_category?: string | null;
             /** @description Provider ownership category code, not an owner identity. */
             ownership_kind?: string | null;
+            /**
+             * @description Provider ownership category name (소유구분명) exactly as the provider wrote it, beside its
+             *     code. Absent where the source carried none.
+             */
+            ownership_kind_name?: string | null;
         };
         /** @description Assignment between a parcel and an industry group. */
         ParcelIndustryAssignmentResponse: {

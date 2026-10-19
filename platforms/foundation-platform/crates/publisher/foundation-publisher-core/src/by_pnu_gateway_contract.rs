@@ -614,6 +614,9 @@ pub struct PackReadPathPolicy {
     /// only a patch over a generation baked in parts is.
     pub whole_pack_max_bytes: u64,
     pub request_cpu_budget: RequestCpuBudget,
+    /// The response header in which every 503 names its class (manifest-unavailable,
+    /// r2-unavailable, ...): a monitor or canary failure records it beside the status.
+    pub outage_header: String,
 }
 
 /// The bytes one request copies, bounded so its Worker CPU does not grow with the data (root

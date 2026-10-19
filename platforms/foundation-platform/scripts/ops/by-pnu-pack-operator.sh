@@ -15,8 +15,10 @@
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
-#   by-pnu-pack-operator.sh silver plan|start|status <silver-lane>
-#   by-pnu-pack-operator.sh job start|status <disabled job id>
+#   by-pnu-pack-operator.sh silver plan|status <silver-lane>
+#   by-pnu-pack-operator.sh silver start <silver-lane> --requested-at <epoch second> --reason <why>
+#   by-pnu-pack-operator.sh job status <disabled job id>
+#   by-pnu-pack-operator.sh job start <disabled job id> --requested-at <epoch second> --reason <why>
 #   by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
@@ -86,7 +88,39 @@
 set -euo pipefail
 log() { printf '%s by-pnu-pack-operator: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+
+# An operator start is attended and immediate (root ADR-0270 §2b). On 2026-10-16 a wait script left
+# running under nohup started `job start parcel_registry`, a production Silver write, ten hours after
+# it was written, when the host went quiet. So every action here that starts or writes anything
+# (all but `status`, `plan` and `health`) ends with when the operator asked (`--requested-at
+# "$(date +%s)"` typed at the prompt, not computed by a script that runs later) and why; a request older than START_EXPIRY_MINUTES is refused, and nothing here waits for the host
+# to be free: a busy host is refused (75) and the operator asks again. A start also needs a terminal
+# on standard input, which a background script under nohup does not have. Each start is recorded in the
+# journal (`journalctl -t foundation-operator-start`): who, what, when asked, why. The steps the
+# cut-over unit runs through this script are its own (FOUNDATION_OPERATOR_WAIT=1, which sudo's
+# env_reset removes from a granted run, and no SUDO_USER): the cut-over was the attended start.
+START_EXPIRY_MINUTES=10
+attended_start() { # <requested-at> <reason>; sets START_REQUEST
+  local now age
+  # A person at a terminal: nohup, a cron line or a script fed from a pipe has none (`ssh -t` for one).
+  [[ -t 0 ]] || refuse "an operator start needs a person at a terminal (standard input is not one; use ssh -t)" 77
+  [[ "$1" =~ ^[0-9]{10}$ ]] || refuse "--requested-at takes the epoch second the operator asked: \"\$(date +%s)\""
+  now="$(date +%s)"
+  age=$((now - 10#$1))
+  ((age >= -60)) || refuse "--requested-at is $((-age)) seconds in the future"
+  ((age <= START_EXPIRY_MINUTES * 60)) \
+    || refuse "this start was asked for $((age / 60)) minutes ago; an operator start expires after ${START_EXPIRY_MINUTES} minutes and never waits for the host (ask again)" 77
+  [[ "$2" == *[![:space:]]* && "${#2}" -le 300 && "$2" != *[[:cntrl:]]* ]] \
+    || refuse "--reason takes why this start is needed, one line of at most 300 characters"
+  START_REQUEST="who=${SUDO_USER:-${USER:-unknown}} requested_at=$1 reason=$2"
+}
+# Records the start asked for, before anything decides whether it may run (a refused one is in the
+# journal too), or refuses it: a start the journal does not hold does not run.
+record_start() {
+  logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
+}
+ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -133,6 +167,16 @@ release_ops="$(cd "${RELEASE}/scripts/ops" 2>/dev/null && pwd -P)" || refuse "no
 if [[ "${here}" != "${release_ops}" ]]; then
   [[ -x "${release_ops}/by-pnu-pack-operator.sh" ]] || refuse "the current release has no ${0##*/}; it is older than this script" 65
   exec "${release_ops}/by-pnu-pack-operator.sh" "${LANE}" "${ACTION}" "$@"
+fi
+# Every action that starts or writes is attended and immediate (see attended_start above), asked
+# once, in the copy that does the work: the control checkout's copy above passes the request on.
+if [[ "${ACTION}" != status && "${ACTION}" != plan && "${ACTION}" != health ]] \
+  && ! [[ "${FOUNDATION_OPERATOR_WAIT:-}" == 1 && -z "${SUDO_USER:-}" ]]; then
+  (($# >= 4)) && [[ "${*: -4:1}" == --requested-at && "${*: -2:1}" == --reason ]] \
+    || refuse "${LANE} ${ACTION} takes ${ATTENDED_FLAGS} last"
+  attended_start "${*: -3:1}" "${*: -1}"
+  set -- "${@:1:$(($# - 4))}"
+  record_start "${LANE} ${ACTION}${*:+ $*}"
 fi
 UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Units that move the panel Gold, and the bakes that read it (root ADR-0166).

@@ -33,7 +33,7 @@ last_reviewed: 2026-10-14
 자동배포가 돌지 않을 때, 시도가 작은 것부터 돈다(첫 실행에서 시간·메모리를 잰다):
 
 ```bash
-sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start parcel_registry
+sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start parcel_registry --requested-at "$(date +%s)" --reason "<왜 지금 돌리는지>"
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job status parcel_registry
 ```
 

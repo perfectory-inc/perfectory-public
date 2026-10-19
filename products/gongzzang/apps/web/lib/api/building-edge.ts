@@ -55,6 +55,10 @@ export const EdgeBuildingProfileSchema = z.object({
       register_pk: z.string(),
       purpose_code: z.string().nullable(),
       structure_code: z.string().nullable(),
+      // The register's own names for the two codes (표제부 주용도코드명·구조코드명), once the bake
+      // carries them; the panel shows a name, never a code.
+      purpose_name: z.string().nullish(),
+      structure_name: z.string().nullish(),
       floor_area_m2: z.number().positive().nullable(),
       stories: z.number().int().nonnegative().nullable(),
       below_ground_floors: z.number().int().nonnegative(),
