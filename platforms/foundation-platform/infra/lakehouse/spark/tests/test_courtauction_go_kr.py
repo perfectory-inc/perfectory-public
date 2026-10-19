@@ -1,7 +1,7 @@
 """법원경매정보 Silver 적재(root ADR-0280, ADR-0281)를 합성 행으로 본다.
 
 법원 코드·사건번호·지명은 지어낸 것이다(시도 99). 거부해야 할 것을 심는다: 키가 없는 행, 200 이 아닌 답의
-행, 0 으로 적힌 매각가, 다른 형식의 매니페스트. Spark 가 있으면 비교 단계도 돈다: 완전한 물건 검색만 삭제
+행, 0 으로 적힌 매각가, 끝까지 읽지 못한 조건, 다른 형식의 계획, 이 적재가 맡지 않은 원천. Spark 가 있으면 비교 단계도 돈다: 완전한 물건 검색만 삭제
 표지를 남기고, 매각결과 검색은 남기지 않는다.
 """
 
@@ -81,28 +81,52 @@ class RowTest(unittest.TestCase):
             self.assertLessEqual(set(names), built, table)
 
 
-class HandoffTest(unittest.TestCase):
-    def test_a_manifest_of_another_kind_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            handoff = Path(tmp) / "pending" / "20990102T030405Z"
-            handoff.mkdir(parents=True)
-            (handoff / "manifest.json").write_text(json.dumps({"schema_version": "other.v1"}), encoding="utf-8")
-            with self.assertRaises(ValueError):
-                job.read_handoff(handoff, CONTRACT, DONGS, NOW)
+def asked(lines, condition):
+    return [{**entry, "request": {"dma_srchGdsDtlSrchInfo": condition}} for entry in lines]
 
-    def test_a_handoff_gives_each_searchs_rows_and_completeness(self) -> None:
+
+class CompletenessTest(unittest.TestCase):
+    def test_a_search_is_complete_only_when_every_condition_was_read_to_its_end(self) -> None:
+        first, *rest = CONTRACT["item_search"]["conditions"]
+        ended = [entry for condition in rest for entry in asked([line([])], condition)]
+        self.assertTrue(job.search_complete([*asked([line([item()])], first), *ended], CONTRACT["item_search"]["conditions"]))
+        self.assertFalse(job.search_complete(ended, CONTRACT["item_search"]["conditions"]), "a condition never asked")
+        short = line([item()])
+        short["body"] = short["body"].replace('"totalCnt": "1"', '"totalCnt": "2"')
+        self.assertFalse(job.search_complete([*asked([short], first), *ended], CONTRACT["item_search"]["conditions"]),
+                         "stopped before totalCnt")
+        refused = asked([line([item()], status=429)], first)
+        self.assertFalse(job.search_complete([*refused, *ended], CONTRACT["item_search"]["conditions"]), "refused")
+
+
+class PlanTest(unittest.TestCase):
+    ITEM = "bronze/source=courtauctiongokr__auction_item/auction-item-20990102t030405z.gz"
+
+    def write(self, root, key, lines, schema=job.PLAN_SCHEMA):
+        slug = key.split("/")[1].removeprefix("source=")
+        local = f"objects/{slug}/{key.rsplit('/', 1)[1]}"
+        (root / local).parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(root / local, "wt", encoding="utf-8") as out:
+            out.write("".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in lines))
+        (root / "plan.json").write_text(json.dumps({"schema_version": schema, "objects": [
+            {"object_key": key, "source_slug": slug, "local_path": local, "size_bytes": 1}]}), encoding="utf-8")
+        return root
+
+    def test_a_plan_gives_each_searchs_rows_and_completeness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            handoff = Path(tmp) / "pending" / "20990102T030405Z"
-            (handoff / "objects").mkdir(parents=True)
-            with gzip.open(handoff / "objects" / "item.gz", "wt", encoding="utf-8") as out:
-                out.write(json.dumps(line([item()]), ensure_ascii=False) + "\n")
-            (handoff / "manifest.json").write_text(json.dumps({
-                "schema_version": job.MANIFEST_SCHEMA, "source_snapshot_id": "20990102T030405Z",
-                "objects": [{"role": "item_search", "object_key": "bronze/item.gz", "local_path": "objects/item.gz", "complete": False}]}),
-                encoding="utf-8")
-            loads = job.read_handoff(handoff, CONTRACT, DONGS, NOW)
-            self.assertFalse(loads["searches"]["item_search"]["complete"])
-            self.assertEqual(len(loads["searches"]["item_search"]["rows"]), 1)
+            [entry] = job.planned_objects([self.write(Path(tmp), self.ITEM, [line([item()])])], CONTRACT)
+            self.assertEqual((entry["role"], entry["source_snapshot_id"]), ("item_search", "20990102T030405Z"))
+            search = job.read_object(entry, CONTRACT, DONGS, NOW)
+            self.assertFalse(search["complete"])
+            self.assertEqual([r["source_record_id"] for r in search["rows"]], [self.ITEM])
+
+    def test_a_plan_of_another_kind_or_source_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                job.planned_objects([self.write(Path(tmp) / "a", self.ITEM, [], schema="other.v1")], CONTRACT)
+            other = "bronze/source=datagokr__onbid_real_estate_item/item-list-20990102t030405z.gz"
+            with self.assertRaises(ValueError):
+                job.planned_objects([self.write(Path(tmp) / "b", other, [])], CONTRACT)
 
 
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")

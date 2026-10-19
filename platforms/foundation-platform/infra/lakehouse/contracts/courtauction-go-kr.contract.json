@@ -49,6 +49,11 @@
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
   },
+  "silver_load": {
+    "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
+    "window_days": 7,
+    "max_objects": 7
+  },
   "pnu_resolution": {
     "$comment": "ADR-0280 §4. The list rows carry no PNU. The 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with the representative lot (daepyoLotno) are read as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py with these 시도 prefixes (the registered-factory contract's, the same values).",
     "sido_prefixes_from": "data-go-kr-registered-factory.contract.json#/pnu_resolution/sido_prefixes"

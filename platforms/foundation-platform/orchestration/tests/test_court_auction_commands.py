@@ -2,11 +2,13 @@
 court-auction-silver-load.sh, root ADR-0280, ADR-0281).
 
 The scripts run from an installed release layout (as in test_parcel_number_change_collect_command.py).
-The publisher and docker are stand-ins: the publisher writes the manifest a night would write and
-exits as the collector does (0, or 1 after a refusal); docker records that it was called. What runs
-for real is the scripts: a night that landed objects hands them off and says `changed`; a refused
-night still hands off what it landed and then fails; a missing required variable stops the night
-before any request (the contact is optional, root ADR-0283); the load with nothing pending ends without starting Spark.
+The publisher and docker are stand-ins: the publisher answers the collect command as the collector
+does (an outcome, or exit 1 after a refusal) and the plan command with FAKE_OWED objects per table;
+docker records its arguments. What runs for real is the scripts: the collect passes its outcome on and
+keeps no copy; a refused night fails and hands nothing on (what it landed is in Bronze, so the next
+plan finds it); a missing required variable stops the night before any request (the contact is
+optional, root ADR-0283); the load with nothing owed ends without starting Spark; a load hands Spark
+one plan per table and removes the copies whether it succeeds or not.
 """
 
 import hashlib
@@ -38,21 +40,40 @@ import json, os, sys
 state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "calls.log"), "a", encoding="utf-8") as log:
     log.write(sys.argv[1] + "\n")
-assert sys.argv[1] == "collect-courtauction-go-kr", sys.argv
-out = os.environ["FOUNDATION_PLATFORM_COURT_AUCTION_OUTPUT_DIR"]
-written = os.environ["FAKE_WRITTEN"] == "1"
-objects = [{"role": "item_search", "object_key": "bronze/x.gz", "local_path": "objects/x.gz", "written": True,
-            "complete": False}] if written else []
-json.dump({"schema_version": "foundation-platform.courtauction_go_kr_collect.v1", "objects": objects},
-          open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"), indent=1)
-if os.environ["FAKE_REFUSED"] == "1":
-    print("Error: courtauction.go.kr refused the run (HTTP 429)")
-    sys.exit(1)
+if sys.argv[1] == "collect-courtauction-go-kr":
+    out = os.environ["FOUNDATION_PLATFORM_COURT_AUCTION_OUTPUT_DIR"]
+    os.makedirs(os.path.join(out, "objects"))
+    open(os.path.join(out, "objects", "x.gz"), "wb").write(b"x")
+    if os.environ["FAKE_REFUSED"] == "1":
+        print("Error: courtauction.go.kr refused the run (HTTP 429)")
+        sys.exit(1)
+    print("foundation-job-outcome changed")
+    sys.exit(0)
+assert sys.argv[1] == "plan-silver-load-objects", sys.argv
+prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
+table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
+assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
+                         {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"}), (table, slug)
+assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
+out = os.environ[prefix + "OUTPUT_DIR"]
+os.makedirs(out, exist_ok=True)
+objects = []
+for n in range(int(os.environ["FAKE_OWED"])):
+    local = "objects/" + slug + "/o" + str(n) + ".gz"
+    os.makedirs(os.path.dirname(os.path.join(out, local)), exist_ok=True)
+    open(os.path.join(out, local), "wb").write(b"x")
+    objects.append({"object_key": "bronze/source=" + slug + "/o" + str(n) + ".gz", "source_slug": slug,
+                    "local_path": local, "size_bytes": 1})
+json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "table": table, "objects": objects},
+          open(os.path.join(out, "plan.json"), "w", encoding="utf-8"))
 """
 
 FAKE_DOCKER = r"""#!/usr/bin/env python3
-import os
-open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write("called\n")
+import os, sys
+open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("FAKE_DOCKER_FAIL") == "1":
+    sys.exit(1)
+print('court-auction-summary-json {"status": "loaded"}')
 """
 
 
@@ -68,6 +89,10 @@ class CourtAuctionCommands(unittest.TestCase):
                      "job-journal.sh", "database-url.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        contracts = release / "infra/lakehouse/contracts"
+        contracts.mkdir(parents=True)
+        (contracts / "courtauction-go-kr.contract.json").write_bytes(
+            (PLATFORM / "infra/lakehouse/contracts/courtauction-go-kr.contract.json").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -89,7 +114,7 @@ class CourtAuctionCommands(unittest.TestCase):
         self.fake.mkdir()
         self.env = {
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FOUNDATION_COURT_AUCTION_STATE_ROOT": str(self.state),
-            "FAKE_STATE": str(self.fake), "FAKE_WRITTEN": "1", "FAKE_REFUSED": "0",
+            "FAKE_STATE": str(self.fake), "FAKE_REFUSED": "0", "FAKE_OWED": "1",
             **{name: "planted-" + name.lower() for name in NEEDS},
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": "https://r2.invalid",
         }
@@ -97,23 +122,23 @@ class CourtAuctionCommands(unittest.TestCase):
     def run_script(self, script, env=None):
         return subprocess.run(["bash", str(script)], env=env or self.env, capture_output=True, text=True, timeout=120)
 
-    def pending(self):
-        pending = self.state / "lakehouse/pending"
-        return sorted(pending.iterdir()) if pending.exists() else []
+    def copies(self):
+        return sorted(self.state.rglob("*.gz"))
 
-    def test_a_night_that_landed_objects_hands_them_off(self):
+    def test_a_night_passes_its_outcome_on_and_keeps_no_copy(self):
         result = self.run_script(self.collect)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
-        self.assertEqual(len(self.pending()), 1)
+        self.assertEqual(self.copies(), [], "the objects are in R2; the load fetches what it owes")
+        self.assertFalse((self.state / "lakehouse").exists(), "nothing is handed to the load")
 
-    def test_a_refused_night_hands_off_what_it_landed_and_fails(self):
+    def test_a_refused_night_fails_and_hands_nothing_on(self):
         self.env["FAKE_REFUSED"] = "1"
         result = self.run_script(self.collect)
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertNotIn("foundation-job-outcome", result.stdout, "a stopped night never says it ended well")
         self.assertIn("STOPPED", (self.state / "journal.log").read_text(encoding="utf-8"))
-        self.assertEqual(len(self.pending()), 1, "what was collected before the refusal is still loaded")
+        self.assertEqual(self.copies(), [], "what it landed before the refusal is in Bronze for the next plan")
 
     def test_the_contact_is_optional_and_a_missing_variable_stops_the_night_before_any_request(self):
         # Root ADR-0283: no contact address is needed; the night runs without one.
@@ -129,11 +154,25 @@ class CourtAuctionCommands(unittest.TestCase):
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
 
-    def test_the_load_with_nothing_pending_ends_without_spark(self):
+    def test_the_load_with_nothing_owed_ends_without_spark(self):
+        self.env["FAKE_OWED"] = "0"
         result = self.run_script(self.load)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertFalse((self.fake / "docker.log").exists())
+
+    def test_a_load_hands_spark_one_plan_per_table_and_removes_the_copies(self):
+        self.env["FAKE_DOCKER_FAIL"] = "1"
+        self.assertNotEqual(self.run_script(self.load).returncode, 0)
+        self.assertEqual(self.copies(), [], "an unloaded object has no commit record, so the next plan fetches it again")
+        self.env["FAKE_DOCKER_FAIL"] = "0"
+        loaded = self.run_script(self.load)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertEqual(loaded.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertEqual(self.copies(), [])
+        call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
+        plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
+        self.assertEqual(plans, ["items", "results"])
 
 
 if __name__ == "__main__":

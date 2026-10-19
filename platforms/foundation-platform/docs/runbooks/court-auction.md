@@ -15,9 +15,10 @@ last_reviewed: 2026-10-19
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `court_auction_collect` (01:05 KST, default_pool) | `foundation-court-auction-collect.service` → `scripts/ops/court-auction-collect.sh` | `collect-courtauction-go-kr`: robots.txt → 물건 검색 네 조합 → 매각결과 검색 두 조합, 쪽마다 한 요청. 06:00 KST 이나 요청 상한에 닿으면 그 자리에서 끝난다(불완전 전수, 거절 아님). 검색 하나에 gzip JSON Lines Bronze 객체 하나 |
-| `court_auction_silver` (06:30 KST, spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `courtauction_go_kr.py load`: 주소로 PNU(지번 → 도로명, `address_pnu.py`), `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만 |
+| `court_auction_silver` (06:30 KST, spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`: 최근 7일, 표마다 7개), `courtauction_go_kr.py load`: 주소로 PNU(지번 → 도로명, `address_pnu.py`), `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만 |
 
-상태: `/var/lib/foundation-platform/court-auction/`(`collector/refused.json`, `lakehouse/pending|loaded/`, `journal.log`).
+상태: `/var/lib/foundation-platform/court-auction/`(`collector/refused.json`, `journal.log`, 실행마다 `runs/<실행>/run.log`).
+대기열은 없다: 거절당한 밤이 받은 것도 Bronze 에 있으니 다음 적재의 계획이 찾는다.
 
 ## 거절당했을 때 (멈춤)
 
