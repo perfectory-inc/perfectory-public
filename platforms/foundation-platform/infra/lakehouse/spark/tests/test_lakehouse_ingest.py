@@ -28,6 +28,7 @@ from lakehouse_ingest import (  # noqa: E402
     INGEST_BATCH_TOKEN_KEY,
     SNAPSHOT_PROPERTY_PREFIX,
     append_batch_once,
+    append_source_object,
     decide_whether_to_append,
     identities_under_derivation,
     ingest_batch_token,
@@ -544,6 +545,27 @@ class AppendDecisionTest(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn("a.zip", message, "이미 들어간 객체를 이름으로 말해야 한다")
         self.assertIn("b.zip", message, "아직 안 들어간 객체를 이름으로 말해야 한다")
+
+
+class SourceObjectTest(unittest.TestCase):
+    """객체 하나의 적재는 쓸 행이 없어도 그 객체를 기록한다.
+
+    계획(plan-silver-load-objects)은 표의 커밋 기록만 보고 쌓을 객체를 정한다. 바뀐 것이 없어
+    빈 채로 끝난 객체가 기록을 남기지 않으면, 다음 실행마다 같은 객체를 다시 받는다.
+    """
+
+    KEY = "bronze/source=x__y/a.gz"
+
+    def test_an_object_with_no_rows_is_still_written_and_recorded(self) -> None:
+        frame = FakeBatchFrame([])
+        self.assertTrue(append_source_object(FakeSpark([]), frame, ["source_record_id"], "`c`.`s`.`t`", self.KEY))
+        self.assertTrue(frame.appended, "빈 커밋이라도 객체 이름을 요약에 싣는다")
+
+    def test_an_object_the_table_records_is_not_written_again(self) -> None:
+        spark = FakeSpark([FakeRow(7, {INGEST_BATCH_OBJECTS_KEY: self.KEY, INGEST_BATCH_TOKEN_KEY: "t"})])
+        frame = FakeBatchFrame([self.KEY])
+        self.assertFalse(append_source_object(spark, frame, ["source_record_id"], "`c`.`s`.`t`", self.KEY))
+        self.assertFalse(frame.appended)
 
 
 class OneImplementationTest(unittest.TestCase):

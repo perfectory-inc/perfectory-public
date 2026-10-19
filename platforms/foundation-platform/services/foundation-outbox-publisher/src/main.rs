@@ -69,6 +69,7 @@ mod canonical_silver_gold_cutover_evidence;
 mod code_go_kr_legal_dong_collect;
 mod data_go_kr_onbid_collect;
 mod data_go_kr_registered_factory_collect;
+mod silver_load_objects;
 use foundation_publisher_collection::collection_job_requeue;
 mod dbase_table;
 mod github_actions_secret_configurator;
@@ -207,6 +208,7 @@ enum Command {
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
     CollectDataGoKrRegisteredFactory,
+    PlanSilverLoadObjects,
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
@@ -454,6 +456,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectDataGoKrRegisteredFactory => {
             Box::pin(data_go_kr_registered_factory_collect::run())
         }
+        Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -1349,6 +1352,7 @@ where
         Some("collect-data-go-kr-registered-factory") => {
             Ok(Command::CollectDataGoKrRegisteredFactory)
         }
+        Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

@@ -232,7 +232,7 @@
     },
     {
       "id": "onbid_public_sale_collect",
-      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run and, when it landed items or results, stages a pending-load handoff for onbid_public_sale_silver. No Spark.",
+      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_sale_silver finds what it owes in R2). No Spark.",
       "systemd_service": "foundation-onbid-collect.service",
       "systemd_timer": null,
       "state_paths": [
@@ -253,7 +253,7 @@
     },
     {
       "id": "onbid_public_sale_silver",
-      "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): each pending handoff, oldest first, appends to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when no handoff is pending.",
+      "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): the Bronze objects no commit of their table records (plan-silver-load-objects, R2 alone), oldest first, each in its own commit, append to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when nothing is owed.",
       "systemd_service": "foundation-onbid-silver-load.service",
       "systemd_timer": null,
       "state_paths": [

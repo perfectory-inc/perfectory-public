@@ -418,3 +418,23 @@ def append_batch_once(
         "existing_snapshot": None,
         "ref": ref,
     }
+
+
+def append_source_object(spark: Any, frame: Any, columns: Sequence[str], qualified_table: str, object_key: str) -> bool:
+    """Append one source object's rows in a commit that records the object, even with no rows.
+
+    `append_batch_once` names a batch by the identities in its rows, so an object whose load
+    writes nothing (a night with no change, a release compare with no difference) leaves no
+    record, and a load that decides what it owes from the table's records
+    (`plan-silver-load-objects`) would fetch it again on every run. This records the object
+    itself, as `silver_release_compare` does. Returns False, writing nothing, when `main` already
+    records it.
+    """
+    ingested = read_ingested_objects(spark, qualified_table, unquoted_table_name(qualified_table))
+    if not decide_whether_to_append(ingested, [object_key]):
+        return False
+    writer = frame.select(*columns).writeTo(qualified_table)
+    for key, value in snapshot_property_options([object_key], ingest_batch_token([object_key])).items():
+        writer = writer.option(key, value)
+    writer.append()
+    return True

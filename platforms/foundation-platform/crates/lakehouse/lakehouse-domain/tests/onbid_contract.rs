@@ -1,7 +1,11 @@
 //! The Onbid source contract restates the PNU rule for the Spark load (root ADR-0280 §3). This keeps
 //! that copy equal to `Pnu::parse`, the rule's one definition.
 
-use std::{collections::BTreeSet, error::Error, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    path::Path,
+};
 
 use foundation_shared_kernel::Pnu;
 use serde_json::Value;
@@ -39,5 +43,37 @@ fn onbid_contract_pnu_rule_is_what_pnu_parse_accepts() -> TestResult {
     assert_eq!(declared, accepted);
     assert!(Pnu::parse("9".repeat(usize::try_from(digits)?)).is_ok());
     assert!(Pnu::parse("9".repeat(usize::try_from(digits)? - 1)).is_err());
+    Ok(())
+}
+
+#[test]
+fn onbid_provider_ledger_digits_are_the_hub_dialect() -> TestResult {
+    // ltnoPnu writes the 11th digit as the hub register does (0 ordinary, 1 mountain); the
+    // contract's map must be exactly the kernel's conversion, the dialect's one definition.
+    let map = contract()?["pnu"]["provider_ledger_kind_digits"]
+        .as_object()
+        .ok_or("pnu.provider_ledger_kind_digits must be an object")?
+        .iter()
+        .filter(|(key, _)| !key.starts_with('$'))
+        .map(|(key, value)| {
+            Ok((
+                key.clone(),
+                value.as_str().ok_or("a digit is a string")?.to_owned(),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, Box<dyn Error>>>()?;
+    let kernel = ('0'..='9')
+        .filter_map(|digit| {
+            foundation_shared_kernel::pnu::standard_pnu_from_hub_register_codes(
+                "99999",
+                "99999",
+                &digit.to_string(),
+                "1",
+                "0",
+            )
+            .map(|pnu| (digit.to_string(), pnu[10..11].to_owned()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(map, kernel);
     Ok(())
 }

@@ -82,9 +82,19 @@
     "0011": "유찰",
     "0012": "취소"
   },
+  "silver_load": {
+    "$comment": "What one Silver load may take (plan-silver-load-objects): Bronze objects of item_list and item_bid_result that no commit of their table records, landed within window_days, oldest first, at most max_objects per table. The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it. A day of item passes (8) and results (24) fits one run.",
+    "window_days": 7,
+    "max_objects": 24
+  },
   "pnu": {
-    "$comment": "ADR-0280 §3: the provider's ltnoPnu is the key as given. A value Pnu::parse would refuse (not 19 ASCII digits, or a 대장구분 digit outside this list) keeps pnu null and its raw text in ltno_pnu_raw. The Silver load reads these values; a test in lakehouse-domain asserts they are exactly what foundation_shared_kernel::Pnu::parse accepts.",
+    "$comment": "ADR-0280 §3: the provider's ltnoPnu is the key, its 11th digit read through provider_ledger_kind_digits. A value Pnu::parse would refuse (not 19 ASCII digits, or a 대장구분 digit outside this list) keeps pnu null and its raw text in ltno_pnu_raw. The Silver load reads these values; a test in lakehouse-domain asserts they are exactly what foundation_shared_kernel::Pnu::parse accepts.",
     "digits": 19,
-    "ledger_kind_digits": ["1", "2", "8", "9"]
+    "ledger_kind_digits": ["1", "2", "8", "9"],
+    "provider_ledger_kind_digits": {
+      "$comment": "ltnoPnu writes the 11th digit in the building-register hub dialect (0 ordinary, 1 mountain), not the standard 1/2. Measured on the first load (2026-10-19): of 7,629 distinct PNUs with 0, none is a current parcel as written and 7,107 are after 0 -> 1; of 938 with 1, 341 as written and 931 after 1 -> 2. The Silver load converts with this map before the Pnu::parse check; a digit outside it keeps pnu null. A lakehouse-domain test holds it equal to foundation_shared_kernel::standard_pnu_from_hub_register_codes, the dialect's one definition (root ADR-0023).",
+      "0": "1",
+      "1": "2"
+    }
   }
 }

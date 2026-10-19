@@ -272,7 +272,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the endpoints, call limits and intervals that the Silver load (data_go_kr_onbid.py) reads too.
 # 137 -> 138: root ADR-0280's registered-factory collector embeds data-go-kr-registered-factory.contract.json,
 # the one record of the portal paths and the member rules that the Silver load reads too.
-COMPILE_TIME_READ_BASELINE="${3:-138}"
+# 138 -> 139: root ADR-0280's Silver load plan (plan-silver-load-objects) embeds
+# lakehouse-maintenance.contract.json to refuse a load window as long as the snapshot retention: an
+# expired snapshot takes its load record with it, and a longer window would append the object again.
+COMPILE_TIME_READ_BASELINE="${3:-139}"
 
 cd "$repo_root"
 
