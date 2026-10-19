@@ -595,12 +595,6 @@
         ]
       },
       {
-        "name": "npm-advisory-fix-guards-self-test",
-        "paths": [
-          "tools/npm/**"
-        ]
-      },
-      {
         "name": "actions-cache-controls-self-test",
         "paths": [
           "scripts/github/**",

@@ -117,3 +117,5 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
 - 남은 일: C 경로(소유자 결정), 차등 판정 ADR, Cargo 권고의 같은 처리(지금은 보고서만 남는다).
 
 개정 2026-10-17: 위 평가 A 행과 "남은 일: Cargo 권고의 같은 처리"는 [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 이 이어받는다(Renovate 가 계약을 읽어 PR 을 열고, main 의 Cargo 권고는 매일 검사해 이슈 하나가 든다).
+
+개정 2026-10-20: §5·§6 의 셸 세 개(`tools/npm/refresh-locks.sh`·`prepare-advisory-fix.sh`·`open-advisory-fix-pr.sh`)와 그 울타리(`advisory-fix-guards.sh`)는 같은 동작의 `cargo xtask npm refresh-locks|prepare-advisory-fix|open-advisory-fix-pr` 로 옮겼다(셸 목록, [ADR-0270](./0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md)). 울타리의 자체 시험은 `tools/xtask/src/npm.rs` 의 단위 시험이다.

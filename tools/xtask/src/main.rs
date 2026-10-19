@@ -9,9 +9,12 @@
 //!   cargo xtask verify <area|all>   # area slugs: tools/areas.contract.json, plus `tooling`
 //!   cargo xtask verify <area> --affected   # a pull request: only the crates it reaches (ADR-0269)
 //!   cargo xtask docs   # monorepo-wide lychee internal-link check (offline)
+//!   cargo xtask npm <command>   # npm overrides, lockfiles and advisory patches (ADR-0158; src/npm.rs)
 
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
+
+mod npm;
 
 /// One monorepo area and its verification requirements.
 struct Area {
@@ -1032,7 +1035,13 @@ fn main() {
             log.finish("integration");
         }
         Some("docs") => docs(),
-        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs>"),
+        Some("npm") => {
+            if let Err(message) = npm::run(&repo_root(), &args[1..]) {
+                eprintln!("xtask npm: {message}");
+                exit(1);
+            }
+        }
+        _ => fail_usage("usage: cargo xtask <verify <area|all> | integration <area|all> | docs | npm <command>>"),
     }
 }
 
