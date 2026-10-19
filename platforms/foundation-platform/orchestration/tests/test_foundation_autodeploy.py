@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
@@ -218,6 +219,10 @@ class TheHostDeploysMainByItself(unittest.TestCase):
             'printf "%s\\n" "$1" >> "$FIXTURE_ROOT/deployed.log"\nexit "${FIXTURE_DEPLOY_EXIT:-0}"\n')
         # Whether a unit runs is the real definition (root ADR-0184), asking the systemctl below.
         (deploy / JOB_UNITS.name).write_bytes(JOB_UNITS.read_bytes())
+        # The pacing the host trusts: the real contract (its quiet window).
+        (control / "platforms/foundation-platform/config").mkdir(parents=True)
+        self.pacing = control / "platforms/foundation-platform/config/autodeploy.contract.json"
+        self.pacing.write_bytes((PLATFORM / "config/autodeploy.contract.json").read_bytes())
         releases = root / "opt/releases"
         releases.mkdir(parents=True)
         (releases / CURRENT).mkdir()
@@ -274,6 +279,45 @@ class TheHostDeploysMainByItself(unittest.TestCase):
     def started(self):
         log = self.root / "started.log"
         return log.read_text().splitlines() if log.exists() else []
+
+    def ended(self, outcome, minutes_ago):
+        """A deploy of another commit that ended `minutes_ago`, deployed or failed."""
+        (self.state / outcome).mkdir(parents=True, exist_ok=True)
+        path = self.state / outcome / ("d" * 40)
+        path.write_text("synthetic\n")
+        when = time.time() - minutes_ago * 60
+        os.utime(path, (when, when))
+
+    def test_a_deploy_waits_for_the_quiet_window_after_the_last_one(self):
+        # Proposal 2 (2026-10-19): 45 deploys in 33 hours, 72% of the time inside one.
+        quiet = json.loads(self.pacing.read_text(encoding="utf-8"))["quiet_minutes_after_a_deploy"]
+        self.assertEqual(quiet, 15)
+        self.ended("deployed", minutes_ago=quiet - 1)
+        result = self.tick()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the quiet window after the last deploy", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        shutil.rmtree(self.state / "deployed")
+        self.ended("deployed", minutes_ago=quiet + 1)
+        result = self.tick()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_the_fix_for_a_failed_deploy_does_not_wait(self):
+        # A failed deploy left the running release as it was.
+        self.ended("failed", minutes_ago=1)
+        result = self.tick()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [HEAD])
+
+    def test_a_host_without_the_pacing_contract_deploys_without_a_quiet_window(self):
+        # The first deploy that ships the contract runs under a control checkout that has none.
+        self.pacing.unlink()
+        self.ended("deployed", minutes_ago=1)
+        result = self.tick()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no quiet window", result.stdout)
+        self.assertEqual(self.deployed(), [HEAD])
 
     def test_a_host_already_on_main_does_nothing(self):
         result = self.tick(head=CURRENT)
