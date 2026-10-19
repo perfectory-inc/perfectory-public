@@ -2,7 +2,8 @@
 
 use super::*;
 use catalog_application::ports::{
-    OperatorActionLedger, OperatorActionLedgerError, OperatorActionRecord,
+    JobSwitchBoard, JobSwitchBoardError, OperatorActionLedger, OperatorActionLedgerError,
+    OperatorActionRecord,
 };
 
 /// Grants exactly the staff job-operating capability and records what it was asked.
@@ -76,6 +77,42 @@ impl OperatorActionLedger for RecordingLedger {
     }
 }
 
+/// Records what it switched; `ready` false is a host without the switch directory.
+struct RecordingSwitchBoard {
+    applied: std::sync::Mutex<Vec<OperatorActionRecord>>,
+    ready: bool,
+}
+
+impl Default for RecordingSwitchBoard {
+    fn default() -> Self {
+        Self {
+            applied: std::sync::Mutex::new(Vec::new()),
+            ready: true,
+        }
+    }
+}
+
+impl JobSwitchBoard for RecordingSwitchBoard {
+    fn ready(&self) -> Result<(), JobSwitchBoardError> {
+        if self.ready {
+            Ok(())
+        } else {
+            Err(JobSwitchBoardError::Unavailable(
+                "synthetic: no switch directory".to_owned(),
+            ))
+        }
+    }
+
+    fn apply(&self, record: &OperatorActionRecord) -> Result<(), JobSwitchBoardError> {
+        self.ready()?;
+        self.applied
+            .lock()
+            .map_err(|_| JobSwitchBoardError::Unavailable("poisoned".to_owned()))?
+            .push(record.clone());
+        Ok(())
+    }
+}
+
 fn post(job: &str, body: &str, bearer: bool) -> Result<Request<Body>, axum::http::Error> {
     let mut request = Request::builder()
         .method(Method::POST)
@@ -94,8 +131,23 @@ async fn ask(
     ledger: Arc<RecordingLedger>,
     request: Request<Body>,
 ) -> Result<(StatusCode, serde_json::Value), Box<dyn Error>> {
+    ask_with(
+        authorization,
+        ledger,
+        Arc::new(RecordingSwitchBoard::default()),
+        request,
+    )
+    .await
+}
+
+async fn ask_with(
+    authorization: Arc<dyn IdentityAuthorization>,
+    ledger: Arc<RecordingLedger>,
+    switches: Arc<RecordingSwitchBoard>,
+    request: Request<Body>,
+) -> Result<(StatusCode, serde_json::Value), Box<dyn Error>> {
     let state = AppState::bootstrap_for_test_with_identity_authorization(authorization)?
-        .with_operator_action_ledger(ledger);
+        .with_operator_action_ledger(ledger, switches);
     let response = router(Arc::new(state)).oneshot(request).await?;
     let status = response.status();
     let bytes = to_bytes(response.into_body(), usize::MAX).await?;
@@ -233,5 +285,57 @@ async fn a_ledger_that_cannot_be_written_answers_503() -> Result<(), Box<dyn Err
     )
     .await?;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_recorded_request_is_switched_and_a_host_without_the_switch_directory_records_nothing(
+) -> Result<(), Box<dyn Error>> {
+    // Root ADR-0282 §3: the runner reads the switch; without it the request is refused first.
+    let ledger = Arc::new(RecordingLedger::default());
+    let switches = Arc::new(RecordingSwitchBoard::default());
+    let (status, _) = ask_with(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        switches.clone(),
+        post("shape_ledger_check", RUN_NOW, true)?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED);
+    let applied = switches
+        .applied
+        .lock()
+        .map_err(|_| "poisoned")?
+        .iter()
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    let recorded = ledger
+        .records
+        .lock()
+        .await
+        .iter()
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        applied, recorded,
+        "the switched request is the recorded one"
+    );
+
+    let ledger = Arc::new(RecordingLedger::default());
+    let (status, _) = ask_with(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        Arc::new(RecordingSwitchBoard {
+            ready: false,
+            ..RecordingSwitchBoard::default()
+        }),
+        post("shape_ledger_check", RUN_NOW, true)?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        ledger.records.lock().await.is_empty(),
+        "recorded without a switch board"
+    );
     Ok(())
 }

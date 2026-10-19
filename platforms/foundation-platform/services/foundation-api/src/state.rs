@@ -5,14 +5,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use catalog_application::{
-    ports::{MapEditStore, RuntimeManifestPublicationCapability},
+    ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
     RecordOperatorAction, RegisterIndustrialComplex, RollbackVectorTileManifest,
     UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
-    PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger, PgParcelMarkerAnchorRebuilder,
+    FileJobSwitchBoard, PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger,
+    PgParcelMarkerAnchorRebuilder, UnconfiguredJobSwitchBoard,
 };
+
+/// Where the host's operator switches live inside the container (root ADR-0282 §3).
+const JOB_SWITCHES_DIR_ENV: &str = "FOUNDATION_PLATFORM_JOB_SWITCHES_DIR";
 use foundation_normalization_application::{
     ApplyNormalizationProposal, NormalizationUnitOfWork, ReviewNormalizationProposal,
     RollbackNormalizationApplication, SubmitNormalizationProposal,
@@ -693,8 +697,9 @@ impl AppState {
     pub fn with_operator_action_ledger(
         mut self,
         ledger: Arc<dyn catalog_application::ports::OperatorActionLedger>,
+        switches: Arc<dyn JobSwitchBoard>,
     ) -> Self {
-        self.record_operator_action = RecordOperatorAction::new(ledger);
+        self.record_operator_action = RecordOperatorAction::new(ledger, switches);
         self
     }
 
@@ -775,8 +780,16 @@ impl AppState {
         let rollback_normalization_application =
             RollbackNormalizationApplication::new(normalization_uow);
         let lineage_stewardship = Arc::new(PgLineageStewardshipStore::new(pool.clone()));
-        let record_operator_action =
-            RecordOperatorAction::new(Arc::new(PgOperatorActionLedger::new(pool.clone())));
+        // Fail closed like the map edit store: without the host's switch directory a request is
+        // refused before the ledger records it (root ADR-0282 §3).
+        let switches: Arc<dyn JobSwitchBoard> = match std::env::var(JOB_SWITCHES_DIR_ENV) {
+            Ok(dir) if !dir.trim().is_empty() => Arc::new(FileJobSwitchBoard::new(dir.into())),
+            _ => Arc::new(UnconfiguredJobSwitchBoard),
+        };
+        let record_operator_action = RecordOperatorAction::new(
+            Arc::new(PgOperatorActionLedger::new(pool.clone())),
+            switches,
+        );
 
         Self {
             database_pool: pool,

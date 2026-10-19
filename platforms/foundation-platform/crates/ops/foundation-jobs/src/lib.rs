@@ -62,6 +62,11 @@ pub struct StateDirectory {
     /// The account and group that own it; [`STATE_OWNER`] when absent.
     #[serde(default)]
     pub owner: Option<String>,
+    /// Who writes it when no job does: a directory the jobs only read, such as the operator
+    /// switches foundation-api writes (root ADR-0282 §3). Without it, the directory must lie under a
+    /// job's `state_paths`.
+    #[serde(default)]
+    pub written_by: Option<String>,
 }
 
 /// One job, as far as rendering reads it.
@@ -287,9 +292,13 @@ pub fn state_directory_problems(list: &JobList) -> Vec<String> {
         let under_a_state_path = state_paths
             .iter()
             .any(|state| path == *state || path.starts_with(&format!("{state}/")));
-        if !under_a_state_path {
+        let writer_named = directory
+            .written_by
+            .as_deref()
+            .is_some_and(|writer| !writer.trim().is_empty());
+        if !under_a_state_path && !writer_named {
             problems.push(format!(
-                "{path}: a state directory under no job's state_paths"
+                "{path}: a state directory under no job's state_paths and with no written_by"
             ));
         }
     }
@@ -522,6 +531,7 @@ mod tests {
                 path: (*path).to_owned(),
                 mode: (*mode).to_owned(),
                 owner: None,
+                written_by: None,
             })
             .collect();
         jobs.state_paths_not_created_here = elsewhere
@@ -585,6 +595,32 @@ mod tests {
         );
         let problems = state_directory_problems(&jobs);
         assert_eq!(problems.len(), 3, "{problems:?}");
+    }
+
+    #[test]
+    fn a_directory_no_job_writes_names_its_writer() {
+        // Root ADR-0282 §3: the jobs only read the operator switches; foundation-api writes them.
+        let mut jobs = with_state(&["/a"], &[("/a", "0755"), ("/switches", "0755")], &[]);
+        assert!(state_directory_problems(&jobs)
+            .iter()
+            .any(|problem| problem.starts_with("/switches:")));
+        for directory in &mut jobs.state_directories {
+            if directory.path == "/switches" {
+                directory.written_by = Some("   ".to_owned());
+            }
+        }
+        assert!(
+            state_directory_problems(&jobs)
+                .iter()
+                .any(|problem| problem.starts_with("/switches:")),
+            "a blank writer names nobody"
+        );
+        for directory in &mut jobs.state_directories {
+            if directory.path == "/switches" {
+                directory.written_by = Some("foundation-api".to_owned());
+            }
+        }
+        assert_eq!(state_directory_problems(&jobs), Vec::<String>::new());
     }
 
     #[test]

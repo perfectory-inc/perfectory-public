@@ -25,5 +25,6 @@ foundation-workspace-hack.workspace = true
 default = []
 
 [dev-dependencies]
+tempfile = { workspace = true }
 foundation-disposable-database = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

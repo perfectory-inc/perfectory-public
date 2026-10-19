@@ -82,10 +82,30 @@ class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
         self.assertNotEqual(planted, self.script)
         self.assertFalse(applied_before_the_switch(planted))
 
-    def test_the_spark_account_is_made_first_with_the_containers_uid(self):
+    def test_every_account_is_made_first_and_checked_against_the_uid_its_file_states(self):
+        # Root ADR-0282 §3 added the API container's account beside Spark's: one loop over
+        # infra/sysusers, each checked against its own `u name uid:gid` line, never a copy.
         body = function_body(self.script, "prepare_job_state_directories")
         self.assertLess(body.index("systemd-sysusers"), body.index("systemd-tmpfiles --create"))
-        self.assertIn('== "185:185" ]]', body)
+        self.assertIn('for accounts in "${release}"/infra/sysusers/*.conf; do', body)
+        self.assertIn('[[ "$(id -u "${name}"):$(id -g "${name}")" == "${ids}" ]]', body)
+        self.assertNotIn("185", body, "a uid copied into the script instead of read from its file")
+        owners = {entry.get("owner", "foundation-platform")
+                  for entry in json.loads(JOBS.read_text(encoding="utf-8"))["state_directories"]}
+        declared = set()
+        for conf in sorted((PLATFORM / "infra/sysusers").glob("*.conf")):
+            lines = conf.read_text(encoding="utf-8").splitlines()
+            user = next(line.split() for line in lines if line.startswith("u "))
+            group = next(line.split() for line in lines if line.startswith("g "))
+            # The group first: `u name uid:gid` does not make a missing group, and sysusers exits 0.
+            self.assertEqual(group[1:3], [user[1], user[2].split(":")[1]], conf.name)
+            declared.add(user[1])
+        self.assertLessEqual(owners - {"foundation-platform"}, declared, "an owner the host never makes")
+        # The API container's uid: its Dockerfile's USER.
+        dockerfile = (PLATFORM / "services/foundation-api/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("USER 10001:10001", dockerfile)
+        api = (PLATFORM / "infra/sysusers/foundation-api.conf").read_text(encoding="utf-8")
+        self.assertIn("u foundation-api 10001:10001", api)
         accounts = (PLATFORM / "infra/sysusers/foundation-spark.conf").read_text(encoding="utf-8")
         rule = next(line.split() for line in accounts.splitlines() if line.startswith("u "))
         self.assertEqual(rule[1:3], ["foundation-spark", "185:185"])
@@ -96,6 +116,17 @@ class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
         compose = (PLATFORM / "compose.lakehouse.yml").read_text(encoding="utf-8")
         users = set(re.findall(r'user: "\$\{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-(\d+)\}:\$\{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-(\d+)\}"', compose))
         self.assertEqual(users, {("185", "185")})
+
+    def test_every_host_directory_the_api_container_mounts_is_made_before_it_starts(self):
+        # #619's class (2026-10-15): a bind source the host has not made becomes a root directory.
+        compose = (PLATFORM / "docker-compose.yml").read_text(encoding="utf-8")
+        service = compose[compose.index("\n  foundation-api:"):compose.index("\n  foundation-api-smoke:")]
+        sources = re.findall(r"^      - (/[^:\s]+):", service, re.M)
+        self.assertEqual(sources, ["/var/lib/foundation-jobs/switches"])
+        made = {entry["path"] for entry in json.loads(JOBS.read_text(encoding="utf-8"))["state_directories"]}
+        self.assertEqual([source for source in sources if source not in made], [])
+        self.assertIn("d /var/lib/foundation-jobs/switches 0755 foundation-api foundation-api -",
+                      CONF.read_text(encoding="utf-8"))
 
     def test_no_job_keeps_an_ivy_cache_of_its_own(self):
         # Every Spark run mounts its release's frozen jars read-only as its Ivy cache (root

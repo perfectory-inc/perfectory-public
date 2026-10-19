@@ -9,7 +9,10 @@ use chrono::{DateTime, Duration, Utc};
 use foundation_shared_kernel::ids::StaffId;
 use uuid::Uuid;
 
-use crate::ports::{OperatorActionLedger, OperatorActionLedgerError, OperatorActionRecord};
+use crate::ports::{
+    JobSwitchBoard, JobSwitchBoardError, OperatorActionLedger, OperatorActionLedgerError,
+    OperatorActionRecord,
+};
 
 /// A request as the caller sent it, for a job the caller has checked is listed.
 pub struct RecordOperatorActionInput {
@@ -34,18 +37,23 @@ pub enum RecordOperatorActionError {
     /// The ledger could not be written; nothing was recorded.
     #[error(transparent)]
     Ledger(#[from] OperatorActionLedgerError),
+    /// The switch board could not be written: before the ledger, nothing was recorded; after it,
+    /// the request is in the ledger but not switched, and asking again switches it.
+    #[error(transparent)]
+    SwitchBoard(#[from] JobSwitchBoardError),
 }
 
-/// Checks a request and appends it to the operator action ledger.
+/// Checks a request, appends it to the operator action ledger, and switches the job on the host.
 pub struct RecordOperatorAction {
     ledger: Arc<dyn OperatorActionLedger>,
+    switches: Arc<dyn JobSwitchBoard>,
 }
 
 impl RecordOperatorAction {
-    /// Creates the use case over a ledger.
+    /// Creates the use case over a ledger and the host's switch board.
     #[must_use]
-    pub fn new(ledger: Arc<dyn OperatorActionLedger>) -> Self {
-        Self { ledger }
+    pub fn new(ledger: Arc<dyn OperatorActionLedger>, switches: Arc<dyn JobSwitchBoard>) -> Self {
+        Self { ledger, switches }
     }
 
     /// Records one request at `now`; a `run_now` expires [`RUN_NOW_EXPIRY_MINUTES`] later.
@@ -54,7 +62,9 @@ impl RecordOperatorAction {
     ///
     /// Returns [`RecordOperatorActionError::Invalid`] for an unknown action, a reason that is not
     /// one line of 1 to 300 characters, or `drop_pending` on anything but a pause; the ledger is
-    /// not called. Returns [`RecordOperatorActionError::Ledger`] when the ledger cannot be written.
+    /// not called. Returns [`RecordOperatorActionError::SwitchBoard`] when the switch board cannot
+    /// be written, before or after the ledger, and [`RecordOperatorActionError::Ledger`] when the
+    /// ledger cannot be written.
     pub async fn execute(
         &self,
         input: RecordOperatorActionInput,
@@ -77,7 +87,9 @@ impl RecordOperatorAction {
                 .expires()
                 .then(|| now + Duration::minutes(RUN_NOW_EXPIRY_MINUTES)),
         };
+        self.switches.ready()?;
         self.ledger.record(&record).await?;
+        self.switches.apply(&record)?;
         Ok(record)
     }
 }

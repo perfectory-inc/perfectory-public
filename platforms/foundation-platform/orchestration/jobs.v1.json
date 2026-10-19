@@ -25,6 +25,7 @@
     {"path": "/var/lib/foundation-platform/onbid", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/onbid/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/legal-dong-code", "mode": "0755"},
+    {"path": "/var/lib/foundation-jobs/switches", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"},
     {"path": "/var/lib/foundation-platform/vworld-parcel-edition", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/parcel-number-change", "mode": "0755"},
     {"path": "/data/foundation-platform/by-pnu-bake", "mode": "0755"},
