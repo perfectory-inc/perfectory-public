@@ -187,7 +187,11 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
             shutil.copy(PLATFORM / "config" / name, platform / "config" / name)
         (platform / "scripts/deploy").mkdir(parents=True)
         for name in autodeploy.TOOL_FILES:
-            shutil.copy(PLATFORM / name, platform / name)
+            if (PLATFORM / name).is_dir():
+                shutil.copytree(PLATFORM / name, platform / name)
+            else:
+                (platform / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(PLATFORM / name, platform / name)
         # The token's and the monitors' files live where the fixture's runtime-secrets contract says.
         secrets = json.loads((PLATFORM / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         self.credential = root / "cloudflare-deploy.env"
@@ -503,6 +507,24 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(self.tick(), 0)
         self.assertTrue((self.host.state / "workers/profile-gateway.json").exists())
         self.assertFalse((self.host.state / "failed/profile-gateway.json").exists())
+
+    def test_a_fix_to_the_smokes_monitor_gets_fresh_attempts(self):
+        # 2026-10-19: the parcel gateway gave up on a monitor defect (#803); the fix was in the
+        # publisher's monitor code, neither the Worker's inputs nor the deployer's files.
+        allowed = CONTRACT["attempts_per_change"]
+        for _ in range(allowed):
+            self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="parcel"), 1)
+        self.assertEqual(self.tick(), 0)
+        self.assertFalse((self.host.state / "workers/parcel-gateway.json").exists(), "retried after giving up")
+        source = "crates/publisher/foundation-publisher-by-pnu/src/lib.rs"
+        monitor = self.tree / "platforms/foundation-platform" / source
+        if not monitor.exists():
+            monitor.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(PLATFORM / source, monitor)
+        monitor.write_text(monitor.read_text() + "// the monitor's fix\n")
+        self.assertEqual(self.tick(), 0)
+        self.assertTrue((self.host.state / "workers/parcel-gateway.json").exists(), "the monitor's fix did not retry")
+        self.assertFalse((self.host.state / "failed/parcel-gateway.json").exists())
 
     def test_a_fix_to_the_deployer_gets_fresh_attempts(self):
         # 2026-10-10: map-edit failed on a deployer defect; its inputs did not change with the fix.
