@@ -425,7 +425,7 @@ export interface components {
             drop_pending: boolean;
             /**
              * Format: date-time
-             * @description When a `run_now` stops being consumable; absent for the other actions.
+             * @description When a `run_now` stops being consumable or a `set_window` ends; absent for the other actions.
              */
             expires_at?: string | null;
             /** @description The request's id; a `run_now` is consumed by it. */
@@ -437,6 +437,10 @@ export interface components {
              * @description When it was asked.
              */
             requested_at: string;
+            /** @description A `set_window`'s end, `HH:MM` KST. */
+            window_end?: string | null;
+            /** @description A `set_window`'s start, `HH:MM` KST. */
+            window_start?: string | null;
         };
         /** @description An operator switch of one scheduled job (root ADR-0282): `pause`, `resume`, `run_now` or `stop`. */
         OperatorActionRequest: {
@@ -449,6 +453,19 @@ export interface components {
             drop_pending?: boolean;
             /** @description Why, in one line of 1 to 300 characters; kept in the append-only ledger. */
             reason: string;
+            /**
+             * @description A `set_window` only: the window's end, `HH:MM` KST (across midnight when it comes first; the
+             *     whole day when it equals the start).
+             */
+            window_end?: string | null;
+            /**
+             * Format: int64
+             * @description A `set_window` only: how many hours the override lasts, 1 to 168; then the contract's window
+             *     is back.
+             */
+            window_hours?: number | null;
+            /** @description A `set_window` only: the window's start, `HH:MM` KST. */
+            window_start?: string | null;
         };
         /**
          * @description One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
@@ -917,7 +934,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
-            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, or drop_pending on anything but a pause */
+            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, or a window that is not two HH:MM times lasting 1 to 168 hours on a set_window */
             422: {
                 headers: {
                     [name: string]: unknown;

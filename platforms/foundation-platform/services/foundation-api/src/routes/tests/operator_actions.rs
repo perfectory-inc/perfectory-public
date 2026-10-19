@@ -339,3 +339,54 @@ async fn a_recorded_request_is_switched_and_a_host_without_the_switch_directory_
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_window_override_is_recorded_with_its_end_and_a_bad_one_is_refused(
+) -> Result<(), Box<dyn Error>> {
+    // A job's contract window (the court auction's 01:00-06:00 KST) overridden for a bounded time.
+    let ledger = Arc::new(RecordingLedger::default());
+    let (status, body) = ask(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        post(
+            "shape_ledger_check",
+            r#"{"action":"set_window","reason":"collect in the day once","window_start":"09:00","window_end":"18:00","window_hours":3}"#,
+            true,
+        )?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["window_start"], "09:00");
+    assert_eq!(body["window_end"], "18:00");
+    let records = ledger.records.lock().await.clone();
+    let [record] = records.as_slice() else {
+        return Err(format!("expected one record, got {}", records.len()).into());
+    };
+    assert_eq!(
+        record
+            .expires_at
+            .map(|at| (at - record.requested_at).num_hours()),
+        Some(3)
+    );
+    for body in [
+        r#"{"action":"set_window","reason":"r","window_start":"09:00","window_end":"18:00"}"#,
+        r#"{"action":"set_window","reason":"r"}"#,
+        r#"{"action":"set_window","reason":"r","window_start":"9:00","window_end":"18:00","window_hours":3}"#,
+        r#"{"action":"set_window","reason":"r","window_start":"09:00","window_end":"18:00","window_hours":169}"#,
+        r#"{"action":"pause","reason":"r","window_start":"09:00","window_end":"18:00","window_hours":3}"#,
+    ] {
+        let (status, answer) = ask(
+            Arc::new(StaffJobOperatorAuthorization::default()),
+            ledger.clone(),
+            post("shape_ledger_check", body, true)?,
+        )
+        .await?;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {answer}");
+    }
+    assert_eq!(
+        ledger.records.lock().await.len(),
+        1,
+        "a refused window was recorded"
+    );
+    Ok(())
+}

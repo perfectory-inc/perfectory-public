@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use catalog_domain::operator_action::{
-    check_reason, OperatorAction, OperatorActionError, RUN_NOW_EXPIRY_MINUTES,
+    check_reason, check_window, OperatorAction, OperatorActionError, RunWindow,
+    RUN_NOW_EXPIRY_MINUTES,
 };
 use chrono::{DateTime, Duration, Utc};
 use foundation_shared_kernel::ids::StaffId;
@@ -18,8 +19,10 @@ use crate::ports::{
 pub struct RecordOperatorActionInput {
     /// The job's id in `orchestration/jobs.v1.json`.
     pub job_id: String,
-    /// `pause`, `resume`, `run_now` or `stop`.
+    /// `pause`, `resume`, `run_now`, `stop`, `set_window` or `clear_window`.
     pub action: String,
+    /// The window a `set_window` sets; none for the other actions.
+    pub window: Option<RunWindow>,
     /// Drop the pending runs too (a pause only).
     pub drop_pending: bool,
     /// Why, in one line.
@@ -75,6 +78,17 @@ impl RecordOperatorAction {
         if input.drop_pending && action != OperatorAction::Pause {
             return Err(OperatorActionError::DropPendingIsAPause.into());
         }
+        if (action == OperatorAction::SetWindow) != input.window.is_some() {
+            return Err(OperatorActionError::WindowIsASetWindow.into());
+        }
+        if let Some(window) = &input.window {
+            check_window(window)?;
+        }
+        let expires_at = match (&input.window, action) {
+            (Some(window), _) => Some(now + Duration::hours(window.hours)),
+            (None, OperatorAction::RunNow) => Some(now + Duration::minutes(RUN_NOW_EXPIRY_MINUTES)),
+            (None, _) => None,
+        };
         let record = OperatorActionRecord {
             id: Uuid::new_v4(),
             job_id: input.job_id,
@@ -83,9 +97,9 @@ impl RecordOperatorAction {
             actor: input.actor,
             reason: input.reason,
             requested_at: now,
-            expires_at: action
-                .expires()
-                .then(|| now + Duration::minutes(RUN_NOW_EXPIRY_MINUTES)),
+            expires_at,
+            window_start: input.window.as_ref().map(|window| window.start.clone()),
+            window_end: input.window.map(|window| window.end),
         };
         self.switches.ready()?;
         self.ledger.record(&record).await?;

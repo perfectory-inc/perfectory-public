@@ -1,7 +1,8 @@
 //! The host's switch board: files under one directory the runner and the gate read (root ADR-0282 §3).
 //!
 //! `<job>`: the job is paused; `key=value` lines say by whom, when, why and whether pending runs
-//! are dropped. A resume removes it. `<job>.stop`: end the run in progress (the runner consumes it).
+//! are dropped. A resume removes it. `<job>.window`: the job's run window (KST `start`, `end`) until
+//! `until`, instead of its contract's; `clear_window` removes it. `<job>.stop`: end the run in progress (the runner consumes it).
 //! `run-now.d/<request id>`: a single-use request to run once, until it expires (the gate consumes
 //! it). `operator-actions.log`: one line per request, appended. A job id is `[a-z][a-z0-9_]*`, so it
 //! never collides with the dotted names.
@@ -52,7 +53,7 @@ fn fields(record: &OperatorActionRecord) -> String {
     if record.action == OperatorAction::Pause {
         lines.push(format!("drop_pending={}", record.drop_pending));
     }
-    if let Some(expires_at) = record.expires_at {
+    if let (OperatorAction::RunNow, Some(expires_at)) = (record.action, record.expires_at) {
         lines.push(format!("job={}", record.job_id));
         lines.push(format!("expires_at={}", expires_at.to_rfc3339()));
     }
@@ -80,6 +81,27 @@ impl JobSwitchBoard for FileJobSwitchBoard {
                     &self.dir.join(format!("{}.stop", record.job_id)),
                     &fields(record),
                 )?;
+            }
+            OperatorAction::SetWindow => {
+                let until = record
+                    .expires_at
+                    .map(|at| at.to_rfc3339())
+                    .unwrap_or_default();
+                let window = format!(
+                    "start={}\nend={}\nuntil={until}\n{}",
+                    record.window_start.as_deref().unwrap_or_default(),
+                    record.window_end.as_deref().unwrap_or_default(),
+                    fields(record)
+                );
+                write_whole(&self.dir.join(format!("{}.window", record.job_id)), &window)?;
+            }
+            OperatorAction::ClearWindow => {
+                let window = self.dir.join(format!("{}.window", record.job_id));
+                match fs::remove_file(&window) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(unavailable(&window, &error)),
+                }
             }
             OperatorAction::RunNow => {
                 let requests = self.dir.join(RUN_NOW_DIR);
@@ -143,6 +165,8 @@ mod tests {
             reason: "a supervised run".to_owned(),
             requested_at: at,
             expires_at: action.expires().then(|| at + chrono::Duration::minutes(10)),
+            window_start: (action == OperatorAction::SetWindow).then(|| "09:00".to_owned()),
+            window_end: (action == OperatorAction::SetWindow).then(|| "18:00".to_owned()),
         }
     }
 
@@ -197,6 +221,26 @@ mod tests {
             !dir.path().join("shape_ledger_check").exists(),
             "a run-now is not a pause"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_window_override_is_set_with_its_end_and_cleared() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (dir, board) = board()?;
+        board.apply(&record(OperatorAction::SetWindow))?;
+        let window = fs::read_to_string(dir.path().join("shape_ledger_check.window"))?;
+        assert!(
+            window.starts_with("start=09:00\nend=18:00\nuntil=2026-10-19T09:10:00+00:00\n"),
+            "{window}"
+        );
+        assert!(
+            !window.contains("expires_at="),
+            "a window is not a run-now request"
+        );
+        board.apply(&record(OperatorAction::ClearWindow))?;
+        assert!(!dir.path().join("shape_ledger_check.window").exists());
+        board.apply(&record(OperatorAction::ClearWindow))?;
         Ok(())
     }
 

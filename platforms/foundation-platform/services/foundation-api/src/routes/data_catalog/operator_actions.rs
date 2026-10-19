@@ -9,6 +9,7 @@ use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use catalog_application::{RecordOperatorActionError, RecordOperatorActionInput};
+use catalog_domain::operator_action::{OperatorActionError, RunWindow};
 use chrono::Utc;
 use foundation_contracts::data_catalog::{OperatorActionRecorded, OperatorActionRequest};
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
@@ -29,7 +30,7 @@ use crate::identity_authorization::AuthorizedPrincipal;
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not operate scheduled jobs"),
         (status = 404, description = "No such job in the job list", body = ApiErrorResponse),
-        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, or drop_pending on anything but a pause", body = ApiErrorResponse),
+        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, or a window that is not two HH:MM times lasting 1 to 168 hours on a set_window", body = ApiErrorResponse),
         (status = 503, description = "The ledger could not be written; nothing was recorded", body = InternalApiErrorResponse),
     )
 )]
@@ -44,12 +45,23 @@ pub(super) async fn record_operator_action(
             "no job {job_id} in the job list"
         )));
     }
+    // A window is three fields; any one of them makes it a window the rules then check whole.
+    let window = match (body.window_start, body.window_end, body.window_hours) {
+        (None, None, None) => None,
+        (Some(start), Some(end), Some(hours)) => Some(RunWindow { start, end, hours }),
+        _ => {
+            return Err(ApiError::Unprocessable(
+                OperatorActionError::InvalidWindow.to_string(),
+            ))
+        }
+    };
     let record = state
         .record_operator_action
         .execute(
             RecordOperatorActionInput {
                 job_id,
                 action: body.action,
+                window,
                 drop_pending: body.drop_pending,
                 reason: body.reason,
                 actor: StaffId::new(principal.principal_id),
@@ -85,6 +97,8 @@ pub(super) async fn record_operator_action(
             actor: record.actor.to_string(),
             requested_at: record.requested_at,
             expires_at: record.expires_at,
+            window_start: record.window_start,
+            window_end: record.window_end,
         }),
     ))
 }
