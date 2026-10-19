@@ -278,7 +278,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 139 -> 141: root ADR-0281's court auction collector embeds courtauction-go-kr.contract.json (the
 # manners and refusal rules the Silver load reads beside it), and its test embeds the collector's own
 # source to hold it to the contract's forbidden names (no proxy, disguise or CAPTCHA, ADR-0281 §4).
-COMPILE_TIME_READ_BASELINE="${3:-141}"
+# 141 -> 142: the by-PNU publisher's test reads contracts/by-pnu-documents from CARGO_MANIFEST_DIR and
+# holds every document's fields, generated from its types, to the record of its schema version.
+COMPILE_TIME_READ_BASELINE="${3:-142}"
 
 cd "$repo_root"
 
