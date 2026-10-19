@@ -1,0 +1,10 @@
+[Unit]
+Description=Start an operator's run-now request when foundation-api writes one (root ADR-0282 §4)
+
+[Path]
+# foundation-api writes a request whole (a temporary file, then a rename into the directory).
+PathChanged=/var/lib/foundation-jobs/switches/run-now.d
+Unit=foundation-run-now.service
+
+[Install]
+WantedBy=paths.target

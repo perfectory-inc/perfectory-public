@@ -1383,7 +1383,7 @@ case "${command}" in
     # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
     # is installed by the same release that lists it in orchestration/jobs.v1.json.
     for unit in "${release_root}"/current/infra/systemd/*.service \
-      "${release_root}"/current/infra/systemd/*.timer; do
+      "${release_root}"/current/infra/systemd/*.timer "${release_root}"/current/infra/systemd/*.path; do
       [[ "${unit##*/}" != "${floor_unit}" || "${floor_status}" == 0 ]] || continue
       install -o root -g root -m 0644 -t /etc/systemd/system "${unit}"
     done
@@ -1456,6 +1456,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-host-retention.timer
     # The operations map's service checks (root ADR-0209): a host check too.
     systemctl enable --now foundation-service-checks.timer
+    # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
+    systemctl enable --now foundation-run-now.path
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off
