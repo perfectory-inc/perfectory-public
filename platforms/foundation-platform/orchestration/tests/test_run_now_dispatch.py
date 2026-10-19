@@ -49,6 +49,9 @@ class RunNowDispatch(unittest.TestCase):
         (bin_dir / "sudo").write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FIXTURE_ROOT/sudo.log"\n'
                                       '[[ -z "${FIXTURE_AIRFLOW_FAILS:-}" ]]\n')
         (bin_dir / "sudo").chmod(0o755)
+        (bin_dir / "systemd-run").write_text(
+            '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FIXTURE_ROOT/systemd-run.log"\n')
+        (bin_dir / "systemd-run").chmod(0o755)
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FIXTURE_ROOT": str(root)}
 
     def request(self, request_id, job, expires_at):
@@ -80,16 +83,22 @@ class RunNowDispatch(unittest.TestCase):
         self.assertIn("expired", out)
         self.assertTrue((self.marks / "expired" / EXPIRED_ID).exists())
 
-    def test_a_trigger_that_fails_is_tried_again_and_a_disabled_job_waits_for_the_gate(self):
+    def test_a_trigger_that_fails_is_tried_again_and_a_disabled_job_starts_through_the_gate(self):
         self.request(ENABLED_ID, "shape_ledger_check", at(9))
         self.request(OFF_ID, "parcel_registry", at(9))
         out, asked = self.dispatch(FIXTURE_AIRFLOW_FAILS="1")
         self.assertEqual(len(asked), 1)
         self.assertFalse((self.marks / "triggered" / ENABLED_ID).exists())
-        self.assertIn("parcel_registry is off", out)
+        self.assertIn("parcel_registry is off; started through the gate", out)
+        started = (self.root / "systemd-run.log").read_text().splitlines()
+        self.assertEqual(len(started), 1)
+        self.assertIn(f"--unit operator-run-now-{OFF_ID} -p User=foundation-scheduler", started[0])
+        self.assertIn(f"-E SSH_ORIGINAL_COMMAND=parcel_registry requested {OFF_ID}", started[0])
+        self.assertTrue(started[0].endswith("/opt/current/scripts/ops/start-scheduled-job.sh"))
         out, asked = self.dispatch()
         self.assertEqual(len(asked), 2, "the failed trigger was not tried again")
-        self.assertFalse(any("parcel_registry" in line for line in asked))
+        self.assertFalse(any("parcel_registry" in line for line in asked), "a job that is off went to Airflow")
+        self.assertEqual(len((self.root / "systemd-run.log").read_text().splitlines()), 1, "started twice")
 
     def test_a_partial_write_or_a_request_without_a_job_starts_nothing(self):
         (self.requests / f"{ENABLED_ID}.partial").write_text("job=shape_ledger_check\n")

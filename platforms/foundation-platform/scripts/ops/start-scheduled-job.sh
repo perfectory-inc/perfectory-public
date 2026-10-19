@@ -30,6 +30,17 @@ request="${SSH_ORIGINAL_COMMAND:-}"
 # the job's start, and its last `foundation-job-check` line is repeated for the DAG.
 checking=false
 [[ "${request}" == *" check" ]] && checking=true && request="${request% check}"
+# `<job> requested <id>`: an operator's run-now (root ADR-0282 §4), from a DAG run whose conf names
+# it or from foundation-run-now for a job that is off. It starts like a triggered run, a job that is
+# off too, and only once: the request must be this job's, unexpired when the run starts, and not
+# used before (a mark here, made exclusively; the switch directory is foundation-api's alone).
+requested=""
+if [[ "${request}" =~ ^([a-z][a-z0-9_]*)\ requested\ ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$ ]]; then
+  requested="${BASH_REMATCH[2]}"
+  request="${BASH_REMATCH[1]} triggered"
+fi
+switches="${FOUNDATION_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}"
+consumed="${FOUNDATION_SCHEDULED_CONSUMED_DIR:-/var/lib/foundation-scheduler/run-now-consumed}"
 # `<job>` from a clock start, `<job> triggered` from a run its inputs or an operator started
 # (root ADR-0179): only a clock start can be deferred by takes_turns.
 job="${request% triggered}"
@@ -43,10 +54,11 @@ refuse() {
 
 [[ "${checking}" == true && "${triggered}" == true ]] && refuse "a check is not triggered"
 [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || refuse "expected one job id, got '${job:0:40}'"
-listing="$(python3 - "${jobs_file}" "${job}" "${checking}" <<'PY'
+listing="$(python3 - "${jobs_file}" "${job}" "${checking}" "$([[ -n "${requested}" ]] && echo true || echo false)" <<'PY'
 import json, sys
 for entry in json.load(open(sys.argv[1]))["jobs"]:
-    if entry["id"] == sys.argv[2] and entry["enabled"]:
+    # An operator's run-now may start a job that is off: its supervised run (root ADR-0282).
+    if entry["id"] == sys.argv[2] and (entry["enabled"] or sys.argv[4] == "true"):
         service = (entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"]
         print(service or "-", entry["wait_limit_minutes"])
 PY
@@ -54,6 +66,15 @@ PY
 read -r service wait_limit <<<"${listing}" || true
 [[ "${service:-}" != - ]] || service=""
 [[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}$([[ "${checking}" == true ]] && echo ' with a check_service')"
+
+# A job an operator paused starts no run (root ADR-0282 §3): it is skipped, not failed, and nothing
+# downstream starts. Only the operator's own run-now runs it while paused.
+if [[ -z "${requested}" && -e "${switches}/${job}" ]]; then
+  printf 'start-scheduled-job: %s is paused by an operator: %s\n' "${job}" \
+    "$(sed -n 's/^reason=//p' "${switches}/${job}" | head -n 1)"
+  [[ "${checking}" == true ]] || printf 'foundation-job-outcome skipped paused\n'
+  exit 0
+fi
 
 mkdir -p "${starts}" || refuse "cannot keep the start record ${starts}"
 # A check is not a turn: it is passed as `triggered`, which is never deferred.
@@ -156,6 +177,32 @@ runs() {
   answer="$(python3 -I -B "${job_units}" running "${service}")" || return 0
   [[ -n "${answer}" ]]
 }
+
+# An operator's run-now is used here, once, when its run starts: after any wait, so a request that
+# expired while it waited for the host runs nothing (root ADR-0282 §4).
+if [[ -n "${requested}" ]]; then
+  ask="${switches}/run-now.d/${requested}" why=""
+  if [[ ! -r "${ask}" ]]; then
+    why="no such request"
+  elif [[ "$(sed -n 's/^job=//p' "${ask}" | head -n 1)" != "${job}" ]]; then
+    why="the request is another job's"
+  else
+    stamp="$(sed -n '/^expires_at=/{s///p;q}' "${ask}")"
+    expires="$(date -d "${stamp}" +%s 2>/dev/null)" || expires=0
+    (($(date +%s) < expires)) || why="the request expired"
+  fi
+  if [[ -z "${why}" ]]; then
+    mkdir -p "${consumed}" || refuse "cannot keep the run-now record ${consumed}"
+    (set -C && : >"${consumed}/${requested}") 2>/dev/null || why="the request was used already"
+  fi
+  if [[ -n "${why}" ]]; then
+    printf 'start-scheduled-job: run-now %s of %s not started: %s\n' "${requested}" "${job}" "${why}"
+    printf 'foundation-job-outcome skipped %s\n' "${why}"
+    exit 0
+  fi
+  printf 'start-scheduled-job: run-now %s of %s by %s: %s\n' "${requested}" "${job}" \
+    "$(sed -n 's/^actor=//p' "${ask}" | head -n 1)" "$(sed -n 's/^reason=//p' "${ask}" | head -n 1)"
+fi
 
 # A run already in progress (started by hand, or a retry racing the last one) is joined, not doubled.
 before="$(state InvocationID)"

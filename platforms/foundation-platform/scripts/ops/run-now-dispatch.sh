@@ -7,7 +7,7 @@
 # through Airflow like a scheduled one, so what it changes starts what reads it (root ADR-0171), and
 # the gate checks and consumes the request when the run starts (stage c). A request is triggered at
 # most once (a mark here, never in the switch directory, which only foundation-api writes) and never
-# after it expired. A disabled job's request waits for stage c, which starts it through the gate.
+# after it expired. A disabled job (its DAG paused) starts through the gate directly.
 set -euo pipefail
 
 # Fixed paths, no environment override: a caller cannot appoint what is started.
@@ -56,7 +56,19 @@ PY
         log "${id}: foundation_${job} could not be triggered; tried again on the next change"
       fi
       ;;
-    no) log "${id}: ${job} is off; its run-now starts through the gate (ADR-0282 stage c)" ;;
+    no)
+      # A job that is off has its DAG paused, so it starts through the gate itself, as the scheduler
+      # does over SSH (the same checks, waits and single use), in a unit of its own: not named
+      # foundation-*, which the autodeploy waits for (foundation-autodeploy.sh).
+      if systemd-run --quiet --collect --unit "operator-run-now-${id}" -p User=foundation-scheduler \
+        -E SSH_ORIGINAL_COMMAND="${job} requested ${id}" \
+        "${release_root}/current/scripts/ops/start-scheduled-job.sh"; then
+        : >"${marks}/triggered/${id}"
+        log "${id}: ${job} is off; started through the gate (operator-run-now-${id})"
+      else
+        log "${id}: ${job} is off and its gate could not be started; tried again on the next change"
+      fi
+      ;;
     *) log "${id}: ${job} is not in the job list; skipped" ;;
   esac
 done

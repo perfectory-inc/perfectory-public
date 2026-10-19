@@ -13,6 +13,8 @@ import types
 import unittest
 from unittest import mock
 
+import jinja2
+
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
 DAGS = ORCHESTRATION / "dags"
 sys.path.insert(0, str(DAGS))
@@ -144,10 +146,17 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
             with self.subTest(spec.dag_id):
                 tasks = self.tasks(spec)
                 run = tasks["run"]
-                # The job id, and ` triggered` for a run the clock did not start (root ADR-0179),
-                # rendered by Airflow's Jinja from the run type.
-                self.assertEqual(run.kwargs["command"],
-                                 spec.job_id + "{{ '' if dag_run.run_type == 'scheduled' else ' triggered' }}")
+                # The job id, and ` triggered` for a run the clock did not start (root ADR-0179), or
+                # ` requested <id>` for an operator's run-now (root ADR-0282), rendered by Jinja.
+                template = jinja2.Template(run.kwargs["command"])
+                for run_type, conf, expected in (
+                        ("scheduled", {}, spec.job_id),
+                        ("asset_triggered", {}, f"{spec.job_id} triggered"),
+                        ("manual", None, f"{spec.job_id} triggered"),
+                        ("manual", {"operator_request": "1" * 8 + "-1111-4111-8111-" + "1" * 12},
+                         f"{spec.job_id} requested 11111111-1111-4111-8111-111111111111")):
+                    dag_run = types.SimpleNamespace(run_type=run_type, conf=conf)
+                    self.assertEqual(template.render(dag_run=dag_run), expected, (run_type, conf))
                 self.assertIs(run.kwargs["do_xcom_push"], False, "the journal is not kept as an XCom")
                 tasks.pop("check", None)  # its own test below
                 if spec.outputs:
