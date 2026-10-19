@@ -14,7 +14,9 @@
     {"key_prefix": "v0-rust-check-", "max_mb": 400, "why": "dependency advisories check."},
     {"key_prefix": "v0-rust-guard-", "max_mb": 300, "why": "repository guard (xtask)."},
     {"key_prefix": "v0-rust-suites-", "max_mb": 300, "why": "Foundation suites job (xtask)."},
-    {"key_prefix": "pinned-release-binaries-v1-", "max_mb": 400, "why": "checksum-pinned release binaries (ADR-0197); 0.26 GB measured."},
-    {"key_prefix": "node-cache-", "max_mb": 1000, "why": "setup-node pnpm stores of every Node job; 0.64 GB measured, including copies under merge-queue refs."}
+    {"key_prefix": "pinned-release-binaries-v1-", "max_mb": 300, "one_key": true, "why": "checksum-pinned release binaries CI uses (ADR-0197), one set per runner OS: 162 MB Linux and 83 MB Windows measured 2026-10-19; cosign, which only the server fetches, is not in it. A new pin set's key replaces the old (prune)."},
+    {"key_prefix": "node-cache-dawneer-", "max_mb": 450, "one_key": true, "why": "dawneer's pnpm store, saved from main by its lockfile; the three stores measured 368–371 MB on 2026-10-19, before their keys named their area."},
+    {"key_prefix": "node-cache-foundation-", "max_mb": 450, "one_key": true, "why": "Foundation's gateway pnpm store, saved from main by its lockfiles; the three stores measured 368–371 MB on 2026-10-19, before their keys named their area."},
+    {"key_prefix": "node-cache-gongzzang-", "max_mb": 450, "one_key": true, "why": "gongzzang's pnpm store, which gongzzang-ci and gongzzang-frontend share by one lockfile; the three stores measured 368–371 MB on 2026-10-19, before their keys named their area."}
   ]
 }

@@ -204,8 +204,17 @@ class RegistryTest(unittest.TestCase):
     def test_a_ci_runner_resolves_every_tool_and_the_static_release_contract(self) -> None:
         registry = fetch_pinned.load_registry()
         names = {name for name, _, _ in fetch_pinned.all_pins(registry, "linux", "x86_64")}
-        self.assertTrue(set(registry["tools"]) <= names)
-        self.assertGreater(len(names), len(registry["tools"]))
+        ci_tools = {name for name, spec in registry["tools"].items() if spec.get("ci", True) is not False}
+        self.assertTrue(ci_tools <= names)
+        self.assertGreater(len(names), len(ci_tools))
+
+    def test_a_server_only_tool_stays_out_of_the_ci_cache(self) -> None:
+        # cosign is fetched by the server's release admission only (root ADR-0276 §3); prefetching it
+        # put 52 MB into every CI pinned cache (2026-10-19).
+        registry = fetch_pinned.load_registry()
+        names = {name for name, _, _ in fetch_pinned.all_pins(registry, "linux", "x86_64")}
+        self.assertNotIn("cosign", names)
+        self.assertIsNotNone(fetch_pinned.tool_pin(registry, "cosign", "linux", "x86_64"))
 
     def test_a_pin_file_missing_its_checksum_is_refused(self) -> None:
         registry = fetch_pinned.load_registry()

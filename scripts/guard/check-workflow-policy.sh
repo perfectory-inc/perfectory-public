@@ -144,7 +144,22 @@ for workflow in "${workflows[@]}"; do
   ' "$workflow"; then
     release_signer=1
   fi
-  awk -v file="$workflow" -v issue_writer="$issue_writer" -v release_signer="$release_signer" '
+  # A third (root ADR-0269): the daily cache budget, schedule-only, may add actions: write to a
+  # job-level map so it deletes the cache keys a newer key replaced. No other file or permission.
+  cache_pruner=0
+  if [ "$(basename "$workflow")" = ci-cache-budget.yml ] && awk '
+    /^on:[[:space:]]*$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  [A-Za-z0-9_-]+:/ {
+      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
+      if (key == "schedule") schedule++
+      else if (key != "workflow_dispatch") other++
+    }
+    END { exit (schedule == 1 && !other) ? 0 : 1 }
+  ' "$workflow"; then
+    cache_pruner=1
+  fi
+  awk -v file="$workflow" -v issue_writer="$issue_writer" -v release_signer="$release_signer" -v cache_pruner="$cache_pruner" '
     function indentation(line, copy) {
       copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
     }
@@ -152,14 +167,14 @@ for workflow in "${workflows[@]}"; do
       print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
     }
     function finish_permissions() {
-      if (child_count != 1 + has_issues_write + has_id_token + has_attestations + has_packages || !has_contents_read) {
+      if (child_count != 1 + has_issues_write + has_id_token + has_attestations + has_packages + has_actions_write || !has_contents_read) {
         fail("permissions must contain exactly contents: read")
       }
       if (has_id_token != has_attestations) fail("a signing job takes id-token: write and attestations: write together")
       if (has_packages && !has_id_token) fail("only the signing job may write the release package")
       if (has_id_token && signing_jobs++) fail("only one job may sign the release")
       in_permissions=0; base=-1; child_count=0; has_contents_read=0; has_issues_write=0
-      has_id_token=0; has_attestations=0; has_packages=0
+      has_id_token=0; has_attestations=0; has_packages=0; has_actions_write=0
     }
     {
       current=indentation($0)
@@ -179,6 +194,8 @@ for workflow in "${workflows[@]}"; do
             if (has_id_token++) fail("duplicate id-token permission")
           } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*attestations:[[:space:]]*write[[:space:]]*$/) {
             if (has_attestations++) fail("duplicate attestations permission")
+          } else if (cache_pruner && base == 4 && $0 ~ /^[[:space:]]*actions:[[:space:]]*write[[:space:]]*$/) {
+            if (has_actions_write++) fail("duplicate actions permission")
           } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*packages:[[:space:]]*write[[:space:]]*$/) {
             if (has_packages++) fail("duplicate packages permission")
           } else {
@@ -254,6 +271,9 @@ for workflow in "${workflows[@]}"; do
   fi
   if [ "$release_signer" = 1 ]; then
     write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      (id-token|attestations|packages): write$' || true)"
+  fi
+  if [ "$cache_pruner" = 1 ]; then
+    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      actions: write$' || true)"
   fi
   if [ -n "$write_grants" ]; then
     echo "FAIL workflow-policy: public workflows must not grant write permissions: $workflow" >&2
