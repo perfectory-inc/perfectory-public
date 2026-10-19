@@ -9,11 +9,11 @@
 //! that decide which results to ask): the Silver load parses the lines
 //! (`infra/lakehouse/spark/jobs/data_go_kr_onbid.py`).
 //!
-//! The data.go.kr development-account limit counts each API separately per day. A run stops an
-//! API before it would pass the contract's limit for the KST day, and treats HTTP 429 (the gateway's
-//! quota answer) the same way: the API waits for the next day; the run does not fail. Any other
-//! answer that is neither rows (`00`) nor an empty answer (`03`) fails the run: a key or parameter
-//! problem must never read as "no items". Calls are counted in the state file even when a run
+//! data.go.kr counts each API's calls separately per day (the gateway's X-RateLimit-Limit). A run
+//! stops an API before it would pass the contract's own bound for the KST day, and treats HTTP 429
+//! (the gateway's quota answer) the same way: the API waits for the next day; the run does not
+//! fail. Any other answer that is neither rows (`00`) nor an empty answer (`03`) fails the run: a
+//! key or parameter problem must never read as "no items". Calls are counted in the state file even when a run
 //! fails, so a failing hour cannot spend tomorrow's quota today.
 //!
 //! The endpoints, parameters, limits and intervals come from `data-go-kr-onbid.contract.json`, the

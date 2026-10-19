@@ -51,11 +51,13 @@ fn key(cltr: &str, condition: i64) -> ItemKey {
 }
 
 #[test]
-fn every_api_stays_within_the_development_limit_and_requests_are_spaced() -> anyhow::Result<()> {
+fn every_api_stays_within_its_share_of_the_gateway_limit_and_requests_are_spaced(
+) -> anyhow::Result<()> {
     let contract = source_contract()?;
     for api in Api::ALL {
         let limit = contract.daily_limit(api)?;
-        assert!(limit > 0 && limit <= 1000, "{}: {limit}", api.name());
+        // The gateway's measured limit is 100,000 per API per day and the key has another user.
+        assert!(limit > 0 && limit <= 100_000 / 5, "{}: {limit}", api.name());
     }
     assert!(contract.request_spacing_ms >= 100);
     assert!(

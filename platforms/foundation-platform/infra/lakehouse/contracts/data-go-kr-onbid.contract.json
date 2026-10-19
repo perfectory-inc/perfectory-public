@@ -12,11 +12,11 @@
     "no_data": "03"
   },
   "daily_call_limit_per_api": {
-    "$comment": "The data.go.kr development-account limit counts each API (활용신청) separately. The collector stops an API before it would pass its limit for the KST day and records the stop; it never spreads one API's calls over another's quota. Raise these only after the operating-account upgrade is approved.",
-    "item_list": 1000,
-    "announcement_list": 1000,
-    "announcement_bid_result_list": 1000,
-    "item_bid_result": 900
+    "$comment": "Our own daily bound per API (KST day). Measured 2026-10-19: the gateway answers every one of the four APIs with X-RateLimit-Limit 100000 (the key is an operating account) and the remaining count showed another user of the same key, so we take at most a fifth of it. The collector stops an API before it would pass this bound and records the stop; it never spreads one API's calls over another's quota. The item list's interval (item_list.every_hours) is set by storage cost, not by this bound.",
+    "item_list": 20000,
+    "announcement_list": 20000,
+    "announcement_bid_result_list": 20000,
+    "item_bid_result": 20000
   },
   "property_division_codes": {
     "$comment": "prptDivCd, a mandatory parameter of every list API (the provider's own meanings, swagger 2026-03-20). Every code is asked: a code with no open items costs one call and answers 03.",
@@ -32,7 +32,7 @@
     "0013": "파산자산"
   },
   "item_list": {
-    "$comment": "물건목록 (data.go.kr 15157207). Only open rounds are listed: an item condition (cltrMngNo, pbctCdtnNo) leaves the list when its bidding ends, so a key absent from a complete pass is a closed round and is asked once at item_bid_result. A pass is complete only when every (prptDivCd, pvctTrgtYn) combination was read to its last page; an incomplete pass lands in Bronze but marks nothing removed.",
+    "$comment": "물건목록 (data.go.kr 15157207). Only open rounds are listed: an item condition (cltrMngNo, pbctCdtnNo) leaves the list when its bidding ends, so a key absent from a complete pass is a closed round and is asked once at item_bid_result. A pass is complete only when every (prptDivCd, pvctTrgtYn) combination was read to its last page; an incomplete pass lands in Bronze but marks nothing removed. Every 3 hours, not every hour, because a full pass is about 8.8 MB gzipped and Bronze only grows: hourly would pass the owner's storage budget (perfectory-ops cost record), while the quota would allow it.",
     "dataset_slug": "onbid_real_estate_item",
     "operation": "getRlstCltrList2",
     "path": "/OnbidRlstListSrvc2/getRlstCltrList2",
