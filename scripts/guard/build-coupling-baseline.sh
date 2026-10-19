@@ -275,7 +275,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 138 -> 139: root ADR-0280's Silver load plan (plan-silver-load-objects) embeds
 # lakehouse-maintenance.contract.json to refuse a load window as long as the snapshot retention: an
 # expired snapshot takes its load record with it, and a longer window would append the object again.
-COMPILE_TIME_READ_BASELINE="${3:-139}"
+# 139 -> 141: root ADR-0281's court auction collector embeds courtauction-go-kr.contract.json (the
+# manners and refusal rules the Silver load reads beside it), and its test embeds the collector's own
+# source to hold it to the contract's forbidden names (no proxy, disguise or CAPTCHA, ADR-0281 §4).
+COMPILE_TIME_READ_BASELINE="${3:-141}"
 
 cd "$repo_root"
 

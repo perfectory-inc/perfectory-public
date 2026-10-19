@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform 법원경매정보 list searches, the collection half: ask openly and politely in the quiet hours, stop when refused, land the responses in Bronze (root ADR-0280, ADR-0281)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/court-auction.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/court-auction-collect.sh
+TimeoutStartSec=5h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/court-auction
+
+[Install]
+WantedBy=multi-user.target

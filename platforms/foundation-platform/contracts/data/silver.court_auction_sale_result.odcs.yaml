@@ -207,4 +207,5 @@ customProperties:
       - "court_office_code"
       - "case_no"
   - property: "upstreamDatasets"
-    value: []
+    value:
+      - "source-courtauction-go-kr"
