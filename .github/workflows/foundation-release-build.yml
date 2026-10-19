@@ -38,8 +38,15 @@ jobs:
       # runner has 16 GB. Room for the build: the preinstalled toolchains it never uses, and swap.
       - name: Room for the build
         run: bash scripts/ci/release-build-runner-room.sh
+      # BuildKit's cache lives beside the release in its public package, as buildcache-<image> tags
+      # (root ADR-0276 §14): cargo-chef's dependency layer is 25 of the publisher's 31 minutes, and
+      # it changes only with Cargo.lock. Only this job may write the package.
+      - name: Sign in to GitHub's container registry for the build cache
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Build the release artifacts
-        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release"
+        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release"
       - name: Attest the manifest and every blob
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2 (SHA pin, ADR 0028)
