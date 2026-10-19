@@ -1,9 +1,10 @@
 {
-  "$comment": "Root ADR-0280 (ownership) and ADR-0281 (collected openly, politely, stopping when refused). How 법원경매정보 (courtauction.go.kr) is asked, how slowly, when, and what makes a run stop. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values. Checked 2026-10-19: no robots.txt (404); the list searches answer JSON to a plain POST with no session; one condition listed 17,863 items.",
+  "$comment": "Root ADR-0280 (ownership), ADR-0281 (collected openly, politely, stopping when refused) and ADR-0283 (the User-Agent names us; a contact is optional). How 법원경매정보 (courtauction.go.kr) is asked, how slowly, when, and what makes a run stop. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values. Checked 2026-10-19: no robots.txt (404); the list searches answer JSON to a plain POST with no session; one condition listed 17,863 items.",
   "version": 1,
   "base_url": "https://www.courtauction.go.kr",
   "user_agent_product": "perfectory-foundation-court-auction/1",
   "contact_env": "FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT",
+  "contact_required": false,
   "manners": {
     "$comment": "ADR-0281 §1-§5. request_spacing_seconds is a floor a setting may only raise; a robots.txt Crawl-delay above it raises it too. One connection, no concurrency. A run starts only inside the quiet hours (KST) and sends no request after they end. max_requests_per_run bounds one night. Retries are for network errors only, never for a refusal.",
     "request_spacing_seconds": 3,
