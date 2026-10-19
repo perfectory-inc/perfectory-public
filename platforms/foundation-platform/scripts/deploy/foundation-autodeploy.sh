@@ -24,6 +24,7 @@ set -euo pipefail
 control_root=/opt/perfectory-control/current
 release_root=/opt/foundation-platform
 state=/var/lib/perfectory/autodeploy
+mirror=/var/lib/perfectory/control-source.git
 off_switch=/etc/foundation-platform/autodeploy.off
 api=https://api.github.com
 platform="${control_root}/platforms/foundation-platform"
@@ -56,12 +57,31 @@ if [[ "${head}" == "${current}" ]]; then
   start_worker_deploy
   exit 0
 fi
-for outcome in refused failed; do
-  if [[ -e "${state}/${outcome}/${head}" ]]; then
-    log "${head} was ${outcome} before; waiting for a newer commit on main"
-    exit 0
-  fi
-done
+# The commit to deploy: the newest on main the host does not run whose release is published (root
+# ADR-0276 §13). Its signed release is built after the merge (~31 min); while merges come faster,
+# waiting for main's head would never deploy (2026-10-19: 13e6d650 was released while the tick
+# waited on b375edaa). A refused or failed commit is passed over. Main's history comes from the
+# deploy's mirror over git, not the rate-limited API; without it only the head is a candidate.
+if [[ "$(git --git-dir="${mirror}" rev-parse -q --verify refs/heads/main 2>/dev/null)" != "${head}" ]]; then
+  /bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \
+    fetch -q --no-tags "https://github.com/${repository}.git" +refs/heads/main:refs/heads/main >/dev/null 2>&1 || true
+fi
+candidates=()
+while read -r commit; do
+  [[ -e "${state}/refused/${commit}" || -e "${state}/failed/${commit}" ]] || candidates+=("${commit}")
+done < <(git --git-dir="${mirror}" rev-list --first-parent "${current}..${head}" 2>/dev/null || printf '%s\n' "${head}")
+if ((${#candidates[@]} == 0)); then
+  log "every commit after ${current} up to ${head} was refused or failed before; waiting for a newer commit on main"
+  exit 0
+fi
+if ! target="$(python3 "${platform}/scripts/deploy/release_checks.py" newest-released "${repository}" "${candidates[@]}")"; then
+  log "cannot read which releases are published; asking again next time"
+  exit 0
+fi
+if [[ -z "${target}" ]]; then
+  log "no commit after ${current} up to ${head} has a published release yet"
+  exit 0
+fi
 
 # A tick runs every minute (ADR-0187), but the check runs come from GitHub's REST API read
 # anonymously, which allows a host 60 requests an hour, and one answer takes release_checks.py at
@@ -69,10 +89,10 @@ done
 # verdict (still running, or unreadable), and never again once they passed: the verdict is kept
 # while the deploy waits for an operator's unit or the Worker deploy. A new head is asked at once.
 recheck_seconds=300
-asked="${state}/asked/${head}"
-passed="${state}/passed/${head}"
+asked="${state}/asked/${target}"
+passed="${state}/passed/${target}"
 mkdir -p "${state}/asked" "${state}/passed"
-find "${state}/asked" "${state}/passed" -type f ! -name "${head}" -delete
+find "${state}/asked" "${state}/passed" -type f ! -name "${target}" -delete
 if [[ -e "${passed}" ]]; then
   checks="$(cat "${passed}")"
 else
@@ -80,20 +100,20 @@ else
     exit 0
   fi
   touch "${asked}"
-  if ! checks="$(python3 "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${head}")"; then
-    log "cannot read the checks of ${head}; asking again in ${recheck_seconds}s"
+  if ! checks="$(python3 "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${target}")"; then
+    log "cannot read the checks of ${target}; asking again in ${recheck_seconds}s"
     exit 0
   fi
 fi
 case "${checks%% *}" in
   wait)
-    log "${head}: ${checks#* }; asking again in ${recheck_seconds}s"
+    log "${target}: ${checks#* }; asking again in ${recheck_seconds}s"
     exit 0
     ;;
   refuse)
     mkdir -p "${state}/refused"
-    printf '%s\n' "${checks#* }" >"${state}/refused/${head}"
-    log "${head} is not deployed: ${checks#* }"
+    printf '%s\n' "${checks#* }" >"${state}/refused/${target}"
+    log "${target} is not deployed: ${checks#* }"
     exit 1
     ;;
   deploy) [[ -e "${passed}" ]] || printf '%s\n' "${checks}" >"${passed}" ;;
@@ -114,7 +134,7 @@ quiet="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1]))
 last="$({ find "${state}/deployed" -type f -printf '%T@\n' 2>/dev/null || true; } | sort -n | tail -n 1)"
 last="${last%.*}"
 if [[ -n "${last}" ]] && (($(date +%s) - last < quiet * 60)); then
-  log "${head}: waiting for the quiet window after the last deploy (until $(date -u -d "@$((last + quiet * 60))" +%H:%MZ))"
+  log "${target}: waiting for the quiet window after the last deploy (until $(date -u -d "@$((last + quiet * 60))" +%H:%MZ))"
   exit 0
 fi
 
@@ -133,26 +153,26 @@ while read -r unit _; do
   fi
 done <<<"${running}"
 if ((${#operator_units[@]} > 0)); then
-  log "${head}: waiting for the operator's ${operator_units[*]}"
+  log "${target}: waiting for the operator's ${operator_units[*]}"
   exit 0
 fi
 # A Worker deploy reads the control checkout and the release this deploy is about to replace.
 running="$(running_units "${worker_unit}")"
 if [[ -n "${running}" ]]; then
-  log "${head}: waiting for the Worker deploy (${worker_unit})"
+  log "${target}: waiting for the Worker deploy (${worker_unit})"
   exit 0
 fi
 
-log "deploying ${head} over ${current} (${checks#* })"
+log "deploying ${target} over ${current} (${checks#* })"
 mkdir -p "${state}/failed" "${state}/deployed"
 status=0
-/bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${head}" || status=$?
+/bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${target}" || status=$?
 if [[ "${status}" == 0 ]]; then
-  date -u +%FT%TZ >"${state}/deployed/${head}"
-  log "${head} deployed"
+  date -u +%FT%TZ >"${state}/deployed/${target}"
+  log "${target} deployed"
   start_worker_deploy
 else
-  date -u +%FT%TZ >"${state}/failed/${head}"
-  log "the deploy of ${head} failed (exit ${status}); see the log above"
+  date -u +%FT%TZ >"${state}/failed/${target}"
+  log "the deploy of ${target} failed (exit ${status}); see the log above"
   exit 1
 fi
