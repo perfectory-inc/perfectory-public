@@ -131,6 +131,11 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 작은 PR 로 나눈다. 앞 단계에 기대는 PR 은 draft 로 둔다.
 
 1. 이 ADR. #809(독자 가드) 병합 뒤에 병합한다.
+1b. `silver.parcel_number_change_history` 에 필수 열 `source_region_code`(원천 파일 이름의 시도 코드)를 더한다. 쓰는 쪽이
+   채우고, 있는 행은 `source_file_name` 에서 백필한다. 백필은 34 판 모두(폐지된 시도 코드의 파일 포함)에서 파싱되는지
+   시험한다. 계약 열이 바뀌므로 운영 표 모양 원장(ADR-0259)에 줄을 더하고 CI 가 원장에 대어 본다. 2 단계보다 먼저
+   병합해서, 2 단계가 이 표를 처음부터 `Editions { per: [source_region_code] }` 로 적게 한다. 없는 열을 가리키거나 틀린
+   묶음을 잠시라도 싣는 단계는 없다.
 2. Rust: `row_versions` 필드를 더하고 계약 48개를 분류한다. 각 분류의 근거는 그 표를 쓰는 코드다(쓰기 방식,
    묶음의 판 열). 산출물을 다시 렌더한다. 표 모양은 바뀌지 않으므로 운영 표 모양 원장(ADR-0259)은 그대로다.
    네 값 중 어디에도 깔끔히 맞지 않는 표가 나오면 그 PR 은 멈추고 검토자에게 올린다. 억지로 맞추지 않는다:
@@ -142,7 +147,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 5. dbt 매크로와 키 유일성 시험(결정 4).
 6. `Editions.per` 와 `canonical_reader` 의 읽는 쪽: `current_rows` 가 `per` 를 다루고, `canonical_reader` 가드를 더하고,
    `silver.parcel_number_change_history` 독자의 `.distinct()` 를 걷어 내고, 독자를 동등성 시험과 함께 옮긴다. 계보의
-   정본 독자는 접기 전에 (판 쌍, 후속 필지)마다 가장 새 파생 실행만 남긴다(2026-10-20 에는 시도마다 실행 하나라
+   정본 독자는 접기 전에 (판 쌍, 후속 필지)마다 `derived_at_utc` 가 가장 새 파생 실행만 남긴다(2026-10-20 에는 시도마다 실행 하나라
    겹침 0). 2 단계는 이 두 표도 분류한다. 둘 다 `Editions`·`Events` 라 쓰기 거부가 그 파이프라인을 깨지 않는다.
 
 ## Consequences
@@ -153,6 +158,10 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 - `Editions/Newest` 의 "가장 새 판"은 `edition_column` 순서다. 지금 `newest_source_snapshot` 은 `valid_from_utc`
   를, `newest_batch` 는 커밋 순서를 쓴다. 단계 4 에서 표마다 같은 판을 고르는지 증명한 뒤에 옮긴다.
 - `current_row_latest` 는 산출물에서 이행 기간 동안 파생값으로 남는다. 독자가 모두 `row_versions` 를 읽으면 지운다.
+- 부채(추적): 폐지된 시도 코드의 마지막 판은 `per` 묶음의 "가장 새 판"으로 계속 남는다(2026-07 개편의 42·45·29·46).
+  지금 동작과 같아서 퇴행은 아니다. 시도 코드가 폐지되면 `reference.legal_dong_code_change` 로 그 묶음의 판을 은퇴시키는
+  일을 따로 한다.
+- 부채(필수): 키 없는 `Replaced` 레인(VWorld 토지 여섯)은 덧붙이는 레인이 되기 전에 행 키를 실측해 정해야 한다.
 
 ## Rejected
 
