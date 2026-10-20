@@ -1,6 +1,6 @@
 # ADR 0287: 공매는 자기 Silver 에서 만드는 필지 종류(kind)다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
 - Amends: [ADR-0193](./0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md) §9 ("종류 = 주인 패널의 섹션")
 - Relates to: [ADR-0280](./0280-public-sale-court-auction-and-factory-registration-are-foundation-parcel-sources.md) (공매·경매·공장은 Foundation 의 필지 원천)
