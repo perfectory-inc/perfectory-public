@@ -35,7 +35,7 @@ from lakehouse_ingest import (
     ref_lineage,
     snapshot_property_options,
 )
-from platform_contracts import REMOVED, column_names, current_row_latest, current_rows, load_lakehouse_contract
+from platform_contracts import admit_write, REMOVED, column_names, current_row_latest, current_rows, load_lakehouse_contract
 
 JOB_NAME = "silver-release-compare"
 # Written by the load, never by the source: comparing them would make every row look changed.
@@ -148,6 +148,7 @@ def compare_and_append(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     print(f"{JOB_NAME} {args.contract}: appending {appended} rows of changed keys and {removed} removal markers",
           flush=True)
 
+    admit_write(args.contract, "append", target=unquoted)
     writer = changes.writeTo(unquoted)
     for option, value in snapshot_property_options(objects, ingest_batch_token(objects)).items():
         writer = writer.option(option, value)

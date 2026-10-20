@@ -402,11 +402,13 @@ def _load(argv: Sequence[str]) -> int:
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).cache()
                 line.update(complete=loads["complete"], rows_with_pnu=sum(1 for row in rows if row["pnu"]),
                             changes=changes.count(), removed=changes.where(F.col("row_state") == REMOVED).count())
-                line["appended"] = append_source_object(spark, changes, item_columns, item_table, entry["object_key"])
+                line["appended"] = append_source_object(spark, changes, item_columns, item_table, entry["object_key"],
+                                                         contract_table=ITEM_TABLE)
                 changes.unpersist()
             else:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
-                line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"])
+                line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"],
+                                                         contract_table=RESULT_TABLE)
             summary["objects"].append(line)
     finally:
         spark.stop()

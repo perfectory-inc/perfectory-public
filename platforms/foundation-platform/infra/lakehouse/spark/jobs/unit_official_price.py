@@ -16,6 +16,7 @@ import argparse
 import json
 import re
 import time
+from typing import Any
 from pathlib import Path
 
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
@@ -71,6 +72,14 @@ def batch_vintage(source_snapshot_id: str | None) -> str | None:
     """The vintage a batch's `source_snapshot_id` names, or None for anything else."""
     match = BATCH.fullmatch(source_snapshot_id or "")
     return match.group(1) if match else None
+
+
+def vintage_column() -> Any:
+    """`vintage` from `source_snapshot_id`, as `batch_vintage` reads it: the registered backfill of
+    the batches appended before the column (lakehouse_schema_migrate.BACKFILLS)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    return F.regexp_extract(F.col("source_snapshot_id"), BATCH.pattern, 1)
 
 
 def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
@@ -235,6 +244,7 @@ def main(argv=None):
         frame = (spark.sql(JOIN_SQL)
                  .withColumn("sido", sido)
                  .withColumn("source_snapshot_id", F.lit(source_snapshot))
+                 .withColumn("vintage", F.lit(args.vintage))
                  .withColumn("source_record_id",
                              F.concat(F.lit("unit-official-price/base-date-v2/"), sido, F.lit("/" + source_snapshot))))
         row_count = frame.count()

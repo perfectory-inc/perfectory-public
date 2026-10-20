@@ -201,6 +201,9 @@ class TemporaryExtraColumns(unittest.TestCase):
 class Backfills(unittest.TestCase):
     """A backfilled value must equal a rebuilt one: each registered backfill is the build's own function."""
 
+    # The constant naming the table a build writes: a Gold build's, or a Silver loader's.
+    TABLE_CONSTANTS = ("GOLD_CONTRACT_NAME", "TABLE_CONTRACT", "CONTRACT")
+
     def test_every_backfill_names_a_function_in_the_build_that_writes_the_table(self) -> None:
         for (table, column), (module, function) in migrate.BACKFILLS.items():
             with self.subTest(f"{table}.{column}"):
@@ -210,7 +213,7 @@ class Backfills(unittest.TestCase):
                 names = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
                 self.assertIn(function, names)
                 tables = [ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)
-                          and any(isinstance(target, ast.Name) and target.id == "GOLD_CONTRACT_NAME" for target in node.targets)]
+                          and any(isinstance(target, ast.Name) and target.id in self.TABLE_CONSTANTS for target in node.targets)]
                 self.assertEqual(tables, [table])
 
     def test_every_backfill_names_a_required_contract_column(self) -> None:

@@ -274,7 +274,7 @@ def run(spark, args, spec: KindSpec, pins) -> int:
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 # Range-ordered by pnu, so a by-PNU bake shard reads only the files of its prefix (ADR-0164).
                 added = ensure_contract_table(spark, table, spec.contract)
-                outcome.commit(spark, table, pins, args.iceberg_write_mode)
+                outcome.commit(spark, table, pins, args.iceberg_write_mode, contract_table=spec.contract["table_name"])
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    spec.kind.gold_table, pins)
                 persisted = spark.table(table).select(*spec.gold_columns)

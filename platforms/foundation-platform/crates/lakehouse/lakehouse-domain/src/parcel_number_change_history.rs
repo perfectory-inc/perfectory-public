@@ -8,8 +8,9 @@
 //! the file repeats exactly is kept once, at its first line, with `duplicate_count`.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -68,6 +69,13 @@ const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // The 시도 code of the province file the row came from (its member name): each 시도 file is
+    // re-released whole, so this is the group whose newest edition is current (root ADR-0286).
+    LakehouseColumn {
+        name: "source_region_code",
+        logical_type: "string",
+        required: true,
+    },
     LakehouseColumn {
         name: "source_record_id",
         logical_type: "string",
@@ -97,7 +105,12 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["provider_updated_on"],
+        per: &["source_region_code"],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["changed_on", "old_pnu"],

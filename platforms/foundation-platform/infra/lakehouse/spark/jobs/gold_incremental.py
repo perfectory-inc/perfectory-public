@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
+from platform_contracts import admit_write
 
 KEY = "pnu"
 DELETE_FLAG = "_foundation_delete"
@@ -296,7 +297,7 @@ class Outcome:
     # True when the full build's content equals the current Gold's, so no row was rewritten.
     content_unchanged: bool | None = None
 
-    def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
+    def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str, *, contract_table: str) -> None:
         """Write the full Gold in `write_mode`, or merge the changed PNUs; one snapshot either way.
 
         Root ADR-0274 §1: a full build whose content fingerprint equals the current Gold's rewrites
@@ -307,6 +308,7 @@ class Outcome:
         from pyspark.sql import functions as F
 
         import gold_fingerprint
+
         from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, pins_property_value, write_gold_snapshot
 
         current = current_fingerprint(spark, table)
@@ -315,16 +317,18 @@ class Outcome:
             properties = {} if built is None else {gold_fingerprint.PROPERTY: built}
             self.content_unchanged = built is not None and built == current
             if self.content_unchanged:
-                write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties)
+                write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties,
+                                    contract_table=contract_table, record=True)
                 return
-            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
+            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties,
+                                contract_table=contract_table)
             return
         started = time.monotonic()
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
         unchanged = {} if current is None else {gold_fingerprint.PROPERTY: current}
         self.merged = merge_into_gold(spark, table, self.merge["source"],
                                       {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}, self.merge["row_key"],
-                                      unchanged)
+                                      unchanged, contract_table=contract_table)
         phase_done("merge", started)
 
     def disposition(self, args: Any) -> str:
@@ -641,7 +645,8 @@ def merge_sql(table: str, columns: list[str], row_key: tuple[str, ...] = (KEY,))
 
 
 def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, str],
-                    row_key: tuple[str, ...] = (KEY,), unchanged_properties: dict[str, str] | None = None) -> bool:
+                    row_key: tuple[str, ...] = (KEY,), unchanged_properties: dict[str, str] | None = None,
+                    *, contract_table: str) -> bool:
     """Merge `source` into `table` by `row_key` in one snapshot carrying `properties`. False when
     it was empty.
 
@@ -649,6 +654,8 @@ def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, s
     `unchanged_properties`, what stays true of unchanged content), so the Gold records that it
     reflects the new Silver pins and the next plan starts from them.
     """
+    # A merge replaces the changed keys' rows (root ADR-0286).
+    admit_write(contract_table, "replace", target=table)
     refuse_merge_on_read(spark, table)
     if source.limit(1).count() == 0:
         empty = spark.table(table).limit(0)

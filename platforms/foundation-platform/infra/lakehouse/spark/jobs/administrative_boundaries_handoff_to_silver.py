@@ -35,6 +35,7 @@ from typing import Any
 import legal_dong_code_change_views as views
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
     declared_geometry_srid,
@@ -383,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
             summary["row_count"] = len(rows)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
             spark.createDataFrame(rows, schema=schema).select(*COLUMNS).createOrReplaceTempView("admin_candidate")
+            admit_write(CONTRACT["table_name"], "append", target=table)
             spark.sql(f"INSERT INTO {table} SELECT {', '.join(COLUMNS)} FROM admin_candidate")
             written = spark.sql(
                 f"SELECT count(*) AS n FROM {table} WHERE source_snapshot_id = '{args.source_snapshot_id}'"

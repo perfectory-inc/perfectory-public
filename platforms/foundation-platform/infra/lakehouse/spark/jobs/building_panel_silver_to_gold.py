@@ -606,7 +606,7 @@ def run(spark, args, pins):
                 added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 apply_gold_read_properties(spark, target_table)  # a table this run created
                 # The snapshot records the Silver pins it was built from (root ADR-0139).
-                outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                outcome.commit(spark, target_table, pins, args.iceberg_write_mode, contract_table=GOLD_CONTRACT_NAME)
                 committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)

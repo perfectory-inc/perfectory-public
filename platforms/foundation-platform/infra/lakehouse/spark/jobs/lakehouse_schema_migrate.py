@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
 from platform_contracts import (
+    admit_write,
     IDENTIFIER_PATTERN,
     apply_write_order,
     column_names,
@@ -53,6 +54,9 @@ from platform_contracts import (
 BACKFILLS: dict[tuple[str, str], tuple[str, str]] = {
     ("gold.parcel_panel", "row_digest"): ("parcel_panel_silver_to_gold", "row_digest_column"),
     ("gold.building_panel", "row_digest"): ("building_panel_silver_to_gold", "row_digest_column"),
+    ("silver.parcel_number_change_history", "source_region_code"): (
+        "vworld_parcel_number_change_history", "source_region_code_column"),
+    ("silver.unit_official_price", "vintage"): ("unit_official_price", "vintage_column"),
 }
 
 
@@ -241,6 +245,8 @@ def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict,
 
     identifier = f"{catalog}.{table_name}"
     quoted = ".".join(f"`{part}`" for part in identifier.split("."))
+    # The same rows with the added columns filled: a rewrite, whatever the table keeps.
+    admit_write(table_name, "rewrite", target=identifier)
     snapshot = spark.sql(
         f"SELECT snapshot_id FROM {quoted}.refs WHERE name = 'main'"
     ).first()[0]

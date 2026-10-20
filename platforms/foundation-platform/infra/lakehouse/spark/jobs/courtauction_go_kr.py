@@ -348,7 +348,8 @@ def _load(argv: Sequence[str]) -> int:
             else:
                 # A night that read no row (stopped at once) still commits, empty, so it is not owed again.
                 changes = spark.createDataFrame([], schema=spark.table(table).schema).select(*columns)
-            counts["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
+            counts["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
+                                                         contract_table=contract_table)
             changes.unpersist()
             summary["objects"].append(counts)
     finally:
