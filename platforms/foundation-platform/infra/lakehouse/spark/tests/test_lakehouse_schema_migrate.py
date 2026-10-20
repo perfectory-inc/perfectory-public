@@ -202,7 +202,7 @@ class Backfills(unittest.TestCase):
     """A backfilled value must equal a rebuilt one: each registered backfill is the build's own function."""
 
     # The constant naming the table a build writes: a Gold build's, or a Silver loader's.
-    TABLE_CONSTANTS = ("GOLD_CONTRACT_NAME", "TABLE_CONTRACT")
+    TABLE_CONSTANTS = ("GOLD_CONTRACT_NAME", "TABLE_CONTRACT", "CONTRACT")
 
     def test_every_backfill_names_a_function_in_the_build_that_writes_the_table(self) -> None:
         for (table, column), (module, function) in migrate.BACKFILLS.items():
