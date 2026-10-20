@@ -15,9 +15,11 @@ the plan directories and loads each object, oldest first, in one commit of its o
 
 An object with nothing to write still commits, empty, so the table records that it was loaded.
 
-The announcement objects stay in Bronze only. A row keeps the provider's own PNU (`ltnoPnu`) when
-`Pnu::parse` would accept it (the rule's copy in the source contract, held equal by a Rust test),
-else `pnu` is null and the raw text stays in `ltno_pnu_raw`. Codes stay codes.
+The announcement objects stay in Bronze only. The provider's own PNU (`ltnoPnu`) is format-checked
+(`Pnu::parse`'s copy in the source contract, held equal by a Rust test) and then resolved to the
+CURRENT pnu by the one place-identity resolver (`place_identity_resolver`, root ADR-0288 §1): a
+superseded legal-dong code is carried old → current and kept only when it is a current parcel. The
+raw text stays in `ltno_pnu_raw`; a code that does not resolve leaves `pnu` null for the steward.
 
 `parse` reads the plan directories and prints what it would load without Spark; `load` writes. The
 last stdout line is `data-go-kr-onbid-summary-json {json}`.
@@ -366,6 +368,8 @@ def _load(argv: Sequence[str]) -> int:
     if not args.table_suffix and not args.allow_non_smoke_write:
         parser.error("writing the Silver tables needs --allow-non-smoke-write")
 
+    import address_pnu  # noqa: PLC0415
+    import place_identity_resolver  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
     from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
@@ -383,12 +387,22 @@ def _load(argv: Sequence[str]) -> int:
     try:
         item_table, item_contract, item_columns, item_schema = ensure_table(spark, args, ITEM_TABLE)
         result_table, _, result_columns, result_schema = ensure_table(spark, args, RESULT_TABLE)
+        if any(entry["role"] == "item_list" for entry in objects):
+            # ADR-0288 §1: every parcel source resolves its code to the current pnu here, not by
+            # copying the source code. The pairs and the current parcels are read once for the run.
+            remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
+            parcels, _titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         for entry in objects:
             loads = read_object(entry, source, now)
             rows = loads["rows"]
             line: dict[str, Any] = {"object": entry["object_key"], "role": entry["role"], "rows": len(rows)}
             if entry["role"] == "item_list":
-                staged = spark.createDataFrame([tuple(r.get(c) for c in item_columns) for r in rows], schema=item_schema)
+                built = spark.createDataFrame([tuple(r.get(c) for c in item_columns) for r in rows], schema=item_schema)
+                # The source code (ltnoPnu, kept in ltno_pnu_raw) becomes the CURRENT pnu, or null.
+                resolved = place_identity_resolver.resolve(built, remap, ambiguous, parcels).cache()
+                graded = {row["place_identity_grade"]: row["count"]
+                          for row in resolved.groupBy("place_identity_grade").count().collect()}
+                staged = resolved.select(*item_columns)
                 current = current_rows(spark.table(item_table), item_contract)
                 changes = release_changes(
                     staged, current, key=KEY, content=content_columns(item_contract), removal="row_state",
@@ -400,10 +414,12 @@ def _load(argv: Sequence[str]) -> int:
                     changes = changes.where(F.col("row_state").isNull() | (F.col("row_state") != REMOVED))
                 # A marker is made from the condition's last row; it belongs to this object's load.
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).cache()
-                line.update(complete=loads["complete"], rows_with_pnu=sum(1 for row in rows if row["pnu"]),
+                line.update(complete=loads["complete"], source_coded=sum(1 for row in rows if row["pnu"]),
+                            resolved_by_grade=graded,
                             changes=changes.count(), removed=changes.where(F.col("row_state") == REMOVED).count())
                 line["appended"] = append_source_object(spark, changes, item_columns, item_table, entry["object_key"])
                 changes.unpersist()
+                resolved.unpersist()
             else:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
                 line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"])

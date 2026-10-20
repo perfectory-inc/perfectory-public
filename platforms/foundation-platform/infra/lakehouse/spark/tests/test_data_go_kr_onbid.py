@@ -58,6 +58,18 @@ class PnuTest(unittest.TestCase):
         self.assertEqual(row["ltno_pnu_raw"], "99999-bad")
         self.assertEqual(job.item_row(item(), CONTRACT)["ltno_pnu_raw"], "9999999999000010000")
 
+    def test_a_superseded_onbid_code_carries_to_the_current_pnu(self) -> None:
+        # ADR-0288 §1: 공매's format-valid source code is resolved to the CURRENT pnu, not kept as the
+        # old one. 화성시 장지동 (old 41590...) carries to 동탄구 (4159711100...) via a recorded pair.
+        import place_identity_resolver as resolver  # noqa: PLC0415
+
+        row = job.item_row(item(ltnoPnu="4159013600009120008"), CONTRACT)
+        self.assertEqual(row["pnu"], "4159013600109120008")  # format-valid source code: the resolver's input
+        self.assertEqual(row["ltno_pnu_raw"], "4159013600009120008")
+        remap, _ambiguous = resolver.code_crosswalk([("4159013600", "4159711100")])
+        current = resolver.with_current_code(row["pnu"], remap[row["pnu"][:10]])
+        self.assertEqual(current, "4159711100109120008")
+
 
 class ValueTest(unittest.TestCase):
     def test_provider_minutes_are_korean_time(self) -> None:
