@@ -18,6 +18,7 @@ from typing import Any
 
 import parcel_identity as pi
 import place_id_release as rel
+import place_identity_resolver as pir
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
 from parcel_lineage_to_silver import DATE, IDENTIFIER, PREFIX, sql_prefixes
@@ -117,8 +118,13 @@ def main(argv: list[str] | None = None) -> int:
                     ).collect()
                 }
                 snapshots.append((label, units))
-            registry, bridge, changes = rel.admin_release(snapshots)
+            # Root ADR-0288 §3: bridge the old codes the snapshots never carried (a 분구's abolished
+            # dong codes) to their current place, from the code-change pairs the resolver reads.
+            remap, ambiguous = pir.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
+            registry, bridge, changes = rel.admin_release(snapshots, remap, ambiguous)
             summary["snapshots"] = [label for label, _ in snapshots]
+            summary["code_pairs_bridged"] = len(remap)
+            summary["code_pairs_ambiguous"] = len(ambiguous)
         else:
             scope = args.sido
             rows = [

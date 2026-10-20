@@ -65,6 +65,27 @@ class AdminReleaseTest(unittest.TestCase):
         self.assertEqual({r.place_id: r.status for r in registry}, {"a": "current", "b": "current", "c": "historic", "d": "current"})
         self.assertEqual(rel.resolve("9999910100", bridge, registry), "9999920100")
 
+    def test_a_subdivision_old_code_absent_from_snapshots_bridges_to_its_successor(self):
+        # A 분구 (real case: 화성시 장지동 → 동탄구) abolishes the old dong code before our first
+        # boundary snapshot, so only the NEW code is in any snapshot; the code-change pair carries the
+        # OLD code to the same place, so an old reference still resolves (root ADR-0288 §3).
+        snapshots = [("202606", {"a": "9999920100"})]  # the successor code only
+        registry, bridge, changes = rel.admin_release(snapshots, {"9999910100": "9999920100"}, set())
+        self.assertEqual({b.place_id for b in bridge if b.code in ("9999910100", "9999920100")}, {"a"})
+        self.assertEqual(rel.resolve("9999910100", bridge, registry), "9999920100")
+
+    def test_an_ambiguous_split_old_code_is_left_for_the_steward(self):
+        # One old code split into many new ones is not a 1:1 place; never a guessed link (§4).
+        snapshots = [("202606", {"a": "9999920100"})]
+        registry, bridge, changes = rel.admin_release(snapshots, {"9999910100": "9999920100"}, {"9999910100"})
+        self.assertIsNone(rel.resolve("9999910100", bridge, registry))
+
+    def test_an_already_served_code_is_not_shadowed_by_a_pair(self):
+        # A code a snapshot already carries stays snapshot-defined; a pair never overrides it.
+        snapshots = [("202606", {"a": "9999920100", "b": "9999910100"})]
+        registry, bridge, changes = rel.admin_release(snapshots, {"9999910100": "9999920100"}, set())
+        self.assertEqual(rel.resolve("9999910100", bridge, registry), "9999910100")  # still b's current code
+
 
 class ReleaseJobArgsTest(unittest.TestCase):
     def test_parcel_releases_need_their_scope_and_dates(self):
