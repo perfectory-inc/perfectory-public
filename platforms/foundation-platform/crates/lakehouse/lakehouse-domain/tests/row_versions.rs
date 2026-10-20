@@ -1,13 +1,9 @@
 //! Every contract says how its rows pile up, in terms of its own columns (root ADR-0286).
 
-use std::error::Error;
-
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseRowKey, LakehouseRowVersions,
     LakehouseTableContract,
 };
-
-type TestResult = Result<(), Box<dyn Error>>;
 
 /// The columns a declaration names, and the reasons it gives.
 fn named(contract: &LakehouseTableContract) -> (Vec<&'static str>, Vec<&'static str>) {
@@ -66,33 +62,6 @@ fn every_declaration_names_only_its_own_columns_and_says_why_when_it_has_no_key(
             );
         }
     }
-}
-
-#[test]
-fn a_canonical_reader_is_a_function_of_a_spark_job_module() -> TestResult {
-    let jobs = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .ok_or("lakehouse-domain lives under crates/lakehouse")?
-        .join("infra/lakehouse/spark/jobs");
-    for contract in industrial_complex_lakehouse_contracts() {
-        let LakehouseRowVersions::Events {
-            canonical_reader: Some(reader),
-        } = contract.row_versions
-        else {
-            continue;
-        };
-        let (module, function) = reader
-            .split_once('.')
-            .ok_or_else(|| format!("{}: {reader} is not module.function", contract.table_name))?;
-        let source = std::fs::read_to_string(jobs.join(format!("{module}.py")))?;
-        assert!(
-            source.contains(&format!("\ndef {function}(")),
-            "{}: {module}.py defines no {function}",
-            contract.table_name
-        );
-    }
-    Ok(())
 }
 
 #[test]

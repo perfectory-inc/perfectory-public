@@ -313,6 +313,16 @@ class RowVersionsTest(unittest.TestCase):
             with self.subTest(table=name):
                 row_versions(contract)
 
+    def test_a_canonical_reader_is_a_function_of_a_job_module(self) -> None:
+        for name, contract in load_lakehouse_artifact()["contracts"].items():
+            reader = row_versions(contract).get("canonical_reader")
+            if reader is None:
+                continue
+            with self.subTest(table=name):
+                module, function = reader.split(".")
+                tree = ast.parse((JOBS_DIR / f"{module}.py").read_text(encoding="utf-8"))
+                self.assertIn(function, {node.name for node in tree.body if isinstance(node, ast.FunctionDef)})
+
     def test_a_contract_without_row_versions_or_naming_a_foreign_column_is_refused(self) -> None:
         contract = dict(load_lakehouse_contract("silver.parcel_number_change_history"))
         missing = {key: value for key, value in contract.items() if key != "row_versions"}
