@@ -21,6 +21,24 @@ def strip_resolver(graph: dict) -> None:
     edge["via"] = [step for step in edge["via"] if "place_identity_resolver" not in step and "address_pnu" not in step]
 
 
+def drop_pnu_resolution(graph: dict) -> None:
+    """A Rust-resolved parcel edge loses its declared exemption: it must still be rejected, even
+    though its silver table has no pnu_basis/`*_pnu_raw` column the old heuristic keyed on — this is
+    the stronger invariant (every pnu-bearing silver source must resolve, ADR-0288 §1)."""
+    next(e for e in graph["edges"] if e.get("pnu_resolution")).pop("pnu_resolution")
+
+
+def blank_pnu_resolution(graph: dict) -> None:
+    """An un-reasoned (blank) exemption is not an exemption (planted on the 공매 edge so only the
+    empty-reason diagnostic fires)."""
+    next(e for e in graph["edges"] if e["id"] == "source-data-go-kr-onbid-to-silver-onbid-real-estate-item")["pnu_resolution"] = "   "
+
+
+def pnu_resolution_off_a_parcel_edge(graph: dict) -> None:
+    """The exemption marker is meaningless anywhere but a parcel-source feeds edge."""
+    next(e for e in graph["edges"] if e.get("relation") != "feeds")["pnu_resolution"] = "x"
+
+
 def main() -> None:
     baseline = load_json(ROOT / GRAPH)
     with tempfile.TemporaryDirectory(prefix="pipeline-graph-self-test-") as temporary:
@@ -54,6 +72,9 @@ def main() -> None:
             ("missing executable", "edge via", lambda g: g["edges"][0].pop("via")),
             ("invented executable", "unknown via", lambda g: g["edges"][0].update(via=["invented-command"])),
             ("parcel source skips the resolver", "skips the place-identity resolver", strip_resolver),
+            ("rust-resolved table loses its exemption", "skips the place-identity resolver", drop_pnu_resolution),
+            ("empty pnu_resolution", "empty pnu_resolution", blank_pnu_resolution),
+            ("pnu_resolution off a parcel edge", "non-parcel-source edge", pnu_resolution_off_a_parcel_edge),
             ("wrong source selector", "edge source selector", lambda g: next(e for e in g["edges"] if "source_slugs" in e).update(source_slugs=["nonexistent-source"])),
             ("(a) extra source group", "source groups", lambda g: next(n for n in g["nodes"] if n["type"] == "source_group").update(endpoint_catalog_group="nonexistent-group")),
             ("(a) duplicate source group", "source groups", lambda g: g["nodes"].append({**next(n for n in g["nodes"] if n["type"] == "source_group"), "id": "extra-group"})),
