@@ -52,7 +52,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 
    | 값 | 뜻 | 사례의 이름 |
    |---|---|---|
-   | `Replaced { key }` | 키마다 한 행. 적재가 표를 통째로 바꾼다 | SCD Type 1, DLT `SCD TYPE 1` |
+   | `Replaced { key }` | 키마다 한 행. 적재가 자기가 덮는 행을 바꾼다(표 전체, 또는 `overwritePartitions`·`MERGE` 가 닿는 파티션·키) | SCD Type 1, DLT `SCD TYPE 1` |
    | `LatestPerKey { key, newest_first, removal_column, keep_ties }` | 키마다 버전을 쌓고 가장 새 행이 현재다. 지금의 `current_row_latest` 가 여기로 옮겨 온다 | SCD Type 2 현재 뷰, Hudi record key + ordering field, DLT `SCD TYPE 2` |
    | `Editions { edition_column, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다 | Kimball periodic snapshot |
    | `Events` | 행 하나가 사실 하나다. 모든 행이 현재다 | Kimball transaction fact, 원장·변경 이력 |
@@ -62,10 +62,16 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    `LatestPerKey` 에서 파생해 함께 싣는다. Python 과 dbt 는 이행 단계에서 `row_versions` 를 읽도록 바꾼다.
 
 2. **쓰는 쪽이 선언을 따른다.**
-   - `lakehouse_ingest.append_batch_once` 는 계약이 `Replaced` 인 표에 쓰기 전에 거부한다. Silver·reference 표에
-     덧붙이는 길은 이 함수 하나다. 10-16 의 표는 여기서 멈췄을 것이다.
+   - Silver·reference 표에 덧붙이는 길은 `lakehouse_ingest` 의 함수(`append_batch_once`, `append_source_object`)로
+     모은다. 둘 다 계약이 `Replaced` 인 표에 쓰기 전에 거부한다. 10-16 의 표는 여기서 멈췄을 것이다.
+     2026-10-20 에는 이 함수들을 거치지 않는 덧붙임이 있다: 날 SQL `INSERT INTO`
+     (`administrative_boundaries_handoff_to_silver.py`, `served_gold_common.append_to_ledger`), 직접
+     `writeTo().append()`(`silver_release_compare.py`, 이행 도구 둘). 이들은 같은 함수로 옮기거나, 쓰기 전에 같은 확인을
+     부른다. 잡 코드의 Iceberg 쓰기(`INSERT INTO`·`INSERT OVERWRITE`·`writeTo`·`MERGE INTO`)가 그 둘 밖에서 나오면
+     가드가 거부한다(#809 처럼 AST 로 찾는다).
    - 레인 계약의 `silver_refresh.spark.iceberg_write_mode` 는 `Replaced` 일 때만 `overwrite` 다. 다른 값이면
-     `append` 다. 시험이 레인 계약과 표 계약을 맞대어 본다.
+     `append` 다. 시험이 레인 계약과 표 계약을 맞대어 본다. `overwrite` 는 `overwritePartitions()` 이다. 표 전체를
+     바꾸는 것은 분할 없는 표이거나 묶음이 모든 파티션에 닿을 때뿐이다. 그래서 `Replaced` 의 뜻을 위 표처럼 적는다.
    - `Editions` 표에 덧붙이는 묶음에는 `edition_column` 값이 하나뿐이다. `append_batch_once` 가 확인한다.
 
 3. **읽는 쪽은 한 곳에서 읽는다.**
@@ -86,7 +92,8 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
      `rank() = 1` 이 동률을 조용히 남기는 구멍을 닫는다.
 
 5. **가드는 실패할 수 있음을 보인다.** 각 단계의 시험은 위반을 심어 거부되는 것을 확인한다.
-   - `Replaced` 표에 `append_batch_once`.
+   - `Replaced` 표에 `append_batch_once`·`append_source_object`.
+   - 잡 코드의 날 `INSERT INTO`.
    - `row_versions` 를 빠뜨린 계약(컴파일 실패를 `trybuild` 없이 보일 수 없으므로, 계약 목록 전체를 도는 시험이
      산출물에 `row_versions` 가 없는 표를 거부한다).
    - 사적 판 선택.
@@ -101,7 +108,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    묶음의 판 열). 산출물을 다시 렌더한다. 표 모양은 바뀌지 않으므로 운영 표 모양 원장(ADR-0259)은 그대로다.
    네 값 중 어디에도 깔끔히 맞지 않는 표가 나오면 그 PR 은 멈추고 검토자에게 올린다. 억지로 맞추지 않는다:
    `Editions`·`Events` 표에 `LatestPerKey` 를 적으면 틀린 행을 고른다(Rejected 둘째 항목).
-3. `append_batch_once` 의 거부와 레인 계약 시험(결정 2).
+3. 덧붙이는 함수의 거부, 날 SQL·직접 `writeTo` 덧붙임의 이전, 쓰기 경로 가드, 레인 계약 시험(결정 2).
 4. `current_rows` 의 `Editions` 처리와 `pinned_edition`. 다섯 표의 독자를 옮긴다(결정 3). 독자마다 옛 사적 규칙과
    같은 행을 고르는지 합성 데이터로 시험한다. 이 동등성 시험은 옮기는 독자 일곱 곳 모두에 필수다. 분류가 틀렸거나
    `Editions/Newest` 의 순서(`edition_column`)가 옛 순서(`valid_from_utc`·커밋 순서)와 다를 때 잡는 안전망이다.
@@ -119,7 +126,8 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 ## Rejected
 
 - **가드가 쓰기 코드를 정적으로 읽어 "덧붙이는 표"를 추론하기**: 쓰기 경로가 여러 모양이다(`append_batch_once`,
-  레인 계약, `writeTo().append()`). 추론은 새 모양을 놓친다. 선언이 정본이고, 쓰기는 한 함수에서 선언을 확인한다.
+  `append_source_object`, 레인 계약, 날 `INSERT INTO`, `writeTo().append()`). 추론은 새 모양을 놓친다. 선언이 정본이고,
+  쓰기는 정해진 함수에서 선언을 확인하며, 가드는 그 함수 밖의 쓰기를 거부할 뿐 표의 성질을 추론하지 않는다.
 - **`current_row_latest` 를 필수로 만들기만 하기**: 판을 통째로 덧붙이는 표(`Editions`)와 사건 표(`Events`)를
   표현하지 못한다. 그런 표에 키별 최신을 억지로 적으면 틀린 행을 고른다.
 - **표마다 Trino·Iceberg 뷰로 현재를 내보내기**: 정의가 계약 밖 SQL 로 한 벌 더 생긴다. Spark 의 핀(스냅숏 id)
