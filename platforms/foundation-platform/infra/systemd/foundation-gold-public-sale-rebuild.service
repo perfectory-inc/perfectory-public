@@ -26,8 +26,9 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh par
 # (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
 ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh
 RuntimeDirectory=%N
-# Under Airflow's 65 minutes (jobs.v1.json): one kind of open rounds, read whole.
-TimeoutStartSec=60m
+# The job list's time_limit_minutes (jobs.v1.json): one kind of open rounds, read whole.
+# Generated from the list, not hand-set: `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=65m
 # The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.
 TimeoutStopSec=120
 NoNewPrivileges=true
