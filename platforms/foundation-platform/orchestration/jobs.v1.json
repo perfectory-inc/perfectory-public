@@ -854,6 +854,27 @@
       "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it."
     },
     {
+      "id": "gold_public_sale_rebuild",
+      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-sale): gold.parcel_public_sale from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
+      "systemd_service": "foundation-gold-public-sale-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "35 21 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 65,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-onbid-real-estate-item-to-gold-parcel-public-sale"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0287). Off until the owner approves the cost of the first 공매 bake and publish (pre-launch rule; estimate in perfectory-ops) and the operator's first publish of parcel-public-sale has passed its gates; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_kind_rebuild",
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
       "systemd_service": "foundation-gold-kind-rebuild.service",
@@ -934,7 +955,8 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
+        "gold-parcel-public-sale-to-parcel-public-sale-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"

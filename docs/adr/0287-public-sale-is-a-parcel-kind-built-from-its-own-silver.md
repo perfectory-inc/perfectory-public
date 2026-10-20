@@ -43,6 +43,8 @@ ADR-0193 §9 의 종류 장치는 계약 한 줄(`config/r2-connections.contract
    - **갱신:** 하루 한 번 굽는다. 문서 모양은 갱신 주기와 상관없다.
 8. **비용.** 첫 발행과 굽기는 비용 승인 뒤에만 한다(출시 전 규칙). 금액은 공개 저장소가 아니라 perfectory-ops 에 적는다.
 
+9. **자기 생산자 종류는 자기 작업이 다시 만든다.** 자기 생산자를 가진 종류는 공유 `gold_kind_rebuild` 가 아니라 자기 일정 작업이 하루 한 번 다시 만든다(공매: `gold_public_sale_rebuild`, `gold-panel-rebuild.sh parcel-public-sale`). 그 Silver 가 패널과 다른 주기로 커밋되기 때문이다. 공유 작업의 입력이면 그 주기(공매는 매시간)로 공유 작업과 굽기를 깨운다. 굽기는 그 작업이 커밋했다고 알릴 때 시작하고, 커밋은 Iceberg 스냅숏 하나라 반쯤 쓴 Gold 를 읽지 않는다. 법원경매·등록공장도 같은 배선을 쓴다. 이 작업은 비용 승인과 첫 발행 전까지 꺼져 있다.
+
 ## Consequences
 
 - `by_pnu_kinds.Kind` 에 `producer` 가 생기고, `gold_rebuild.kind_tables` 는 자기 생산자 종류에 주인 패널 고정점과 같음 검사를 붙이지 않는다. 기존 섹션 종류는 그대로다.
