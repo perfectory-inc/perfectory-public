@@ -415,7 +415,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                               "silver_refresh_building_register_unit_areas"},
                              set(specs["gold_panel_rebuild"].producers))
         # The bake serves the panels and the data kinds; the kinds follow the panels (root ADR-0193 §9).
-        self.assertEqual(specs["by_pnu_serving_bake"].producers, ("gold_panel_rebuild", "gold_kind_rebuild"))
+        self.assertEqual(specs["by_pnu_serving_bake"].producers,
+                         ("gold_panel_rebuild", "gold_public_sale_rebuild", "gold_kind_rebuild"))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
         # and the table it writes then reads does not start it again.
@@ -469,7 +470,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
-                                        "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
+                                        "that writes them (gold_panel_rebuild, gold_public_sale_rebuild, "
+                                        "gold_kind_rebuild) is switched off")
 
     def test_a_job_is_never_started_by_what_it_writes(self):
         # The Gold rebuild writes the unit prices it then reads (root ADR-0182); the fold reads the

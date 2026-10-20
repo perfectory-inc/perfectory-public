@@ -80,9 +80,24 @@ class ParcelKindSparkTest(unittest.TestCase):
         import by_pnu_kind_silver_to_gold as job
         import by_pnu_kinds
 
-        lanes = [lane for lane, kind in by_pnu_kinds.kinds().items() if kind.host == "parcel_by_pnu_gateway"]
+        # This producer builds the parcel gateway's kinds that are a section of the host panel; a kind
+        # with its own producer (root ADR-0287, e.g. 공매) is served on the same host but built and
+        # tested by its own job, so it has no panel section here.
+        lanes = [lane for lane, kind in by_pnu_kinds.kinds().items()
+                 if kind.host == "parcel_by_pnu_gateway" and kind.follows_host_panel]
         self.assertGreaterEqual(len(lanes), 6)
         return job, [job.KindSpec(lane) for lane in lanes]
+
+    def test_a_kind_with_its_own_producer_is_refused_here_not_cryptically(self):
+        import by_pnu_kind_silver_to_gold as job
+        import by_pnu_kinds
+
+        own = [lane for lane, kind in by_pnu_kinds.kinds().items()
+               if kind.host == "parcel_by_pnu_gateway" and not kind.follows_host_panel]
+        if not own:
+            self.skipTest("no own-producer parcel kind to refuse")
+        with self.assertRaisesRegex(ValueError, "own producer"):
+            job.KindSpec(own[0])
 
     def test_every_kind_equals_its_panel_section_on_every_pnu(self):
         args, frames, cand, panel_rows = self.frames()

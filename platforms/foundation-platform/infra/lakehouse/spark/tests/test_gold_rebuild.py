@@ -364,7 +364,8 @@ class Contract(unittest.TestCase):
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
         producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price": prices,
-                     **{kind.gold_table: kinds_job for kind in kinds.values()}}
+                     **{kind.gold_table: kinds_job if kind.follows_host_panel else __import__(kind.producer)
+                        for kind in kinds.values()}}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
             producer = producers[name]
@@ -386,6 +387,15 @@ class Contract(unittest.TestCase):
         for lane, kind in kinds.items():
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
+            if not kind.follows_host_panel:
+                # Root ADR-0287: its own producer and inputs, no host pin, always a whole rebuild.
+                self.assertEqual(entry["producer"], kind.producer)
+                self.assertNotIn("pins_from", entry)
+                self.assertNotIn("incremental", entry)
+                producer = __import__(kind.producer)
+                required, _, anchor = rebuild.producer_inputs(producer, entry)
+                self.assertEqual(anchor, parcel.PARCEL_SOURCE)
+                continue
             self.assertEqual(entry["pins_from"]["gold_table"], kind.host_panel)
             self.assertEqual(entry["pins_from"]["inputs"], "all")
             self.assertEqual(entry["pins_from"]["parity_argument"], "--parity-panel-snapshot-id")

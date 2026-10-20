@@ -71,23 +71,26 @@ done
 # The tables' units in the contract's order, from the contract this script ships with (`all`), and
 # the table of every by-PNU data kind (`kinds`; root ADR-0193, gold_rebuild.load_contract): a table
 # the contract gains, or a kind line the R2 connection contract gains, is rebuilt without an edit here.
+# A kind with its own producer (root ADR-0287) reads Silver the panels do not, on its own cadence: it
+# is run by its unit from its own job, never inside `kinds`.
 mapfile -t TABLES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs" <<'PY'
 import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, sys.argv[1])
 import gold_rebuild
-print("\n".join(("kind " if "lane" in table else "panel ") + table["unit"]
+print("\n".join(("panel " if "lane" not in table else "kind " if "pins_from" in table else "own ") + table["unit"]
                 for table in gold_rebuild.load_contract()["tables"].values()))
 PY
 )
-PANEL_UNITS=() KIND_UNITS=()
+PANEL_UNITS=() KIND_UNITS=() OWN_UNITS=()
 for table in ${TABLES[@]+"${TABLES[@]}"}; do
   case "${table}" in
     "panel "*) PANEL_UNITS+=("${table#panel }") ;;
     "kind "*) KIND_UNITS+=("${table#kind }") ;;
+    "own "*) OWN_UNITS+=("${table#own }") ;;
   esac
 done
-UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"} ${KIND_UNITS[@]+"${KIND_UNITS[@]}"})
+UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"} ${KIND_UNITS[@]+"${KIND_UNITS[@]}"} ${OWN_UNITS[@]+"${OWN_UNITS[@]}"})
 if [[ "${UNIT}" != all && "${UNIT}" != kinds && ( -z "${UNIT}" || " ${UNITS[*]-} " != *" ${UNIT} "* ) ]]; then
   echo "gold-panel-rebuild: expected one of ${UNITS[*]-}, all, kinds or cleanup, got '${UNIT}'" >&2
   exit 64

@@ -34,9 +34,15 @@ class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_carries_lineage_optionally(self):
         required, optional, anchor, whole = job.lane_inputs("parcel-public-sale")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE})
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "open rounds only: no bid results read")
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(set(whole), {job.ITEM_SOURCE})
+
+    def test_the_kind_line_names_this_producer(self):
+        import by_pnu_kinds
+
+        kind = by_pnu_kinds.kind("parcel-public-sale")
+        self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_sale", ("public_sale_json",)))
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
@@ -177,6 +183,18 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertIn("bid_ends_at", body["rounds"][0])
         self.assertEqual(body["source_datasets"], list(job.SOURCE_DATASETS))
         self.assertEqual((doc.round_count, doc.attached_via), (2, None))
+
+    def test_a_document_carries_exactly_its_records_fields(self):
+        # The bake serves the JSON as written; its paths are the record's (contracts/by-pnu-documents).
+        import json
+        import by_pnu_kinds
+        from pyspark.sql import functions as F
+
+        rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5))]), None)
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_sale_json), "public_sale")
+        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_sale_by_pnu") if p.startswith("public_sale.")}
+        self.assertEqual(written, recorded)
 
     def test_a_document_over_the_ceiling_keeps_the_soonest_closing_rounds(self):
         import json

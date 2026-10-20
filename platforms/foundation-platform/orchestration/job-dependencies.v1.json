@@ -619,6 +619,7 @@
         "parcel_registry",
         "complex_boundary_release",
         "parcel_served_gold",
+        "gold_public_sale_rebuild",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -715,6 +716,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
           "node_id": "gold-parcel-price",
           "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_public_sale",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_sale,PROD)",
+          "node_id": "gold-parcel-public-sale",
+          "title": "필지 공매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1041,6 +1050,7 @@
         "parcel_registry",
         "complex_boundary_release",
         "parcel_served_gold",
+        "gold_public_sale_rebuild",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -1137,6 +1147,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
           "node_id": "gold-parcel-price",
           "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_public_sale",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_sale,PROD)",
+          "node_id": "gold-parcel-public-sale",
+          "title": "필지 공매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2143,6 +2161,33 @@
       ]
     },
     {
+      "id": "gold_public_sale_rebuild",
+      "producers": [
+        "onbid_public_sale_collect",
+        "onbid_public_sale_silver"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.onbid_real_estate_item",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.onbid_real_estate_item,PROD)",
+          "node_id": "silver-onbid-real-estate-item",
+          "title": "온비드 부동산 물건",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_public_sale",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_sale,PROD)",
+          "node_id": "gold-parcel-public-sale",
+          "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "gold_kind_rebuild",
       "producers": [
         "gold_panel_rebuild"
@@ -2240,6 +2285,7 @@
         "parcel_registry",
         "complex_boundary_release",
         "parcel_served_gold",
+        "gold_public_sale_rebuild",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -2336,6 +2382,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
           "node_id": "gold-parcel-price",
           "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_public_sale",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_sale,PROD)",
+          "node_id": "gold-parcel-public-sale",
+          "title": "필지 공매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2634,6 +2688,7 @@
       "id": "by_pnu_serving_bake",
       "producers": [
         "gold_panel_rebuild",
+        "gold_public_sale_rebuild",
         "gold_kind_rebuild"
       ],
       "reads": [
@@ -2682,6 +2737,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_price,PROD)",
           "node_id": "gold-parcel-price",
           "title": "필지 개별공시지가 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_public_sale",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_sale,PROD)",
+          "node_id": "gold-parcel-public-sale",
+          "title": "필지 공매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2772,6 +2835,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-price-by-pnu-section-packs,PROD)",
           "node_id": "parcel-price-by-pnu-section-packs",
           "title": "필지 개별공시지가 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-public-sale-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-public-sale-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-public-sale-by-pnu-section-packs",
+          "title": "필지 공매 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },
