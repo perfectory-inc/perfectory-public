@@ -339,6 +339,51 @@ class PackOperator(OperatorHarness):
         self.assertTrue(any(c["tool"] == "journalctl" and
                             "foundation-legal-dong-code.service" in c["args"] for c in calls))
 
+    def court_state(self):
+        # The release's own job list names the collector's state; the tests point it at a scratch dir.
+        path = self.release / "orchestration/jobs.v1.json"
+        jobs = json.loads(path.read_text(encoding="utf-8"))
+        state = self.root / "court-auction"
+        for job in jobs["jobs"]:
+            if job["id"] == "court_auction_collect":
+                job["state_paths"] = [str(state)]
+        path.write_text(json.dumps(jobs), encoding="utf-8")
+        (state / "collector").mkdir(parents=True, exist_ok=True)
+        return state / "collector/refused.json"
+
+    def test_a_person_clears_a_court_auction_refusal_and_the_journal_keeps_why(self):
+        # Runbook court-auction.md: a refusal blocks every later run until a person clears it. The
+        # clear is an attended operator action whose journal line holds the refusal and the request.
+        refusal = self.court_state()
+        refusal.write_text(json.dumps({"reason": "ipcheck=false", "requests": 174}), encoding="utf-8")
+        result, calls = self.run_operator("job", "clear-refusal", "court_auction_collect",
+                                          *fresh(reason="checked the cause; night run may resume"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(refusal.exists())
+        cleared = [" ".join(args) for args in self.journal if "cleared court_auction_collect refusal" in " ".join(args)]
+        self.assertEqual(len(cleared), 1, self.journal)
+        self.assertIn("ipcheck=false", cleared[0])
+        self.assertIn("checked the cause; night run may resume", cleared[0])
+        self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"], "clearing starts nothing")
+
+    def test_a_clear_refuses_when_nothing_is_on_record_another_job_or_no_attended_request(self):
+        refusal = self.court_state()
+        result, _ = self.run_operator("job", "clear-refusal", "court_auction_collect", *fresh())
+        self.assertEqual(result.returncode, 66, result.stderr)
+        refusal.write_text(json.dumps({"reason": "HTTP 429"}), encoding="utf-8")
+        result, _ = self.run_operator("job", "clear-refusal", "legal_dong_code_changes", *fresh())
+        self.assertNotEqual(result.returncode, 0)
+        result, _ = self.run_operator("job", "clear-refusal", "court_auction_collect", flags=False)
+        self.assertNotEqual(result.returncode, 0, "the attended flags are required")
+        result, _ = self.run_operator("job", "clear-refusal", "court_auction_collect", attended=False)
+        self.assertNotEqual(result.returncode, 0, "a person at a terminal is required")
+        result, _ = self.run_operator("job", "clear-refusal", "court_auction_collect",
+                                      active=["foundation-court-auction-collect.service"])
+        self.assertEqual(result.returncode, 75, "not while the collector runs")
+        result, _ = self.run_operator("job", "clear-refusal", "court_auction_collect", FAKE_JOURNAL_DOWN="1")
+        self.assertNotEqual(result.returncode, 0, "a clear the journal cannot hold does not happen")
+        self.assertTrue(refusal.exists(), "every refused clear leaves the refusal on record")
+
     def test_only_the_court_auction_collector_takes_a_one_run_waiver_of_its_quiet_hours(self):
         # Owner decision 2026-10-19: the first court auction collection by day. The waiver is a file
         # the collector takes and removes before its first request; every other manner stays.
