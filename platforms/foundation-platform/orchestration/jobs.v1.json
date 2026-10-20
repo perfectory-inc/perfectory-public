@@ -871,7 +871,8 @@
       "pipeline_graph_edges": [
         "silver-onbid-real-estate-item-to-gold-parcel-public-sale"
       ],
-      "enabled": true
+      "enabled": true,
+      "enabled_since": "2026-10-20T16:12:59Z"
     },
     {
       "id": "gold_kind_rebuild",
