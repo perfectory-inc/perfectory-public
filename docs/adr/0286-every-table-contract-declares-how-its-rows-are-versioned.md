@@ -73,9 +73,13 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    이것은 갚아야 할 부채다. 키가 없는 표는 덧붙이는 레인으로 바뀔 수 없다(ADR-0275 의 비교에는 행 키가 필요하다).
    그 레인이 덧붙이기로 바뀌는 PR 이 먼저 행 키를 실측해 정한다.
 
-   계약 산출물에는 쓰는 코드가 있는 표만 싣는다. 쓰는 곳이 없는 계약(2026-10-20 의
-   `silver.complex_parcel_memberships`, `gold.complex_spatial_locator`)은 뜻을 짐작해 분류하지 않는다. 쓰는 코드가
-   생기는 PR 이 `row_versions` 를 적고 산출물에 넣는다.
+   쓰는 코드가 없는 계약(2026-10-20 의 `silver.complex_parcel_memberships`, `gold.complex_spatial_locator`)은 뜻을
+   짐작해 분류하지 않는다. `Unwritten { reason }` 으로 적는다. 이것은 쓰는 쪽이 없다는 선언이지 쌓이는 모양이 아니다.
+   분류는 네 모양 그대로다. `Unwritten` 표에는 덧붙이기도 덮어쓰기도 거부되고, 그 표를 쓰는 잡 모듈이나 생산자 연결선이
+   있으면 시험이 거부한다. 그래서 처음 쓰는 PR 은 네 모양 중 하나로 바꿔야 하고, 그때 이 불변식이 걸린다. `reason` 은
+   계획된 일을 가리킨다(예: ADR-0019·0020 의 소속). 계약 표를 모두 읽는 잡(`data_quality`, `shape_ledger_check`,
+   `lakehouse_maintenance`)은 `Unwritten` 표가 없는 것을 허용한다. 독자 가드는 `Unwritten` 을 `Replaced`·`Events` 처럼
+   다룬다.
 
    `current_row_predicate` 는 그대로 둔다. 어느 값과도 함께 쓸 수 있다(예: 필지 경계는 `Editions` +
    `valid_to_utc IS NULL`). 계약 산출물(JSON)은 `row_versions` 를 싣는다. 이행 기간에는 `current_row_latest` 를
