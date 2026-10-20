@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from platform_contracts import (  # noqa: E402
     current_row_predicate,
     declared_geometry_srid,
     jsonl_transport_columns,
+    load_lakehouse_artifact,
     load_identity_column,
     load_identity_from_value,
     load_lakehouse_contract,
@@ -145,15 +147,93 @@ class PlatformContractsTest(unittest.TestCase):
         )
 
 
-class CurrentRowRuleTest(unittest.TestCase):
-    """`silver.industrial_complexes` keeps every appended version; the contract says which is current
-    (root ADR-0267), and every reader takes it through `current_rows`, not a filter of its own."""
+PIPELINE_GRAPH = SPARK_DIR.parents[2] / "docs" / "catalog" / "pipeline-graph.v1.json"
+CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned"}
 
-    COMPLEX_READERS = (
-        "industrial_complex_boundaries_handoff_to_silver.py",
-        "industrial_complex_boundaries_silver_to_postgis_handoff.py",
-        "industrial_complex_silver_to_gold.py",
-    )
+
+def versioned_tables() -> set[str]:
+    """Every table that keeps versions per key: its contract declares the newest-per-key rule."""
+    return {
+        name for name, contract in load_lakehouse_artifact()["contracts"].items()
+        if current_row_latest(contract) is not None
+    }
+
+
+def producers(graph: dict, tables: set[str]) -> set[tuple[str, str]]:
+    """(job file name, table) for each job the pipeline graph says writes a versioned table."""
+    nodes = {node["id"]: node.get("table_name") for node in graph["nodes"]}
+    return {
+        (Path(via).name, nodes[edge["to"]])
+        for edge in graph["edges"] if nodes.get(edge["to"]) in tables
+        for via in edge.get("via", [])
+    }
+
+
+def named_tables(source: str, tables: set[str]) -> set[str]:
+    """The tables a module names in a string other than a docstring, as `silver.x` or the bare `x`
+    an Iceberg argument defaults to."""
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value) for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+    }
+    strings = [
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+    ]
+    return {
+        table for table in tables
+        if any(re.search(rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)",
+                         text) for text in strings)
+    }
+
+
+def reaches_current_rows(path: Path, seen: set[Path]) -> bool:
+    """Whether the module, or a job module it imports, calls the contract's current-row selection.
+
+    shortcut: a module counts once any module it imports selects current rows, even for another
+    table; upgrade to a per-table data-flow check if a helper module ever reads two versioned tables.
+    """
+    if path in seen or not path.exists() or path.name == "platform_contracts.py":
+        return False
+    seen.add(path)
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            called = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+            if called in CURRENT_ROW_READS:
+                return True
+    imported = [
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    ] + [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
+    return any(reaches_current_rows(path.parent / f"{module}.py", seen) for module in imported)
+
+
+def readers_bypassing_current_rows(jobs: Path, graph: dict, tables: set[str]) -> list[tuple[str, str]]:
+    """(job, table) for each job that names a versioned table it does not write, yet never selects
+    that table's current rows through the contract: it would read every version (root ADR-0267)."""
+    written = producers(graph, tables)
+    found = []
+    for path in sorted(jobs.glob("*.py")):
+        if path.name == "platform_contracts.py":
+            continue
+        for table in sorted(named_tables(path.read_text(encoding="utf-8"), tables)):
+            if (path.name, table) not in written and not reaches_current_rows(path, set()):
+                found.append((path.name, table))
+    return found
+
+
+class CurrentRowRuleTest(unittest.TestCase):
+    """A versioned table's contract says which row is current (root ADR-0267, ADR-0275), and every
+    reader takes it through `current_rows`, not a filter of its own.
+
+    Modelled on dbt-project-evaluator's rule that only one layer may touch a source directly: every
+    other reader goes through the one access point. Who is checked is derived from the contracts
+    and the pipeline graph, never listed here: on 2026-10-16 the complex boundary job read the
+    complexes table without a rule and failed in production, and the guard added afterwards named
+    three readers by hand.
+    """
 
     def test_complexes_contract_declares_the_newest_row_per_code(self) -> None:
         contract = load_lakehouse_contract(SILVER_INDUSTRIAL_COMPLEXES)
@@ -183,20 +263,45 @@ class CurrentRowRuleTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "current_row_latest"):
                     current_row_latest({**contract, "current_row_latest": broken})
 
-    def test_every_complex_reader_selects_current_rows_through_the_contract(self) -> None:
-        for name in self.COMPLEX_READERS:
-            with self.subTest(reader=name):
-                tree = ast.parse((JOBS_DIR / name).read_text(encoding="utf-8"))
-                called = {
-                    node.func.id
-                    for node in ast.walk(tree)
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                }
-                self.assertIn("current_rows", called)
+    def test_every_reader_of_a_versioned_table_selects_current_rows_through_the_contract(self) -> None:
+        graph = json.loads(PIPELINE_GRAPH.read_text(encoding="utf-8"))
+        tables = versioned_tables()
+        self.assertIn(SILVER_INDUSTRIAL_COMPLEXES, tables)
+        self.assertEqual(readers_bypassing_current_rows(JOBS_DIR, graph, tables), [])
+
+    def test_a_complex_reader_keeps_no_rule_of_its_own(self) -> None:
+        for path in sorted(JOBS_DIR.glob("industrial_complex*.py")):
+            source = path.read_text(encoding="utf-8")
+            if SILVER_INDUSTRIAL_COMPLEXES not in named_tables(source, {SILVER_INDUSTRIAL_COMPLEXES}):
+                continue
+            with self.subTest(reader=path.name):
                 # A private window or a bare `valid_to_utc` filter is a second current-row rule.
-                source = (JOBS_DIR / name).read_text(encoding="utf-8")
                 self.assertNotIn("Window.partitionBy", source)
                 self.assertNotIn("complexes.where(", source)
+
+    def test_the_guard_refuses_a_reader_that_skips_the_rule(self) -> None:
+        tables = {SILVER_INDUSTRIAL_COMPLEXES}
+        graph = {
+            "nodes": [{"id": "complexes", "table_name": SILVER_INDUSTRIAL_COMPLEXES}, {"id": "source"}],
+            "edges": [{"from": "source", "to": "complexes", "via": ["jobs/writer.py"]}],
+        }
+        jobs = {
+            "writer.py": 'TABLE = "silver.industrial_complexes"\n',
+            "planted.py": 'frame = spark.table("silver.industrial_complexes")\n',
+            "planted_default.py": 'parser.add_argument("--complexes-iceberg-table", default="industrial_complexes")\n',
+            "planted_sql.py": 'spark.sql(f"SELECT * FROM {cat}.`silver`.`industrial_complexes`")\n',
+            "shared.py":"def read(frame, contract):\n    return current_rows(frame, contract)\n",
+            "via_shared.py": 'from shared import read\nTABLE = "industrial_complexes"\n',
+            "attribute.py": 'import platform_contracts as pc\nrows = pc.current_rows(spark.table("silver.industrial_complexes"), c)\n',
+            "prose.py": '"""Reads silver.industrial_complexes."""\nTABLE = "silver.industrial_complex_boundaries"\n',
+        }
+        with TemporaryDirectory() as tmp:
+            for name, text in jobs.items():
+                (Path(tmp) / name).write_text(text, encoding="utf-8")
+            self.assertEqual(
+                readers_bypassing_current_rows(Path(tmp), graph, tables),
+                [(name, SILVER_INDUSTRIAL_COMPLEXES) for name in ("planted.py", "planted_default.py", "planted_sql.py")],
+            )
 
 
 class JsonlTransportContractTest(unittest.TestCase):

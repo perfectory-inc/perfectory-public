@@ -21,6 +21,7 @@
         {% if rule['predicate'] %}where {{ rule['predicate'] }}{% endif %}
     ) as ranked
     {% if rule['key'] %}where _current_row_rank = 1{% endif %}
+    {% if rule['removal'] %}and ({{ rule['removal'] }} is null or {{ rule['removal'] }} <> 'removed'){% endif %}
 ) as {{ name }}
 {%- endif -%}
 {% endmacro %}
