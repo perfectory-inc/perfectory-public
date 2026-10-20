@@ -1154,7 +1154,7 @@ mod tests {
             // (root ADR-0275); the export leaves it out and the load reads it as null.
             let removal = lane
                 .contract
-                .current_row_latest
+                .current_row_latest()
                 .and_then(|latest| latest.removal_column);
             let declared: Vec<&str> = lane
                 .contract

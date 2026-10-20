@@ -6,7 +6,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -75,7 +75,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM: LakehouseTableContract = LakehouseTable
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     // A pass is one source_snapshot_id (its start, `YYYYMMDDTHHMMSSZ`), so the newest pass wins.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "pbct_cdtn_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: Some("row_state"),
@@ -188,7 +188,7 @@ pub const SILVER_ONBID_ITEM_BID_RESULT: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "pbct_cdtn_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,

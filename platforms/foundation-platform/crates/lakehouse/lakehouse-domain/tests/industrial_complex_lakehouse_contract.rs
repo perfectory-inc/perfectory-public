@@ -274,11 +274,11 @@ fn only_versioned_tables_define_a_current_row_rule() {
     for contract in industrial_complex_lakehouse_contracts() {
         if contract.table_name == SILVER_PARCEL_BOUNDARIES.table_name {
             assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
-            assert_eq!(contract.current_row_latest, None);
+            assert_eq!(contract.current_row_latest(), None);
         } else if contract.table_name == SILVER_INDUSTRIAL_COMPLEXES.table_name {
             assert_eq!(contract.current_row_predicate, Some("valid_to_utc IS NULL"));
             assert_eq!(
-                contract.current_row_latest,
+                contract.current_row_latest(),
                 Some(LakehouseCurrentRowLatest {
                     key: &["official_complex_code"],
                     newest_first: &["valid_from_utc", "ingested_at_utc"],
@@ -293,7 +293,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A lane that appends its changes marks vanished keys (root ADR-0275).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
-                .current_row_latest
+                .current_row_latest()
                 .is_some_and(|latest| latest.removal_column.is_some()));
         } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name {
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
@@ -309,11 +309,14 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // newest answer is current, and a result never vanishes (root ADR-0280).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
-                .current_row_latest
+                .current_row_latest()
                 .is_some_and(|latest| latest.removal_column.is_none()));
         } else {
             assert_eq!(
-                (contract.current_row_predicate, contract.current_row_latest),
+                (
+                    contract.current_row_predicate,
+                    contract.current_row_latest()
+                ),
                 (None, None),
                 "{} must not define a current-row rule",
                 contract.table_name
@@ -326,7 +329,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
 #[test]
 fn a_current_row_rule_names_only_the_table_s_own_columns() {
     for contract in industrial_complex_lakehouse_contracts() {
-        let Some(latest) = contract.current_row_latest else {
+        let Some(latest) = contract.current_row_latest() else {
             continue;
         };
         for column in latest

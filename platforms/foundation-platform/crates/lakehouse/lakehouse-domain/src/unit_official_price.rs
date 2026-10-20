@@ -1,8 +1,9 @@
 //! Unit-indexed reference-date prices derived from the two HUB registers.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 /// Append-only province batches retaining every assessment reference date.
@@ -12,7 +13,11 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: &[
         LakehouseColumn {
             name: "mgm_bldrgst_pk",
