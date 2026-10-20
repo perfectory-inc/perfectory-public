@@ -54,8 +54,19 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    |---|---|---|
    | `Replaced { key }` | 키마다 한 행. 적재가 자기가 덮는 행을 바꾼다(표 전체, 또는 `overwritePartitions`·`MERGE` 가 닿는 파티션·키) | SCD Type 1, DLT `SCD TYPE 1` |
    | `LatestPerKey { key, newest_first, removal_column, keep_ties }` | 키마다 버전을 쌓고 가장 새 행이 현재다. 지금의 `current_row_latest` 가 여기로 옮겨 온다 | SCD Type 2 현재 뷰, Hudi record key + ordering field, DLT `SCD TYPE 2` |
-   | `Editions { edition_column, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다 | Kimball periodic snapshot |
+   | `Editions { edition_column, per, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다. `per` 가 열을 적으면 그 열의 값(묶음)마다 따로 가장 새 판이다 | Kimball periodic snapshot, 개체별 periodic snapshot |
    | `Events` | 행 하나가 사실 하나다. 모든 행이 현재다 | Kimball transaction fact, 원장·변경 이력 |
+
+   `Editions.per` 는 원천이 묶음마다 따로 판을 다시 낼 때 쓴다. 예를 들어 `silver.parcel_number_change_history` 는 시도마다
+   전체 이력 파일을 다시 낸다(2026-10-20 실측: 34 판, 판마다 파일 하나와 제공 날짜 하나). 묶음을 가리키는 열은 계약의 필수
+   열이어야 한다. 파일 이름이나 판 id 를 잘라 읽지 않는다. 판을 모두 남기므로(덧붙이기만 한다) `overwritePartitions` 와
+   달리 잃는 것이 없다. 독자의 `.distinct()` 처럼 판 겹침을 가리던 방법은 사라진다.
+
+   `Events` 표의 "현재"가 도메인 규칙으로 접은 결과일 때, 계약은 `canonical_reader` 로 그 함수 하나를 이름 짓는다.
+   예를 들어 `silver.parcel_lineage` 는 파생 후보와 담당자 결정을 쌓는다. 한 필지가 현재 행을 여럿 가질 수 있고, 결정은
+   파생 집합의 지문이 맞을 때만 그 집합을 대체한다(`lineage_review_queue.steward_resolved`). 이것은 정렬이 아니라 묶음을
+   접는 규칙이라 `LatestPerKey` 로 적을 수 없다. 독자는 모두 그 함수를 거친다. `current_rows` 와 같은 "읽는 곳은 하나"
+   규칙이고, 그 하나가 도메인 함수일 뿐이다. `canonical_reader` 는 행이 쌓이는 방식과 별개인 독자 선언이다.
 
    `Replaced` 의 `key` 는 `None` 일 수 있다. `Replaced` 에서만, 그리고 계약에 이유를 적을 때만이다(예: VWorld 토지
    레인 여섯은 원천이 키를 되풀이하고 행 번호가 없다, ADR-0090). 그런 표는 결정 4 의 키 유일성 시험을 건너뛴다.
@@ -93,7 +104,9 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
      `silver.administrative_boundaries` 의 판 전부를 차례로 읽는다). 이것도 선언된 접근점이다. 날 읽기가 아니다.
    - 판이 하나뿐이어야 한다는 독자의 단언(`assert_single_snapshot`)은 `current_rows` 의 `Editions/Newest` 로
      옮긴다(예: `silver.building_register_floors`).
-   - #809 의 가드는 "`current_row_latest` 가 있는 표"에서 "`Replaced`·`Events` 가 아닌 표"로 넓어진다.
+   - `canonical_reader` 를 적은 표의 독자는 그 함수를 거친다.
+   - #809 의 가드는 "`current_row_latest` 가 있는 표"에서 "`Replaced`·`Events` 가 아닌 표와 `canonical_reader` 를 적은 표"로
+     넓어진다.
      `newest_batch`·`newest_source_snapshot`·`newest_shared_vintage` 같은 사적 규칙은 이 두 함수로 대체되어
      사라진다.
    - dbt 는 렌더된 `foundation_current_rows` 매크로 하나로 읽는다(#809). 매크로는 네 값을 같은 뜻으로 렌더한다.
@@ -127,6 +140,10 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    같은 행을 고르는지 합성 데이터로 시험한다. 이 동등성 시험은 옮기는 독자 일곱 곳 모두에 필수다. 분류가 틀렸거나
    `Editions/Newest` 의 순서(`edition_column`)가 옛 순서(`valid_from_utc`·커밋 순서)와 다를 때 잡는 안전망이다.
 5. dbt 매크로와 키 유일성 시험(결정 4).
+6. `Editions.per` 와 `canonical_reader` 의 읽는 쪽: `current_rows` 가 `per` 를 다루고, `canonical_reader` 가드를 더하고,
+   `silver.parcel_number_change_history` 독자의 `.distinct()` 를 걷어 내고, 독자를 동등성 시험과 함께 옮긴다. 계보의
+   정본 독자는 접기 전에 (판 쌍, 후속 필지)마다 가장 새 파생 실행만 남긴다(2026-10-20 에는 시도마다 실행 하나라
+   겹침 0). 2 단계는 이 두 표도 분류한다. 둘 다 `Editions`·`Events` 라 쓰기 거부가 그 파이프라인을 깨지 않는다.
 
 ## Consequences
 
