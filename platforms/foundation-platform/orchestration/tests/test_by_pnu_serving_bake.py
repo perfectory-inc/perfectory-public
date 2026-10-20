@@ -41,6 +41,8 @@ command = sys.argv[1]
 env = {key: value for key, value in os.environ.items() if "_BY_PNU_SERVING_" in key}
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": command, "env": env}) + "\n")
+if os.environ.get("FAKE_EXIT_COMMAND") == command:
+    sys.exit(int(os.environ["FAKE_EXIT_CODE"]))
 lane = "PARCEL" if "parcel" in command else "BUILDING"
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
 if command.startswith("show-") and os.environ.get("FAKE_NOT_CUT_OVER") == command:
@@ -849,8 +851,9 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertNotIn("show-unit-price-by-pnu-serving-state", [call["command"] for call in calls])
         # The same exit from anything but the held lock is still a failure, in the job's own service too.
         self.log.unlink(missing_ok=True)
-        result, _ = self.patch_bake("all", FAKE_DELTA_EXIT="75", FOUNDATION_JOB_SERVICE="1")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
+        result, _ = self.bake("all", FAKE_GOLD="101", FAKE_EXIT_COMMAND="show-parcel-by-pnu-serving-state",
+                              FAKE_EXIT_CODE="75", FOUNDATION_JOB_SERVICE="1")
+        self.assertEqual(result.returncode, 75, result.stdout)
         self.assertTrue(result.stdout.splitlines()[-1].startswith("foundation-job-outcome failed parcel"), result.stdout)
         self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
 
