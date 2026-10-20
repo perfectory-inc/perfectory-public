@@ -162,10 +162,15 @@ jobs:
         run: bash scripts/lefthook/check-no-fake-pass.sh
       - name: Forbidden implementation markers
         run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
+      # Both hooks gate every push; their planted-violation tests never ran anywhere (ADR-0011).
+      - name: Hook guard planted-violation tests
+        run: |
+          bash scripts/lefthook/check-no-fake-pass.tests.sh
+          bash scripts/lefthook/check-forbidden-implementation-markers.tests.sh
       - name: Foundation ownership boundary
         run: bash scripts/lefthook/foundation-ownership-boundary.sh
-      - name: File size limit
-        run: bash scripts/lefthook/file-line-limit.sh
+      - name: File size limit (repo-guard)
+        run: cargo run -p repo-guard -- file-line-limit
       # The SP10 panel guards ran only in pre-commit until ADR-0149, and there they could not
       # match a path, so a framework->kind import sat on main. `--all` scans the whole tree; the
       # tests plant one violation per guard and require both modes to reject it.
