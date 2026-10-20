@@ -49,7 +49,7 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
         import gold_incremental as incremental
 
         outcome = incremental.Outcome(mode="full", row_count=len(rows), metrics={}, gold=self.frame(rows))
-        outcome.commit(self.spark, TABLE, {"silver.example": pin}, "overwrite")
+        outcome.commit(self.spark, TABLE, {"silver.example": pin}, "overwrite", contract_table="gold.parcel_panel")
         head = self.spark.sql(f"SELECT snapshot_id, operation, summary FROM {TABLE}.snapshots "
                               "ORDER BY committed_at DESC LIMIT 1").first()
         return outcome, str(head.snapshot_id), head.operation, dict(head.summary)
@@ -106,7 +106,7 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
 
         def commit(pin):
             outcome = incremental.Outcome(mode="full", row_count=len(ROWS), metrics={}, gold=self.frame(ROWS))
-            outcome.commit(self.spark, table, {"silver.example": pin}, "overwrite")
+            outcome.commit(self.spark, table, {"silver.example": pin}, "overwrite", contract_table="gold.parcel_panel")
             return outcome
 
         commit("11")

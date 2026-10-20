@@ -24,6 +24,7 @@ from lakehouse_engine import (
     iceberg_packages,
 )
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
     current_row_predicate,
@@ -983,6 +984,7 @@ class SparkWapRuntime:
                 "probe release PNUs already exist; rerun with a unique release UUID"
             )
         validate_geometry_rows([row.to_dict() for row in fixture.baseline_rows])
+        admit_write(LOGICAL_CONTRACT, "append", target=self.physical_table)
         for row in fixture.baseline_rows:
             self.spark.sql(_insert_row_sql(self.physical_table, row))
         base_snapshot = self.snapshot("main")
@@ -1009,6 +1011,7 @@ class SparkWapRuntime:
             sentinel_current_count=0,
         )
         validate_geometry_rows([fixture.main_advance_row.to_dict()])
+        admit_write(LOGICAL_CONTRACT, "append", target=self.physical_table)
         self.spark.sql(
             _insert_row_sql(self.physical_table, fixture.main_advance_row)
         )
@@ -1078,6 +1081,7 @@ class SparkWapRuntime:
             self._main_state(fixture),
             "publication branch base",
         )
+        admit_write(LOGICAL_CONTRACT, "append", target=self.physical_table, branch=branch)
         for statement in build_prepare_statements(
             self.catalog,
             self.namespace,
@@ -1125,6 +1129,7 @@ class SparkWapRuntime:
             historical_base_snapshot,
             base_snapshot,
         )
+        admit_write(LOGICAL_CONTRACT, "append", target=self.physical_table)
         self.spark.sql(
             build_fast_forward_sql(
                 self.catalog, self.namespace, self.table, branch

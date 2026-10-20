@@ -25,7 +25,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from platform_contracts import load_identity_from_value, load_unit
+from platform_contracts import admit_write, load_identity_from_value, load_unit
 
 # Written in the same Iceberg commit as the data files. `TOKEN` names the batch for a human
 # reading `<table>.snapshots`; `OBJECTS` is what the skip decision actually reads.
@@ -338,6 +338,7 @@ def append_batch_once(
     write_mode: str = "append",
     derivation: str | None = None,
     branch: str | None = None,
+    load_mode: str | None = None,
 ) -> dict[str, Any]:
     """Append this batch, or report that the table already holds it.
 
@@ -364,6 +365,10 @@ def append_batch_once(
     `main` in one commit, so readers never see part of it. Whether the batch is already held is
     asked of the branch, so a retried load continues where it stopped.
     """
+    # `load_mode` is the whole load's mode when it differs from this batch's: a replacing load
+    # writes its first batch with overwritePartitions and appends the rest (root ADR-0286).
+    admit_write(contract_table, "replace" if (load_mode or write_mode) == "overwrite" else "append",
+                target=qualified_table, branch=branch)
     record_ids = identities_under_derivation(
         batch_load_identities(frame, contract_table), derivation
     )
@@ -420,7 +425,8 @@ def append_batch_once(
     }
 
 
-def append_source_object(spark: Any, frame: Any, columns: Sequence[str], qualified_table: str, object_key: str) -> bool:
+def append_source_object(spark: Any, frame: Any, columns: Sequence[str], qualified_table: str, object_key: str,
+                         *, contract_table: str) -> bool:
     """Append one source object's rows in a commit that records the object, even with no rows.
 
     `append_batch_once` names a batch by the identities in its rows, so an object whose load
@@ -430,6 +436,7 @@ def append_source_object(spark: Any, frame: Any, columns: Sequence[str], qualifi
     itself, as `silver_release_compare` does. Returns False, writing nothing, when `main` already
     records it.
     """
+    admit_write(contract_table, "append", target=qualified_table)
     ingested = read_ingested_objects(spark, qualified_table, unquoted_table_name(qualified_table))
     if not decide_whether_to_append(ingested, [object_key]):
         return False

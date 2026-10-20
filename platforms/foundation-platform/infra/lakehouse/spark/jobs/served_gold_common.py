@@ -46,6 +46,7 @@ from typing import Any
 
 from lakehouse_engine import current_snapshot
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
     evolve_iceberg_table_to_contract,
@@ -354,6 +355,7 @@ def append_to_ledger(
             ],
             schema=contract_schema(LEDGER_CONTRACT),
         ).select(*LEDGER_COLUMNS).createOrReplaceTempView("map_edit_ledger_append")
+        admit_write(LEDGER_CONTRACT["table_name"], "append", target=ledger_table)
         spark.sql(f"INSERT INTO {ledger_table} SELECT {', '.join(LEDGER_COLUMNS)} FROM map_edit_ledger_append")
     ledger = [
         row.asDict()
