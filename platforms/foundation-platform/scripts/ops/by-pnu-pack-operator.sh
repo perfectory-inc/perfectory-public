@@ -121,7 +121,7 @@ record_start() {
   logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
 }
 ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
-USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -345,6 +345,33 @@ PY
       ;;
     *) refuse "${USAGE}" ;;
   esac
+fi
+
+if [[ "${LANE}" == job && "${ACTION}" == clear-refusal ]]; then
+  # A person decided a refusal on record may be cleared (runbook court-auction.md, root ADR-0281
+  # §3): the reason it held and who cleared it go to the journal before the file goes, so every
+  # clear can be read back. Works whether the job is on or off; only this job writes refusals.
+  JOB_ID="${1:-}"
+  (($# == 1)) || refuse "job clear-refusal takes one job id"
+  [[ "${JOB_ID}" == court_auction_collect ]] || refuse "only court_auction_collect records refusals to clear"
+  read -r JOB_UNIT JOB_STATE < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
+import json, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    if job["id"] == sys.argv[2]:
+        print(job["systemd_service"], (job.get("state_paths") or ["-"])[0])
+PY
+  ) || true
+  [[ -n "${JOB_UNIT:-}" && "${JOB_STATE:-}" == /* ]] || refuse "${JOB_ID} has no unit and state path in jobs.v1.json"
+  refuse_while_active "${JOB_UNIT}"
+  REFUSAL="${JOB_STATE}/collector/refused.json"
+  [[ -f "${REFUSAL}" ]] || refuse "no refusal on record (${REFUSAL}); nothing to clear" 66
+  held="$(python3 -I -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), sort_keys=True))' "${REFUSAL}" 2>/dev/null)" \
+    || held="unreadable: $(head -c 300 "${REFUSAL}" | tr -d '\n')"
+  logger -t foundation-operator-start -- "cleared ${JOB_ID} refusal ${held} ${START_REQUEST}" \
+    || refuse "cannot record the clear of ${JOB_ID} in the journal; the refusal stays" 70
+  rm -f -- "${REFUSAL}"
+  log "cleared the ${JOB_ID} refusal on record (${held}); the next run may start"
+  exit 0
 fi
 
 if [[ "${LANE}" == job ]]; then

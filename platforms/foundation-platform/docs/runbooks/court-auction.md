@@ -29,7 +29,9 @@ last_reviewed: 2026-10-19
 1. `journal.log` 와 `refused.json` 의 이유를 사장에게 보고한다.
 2. 원인을 확인한다. 우리 요청이 문제였으면(간격·시간대) 계약 값을 느리게 바꾸는 PR. 사이트가 자동 수집을 막기로 했으면
    사장이 결정한다(법원행정처 사용자지원센터 문의 등).
-3. 사람이 결정한 뒤에만 `refused.json` 을 지운다.
+3. 사람이 결정한 뒤에만 `refused.json` 을 지운다. 운영자 경로로 지우고, 지운 이유와 지운 사람은 저널에 남는다:
+   `ssh -tt ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job clear-refusal court_auction_collect --requested-at "$(date +%s)" --reason "<확인한 원인과 결정>"'`.
+   수집이 돌고 있으면 거부하고, 지울 거절이 없으면 66 으로 끝난다. 기록은 `journalctl -t foundation-operator-start` 에서 읽는다.
 
 ## 처음 켜기
 
