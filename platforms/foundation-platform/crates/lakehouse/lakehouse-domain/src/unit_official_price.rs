@@ -15,6 +15,7 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["vintage"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },

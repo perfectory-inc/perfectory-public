@@ -107,6 +107,7 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["provider_updated_on"],
         per: &["source_region_code"],
         read: LakehouseEditionRead::Newest,
     },

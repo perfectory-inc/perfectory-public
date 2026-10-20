@@ -298,7 +298,7 @@ def row_versions(contract: dict[str, Any]) -> dict[str, Any]:
     kind = value["kind"]
     named = {
         "replaced": list(value.get("key") or []),
-        "editions": [value.get("edition_column"), *(value.get("per") or [])],
+        "editions": [value.get("edition_column"), *(value.get("newest_first") or [None]), *(value.get("per") or [])],
     }.get(kind, [])
     if any(not isinstance(name, str) or name not in names for name in named):
         raise ValueError(f"lakehouse contract {table} row_versions must name its own columns: {named}")

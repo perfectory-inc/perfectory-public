@@ -329,9 +329,15 @@ class RowVersionsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must declare row_versions"):
             row_versions(missing)
         for broken in (
-            {"kind": "editions", "edition_column": "no_such_column", "per": [], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "per": ["no_such_column"], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "per": [], "read": "oldest"},
+            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["provider_updated_on"],
+             "per": [], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+             "per": ["no_such_column"], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+             "per": [], "read": "oldest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": [], "per": [], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["no_such_column"], "per": [],
+             "read": "newest"},
             {"kind": "replaced", "key": ["no_such_column"]},
             {"kind": "latest_per_key"},
             {"kind": "scd3"},

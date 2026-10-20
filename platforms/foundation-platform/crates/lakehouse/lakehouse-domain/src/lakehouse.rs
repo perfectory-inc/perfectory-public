@@ -72,8 +72,12 @@ pub enum LakehouseRowVersions {
     LatestPerKey(LakehouseCurrentRowLatest),
     /// A load appends one complete edition; a reader reads one. Kimball periodic snapshot.
     Editions {
-        /// The column naming a row's edition.
+        /// The column naming a row's edition: it groups rows into editions.
         edition_column: &'static str,
+        /// What orders the editions: each edition's maximum of these columns, compared in turn,
+        /// then the commit that appended it. Not the edition id, which is not in time order
+        /// (Hudi's ordering field, applied per edition).
+        newest_first: &'static [&'static str],
         /// Columns whose values each hold their own editions (empty: the table is one group).
         per: &'static [&'static str],
         /// Which edition a reader takes by default.
@@ -1944,6 +1948,7 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["valid_from_utc"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },
@@ -1982,6 +1987,7 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     current_row_predicate: Some("valid_to_utc IS NULL"),
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["valid_from_utc"],
         per: &[],
         read: LakehouseEditionRead::Pinned,
     },
@@ -2114,6 +2120,7 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["ingested_at_utc"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },
@@ -2578,6 +2585,7 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["ingested_at_utc"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },
@@ -2842,6 +2850,7 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "snapshot_date",
+        newest_first: &["snapshot_date"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },

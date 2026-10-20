@@ -47,6 +47,7 @@ pub const SILVER_REGISTERED_FACTORY: LakehouseTableContract = LakehouseTableCont
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
+        newest_first: &["ingested_at_utc"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },

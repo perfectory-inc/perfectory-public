@@ -140,11 +140,13 @@ fn row_versions_json(row_versions: &LakehouseRowVersions) -> Value {
         LakehouseRowVersions::LatestPerKey(_) => serde_json::json!({"kind": "latest_per_key"}),
         LakehouseRowVersions::Editions {
             edition_column,
+            newest_first,
             per,
             read,
         } => serde_json::json!({
             "kind": "editions",
             "edition_column": edition_column,
+            "newest_first": newest_first,
             "per": per,
             "read": match read {
                 LakehouseEditionRead::Newest => "newest",

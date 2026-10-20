@@ -10,6 +10,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "vintage",
+        "newest_first": [
+          "vintage"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -359,6 +362,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "valid_from_utc"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -490,6 +496,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "ingested_at_utc"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -585,6 +594,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "valid_from_utc"
+        ],
         "per": [],
         "read": "pinned"
       },
@@ -1082,6 +1094,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "ingested_at_utc"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -3370,6 +3385,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "vintage",
+        "newest_first": [
+          "vintage"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -3491,6 +3509,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "vintage"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -3948,6 +3969,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "snapshot_date",
+        "newest_first": [
+          "snapshot_date"
+        ],
         "per": [],
         "read": "newest"
       },
@@ -4127,6 +4151,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "provider_updated_on"
+        ],
         "per": [
           "source_region_code"
         ],
@@ -4748,6 +4775,9 @@
       "row_versions": {
         "kind": "editions",
         "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "ingested_at_utc"
+        ],
         "per": [],
         "read": "newest"
       },
