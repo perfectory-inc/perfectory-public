@@ -54,8 +54,13 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    |---|---|---|
    | `Replaced { key }` | 키마다 한 행. 적재가 자기가 덮는 행을 바꾼다(표 전체, 또는 `overwritePartitions`·`MERGE` 가 닿는 파티션·키) | SCD Type 1, DLT `SCD TYPE 1` |
    | `LatestPerKey { key, newest_first, removal_column, keep_ties }` | 키마다 버전을 쌓고 가장 새 행이 현재다. 지금의 `current_row_latest` 가 여기로 옮겨 온다 | SCD Type 2 현재 뷰, Hudi record key + ordering field, DLT `SCD TYPE 2` |
-   | `Editions { edition_column, per, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다. `per` 가 열을 적으면 그 열의 값(묶음)마다 따로 가장 새 판이다 | Kimball periodic snapshot, 개체별 periodic snapshot |
+   | `Editions { edition_column, newest_first, per, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다 | Kimball periodic snapshot, 개체별 periodic snapshot; 판의 순서는 Hudi 의 precombine(ordering) field 를 판 단위로 쓴 것 |
    | `Events` | 행 하나가 사실 하나다. 모든 행이 현재다 | Kimball transaction fact, 원장·변경 이력 |
+
+   `Editions` 의 세 칸은 역할이 다르다. `edition_column` 은 행을 판으로 묶는다. `newest_first`(필수)는 판의 순서를
+   정한다: 판마다 이 열들의 최댓값을 차례로 비교하고, 그래도 같으면 그 판을 덧붙인 커밋 순서(스냅숏 순번)로 정한다.
+   판 id 는 시간 순이 아니다(`vworldkr__sandan_boundary-30137-1`, 묶음 해시). 그래서 순서를 판 id 에 맡기지 않는다.
+   `per` 는 열을 적으면 그 값(묶음)마다 따로 가장 새 판을 고른다.
 
    `Editions.per` 는 원천이 묶음마다 따로 판을 다시 낼 때 쓴다. 예를 들어 `silver.parcel_number_change_history` 는 시도마다
    전체 이력 파일을 다시 낸다(2026-10-20 실측: 34 판, 판마다 파일 하나와 제공 날짜 하나). 묶음을 가리키는 열은 계약의 필수
@@ -102,7 +107,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    - `platform_contracts.current_rows(frame, contract)` 는 네 값을 모두 다룬다.
      - `Replaced`·`Events`: 그대로 둔다.
      - `LatestPerKey`: 지금 규칙(ADR-0267·0275) 그대로다.
-     - `Editions/Newest`: 가장 새 판의 행만 남긴다. 순서는 `edition_column` 이고, 같으면 커밋 순서다.
+     - `Editions/Newest`: 가장 새 판의 행만 남긴다. 순서는 `newest_first` 의 판별 최댓값이고, 같으면 커밋 순서다.
    - `Editions/Pinned` 은 `current_rows` 가 거부한다. 독자는 `pinned_edition(frame, contract, edition)` 으로 판을 받는다.
    - 모든 판을 이력으로 읽는 독자는 `all_editions(frame, contract)` 로 읽는다(예: `place_id_release_to_gold` 가
      `silver.administrative_boundaries` 의 판 전부를 차례로 읽는다). 이것도 선언된 접근점이다. 날 읽기가 아니다.
@@ -140,6 +145,10 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    시험한다. 계약 열이 바뀌므로 운영 표 모양 원장(ADR-0259)에 줄을 더하고 CI 가 원장에 대어 본다. 2 단계보다 먼저
    병합해서, 2 단계가 이 표를 처음부터 `Editions { per: [source_region_code] }` 로 적게 한다. 없는 열을 가리키거나 틀린
    묶음을 잠시라도 싣는 단계는 없다.
+1c. `silver.unit_official_price` 에 필수 열 `vintage` 를 더한다. 쓰는 쪽이 채우고, 있는 행은 잡이 이미 쓰는
+   `batch_vintage(source_snapshot_id)` 로 백필한다. 판의 순서를 정할 열이 이 표에는 없었다(`newest_batch` 는 판 id 를
+   잘라 읽었다). 1b 처럼 2 단계보다 먼저 병합해서 2 단계가 처음부터 `newest_first: [vintage]` 로 적게 한다. 순서를 커밋
+   순서에만 맡기는 임시 규칙은 두지 않는다: 옛 vintage 를 다시 조인하면 틀린 판을 고른다.
 2. Rust: `row_versions` 필드를 더하고 계약 48개를 분류한다. 각 분류의 근거는 그 표를 쓰는 코드다(쓰기 방식,
    묶음의 판 열). 산출물을 다시 렌더한다. 표 모양은 바뀌지 않으므로 운영 표 모양 원장(ADR-0259)은 그대로다.
    네 값 중 어디에도 깔끔히 맞지 않는 표가 나오면 그 PR 은 멈추고 검토자에게 올린다. 억지로 맞추지 않는다:
@@ -147,7 +156,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 3. 덧붙이는 함수의 거부, 날 SQL·직접 `writeTo` 덧붙임의 이전, 쓰기 경로 가드, 레인 계약 시험(결정 2).
 4. `current_rows` 의 `Editions` 처리와 `pinned_edition`. 다섯 표의 독자를 옮긴다(결정 3). 독자마다 옛 사적 규칙과
    같은 행을 고르는지 합성 데이터로 시험한다. 이 동등성 시험은 옮기는 독자 일곱 곳 모두에 필수다. 분류가 틀렸거나
-   `Editions/Newest` 의 순서(`edition_column`)가 옛 순서(`valid_from_utc`·커밋 순서)와 다를 때 잡는 안전망이다.
+   `Editions/Newest` 의 순서(`newest_first`)가 옛 사적 순서와 다를 때 잡는 안전망이다.
 5. dbt 매크로와 키 유일성 시험(결정 4).
 6. `Editions.per` 와 `canonical_reader` 의 읽는 쪽: `current_rows` 가 `per` 를 다루고, `canonical_reader` 가드를 더하고,
    `silver.parcel_number_change_history` 독자의 `.distinct()` 를 걷어 내고, 독자를 동등성 시험과 함께 옮긴다. 계보의
@@ -159,8 +168,9 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 - 표를 새로 만드는 사람은 행이 어떻게 쌓이는지 정해야 한다. 정하지 않으면 컴파일되지 않는다. 10-16 의 결함은
   계약 단계에서 막힌다.
 - 독자가 판이나 버전을 고르는 사적 규칙이 사라진다. 다섯 표의 독자 일곱 곳이 옮겨 간다.
-- `Editions/Newest` 의 "가장 새 판"은 `edition_column` 순서다. 지금 `newest_source_snapshot` 은 `valid_from_utc`
-  를, `newest_batch` 는 커밋 순서를 쓴다. 단계 4 에서 표마다 같은 판을 고르는지 증명한 뒤에 옮긴다.
+- `Editions/Newest` 의 "가장 새 판"은 `newest_first` 순서다. 표마다 지금의 사적 순서를 그대로 옮긴다
+  (`newest_source_snapshot` 은 `valid_from_utc`, 행정경계 서빙본은 `ingested_at_utc`, 허브 두 표는 `vintage`).
+  단계 4 에서 표마다 같은 판을 고르는지 증명한 뒤에 옮긴다.
 - `current_row_latest` 는 산출물에서 이행 기간 동안 파생값으로 남는다. 독자가 모두 `row_versions` 를 읽으면 지운다.
 - 부채(추적): 폐지된 시도 코드의 마지막 판은 `per` 묶음의 "가장 새 판"으로 계속 남는다(2026-07 개편의 42·45·29·46).
   지금 동작과 같아서 퇴행은 아니다. 시도 코드가 폐지되면 `reference.legal_dong_code_change` 로 그 묶음의 판을 은퇴시키는
