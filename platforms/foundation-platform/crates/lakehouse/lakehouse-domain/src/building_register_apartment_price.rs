@@ -104,6 +104,7 @@ pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE: LakehouseTableContract =
         current_row_predicate: None,
         row_versions: LakehouseRowVersions::Editions {
             edition_column: "vintage",
+            newest_first: &["vintage"],
             per: &[],
             read: LakehouseEditionRead::Newest,
         },

@@ -22,9 +22,17 @@ fn named(contract: &LakehouseTableContract) -> (Vec<&'static str>, Vec<&'static 
         }
         LakehouseRowVersions::Editions {
             edition_column,
+            newest_first,
             per,
             ..
-        } => ([&[edition_column], per].concat(), Vec::new()),
+        } => {
+            assert!(
+                !newest_first.is_empty(),
+                "{}: an edition order is required",
+                contract.table_name
+            );
+            ([&[edition_column], newest_first, per].concat(), Vec::new())
+        }
         LakehouseRowVersions::Events { .. } => (Vec::new(), Vec::new()),
     }
 }
