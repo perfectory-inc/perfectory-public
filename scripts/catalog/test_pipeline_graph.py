@@ -15,6 +15,12 @@ def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="")
 
 
+def strip_resolver(graph: dict) -> None:
+    """Take the place-identity resolver off the 공매 parcel edge (ADR-0288 §1)."""
+    edge = next(e for e in graph["edges"] if e["id"] == "source-data-go-kr-onbid-to-silver-onbid-real-estate-item")
+    edge["via"] = [step for step in edge["via"] if "place_identity_resolver" not in step and "address_pnu" not in step]
+
+
 def main() -> None:
     baseline = load_json(ROOT / GRAPH)
     with tempfile.TemporaryDirectory(prefix="pipeline-graph-self-test-") as temporary:
@@ -47,6 +53,7 @@ def main() -> None:
             ("(d) dangling edge", "edge endpoints", lambda g: g["edges"][0].update(to="does-not-exist")),
             ("missing executable", "edge via", lambda g: g["edges"][0].pop("via")),
             ("invented executable", "unknown via", lambda g: g["edges"][0].update(via=["invented-command"])),
+            ("parcel source skips the resolver", "skips the place-identity resolver", strip_resolver),
             ("wrong source selector", "edge source selector", lambda g: next(e for e in g["edges"] if "source_slugs" in e).update(source_slugs=["nonexistent-source"])),
             ("(a) extra source group", "source groups", lambda g: next(n for n in g["nodes"] if n["type"] == "source_group").update(endpoint_catalog_group="nonexistent-group")),
             ("(a) duplicate source group", "source groups", lambda g: g["nodes"].append({**next(n for n in g["nodes"] if n["type"] == "source_group"), "id": "extra-group"})),

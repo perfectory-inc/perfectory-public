@@ -17,6 +17,13 @@ ENDPOINTS = FOUNDATION / "docs/catalog/public-source-endpoint-catalog.v1.json"
 CONTRACTS = FOUNDATION / "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
 SCHEMA_VERSION = 2
 DATA_RELATION = "feeds"
+# ADR-0288 §1: a parcel source (a silver table carrying `pnu`, fed from a source) reaches the current
+# pnu only through the one place-identity resolver, never by copying the source code. These are the
+# via steps that count as that resolver (address_pnu is 경매's path, converging under ADR-0288 §3).
+RESOLVER_VIA = {
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
+}
 NODE_TYPES = {"source_group", "silver_table", "gold_table", "reference_table", "serving_group", "serving_surface"}
 TABLE_TYPES = {"silver_table", "gold_table", "reference_table"}
 
@@ -84,6 +91,13 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     contracts = load_json(root / CONTRACTS)["contracts"]
     expected_groups = {e["group"] for e in endpoints}
     expected_contracts = {c["table_name"] for c in contracts.values()}
+    columns_by_table = {c["table_name"]: {col["name"] for col in c.get("columns", [])} for c in contracts.values()}
+    # A table that resolves pnu at silver-load keeps the raw reference it resolved from (`*_pnu_raw`)
+    # or the resolution basis (`pnu_basis`/`pnu_unresolved_reason`); a pre-composed pnu (hub/VWorld,
+    # resolved upstream in Rust) has neither. Only the former must go through the resolver here.
+    resolves_at_load = {name for name, cols in columns_by_table.items()
+                        if "pnu" in cols and (cols & {"pnu_basis", "pnu_unresolved_reason"}
+                                              or any(c.endswith("_pnu_raw") for c in cols))}
     expected_serving = migration_tables(root)
     problems = []
 
@@ -140,7 +154,12 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
                 if step not in commands and not (root / step).is_file():
                     problems.append(f"unknown via {step!r}: {edge['id']}")
         source = by_id[edge["from"]]
+        target = by_id[edge["to"]]
         selected = edge.get("source_slugs")
+        if (source["type"] == "source_group" and edge.get("relation") == DATA_RELATION
+                and target.get("table_name") in resolves_at_load
+                and not (isinstance(via, list) and set(via) & RESOLVER_VIA)):
+            problems.append(f"parcel source edge skips the place-identity resolver: {edge['id']}")
         if source["type"] == "source_group" and edge.get("relation") == DATA_RELATION:
             allowed = {e["bronze"]["source_slug"] for e in endpoints if e["group"] == source["endpoint_catalog_group"]}
             if not isinstance(selected, list) or not selected or not set(selected) <= allowed:
