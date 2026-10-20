@@ -14,6 +14,8 @@ JOBS_DIR = SPARK_DIR / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
 
 from platform_contracts import (  # noqa: E402
+    WriteRefused,
+    admit_write,
     CONTRACTS_PATH_ENV,
     column_names,
     current_row_latest,
@@ -225,6 +227,84 @@ def readers_bypassing_current_rows(jobs: Path, graph: dict, tables: set[str]) ->
     return found
 
 
+# A statement or call that changes an Iceberg table (root ADR-0286 stage 3). SQL keywords are
+# matched in upper case, as the jobs write them, so prose in a help string does not count.
+WRITE_SQL = re.compile(
+    r"\b(INSERT\s+(INTO|OVERWRITE)|MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|"
+    r"CALL\s+\S*system\.(fast_forward|cherrypick_snapshot|rollback_to_snapshot|set_current_snapshot))\b"
+)
+WRITE_CALLS = {"writeTo", "saveAsTable", "insertInto"}
+
+
+def docstring_ids(tree: ast.AST) -> set[int]:
+    return {
+        id(node.body[0].value) for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+    }
+
+
+def strings_of(function: ast.AST, docs: set[int]) -> list[str]:
+    """The string literals of a function, an f-string read with `{}` where it interpolates."""
+    inside = {id(part) for node in ast.walk(function) if isinstance(node, ast.JoinedStr) for part in node.values}
+    texts = []
+    for node in ast.walk(function):
+        if isinstance(node, ast.JoinedStr):
+            texts.append("".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs | inside:
+            texts.append(node.value)
+    return texts
+
+
+def called_name(node: ast.Call) -> str | None:
+    return getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+
+
+def unadmitted_writes(jobs: Path) -> list[str]:
+    """`module.function` for every job function that writes an Iceberg table, or builds the SQL
+    that does, without the write being admitted by `platform_contracts.admit_write`.
+
+    A function is admitted when it calls `admit_write`. A builder that only returns a statement
+    (it runs no `sql` and no writer) is admitted when it has callers and every one is admitted;
+    a call binds to the caller's own module first. shortcut: an admitted caller vouches for a
+    builder whichever table it admitted; upgrade to a per-table data-flow check if a builder ever
+    serves two tables.
+    """
+    functions = []
+    for path in sorted(jobs.glob("*.py")):
+        if path.name == "platform_contracts.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docs = docstring_ids(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                called = {called_name(n) for n in ast.walk(node) if isinstance(n, ast.Call)}
+                writes = bool(WRITE_CALLS & called) or any(WRITE_SQL.search(t) for t in strings_of(node, docs))
+                # A function that runs a statement or a writer answers for it itself; only a builder
+                # that returns one leans on its callers.
+                runs = bool(({"sql"} | WRITE_CALLS) & called)
+                functions.append((f"{path.stem}.{node.name}", node.name, called, writes, runs))
+    defined = {(qualified.split(".")[0], name) for qualified, name, *_ in functions}
+
+    def calls(caller: str, called: set, name: str, module: str) -> bool:
+        # A call binds to the caller's own module first, then to a function another module defines.
+        home = caller.split(".")[0]
+        return name in called and (home == module or (home, name) not in defined)
+
+    admitted = {qualified for qualified, _, called, *_ in functions if "admit_write" in called}
+    changed = True
+    while changed:
+        changed = False
+        for qualified, name, _, _, runs in functions:
+            module = qualified.split(".")[0]
+            callers = [other for other, _, called, *_ in functions
+                       if calls(other, called, name, module) and other != qualified]
+            if not runs and qualified not in admitted and callers and all(caller in admitted for caller in callers):
+                admitted.add(qualified)
+                changed = True
+    return sorted(qualified for qualified, _, _, writes, _ in functions if writes and qualified not in admitted)
+
+
 class CurrentRowRuleTest(unittest.TestCase):
     """A versioned table's contract says which row is current (root ADR-0267, ADR-0275), and every
     reader takes it through `current_rows`, not a filter of its own.
@@ -344,6 +424,107 @@ class RowVersionsTest(unittest.TestCase):
         ):
             with self.subTest(broken=broken), self.assertRaises(ValueError):
                 row_versions({**contract, "row_versions": broken})
+
+
+class WriterAdmissionTest(unittest.TestCase):
+    """Root ADR-0286 stage 3: a write follows the table's `row_versions`, and every write asks."""
+
+    def test_a_table_takes_only_the_writes_its_declaration_allows(self) -> None:
+        main = "`c`.`{}`.`{}`"
+        allowed = (
+            ("gold.parcel_panel", "replace", {}),
+            ("silver.court_auction_item", "append", {}),
+            ("silver.unit_official_price", "append", {}),
+            ("silver.map_edit_ledger", "append", {}),
+            # A replacing load's batches stage on a branch; a smoke copy is the load's own.
+            ("silver.land_transfer_history", "replace", {"branch": "load-1"}),
+            ("silver.building_register_floors", "replace", {"target": "c.silver.building_register_floors_smoke"}),
+            # No row the declaration speaks about changes.
+            ("silver.court_auction_item", "rewrite", {}),
+            ("gold.parcel_panel", "record", {}),
+        )
+        for table, intent, where in allowed:
+            with self.subTest(table=table, intent=intent, where=where):
+                admit_write(table, intent, **{"target": main.format(*table.split(".")), **where})
+        refused = (
+            ("gold.parcel_panel", "append", "is Replaced"),
+            ("silver.building_register_units", "append", "is Replaced"),
+            ("silver.court_auction_item", "replace", "keeps every row"),
+            ("silver.parcel_number_change_history", "replace", "keeps every row"),
+            ("silver.parcel_lineage", "replace", "keeps every row"),
+            ("silver.complex_parcel_memberships", "append", "Unwritten"),
+            ("silver.complex_parcel_memberships", "record", "Unwritten"),
+        )
+        for table, intent, message in refused:
+            with self.subTest(table=table, intent=intent), self.assertRaisesRegex(WriteRefused, message):
+                admit_write(table, intent, target=main.format(*table.split(".")))
+        with self.assertRaisesRegex(ValueError, "write intent"):
+            admit_write("gold.parcel_panel", "upsert")
+
+    def test_every_iceberg_write_in_the_jobs_is_admitted(self) -> None:
+        self.assertEqual(unadmitted_writes(JOBS_DIR), [])
+
+    def test_the_write_guard_refuses_each_way_around_the_admission(self) -> None:
+        jobs = {
+            # The three paths that did not go through the shared writers on 2026-10-20.
+            "raw_insert.py": 'def load(spark, table):\n    spark.sql(f"INSERT INTO {table} SELECT * FROM staged")\n',
+            "direct_append.py": "def load(frame, table):\n    frame.writeTo(table).append()\n",
+            "own_source_object.py": (
+                "def append_source_object(spark, frame, table, key):\n"
+                "    writer = frame.writeTo(table)\n    writer = writer.option('k', key)\n    writer.append()\n"
+            ),
+            "update.py": 'def close(spark, table):\n    spark.sql(f"UPDATE {table} SET valid_to_utc = now()")\n',
+            "fast_forward.py": 'def publish(spark, c, t):\n    spark.sql(f"CALL {c}.system.fast_forward(\'{t}\', \'b\')")\n',
+            # A builder run by a function that does not ask.
+            "builder.py": (
+                'def statement(table):\n    return f"INSERT OVERWRITE {table} SELECT * FROM v"\n'
+                "def run(spark, table):\n    spark.sql(statement(table))\n"
+            ),
+            # Admitted: directly, and a builder run only by an admitted caller.
+            "admitted.py": (
+                'def load(spark, table):\n    admit_write("silver.map_edit_ledger", "append", target=table)\n'
+                '    spark.sql(f"INSERT INTO {table} SELECT * FROM staged")\n'
+                'def statement(table):\n    return f"MERGE INTO {table} t USING s ON t.k = s.k"\n'
+                'def merge(spark, table):\n    admit_write("gold.parcel_panel", "replace", target=table)\n'
+                "    spark.sql(statement(table))\n"
+            ),
+            # A shared helper that runs a write answers for it itself, whatever its callers admitted
+            # (the shape of the map edit ledger's append beside each served Gold's own write).
+            "shared_helper.py": (
+                'def append_rows(spark, table):\n    spark.sql(f"INSERT INTO {table} SELECT * FROM v")\n'
+                'def main(spark):\n    admit_write("gold.parcel_panel", "replace", target="t")\n'
+                '    append_rows(spark, "ledger")\n'
+            ),
+            # Prose is not SQL.
+            "prose.py": 'def help_text():\n    return "insert into the table, then update the set"\n',
+        }
+        with TemporaryDirectory() as tmp:
+            for name, text in jobs.items():
+                (Path(tmp) / name).write_text(text, encoding="utf-8")
+            self.assertEqual(unadmitted_writes(Path(tmp)), [
+                "builder.statement", "direct_append.load", "fast_forward.publish",
+                "own_source_object.append_source_object", "raw_insert.load", "shared_helper.append_rows",
+                "update.close",
+            ])
+
+    def test_a_lane_overwrites_only_a_replaced_table_or_compares_into_an_appended_one(self) -> None:
+        contracts = load_lakehouse_artifact()["contracts"]
+        lanes = sorted((SPARK_DIR.parent / "contracts").glob("*-source-objects.json"))
+        checked = 0
+        for path in lanes:
+            refresh = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
+            if not refresh:
+                continue
+            kind = row_versions(contracts[refresh["table"]])["kind"]
+            mode = refresh["spark"]["iceberg_write_mode"]
+            with self.subTest(lane=path.name, kind=kind, mode=mode):
+                checked += 1
+                if mode == "overwrite":
+                    # A compare lane stages the release on a branch and appends only its changes.
+                    self.assertTrue(kind == "replaced" or "compare" in refresh)
+                else:
+                    self.assertNotEqual(kind, "replaced")
+        self.assertGreater(checked, 0)
 
 
 class JsonlTransportContractTest(unittest.TestCase):

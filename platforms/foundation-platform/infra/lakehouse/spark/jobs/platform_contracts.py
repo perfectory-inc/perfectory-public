@@ -309,6 +309,44 @@ def row_versions(contract: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+# What a write does to the table's main: add rows, replace the rows it covers, commit no rows to
+# record a snapshot property, or rewrite the same rows (a schema migration's backfill).
+WRITE_INTENTS = ("append", "replace", "record", "rewrite")
+
+
+class WriteRefused(ValueError):
+    """The table's contract does not allow this write (root ADR-0286)."""
+
+
+def admit_write(contract_table: str, intent: str, *, target: str | None = None, branch: str | None = None) -> None:
+    """Refuse a write the table's `row_versions` does not allow, before anything is written.
+
+    Every Iceberg write in a job calls this first; a guard refuses a write that does not (root
+    ADR-0286 stage 3). A `Replaced` table's load replaces what it covers and never appends; every
+    other table only appends, since replacing it would drop the versions, editions or facts it
+    keeps; an `Unwritten` table takes no write at all. A staging write (a branch other than
+    `main`, or a target that is not the contract's table, such as a `_smoke` copy) is the load's
+    own and not checked against the declaration. `record` (no rows) and `rewrite` (the same
+    rows) change no row the declaration speaks about.
+    """
+
+    if intent not in WRITE_INTENTS:
+        raise ValueError(f"write intent must be one of {WRITE_INTENTS}, not {intent!r}")
+    declared = row_versions(load_lakehouse_contract(contract_table))
+    kind = declared["kind"]
+    if kind == "unwritten":
+        raise WriteRefused(f"{contract_table} is Unwritten ({declared.get('reason')}): declare how its rows pile up first")
+    staging = branch not in (None, "main") or (
+        target is not None and target.replace("`", "").split(".")[-2:] != contract_table.split(".")
+    )
+    if staging or intent in ("record", "rewrite"):
+        return
+    if kind == "replaced" and intent == "append":
+        raise WriteRefused(f"{contract_table} is Replaced: a load replaces the rows it covers, it does not append")
+    if kind != "replaced" and intent == "replace":
+        raise WriteRefused(f"{contract_table} keeps every row ({kind}): a load appends, it does not replace")
+
+
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
     """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""
 

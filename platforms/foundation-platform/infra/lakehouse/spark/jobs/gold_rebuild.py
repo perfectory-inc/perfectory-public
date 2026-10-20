@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 import section_coverage
+from platform_contracts import admit_write
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
 SOURCE_SNAPSHOTS_PROPERTY = "foundation.source-iceberg-snapshots"
@@ -482,13 +483,18 @@ def pins_property_value(pins: dict[str, str]) -> str:
 
 
 def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any,
-                        properties: dict[str, str] | None = None) -> None:
+                        properties: dict[str, str] | None = None, *, contract_table: str,
+                        record: bool = False) -> None:
     """Commit `frame` to `table` with the Silver pins it was built from in the snapshot summary.
 
     `overwrite` replaces every row in one new snapshot (the old one stays in the history, as with
     INSERT OVERWRITE); `append` adds one. `everything` is the always-true filter (F.lit(True)).
     `properties` are further snapshot summary entries (the content fingerprint, root ADR-0274).
+    `record` says the frame holds no row: the commit only records its properties (root ADR-0286).
     """
+    if mode not in ("overwrite", "append"):
+        raise ValueError(f"unknown Iceberg write mode {mode}")
+    admit_write(contract_table, "record" if record else "replace" if mode == "overwrite" else "append", target=table)
     writer = frame.writeTo(table)
     if pins:
         writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{SOURCE_SNAPSHOTS_PROPERTY}", pins_property_value(pins))

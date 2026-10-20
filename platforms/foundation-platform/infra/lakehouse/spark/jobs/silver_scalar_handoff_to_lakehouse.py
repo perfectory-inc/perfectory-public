@@ -776,6 +776,7 @@ def write_silver_iceberg(
         write_mode=write_mode,
         derivation=derivation,
         branch=getattr(args, "iceberg_branch", None),
+        load_mode=args.iceberg_write_mode,
     )
 
 
