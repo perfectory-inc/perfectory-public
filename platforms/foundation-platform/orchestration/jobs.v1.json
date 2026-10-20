@@ -802,8 +802,8 @@
         "source-vworld-dataset-to-silver-industrial-complex-boundaries",
         "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0240). Off until its first supervised run on the data host (runbook complex-boundary-release.md) has answered `unchanged reason=already_loaded` for the file Silver holds, or loaded a newer one within the unit's 2-hour limit; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-20T02:15:00Z"
     },
     {
       "id": "parcel_served_gold",
