@@ -871,8 +871,7 @@
       "pipeline_graph_edges": [
         "silver-onbid-real-estate-item-to-gold-parcel-public-sale"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0287). Off until the owner approves the cost of the first 공매 bake and publish (pre-launch rule; estimate in perfectory-ops) and the operator's first publish of parcel-public-sale has passed its gates; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true
     },
     {
       "id": "gold_kind_rebuild",
