@@ -467,7 +467,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
-            for name in ("gold_panel_rebuild", "gold_kind_rebuild"):
+            for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_sale_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
                                         "that writes them (gold_panel_rebuild, gold_public_sale_rebuild, "
