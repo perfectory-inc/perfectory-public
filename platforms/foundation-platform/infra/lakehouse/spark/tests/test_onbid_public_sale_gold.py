@@ -92,6 +92,18 @@ class PlacementSparkTest(unittest.TestCase):
             ("X-3", STRANDED, job.LINEAGE_MISSING),         # no path: kept, flagged, never dropped
         ]))
 
+    def test_a_sale_on_a_parcel_merged_into_a_current_one_is_added_to_it(self):
+        # ADR-0287 §3: the carry never crosses a merge (one attribute, several originals); a sale is
+        # added, so the merged land shows it, labelled; a link not yet in effect is not followed.
+        current = self.spark.createDataFrame([(CURRENT,)], "pnu string")
+        merges = self.spark.createDataFrame([
+            (RETIRED, CURRENT, "official"), (STRANDED, CURRENT, "needs_review")],
+            "predecessor_pnu string, successor_pnu string, grade string")
+        where = {(r.cltr_mng_no, r.pnu, r.attached_via)
+                 for r in job.placed(job.rounds(self.items()), current, None, merges).collect()}
+        self.assertEqual(where, {("X-1", CURRENT, None), ("X-2", CURRENT, "merged:official"),
+                                 ("X-3", STRANDED, job.LINEAGE_MISSING)})
+
     def test_without_lineage_every_retired_sale_is_kept_and_flagged(self):
         current = self.spark.createDataFrame([(CURRENT,)], "pnu string")
         placed = {(r.cltr_mng_no, r.pnu, r.attached_via) for r in job.placed(job.rounds(self.items()), current, None).collect()}

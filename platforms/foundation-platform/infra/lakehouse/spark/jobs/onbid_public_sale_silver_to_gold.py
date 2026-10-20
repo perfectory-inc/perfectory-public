@@ -11,8 +11,12 @@ Which PNU a sale belongs to:
   removal marker repeats the last row, so a closed round keeps the PNU it was listed under;
 - a bid result has no PNU of its own: it takes its round's;
 - a sale whose PNU is no longer a current parcel follows the parcel lineage to every current
-  successor (`parcel_attribute_carry`, the panel's candidates: identity chains and re-lotting, never
-  a merge), in addition to whatever the successor holds itself, with the path in `attached_via`;
+  successor (`parcel_attribute_carry`, the panel's candidates: identity chains and re-lotting), in
+  addition to whatever the successor holds itself, with the path in `attached_via`;
+- a sale on a parcel that merged into a current parcel is added to that parcel (`merged:<grade>`).
+  The carry candidates never cross a merge because one attribute cannot come from several
+  originals; a sale is added, not chosen, so the merged land shows each predecessor's sale. One
+  merge hop into a current parcel; a link not yet in effect (needs_review, pending) is not followed;
 - a retired PNU with no lineage path keeps the sale under itself, flagged `lineage_missing`. A sale
   is never dropped.
 
@@ -36,6 +40,8 @@ KEY = ("cltr_mng_no", "pbct_cdtn_no")
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
 REMOVED = "removed"
 LINEAGE_MISSING = "lineage_missing"
+# Lineage grades not yet in effect (root ADR-0113 §4): never followed.
+NOT_IN_EFFECT = ("needs_review", "pending")
 # The datasets a served round comes from (data.go.kr ids), carried so the screen can name its source.
 SOURCE_DATASETS = ("data.go.kr:15157207", "data.go.kr:15157254")
 # One document's ceiling (root ADR-0193): rounds beyond it are dropped from the document, latest
@@ -87,10 +93,12 @@ def result_rounds(results: Any, round_rows: Any) -> Any:
     return latest.join(round_rows.select(*KEY, "source_pnu"), list(KEY), "left")
 
 
-def placed(sales: Any, current_pnus: Any, candidates: Any | None) -> Any:
+def placed(sales: Any, current_pnus: Any, candidates: Any | None, merges: Any | None = None) -> Any:
     """`sales` (rows with `source_pnu`) placed on the PNUs they are served under: `pnu` and
     `attached_via` (null under its own current PNU, the lineage path under a successor,
-    `lineage_missing` under a retired PNU no path leaves). Sales without a PNU are not placed."""
+    `merged:<grade>` under the current parcel it merged into, `lineage_missing` under a retired PNU
+    no path leaves). `merges` are the lineage's merge links (`predecessor_pnu`, `successor_pnu`,
+    `grade`). Sales without a PNU are not placed."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     current = current_pnus.select(F.col("pnu").alias("source_pnu")).distinct().withColumn("_current", F.lit(True))
@@ -104,6 +112,13 @@ def placed(sales: Any, current_pnus: Any, candidates: Any | None) -> Any:
         successors = (candidates.join(current_pnus.select(F.col("pnu").alias("successor_pnu")).distinct(), "successor_pnu")
                       .select("source_pnu", F.col("successor_pnu").alias("pnu"), F.col("path").alias("attached_via")))
         followed = retired.join(successors, "source_pnu")
+    if merges is not None:
+        into = (merges.where(~F.col("grade").isin(*NOT_IN_EFFECT))
+                .join(current_pnus.select(F.col("pnu").alias("successor_pnu")).distinct(), "successor_pnu")
+                .select(F.col("predecessor_pnu").alias("source_pnu"), F.col("successor_pnu").alias("pnu"),
+                        F.concat(F.lit("merged:"), F.col("grade")).alias("attached_via")).distinct())
+        unfollowed = retired.join(followed.select("source_pnu").distinct(), "source_pnu", "left_anti")
+        followed = followed.unionByName(unfollowed.join(into, "source_pnu"))
     stranded = (retired.join(followed.select("source_pnu").distinct(), "source_pnu", "left_anti")
                 .withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(LINEAGE_MISSING)))
     columns = [c for c in own.columns if c != "_current"]
