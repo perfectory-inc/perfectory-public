@@ -84,7 +84,8 @@ for request in "${switches}"/*.stop; do
   id="$(sed -n 's/^request=//p' "${request}" | head -n 1)"
   [[ "${id}" =~ ${UUID} && ! -e "${marks}/stopped/${id}" ]] || continue
   actor="$(sed -n 's/^actor=//p' "${request}" | head -n 1)"
-  asked="$(date -d "$(sed -n 's/^requested_at=//p' "${request}" | head -n 1)" +%s 2>/dev/null)" || asked=0
+  stamp="$(sed -n '/^requested_at=/{s///p;q}' "${request}")"
+  asked="$(date -d "${stamp}" +%s 2>/dev/null)" || asked=0
   if (($(date +%s) - asked > 600)); then
     printf 'invocation=\nactor=%s\nlate\n' "${actor}" >"${marks}/stopped/${id}"
     log "${id}: the stop of ${job} was asked more than 10 minutes ago; nothing stopped"
