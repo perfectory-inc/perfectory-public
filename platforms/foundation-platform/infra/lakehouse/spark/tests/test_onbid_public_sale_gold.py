@@ -1,12 +1,12 @@
 """공매 (Onbid) by-PNU kind: which PNU each sale is served under (root ADR-0287).
 
 Synthetic PNUs (prefix 99999) and made-up management numbers. Pins: a round takes the PNU of its
-newest row that has one (a removal marker keeps it, a later blank does not erase it); a bid result
-takes its round's PNU; a sale on a retired PNU follows the lineage to every current successor, in
-addition to the successor's own sales; a retired PNU no path leaves keeps its sale, flagged; a sale
-is never dropped. The served document (ADR-0287 §7) holds only the rounds open as of the build,
-soonest-closing first, cut at the document ceiling, with codes as codes and names only from Onbid's
-own code reference.
+current item row (the contract's `current_rows`: newest per key by source_snapshot_id), and a round
+whose current row is a removal marker is dropped; a sale on a retired PNU follows the lineage to
+every current successor, in addition to the successor's own sales; a retired PNU no path leaves
+keeps its sale, flagged; a sale is never dropped. The served document (ADR-0287 §7) holds only the
+rounds open as of the build, soonest-closing first, cut at the document ceiling, with codes as codes
+and names only from Onbid's own code reference.
 """
 
 import os
@@ -27,18 +27,16 @@ def pnu(main):
 
 
 CURRENT, RETIRED, SPLIT_A, SPLIT_B, STRANDED = pnu(1), pnu(2), pnu(3), pnu(4), pnu(5)
-T1, T2, T3 = datetime(2099, 1, 1, 0), datetime(2099, 1, 1, 3), datetime(2099, 1, 1, 6)
-ITEM_SCHEMA = "cltr_mng_no string, pbct_cdtn_no long, pnu string, row_state string, ingested_at_utc timestamp, source_line_number int"
-RESULT_SCHEMA = "cltr_mng_no string, pbct_cdtn_no long, winning_bid_amount_krw long, ingested_at_utc timestamp, source_line_number int"
+ITEM_SCHEMA = "cltr_mng_no string, pbct_cdtn_no long, pnu string, row_state string, source_snapshot_id string"
 
 
 class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_carries_lineage_optionally(self):
         required, optional, anchor, whole = job.lane_inputs("parcel-public-sale")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.RESULT_SOURCE})
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE})
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
-        self.assertEqual(set(whole), {job.ITEM_SOURCE, job.RESULT_SOURCE})
+        self.assertEqual(set(whole), {job.ITEM_SOURCE})
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
@@ -54,28 +52,29 @@ class PlacementSparkTest(unittest.TestCase):
         cls.spark.stop()
 
     def items(self):
+        # source_snapshot_id orders the versions; the highest is current (root ADR-0267).
         return self.spark.createDataFrame([
-            ("X-1", 1, CURRENT, None, T1, 1),            # open, on a current parcel
-            ("X-2", 1, RETIRED, None, T1, 2),            # listed on a parcel since re-lotted
-            ("X-2", 1, None, None, T2, 3),               # a later blank PNU does not erase it
-            ("X-3", 1, STRANDED, None, T1, 4),
-            ("X-3", 1, STRANDED, "removed", T3, 5),      # closed: the marker keeps its PNU
-            ("X-4", 1, None, None, T1, 6),               # never had a PNU
+            ("X-1", 1, None, None, "snap-1"),            # an earlier version with no PNU...
+            ("X-1", 1, CURRENT, None, "snap-2"),         # ...the current (newest) row carries the PNU
+            ("X-2", 1, RETIRED, None, "snap-1"),         # current row on a parcel since re-lotted
+            ("X-3", 1, STRANDED, None, "snap-1"),        # current row on a retired parcel no path leaves
+            ("X-4", 1, None, None, "snap-1"),            # never had a PNU
+            ("X-5", 1, STRANDED, None, "snap-1"),        # a closed round: its current row...
+            ("X-5", 1, STRANDED, "removed", "snap-2"),   # ...is a removal marker, so it has no current row
         ], ITEM_SCHEMA)
 
-    def test_a_round_keeps_the_pnu_of_its_newest_row_that_has_one(self):
+    def test_a_round_takes_the_pnu_of_its_current_row(self):
+        # Current-row semantics (root ADR-0267 current_rows): a round's PNU is the PNU of its current
+        # item row — the newest per key by source_snapshot_id — with no scan back for an earlier row
+        # that had one. Measured 2026-10-20 on production Silver (r2.silver.onbid_real_estate_item,
+        # 79,246 items): 0 had a blank PNU on the current row while an earlier version had one, so no
+        # attachable sale loses its PNU; pnu_null_share_guard catches any future source change.
         rows = {r.cltr_mng_no: r for r in job.rounds(self.items()).collect()}
+        self.assertEqual(rows["X-1"].source_pnu, CURRENT)   # the newest version's PNU, not the older blank
         self.assertEqual(rows["X-2"].source_pnu, RETIRED)
-        self.assertEqual((rows["X-3"].source_pnu, rows["X-3"].is_open), (STRANDED, False))
         self.assertTrue(rows["X-1"].is_open)
-        self.assertIsNone(rows["X-4"].source_pnu)
-
-    def test_a_bid_result_takes_its_rounds_pnu(self):
-        results = self.spark.createDataFrame([
-            ("X-3", 1, 100, T3, 1), ("X-3", 1, 120, datetime(2099, 1, 2), 2), ("X-9", 1, 5, T3, 3)], RESULT_SCHEMA)
-        rows = {r.cltr_mng_no: r for r in job.result_rounds(results, job.rounds(self.items())).collect()}
-        self.assertEqual((rows["X-3"].source_pnu, rows["X-3"].winning_bid_amount_krw), (STRANDED, 120))
-        self.assertIsNone(rows["X-9"].source_pnu, "a result whose round was never listed stays visible, unplaced")
+        self.assertIsNone(rows["X-4"].source_pnu)           # never had a PNU: kept, unplaced
+        self.assertNotIn("X-5", rows, "a round whose current row is a removal marker has no current row")
 
     def test_a_retired_pnu_follows_lineage_to_every_successor_and_a_stranded_one_is_flagged(self):
         current = self.spark.createDataFrame([(CURRENT,), (SPLIT_A,), (SPLIT_B,)], "pnu string")
