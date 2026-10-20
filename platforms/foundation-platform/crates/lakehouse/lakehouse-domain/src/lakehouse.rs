@@ -55,6 +55,66 @@ pub struct LakehouseCurrentRowLatest {
     pub keep_ties: bool,
 }
 
+/// How a table's rows pile up, and so which rows a reader takes as current (root ADR-0286).
+///
+/// Required on every contract: a table that appends without saying how is what failed the complex
+/// boundary release on 2026-10-16. Modelled on Delta Live Tables `KEYS / SEQUENCE BY / SCD TYPE`,
+/// Hudi's record key and ordering field, and Kimball's transaction and periodic-snapshot facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseRowVersions {
+    /// One row per key; a load replaces the rows it covers (the whole table, or the partitions or
+    /// keys its `overwritePartitions` or `MERGE` touches). SCD Type 1.
+    Replaced {
+        /// The key, or why the table has none.
+        key: LakehouseRowKey,
+    },
+    /// Versions accumulate per key and the newest is current (root ADR-0267, ADR-0275). SCD Type 2.
+    LatestPerKey(LakehouseCurrentRowLatest),
+    /// A load appends one complete edition; a reader reads one. Kimball periodic snapshot.
+    Editions {
+        /// The column naming a row's edition.
+        edition_column: &'static str,
+        /// Columns whose values each hold their own editions (empty: the table is one group).
+        per: &'static [&'static str],
+        /// Which edition a reader takes by default.
+        read: LakehouseEditionRead,
+    },
+    /// Every row is a fact and every row is current. Kimball transaction fact.
+    Events {
+        /// The domain fold every reader goes through, when the table's current state is one
+        /// (`module.function` under the Spark jobs).
+        canonical_reader: Option<&'static str>,
+    },
+    /// No writer exists yet, and every write is refused. The declared absence of a writer, not an
+    /// accumulation shape: the table's first writer replaces it with one of the four.
+    Unwritten {
+        /// The planned work that will write it.
+        reason: &'static str,
+    },
+}
+
+/// The key of a [`LakehouseRowVersions::Replaced`] table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseRowKey {
+    /// Columns naming one row.
+    Columns(&'static [&'static str]),
+    /// No key, and why: the source repeats keys and gives no row id. Such a table may not become an
+    /// appending lane before a key is measured (root ADR-0286, ADR-0275).
+    Keyless {
+        /// Why there is no key.
+        reason: &'static str,
+    },
+}
+
+/// Which edition of a [`LakehouseRowVersions::Editions`] table a reader takes by default.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseEditionRead {
+    /// The newest edition (per group).
+    Newest,
+    /// The edition the caller names; there is no default.
+    Pinned,
+}
+
 /// One column in a lakehouse table contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LakehouseColumn {
@@ -79,10 +139,10 @@ pub struct LakehouseTableContract {
     pub serving_role: LakehouseServingRole,
     /// Machine-readable predicate selecting the current logical row, when the table is versioned.
     pub current_row_predicate: Option<&'static str>,
-    /// For an append-only table that keeps every version, which surviving row is current: the
-    /// newest per key. Applied after `current_row_predicate`; readers take both through one helper
+    /// How the rows pile up and which are current (root ADR-0286). Applied after
+    /// `current_row_predicate`; readers take both through one helper
     /// (`platform_contracts.current_rows`), never by hand (root ADR-0267).
-    pub current_row_latest: Option<LakehouseCurrentRowLatest>,
+    pub row_versions: LakehouseRowVersions,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
     /// Iceberg partition spec expressed as stable contract text.
@@ -95,6 +155,17 @@ pub struct LakehouseTableContract {
     pub quality_gates: &'static [&'static str],
     /// What one load of this table carries, and how the re-run guard reads it.
     pub load: LakehouseLoadUnit,
+}
+
+impl LakehouseTableContract {
+    /// The newest-per-key rule of a [`LakehouseRowVersions::LatestPerKey`] table.
+    #[must_use]
+    pub const fn current_row_latest(&self) -> Option<LakehouseCurrentRowLatest> {
+        match self.row_versions {
+            LakehouseRowVersions::LatestPerKey(latest) => Some(latest),
+            _ => None,
+        }
+    }
 }
 
 /// What one load of a table carries.
@@ -1826,7 +1897,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     // Every load appends a whole version and leaves the earlier ones (append-only); a re-load of
     // the same source snapshot is a newer version of the same row, not a second complex
     // (root ADR-0267).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["official_complex_code"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: None,
@@ -1868,7 +1939,11 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
     // No partitions. 1,343 rows in 8 MB were split across 371 partitions, one file each, twenty
     // kilobytes apiece — a layout compaction cannot repair, because it may only merge within a
@@ -1902,7 +1977,11 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: Some("valid_to_utc IS NULL"),
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Pinned,
+    },
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
     // No partitions. Root ADR-0063 removed the `pnu` bucket from beside `sigungu_code` and left
     // sigungu in place; measuring afterwards showed sigungu is not earning its keep either. The
@@ -1944,7 +2023,11 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Keyless {
+            reason: "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)",
+        },
+    },
     columns: SILVER_LAND_USE_PLAN_COLUMNS,
     // 무분할: 필지 경계 40M 이 무분할로 파일 15개였다(root ADR-0066 실측 방식). 2.6억이라도
     // pnu 정렬이 파일 min/max 로 범위 읽기를 건너뛰게 한다. 시도 분할은 열이 접두사(pnu 앞
@@ -1971,7 +2054,11 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Keyless {
+            reason: "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)",
+        },
+    },
     columns: SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "base_year", "base_month"],
@@ -1998,7 +2085,11 @@ pub const SILVER_LAND_USE_ZONE_CODES: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Keyless {
+            reason: "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)",
+        },
+    },
     columns: SILVER_LAND_USE_ZONE_CODES_COLUMNS,
     partition_spec: &[],
     sort_order: &["ucode"],
@@ -2018,7 +2109,11 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_BUILDING_REGISTER_FLOORS_COLUMNS,
     partition_spec: &["bucket(16, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "floor_index", "floor_row_id"],
@@ -2060,7 +2155,9 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["title_row_id"]),
+    },
     columns: SILVER_BUILDING_REGISTER_TITLES_COLUMNS,
     // No partitions: 8,051,204 rows is a fraction of the unpartitioned units table, and the
     // sort order alone gives the file-level min/max a PNU-range read skips on (root ADR-0066).
@@ -2088,7 +2185,9 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit_row_id"]),
+    },
     columns: SILVER_BUILDING_REGISTER_UNITS_COLUMNS,
     // No partitions. 1.17 GB fits in three target files, and bucketing on `pnu` fought the
     // sort order below: the bucket scatters neighbouring PNUs across 256 hash buckets while
@@ -2130,7 +2229,9 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["area_row_id"]),
+    },
     columns: SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS,
     partition_spec: &["bucket(32, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "area_kind", "floor_index", "area_row_id"],
@@ -2157,7 +2258,9 @@ pub const SILVER_COMPLEX_PARCEL_MEMBERSHIPS: LakehouseTableContract = LakehouseT
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Unwritten {
+        reason: "planned: the dated membership fact of root ADR-0019 and ADR-0020; no production writer yet",
+    },
     columns: SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
     partition_spec: &["sigungu_code", "bucket(256, pnu)"],
     sort_order: &["complex_id", "pnu", "membership_kind"],
@@ -2183,7 +2286,9 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["complex_id"]),
+    },
     columns: GOLD_COMPLEX_CATALOG_COLUMNS,
     // Follows the canonical table it projects: the snapshot the rows were published from
     // (root ADR-0035).
@@ -2207,7 +2312,9 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::SpatialLocator,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Unwritten {
+        reason: "planned: the complex spatial pruning locator; no production writer yet",
+    },
     columns: GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS,
     partition_spec: &["spatial_key_prefix"],
     sort_order: &["spatial_key", "complex_id"],
@@ -2297,7 +2404,9 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: SILVER_MAP_EDIT_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["unit", "change_seq"],
@@ -2376,7 +2485,9 @@ pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Projection,
         current_row_predicate: None,
-        current_row_latest: None,
+        row_versions: LakehouseRowVersions::Replaced {
+            key: LakehouseRowKey::Columns(&["complex_id"]),
+        },
         columns: GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS,
         partition_spec: &[],
         sort_order: &["complex_id"],
@@ -2462,7 +2573,11 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS,
     partition_spec: &[],
     sort_order: &["source_snapshot_id", "canonical_code"],
@@ -2554,7 +2669,9 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["administrative_unit_id"]),
+    },
     columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
     partition_spec: &[],
     sort_order: &["administrative_unit_id"],
@@ -2626,7 +2743,9 @@ pub const GOLD_PARCEL_BOUNDARY_SERVED: LakehouseTableContract = LakehouseTableCo
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["pnu"]),
+    },
     columns: GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS,
     // No partitions, for the reason silver.parcel_boundaries has none: every reader takes the
     // whole snapshot (root ADR-0066).
@@ -2718,7 +2837,11 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "snapshot_date",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS,
     partition_spec: &[],
     sort_order: &["snapshot_date", "region_cd"],
@@ -2809,7 +2932,9 @@ pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["effective_date", "old_code"],
@@ -2905,7 +3030,9 @@ pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: Some("lineage_review_queue.steward_resolved"),
+    },
     columns: SILVER_PARCEL_LINEAGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["to_snapshot_id", "successor_pnu"],
@@ -2984,7 +3111,9 @@ pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: SILVER_PARCEL_REGISTRY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "valid_from"],
@@ -3052,7 +3181,9 @@ pub const GOLD_PLACE_ID_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "scope", "place_id"]),
+    },
     columns: GOLD_PLACE_ID_REGISTRY_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -3116,7 +3247,9 @@ pub const GOLD_PLACE_ID_BRIDGE: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "scope", "place_id", "code", "valid_from"]),
+    },
     columns: GOLD_PLACE_ID_BRIDGE_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -3189,7 +3322,9 @@ pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContra
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: GOLD_PLACE_ID_CHANGELOG_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -3260,7 +3395,9 @@ pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "subject_code"]),
+    },
     columns: GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS,
     partition_spec: &["unit"],
     sort_order: &["subject_code"],

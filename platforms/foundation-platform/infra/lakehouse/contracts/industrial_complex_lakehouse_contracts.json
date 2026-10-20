@@ -7,6 +7,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "vintage",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -137,6 +143,9 @@
         ],
         "removal_column": null,
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -347,6 +356,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "boundary_id",
@@ -472,6 +487,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "administrative_unit_id",
@@ -561,6 +582,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": "valid_to_utc IS NULL",
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "pinned"
+      },
       "columns": [
         {
           "name": "boundary_id",
@@ -690,6 +717,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -806,6 +838,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "ucode",
@@ -930,6 +967,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -1037,6 +1079,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "floor_row_id",
@@ -1165,6 +1213,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "title_row_id"
+        ]
+      },
       "partition_spec": [],
       "sort_order": [
         "pnu",
@@ -1362,6 +1416,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit_row_id"
+        ]
+      },
       "columns": [
         {
           "name": "unit_row_id",
@@ -1549,6 +1609,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "area_row_id"
+        ]
+      },
       "columns": [
         {
           "name": "area_row_id",
@@ -1741,6 +1807,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "unwritten",
+        "reason": "planned: the dated membership fact of root ADR-0019 and ADR-0020; no production writer yet"
+      },
       "columns": [
         {
           "name": "membership_id",
@@ -1857,6 +1927,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "unit",
@@ -1948,6 +2022,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "complex_id"
+        ]
+      },
       "columns": [
         {
           "name": "complex_id",
@@ -2139,6 +2219,10 @@
       "serving_role": "SpatialLocator",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "unwritten",
+        "reason": "planned: the complex spatial pruning locator; no production writer yet"
+      },
       "columns": [
         {
           "name": "spatial_key",
@@ -2215,6 +2299,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2322,6 +2412,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2378,6 +2474,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2434,6 +2536,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2495,6 +2603,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2551,6 +2665,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2607,6 +2727,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2663,6 +2789,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2828,6 +2959,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2957,6 +3093,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -3093,6 +3232,11 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": null,
+        "keyless_reason": "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3223,6 +3367,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "vintage",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -3338,6 +3488,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "mgm_bldrgst_pk",
@@ -3419,6 +3575,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3476,6 +3638,13 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu",
+          "building_id"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3533,6 +3702,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "complex_id"
+        ]
+      },
       "columns": [
         {
           "name": "complex_id",
@@ -3606,6 +3781,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "administrative_unit_id"
+        ]
+      },
       "columns": [
         {
           "name": "administrative_unit_id",
@@ -3690,6 +3871,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3758,6 +3945,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "snapshot_date",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "region_cd",
@@ -3845,6 +4038,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "change_key",
@@ -3927,6 +4124,14 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [
+          "source_region_code"
+        ],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "old_pnu",
@@ -4043,6 +4248,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -4292,6 +4500,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "cltr_mng_no",
@@ -4437,6 +4648,12 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "serial_no",
@@ -4545,6 +4762,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -4796,6 +5016,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "court_office_code",
@@ -5028,6 +5251,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": "lineage_review_queue.steward_resolved"
+      },
       "columns": [
         {
           "name": "predecessor_pnu",
@@ -5119,6 +5346,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "parcel_id",
@@ -5195,6 +5426,13 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "subject_code"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -5265,6 +5503,14 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "scope",
+          "place_id"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -5330,6 +5576,16 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "scope",
+          "place_id",
+          "code",
+          "valid_from"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -5394,6 +5650,10 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "unit",

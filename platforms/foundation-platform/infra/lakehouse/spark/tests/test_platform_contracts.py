@@ -27,6 +27,7 @@ from platform_contracts import (  # noqa: E402
     load_unit,
     partition_column_names,
     partition_spec,
+    row_versions,
     required_string_column_names,
     sort_order,
     string_column_names,
@@ -302,6 +303,31 @@ class CurrentRowRuleTest(unittest.TestCase):
                 readers_bypassing_current_rows(Path(tmp), graph, tables),
                 [(name, SILVER_INDUSTRIAL_COMPLEXES) for name in ("planted.py", "planted_default.py", "planted_sql.py")],
             )
+
+
+class RowVersionsTest(unittest.TestCase):
+    """Root ADR-0286: every contract says how its rows pile up."""
+
+    def test_every_contract_declares_valid_row_versions(self) -> None:
+        for name, contract in load_lakehouse_artifact()["contracts"].items():
+            with self.subTest(table=name):
+                row_versions(contract)
+
+    def test_a_contract_without_row_versions_or_naming_a_foreign_column_is_refused(self) -> None:
+        contract = dict(load_lakehouse_contract("silver.parcel_number_change_history"))
+        missing = {key: value for key, value in contract.items() if key != "row_versions"}
+        with self.assertRaisesRegex(ValueError, "must declare row_versions"):
+            row_versions(missing)
+        for broken in (
+            {"kind": "editions", "edition_column": "no_such_column", "per": [], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "per": ["no_such_column"], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "per": [], "read": "oldest"},
+            {"kind": "replaced", "key": ["no_such_column"]},
+            {"kind": "latest_per_key"},
+            {"kind": "scd3"},
+        ):
+            with self.subTest(broken=broken), self.assertRaises(ValueError):
+                row_versions({**contract, "row_versions": broken})
 
 
 class JsonlTransportContractTest(unittest.TestCase):

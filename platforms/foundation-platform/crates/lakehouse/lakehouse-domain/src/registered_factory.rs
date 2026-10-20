@@ -6,8 +6,9 @@
 //! Each row says which step found its PNU, or why none did.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const fn column(name: &'static str, logical_type: &'static str, required: bool) -> LakehouseColumn {
@@ -44,7 +45,11 @@ pub const SILVER_REGISTERED_FACTORY: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_REGISTERED_FACTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "source_line_number"],

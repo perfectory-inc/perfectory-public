@@ -283,6 +283,31 @@ class CurrentRowLatest:
 # A removal marker's value in its table's `removal_column`; any other value, null included, is a row.
 REMOVED = "removed"
 
+ROW_VERSION_KINDS = ("replaced", "latest_per_key", "editions", "events", "unwritten")
+
+
+def row_versions(contract: dict[str, Any]) -> dict[str, Any]:
+    """How the table's rows pile up (root ADR-0286): required on every contract, and naming only the
+    table's own columns. ``latest_per_key`` details are ``current_row_latest``."""
+
+    table = contract.get("table_name")
+    value = contract.get("row_versions")
+    if not isinstance(value, dict) or value.get("kind") not in ROW_VERSION_KINDS:
+        raise ValueError(f"lakehouse contract {table} must declare row_versions as one of {ROW_VERSION_KINDS}")
+    names = {column["name"] for column in columns(contract)}
+    kind = value["kind"]
+    named = {
+        "replaced": list(value.get("key") or []),
+        "editions": [value.get("edition_column"), *(value.get("per") or [])],
+    }.get(kind, [])
+    if any(not isinstance(name, str) or name not in names for name in named):
+        raise ValueError(f"lakehouse contract {table} row_versions must name its own columns: {named}")
+    if (kind == "latest_per_key") != (current_row_latest(contract) is not None):
+        raise ValueError(f"lakehouse contract {table}: current_row_latest belongs to latest_per_key alone")
+    if kind == "editions" and value.get("read") not in ("newest", "pinned"):
+        raise ValueError(f"lakehouse contract {table} row_versions.read must be newest or pinned")
+    return value
+
 
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
     """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""

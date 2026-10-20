@@ -8,8 +8,9 @@
 //! the file repeats exactly is kept once, at its first line, with `duplicate_count`.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -104,7 +105,11 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        per: &["source_region_code"],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS,
     partition_spec: &[],
     sort_order: &["changed_on", "old_pnu"],
