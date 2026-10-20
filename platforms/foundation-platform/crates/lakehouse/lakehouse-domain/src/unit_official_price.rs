@@ -54,6 +54,13 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
             logical_type: "string",
             required: true,
         },
+        // The vintage the batch joined: what orders the batches, so a reader takes the newest
+        // without parsing the batch id (root ADR-0286 stage 1c).
+        LakehouseColumn {
+            name: "vintage",
+            logical_type: "string",
+            required: true,
+        },
         LakehouseColumn {
             name: "source_record_id",
             logical_type: "string",
