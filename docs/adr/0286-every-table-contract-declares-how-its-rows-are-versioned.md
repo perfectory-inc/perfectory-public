@@ -1,6 +1,6 @@
 # ADR 0286: 모든 표 계약은 행이 어떻게 쌓이는지 적고, 쓰는 쪽과 읽는 쪽이 그 선언을 따른다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
 - Area: `platforms/foundation-platform`
 - Builds on: [ADR-0267](./0267-a-versioned-table-declares-its-current-row-and-every-reader-takes-it-from-the-contract.md)
@@ -96,7 +96,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 
 작은 PR 로 나눈다. 앞 단계에 기대는 PR 은 draft 로 둔다.
 
-1. 이 ADR. #809(독자 가드) 병합 뒤 Accepted.
+1. 이 ADR. #809(독자 가드) 병합 뒤에 병합한다.
 2. Rust: `row_versions` 필드를 더하고 계약 48개를 분류한다. 각 분류의 근거는 그 표를 쓰는 코드다(쓰기 방식,
    묶음의 판 열). 산출물을 다시 렌더한다. 표 모양은 바뀌지 않으므로 운영 표 모양 원장(ADR-0259)은 그대로다.
 3. `append_batch_once` 의 거부와 레인 계약 시험(결정 2).
