@@ -101,7 +101,11 @@ export INVOCATION_ID
 lock="${STATE_ROOT}/bake.lock"
 [[ -e "${lock}" ]] || : >>"${lock}"
 exec 8<"${lock}"
-flock -n 8 || { echo "parcel-tile-bake: refused: another bake holds ${lock}" >&2; exit 75; }
+if ! flock -n 8; then
+  echo "parcel-tile-bake: refused: another bake holds ${lock}" >&2
+  source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
+  lock_held_by_another_run "the parcel tile bake"
+fi
 
 # The edition, its snapshot id, its 시도 and the data-disk work root, from the contracts this
 # release ships: none of them is written down here. A rehearsal's Gold half bakes the edition it

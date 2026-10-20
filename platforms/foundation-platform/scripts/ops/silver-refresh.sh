@@ -61,7 +61,8 @@ if [[ "${PLAN}" == 0 ]]; then
   exec 8<"${lock}"
   if ! flock -n 8; then
     echo "silver-refresh: refused: another lane holds ${lock}; this lane runs after it finishes" >&2
-    exit 75
+    source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
+    lock_held_by_another_run "the Silver refresh lock"
   fi
 fi
 

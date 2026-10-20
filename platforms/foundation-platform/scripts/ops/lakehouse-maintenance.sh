@@ -56,7 +56,8 @@ mkdir -p "${STATE_ROOT}"
 exec 8<"${lock}"
 if ! flock -n 8; then
   log "refused: another maintenance run holds ${lock}"
-  exit 75
+  source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
+  lock_held_by_another_run "lakehouse maintenance"
 fi
 
 read -r master driver_memory < <(python3 -I - "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" <<'PY'

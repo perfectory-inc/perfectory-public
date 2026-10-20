@@ -111,7 +111,8 @@ if [[ -z "${GOLD_PANEL_REBUILD_LOCK_HELD:-}" ]]; then
   exec 8<"${lock}"
   if ! flock -n 8; then
     echo "gold-panel-rebuild: refused: another rebuild holds ${lock}; this run starts after it finishes" >&2
-    exit 75
+    source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
+    lock_held_by_another_run "the Gold panel rebuild"
   fi
   export GOLD_PANEL_REBUILD_LOCK_HELD=1
 fi

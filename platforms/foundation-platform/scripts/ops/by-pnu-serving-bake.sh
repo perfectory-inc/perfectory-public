@@ -63,12 +63,15 @@
 #
 # `all` ends with `foundation-job-outcome changed` when a lane published (a patch, a base or a
 # reflect-only manifest), `unchanged` otherwise (root ADR-0171), and `failed <lanes>; published:
-# <lanes>` when any lane failed: the last word matches the exit status.
+# <lanes>` when any lane failed: the last word matches the exit status. When nothing failed or
+# published and a lane found its lock held by another run (an operator's attended bake, 2026-10-19),
+# the run waits for it like any job (held-lock.sh): `waiting the lanes <lanes> is held by another run`.
 #
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
 # under the state root on /data.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
 
 UNIT="${1:-}"
 # The pack-only lanes, by name, from the contract this script ships with.
@@ -85,8 +88,23 @@ case "${UNIT}" in
     # ADR-0171).
     BY_PNU_BAKE_PUBLISHED="$(mktemp)"
     export BY_PNU_BAKE_PUBLISHED
-    failed=" "
-    "${BASH_SOURCE[0]}" parcel || { status=$?; failed+="parcel "; }
+    # The lanes run as hand runs (exit 75 when held) and name what they found held; this run decides.
+    FOUNDATION_HELD_LOCKS="$(mktemp)"
+    export FOUNDATION_HELD_LOCKS
+    job_service="${FOUNDATION_JOB_SERVICE:-}"
+    unset FOUNDATION_JOB_SERVICE
+    failed=" " waiting=" "
+    # A lane's exit: 75 from a lane that found its lock held is waiting; anything else non-zero failed.
+    lane_exit() {
+      local lane="$1" code="$2"
+      if ((code == 75)) && grep -qx -- "the ${lane} lane" "${FOUNDATION_HELD_LOCKS}"; then
+        waiting+="${lane} "
+      else
+        failed+="${lane} "
+        ((status)) || status=${code}
+      fi
+    }
+    "${BASH_SOURCE[0]}" parcel || lane_exit parcel $?
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
     for lane in building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
       [[ -n "${lane}" ]] || continue
@@ -100,23 +118,36 @@ case "${UNIT}" in
         echo "by-pnu-serving-bake ${lane}: skipped: the ${follows} lane it follows failed in this run; it is baked with it on the next run"
         continue
       fi
+      if [[ -n "${follows}" && "${waiting}" == *" ${follows} "* ]]; then
+        echo "by-pnu-serving-bake ${lane}: waiting: the ${follows} lane it follows is held by another run; it is baked with it on the next run"
+        waiting+="${lane} "
+        continue
+      fi
       env -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE -u FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON \
-        "${BASH_SOURCE[0]}" "${lane}" || { lane_status=$?; failed+="${lane} "; ((status)) || status=${lane_status}; }
+        "${BASH_SOURCE[0]}" "${lane}" || lane_exit "${lane}" $?
     done
     # Then every lane's superseded pack generations past their rollback window (root ADR-0242).
     "${BASH_SOURCE[0]}" retire || { lane_status=$?; failed+="retire "; ((status)) || status=${lane_status}; }
     # The last word matches the exit: a run that exits non-zero says failed, though another lane
     # published (2026-10-16: `changed` and then exit 1). What did publish is named with it.
+    # A run where nothing failed or published but a lane waited ends as that lane's wait.
+    outcome=unchanged
     if ((status)); then
       published="$(sort -u "${BY_PNU_BAKE_PUBLISHED}" | tr '\n' ' ')"
       published="${published% }"
-      echo "foundation-job-outcome failed${failed% }; published: ${published:-none}"
+      outcome="failed${failed% }; published: ${published:-none}"
     elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
-      echo "foundation-job-outcome changed"
-    else
-      echo "foundation-job-outcome unchanged"
+      outcome=changed
+    elif [[ "${waiting}" != " " ]]; then
+      outcome=waiting
     fi
-    rm -f "${BY_PNU_BAKE_PUBLISHED}"
+    rm -f "${BY_PNU_BAKE_PUBLISHED}" "${FOUNDATION_HELD_LOCKS}"
+    if [[ "${outcome}" == waiting ]]; then
+      waiting="${waiting# }"
+      export FOUNDATION_JOB_SERVICE="${job_service}" FOUNDATION_HELD_LOCKS=""
+      lock_held_by_another_run "the lanes ${waiting% }"
+    fi
+    echo "foundation-job-outcome ${outcome}"
     exit "${status}"
     ;;
   retire)
@@ -212,7 +243,7 @@ mkdir -p "${STATE_ROOT}"
 exec 9>>"${STATE_ROOT}/lane.lock"
 if ! flock -n 9; then
   log "refused: another run of the ${UNIT} lane holds ${STATE_ROOT}/lane.lock; this run starts after it finishes"
-  exit 75
+  lock_held_by_another_run "the ${UNIT} lane"
 fi
 
 # 1. What is there to do?

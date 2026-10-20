@@ -55,7 +55,8 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("parcel-tile-bake.sh", "admitted-writer-runtime.sh", "database-url.sh", "job-journal.sh"):
+        for name in ("parcel-tile-bake.sh", "admitted-writer-runtime.sh", "database-url.sh", "job-journal.sh",
+                     "held-lock.sh"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops" / name)
             (release / "scripts/ops" / name).chmod(0o755)
         shutil.copytree(PLATFORM / "infra/lakehouse/spark/jobs", release / "infra/lakehouse/spark/jobs",
