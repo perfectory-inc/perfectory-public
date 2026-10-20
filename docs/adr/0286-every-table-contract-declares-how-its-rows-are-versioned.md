@@ -57,6 +57,15 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
    | `Editions { edition_column, read: Newest \| Pinned }` | 적재 하나가 완전한 판 하나를 덧붙인다. 독자는 판 하나를 읽는다. 가장 새 판이거나, 부른 쪽이 고정한 판이다 | Kimball periodic snapshot |
    | `Events` | 행 하나가 사실 하나다. 모든 행이 현재다 | Kimball transaction fact, 원장·변경 이력 |
 
+   `Replaced` 의 `key` 는 `None` 일 수 있다. `Replaced` 에서만, 그리고 계약에 이유를 적을 때만이다(예: VWorld 토지
+   레인 여섯은 원천이 키를 되풀이하고 행 번호가 없다, ADR-0090). 그런 표는 결정 4 의 키 유일성 시험을 건너뛴다.
+   이것은 갚아야 할 부채다. 키가 없는 표는 덧붙이는 레인으로 바뀔 수 없다(ADR-0275 의 비교에는 행 키가 필요하다).
+   그 레인이 덧붙이기로 바뀌는 PR 이 먼저 행 키를 실측해 정한다.
+
+   계약 산출물에는 쓰는 코드가 있는 표만 싣는다. 쓰는 곳이 없는 계약(2026-10-20 의
+   `silver.complex_parcel_memberships`, `gold.complex_spatial_locator`)은 뜻을 짐작해 분류하지 않는다. 쓰는 코드가
+   생기는 PR 이 `row_versions` 를 적고 산출물에 넣는다.
+
    `current_row_predicate` 는 그대로 둔다. 어느 값과도 함께 쓸 수 있다(예: 필지 경계는 `Editions` +
    `valid_to_utc IS NULL`). 계약 산출물(JSON)은 `row_versions` 를 싣는다. 이행 기간에는 `current_row_latest` 를
    `LatestPerKey` 에서 파생해 함께 싣는다. Python 과 dbt 는 이행 단계에서 `row_versions` 를 읽도록 바꾼다.
@@ -80,6 +89,10 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
      - `LatestPerKey`: 지금 규칙(ADR-0267·0275) 그대로다.
      - `Editions/Newest`: 가장 새 판의 행만 남긴다. 순서는 `edition_column` 이고, 같으면 커밋 순서다.
    - `Editions/Pinned` 은 `current_rows` 가 거부한다. 독자는 `pinned_edition(frame, contract, edition)` 으로 판을 받는다.
+   - 모든 판을 이력으로 읽는 독자는 `all_editions(frame, contract)` 로 읽는다(예: `place_id_release_to_gold` 가
+     `silver.administrative_boundaries` 의 판 전부를 차례로 읽는다). 이것도 선언된 접근점이다. 날 읽기가 아니다.
+   - 판이 하나뿐이어야 한다는 독자의 단언(`assert_single_snapshot`)은 `current_rows` 의 `Editions/Newest` 로
+     옮긴다(예: `silver.building_register_floors`).
    - #809 의 가드는 "`current_row_latest` 가 있는 표"에서 "`Replaced`·`Events` 가 아닌 표"로 넓어진다.
      `newest_batch`·`newest_source_snapshot`·`newest_shared_vintage` 같은 사적 규칙은 이 두 함수로 대체되어
      사라진다.
@@ -93,7 +106,8 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 
 5. **가드는 실패할 수 있음을 보인다.** 각 단계의 시험은 위반을 심어 거부되는 것을 확인한다.
    - `Replaced` 표에 `append_batch_once`·`append_source_object`.
-   - 잡 코드의 날 `INSERT INTO`.
+   - 잡 코드의 쓰기 경로 셋 각각: 정해진 함수 밖의 `append_source_object` 흉내, 날 `INSERT INTO`, 직접
+     `writeTo().append()`.
    - `row_versions` 를 빠뜨린 계약(컴파일 실패를 `trybuild` 없이 보일 수 없으므로, 계약 목록 전체를 도는 시험이
      산출물에 `row_versions` 가 없는 표를 거부한다).
    - 사적 판 선택.
