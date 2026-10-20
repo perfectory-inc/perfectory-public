@@ -157,13 +157,15 @@ struct R2ConnectionContract {
 /// The gateway blocks a derived lane may name as its `host` (root ADR-0193 §4).
 pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gateway"];
 
-/// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line.
-const DERIVED_LANE_HAND_FIELDS: [&str; 10] = [
+/// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line. A kind
+/// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
+const DERIVED_LANE_HAND_FIELDS: [&str; 11] = [
     "decision",
     "host",
     "kind",
     "section",
     "columns",
+    "producer",
     "document_key_suffix",
     "documents_follow_lane",
     "documents_follow_lane_reason",

@@ -29,6 +29,9 @@ codes, and the words are the consumer's.
 """
 from __future__ import annotations
 
+import argparse
+import json
+import os
 from typing import Any
 
 JOB_NAME = "onbid_public_sale_silver_to_gold"
@@ -152,22 +155,135 @@ def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) ->
     sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry")) + F.lit(1))
              .withColumn("_running", F.sum("_bytes").over(order.rowsBetween(Window.unboundedPreceding, 0))))
     kept = sized.where(F.col("_running") <= F.lit(limit_bytes - DOCUMENT_ENVELOPE_BYTES))
+    # Nulls are written, so a document's field paths are always its record's (contracts/by-pnu-documents).
     return kept.groupBy("pnu").agg(
         F.to_json(F.struct(
             F.array_sort(F.collect_list(F.struct(F.col("bid_ends_at").alias("_sort"), F.col("cltr_mng_no").alias("_k1"),
                                                  F.col("pbct_cdtn_no").alias("_k2"), F.col("_entry").alias("round"))))
             .getField("round").alias("rounds"),
             F.array(*[F.lit(d) for d in SOURCE_DATASETS]).alias("source_datasets"),
-        )).alias("public_sale_json"),
+        ), {"ignoreNullFields": "false"}).alias("public_sale_json"),
         F.count(F.lit(1)).alias("round_count"),
         F.when(F.max(F.col("attached_via").isNull().cast("int")) == 1, F.lit(None).cast("string"))
         .otherwise(F.min("attached_via")).alias("attached_via"),
     )
 
 
-def main() -> int:
-    raise SystemExit(f"{JOB_NAME}: runs once its kind line and document record land (root ADR-0287); "
-                     "until then the build is the tested functions above")
+def parse_args(argv=None) -> argparse.Namespace:
+    """The arguments `scripts/ops/gold-panel-rebuild.sh` gives every producer (root ADR-0193 §7)."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--lane", required=True)
+    parser.add_argument("--input-mode", choices=("iceberg",), default="iceberg")
+    parser.add_argument("--write-mode", choices=("iceberg",), default="iceberg")
+    parser.add_argument("--iceberg-catalog-name", default=os.getenv("FOUNDATION_PLATFORM_SPARK_ICEBERG_CATALOG_NAME", "r2"))
+    parser.add_argument("--source-iceberg-namespace", default="silver")
+    parser.add_argument("--target-iceberg-namespace", default="gold")
+    parser.add_argument("--iceberg-snapshot-id", required=True, help="The silver.parcel_boundaries snapshot this build reads.")
+    parser.add_argument("--source-snapshots-path", required=True, help="JSON pinning every input table.")
+    parser.add_argument("--published-at-utc")
+    parser.add_argument("--allow-non-smoke-overwrite", action="store_true")
+    parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument("--minimum-count", type=int, help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
+    parser.add_argument("--no-carry-lineage", dest="carry_lineage", action="store_false",
+                        help="Place a retired PNU's sale under itself, flagged, instead of following the lineage.")
+    parser.add_argument("--summary-output")
+    parser.add_argument("--lineage-output")
+    args = parser.parse_args(argv)
+    args.region_prefix = None
+    if args.minimum_count is not None and args.minimum_count < 0:
+        parser.error("--minimum-count must be non-negative")
+    if not args.validate_only and not args.allow_non_smoke_overwrite:
+        parser.error("overwriting the Gold needs --allow-non-smoke-overwrite")
+    return args
+
+
+def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int]) -> Any:
+    """The kind's Gold rows at `pins`: one per PNU that holds a served round."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
+    from lakehouse_snapshot_pins import read_pinned_iceberg  # noqa: PLC0415
+
+    as_of = panel.normalize_utc_timestamp(args.published_at_utc)
+    parcels = panel.read_source(spark, args, PARCEL_SOURCE, pins).select("pnu")
+    # Read whole: rounds() runs the contract's current_rows over every version to take each round's current row.
+    items = read_pinned_iceberg(spark, f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{ITEM_SOURCE.split('.', 1)[1]}",
+                                ITEM_SOURCE, pins)
+    candidates = panel.read_carry_candidates(spark, args, counters, pins) if args.carry_lineage else None
+    merges = None
+    if args.carry_lineage:
+        merges = (panel.read_source(spark, args, LINEAGE_SOURCE, pins).where(F.col("relation") == F.lit("merge"))
+                  .select("predecessor_pnu", "successor_pnu", "grade"))
+    usage = None
+    if USAGE_CODE_SOURCE in pins:
+        usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
+    round_rows = rounds(items)
+    served = served_rounds(round_rows, F.to_timestamp(F.lit(as_of)))
+    counters["served_rounds"] = served.count()
+    counters["served_rounds_without_pnu"] = served.where(F.col("source_pnu").isNull()).count()
+    located = placed(with_usage_names(served, usage), parcels, candidates, merges)
+    counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
+    documents = document_rows(located)
+    return documents.select(
+        "pnu", "public_sale_json", "attached_via",
+        F.lit(pins[PARCEL_SOURCE]).alias("source_snapshot_id"), F.lit(as_of).alias("published_at_utc"),
+    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_sale_json", "attached_via")), 256))
+
+
+def main(argv=None) -> int:
+    from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
+
+    import by_pnu_kinds  # noqa: PLC0415
+    import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
+    from gold_rebuild import assert_minimum_row_count, write_gold_snapshot  # noqa: PLC0415
+    from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
+    from lakehouse_snapshot_pins import load_source_snapshot_pins  # noqa: PLC0415
+    from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract  # noqa: PLC0415
+
+    args = parse_args(argv)
+    kind = by_pnu_kinds.kind(args.lane)
+    if kind.producer != JOB_NAME:
+        raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
+    args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
+    required, optional, anchor, _ = lane_inputs(args.lane)
+    sources = (*required, *((LINEAGE_SOURCE,) if args.carry_lineage else ()))
+    pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
+    contract = load_lakehouse_contract(kind.gold_table)
+    columns = column_names(contract)
+    table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
+    assert_catalog_env(args.iceberg_catalog_name)
+    spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
+                                   .config("spark.sql.session.timeZone", "UTC"), args.iceberg_catalog_name).getOrCreate()
+    counters: dict[str, int] = {}
+    try:
+        gold = build_gold(spark, args, pins, counters).select(*columns).cache()
+        rows = gold.count()
+        duplicates = gold.groupBy("pnu").count().where(F.col("count") > 1).count()
+        invalid = gold.where(~F.col("pnu").rlike(panel.PNU_PATTERN)).count()
+        if duplicates or invalid:
+            raise ValueError(f"Gold quality gates failed: {duplicates} duplicated and {invalid} invalid PNUs")
+        assert_minimum_row_count(rows, args.minimum_count)
+        if not args.validate_only:
+            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
+            ensure_contract_table(spark, table, contract)
+            write_gold_snapshot(gold, table, "overwrite", pins, F.lit(True))
+        summary = {
+            "schema_version": panel.RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": kind.gold_table,
+            "lane": args.lane, "created_at_utc": panel.normalize_utc_timestamp(None), "row_count": rows,
+            "write_disposition": "validate_only" if args.validate_only else "iceberg_overwrite",
+            "quality_metrics": counters, "columns": list(columns),
+            "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())), "rebuild": {"mode": "full"},
+        }
+        gold.unpersist()
+    finally:
+        spark.stop()
+    panel.emit_run_summary(summary, args.summary_output)
+    if args.lineage_output and not args.validate_only:
+        with open(args.lineage_output, "w", encoding="utf-8") as lineage:
+            json.dump({"job_name": JOB_NAME, "output_dataset": kind.gold_table, "inputs": dict(sorted(pins.items()))},
+                      lineage, sort_keys=True)
+    print(f"gold-kind-{'validate' if args.validate_only else 'write'}-ok lane={args.lane} rows={rows} mode=full")
+    return 0
 
 
 if __name__ == "__main__":

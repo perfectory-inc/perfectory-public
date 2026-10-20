@@ -80,14 +80,17 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
         entry = {
             "unit": lane, "lane": lane, "producer": kind.producer or template["producer"],
             "producer_arguments": ["--lane", lane],
-            **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "incremental", "spark")
-               if k in template},
+            **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "spark") if k in template},
+            # The lineage is optional to every parcel kind: the host's leave to go without it.
+            "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
         }
         if kind.follows_host_panel:
+            # Root ADR-0180's incremental merge reads the panel's input map; an own producer rebuilds whole.
+            if "incremental" in template:
+                entry["incremental"] = template["incremental"]
             # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
             entry.update({
                 "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
-                "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
                 "pins_from": {"gold_table": kind.host_panel, "inputs": "all",
                               "parity_argument": pin["parity_argument"], "reason": pin["reason"]},
             })
