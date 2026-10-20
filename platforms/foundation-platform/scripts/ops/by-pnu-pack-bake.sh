@@ -67,7 +67,8 @@ mkdir -p "${STATE_ROOT}/${LANE}" "${SUMMARIES}" "${SHARDS}"
 exec 9>>"${STATE_ROOT}/${LANE}/lane.lock"
 if ! flock -n 9; then
   log "refused: another run of the ${LANE} lane holds ${STATE_ROOT}/${LANE}/lane.lock; start again after it finishes"
-  exit 75
+  source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
+  lock_held_by_another_run "the ${LANE} lane"
 fi
 
 # The snapshot the summaries already there were baked from: none, or exactly one.
