@@ -22,10 +22,11 @@
     "listed_gib": 0.01
   },
   "files": {
-    "$comment": "One zip per 시도, replaced in place when the provider's 지적 records change (file numbers are reused; the provider's 갱신일 and size tell a new upload apart). Every file the listing names is collected into Bronze, each upload its own object: the 시도 zips (including the old-name files the provider kept beside the renamed 시도, 강원 and 전북 before 특별자치도, and 전남/광주 before their merger) are loaded; the table definition (xlsx) is kept as evidence of the layout and not loaded. A listed file matching neither pattern refuses the run. The pairing reads links by content, so a row an old-name file repeats counts once.",
+    "$comment": "One zip per 시도, replaced in place when the provider's 지적 records change (file numbers are reused; the provider's 갱신일 and size tell a new upload apart). Every file the listing names is collected into Bronze, each upload its own object: the 시도 zips (including the old-name files the provider kept beside the renamed 시도, 강원 and 전북 before 특별자치도, and 전남/광주 before their merger) are loaded; the table definition (xlsx) is kept as evidence of the layout and not loaded. A listed file matching neither pattern refuses the run. The pairing reads links by content, so a row an old-name file repeats counts once. The member name's first group is the 시도 code of the file (the old-name files keep their old code): it is the edition group of the table (root ADR-0286, `source_region_code`).",
     "provider_file_name_pattern": "^ABPD_UNQ_NO_CHG_HIST_.+\\.zip$",
     "reference_file_name_pattern": "^ABPD_UNQ_NO_CHG_HIST\\.xlsx$",
-    "member_name_pattern": "^ABPD_UNQ_NO_CHG_HIST_[0-9]{2}_[0-9]{6}\\.txt$",
+    "member_name_pattern": "^ABPD_UNQ_NO_CHG_HIST_([0-9]{2})_[0-9]{6}\\.txt$",
+    "member_region_code_group": 1,
     "encoding": "utf-8",
     "delimiter": "|"
   },
