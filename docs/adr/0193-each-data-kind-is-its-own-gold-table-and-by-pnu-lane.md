@@ -270,3 +270,5 @@
 - Apache Iceberg `MERGE INTO`(copy-on-write) — 종류 표마다 바뀐 행만 합친다(ADR-0180).
   <https://iceberg.apache.org/docs/latest/spark-writes/>
 - Cloudflare R2 가격표(Class A 쓰기 단위 과금) — 묶음 수가 비용을 정한다. <https://developers.cloudflare.com/r2/pricing/>
+
+개정 각주(2026-10-20): §9 의 "종류 = 주인 패널의 섹션"은 [ADR-0287](./0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md) 이 넓혔다. 종류 줄은 자기 생산자를 이름 지을 수 있고, 그런 종류는 주인 패널에 묶이지 않는다.

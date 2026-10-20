@@ -68,20 +68,30 @@ class PlanError(ValueError):
 
 def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
                 panels: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """One table entry per by-PNU data kind (root ADR-0193), from the contract's `kind_tables`."""
+    """One table entry per by-PNU data kind (root ADR-0193), from the contract's `kind_tables`.
+
+    A section of the host panel reads a subset of the panel's inputs, pinned to the panel's current
+    snapshots and checked against it. A kind with its own producer (root ADR-0287) reads its own
+    inputs at their own heads, so it carries no pin and no parity check.
+    """
     tables = {}
     for lane, kind in kinds.items():
         pin = template["pins_from_host_panel"]
-        tables[kind.gold_table] = {
-            "unit": lane, "lane": lane, "producer": template["producer"], "producer_arguments": ["--lane", lane],
+        entry = {
+            "unit": lane, "lane": lane, "producer": kind.producer or template["producer"],
+            "producer_arguments": ["--lane", lane],
             **{k: template[k] for k in ("max_row_loss_fraction", "max_row_loss_reason", "incremental", "spark")
                if k in template},
-            # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
-            "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
-            "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
-            "pins_from": {"gold_table": kind.host_panel, "inputs": "all", "parity_argument": pin["parity_argument"],
-                          "reason": pin["reason"]},
         }
+        if kind.follows_host_panel:
+            # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
+            entry.update({
+                "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
+                "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
+                "pins_from": {"gold_table": kind.host_panel, "inputs": "all",
+                              "parity_argument": pin["parity_argument"], "reason": pin["reason"]},
+            })
+        tables[kind.gold_table] = entry
     return tables
 
 

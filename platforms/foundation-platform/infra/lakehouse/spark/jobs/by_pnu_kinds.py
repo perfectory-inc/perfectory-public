@@ -2,7 +2,10 @@
 `by_pnu_lanes` that name a host.
 
 A kind line says which host panel it splits, which of that panel's sections it is and the
-section's content columns. Everything a kind needs follows from that line: its Gold table
+section's content columns. A line that also names a `producer` is a kind built from its own
+Silver by that Spark job (root ADR-0287) rather than from a panel section: it is served on the
+host's lane the same way, but is not pinned to or checked against the host panel. Everything a
+kind needs follows from that line: its Gold table
 (`gold.<lane with - as _>`, lakehouse-domain `by_pnu_kind.rs`), its rebuild
 (`gold-panel-rebuild.contract.json` `kind_tables`, `gold_rebuild.load_contract`), its producer run
 (`by_pnu_kind_silver_to_gold.py --lane <lane>`) and its serving lane. Pure Python: the planner
@@ -28,6 +31,9 @@ class Kind:
     section: str
     # Content column names in the Gold's order (a `<name>:long` spec names `<name>`).
     columns: tuple[str, ...]
+    # The Spark job (a module under jobs/) that builds this kind from its own Silver, or None for a
+    # section of the host panel (built by by_pnu_kind_silver_to_gold, root ADR-0193 §9).
+    producer: str | None = None
 
     @property
     def gold_table(self) -> str:
@@ -36,6 +42,11 @@ class Kind:
     @property
     def host_panel(self) -> str:
         return HOST_PANELS[self.host]
+
+    @property
+    def follows_host_panel(self) -> bool:
+        """Whether the kind is a section of its host panel, pinned to it and checked against it."""
+        return self.producer is None
 
 
 def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
@@ -47,8 +58,11 @@ def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
             continue
         if entry["host"] not in HOST_PANELS or not entry.get("section") or not entry.get("columns"):
             raise ValueError(f"by_pnu_lanes.{lane} is a kind line without a known host, a section or its columns")
+        producer = entry.get("producer")
+        if producer is not None and not (isinstance(producer, str) and producer.isidentifier()):
+            raise ValueError(f"by_pnu_lanes.{lane}.producer must name a Spark job module")
         found[lane] = Kind(lane, entry["host"], entry["section"],
-                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]))
+                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), producer)
     return found
 
 
