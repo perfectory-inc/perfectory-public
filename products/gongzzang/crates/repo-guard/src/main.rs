@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use guards::capability_layout::check_capability_layout;
+use guards::file_line_limit::{check_file_line_limit, ERROR_LINES};
 use guards::migration_version_prefixes::check_migration_version_prefixes;
 
 fn main() {
@@ -47,6 +48,47 @@ fn run() -> Result<(), String> {
             writeln!(
                 io::stdout(),
                 "migration-version-prefixes-ok files={}",
+                report.files
+            )
+            .map_err(|error| format!("failed to write guard output: {error}"))?;
+            Ok(())
+        }
+        "file-line-limit" => {
+            // From the directory CI runs it in (products/gongzzang), as the script did.
+            let root = env::current_dir()
+                .map_err(|error| format!("failed to resolve current directory: {error}"))?;
+            let report = check_file_line_limit(&root)?;
+            let annotations = env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true");
+            let mut stderr = io::stderr();
+            for (file, lines) in &report.warnings {
+                let line = if annotations {
+                    format!("::warning file={file}::{lines} lines (> 500). Consider splitting.")
+                } else {
+                    format!(
+                        "file-line-limit: {file} has {lines} lines (> 500). Consider splitting."
+                    )
+                };
+                writeln!(stderr, "{line}")
+                    .map_err(|error| format!("failed to write guard output: {error}"))?;
+            }
+            for (file, lines) in &report.errors {
+                let line = if annotations {
+                    format!("::error file={file}::{lines} lines (> {ERROR_LINES}). Split the file into focused parts.")
+                } else {
+                    format!("file-line-limit: {file} has {lines} lines (> {ERROR_LINES}). Split the file into focused parts.")
+                };
+                writeln!(stderr, "{line}")
+                    .map_err(|error| format!("failed to write guard output: {error}"))?;
+            }
+            if !report.errors.is_empty() {
+                return Err(format!(
+                    "file-line-limit: {} file(s) over {ERROR_LINES} lines",
+                    report.errors.len()
+                ));
+            }
+            writeln!(
+                io::stdout(),
+                "file-line-limit-ok max={ERROR_LINES} files={}",
                 report.files
             )
             .map_err(|error| format!("failed to write guard output: {error}"))?;

@@ -114,7 +114,7 @@ packages/                    ← TS 라이브러리 (ui, api-types 생성물 등
 | 5 | 시크릿 git 커밋 | gitleaks pre-commit + CI | pre-commit + CI |
 | 6 | 코드 스타일 위반 | rustfmt + Biome (루트 lefthook) | pre-commit |
 | 7 | 의존성 방향 위반 | (Rust) repo-guard `capability-layout` + `foundation-ownership-boundary.sh`; (TS) 도구 **미도입** — 수동 준수 | pre-push + CI |
-| 8 | 파일 ≤500 / 1500 위반 | `scripts/lefthook/file-line-limit.sh` (gongzzang-ci Repo guardrails job) | CI |
+| 8 | 파일 ≤500 / 1500 위반 | `cargo run -p repo-guard -- file-line-limit` (gongzzang-ci Repo guardrails job) | CI |
 | 9 | 글로서리 외 도메인 용어 | **미도입** — 자동 grep 룰 없음, 리뷰에서 수동 준수 | (수동) |
 | 10 | TODO/HACK/XXX/`_TEMP` 코드 | clippy `todo` deny + Biome 자체 룰 | pre-commit + CI |
 | 11 | Foundation Platform 소유 Catalog/ETL/raw crate 재도입 | `foundation-ownership-boundary.sh` + boundary contract | pre-push + CI |
