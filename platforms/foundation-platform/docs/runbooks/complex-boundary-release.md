@@ -53,6 +53,9 @@ sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/b
 지금 Silver 의 판은 2026-09-01 에 적재 기록과 함께 들어간 `30137-1.zip` 이다. 수집이 같은 파일을 다시 받지 않으면 첫
 실행은 `unchanged reason=already_loaded` 다. 통과하면 `enabled: true` PR 을 낸다(ADR-0122 §4).
 
+2026-10-20 01:46–01:47 UTC 감독 실행이 `unchanged reason=already_loaded object=…/30137-1.zip` 으로 끝났다(단지 표를
+계약의 현재 행 규칙으로 읽은 뒤의 결과, ADR-0267). 작업은 그 뒤로 켜져 있다(`enabled_since`).
+
 ## 거부
 
 | 문구 | 할 일 |
