@@ -298,8 +298,8 @@
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280). Off until the owner places /etc/foundation-platform/data-go-kr.env holding DATA_GO_KR_SERVICE_KEY (the runtime-secrets group data-go-kr, optional until then) and the first supervised run (runbook data-go-kr-onbid.md) has landed a complete item pass within the API limits; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
     },
     {
       "id": "onbid_public_sale_silver",
@@ -322,8 +322,8 @@
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280). Off until the owner places /etc/foundation-platform/data-go-kr.env holding DATA_GO_KR_SERVICE_KEY (the runtime-secrets group data-go-kr, optional until then) and the first supervised run (runbook data-go-kr-onbid.md) has landed a complete item pass within the API limits; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
     },
     {
       "id": "vworld_parcel_edition",
