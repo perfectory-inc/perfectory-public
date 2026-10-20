@@ -418,5 +418,45 @@ class Contract(unittest.TestCase):
                     rebuild.load_contract(path)
 
 
+
+class OwnProducerKind(unittest.TestCase):
+    """Root ADR-0287: a kind line naming its own producer is served on its host's lane but is built
+    from its own Silver, so it is neither pinned to nor checked against the host panel."""
+
+    LINES = {
+        "parcel-zoning": {"host": "parcel_by_pnu_gateway", "kind": "zoning", "section": "zonings",
+                          "columns": ["zonings_json"]},
+        "parcel-example": {"host": "parcel_by_pnu_gateway", "kind": "example", "section": "example",
+                           "columns": ["example_json"], "producer": "example_silver_to_gold"},
+    }
+
+    def kinds(self, lines):
+        import tempfile
+        import by_pnu_kinds
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "r2.json"
+            path.write_text(json.dumps({"by_pnu_lanes": lines}), encoding="utf-8")
+            return by_pnu_kinds.kinds(path)
+
+    def test_its_entry_names_its_producer_and_carries_no_host_pin(self):
+        kinds = self.kinds(self.LINES)
+        self.assertTrue(kinds["parcel-zoning"].follows_host_panel)
+        self.assertFalse(kinds["parcel-example"].follows_host_panel)
+        template = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))["kind_tables"]
+        tables = rebuild.kind_tables(template, kinds, {"gold.parcel_panel": {"unmeasured_inputs": {"silver.x": "fixture"}}})
+        own = tables["gold.parcel_example"]
+        self.assertEqual((own["producer"], own["producer_arguments"]), ("example_silver_to_gold", ["--lane", "parcel-example"]))
+        self.assertNotIn("pins_from", own)
+        self.assertNotIn("unmeasured_inputs", own, "the host panel's input notes are not its")
+        section = tables["gold.parcel_zoning"]
+        self.assertEqual(section["producer"], template["producer"])
+        self.assertEqual(section["pins_from"]["gold_table"], "gold.parcel_panel")
+
+    def test_a_producer_that_is_not_a_module_name_is_refused(self):
+        bad = {**self.LINES, "parcel-example": {**self.LINES["parcel-example"], "producer": "../evil.py"}}
+        with self.assertRaises(ValueError):
+            self.kinds(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
