@@ -4,7 +4,8 @@ use std::{collections::BTreeMap, error::Error, path::Path};
 
 use lakehouse_domain::{
     bronze_industrial_complexes_raw_jsonl_columns, industrial_complex_lakehouse_contracts,
-    LakehouseLoadUnit, LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
+    LakehouseEditionRead, LakehouseLoadUnit, LakehouseRowKey, LakehouseRowVersions,
+    LakehouseTableContract, BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL,
     INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
     INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
     INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
@@ -104,12 +105,13 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         "physical_format": format!("{:?}", contract.physical_format),
         "serving_role": format!("{:?}", contract.serving_role),
         "current_row_predicate": contract.current_row_predicate,
-        "current_row_latest": contract.current_row_latest.map(|latest| serde_json::json!({
+        "current_row_latest": contract.current_row_latest().map(|latest| serde_json::json!({
             "key": latest.key,
             "newest_first": latest.newest_first,
             "removal_column": latest.removal_column,
             "keep_ties": latest.keep_ties
         })),
+        "row_versions": row_versions_json(&contract.row_versions),
         "columns": contract.columns.iter().map(|column| {
             serde_json::json!({
                 "name": column.name,
@@ -123,6 +125,41 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
         "quality_gates": contract.quality_gates,
         "load": load_json(&contract.load)
     })
+}
+
+/// Exports how the rows pile up (root ADR-0286). A newest-per-key table's rule is the
+/// `current_row_latest` export beside it, not a second copy here.
+fn row_versions_json(row_versions: &LakehouseRowVersions) -> Value {
+    match row_versions {
+        LakehouseRowVersions::Replaced {
+            key: LakehouseRowKey::Columns(key),
+        } => serde_json::json!({"kind": "replaced", "key": key}),
+        LakehouseRowVersions::Replaced {
+            key: LakehouseRowKey::Keyless { reason },
+        } => serde_json::json!({"kind": "replaced", "key": null, "keyless_reason": reason}),
+        LakehouseRowVersions::LatestPerKey(_) => serde_json::json!({"kind": "latest_per_key"}),
+        LakehouseRowVersions::Editions {
+            edition_column,
+            newest_first,
+            per,
+            read,
+        } => serde_json::json!({
+            "kind": "editions",
+            "edition_column": edition_column,
+            "newest_first": newest_first,
+            "per": per,
+            "read": match read {
+                LakehouseEditionRead::Newest => "newest",
+                LakehouseEditionRead::Pinned => "pinned",
+            },
+        }),
+        LakehouseRowVersions::Events { canonical_reader } => {
+            serde_json::json!({"kind": "events", "canonical_reader": canonical_reader})
+        }
+        LakehouseRowVersions::Unwritten { reason } => {
+            serde_json::json!({"kind": "unwritten", "reason": reason})
+        }
+    }
 }
 
 /// Exports what one load of the table carries, so the Spark side reads it rather than assuming.

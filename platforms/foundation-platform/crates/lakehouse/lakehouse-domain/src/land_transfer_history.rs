@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -130,7 +130,7 @@ pub const SILVER_LAND_TRANSFER_HISTORY: LakehouseTableContract = LakehouseTableC
     // A release appends only the rows of its changed keys and a removal marker per vanished key
     // (root ADR-0275). The source repeats a key within a release (root ADR-0090), so a key's
     // version is every row of its newest release: ordered by the release, all ties current.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pnu", "transfer_history_seq"],
         newest_first: &["source_snapshot_id"],
         removal_column: Some("row_state"),

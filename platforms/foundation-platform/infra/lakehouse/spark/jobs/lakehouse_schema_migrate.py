@@ -53,6 +53,9 @@ from platform_contracts import (
 BACKFILLS: dict[tuple[str, str], tuple[str, str]] = {
     ("gold.parcel_panel", "row_digest"): ("parcel_panel_silver_to_gold", "row_digest_column"),
     ("gold.building_panel", "row_digest"): ("building_panel_silver_to_gold", "row_digest_column"),
+    ("silver.parcel_number_change_history", "source_region_code"): (
+        "vworld_parcel_number_change_history", "source_region_code_column"),
+    ("silver.unit_official_price", "vintage"): ("unit_official_price", "vintage_column"),
 }
 
 

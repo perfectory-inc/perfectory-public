@@ -20,6 +20,15 @@ from lakehouse_engine import load_engine_contract
 import test_lakehouse_schema_migrate as migration_fixtures
 
 
+# The input a backfill reads, where "synthetic" is not a value its build could have written.
+BACKFILL_INPUTS = {
+    ("silver.parcel_number_change_history", "source_region_code"): {
+        "source_file_name": "ABPD_UNQ_NO_CHG_HIST_99_209909.txt"},
+    ("silver.unit_official_price", "vintage"): {
+        "source_snapshot_id": "price:1|exclusive:2|vintage:209909"},
+}
+
+
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark and Iceberg runtime")
 class MigrationSpark(unittest.TestCase):
     @classmethod
@@ -151,8 +160,9 @@ class MigrationSpark(unittest.TestCase):
                 contract = load_lakehouse_contract(name)
                 # Simulate failure after ADD COLUMN: required row_digest already exists as NULL.
                 table = self.table(name, create_table_columns_sql(contract))
-                values = [F.lit(None if c["name"] == column else
-                                (1 if c["logical_type"] == "long" else "synthetic"))
+                inputs = BACKFILL_INPUTS.get((name, column), {})
+                values = [F.lit(None if c["name"] == column else inputs.get(
+                                c["name"], 1 if c["logical_type"] == "long" else "synthetic"))
                           .cast(migrate.spark_sql_type(c["logical_type"])).alias(c["name"])
                           for c in contract["columns"]]
                 self.spark.range(2).select(*values).writeTo(table).append()

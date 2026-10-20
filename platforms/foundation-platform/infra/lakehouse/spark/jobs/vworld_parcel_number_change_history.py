@@ -167,14 +167,35 @@ def check_shrink(rows: int, previous: int | None, member: str, contract: Mapping
         raise SourceFormatError(f"{member}: {rows} rows, shrunk from {previous}; refused")
 
 
+def region_code(member: str, contract: Mapping[str, Any]) -> str:
+    """The 시도 code a province file's member name carries: the edition group (root ADR-0286)."""
+
+    files = contract["files"]
+    match = re.fullmatch(files["member_name_pattern"], member)
+    if match is None:
+        raise SourceFormatError(f"{member} does not match {files['member_name_pattern']}")
+    return match.group(files["member_region_code_group"])
+
+
+def source_region_code_column() -> Any:
+    """`source_region_code` from `source_file_name`, as `region_code` reads it: the registered backfill
+    of the rows loaded before the column (lakehouse_schema_migrate.BACKFILLS)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    files = load_source_contract()["files"]
+    return F.regexp_extract(F.col("source_file_name"), files["member_name_pattern"], files["member_region_code_group"])
+
+
 def table_rows(
     rows: Iterable[Mapping[str, Any]], *, member: str, source_record_id: str, source_snapshot_id: str,
-    provider_updated_on: date, now: datetime,
+    provider_updated_on: date, now: datetime, contract: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     """The parsed rows with their lineage columns, as `silver.parcel_number_change_history` holds them."""
 
+    region = region_code(member, contract)
     return [
-        {**row, "source_file_name": member, "source_record_id": source_record_id,
+        {**row, "source_file_name": member, "source_region_code": region, "source_record_id": source_record_id,
          "source_snapshot_id": source_snapshot_id, "provider_updated_on": provider_updated_on, "ingested_at_utc": now}
         for row in rows
     ]
@@ -343,7 +364,7 @@ def handoff_rows(handoff_dir: Path, contract: Mapping[str, Any], now: datetime) 
         updated = date.fromisoformat(obj["updated_at"])
         out.append((obj, table_rows(rows, member=member, source_record_id=obj["object_key"],
                                     source_snapshot_id=f"{obj['file_key']}@{obj['updated_at']}",
-                                    provider_updated_on=updated, now=now)))
+                                    provider_updated_on=updated, now=now, contract=contract)))
     return out
 
 
