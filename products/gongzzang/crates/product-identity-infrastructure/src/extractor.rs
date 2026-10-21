@@ -15,7 +15,7 @@ where
     fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         // Nothing to await: the middleware already put the user in the request's extensions.
         std::future::ready(
             parts

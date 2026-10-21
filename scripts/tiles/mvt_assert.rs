@@ -453,7 +453,7 @@ fn parse_feature(
     }
 
     let mut properties = BTreeMap::new();
-    for indexes in tags.chunks_exact(2) {
+    for indexes in tags.as_chunks::<2>().0 {
         let key_index = indexes[0] as usize;
         let value_index = indexes[1] as usize;
         let key = keys.get(key_index).ok_or_else(|| {
@@ -619,8 +619,10 @@ fn consume_coordinate_parameters(
     }
     if reject_zero_delta
         && geometry[*position..*position + parameter_count]
-            .chunks_exact(2)
-            .any(|delta| delta == [0, 0])
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .any(|delta| *delta == [0, 0])
     {
         return Err(format!(
             "{command_name} contains a zero-length LineTo segment"
