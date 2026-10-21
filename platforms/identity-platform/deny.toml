@@ -16,7 +16,14 @@ yanked = "deny"
 # justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
 unmaintained = "all"
 unsound = "all"
-ignore = []
+ignore = [
+    # webpki-roots 0.26.x via sqlx-core (pins ^0.26); fix only in >=1.0.10, semver-unreachable
+    # without a breaking sqlx major. Used only as sqlx's TLS root store for our own Postgres
+    # endpoints, not arbitrary-server validation, so the distrusted-emSign path is not an exposure.
+    # The 1.x copy is bumped to 1.0.10; -0382/-0383 are fixed by the bump. Review by 2026-11-20:
+    # delete once sqlx releases on webpki-roots >= 1.0.10.
+    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.x via sqlx-core (^0.26, no patched 0.26.x); sqlx TLS roots for our own Postgres, not arbitrary-server validation; 1.x bumped to 1.0.10; review by 2026-11-20" },
+]
 
 [licenses]
 confidence-threshold = 0.92
