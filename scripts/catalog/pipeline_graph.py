@@ -92,12 +92,15 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     expected_groups = {e["group"] for e in endpoints}
     expected_contracts = {c["table_name"] for c in contracts.values()}
     columns_by_table = {c["table_name"]: {col["name"] for col in c.get("columns", [])} for c in contracts.values()}
-    # A table that resolves pnu at silver-load keeps the raw reference it resolved from (`*_pnu_raw`)
-    # or the resolution basis (`pnu_basis`/`pnu_unresolved_reason`); a pre-composed pnu (hub/VWorld,
-    # resolved upstream in Rust) has neither. Only the former must go through the resolver here.
-    resolves_at_load = {name for name, cols in columns_by_table.items()
-                        if "pnu" in cols and (cols & {"pnu_basis", "pnu_unresolved_reason"}
-                                              or any(c.endswith("_pnu_raw") for c in cols))}
+    # ADR-0288 §1: EVERY silver table that carries a `pnu` is a parcel source and must reach the
+    # current pnu through a resolver, never by copying a provider code (the 공매 bypass). The earlier
+    # "has a `pnu_basis`/`*_pnu_raw` column" test was an evadable heuristic — a verbatim copy with no
+    # such column slipped through — so the invariant is now the `pnu` column itself. Its source→silver
+    # feeds edge must either list a resolver in `via` (RESOLVER_VIA), or carry an explicit, non-empty
+    # `pnu_resolution` on the edge: the reasoned exemption for a pnu composed by the Rust hub/VWorld
+    # export (standard_pnu_from_hub_register_codes, ADR-0145) or that is itself the canonical cadastral
+    # PNU. Fail-closed: a new pnu-bearing source with neither is rejected, so a bypass cannot be silent.
+    pnu_silver = {name for name, cols in columns_by_table.items() if "pnu" in cols and name.startswith("silver.")}
     expected_serving = migration_tables(root)
     problems = []
 
@@ -156,10 +159,18 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
         source = by_id[edge["from"]]
         target = by_id[edge["to"]]
         selected = edge.get("source_slugs")
-        if (source["type"] == "source_group" and edge.get("relation") == DATA_RELATION
-                and target.get("table_name") in resolves_at_load
-                and not (isinstance(via, list) and set(via) & RESOLVER_VIA)):
-            problems.append(f"parcel source edge skips the place-identity resolver: {edge['id']}")
+        resolution = edge.get("pnu_resolution")
+        parcel_source = (source["type"] == "source_group" and edge.get("relation") == DATA_RELATION
+                         and target.get("table_name") in pnu_silver)
+        if parcel_source:
+            resolved_by_via = isinstance(via, list) and bool(set(via) & RESOLVER_VIA)
+            declared = isinstance(resolution, str) and bool(resolution.strip())
+            if not resolved_by_via and not declared:
+                problems.append(f"parcel source edge skips the place-identity resolver: {edge['id']}")
+            if resolution is not None and not declared:
+                problems.append(f"empty pnu_resolution: {edge['id']}")
+        elif resolution is not None:
+            problems.append(f"pnu_resolution on a non-parcel-source edge: {edge['id']}")
         if source["type"] == "source_group" and edge.get("relation") == DATA_RELATION:
             allowed = {e["bronze"]["source_slug"] for e in endpoints if e["group"] == source["endpoint_catalog_group"]}
             if not isinstance(selected, list) or not selected or not set(selected) <= allowed:
