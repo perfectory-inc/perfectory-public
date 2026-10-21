@@ -9,10 +9,12 @@ pub struct PnuAssembly {
     pub legal_dong_code_fields: [String; 4],
     /// The field holding the lot, e.g. `"66-8"` or `"산80"`.
     pub lot_field: String,
-    /// The ledger-kind (대장구분) digit a standard PNU may carry.
+    /// The ledger-kind (대장구분) digits a standard PNU may carry (1/2/8/9).
     pub ledger_kind_digits: Vec<char>,
-    /// The ledger-kind digit a court auction row implies (land, not a closed ledger).
-    pub ledger_kind: char,
+    /// The ledger-kind digit of an ordinary lot (토지대장).
+    pub flat_ledger_kind: char,
+    /// The ledger-kind digit of a `산` lot (임야대장).
+    pub mountain_ledger_kind: char,
 }
 
 /// Why a row's fields could not assemble a standard PNU.
@@ -28,10 +30,10 @@ pub enum PnuUnresolved {
 
 /// The 19-digit PNU a court auction row assembles to, or why it could not.
 ///
-/// `legal-dong code (10) + ledger-kind digit (1) + 본번 (4) + 부번 (4)`. A `산` lot is not the
-/// ledger-kind digit — that stays the land digit from the contract; `산` is carried by the code
-/// history elsewhere, so here it only guards the lot's shape. Prose lots ("…외 6필지",
-/// "…도시개발구역5블록") do not assemble and are left for the resolver's steward queue.
+/// `legal-dong code (10) + ledger-kind digit (1) + 본번 (4) + 부번 (4)`. A `산` lot takes the
+/// mountain ledger-kind digit (임야대장 2), an ordinary lot the flat one (토지대장 1) — the measured
+/// `pnuNoCtt` does the same (`산80` → `…2 0080 0000`). Prose lots ("…외 6필지", "…도시개발구역5블록")
+/// do not assemble and are left for the resolver's steward queue.
 ///
 /// # Errors
 /// Returns [`PnuUnresolved`] naming the first field that did not fit.
@@ -48,21 +50,42 @@ pub fn assemble(
         return Err(PnuUnresolved::LegalDongCode);
     }
     let lot = field(&rule.lot_field).unwrap_or_default();
-    let (bonbun, bubun) = split_lot(lot.trim()).ok_or(PnuUnresolved::Lot)?;
-    if !rule.ledger_kind_digits.contains(&rule.ledger_kind) {
+    let lot = split_lot(lot.trim()).ok_or(PnuUnresolved::Lot)?;
+    let ledger_kind = if lot.mountain {
+        rule.mountain_ledger_kind
+    } else {
+        rule.flat_ledger_kind
+    };
+    if !rule.ledger_kind_digits.contains(&ledger_kind) {
         return Err(PnuUnresolved::LedgerKind);
     }
-    Ok(format!("{code}{}{bonbun:04}{bubun:04}", rule.ledger_kind))
+    Ok(format!(
+        "{code}{ledger_kind}{:04}{:04}",
+        lot.bonbun, lot.bubun
+    ))
 }
 
-/// `본번`, `본번-부번`, or the same with a leading `산`, as `(bonbun, bubun)`. Anything else — a
-/// comma, a word, an empty string — is not a lot.
-fn split_lot(lot: &str) -> Option<(u32, u32)> {
-    let digits = lot.strip_prefix('산').map_or(lot, str::trim_start);
+/// A lot read from the row: whether it is `산`, its 본번 and 부번.
+struct Lot {
+    mountain: bool,
+    bonbun: u32,
+    bubun: u32,
+}
+
+/// `본번`, `본번-부번`, or the same with a leading `산`. Anything else — a comma, a word, an empty
+/// string — is not a lot.
+fn split_lot(lot: &str) -> Option<Lot> {
+    let (mountain, digits) = lot
+        .strip_prefix('산')
+        .map_or((false, lot), |rest| (true, rest.trim_start()));
     let (bonbun, bubun) = digits.split_once('-').unwrap_or((digits, "0"));
     let bonbun: u32 = bonbun.parse().ok().filter(|n| *n < 10_000)?;
     let bubun: u32 = bubun.parse().ok().filter(|n| *n < 10_000)?;
-    Some((bonbun, bubun))
+    Some(Lot {
+        mountain,
+        bonbun,
+        bubun,
+    })
 }
 
 #[cfg(test)]
@@ -81,7 +104,8 @@ mod tests {
             ],
             lot_field: "lot".to_owned(),
             ledger_kind_digits: vec!['1', '2', '8', '9'],
-            ledger_kind: '1',
+            flat_ledger_kind: '1',
+            mountain_ledger_kind: '2',
         }
     }
 
@@ -104,7 +128,13 @@ mod tests {
     fn code_and_lot_make_a_19_digit_pnu() {
         assert_eq!(assemble_row("66-8").as_deref(), Ok("1162010100100660008"));
         assert_eq!(assemble_row("66").as_deref(), Ok("1162010100100660000"));
-        assert_eq!(assemble_row("산80").as_deref(), Ok("1162010100100800000"));
+    }
+
+    #[test]
+    fn a_mountain_lot_takes_the_imya_ledger_digit() {
+        // The measured pnuNoCtt does the same: 산80 -> ...2 0080 0000.
+        assert_eq!(assemble_row("산80").as_deref(), Ok("1162010100200800000"));
+        assert_eq!(assemble_row("산17-1").as_deref(), Ok("1162010100200170001"));
     }
 
     #[test]
