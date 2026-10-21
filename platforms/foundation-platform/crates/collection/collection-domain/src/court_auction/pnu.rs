@@ -109,12 +109,14 @@ mod tests {
         }
     }
 
+    // The repository-reserved 99999 legal-dong code: a synthetic place, never a real parcel
+    // (public-fixture-safety). The assembly is code+lot concatenation, so any code works here.
     fn row(lot: &str) -> BTreeMap<String, String> {
         BTreeMap::from([
-            ("sido".to_owned(), "11".to_owned()),
-            ("sgg".to_owned(), "620".to_owned()),
-            ("emd".to_owned(), "101".to_owned()),
-            ("ri".to_owned(), "00".to_owned()),
+            ("sido".to_owned(), "99".to_owned()),
+            ("sgg".to_owned(), "999".to_owned()),
+            ("emd".to_owned(), "999".to_owned()),
+            ("ri".to_owned(), "99".to_owned()),
             ("lot".to_owned(), lot.to_owned()),
         ])
     }
@@ -126,15 +128,15 @@ mod tests {
 
     #[test]
     fn code_and_lot_make_a_19_digit_pnu() {
-        assert_eq!(assemble_row("66-8").as_deref(), Ok("1162010100100660008"));
-        assert_eq!(assemble_row("66").as_deref(), Ok("1162010100100660000"));
+        assert_eq!(assemble_row("66-8").as_deref(), Ok("9999999999100660008"));
+        assert_eq!(assemble_row("66").as_deref(), Ok("9999999999100660000"));
     }
 
     #[test]
     fn a_mountain_lot_takes_the_imya_ledger_digit() {
-        // The measured pnuNoCtt does the same: 산80 -> ...2 0080 0000.
-        assert_eq!(assemble_row("산80").as_deref(), Ok("1162010100200800000"));
-        assert_eq!(assemble_row("산17-1").as_deref(), Ok("1162010100200170001"));
+        // The measured pnuNoCtt does the same: a 산 lot gets ledger digit 2, bonbun then bubun.
+        assert_eq!(assemble_row("산80").as_deref(), Ok("9999999999200800000"));
+        assert_eq!(assemble_row("산17-1").as_deref(), Ok("9999999999200170001"));
     }
 
     #[test]
