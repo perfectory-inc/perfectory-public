@@ -161,7 +161,6 @@ impl VWorldDatasetFileStream {
     }
 
     /// Consumes this file and returns its provider byte stream.
-    #[must_use]
     pub fn into_body_stream(self) -> BoxStream<'static, Result<Bytes, CollectionError>> {
         self.body
     }
