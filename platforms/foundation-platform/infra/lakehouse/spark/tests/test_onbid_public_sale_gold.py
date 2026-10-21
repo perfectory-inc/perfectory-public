@@ -44,6 +44,21 @@ class InputsTest(unittest.TestCase):
         kind = by_pnu_kinds.kind("parcel-public-sale")
         self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_sale", ("public_sale_json",)))
 
+    def test_the_parcel_universe_is_the_served_edition_not_all_editions(self):
+        # silver.parcel_boundaries holds several cadastral editions side by side; the panel, map and
+        # catalog are built from the ONE served edition (root ADR-0148). This own-producer kind is
+        # served on the parcel lane, so it must read the SAME served edition — never every edition's
+        # current rows. Reading all editions (the generic read_source) attached sales to parcels a
+        # newer, unpromoted edition holds but the served map does not: 2026-10-21 it placed 632 PNUs
+        # of editions 202609/202610 under the served 202606 set, which the by-PNU serving gate refused.
+        src = Path(job.__file__).read_text(encoding="utf-8")
+        self.assertRegex(
+            src, r'read_served_parcels\([^)]*\)\.select\("pnu"\)',
+            "공매 parcel universe must come from panel.read_served_parcels (the served edition)")
+        self.assertNotRegex(
+            src, r'read_source\([^)]*PARCEL_SOURCE[^)]*\)\.select\("pnu"\)',
+            "공매 must not build its parcel universe from the all-editions read_source")
+
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class PlacementSparkTest(unittest.TestCase):
