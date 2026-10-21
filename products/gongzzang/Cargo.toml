@@ -48,6 +48,9 @@ unused_imports = "deny"
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
+# Rust 1.99 `assert_is_empty`: its fix (`assert_eq!(x, [] as [T; 0])`) reads worse than
+# `assert!(x.is_empty())` at ~260 sites; revisit when the suggestion improves (toolchain wave 2026-10-21).
+assert_is_empty = "allow"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
