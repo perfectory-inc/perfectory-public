@@ -1,4 +1,4 @@
-# ADR 0289: The served cadastral edition is operator-chosen, readiness-gated, and rebuilt in lockstep
+# ADR 0291: The served cadastral edition is operator-chosen, readiness-gated, and rebuilt in lockstep
 
 - Status: Accepted
 - Date: 2026-10-21
