@@ -84,6 +84,13 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
             # The lineage is optional to every parcel kind: the host's leave to go without it.
             "absent_inputs_accepted": panels.get(kind.host_panel, {}).get("absent_inputs_accepted", {}),
         }
+        # A kind whose rows are not a slowly-growing register (e.g. open public-sale rounds that open
+        # and close daily) carries its own row-loss bound and reason under `overrides.<lane>`, instead
+        # of the stable-panel default; both must be given together (root ADR-0287).
+        override = template.get("overrides", {}).get(lane, {})
+        for key in ("max_row_loss_fraction", "max_row_loss_reason"):
+            if key in override:
+                entry[key] = override[key]
         if kind.follows_host_panel:
             # Root ADR-0180's incremental merge reads the panel's input map; an own producer rebuilds whole.
             if "incremental" in template:
