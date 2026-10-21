@@ -7,6 +7,6 @@
 # Components: union of what all four area files declared before consolidation
 # (gongzzang added rust-analyzer + rust-src; profile=default was majority).
 [toolchain]
-channel = "1.96.0"
+channel = "1.99.1"
 profile = "default"
 components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]

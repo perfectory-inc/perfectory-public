@@ -86,7 +86,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 ## 모노레포 절대 규칙 (docs/adr/0001 요약)
 
 - GitHub 설정은 루트 `.github/`에만. 영역 내부 `.github/workflows` 금지.
-- Rust 툴체인 핀은 루트 rust-toolchain.toml 하나뿐(1.96.0). 영역 안에 rust-toolchain 파일을 만들지 말 것(루트를 가림).
+- Rust 툴체인 핀은 루트 rust-toolchain.toml 하나뿐(값은 `tools/technology-versions.contract.json` 의 `rust_toolchain`). 영역 안에 rust-toolchain 파일을 만들지 말 것(루트를 가림).
 - 헬스는 `/healthz`·`/readyz`·`/metrics`. 마이그레이션은 `YYYYMMDDHHMMSS_snake.sql`.
 - Cargo 패키지명은 모노레포 전역 유일. 범용 이름엔 `<area>-` 접두사.
 - 영역 간 결합은 published HTTP 계약/이벤트만. Cargo path 의존 금지.

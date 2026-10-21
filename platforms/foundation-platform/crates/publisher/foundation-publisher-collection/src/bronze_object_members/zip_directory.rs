@@ -363,7 +363,7 @@ fn zip64_sizes(extra: &[u8], uncompressed: u64, compressed: u64) -> Result<(u64,
         .find(|(id, _)| *id == ZIP64_EXTRA_ID)
         .map(|(_, data)| data)
         .ok_or_else(|| "a saturated size without a ZIP64 extra field".to_owned())?;
-    let mut words = data.chunks_exact(8).map(|word| u64_at(word, 0));
+    let mut words = data.as_chunks::<8>().0.iter().map(|word| u64_at(word, 0));
     let mut next = |what: &str| {
         words
             .next()

@@ -148,7 +148,7 @@ fn bounds_compressible_input_and_open_group_buffers() -> Result<()> {
             .downcast_ref::<StringArray>()
             .context("fixture must contain a string column")?;
         for value in values {
-            assert!(value == Some(row.value.as_str()));
+            assert_eq!(value, Some(row.value.as_str()));
             read_rows += 1;
         }
     }
