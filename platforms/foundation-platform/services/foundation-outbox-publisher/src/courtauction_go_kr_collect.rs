@@ -513,14 +513,14 @@ pub(crate) async fn collect(
             collector.spacing = ProviderRequestSpacing::try_new(Duration::from_secs(delay))?;
         }
     }
-    let day = (now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+    // The run's KST date, taken from its first request time, fixes the date range of every page.
+    let mut day: Option<NaiveDate> = None;
     for (role, search) in searches(contract) {
         let result = results.entry(role).or_default();
         if !robots.allows(&search.path) {
             return Ok((results, Some(Stop::RobotsDisallow(search.path.clone()))));
         }
         for condition in &search.conditions {
-            let condition = &asked_condition(search, condition, day);
             let mut read = 0_u64;
             for page_no in 1_u64.. {
                 if collector.sent >= contract.manners.max_requests_per_run {
@@ -530,8 +530,11 @@ pub(crate) async fn collect(
                 if collector.quiet_hours_waived.is_none() && !allowed(at)? {
                     return Ok((results, Some(Stop::QuietHoursEnded)));
                 }
+                let day = *day
+                    .get_or_insert_with(|| (at + chrono::Duration::hours(KST_HOURS)).date_naive());
+                let asked = asked_condition(search, condition, day);
                 match collector
-                    .page(search, condition, page_no, at, &mut result.lines)
+                    .page(search, &asked, page_no, at, &mut result.lines)
                     .await?
                 {
                     Page::Refused(reason) => return Ok((results, Some(Stop::Refused(reason)))),
