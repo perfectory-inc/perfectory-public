@@ -174,8 +174,9 @@ def read_source(spark, args, name, pins, after=None, batches=None):
         # building-register-floor-content-v1-<hash>, while the 2026-09 batch kept its legacy
         # selection-v2 id, so the table carries more than one. The panel serves the newest
         # generation (the batch ingested last, never the larger "v" in the id), not the refused mix.
-        batch = newest_floor_batch({row.source_snapshot_id: row.ingested for row in
-            frame.groupBy("source_snapshot_id").agg(F.max("ingested_at_utc").alias("ingested")).collect()})
+        # One batch carries one ingest instant; the newest batch is picked in Python.
+        batch = newest_floor_batch({row.source_snapshot_id: row.ingested_at_utc for row in
+            frame.select("source_snapshot_id", "ingested_at_utc").distinct().collect()})
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
     # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
