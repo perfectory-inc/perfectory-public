@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::{json, Value};
 use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
-    collect, in_quiet_hours, night_summary, read_page, read_robots, refusal_on_record, run_window,
-    source_contract, take_quiet_hours_waiver, user_agent, with_night, Collector, Page, Stop,
-    PREFIX, QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
+    asked_condition, collect, in_quiet_hours, night_summary, read_page, read_robots,
+    refusal_on_record, run_window, source_contract, take_quiet_hours_waiver, user_agent,
+    with_night, Collector, Page, Stop, PREFIX, QUIET_HOURS_WAIVER_FILE, REFUSED_FILE,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -206,6 +206,78 @@ async fn a_night_reads_every_condition_to_its_last_page_with_our_identity() -> a
             assert!(!request.headers.contains_key(disguise), "{disguise} sent");
         }
     }
+    Ok(())
+}
+
+#[test]
+fn the_item_search_asks_the_contracts_fixed_date_range_and_the_result_search_none(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let window = contract
+        .item_search
+        .date_window
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("the item search has no date_window"))?;
+    let day = NaiveDate::from_ymd_opt(2099, 1, 2).ok_or_else(|| anyhow::anyhow!("date"))?;
+    let ymd = |days: i64| {
+        (day + chrono::Duration::days(days))
+            .format("%Y%m%d")
+            .to_string()
+    };
+    for condition in &contract.item_search.conditions {
+        let asked = asked_condition(&contract.item_search, condition, day);
+        assert_eq!(
+            asked.get(&window.start_field),
+            Some(&ymd(-window.days_before))
+        );
+        assert_eq!(asked.get(&window.end_field), Some(&ymd(window.days_after)));
+        assert!(condition
+            .iter()
+            .all(|(name, value)| asked.get(name) == Some(value)));
+    }
+    for condition in &contract.sale_result_search.conditions {
+        assert_eq!(
+            &asked_condition(&contract.sale_result_search, condition, day),
+            condition
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_item_search_page_of_a_night_asks_the_same_date_range() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = site(2).await?;
+    let agent = user_agent(&contract, None)?;
+    let mut collector = Collector::new(&contract, &server.uri(), &agent, spacing()?)?;
+    collect(&contract, &mut collector, night, |_| Ok(true)).await?;
+    let window = contract
+        .item_search
+        .date_window
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("the item search has no date_window"))?;
+    // night() is 02:00 KST on 2099-01-02.
+    let day = NaiveDate::from_ymd_opt(2099, 1, 2).ok_or_else(|| anyhow::anyhow!("date"))?;
+    let expected = asked_condition(
+        &contract.item_search,
+        &contract.item_search.conditions[0],
+        day,
+    );
+    let mut item_pages = 0;
+    for request in server.received_requests().await.unwrap_or_default() {
+        if request.url.path() != contract.item_search.path {
+            continue;
+        }
+        let body: Value = serde_json::from_slice(&request.body)?;
+        let asked = &body["dma_srchGdsDtlSrchInfo"];
+        assert_eq!(
+            asked[&window.start_field],
+            json!(expected[&window.start_field])
+        );
+        assert_eq!(asked[&window.end_field], json!(expected[&window.end_field]));
+        item_pages += 1;
+    }
+    assert!(item_pages > 0);
     Ok(())
 }
 

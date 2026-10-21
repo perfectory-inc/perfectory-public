@@ -161,14 +161,19 @@ def condition_key(condition: Any) -> str:
     return json.dumps(condition or {}, sort_keys=True, ensure_ascii=False)
 
 
-def search_complete(lines: Sequence[Mapping[str, Any]], conditions: Sequence[Mapping[str, Any]]) -> bool:
+def search_complete(lines: Sequence[Mapping[str, Any]], search: Mapping[str, Any]) -> bool:
     """Whether the lines read every condition of a search to its last page.
 
     The same test the collector makes while paging: a condition ends at an empty page or once its
     pages hold totalCnt rows. A night stopped by a refusal, the request bound or the end of the quiet
-    hours has a condition without such a line.
+    hours has a condition without such a line. When the search has a `date_window` (root ADR-0290
+    §2), a request without both of its fields does not count: the server's default range slides
+    daily, so such a pass cannot say what left the list.
     """
 
+    conditions = search["conditions"]
+    fields = sorted({name for condition in conditions for name in condition})
+    window = search.get("date_window")
     read: dict[str, int] = {}
     ended = set()
     for line in lines:
@@ -178,14 +183,17 @@ def search_complete(lines: Sequence[Mapping[str, Any]], conditions: Sequence[Map
             data = json.loads(line["body"]).get("data") or {}
         except (TypeError, ValueError, AttributeError):
             continue
-        key = condition_key((line.get("request") or {}).get("dma_srchGdsDtlSrchInfo"))
+        asked = (line.get("request") or {}).get("dma_srchGdsDtlSrchInfo") or {}
+        if window and not (asked.get(window["start_field"]) and asked.get(window["end_field"])):
+            continue
+        key = condition_key({name: asked.get(name) for name in fields})
         rows = data.get("dlt_srchResult")
         count = len(rows) if isinstance(rows, list) else 0
         read[key] = read.get(key, 0) + count
         total = whole((data.get("dma_pageInfo") or {}).get("totalCnt"))
         if count == 0 or (total is not None and read[key] >= total):
             ended.add(key)
-    return {condition_key(c) for c in conditions} <= ended
+    return {condition_key({name: c.get(name) for name in fields}) for c in conditions} <= ended
 
 
 def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
@@ -228,7 +236,7 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], dongs: Ma
     with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
         lines = [json.loads(line) for line in handle if line.strip()]
     return {"object_key": entry["object_key"],
-            "complete": search_complete(lines, contract[entry["role"]]["conditions"]),
+            "complete": search_complete(lines, contract[entry["role"]]),
             "rows": rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at,
                             sido_prefixes(contract), dongs)}
 

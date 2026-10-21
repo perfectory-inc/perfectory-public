@@ -36,7 +36,14 @@
       {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "20000"},
       {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "10000"},
       {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "20000"}
-    ]
+    ],
+    "date_window": {
+      "$comment": "Root ADR-0290 §1-§2. Every item-search request carries this bid-date range, fixed for the whole run from its KST start date. Without it the server answers a default range that slides a day every day (2026-10-21: the four conditions held 63,005 rows without dates and 108,306 with this range), so items whose sale date lies past the default look as if they left the list. The Silver load counts a pass as complete only when its requests carried both fields.",
+      "start_field": "bidBgngYmd",
+      "end_field": "bidEndYmd",
+      "days_before": 365,
+      "days_after": 365
+    }
   },
   "sale_result_search": {
     "$comment": "매각결과 검색: the same row shape for items whose sale date has passed, with the sale amount.",
