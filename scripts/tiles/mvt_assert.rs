@@ -621,8 +621,7 @@ fn consume_coordinate_parameters(
         && geometry[*position..*position + parameter_count]
             .as_chunks::<2>()
             .0
-            .iter()
-            .any(|delta| *delta == [0, 0])
+            .contains(&[0, 0])
     {
         return Err(format!(
             "{command_name} contains a zero-length LineTo segment"
