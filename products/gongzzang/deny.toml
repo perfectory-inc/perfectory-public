@@ -13,7 +13,9 @@ no-default-features = false
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-ignore = []
+ignore = [
+    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.x via sqlx-core (^0.26, no patched 0.26.x); sqlx TLS roots for our own Postgres, not arbitrary-server validation; 1.x bumped to 1.0.10, -0382/-0383 fixed by the bump; review by 2026-11-20" },
+]
 
 [licenses]
 # unused allow 항목 = warn만 (빈 workspace에서 fail 안 되도록)

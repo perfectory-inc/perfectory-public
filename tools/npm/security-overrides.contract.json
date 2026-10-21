@@ -93,12 +93,14 @@
     {
       "kind": "security",
       "package": "markdown-it",
-      "version": "14.3.2",
+      "version": "14.3.3",
       "advisories": [
-        "GHSA-253c-mchw-3w2r"
+        "GHSA-253c-mchw-3w2r",
+        "GHSA-gfr2-rv44-r23c",
+        "GHSA-vfgh-jcmw-g37q"
       ],
-      "reason": "Rendering advisory on the 14.x line pulled by markdownlint.",
-      "date": "2026-09-30"
+      "reason": "Rendering/parser advisories on the 14.x line pulled by markdownlint; 14.3.3 is the first release fixing GHSA-gfr2-rv44-r23c and GHSA-vfgh-jcmw-g37q (stays in 14.x, no 15.x jump).",
+      "date": "2026-10-21"
     },
     {
       "kind": "security",
