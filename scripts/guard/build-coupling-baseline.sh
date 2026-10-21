@@ -280,7 +280,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # source to hold it to the contract's forbidden names (no proxy, disguise or CAPTCHA, ADR-0281 §4).
 # 141 -> 142: the by-PNU publisher's test reads contracts/by-pnu-documents from CARGO_MANIFEST_DIR and
 # holds every document's fields, generated from its types, to the record of its schema version.
-COMPILE_TIME_READ_BASELINE="${3:-142}"
+# 142 -> 143: collection-domain's court auction test embeds courtauction-go-kr.contract.json and holds
+# its `collection` section to the rules' own types, so the contract values and the rules cannot drift
+# (root ADR-0289/0290).
+COMPILE_TIME_READ_BASELINE="${3:-143}"
 
 cd "$repo_root"
 
