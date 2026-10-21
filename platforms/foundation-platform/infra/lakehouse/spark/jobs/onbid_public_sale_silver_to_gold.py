@@ -188,8 +188,15 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="Place a retired PNU's sale under itself, flagged, instead of following the lineage.")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
+    # The gold-rebuild harness passes these to every kind producer whose contract entry sets
+    # section_coverage (gold_rebuild.plan, root ADR-0272); this own-producer must accept them like
+    # the panel and by_pnu_kind producers, or the scheduled rebuild dies on unrecognized arguments.
+    import section_coverage  # noqa: PLC0415
+
+    section_coverage.add_arguments(parser)
     args = parser.parse_args(argv)
     args.region_prefix = None
+    section_coverage.validate_arguments(args)
     if args.minimum_count is not None and args.minimum_count < 0:
         parser.error("--minimum-count must be non-negative")
     if not args.validate_only and not args.allow_non_smoke_overwrite:
@@ -269,6 +276,15 @@ def main(argv=None) -> int:
         if duplicates or invalid:
             raise ValueError(f"Gold quality gates failed: {duplicates} duplicated and {invalid} invalid PNUs")
         assert_minimum_row_count(rows, args.minimum_count)
+        # Root ADR-0272: refuse, before writing, a Gold whose section lost a region's coverage against
+        # the served snapshot. A kind's rows are the PNUs that carry its section, so count, not share
+        # (shares=False), matching by_pnu_kind_silver_to_gold.
+        import section_coverage  # noqa: PLC0415
+
+        guard = section_coverage.guard_from_arguments(
+            spark, args, table, {kind.section: kind.columns[0]}, None, shares=False)
+        if guard is not None:
+            guard.check(guard.measure(gold))
         if not args.validate_only:
             spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
             ensure_contract_table(spark, table, contract)
