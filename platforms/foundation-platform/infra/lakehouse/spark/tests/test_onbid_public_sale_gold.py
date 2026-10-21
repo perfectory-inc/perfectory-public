@@ -48,7 +48,9 @@ class InputsTest(unittest.TestCase):
         # The gold-rebuild harness passes --section-coverage-* to every kind producer whose contract
         # entry sets section_coverage (root ADR-0272). This own-producer must accept them like the
         # panel/by_pnu_kind producers, or the scheduled rebuild dies on "unrecognized arguments"
-        # (2026-10-21: it did, once the 공매 kind's entry gained section_coverage).
+        # (2026-10-21: it did, once the 공매 kind's entry gained section_coverage). It accepts but does
+        # not enforce them: a 시도's open-auction count swings daily and legitimately reaches zero, so
+        # main() holds this kind to the row-loss floor, not a per-region gate (root ADR-0292).
         args = job.parse_args([
             "--lane", "parcel-public-sale", "--iceberg-snapshot-id", "1",
             "--source-snapshots-path", "/x", "--validate-only",
@@ -142,6 +144,17 @@ class PlacementSparkTest(unittest.TestCase):
         placed = {(r.cltr_mng_no, r.pnu, r.attached_via) for r in job.placed(job.rounds(self.items()), current, None).collect()}
         self.assertEqual(placed, {("X-1", CURRENT, None), ("X-2", RETIRED, job.LINEAGE_MISSING),
                                   ("X-3", STRANDED, job.LINEAGE_MISSING)})
+
+    def test_the_servable_gold_drops_a_stranded_sale_with_no_parcel_document(self):
+        # Root ADR-0292: this kind is a section of the parcel panel's document, so a lineage_missing
+        # sale — on a retired PNU the panel serves no document for — has nothing to attach to and is
+        # never written to the servable Gold, though placed() still flags it (the counter and silver
+        # keep it). Measured 2026-10-22 on production Gold: 593 of 5,617 rows were lineage_missing, so
+        # the by-PNU serving gate 404'd 10.6% and refused the publish; servable() leaves 5,024 in panel.
+        current = self.spark.createDataFrame([(CURRENT,)], "pnu string")
+        placed = job.placed(job.rounds(self.items()), current, None)
+        servable = {(r.cltr_mng_no, r.pnu, r.attached_via) for r in job.servable(placed).collect()}
+        self.assertEqual(servable, {("X-1", CURRENT, None)})  # X-2, X-3 (lineage_missing) are gone
 
 
 
