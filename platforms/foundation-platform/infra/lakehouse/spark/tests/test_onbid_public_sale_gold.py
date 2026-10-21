@@ -44,6 +44,19 @@ class InputsTest(unittest.TestCase):
         kind = by_pnu_kinds.kind("parcel-public-sale")
         self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_sale", ("public_sale_json",)))
 
+    def test_parse_args_accepts_the_section_coverage_flags_the_harness_passes(self):
+        # The gold-rebuild harness passes --section-coverage-* to every kind producer whose contract
+        # entry sets section_coverage (root ADR-0272). This own-producer must accept them like the
+        # panel/by_pnu_kind producers, or the scheduled rebuild dies on "unrecognized arguments"
+        # (2026-10-21: it did, once the 공매 kind's entry gained section_coverage).
+        args = job.parse_args([
+            "--lane", "parcel-public-sale", "--iceberg-snapshot-id", "1",
+            "--source-snapshots-path", "/x", "--validate-only",
+            "--section-coverage-snapshot", "123", "--max-section-coverage-drop", "0.05",
+            "--section-coverage-min-pnus", "1000"])
+        self.assertEqual(args.section_coverage_snapshot, "123")
+        self.assertEqual((args.max_section_coverage_drop, args.section_coverage_min_pnus), (0.05, 1000))
+
     def test_the_parcel_universe_is_the_served_edition_not_all_editions(self):
         # silver.parcel_boundaries holds several cadastral editions side by side; the panel, map and
         # catalog are built from the ONE served edition (root ADR-0148). This own-producer kind is
