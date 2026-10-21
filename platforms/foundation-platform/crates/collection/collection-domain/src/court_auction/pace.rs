@@ -114,7 +114,7 @@ mod tests {
         let mut pace = Pace::new(rule());
         pace.clear(Duration::from_millis(100));
         pace.clear(Duration::from_millis(100));
-        pace.clear(Duration::from_millis(3000));
+        pace.clear(Duration::from_secs(3));
         assert_eq!(pace.width(), 2);
     }
 }

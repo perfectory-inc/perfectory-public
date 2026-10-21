@@ -53,7 +53,7 @@ pub fn due(rule: &RecrawlRule, case: &CaseView<'_>, today: NaiveDate) -> bool {
     if let Some(sale) = case.sale_date {
         let offset = (today - sale).num_days();
         let on_a_before_day = rule.days_before_sale.iter().any(|d| offset == -d);
-        let on_an_after_day = rule.days_after_sale.iter().any(|d| offset == *d);
+        let on_an_after_day = rule.days_after_sale.contains(&offset);
         // Only when the detail was not already read on or after that marker day.
         if (on_a_before_day || on_an_after_day) && last_read < today {
             return true;
@@ -64,6 +64,8 @@ pub fn due(rule: &RecrawlRule, case: &CaseView<'_>, today: NaiveDate) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
 
     fn rule() -> RecrawlRule {

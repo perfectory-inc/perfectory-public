@@ -45,6 +45,10 @@ pub enum Failed {
 
 /// One site answer, read.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(
+    clippy::derive_partial_eq_without_eq,
+    reason = "Answer::Data holds serde_json::Value, which is not Eq"
+)]
 pub enum Answer {
     /// The payload object.
     Data(Value),
