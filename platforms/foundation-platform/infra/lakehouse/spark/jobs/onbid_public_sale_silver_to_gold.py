@@ -205,7 +205,13 @@ def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], count
     from lakehouse_snapshot_pins import read_pinned_iceberg  # noqa: PLC0415
 
     as_of = panel.normalize_utc_timestamp(args.published_at_utc)
-    parcels = panel.read_source(spark, args, PARCEL_SOURCE, pins).select("pnu")
+    # The parcel universe is the SERVED edition only (root ADR-0148), the same one the panel, map and
+    # catalog are built from — not every edition held side by side in silver.parcel_boundaries. Reading
+    # all editions (the generic read_source) attached sales to parcels a newer, unpromoted edition
+    # holds but the served map does not (2026-10-21: 632 PNUs of editions 202609/202610 served under
+    # 202606), which the by-PNU serving gate then refused. read_served_parcels is the panel's own
+    # served-edition reader, so this kind sees exactly the parcels the host lane serves.
+    parcels = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
     # Read whole: rounds() runs the contract's current_rows over every version to take each round's current row.
     items = read_pinned_iceberg(spark, f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{ITEM_SOURCE.split('.', 1)[1]}",
                                 ITEM_SOURCE, pins)
