@@ -1,6 +1,6 @@
 # ADR 0281: 법원경매는 신원을 밝히고 천천히 모으며, 거절당하면 멈춘다
 
-- Status: Accepted
+- Status: Superseded by ADR-0289
 - Date: 2026-10-19
 - Relates to: [ADR-0280](./0280-public-sale-court-auction-and-factory-registration-are-foundation-parcel-sources.md) (소유), [GZ-ADR-0022](../../products/gongzzang/docs/adr/0022-bronze-scraping-isolated-python-service.md) (옛 설계, stealth 수집 — 이 ADR 이 그 방식을 금지한다)
 
