@@ -2,7 +2,7 @@
 //! (root ADR-0289/0290). This is the SSOT seam: the values live in the contract, the rules read
 //! them, and this test fails if the two drift apart.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use std::collections::BTreeMap;
 
