@@ -21,7 +21,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.96.0"
+rust-version = "1.99.1"
 license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
 authors = ["Perfectory"]
 publish = false

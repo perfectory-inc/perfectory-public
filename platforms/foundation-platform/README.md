@@ -51,7 +51,7 @@ services/
 
 ## 로컬 개발
 
-Rust 1.96.0 — 모노레포 루트 `rust-toolchain.toml` 단일 핀이 자동 적용된다 (영역 내
+Rust(`tools/technology-versions.contract.json` 의 `rust_toolchain`) — 모노레포 루트 `rust-toolchain.toml` 단일 핀이 자동 적용된다 (영역 내
 toolchain 파일 생성 금지). Docker Desktop 필요.
 
 ```bash

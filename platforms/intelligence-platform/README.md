@@ -194,7 +194,7 @@ cargo run -p intelligence-worker --bin foundation_knowledge_consumer
 
 ## Commands
 
-workspace는 루트 `rust-toolchain.toml`로 Rust `1.96.0`을 고정한다(영역 내부 toolchain 파일은
+workspace는 루트 `rust-toolchain.toml`로 Rust 를 고정한다(값은 `tools/technology-versions.contract.json` 의 `rust_toolchain`)(영역 내부 toolchain 파일은
 루트 guard가 금지한다).
 
 Rust를 로컬에 설치한 뒤 다음을 실행한다.

@@ -42,3 +42,7 @@ Next.js는 UI 렌더링 + 얇은 BFF 프록시 (인증 검사 + Rust API 호출)
 - [Rust 컨벤션](../conventions/rust.md)
 - [TypeScript 컨벤션](../conventions/typescript.md)
 - [SSS 헌장](../sss-charter.md) (안전성·성능 기둥)
+
+---
+
+개정 각주(2026-10-21): 툴체인 버전 값의 정본은 `tools/technology-versions.contract.json` 의 `rust_toolchain` 이다(ADR-0097). 이 문서의 숫자는 결정 당시 값이고, 지금 값은 그 계약을 읽는다.

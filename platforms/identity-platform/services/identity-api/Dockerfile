@@ -1,4 +1,4 @@
-FROM rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc AS builder
+FROM rust:1.99.1-bookworm@sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e AS builder
 WORKDIR /workspace
 COPY . .
 RUN cargo build --locked --release -p identity-api --bin identity-api \
