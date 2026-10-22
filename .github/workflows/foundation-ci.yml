@@ -60,9 +60,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # sccache's shared compiler cache on R2 (root ADR-0293). Empty on a fork pull request, which gets no
-  # secrets, so scripts/ci/rust-setup.sh leaves sccache off and the job builds as before.
-  SCCACHE_R2_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
+  # sccache's shared Rust compiler cache on R2 (root ADR-0294). The endpoint is public (it names the
+  # bucket's account, not a key), so a pull request reads the cache with it and no secret; fill it with
+  # the bucket's S3 API endpoint to turn sccache on, empty keeps it off. The two R2 write keys resolve
+  # to a value only in a job that names the sccache-writer environment (granted to refs/heads/main
+  # alone), so only merged code writes the cache; check-workflow-policy.sh admits exactly these here.
+  SCCACHE_R2_ENDPOINT: ""
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
 
@@ -70,6 +73,8 @@ jobs:
   rust-quality:
     name: Rust fmt, unit tests, clippy
     runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     steps:
@@ -176,6 +181,8 @@ jobs:
   suites:
     name: Python and Node suites
     runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     steps:
@@ -359,6 +366,8 @@ jobs:
   supply-chain:
     name: Supply-chain release gates
     runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -429,6 +438,8 @@ jobs:
   postgres-integration:
     name: Postgres integration tests
     runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 25
 
     services:
@@ -521,6 +532,8 @@ jobs:
   kafka-integration:
     name: Kafka and Schema Registry integration tests
     runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     env:

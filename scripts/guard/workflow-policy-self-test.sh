@@ -582,6 +582,27 @@ cache_pruner_fixture cache-pruner-contents
 sed -i 's/^      contents: read$/      contents: write/' "$test_root/cache-pruner-contents/ci-cache-budget.yml"
 expect_rejected contents-write-in-cache-budget "$test_root/cache-pruner-contents"
 
+# Root ADR-0294: only foundation-ci.yml may reference the two R2 compiler-cache write secrets, which a
+# GitHub environment grants to refs/heads/main only. Any other secret name, and these names in any
+# other workflow, still fail.
+sccache_writer_fixture() {
+  mkdir "$test_root/$1"
+  cp "$test_root/valid/example.yml" "$test_root/$1/${2:-foundation-ci.yml}"
+  sed -i 's#^permissions:$#env:\n  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}\n  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}\npermissions:#' \
+    "$test_root/$1/${2:-foundation-ci.yml}"
+}
+sccache_writer_fixture sccache-writer
+if ! "$checker" "$test_root/sccache-writer" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected foundation-ci.yml's two R2 cache-write secrets" >&2
+  exit 1
+fi
+sccache_writer_fixture sccache-writer-other-file other-ci.yml
+expect_rejected cache-write-secret-in-another-workflow "$test_root/sccache-writer-other-file"
+sccache_writer_fixture sccache-writer-other-secret
+sed -i 's/secrets.SCCACHE_R2_ACCESS_KEY_ID/secrets.SOME_OTHER_SECRET/' "$test_root/sccache-writer-other-secret/foundation-ci.yml"
+expect_rejected other-secret-in-foundation-ci "$test_root/sccache-writer-other-secret"
+
 # The shared terminal helper itself is fail closed: at least one result is
 # required and every mapped dependency must have succeeded.
 REQUIRED_RESULT_BUILD=success REQUIRED_RESULT_TEST=success \

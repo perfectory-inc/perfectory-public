@@ -159,6 +159,14 @@ for workflow in "${workflows[@]}"; do
   ' "$workflow"; then
     cache_pruner=1
   fi
+  # A fourth (root ADR-0294): the Rust CI workflow may reference exactly the two R2 compiler-cache
+  # write secrets. A GitHub environment grants them to refs/heads/main only, so merged code alone
+  # fills the cache; every pull request reads it anonymously (SCCACHE_S3_NO_CREDENTIALS) and sees
+  # these as empty. No other secret, variable or OIDC channel, and these names in no other file.
+  sccache_writer=0
+  if [ "$(basename "$workflow")" = foundation-ci.yml ]; then
+    sccache_writer=1
+  fi
   awk -v file="$workflow" -v issue_writer="$issue_writer" -v release_signer="$release_signer" -v cache_pruner="$cache_pruner" '
     function indentation(line, copy) {
       copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
@@ -291,6 +299,23 @@ for workflow in "${workflows[@]}"; do
     /\}\}/ { in_expression=0 }
     /ACTIONS_ID_TOKEN/ { print NR ":" $0 }
   ' "$workflow")"
+  if [ "$sccache_writer" = 1 ] && [ -n "$private_context_or_oidc_refs" ]; then
+    # Drop a line whose every secrets.NAME token is one of the two admitted R2 cache-write keys and
+    # that names no variable or OIDC channel; any other reference keeps the line (and the failure).
+    private_context_or_oidc_refs="$(printf '%s\n' "$private_context_or_oidc_refs" | awk '
+      {
+        bad = 0
+        if ($0 ~ /(^|[^[:alnum:]_])vars([^[:alnum:]_]|$)/ || $0 ~ /ACTIONS_ID_TOKEN/) bad = 1
+        rest = $0
+        while (match(rest, /secrets\.[A-Za-z0-9_]+/)) {
+          token = substr(rest, RSTART, RLENGTH)
+          if (token != "secrets.SCCACHE_R2_ACCESS_KEY_ID" && token != "secrets.SCCACHE_R2_SECRET_ACCESS_KEY") bad = 1
+          rest = substr(rest, RSTART + RLENGTH)
+        }
+        if (bad) print
+      }
+    ')"
+  fi
   if [ -n "$private_context_or_oidc_refs" ]; then
     echo "FAIL workflow-policy: public workflows must not reference secrets, variables, or OIDC token channels: $workflow" >&2
     exit 1
