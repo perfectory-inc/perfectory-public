@@ -38,6 +38,16 @@
       "extension": {"linux": "tar.gz"},
       "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/{version}/cargo-deny-{version}-x86_64-unknown-linux-musl.{extension}"
     },
+    "sccache": {
+      "pins": "tools/sccache.env",
+      "version_variable": "SCCACHE_VERSION",
+      "sha256_variable": "SCCACHE_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux"},
+      "arch": {"x86_64": "x86_64"},
+      "target": {"linux": "x86_64-unknown-linux-musl"},
+      "extension": {"linux": "tar.gz"},
+      "url": "https://github.com/mozilla/sccache/releases/download/v{version}/sccache-v{version}-{target}.{extension}"
+    },
     "cargo-nextest": {
       "pins": "tools/cargo-nextest.env",
       "version_variable": "CARGO_NEXTEST_VERSION",
