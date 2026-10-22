@@ -6,28 +6,24 @@
 
 ## Context
 
-ADR-0155(2026-10-06)는 sccache 를 검토하고 **뒤로 미뤘다**: GHA 캐시 백엔드는 컴파일 단위마다 항목을 만들어 10GB·요청 한도에 먼저 닿는다, rust-cache 로 측정해 부족할 때 다시 본다.
+ADR-0155(2026-10-06)는 sccache 를 뒤로 미뤘다: GHA 캐시 백엔드는 10GB·요청 한도에 먼저 닿는다, rust-cache 로 측정해 부족할 때 다시 본다. 그 "부족할 때"가 왔다 —
 
-그 "부족할 때"가 왔다:
+1. `Swatinem/rust-cache` 는 target 을 한 키로 캐시한다. `Cargo.lock`·툴체인·`CARGO_*` 중 하나만 바뀌어도 캐시 전체가 무효가 되고 처음부터 컴파일한다. sccache 는 컴파일 단위마다 키를 두므로 입력이 바뀐 단위만 다시 컴파일한다.
+2. **실측(2026-10-22):** main 전체 CI 의 가장 긴 작업은 Rust 컴파일 17.5분이고, PR 검사 + 병합큐 재검사 + 릴리스 빌드(~31분)가 줄줄이 더해져 변경 하나가 배포까지 ~1시간이며 그 ~48분이 컴파일이다.
 
-1. `Swatinem/rust-cache` 는 target 을 한 키로 캐시한다. `Cargo.lock`·툴체인·`CARGO_*` 중 하나만 바뀌어도 캐시 전체가 무효가 되고 처음부터 컴파일한다. 2026-10 툴체인 승급(#828, 1.96→1.99)이 모든 rust-cache 를 한 번에 무효화했다 — 변경당 ~1시간.
-2. 미룬 이유였던 10GB·요청 한도는 R2(S3 호환, egress 무료)엔 없다. sccache 는 컴파일 단위마다 키를 두므로 바뀐 단위만 다시 컴파일한다.
-
-남은 문제: 공개 저장소라 CI 워크플로는 비밀값을 쓸 수 없는데(위 가드) R2 **쓰기**엔 키가 필요하다. 업계 표준이 이를 푼다 — mozilla/sccache 문서의 `SCCACHE_S3_NO_CREDENTIALS`("PR 용 읽기전용 캐시에 쓰라"), MapLibre·hyperb1iss/hypercolor 의 R2 설정, 그리고 GitHub 이 2026-06 부터 기본값으로 삼은 "믿을 수 없는 트리거는 캐시 읽기 전용": **PR 은 익명으로 읽고, 병합된 코드만 쓴다.**
+R2(S3 호환, egress 무료)엔 GHA 의 10GB 한도가 없다. 단 **R2 의 S3 API 는 익명 요청을 400(InvalidArgument/"Authorization")으로 거부한다**(2026-10-22 실측). 공개 버킷의 익명 읽기는 r2.dev 웹 URL 로만 되고 그건 sccache 가 쓰는 S3 경로가 아니다. 따라서 **읽기에도 키가 필요하다.**
 
 ## Decision
 
-1. sccache 는 핀된 다운로더(루트 ADR-0197, `tools/pinned-artifacts.json` 의 sccache 0.18.0)로 받는다 — raw `curl` 금지. `scripts/ci/rust-setup.sh`(모든 Rust CI 잡의 단일 설치 지점, 루트 ADR-0155)가 `SCCACHE_R2_ENDPOINT` 가 있을 때 sccache 를 켠다.
-2. **읽기는 익명.** R2 쓰기 키가 환경에 없으면 `SCCACHE_S3_NO_CREDENTIALS=true` 로 공개-읽기 버킷을 읽는다. 포크 PR 도 캐시를 읽는다(끄지 않는다).
-3. **쓰기는 main 만.** R2 쓰기 키는 GitHub 환경 `sccache-writer` 가 `refs/heads/main` 잡에만 준다. `foundation-ci.yml` 의 Rust 잡은 `environment` 이름을 main 에서만 `sccache-writer`, 아니면 빈 값으로 둔다. 병합(검토 통과)된 코드만 캐시를 채운다.
-4. **엔드포인트는 공개(비밀값 아님).** 버킷의 계정을 가리킬 뿐 키가 아니므로 평문으로 두어 PR 이 읽을 수 있다.
-5. **가드의 네 번째 좁은 예외.** `scripts/guard/check-workflow-policy.sh` 는 `foundation-ci.yml` 에서 정확히 `SCCACHE_R2_ACCESS_KEY_ID`·`SCCACHE_R2_SECRET_ACCESS_KEY` 두 비밀값만 통과시킨다. 다른 이름도, 다른 파일의 이 이름들도 여전히 거부하며, `scripts/guard/workflow-policy-self-test.sh` 가 그 경계를 고정한다(루트 ADR-0001 가드 정책: 실패가 막는 사고 = 공개 CI 에서의 비밀값 유출).
-6. `Swatinem/rust-cache` 는 그대로(레지스트리·산출물, 둘은 안 겹친다). DuckDB 의 C/C++ 는 아직 캐시 안 함(`RUSTC_WRAPPER` 는 rustc 만 감싼다). 나쁜/닿지 않는 백엔드는 빌드를 깨지 않는다 — probe 컴파일이 실패하면 캐시 없이 빌드한다.
-7. **먼저 `foundation-ci.yml` 하나에만.** 다른 Rust 워크플로는 `rust-setup.sh` 공유로 읽기는 받고, 쓰기 확장은 측정 뒤에 본다.
+1. sccache 는 핀된 다운로더(루트 ADR-0197, `tools/pinned-artifacts.json` 의 sccache 0.18.0)로 받는다 — raw `curl` 금지. `scripts/ci/rust-setup.sh`(모든 Rust CI 잡의 단일 설치 지점, 루트 ADR-0155)가 R2 엔드포인트와 키가 환경에 있을 때 sccache 를 켠다. 버킷은 `perfectory-sccache`, 키 접두사는 툴체인 채널(바뀌면 새 네임스페이스).
+2. **(선택지 A) 하나의 읽기·쓰기 R2 키를 저장소 비밀값으로 두고 모든 Rust 잡이 읽고 쓴다.** 같은 저장소 브랜치의 PR 과 main 둘 다 캐시를 읽고 채운다. 포크 PR 은 비밀값을 못 받으므로 sccache 없이 예전처럼 빌드한다. 엔드포인트는 평문(계정 식별자일 뿐 키가 아니다).
+3. **가드의 네 번째 좁은 예외.** `scripts/guard/check-workflow-policy.sh` 는 `foundation-ci.yml` 에서 정확히 `SCCACHE_R2_ACCESS_KEY_ID`·`SCCACHE_R2_SECRET_ACCESS_KEY` 두 비밀값만 통과시킨다. 다른 이름도, 다른 파일의 이 이름들도 여전히 거부하며 `scripts/guard/workflow-policy-self-test.sh` 가 그 경계를 고정한다(루트 ADR-0001 가드 정책: 실패가 막는 사고 = 공개 CI 에서의 비밀값 유출).
+4. `Swatinem/rust-cache` 는 그대로(레지스트리·산출물, 둘은 안 겹친다). DuckDB 의 C/C++ 는 아직 캐시 안 함(`RUSTC_WRAPPER` 는 rustc 만 감싼다). 나쁜/닿지 않는 백엔드는 빌드를 깨지 않는다 — probe 컴파일이 실패하면 캐시 없이 빌드한다.
+5. **먼저 `foundation-ci.yml` 하나에만.** 다른 Rust 워크플로는 `rust-setup.sh` 공유로 켤 수 있으나 측정 뒤에 본다.
 
 ## Consequences
 
-- 변경 하나에 드는 컴파일이 "거의 처음부터 여러 번"에서 "바뀐 단위만"으로 줄어든다. 전/후 빌드 시간을 `foundation-ci.yml` 의 Rust 잡에서 실측해 효과를 기록한다(ADR-0155 의 "측정해 부족할 때"에 답하는 수치). **배포 전까지 속도 이득은 가설이다.**
-- 소유자가 저장소 밖에서 할 일: ① R2 의 `sccache` 버킷을 **공개 읽기**로 켠다. ② GitHub 에 **main 브랜치 보호**를 건 `sccache-writer` 환경을 만들고, 그 버킷만 Object Read & Write 하는 키 2개를 **환경 비밀값**(`SCCACHE_R2_ACCESS_KEY_ID`, `SCCACHE_R2_SECRET_ACCESS_KEY`)으로 넣는다. ③ `foundation-ci.yml` 의 평문 `SCCACHE_R2_ENDPOINT` 를 버킷의 S3 API 엔드포인트로 채운다(비면 sccache 는 꺼진 채).
-- 보안: 쓰기 키는 환경이 main 잡에만 주므로 PR·포크엔 전달되지 않는다. 가드 예외는 두 이름·한 파일로 좁고 자가시험으로 지켜진다. 공개되는 엔드포인트는 계정 식별자일 뿐 자격증명이 아니다. 캐시에는 공개 코드의 컴파일 산출물만 담긴다.
+- 입력이 바뀐 단위만 다시 컴파일된다. 전/후 빌드 시간을 실측해 효과를 기록한다 — **배포 전까지 속도 이득은 가설이다.**
+- **받아들인 위험(선택지 A):** 읽기·쓰기 키가 같은 저장소 PR 전부에 보이므로, 협력자(또는 탈취된 협력자 계정)가 캐시에 오염된 산출물을 심으면 그것이 릴리스 빌드에 섞일 수 있다(캐시 포이즈닝). 소수 신뢰 팀이라 감수한다. **업그레이드 경로:** 팀이 커지거나 위험이 오르면 PR 엔 읽기 전용 키, main 전용 GitHub 환경에만 쓰기 키(선택지 B)로 바꾼다 — 가드 예외는 그대로 쓰인다.
+- 소유자가 저장소 밖에서 한 일: R2 `perfectory-sccache` 버킷 + 읽기·쓰기 R2 토큰, 저장소 비밀값 `SCCACHE_R2_ACCESS_KEY_ID`·`SCCACHE_R2_SECRET_ACCESS_KEY` 등록(이미 완료). 엔드포인트는 워크플로에 평문으로 박았다(비밀값 `SCCACHE_R2_ENDPOINT` 는 더 쓰지 않는다).
 - 비용: R2 저장 몇 GB(LRU) + egress 무료 → CI 돈 0 원칙 유지.

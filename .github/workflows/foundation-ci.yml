@@ -60,12 +60,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # sccache's shared Rust compiler cache on R2 (root ADR-0294). The endpoint is public (it names the
-  # bucket's account, not a key), so a pull request reads the cache with it and no secret; fill it with
-  # the bucket's S3 API endpoint to turn sccache on, empty keeps it off. The two R2 write keys resolve
-  # to a value only in a job that names the sccache-writer environment (granted to refs/heads/main
-  # alone), so only merged code writes the cache; check-workflow-policy.sh admits exactly these here.
-  SCCACHE_R2_ENDPOINT: ""
+  # sccache's shared Rust compiler cache on R2 (root ADR-0294 §A). The endpoint is public (it names
+  # the bucket's account, not a key). The two R2 keys are repo secrets (read-write), so every Rust job
+  # of a same-repo branch reads and writes the cache; a fork pull request gets no secrets and builds
+  # without it. check-workflow-policy.sh admits exactly these two names here.
+  SCCACHE_R2_ENDPOINT: "https://04c4f2ac7fd14b897ec0a4b0402b9cba.r2.cloudflarestorage.com"
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
 
@@ -73,8 +72,6 @@ jobs:
   rust-quality:
     name: Rust fmt, unit tests, clippy
     runs-on: ubuntu-24.04
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     steps:
@@ -181,8 +178,6 @@ jobs:
   suites:
     name: Python and Node suites
     runs-on: ubuntu-24.04
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     steps:
@@ -366,8 +361,6 @@ jobs:
   supply-chain:
     name: Supply-chain release gates
     runs-on: ubuntu-24.04
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -438,8 +431,6 @@ jobs:
   postgres-integration:
     name: Postgres integration tests
     runs-on: ubuntu-24.04
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 25
 
     services:
@@ -532,8 +523,6 @@ jobs:
   kafka-integration:
     name: Kafka and Schema Registry integration tests
     runs-on: ubuntu-24.04
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'sccache-writer' || '' }}
     timeout-minutes: 30
 
     env:
