@@ -18,6 +18,12 @@
       "reference": "https://github.com/mozilla/sccache/blob/main/docs/Configuration.md"
     },
     {
+      "selector": "AWS_",
+      "selector_kind": "prefix",
+      "consumer": "sccache",
+      "reference": "https://github.com/mozilla/sccache/blob/main/docs/S3.md"
+    },
+    {
       "selector": "CLOUDFLARE_",
       "selector_kind": "prefix",
       "consumer": "wrangler",

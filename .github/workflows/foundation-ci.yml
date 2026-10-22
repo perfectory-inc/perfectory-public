@@ -60,6 +60,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # sccache's shared compiler cache on R2 (root ADR-0293). Empty on a fork pull request, which gets no
+  # secrets, so scripts/ci/rust-setup.sh leaves sccache off and the job builds as before.
+  SCCACHE_R2_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
 
 jobs:
   rust-quality:

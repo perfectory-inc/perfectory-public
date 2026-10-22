@@ -70,3 +70,40 @@ done
 rustup default "$channel"
 rustc --version
 cargo --version
+
+# sccache: a shared compiler cache on R2, so a toolchain bump or a one-line change recompiles only
+# the units that changed, not the whole target (root ADR-0293). Only when the R2 credentials are in
+# the environment: a pull request from a fork gets none and builds as before, without sccache.
+if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+  sccache_version="v0.18.0" # root ADR-0293; bump with the publisher's checksum, which this verifies
+  sccache_dir="sccache-${sccache_version}-x86_64-unknown-linux-musl"
+  base="https://github.com/mozilla/sccache/releases/download/${sccache_version}"
+  tmp="$(mktemp -d)"
+  curl -sSfL --retry 5 --retry-connrefused -o "$tmp/sccache.tar.gz" "$base/${sccache_dir}.tar.gz"
+  curl -sSfL --retry 5 --retry-connrefused -o "$tmp/sccache.sha256" "$base/${sccache_dir}.tar.gz.sha256"
+  expected="$(cut -d' ' -f1 <"$tmp/sccache.sha256")"
+  actual="$(sha256sum "$tmp/sccache.tar.gz" | cut -d' ' -f1)"
+  { [ -n "$expected" ] && [ "$expected" = "$actual" ]; } \
+    || fail "sccache ${sccache_version} download did not match its published checksum ($actual != $expected)"
+  tar -xzf "$tmp/sccache.tar.gz" -C "$tmp"
+  install -d "$HOME/.local/bin"
+  install -m 0755 "$tmp/${sccache_dir}/sccache" "$HOME/.local/bin/sccache"
+  printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
+  rm -rf "$tmp"
+  # SCCACHE_* configure the S3 backend; the AWS_* credentials come from the job env (repo secrets).
+  # A per-toolchain key prefix keeps a channel's objects apart, so a bump never serves a stale unit.
+  sccache_settings=(
+    "RUSTC_WRAPPER=sccache"
+    "SCCACHE_BUCKET=sccache"
+    "SCCACHE_ENDPOINT=${SCCACHE_R2_ENDPOINT}"
+    "SCCACHE_REGION=auto"
+    "SCCACHE_S3_KEY_PREFIX=${channel}"
+  )
+  for setting in "${sccache_settings[@]}"; do
+    export "${setting?}"
+    printf '%s\n' "$setting" >>"$GITHUB_ENV"
+  done
+  echo "rust-setup: sccache ${sccache_version} on, caching to R2 (bucket sccache, key prefix ${channel})"
+else
+  echo "rust-setup: sccache off (no R2 credentials in env); building without the shared compiler cache"
+fi
