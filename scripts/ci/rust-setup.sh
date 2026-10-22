@@ -71,54 +71,58 @@ rustup default "$channel"
 rustc --version
 cargo --version
 
-# sccache: a shared compiler cache on R2, so a toolchain bump or a one-line change recompiles only
-# the units that changed, not the whole target (root ADR-0293). Only when the R2 credentials are in
-# the environment: a pull request from a fork gets none and builds as before, without sccache. A bad
-# backend never breaks the job — the wrapper is set only after the sccache server starts against R2;
-# otherwise the reason is logged and the build runs without the shared cache.
-if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
-  sccache_version="v0.18.0" # root ADR-0293; bump with the publisher's checksum, which this verifies
-  sccache_dir="sccache-${sccache_version}-x86_64-unknown-linux-musl"
-  base="https://github.com/mozilla/sccache/releases/download/${sccache_version}"
-  tmp="$(mktemp -d)"
-  curl -sSfL --retry 5 --retry-connrefused -o "$tmp/sccache.tar.gz" "$base/${sccache_dir}.tar.gz"
-  curl -sSfL --retry 5 --retry-connrefused -o "$tmp/sccache.sha256" "$base/${sccache_dir}.tar.gz.sha256"
-  expected="$(cut -d' ' -f1 <"$tmp/sccache.sha256")"
-  actual="$(sha256sum "$tmp/sccache.tar.gz" | cut -d' ' -f1)"
-  { [ -n "$expected" ] && [ "$expected" = "$actual" ]; } \
-    || fail "sccache ${sccache_version} download did not match its published checksum ($actual != $expected)"
-  tar -xzf "$tmp/sccache.tar.gz" -C "$tmp"
+# sccache: a shared Rust compiler cache on R2 (root ADR-0294), so a toolchain bump or a one-line
+# change recompiles only the units that changed, not the whole target. Reads are anonymous from a
+# public-read bucket (SCCACHE_S3_NO_CREDENTIALS), so a fork pull request with no secrets still reads
+# the cache; writes need the R2 key, which a GitHub environment grants only to main, so only merged
+# code fills it. A bad or unreachable backend never breaks a build: sccache compiles directly on any
+# backend error, and if the wrapper cannot even run a probe the job builds without it. The binary
+# comes through the one pinned downloader (root ADR-0197), published for Linux only; other runners
+# (the Windows toolchain job) build as before. The endpoint is public, not a secret (it names the
+# bucket's account, not a key), so it travels in the clear and a pull request can read with it.
+if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ "$(uname -s)" = Linux ]; then
   install -d "$HOME/.local/bin"
-  install -m 0755 "$tmp/${sccache_dir}/sccache" "$HOME/.local/bin/sccache"
-  export PATH="$HOME/.local/bin:$PATH"
-  printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
-  # SCCACHE_* configure the S3 backend; the AWS_* credentials come from the job env (repo secrets).
-  # A per-toolchain key prefix keeps a channel's objects apart, so a bump never serves a stale unit.
-  export SCCACHE_BUCKET=sccache
-  export SCCACHE_ENDPOINT="${SCCACHE_R2_ENDPOINT}"
-  export SCCACHE_REGION=auto
-  export SCCACHE_S3_KEY_PREFIX="${channel}"
-  # Prove the whole path works — compile a trivial crate through sccache so a bad endpoint or
-  # credential surfaces here (the S3 round trip happens on a real compile, not at server start).
-  printf 'pub fn probe() {}\n' >"$tmp/probe.rs"
-  if sccache rustc --crate-name sccache_probe --edition 2021 --emit=metadata \
-      -o "$tmp/probe.rmeta" "$tmp/probe.rs" >"$tmp/sccache-probe.log" 2>&1; then
-    for setting in \
-      "RUSTC_WRAPPER=sccache" \
-      "SCCACHE_BUCKET=sccache" \
-      "SCCACHE_ENDPOINT=${SCCACHE_R2_ENDPOINT}" \
-      "SCCACHE_REGION=auto" \
-      "SCCACHE_S3_KEY_PREFIX=${channel}"; do
-      printf '%s\n' "$setting" >>"$GITHUB_ENV"
-    done
-    echo "rust-setup: sccache ${sccache_version} on, caching to R2 (bucket sccache, key prefix ${channel})"
-    sccache --show-stats 2>&1 | sed 's/^/  /' | head -n 20 || true
+  tmp="$(mktemp -d)"
+  if python3 "$root/scripts/ci/fetch_pinned.py" tool sccache --output "$tmp/sccache.tar.gz" \
+    && tar -xzf "$tmp/sccache.tar.gz" -C "$HOME/.local/bin" --strip-components=1 --wildcards '*/sccache'; then
+    chmod 0755 "$HOME/.local/bin/sccache"
+    export PATH="$HOME/.local/bin:$PATH"
+    printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
+    # SCCACHE_* configure the S3 backend; a per-toolchain key prefix keeps a channel's objects apart,
+    # so a bump never serves a stale unit. The R2 write key, when present, arrives as AWS_* (the
+    # S3 client's own names); without it sccache reads the public bucket with no credentials.
+    export SCCACHE_BUCKET=sccache SCCACHE_ENDPOINT="${SCCACHE_R2_ENDPOINT}" SCCACHE_REGION=auto
+    export SCCACHE_S3_KEY_PREFIX="${channel}"
+    sccache_settings=(
+      "SCCACHE_BUCKET=sccache"
+      "SCCACHE_ENDPOINT=${SCCACHE_R2_ENDPOINT}"
+      "SCCACHE_REGION=auto"
+      "SCCACHE_S3_KEY_PREFIX=${channel}"
+    )
+    if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+      sccache_mode="read-write (R2 key present)"
+    else
+      export SCCACHE_S3_NO_CREDENTIALS=true
+      sccache_settings+=("SCCACHE_S3_NO_CREDENTIALS=true")
+      sccache_mode="read-only (no R2 key; anonymous reads)"
+    fi
+    # Prove the wrapper runs; a backend miss or error is not a failure (sccache then compiles direct).
+    printf 'pub fn probe() {}\n' >"$tmp/probe.rs"
+    if sccache rustc --crate-name sccache_probe --edition 2021 --emit=metadata \
+        -o "$tmp/probe.rmeta" "$tmp/probe.rs" >"$tmp/sccache-probe.log" 2>&1; then
+      sccache_settings+=("RUSTC_WRAPPER=sccache")
+      for setting in "${sccache_settings[@]}"; do printf '%s\n' "$setting" >>"$GITHUB_ENV"; done
+      echo "rust-setup: sccache on, ${sccache_mode}, bucket sccache, key prefix ${channel}"
+      sccache --show-stats 2>&1 | sed 's/^/  /' | head -n 20 || true
+    else
+      echo "rust-setup: sccache could not run a probe compile; building without the shared cache. Reason:" >&2
+      sed 's/^/  sccache: /' "$tmp/sccache-probe.log" >&2 || true
+      sccache --stop-server >/dev/null 2>&1 || true
+    fi
   else
-    echo "rust-setup: sccache could not reach R2; building without the shared cache. Reason:" >&2
-    sed 's/^/  sccache: /' "$tmp/sccache-probe.log" >&2 || true
-    sccache --stop-server >/dev/null 2>&1 || true
+    echo "rust-setup: could not fetch the pinned sccache; building without the shared compiler cache" >&2
   fi
   rm -rf "$tmp"
 else
-  echo "rust-setup: sccache off (no R2 credentials in env); building without the shared compiler cache"
+  echo "rust-setup: sccache off (no SCCACHE_R2_ENDPOINT, or not Linux); building without the shared compiler cache"
 fi
