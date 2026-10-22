@@ -73,7 +73,9 @@ cargo --version
 
 # sccache: a shared compiler cache on R2, so a toolchain bump or a one-line change recompiles only
 # the units that changed, not the whole target (root ADR-0293). Only when the R2 credentials are in
-# the environment: a pull request from a fork gets none and builds as before, without sccache.
+# the environment: a pull request from a fork gets none and builds as before, without sccache. A bad
+# backend never breaks the job — the wrapper is set only after the sccache server starts against R2;
+# otherwise the reason is logged and the build runs without the shared cache.
 if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
   sccache_version="v0.18.0" # root ADR-0293; bump with the publisher's checksum, which this verifies
   sccache_dir="sccache-${sccache_version}-x86_64-unknown-linux-musl"
@@ -88,22 +90,35 @@ if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n 
   tar -xzf "$tmp/sccache.tar.gz" -C "$tmp"
   install -d "$HOME/.local/bin"
   install -m 0755 "$tmp/${sccache_dir}/sccache" "$HOME/.local/bin/sccache"
+  export PATH="$HOME/.local/bin:$PATH"
   printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
-  rm -rf "$tmp"
   # SCCACHE_* configure the S3 backend; the AWS_* credentials come from the job env (repo secrets).
   # A per-toolchain key prefix keeps a channel's objects apart, so a bump never serves a stale unit.
-  sccache_settings=(
-    "RUSTC_WRAPPER=sccache"
-    "SCCACHE_BUCKET=sccache"
-    "SCCACHE_ENDPOINT=${SCCACHE_R2_ENDPOINT}"
-    "SCCACHE_REGION=auto"
-    "SCCACHE_S3_KEY_PREFIX=${channel}"
-  )
-  for setting in "${sccache_settings[@]}"; do
-    export "${setting?}"
-    printf '%s\n' "$setting" >>"$GITHUB_ENV"
-  done
-  echo "rust-setup: sccache ${sccache_version} on, caching to R2 (bucket sccache, key prefix ${channel})"
+  export SCCACHE_BUCKET=sccache
+  export SCCACHE_ENDPOINT="${SCCACHE_R2_ENDPOINT}"
+  export SCCACHE_REGION=auto
+  export SCCACHE_S3_KEY_PREFIX="${channel}"
+  # Prove the whole path works — compile a trivial crate through sccache so a bad endpoint or
+  # credential surfaces here (the S3 round trip happens on a real compile, not at server start).
+  printf 'pub fn probe() {}\n' >"$tmp/probe.rs"
+  if sccache rustc --crate-name sccache_probe --edition 2021 --emit=metadata \
+      -o "$tmp/probe.rmeta" "$tmp/probe.rs" >"$tmp/sccache-probe.log" 2>&1; then
+    for setting in \
+      "RUSTC_WRAPPER=sccache" \
+      "SCCACHE_BUCKET=sccache" \
+      "SCCACHE_ENDPOINT=${SCCACHE_R2_ENDPOINT}" \
+      "SCCACHE_REGION=auto" \
+      "SCCACHE_S3_KEY_PREFIX=${channel}"; do
+      printf '%s\n' "$setting" >>"$GITHUB_ENV"
+    done
+    echo "rust-setup: sccache ${sccache_version} on, caching to R2 (bucket sccache, key prefix ${channel})"
+    sccache --show-stats 2>&1 | sed 's/^/  /' | head -n 20 || true
+  else
+    echo "rust-setup: sccache could not reach R2; building without the shared cache. Reason:" >&2
+    sed 's/^/  sccache: /' "$tmp/sccache-probe.log" >&2 || true
+    sccache --stop-server >/dev/null 2>&1 || true
+  fi
+  rm -rf "$tmp"
 else
   echo "rust-setup: sccache off (no R2 credentials in env); building without the shared compiler cache"
 fi
