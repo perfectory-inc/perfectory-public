@@ -169,6 +169,19 @@ def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) ->
     )
 
 
+def servable(placed_rounds: Any) -> Any:
+    """The placed rounds a document can carry: every one but `lineage_missing`. A sale a retired PNU
+    strands (no lineage path to a current parcel) sits on a PNU the parcel panel serves no document
+    for, and this kind is a section of that document (root ADR-0287), so it has nothing to attach to:
+    `build_gold` counts it (`lineage_missing_rounds`) and silver keeps it, but it is never written to
+    the servable Gold, where it would only 404 the by-PNU serving gate and never reach a screen. Root
+    ADR-0292 holds this own-producer kind to the invariant every kind has (its rows are a subset of
+    its host panel's, ADR-0193 §9) that ADR-0287 §7 had let it bypass."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    return placed_rounds.where(~F.col("attached_via").eqNullSafe(F.lit(LINEAGE_MISSING)))
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     """The arguments `scripts/ops/gold-panel-rebuild.sh` gives every producer (root ADR-0193 §7)."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -236,7 +249,7 @@ def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], count
     counters["served_rounds_without_pnu"] = served.where(F.col("source_pnu").isNull()).count()
     located = placed(with_usage_names(served, usage), parcels, candidates, merges)
     counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
-    documents = document_rows(located)
+    documents = document_rows(servable(located))
     return documents.select(
         "pnu", "public_sale_json", "attached_via",
         F.lit(pins[PARCEL_SOURCE]).alias("source_snapshot_id"), F.lit(as_of).alias("published_at_utc"),
@@ -276,15 +289,14 @@ def main(argv=None) -> int:
         if duplicates or invalid:
             raise ValueError(f"Gold quality gates failed: {duplicates} duplicated and {invalid} invalid PNUs")
         assert_minimum_row_count(rows, args.minimum_count)
-        # Root ADR-0272: refuse, before writing, a Gold whose section lost a region's coverage against
-        # the served snapshot. A kind's rows are the PNUs that carry its section, so count, not share
-        # (shares=False), matching by_pnu_kind_silver_to_gold.
-        import section_coverage  # noqa: PLC0415
-
-        guard = section_coverage.guard_from_arguments(
-            spark, args, table, {kind.section: kind.columns[0]}, None, shares=False)
-        if guard is not None:
-            guard.check(guard.measure(gold))
+        # This open-auction kind is held to the whole-table row-loss floor (contract
+        # max_row_loss_fraction 0.5, #836), not ADR-0272's per-시도 section-coverage gate. That gate
+        # refuses a Gold whose section lost a 시도's coverage, for sections that grow slowly (a
+        # register); this kind's rows are the parcels with an OPEN Onbid auction (root ADR-0287 §7), so
+        # a 시도's count swings day to day and legitimately reaches zero (every round there closed) — a
+        # regional drop is not a defect here, and a regional gate waits until that volatility is
+        # measured against a clean baseline (root ADR-0292). parse_args still accepts the harness's
+        # section-coverage flags so the scheduled rebuild (gold_rebuild.plan) does not die on them.
         if not args.validate_only:
             spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
             ensure_contract_table(spark, table, contract)
