@@ -50,13 +50,14 @@
     {
       "kind": "security",
       "package": "ip-address",
-      "version": "10.7.2",
+      "version": "10.7.4",
       "advisories": [
         "GHSA-h3mg-xc3c-68pw",
-        "GHSA-j6r3-76f7-8jcv"
+        "GHSA-j6r3-76f7-8jcv",
+        "GHSA-rxp7-6hxx-x8q5"
       ],
-      "reason": "Address parsing advisories on the 10.x line pulled by socks.",
-      "date": "2026-09-30"
+      "reason": "Address parsing advisories on the 10.x line pulled by socks; 10.7.4 adds the Address6 zone-id ReDoS fix (GHSA-rxp7-6hxx-x8q5).",
+      "date": "2026-10-23"
     },
     {
       "kind": "security",
