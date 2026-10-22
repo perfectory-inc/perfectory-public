@@ -453,7 +453,16 @@ while IFS= read -r workflow; do
     fail "$workflow uses a self-hosted or variable runner; public code must use a literal GitHub-hosted runner"
   fi
   if grep -q 'secrets\.' "$workflow"; then
-    fail "$workflow consumes repository secrets; live operations belong in the private ops boundary"
+    # root ADR-0294: foundation-ci.yml may name exactly the three R2 compiler-cache secrets (endpoint
+    # + read-write key pair) so public CI shares a compiler cache. Those keys reach only that one
+    # bucket, so a leak touches build output, not live data. Any other secret, and any secret in any
+    # other public workflow, is still a live operation that belongs in the private ops boundary.
+    other_secret="$(grep -oE 'secrets\.[A-Za-z0-9_]+' "$workflow" \
+      | grep -vE '^secrets\.(SCCACHE_R2_ENDPOINT|SCCACHE_R2_ACCESS_KEY_ID|SCCACHE_R2_SECRET_ACCESS_KEY)$' \
+      || true)"
+    if [ "$(basename "$workflow")" != foundation-ci.yml ] || [ -n "$other_secret" ]; then
+      fail "$workflow consumes repository secrets; live operations belong in the private ops boundary"
+    fi
   fi
 done <<< "$workflow_files"
 

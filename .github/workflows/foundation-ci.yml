@@ -60,11 +60,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # sccache's shared Rust compiler cache on R2 (root ADR-0294 §A). The endpoint is public (it names
-  # the bucket's account, not a key). The two R2 keys are repo secrets (read-write), so every Rust job
-  # of a same-repo branch reads and writes the cache; a fork pull request gets no secrets and builds
-  # without it. check-workflow-policy.sh admits exactly these two names here.
-  SCCACHE_R2_ENDPOINT: "https://04c4f2ac7fd14b897ec0a4b0402b9cba.r2.cloudflarestorage.com"
+  # sccache's shared Rust compiler cache on R2 (root ADR-0294 §A). All three are repo secrets so a
+  # same-repo branch's Rust jobs read and write the cache while a fork pull request gets none and
+  # builds without it. The endpoint is a secret too — not because it is a key (it names the bucket's
+  # account), but because public-repository-safety.sh forbids an account-specific R2 binding in the
+  # clear. check-workflow-policy.sh admits exactly these three names here.
+  SCCACHE_R2_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
 
@@ -106,6 +107,14 @@ jobs:
           # them) and a key is never overwritten, so this cache starts under a new name.
           shared-key: rust-quality-dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # sccache shares the compiler cache on R2 (root ADR-0294). Its own step after rust-setup and the
+      # rust-cache key read, so rust-setup stays a non-fetcher and sccache's env does not change the
+      # cache key. Only jobs that run this step reach the pinned downloader; this job restores the
+      # pinned cache above, which check-pinned-downloads.py requires of a fetcher's job.
+      - name: Set up sccache
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/ci/sccache-setup.sh
       # Workspace crates keep file:line backtraces but not full debug info: a cold build of the
       # workspace measured 4m10s -> 3m04s. Dependencies keep their `debug = 1` override, and this
       # is set after rust-cache read its key, so that key and its contents do not change. The

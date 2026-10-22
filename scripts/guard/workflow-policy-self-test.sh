@@ -582,19 +582,18 @@ cache_pruner_fixture cache-pruner-contents
 sed -i 's/^      contents: read$/      contents: write/' "$test_root/cache-pruner-contents/ci-cache-budget.yml"
 expect_rejected contents-write-in-cache-budget "$test_root/cache-pruner-contents"
 
-# Root ADR-0294: only foundation-ci.yml may reference the two R2 compiler-cache write secrets, which a
-# GitHub environment grants to refs/heads/main only. Any other secret name, and these names in any
-# other workflow, still fail.
+# Root ADR-0294: only foundation-ci.yml may reference the three R2 compiler-cache secrets (endpoint +
+# the read-write key pair). Any other secret name, and these names in any other workflow, still fail.
 sccache_writer_fixture() {
   mkdir "$test_root/$1"
   cp "$test_root/valid/example.yml" "$test_root/$1/${2:-foundation-ci.yml}"
-  sed -i 's#^permissions:$#env:\n  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}\n  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}\npermissions:#' \
+  sed -i 's#^permissions:$#env:\n  SCCACHE_R2_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}\n  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}\n  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}\npermissions:#' \
     "$test_root/$1/${2:-foundation-ci.yml}"
 }
 sccache_writer_fixture sccache-writer
 if ! "$checker" "$test_root/sccache-writer" "$test_root/ruleset.json" "$test_root/actions.json" \
   --semantic-self-test >/dev/null 2>&1; then
-  echo "FAIL workflow-policy-self-test: rejected foundation-ci.yml's two R2 cache-write secrets" >&2
+  echo "FAIL workflow-policy-self-test: rejected foundation-ci.yml's three R2 cache secrets" >&2
   exit 1
 fi
 sccache_writer_fixture sccache-writer-other-file other-ci.yml

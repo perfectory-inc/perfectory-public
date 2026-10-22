@@ -159,10 +159,11 @@ for workflow in "${workflows[@]}"; do
   ' "$workflow"; then
     cache_pruner=1
   fi
-  # A fourth (root ADR-0294): the Rust CI workflow may reference exactly the two R2 compiler-cache
-  # write secrets. A GitHub environment grants them to refs/heads/main only, so merged code alone
-  # fills the cache; every pull request reads it anonymously (SCCACHE_S3_NO_CREDENTIALS) and sees
-  # these as empty. No other secret, variable or OIDC channel, and these names in no other file.
+  # A fourth (root ADR-0294): the Rust CI workflow may reference exactly the three R2 compiler-cache
+  # secrets — the endpoint (a secret only because public-repository-safety forbids an account-specific
+  # R2 binding in the clear) and the read-write key pair. A same-repo branch's jobs see them and share
+  # the cache; a fork pull request gets none. No other secret, variable or OIDC channel, and these
+  # names in no other file.
   sccache_writer=0
   if [ "$(basename "$workflow")" = foundation-ci.yml ]; then
     sccache_writer=1
@@ -309,7 +310,7 @@ for workflow in "${workflows[@]}"; do
         rest = $0
         while (match(rest, /secrets\.[A-Za-z0-9_]+/)) {
           token = substr(rest, RSTART, RLENGTH)
-          if (token != "secrets.SCCACHE_R2_ACCESS_KEY_ID" && token != "secrets.SCCACHE_R2_SECRET_ACCESS_KEY") bad = 1
+          if (token != "secrets.SCCACHE_R2_ENDPOINT" && token != "secrets.SCCACHE_R2_ACCESS_KEY_ID" && token != "secrets.SCCACHE_R2_SECRET_ACCESS_KEY") bad = 1
           rest = substr(rest, RSTART + RLENGTH)
         }
         if (bad) print
