@@ -304,7 +304,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 by-PNU 묶음 파일 (`parcel-by-pnu-section-packs`) | 일부 연결 | gold.parcel_panel 의 PNU 문서(용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권을 합친 한 문서)를 법정동 묶음 파일로 굽는다(루트 ADR-0147 §8, ADR-0160). 건물 묶음과 같은 형식·관문·Worker 소스를 쓴다. 전환 전에는 객체가 서빙한다. |
 | 필지 용도지역 판정 by-PNU 묶음 파일 (`parcel-zoning-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_zoning 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/zoning/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 필지 개별공시지가 by-PNU 묶음 파일 (`parcel-price-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_price 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/price/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
-| 필지 공매 by-PNU 묶음 파일 (`parcel-public-sale-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_public_sale 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/public-sale/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0287). 첫 발행은 비용 승인 뒤 운영자의 묶음 전용 관문을 거친다. |
+| 필지 공매 by-PNU 묶음 파일 (`parcel-public-auction-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_public_auction 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/public-auction/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0287). 첫 발행은 비용 승인 뒤 운영자의 묶음 전용 관문을 거친다. |
 | 필지 토지특성 by-PNU 묶음 파일 (`parcel-characteristics-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_characteristics 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/characteristics/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 필지 임야대장 by-PNU 묶음 파일 (`parcel-forest-ledger-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_forest_ledger 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/forest-ledger/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 필지 토지이동이력 by-PNU 묶음 파일 (`parcel-transfer-history-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_transfer_history 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/transfer-history/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
@@ -353,7 +353,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 법정동코드 스냅숏 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 용도지역 판정 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 개별공시지가 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
-| 온비드 부동산 물건 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_sale_silver_to_gold.py` |
+| 온비드 부동산 물건 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지특성 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 임야대장 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지이동이력 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |

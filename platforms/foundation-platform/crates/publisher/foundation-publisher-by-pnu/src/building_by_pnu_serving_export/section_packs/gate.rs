@@ -324,7 +324,7 @@ impl LatencyEvidence {
             self.answered as f64 >= self.sample_size as f64 * slo.availability_min;
         // A lane of fewer documents than the target is sampled whole (every PNU is a candidate,
         // `candidate_rate`), so its floor is the lane itself, not a target it can never reach
-        // (2026-10-23: the public-sale lane, 4,821 documents). The full target holds for any lane
+        // (2026-10-23: the public-auction lane, 4,821 documents). The full target holds for any lane
         // whose document count is unknown (`0`: old evidence, a stand-in).
         let sample_floor = if self.lane_documents > 0 {
             u64::try_from(gate.latency_sample_size)?.min(self.lane_documents)

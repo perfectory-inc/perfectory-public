@@ -277,7 +277,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45)
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake", "onbid_public_sale_silver"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake", "onbid_public_auction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -416,7 +416,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                              set(specs["gold_panel_rebuild"].producers))
         # The bake serves the panels and the data kinds; the kinds follow the panels (root ADR-0193 §9).
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
-                         ("gold_panel_rebuild", "gold_public_sale_rebuild", "gold_kind_rebuild"))
+                         ("gold_panel_rebuild", "gold_public_auction_rebuild", "gold_kind_rebuild"))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
         # and the table it writes then reads does not start it again.
@@ -467,10 +467,10 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
-            for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_sale_rebuild"):
+            for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_auction_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
-                                        "that writes them (gold_panel_rebuild, gold_public_sale_rebuild, "
+                                        "that writes them (gold_panel_rebuild, gold_public_auction_rebuild, "
                                         "gold_kind_rebuild) is switched off")
 
     def test_a_job_is_never_started_by_what_it_writes(self):
@@ -607,7 +607,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         self.assertIn("by_pnu_serving_bake", blockers)
-        self.assertIn("onbid_public_sale_silver", blockers)
+        self.assertIn("onbid_public_auction_silver", blockers)
         self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45)
 
     def test_the_real_list_fits(self):
