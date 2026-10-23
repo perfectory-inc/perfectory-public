@@ -110,6 +110,77 @@ fn latency(
     Ok(out.to_path_buf())
 }
 
+/// A fully passing latency evidence for the pack lane, with the sample size and the lane's whole
+/// document count chosen: everything else holds, so the verdict turns on the sample floor alone.
+fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
+    let lane = lane()?;
+    let policy = section_pack_policy()?;
+    let timings = json!({"p50": 40.0, "p95": 90.0, "p99": 110.0, "mean": 45.0, "max": 120.0});
+    let cpu = json!({"script": "preview", "from_utc": "", "to_utc": "", "requests": sample_size,
+        "cpu_p50_ms": 1.0, "cpu_p99_ms": 1.0, "statuses": {"success": sample_size}});
+    let value = json!({
+        "schema_version": policy.cutover_gate.evidence_schema_version,
+        "kind": gate::LATENCY_KIND,
+        "lane": lane.unit(),
+        "pack_generation": 1,
+        "live_base_url": "https://baseline-preview.example.test",
+        "preview_base_url": "https://pack-preview.example.test",
+        "environment": gate::PRODUCTION_ENVIRONMENT,
+        "sample_size": sample_size,
+        "sample_sha256": "0".repeat(64),
+        "answered": sample_size, "mismatched": 0, "failed": 0,
+        "live_ms": timings, "pack_ms": timings,
+        "increase_p50_ms": 0.0, "increase_p95_ms": 0.0, "bound_p50_ms": 50.0, "bound_p95_ms": 50.0,
+        "examples": [], "passed": false, "measured_at_utc": "2026-01-01T00:00:00Z",
+        "concurrency": 8, "cold_answered": sample_size, "warm_answered": 0,
+        "worker_cpu": cpu, "availability": 1.0,
+        "increase_cold_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
+        "load": {"requests_per_second": 25, "duration_seconds": 600, "max_in_flight": 64,
+            "sent": sample_size, "answered": sample_size, "shed": 0,
+            "achieved_requests_per_second": 25.0, "availability": 1.0, "failures": {},
+            "latency_ms": timings,
+            "server_timing": {"answers": 0, "total_ms": timings, "r2_ms": timings, "sources": {}, "outcomes": {}},
+            "worker_cpu": cpu, "versions": {}},
+        "no_gzip": {"sent": 200, "answered": 200, "identity": 200, "mismatched": 0, "not_compared": 0,
+            "failures": {}, "outcomes": {}, "latency_ms": timings},
+        "cold_read_paths": {gate::COLD_PATH_R2: sample_size},
+        "cold_live_read_paths": {gate::COLD_PATH_R2: sample_size},
+        "baseline_lane": "building",
+        "lane_documents": lane_documents,
+    });
+    let evidence: LatencyEvidence = serde_json::from_value(value)?;
+    evidence.verdict()
+}
+
+#[test]
+fn a_lane_smaller_than_the_target_is_floored_on_the_lane() -> anyhow::Result<()> {
+    let target = u64::try_from(section_pack_policy()?.cutover_gate.latency_sample_size)?;
+    let small = 4_821; // the public-sale lane, sampled whole, 2026-10-23
+    assert!(
+        small < target,
+        "the case is only interesting below the target"
+    );
+    // Sampled whole (sample_size == lane_documents < target): the lane is its own floor, so it opens.
+    assert!(
+        verdict_for(small, small)?,
+        "a whole small lane must open the gate"
+    );
+    // The same small sample without a known population keeps the full target: it cannot be trusted
+    // to be the whole lane, so the floor still bites.
+    assert!(
+        !verdict_for(small, 0)?,
+        "an unknown population must keep the full target"
+    );
+    // A small sample of a large lane is still short of the target and must not open.
+    assert!(
+        !verdict_for(small, target * 10)?,
+        "a short sample of a large lane must not open"
+    );
+    // The target drawn in full opens the gate as before.
+    assert!(verdict_for(target, 0)?, "the full target opens the gate");
+    Ok(())
+}
+
 #[test]
 fn a_contract_lane_has_every_command_and_its_names_by_rule() -> anyhow::Result<()> {
     let lane = lane()?;
