@@ -464,22 +464,32 @@ fi
 
 if [[ "${ACTION}" == cutover ]]; then
   is_pack_lane "${LANE}" || [[ "${LANE}" == lanes ]] || refuse "cutover is the first cut-over of a pack-only lane, or of lanes"
-  [[ "$#" == 1 || ( "$#" == 2 && "${2}" == --dry-run ) ]] || refuse "cutover takes <generation> [--dry-run]"
-  [[ "${1}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "cutover takes a generation number"
-  if [[ "$#" == 2 ]]; then
-    exec "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1" --dry-run
+  [[ "${1:-}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "cutover takes <generation> [--dry-run] [--allow-outside-window]"
+  generation="$1"
+  shift
+  dry_run="" cutover_flags=()
+  for flag in "$@"; do
+    case "${flag}" in
+      --dry-run) dry_run=1 cutover_flags+=(--dry-run) ;;
+      # Attended override: run outside the daily scheduled window (the gold/bake Spark wait stays).
+      --allow-outside-window) cutover_flags+=(--allow-outside-window) ;;
+      *) refuse "cutover takes <generation> [--dry-run] [--allow-outside-window]" ;;
+    esac
+  done
+  if [[ -n "${dry_run}" ]]; then
+    exec "${here}/by-pnu-lane-cutover.sh" "${LANE}" "${generation}" ${cutover_flags[@]+"${cutover_flags[@]}"}
   fi
-  CUTOVER_UNIT="foundation-by-pnu-lane-cutover-g$1"
+  CUTOVER_UNIT="foundation-by-pnu-lane-cutover-g${generation}"
   running="$(running_units 'foundation-by-pnu-lane-cutover-g*.service')"
   [[ -z "${running}" ]] || refuse "a lane cut-over is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/cutover" "${BAKE_ROOT}/cutover/logs"
-  log="${BAKE_ROOT}/cutover/logs/cutover-g$1.log"
-  log "starting ${CUTOVER_UNIT}: by-pnu-lane-cutover.sh ${LANE} $1; output ${log}"
+  log="${BAKE_ROOT}/cutover/logs/cutover-g${generation}.log"
+  log "starting ${CUTOVER_UNIT}: by-pnu-lane-cutover.sh ${LANE} ${generation} ${cutover_flags[*]}; output ${log}"
   # Root, like this script: each step it calls starts its own unit as the service user.
   exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" \
-    --description="Foundation Platform pack-only lane cut-over, generation $1 (root ADR-0190, ADR-0193)" \
+    --description="Foundation Platform pack-only lane cut-over, generation ${generation} (root ADR-0190, ADR-0193)" \
     -p StandardOutput=append:"${log}" -p StandardError=append:"${log}" \
-    "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1"
+    "${here}/by-pnu-lane-cutover.sh" "${LANE}" "${generation}" ${cutover_flags[@]+"${cutover_flags[@]}"}
 fi
 
 TABLE_UNIT=""

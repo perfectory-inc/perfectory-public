@@ -118,7 +118,8 @@ fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
     let timings = json!({"p50": 40.0, "p95": 90.0, "p99": 110.0, "mean": 45.0, "max": 120.0});
     let cpu = json!({"script": "preview", "from_utc": "", "to_utc": "", "requests": sample_size,
         "cpu_p50_ms": 1.0, "cpu_p99_ms": 1.0, "statuses": {"success": sample_size}});
-    let value = json!({
+    // Two objects merged: one `json!` of every field overruns the macro's recursion limit.
+    let head = json!({
         "schema_version": policy.cutover_gate.evidence_schema_version,
         "kind": gate::LATENCY_KIND,
         "lane": lane.unit(),
@@ -132,6 +133,8 @@ fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
         "live_ms": timings, "pack_ms": timings,
         "increase_p50_ms": 0.0, "increase_p95_ms": 0.0, "bound_p50_ms": 50.0, "bound_p95_ms": 50.0,
         "examples": [], "passed": false, "measured_at_utc": "2026-01-01T00:00:00Z",
+    });
+    let rest = json!({
         "concurrency": 8, "cold_answered": sample_size, "warm_answered": 0,
         "worker_cpu": cpu, "availability": 1.0,
         "increase_cold_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
@@ -148,6 +151,10 @@ fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
         "baseline_lane": "building",
         "lane_documents": lane_documents,
     });
+    let mut value = head;
+    for (key, field) in rest.as_object().context("an object")? {
+        value[key] = field.clone();
+    }
     let evidence: LatencyEvidence = serde_json::from_value(value)?;
     evidence.verdict()
 }

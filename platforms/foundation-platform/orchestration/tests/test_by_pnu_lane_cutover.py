@@ -284,6 +284,40 @@ class LaneCutover(OperatorHarness):
         self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
         self.assertIn("would run into the scheduled window", self.evidence()[-1]["reason"])
 
+    def test_allow_outside_window_lifts_the_window_for_an_attended_run(self):
+        # A daily spark-pool start is inside the window; the runner refuses a step there by default.
+        hour, minute = sorted({(int(j["schedule"].split()[1]), int(j["schedule"].split()[0])) for j in JOBS
+                               if j.get("pool") == "spark" and j["schedule"].split()[1].isdigit()})[0]
+        result, _ = self.runner(LANE, "1", "--dry-run", now=at(hour, minute))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("inside the scheduled window", result.stderr)
+        # With the attended override the window guard is lifted: no step is held back by the clock.
+        if self.log.exists():
+            self.log.unlink()
+        result, _ = self.runner(LANE, "1", "--dry-run", "--allow-outside-window", now=at(hour, minute))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("would not start now", result.stderr)
+        self.assertIn("the window guard is lifted", result.stderr)
+
+    def test_allow_outside_window_keeps_the_spark_wait(self):
+        # The override lifts only the clock: gold and bake still refuse to start beside a Spark job,
+        # so a Gold rebuild cannot move the table under the bake.
+        result, calls = self.runner(LANE, "1", "--allow-outside-window",
+                                    FAKE_ACTIVATING="foundation-gold-panel-rebuild.service",
+                                    FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES="0")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
+        last = self.evidence()[-1]
+        self.assertEqual(last["step"], "gold")
+        self.assertIn("foundation-gold-panel-rebuild.service", last["reason"])
+
+    def test_the_operator_forwards_allow_outside_window(self):
+        result, calls = self.run_operator(LANE, "cutover", "1", "--allow-outside-window")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-4:], [str((self.release / "scripts/ops/by-pnu-lane-cutover.sh").resolve()),
+                                     LANE, "1", "--allow-outside-window"])
+
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
