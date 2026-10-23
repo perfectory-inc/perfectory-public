@@ -87,6 +87,9 @@ pub struct LatencyConfig {
     /// The unit of each sampled PNU, from the equality evidence (root ADR-0163): a read is cold on
     /// the first of its unit. Empty, each PNU's unit is its dong.
     pub sample_units: Vec<String>,
+    /// The lane's whole Gold document count, from the equality evidence: a lane smaller than
+    /// `latency_sample_size` is sampled whole, so the gate floors on the lane, not the target.
+    pub lane_documents: u64,
     /// A pack-only lane's comparison (root ADR-0190); `None` for a lane with an object path.
     pub baseline: Option<Baseline>,
     /// This probe run's token in the preview query (`g{N}-r{run}`): the preview keys its edge
@@ -195,6 +198,7 @@ impl LatencyConfig {
             )),
             no_gzip_sample_size: gate.no_gzip_sample_size,
             sample_units: Vec::new(),
+            lane_documents: 0,
             baseline,
             run: format!("{:x}", Utc::now().timestamp()),
         })
@@ -209,6 +213,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let mut config = LatencyConfig::from_env(lane)?;
     let pnus = sample(&config)?;
     let (equality, _) = gate::read::<EqualityEvidence>(&config.equality_evidence)?;
+    config.lane_documents = equality.expected_documents;
     config.sample_units = equality.sample_units;
     if let Some(baseline) = &mut config.baseline {
         baseline.expected =
@@ -707,6 +712,7 @@ pub async fn probe(config: &LatencyConfig, pnus: &[String]) -> anyhow::Result<La
             .baseline
             .as_ref()
             .map(|baseline| baseline.lane.name().to_owned()),
+        lane_documents: config.lane_documents,
         live_ms,
         pack_ms,
     };
