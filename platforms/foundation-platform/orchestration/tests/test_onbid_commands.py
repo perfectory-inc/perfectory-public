@@ -1,4 +1,4 @@
-"""The Onbid public-sale jobs' real command lines (scripts/ops/onbid-collect.sh and onbid-silver-load.sh,
+"""The Onbid public-auction jobs' real command lines (scripts/ops/onbid-collect.sh and onbid-silver-load.sh,
 root ADR-0280).
 
 The scripts run from an installed release layout (as in test_parcel_number_change_collect_command.py).

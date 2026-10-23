@@ -18,7 +18,7 @@ mod land_characteristic;
 mod land_forest_ledger;
 mod land_right_registration;
 mod land_transfer_history;
-mod onbid_public_sale;
+mod onbid_public_auction;
 mod parcel_number_change_history;
 mod parcel_panel;
 mod registered_factory;

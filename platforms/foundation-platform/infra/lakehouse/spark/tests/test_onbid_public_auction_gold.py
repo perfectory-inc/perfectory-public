@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
-import onbid_public_sale_silver_to_gold as job  # noqa: E402
+import onbid_public_auction_silver_to_gold as job  # noqa: E402
 
 DONG = "9999910100"
 
@@ -32,7 +32,7 @@ ITEM_SCHEMA = "cltr_mng_no string, pbct_cdtn_no long, pnu string, row_state stri
 
 class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_carries_lineage_optionally(self):
-        required, optional, anchor, whole = job.lane_inputs("parcel-public-sale")
+        required, optional, anchor, whole = job.lane_inputs("parcel-public-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "open rounds only: no bid results read")
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
@@ -41,8 +41,8 @@ class InputsTest(unittest.TestCase):
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
 
-        kind = by_pnu_kinds.kind("parcel-public-sale")
-        self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_sale", ("public_sale_json",)))
+        kind = by_pnu_kinds.kind("parcel-public-auction")
+        self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_auction", ("public_auction_json",)))
 
     def test_parse_args_accepts_the_section_coverage_flags_the_harness_passes(self):
         # The gold-rebuild harness passes --section-coverage-* to every kind producer whose contract
@@ -52,7 +52,7 @@ class InputsTest(unittest.TestCase):
         # not enforce them: a 시도's open-auction count swings daily and legitimately reaches zero, so
         # main() holds this kind to the row-loss floor, not a per-region gate (root ADR-0292).
         args = job.parse_args([
-            "--lane", "parcel-public-sale", "--iceberg-snapshot-id", "1",
+            "--lane", "parcel-public-auction", "--iceberg-snapshot-id", "1",
             "--source-snapshots-path", "/x", "--validate-only",
             "--section-coverage-snapshot", "123", "--max-section-coverage-drop", "0.05",
             "--section-coverage-min-pnus", "1000"])
@@ -81,7 +81,7 @@ class PlacementSparkTest(unittest.TestCase):
     def setUpClass(cls):
         from pyspark.sql import SparkSession
 
-        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-sale").getOrCreate()
+        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-auction").getOrCreate()
 
     @classmethod
     def tearDownClass(cls):
@@ -182,7 +182,7 @@ class DocumentSparkTest(unittest.TestCase):
     def setUpClass(cls):
         from pyspark.sql import SparkSession
 
-        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-sale-document").getOrCreate()
+        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-auction-document").getOrCreate()
 
     @classmethod
     def tearDownClass(cls):
@@ -218,7 +218,7 @@ class DocumentSparkTest(unittest.TestCase):
             round_row("LATE", True, datetime(2099, 1, 9)), round_row("SOON", True, datetime(2099, 1, 3))]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         doc = job.document_rows(placed).first()
-        body = json.loads(doc.public_sale_json)
+        body = json.loads(doc.public_auction_json)
         self.assertEqual([r["cltr_mng_no"] for r in body["rounds"]], ["SOON", "LATE"])
         self.assertEqual(body["rounds"][0]["prpt_div_cd"], "0007", "codes stay codes")
         self.assertIn("bid_ends_at", body["rounds"][0])
@@ -233,8 +233,8 @@ class DocumentSparkTest(unittest.TestCase):
 
         rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5))]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_sale_json), "public_sale")
-        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_sale_by_pnu") if p.startswith("public_sale.")}
+        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_auction_json), "public_auction")
+        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
         self.assertEqual(written, recorded)
 
     def test_a_document_over_the_ceiling_keeps_the_soonest_closing_rounds(self):
@@ -244,9 +244,9 @@ class DocumentSparkTest(unittest.TestCase):
         rows = job.with_usage_names(self.rounds([
             round_row(f"R{day}", True, datetime(2099, 1, day)) for day in range(3, 9)]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        one = len(json.loads(job.document_rows(placed).first().public_sale_json)["rounds"][0].__repr__())
+        one = len(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0].__repr__())
         small = job.DOCUMENT_ENVELOPE_BYTES + 3 * (one + 200)
-        body = json.loads(job.document_rows(placed, limit_bytes=small).first().public_sale_json)
+        body = json.loads(job.document_rows(placed, limit_bytes=small).first().public_auction_json)
         kept = [r["cltr_mng_no"] for r in body["rounds"]]
         self.assertTrue(0 < len(kept) < 6)
         self.assertEqual(kept, [f"R{day}" for day in range(3, 3 + len(kept))], "the soonest-closing are kept")
