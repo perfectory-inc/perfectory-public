@@ -46,18 +46,11 @@
 set -euo pipefail
 log() { printf '%s by-pnu-lane-cutover: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes> <generation> [--dry-run] [--allow-outside-window]"
+USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes> <generation> [--dry-run]"
 
-TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN="" ALLOW_OUTSIDE_WINDOW=""
-(($# >= 2)) || refuse "${USAGE}"
-shift 2
-for flag in "$@"; do
-  case "${flag}" in
-    --dry-run) DRY_RUN=1 ;;
-    --allow-outside-window) ALLOW_OUTSIDE_WINDOW=1 ;;
-    *) refuse "${USAGE}" ;;
-  esac
-done
+TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN=""
+[[ "$#" == 2 || ( "$#" == 3 && "${3}" == --dry-run ) ]] || refuse "${USAGE}"
+[[ "$#" == 3 ]] && DRY_RUN=1
 [[ "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "${USAGE}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLATFORM_ROOT="$(cd "${here}/../.." && pwd -P)"
@@ -166,13 +159,7 @@ hhmm() { printf '%02d:%02d' "$(($1 / 60))" "$(($1 % 60))"; }
 
 # Whether a step of $1 minutes may start now: it may not start inside the window, and may not run
 # into it. Minutes of the UTC day; the window does not wrap midnight.
-# --allow-outside-window lifts this one guard for an attended operator: the window is belt over the
-# spark wait below (gold and bake still wait for every Spark job, Gold rebuild and pack bake to
-# finish before they start), and a scheduled Gold that still moves the table mid-bake fails the bake
-# safely (its snapshot pin, by-pnu-pack-bake.sh), so an attended run that cannot wait for the daily
-# gap may skip the clock while every collision guard stays.
 window_verdict() {
-  [[ -z "${ALLOW_OUTSIDE_WINDOW}" ]] || return 0
   local start=$(( ($(now) / 60) % 1440 )) end
   end=$((start + $1))
   if ((start >= WINDOW_START && start < WINDOW_END)); then
@@ -192,7 +179,6 @@ preview_answers() {
 if [[ -n "${DRY_RUN}" ]]; then
   blocked=0
   log "dry run: generation ${GENERATION}; scheduled window $(hhmm "${WINDOW_START}")-$(hhmm "${WINDOW_END}") UTC; nothing is started"
-  [[ -z "${ALLOW_OUTSIDE_WINDOW}" ]] || log "dry run: --allow-outside-window: the window guard is lifted; gold and bake still wait for Spark"
   ((${#PLAN[@]})) || log "dry run: every lane is cut over already"
   running="$(spark_running)"
   [[ -z "${running}" ]] || log "dry run: Spark runs now ($(cut -d' ' -f1 <<<"${running}" | paste -sd' ')); gold and bake would wait"
@@ -243,7 +229,6 @@ wait_for_spark() {  # lane step
   done
 }
 
-[[ -z "${ALLOW_OUTSIDE_WINDOW}" ]] || log "run ${RUN_ID}: --allow-outside-window: the scheduled-window guard is lifted for this attended run; gold and bake still wait for Spark to be idle"
 log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLAN[@]}"}; do printf '%s ' "${e%% *}"; done)"
 ((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
 for entry in "${PLAN[@]}"; do
