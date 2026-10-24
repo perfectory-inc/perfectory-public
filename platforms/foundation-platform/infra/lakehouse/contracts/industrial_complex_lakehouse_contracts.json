@@ -5458,8 +5458,8 @@
         "column": "release_id"
       }
     },
-    "gold.parcel_public_auction": {
-      "table_name": "gold.parcel_public_auction",
+    "gold.parcel_public_sale": {
+      "table_name": "gold.parcel_public_sale",
       "physical_format": "Parquet",
       "serving_role": "Projection",
       "current_row_predicate": null,
@@ -5471,7 +5471,7 @@
           "required": true
         },
         {
-          "name": "public_auction_json",
+          "name": "public_sale_json",
           "logical_type": "string",
           "required": true
         },

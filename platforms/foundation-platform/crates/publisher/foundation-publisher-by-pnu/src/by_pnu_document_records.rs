@@ -32,9 +32,9 @@ const SPARK_HELD: [(&str, &str, &str); 2] = [
         "infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py",
     ),
     (
-        "parcel-public-auction",
-        "public_auction",
-        "infra/lakehouse/spark/tests/test_onbid_public_auction_gold.py",
+        "parcel-public-sale",
+        "public_sale",
+        "infra/lakehouse/spark/tests/test_onbid_public_sale_gold.py",
     ),
 ];
 

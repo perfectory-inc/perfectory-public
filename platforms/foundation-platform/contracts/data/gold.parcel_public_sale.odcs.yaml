@@ -2,13 +2,13 @@
 # pipeline graph (root ADR-0123). Do not edit: change the source and re-render.
 apiVersion: "v3.1.0"
 kind: "DataContract"
-id: "gold.parcel_public_auction"
+id: "gold.parcel_public_sale"
 name: "필지 공매 by-PNU 표"
 version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 빌드 시각에 열려 있는 온비드 공매 회차를 마감이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287). 계약의 종류 한 줄(parcel-public-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 온비드 Silver 에서 만든다. 폐지된 PNU 의 회차는 필지 이력과 합병을 따라 지금 필지에 더해진다."
+  purpose: "PNU마다 빌드 시각에 열려 있는 온비드 공매 회차를 마감이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287). 계약의 종류 한 줄(parcel-public-sale)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 온비드 Silver 에서 만든다. 폐지된 PNU 의 회차는 필지 이력과 합병을 따라 지금 필지에 더해진다."
 team:
   name: "foundation-platform"
 servers:
@@ -16,8 +16,8 @@ servers:
     type: "custom"
     catalog: "lakehouse"
 schema:
-  - name: "gold.parcel_public_auction"
-    physicalName: "gold.parcel_public_auction"
+  - name: "gold.parcel_public_sale"
+    physicalName: "gold.parcel_public_sale"
     logicalType: "object"
     physicalType: "table"
     properties:
@@ -25,7 +25,7 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
-      - name: "public_auction_json"
+      - name: "public_sale_json"
         physicalType: "string"
         logicalType: "string"
         required: true
@@ -60,7 +60,7 @@ schema:
         description: "published_at_utc is present"
 customProperties:
   - property: "pipelineGraphNode"
-    value: "gold-parcel-public-auction"
+    value: "gold-parcel-public-sale"
   - property: "declaredStatus"
     value: "implemented"
   - property: "servingRole"

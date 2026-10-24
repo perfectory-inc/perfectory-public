@@ -514,13 +514,13 @@
       "document_schema_version_reason": "forest_ledger gained ownership_kind_name (#746) without a new version, so the bake weighed the whole lane as a patch and its mass-change brake stopped it; v2 declares the whole-document change and the next bake writes a full generation (contracts/by-pnu-documents)"},
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
     "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
-    "parcel-public-auction": {
+    "parcel-public-sale": {
       "host": "parcel_by_pnu_gateway",
-      "kind": "public-auction",
-      "section": "public_auction",
-      "columns": ["public_auction_json"],
-      "producer": "onbid_public_auction_silver_to_gold",
-      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md"
+      "kind": "public-sale",
+      "section": "public_sale",
+      "columns": ["public_sale_json"],
+      "producer": "onbid_public_sale_silver_to_gold",
+      "decision": "docs/adr/0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md"
     },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",

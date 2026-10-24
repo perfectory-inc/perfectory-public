@@ -34,7 +34,7 @@ import json
 import os
 from typing import Any
 
-JOB_NAME = "onbid_public_auction_silver_to_gold"
+JOB_NAME = "onbid_public_sale_silver_to_gold"
 ITEM_SOURCE = "silver.onbid_real_estate_item"
 PARCEL_SOURCE = "silver.parcel_boundaries"
 LINEAGE_SOURCE = "silver.parcel_lineage"
@@ -144,7 +144,7 @@ def with_usage_names(round_rows: Any, usage_codes: Any | None) -> Any:
 
 
 def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
-    """One row per PNU: `public_auction_json` (the served rounds, soonest-closing first, cut at the
+    """One row per PNU: `public_sale_json` (the served rounds, soonest-closing first, cut at the
     document ceiling), `round_count`, and `attached_via` — null when the PNU holds a round of its
     own, else its nearest carried round's path."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
@@ -162,7 +162,7 @@ def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) ->
                                                  F.col("pbct_cdtn_no").alias("_k2"), F.col("_entry").alias("round"))))
             .getField("round").alias("rounds"),
             F.array(*[F.lit(d) for d in SOURCE_DATASETS]).alias("source_datasets"),
-        ), {"ignoreNullFields": "false"}).alias("public_auction_json"),
+        ), {"ignoreNullFields": "false"}).alias("public_sale_json"),
         F.count(F.lit(1)).alias("round_count"),
         F.when(F.max(F.col("attached_via").isNull().cast("int")) == 1, F.lit(None).cast("string"))
         .otherwise(F.min("attached_via")).alias("attached_via"),
@@ -251,9 +251,9 @@ def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], count
     counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
     documents = document_rows(servable(located))
     return documents.select(
-        "pnu", "public_auction_json", "attached_via",
+        "pnu", "public_sale_json", "attached_via",
         F.lit(pins[PARCEL_SOURCE]).alias("source_snapshot_id"), F.lit(as_of).alias("published_at_utc"),
-    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_auction_json", "attached_via")), 256))
+    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_sale_json", "attached_via")), 256))
 
 
 def main(argv=None) -> int:

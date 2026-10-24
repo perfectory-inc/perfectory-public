@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 차세대 온비드 공매를 data.go.kr 에서 받는다 — 수집 절반 (root ADR-0280). 등록된 작업
-# onbid_public_auction_collect(ADR-0122, default_pool)가 매시간 돌린다. Spark 는 쓰지 않는다.
+# onbid_public_sale_collect(ADR-0122, default_pool)가 매시간 돌린다. Spark 는 쓰지 않는다.
 #
 #   1. 수집 — collect-data-go-kr-onbid 가 공고·공고 입찰결과(매시간), 물건 전수(3시간마다), 목록에서 빠진
 #             회차의 입찰결과(오래된 것부터)를 API 마다 하루 상한 안에서 받아, API 하나에 gzip JSON Lines
 #             Bronze 객체 하나로 남긴다(data-go-kr-onbid.contract.json). 상한을 다 쓴 API 는 다음 날을
 #             기다린다. 키·파라미터 문제(00·03 이 아닌 답)는 실패다.
 #
-# 적재로 넘기는 것은 없다. 적재(onbid_public_auction_silver, onbid-silver-load.sh)는 R2 의 Bronze 와 Silver
+# 적재로 넘기는 것은 없다. 적재(onbid_public_sale_silver, onbid-silver-load.sh)는 R2 의 Bronze 와 Silver
 # 표의 커밋 기록만 보고 쌓을 객체를 정한다(plan-silver-load-objects). 성공한 실행 폴더는 지운다.
 #
 # 키(DATA_GO_KR_SERVICE_KEY)는 /etc/foundation-platform/data-go-kr.env 에 있다(runtime-secrets 그룹
