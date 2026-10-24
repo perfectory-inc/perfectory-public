@@ -33,7 +33,7 @@ pub enum MediaFormat {
 impl MediaFormat {
     /// The canonical lowercase file extension, used in the content-addressed key.
     #[must_use]
-    pub fn extension(self) -> &'static str {
+    pub const fn extension(self) -> &'static str {
         match self {
             Self::Jpeg => "jpg",
             Self::Png => "png",
@@ -44,7 +44,7 @@ impl MediaFormat {
 
     /// The media type to serve the object with.
     #[must_use]
-    pub fn content_type(self) -> &'static str {
+    pub const fn content_type(self) -> &'static str {
         match self {
             Self::Jpeg => "image/jpeg",
             Self::Png => "image/png",
@@ -190,30 +190,24 @@ mod tests {
     #[test]
     fn builds_the_content_addressed_key_once_per_content() {
         let h = "0123456789abcdef".repeat(4); // 64 hex chars
-        match (ObjectKeyPrefix::parse("onbid/media"), Sha256Hex::parse(&h)) {
-            (Ok(prefix), Ok(hash)) => {
-                let key = content_addressed_key(&prefix, &hash, MediaFormat::Jpeg);
-                assert_eq!(
-                    key.ok().map(|k| k.as_str().to_owned()),
-                    Some(format!("onbid/media/sha256/{h}.jpg"))
-                );
-            }
-            _ => assert!(false, "prefix and digest should parse"),
-        }
+        let key = ObjectKeyPrefix::parse("onbid/media")
+            .ok()
+            .zip(Sha256Hex::parse(&h).ok())
+            .and_then(|(prefix, hash)| {
+                content_addressed_key(&prefix, &hash, MediaFormat::Jpeg).ok()
+            })
+            .map(|k| k.as_str().to_owned());
+        assert_eq!(key, Some(format!("onbid/media/sha256/{h}.jpg")));
     }
 
     #[test]
     fn a_trailing_slash_on_the_prefix_does_not_double() {
         let h = "0123456789abcdef".repeat(4);
-        match (ObjectKeyPrefix::parse("onbid/media/"), Sha256Hex::parse(&h)) {
-            (Ok(prefix), Ok(hash)) => {
-                let key = content_addressed_key(&prefix, &hash, MediaFormat::Pdf);
-                assert_eq!(
-                    key.ok().map(|k| k.as_str().to_owned()),
-                    Some(format!("onbid/media/sha256/{h}.pdf"))
-                );
-            }
-            _ => assert!(false, "prefix and digest should parse"),
-        }
+        let key = ObjectKeyPrefix::parse("onbid/media/")
+            .ok()
+            .zip(Sha256Hex::parse(&h).ok())
+            .and_then(|(prefix, hash)| content_addressed_key(&prefix, &hash, MediaFormat::Pdf).ok())
+            .map(|k| k.as_str().to_owned());
+        assert_eq!(key, Some(format!("onbid/media/sha256/{h}.pdf")));
     }
 }
