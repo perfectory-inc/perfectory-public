@@ -90,7 +90,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
     // 126th is VWorld 필지고유번호변동연혁 (MK/30527), the official step of the pairing (root ADR-0150); the
-    // 127th–130th are the four data.go.kr 차세대 온비드 public-sale APIs (root ADR-0280). The
+    // 127th–130th are the four data.go.kr 차세대 온비드 public-auction APIs (root ADR-0280). The
     // factoryon.go.kr 공장등록현황 placeholder became the data.go.kr file it is fetched as (same count); the
     // 131st–132nd are the two courtauction.go.kr list searches (root ADR-0281).
     assert_eq!(checked, 132, "expected 132 in-scope catalog entries");

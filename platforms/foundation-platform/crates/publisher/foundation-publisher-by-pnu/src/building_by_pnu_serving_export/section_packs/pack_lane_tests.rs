@@ -162,7 +162,7 @@ fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
 #[test]
 fn a_lane_smaller_than_the_target_is_floored_on_the_lane() -> anyhow::Result<()> {
     let target = u64::try_from(section_pack_policy()?.cutover_gate.latency_sample_size)?;
-    let small = 4_821; // the public-sale lane, sampled whole, 2026-10-23
+    let small = 4_821; // the public-auction lane, sampled whole, 2026-10-23
     assert!(
         small < target,
         "the case is only interesting below the target"

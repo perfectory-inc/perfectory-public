@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 공매 kind Gold rebuild: build gold.parcel_public_sale from the Onbid Silver once a day (root ADR-0287)
+Description=Foundation Platform 공매 kind Gold rebuild: build gold.parcel_public_auction from the Onbid Silver once a day (root ADR-0287)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -16,7 +16,7 @@ EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 # The kind built from its own Silver (root ADR-0287), in the compose `spark` service under its 20g cap,
 # which the host memory guard counts for this job (tools/host-memory-budget.contract.json). The
 # same script and lock as the panel rebuild: never beside it.
-ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh parcel-public-sale
+ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh parcel-public-auction
 # The timeout below kills the script and the compose client, not the Spark container the Docker
 # daemon owns: left alone it would keep its 20g after Airflow freed the pool. Spark runs in the
 # Compose project named after this INVOCATION_ID; this removes that project's one-off containers and

@@ -1,4 +1,4 @@
-//! 차세대 온비드 public sale (KAMCO, data.go.kr), keyed to the provider's own PNU (root ADR-0280).
+//! 차세대 온비드 public auction (KAMCO, data.go.kr), keyed to the provider's own PNU (root ADR-0280).
 //!
 //! Both tables append: a load adds the rows of keys whose content changed and, for the item list,
 //! one removal marker per item condition that left a complete pass (root ADR-0275). Values only:
