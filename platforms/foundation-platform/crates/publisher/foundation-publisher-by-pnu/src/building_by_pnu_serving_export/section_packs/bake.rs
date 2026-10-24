@@ -753,11 +753,11 @@ async fn refuse_a_foreign_generation(
 ) -> anyhow::Result<()> {
     let patch = config.patch.as_ref().map(|patch| patch.patch);
     for section in &config.sections {
-        let keys = store
-            .list_pack_keys(section, plan.generation(section)?, patch)
-            .await?;
-        if let Some(key) = keys.iter().next() {
-            let bytes = store.read_bytes(key).await?;
+        if let Some(key) = store
+            .first_pack_key(section, plan.generation(section)?, patch)
+            .await?
+        {
+            let bytes = store.read_bytes(&key).await?;
             let (header, _) = by_pnu_pack::read_head(&bytes)?;
             ensure!(
                 header.gold_iceberg_snapshot_id == provenance.iceberg_snapshot_id,

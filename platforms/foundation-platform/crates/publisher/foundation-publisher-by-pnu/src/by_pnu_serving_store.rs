@@ -414,6 +414,47 @@ impl ByPnuServingStore {
             .collect())
     }
 
+    /// The first pack of one section's base generation (`patch` `None`) or of one patch of it, in
+    /// key order, when there is one. Bounded: it reads one key, never the whole generation, so a
+    /// base bake's per-shard foreign-generation check costs the same whatever packs earlier shards
+    /// already wrote create-only into the generation (O(1), not O(packs so far)).
+    ///
+    /// # Errors
+    /// Returns an error when the numbers violate the grammar or the listing fails.
+    pub async fn first_pack_key(
+        &self,
+        section: &str,
+        generation: u64,
+        patch: Option<u64>,
+    ) -> anyhow::Result<Option<String>> {
+        let directory = by_pnu_packs::directory(self.lane, section, generation, patch)?;
+        let keys = match &self.backend {
+            Backend::Local(..) => self.list_directory(&directory, None).await?,
+            Backend::R2(storage, _) => {
+                let request = R2InventoryRequest::new(Some(&directory), Some(1))
+                    .context("failed to build the first-pack listing request")?;
+                let page = storage
+                    .inventory(request)
+                    .await
+                    .with_context(|| format!("failed to list {directory}"))?;
+                page.objects()
+                    .iter()
+                    .map(|object| object.key.clone())
+                    .collect()
+            }
+        };
+        Ok(keys
+            .into_iter()
+            .filter(|key| {
+                by_pnu_packs::parse_pack_key(self.lane, key).is_some_and(|parsed| {
+                    parsed.section == section
+                        && parsed.generation == generation
+                        && parsed.patch == patch
+                })
+            })
+            .min())
+    }
+
     /// Every generation of `section` holding at least one pack, and every patch number used
     /// under any of them, published or not: a new generation or patch is numbered above them, so
     /// a half-written directory is never reused.
@@ -795,7 +836,7 @@ mod tests {
     use super::ByPnuServingStore;
     use crate::by_pnu_gateway_contract::ByPnuLane;
     use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-    use crate::r2_layout::by_pnu;
+    use crate::r2_layout::{by_pnu, by_pnu_packs};
     use std::path::PathBuf;
 
     const PNU: &str = "9999900000100000000";
@@ -964,6 +1005,55 @@ mod tests {
         // An empty patch directory is not a patch, exactly as R2 has no empty directories.
         assert_eq!(patches.into_iter().collect::<Vec<_>>(), vec![1, 4]);
         assert_eq!(first, Some(by_pnu::object_key(lane, 3, PNU)?));
+        Ok(())
+    }
+
+    /// `first_pack_key` reads one pack of the generation (its smallest base key, patches apart), so
+    /// the base bake's foreign-generation check costs the same however many packs earlier shards
+    /// already wrote into the generation — it must never need the whole generation.
+    #[tokio::test]
+    async fn first_pack_key_returns_one_base_pack_apart_from_patches() -> anyhow::Result<()> {
+        let lane = ByPnuLane::Parcel;
+        let root = temporary_root("first-pack");
+        let store =
+            ByPnuServingStore::open(lane, &ProfileStoreConfig::Local { root: root.clone() })?;
+        let section = "documents";
+        assert_eq!(
+            store.first_pack_key(section, 3, None).await?,
+            None,
+            "an empty generation has no first pack"
+        );
+        for unit in ["9999900002", "9999900000", "9999900001"] {
+            let key = by_pnu_packs::pack_key(lane, section, 3, None, unit)?;
+            store
+                .write_pack_create_only(&key, b"{}\n", CHECKSUM)
+                .await?;
+        }
+        let patch = by_pnu_packs::pack_key(lane, section, 3, Some(1), "9999900000")?;
+        store
+            .write_pack_create_only(&patch, b"{}\n", CHECKSUM)
+            .await?;
+
+        let first_base = store.first_pack_key(section, 3, None).await?;
+        let first_patch = store.first_pack_key(section, 3, Some(1)).await?;
+        std::fs::remove_dir_all(&root)?;
+
+        assert_eq!(
+            first_base,
+            Some(by_pnu_packs::pack_key(
+                lane,
+                section,
+                3,
+                None,
+                "9999900000"
+            )?),
+            "the base read did not return the smallest base pack"
+        );
+        assert_eq!(
+            first_patch,
+            Some(patch),
+            "the patch read did not return the patch pack"
+        );
         Ok(())
     }
 }
