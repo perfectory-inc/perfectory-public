@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 차세대 온비드 공매의 Silver 적재 절반 (root ADR-0280). 등록된 작업 onbid_public_sale_silver(spark 1칸)가
+# 차세대 온비드 공매의 Silver 적재 절반 (root ADR-0280). 등록된 작업 onbid_public_auction_silver(spark 1칸)가
 # 매시간 수집 뒤에 돌린다. 한 번에 수만 행이라 작은 Spark(spark-small, 계약된 메모리 상한)로 돈다.
 #
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 표마다 원천의 Bronze 접두어를 나열하고, 그 표의

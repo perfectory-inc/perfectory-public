@@ -281,8 +281,8 @@
       "enabled_since": "2026-10-19T14:49:09Z"
     },
     {
-      "id": "onbid_public_sale_collect",
-      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_sale_silver finds what it owes in R2). No Spark.",
+      "id": "onbid_public_auction_collect",
+      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_auction_silver finds what it owes in R2). No Spark.",
       "systemd_service": "foundation-onbid-collect.service",
       "systemd_timer": null,
       "state_paths": [
@@ -298,11 +298,11 @@
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
       ],
-      "enabled": false,
-      "disabled_reason": "Being renamed to onbid_public_auction_collect (official English term, #847). Step 1 of the two-step rename: the release admission gate refuses to drop an enabled job, so the old id is kept here, off, and the next release reintroduces it under the new name and removes this one. Pre-launch: the public-sale lane never served, so the pause loses nothing."
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
     },
     {
-      "id": "onbid_public_sale_silver",
+      "id": "onbid_public_auction_silver",
       "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): the Bronze objects no commit of their table records (plan-silver-load-objects, R2 alone), oldest first, each in its own commit, append to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when nothing is owed.",
       "systemd_service": "foundation-onbid-silver-load.service",
       "systemd_timer": null,
@@ -322,8 +322,8 @@
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result"
       ],
-      "enabled": false,
-      "disabled_reason": "Being renamed to onbid_public_auction_silver (official English term, #847). Step 1 of the two-step rename: the release admission gate refuses to drop an enabled job, so the old id is kept here, off, and the next release reintroduces it under the new name and removes this one. Pre-launch: the public-sale lane never served, so the pause loses nothing."
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
     },
     {
       "id": "vworld_parcel_edition",
@@ -854,9 +854,9 @@
       "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it."
     },
     {
-      "id": "gold_public_sale_rebuild",
-      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-sale): gold.parcel_public_sale from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
-      "systemd_service": "foundation-gold-public-sale-rebuild.service",
+      "id": "gold_public_auction_rebuild",
+      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-auction): gold.parcel_public_auction from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
+      "systemd_service": "foundation-gold-public-auction-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "35 21 * * *",
@@ -869,10 +869,10 @@
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-onbid-real-estate-item-to-gold-parcel-public-sale"
+        "silver-onbid-real-estate-item-to-gold-parcel-public-auction"
       ],
-      "enabled": false,
-      "disabled_reason": "Being renamed to gold_public_auction_rebuild (official English term, #847). Step 1 of the two-step rename: the release admission gate refuses to drop an enabled job, so the old id is kept here, off, and the next release reintroduces it under the new name and removes this one. Pre-launch: the public-sale lane never served, so the pause loses nothing."
+      "enabled": true,
+      "enabled_since": "2026-10-20T16:12:59Z"
     },
     {
       "id": "gold_kind_rebuild",
@@ -956,7 +956,7 @@
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
         "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
-        "gold-parcel-public-sale-to-parcel-public-sale-by-pnu-section-packs"
+        "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"
