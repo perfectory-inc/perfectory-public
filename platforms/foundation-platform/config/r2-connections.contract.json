@@ -297,6 +297,13 @@
           "latency_evidence_sha256": "64482ef5c9d0a896b6ce0a9196eb6b8797b768f26cf7716176effe146d3c427c",
           "decided_on": "2026-10-08",
           "reason": "owner decision before launch: publish parcel documents/g1 although cold first reads are +214 ms at p50 and +206 ms at p95 (bound +50) and Worker CPU p99 is 10.9 ms (bound 10). Content matched for all 39,861,511 PNUs (gate 가) and for every probe answer; warm reads are 114 ms faster. Cause: parcel packs are large (median 1.67 MB, 3% within the 256 KiB one-read size), so a cold read takes two R2 round trips; splitting large packs is deferred by the owner"
+        },
+        {
+          "lane": "parcel-public-sale-by-pnu",
+          "generation": 2,
+          "latency_evidence_sha256": "7fbf283d0937178981364f552a9bf44a09544ee1e3f83c309ab99b4be07e5a54",
+          "decided_on": "2026-10-23",
+          "reason": "owner decision to go live: publish public-sale/g2 although Worker CPU p99 is 10.054 ms (bound 10). Everything else holds — content matched all 4,821 documents (gate 가, 0 mismatched), every cold read came from R2 (2,946 of 2,946), availability 1.0, and the pack route is faster than the baseline. The 0.054 ms overshoot is within time-of-day CPU variance (9.57 ms measured an hour earlier) and is operationally safe: the 10 ms bound is a conservative early-warning above the healthy paths' ~6.4 ms p99, five times below the real cpu_limit of 50 ms. The lane is 4,821 documents, far below the 10,000 sample target, so it is sampled whole"
         }
       ],
       "latency_waivers_reason": "a waiver is the owner accepting one measurement, pinned by the evidence file's sha256: it accepts that file's latency and CPU verdict and nothing else (lane, generation, sample, environment and every compared answer must still hold), and a new measurement is judged again (root ADR-0162)"
