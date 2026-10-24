@@ -9,6 +9,7 @@ vi.mock("@/lib/panel/use-panel-stack", () => ({ usePanelStack: () => ({ push: vi
 const reads = vi.hoisted(() => ({
   buildings: { buildings: [] as unknown[], unlinked_units: [] as unknown[] },
   listings: { listings: [] as unknown[], total: 0 },
+  publicAuction: [] as unknown[],
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
   parcelBuildingsQuery: (pnu: string) => ({
@@ -18,6 +19,10 @@ vi.mock("@/components/panels/parcel/queries", () => ({
   parcelListingsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "listings", pnu],
     queryFn: async () => reads.listings,
+  }),
+  parcelPublicAuctionQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "public-auction", pnu],
+    queryFn: async () => reads.publicAuction,
   }),
 }));
 
@@ -137,6 +142,21 @@ describe("parcel panel categories", () => {
       ).toEqual(["필지정보", "매물 3"]);
     } finally {
       reads.listings = { listings: [], total: 0 };
+    }
+  });
+
+  it("adds 공매 with its count when the parcel has public auctions", async () => {
+    reads.publicAuction = [{ item_name: "테스트 물건" }, { item_name: "테스트 물건" }];
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      expect(
+        within(bar)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["필지정보", "공매 2"]);
+    } finally {
+      reads.publicAuction = [];
     }
   });
 });

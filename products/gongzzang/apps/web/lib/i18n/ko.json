@@ -239,7 +239,8 @@
         "anchorsLabel": "구획",
         "categories": {
           "parcel": "필지정보",
-          "listings": "매물"
+          "listings": "매물",
+          "publicAuction": "공매"
         },
         "sections": {
           "land": "토지",
@@ -335,6 +336,20 @@
       "listings": {
         "title": "이 필지의 매물 ({count})",
         "none": "이 필지에 등록된 매물이 없어요"
+      },
+      "publicAuction": {
+        "title": "이 필지의 공매 ({count})",
+        "none": "이 필지에 진행 중인 공매가 없어요",
+        "fallbackName": "공매 물건",
+        "round": "{sequence}차",
+        "appraisal": "감정가",
+        "lowestBid": "최저입찰가",
+        "bidPeriod": "입찰기간",
+        "area": "면적",
+        "landArea": "토지 {area}",
+        "buildingArea": "건물 {area}",
+        "usage": "용도",
+        "share": "지분 물건"
       }
     },
     "complex": {
