@@ -9,7 +9,8 @@ import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/lis
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { ParcelListingsCard } from "./listings";
-import { parcelBuildingsQuery, parcelListingsQuery } from "./queries";
+import { ParcelPublicAuctionCard } from "./public-auction";
+import { parcelBuildingsQuery, parcelListingsQuery, parcelPublicAuctionQuery } from "./queries";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
 
@@ -24,13 +25,24 @@ type Section = { id: string; label: string; content: ReactNode };
  */
 export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelDocument }) {
   const t = useTranslations("panels.parcel.summary");
-  const [category, setCategory] = useState<"parcel" | "listings">("parcel");
+  const [category, setCategory] = useState<"parcel" | "listings" | "publicAuction">("parcel");
   const listings = useQuery(parcelListingsQuery(entry.id));
   const listingCount = listings.data?.total ?? 0;
+  const publicAuction = useQuery(parcelPublicAuctionQuery(entry.id));
+  const publicAuctionCount = publicAuction.data?.length ?? 0;
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
     ...(listingCount > 0
       ? [{ key: "listings" as const, label: t("categories.listings"), count: listingCount }]
+      : []),
+    ...(publicAuctionCount > 0
+      ? [
+          {
+            key: "publicAuction" as const,
+            label: t("categories.publicAuction"),
+            count: publicAuctionCount,
+          },
+        ]
       : []),
   ];
   const parcelSections = useParcelSections(entry, data);
@@ -43,7 +55,15 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
             content: <ParcelListingsCard entry={entry} data={listings.data} />,
           },
         ]
-      : parcelSections;
+      : category === "publicAuction" && publicAuction.data
+        ? [
+            {
+              id: "publicAuction",
+              label: t("categories.publicAuction"),
+              content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
+            },
+          ]
+        : parcelSections;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = useScrollSpy(scrollRef, sections.map((s) => s.id).join(","));

@@ -2,6 +2,7 @@
 // The parcel views' reads, keyed as `PanelEntryView` keys a view (`["panel", kind, view, id]`), so
 // the panel's own sections and the pushed views share one cache entry per read.
 import { fetchBuildings } from "@/lib/api/buildings";
+import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchListings } from "@/lib/listings/api";
 
 export const parcelBuildingsQuery = (pnu: string) => ({
@@ -13,6 +14,12 @@ export const parcelBuildingsQuery = (pnu: string) => ({
 export const parcelListingsQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "listings", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchParcelListings(pnu, signal),
+  staleTime: 60_000,
+});
+
+export const parcelPublicAuctionQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "public-auction", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchPublicAuction(pnu, signal),
   staleTime: 60_000,
 });
 
