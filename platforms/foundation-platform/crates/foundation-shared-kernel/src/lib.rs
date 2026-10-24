@@ -12,6 +12,9 @@ pub mod events;
 /// Strongly typed identifiers shared across contexts.
 pub mod ids;
 
+/// Image and document media: magic-byte format detection and content-addressed object keys.
+pub mod media;
+
 /// Provider-neutral object storage key value objects.
 pub mod object_key;
 
@@ -29,6 +32,7 @@ pub use ids::{
     BuildingId, ComplexId, ManufacturerId, ParcelId, PostgisProjectionRevisionId, PrincipalId,
     StaffId, VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
+pub use media::{content_addressed_key, MediaFormat, Sha256Hex, Sha256HexError};
 pub use object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 pub use object_url_template::{ObjectUrlTemplate, ObjectUrlTemplateError, OBJECT_KEY_PLACEHOLDER};
 pub use pnu::Pnu;
