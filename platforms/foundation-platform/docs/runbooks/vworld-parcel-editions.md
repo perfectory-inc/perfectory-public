@@ -50,8 +50,7 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 2. 감독 실행 한 번:
 
    ```bash
-   # 꺼진 작업의 한 번 시작은 허가된 운영자 스크립트로(루트 ADR-0235): 자동배포 중이면 75 로 거부
-   sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start vworld_parcel_edition --requested-at "$(date +%s)" --reason "<왜 지금 돌리는지>"
+   # 꺼진 작업의 한 번 시작은 더니어 데이터 흐름 → 예약 작업 → 이 작업 줄의 운영 → "지금 한 번 돌리기", 이유를 적고 누른다(루트 ADR-0282; 꺼진 작업도 된다. 10분 안에 시작하고, 대기열·빌드는 예약 실행처럼 기다린다).
    journalctl -u foundation-vworld-parcel-edition.service --since today -o cat | tail -20  # journal.log 와 같은 줄(ADR-0174)
    ```
 
