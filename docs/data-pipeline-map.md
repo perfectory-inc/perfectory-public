@@ -26,7 +26,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
 | 행정표준코드관리시스템 법정동 | 1 endpoint | 일부 연결 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 매일 받는 법정동 코드 변경의 원천이다(루트 ADR-0143). 코드변경안내 게시판은 원천이 아니다(ADR-0144). 수집 작업은 운영 감독 실행 전까지 꺼져 있다. |
-| 차세대 온비드 공매 (data.go.kr) | 4 endpoint | 일부 연결 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 돈다. 두 Silver 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
+| 차세대 온비드 공매 (data.go.kr) | 5 endpoint | 일부 연결 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 돈다. 두 Silver 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 법원경매정보 (courtauction.go.kr) | 2 endpoint | 수집 비활성 — 법원경매정보의 물건 검색·매각결과 검색 목록을 신원을 밝히고 천천히, 새벽에만, 거절당하면 멈추며 받는다(루트 ADR-0280, ADR-0281). 수집기와 적재가 있고, 연락처가 놓이고 첫 감독 밤이 끝날 때까지 작업이 꺼져 있다. |
 | data.go.kr 파일 데이터 | 1 endpoint | 일부 연결 — data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
@@ -151,6 +151,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 건축물대장 부속지번 (`datagokr__building_register_sub_parcel`) | `disabled_api_duplicate` |
 | 건축물대장 API | 건축물대장 지구지역구역 (`datagokr__building_register_district_zone`) | `disabled_api_duplicate` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건목록 (`datagokr__onbid_real_estate_item`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건상세 (`datagokr__onbid_real_estate_item_detail`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 공고목록 (`datagokr__onbid_announcement`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 공고 입찰결과목록 (`datagokr__onbid_announcement_bid_result`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 물건 입찰결과상세 (`datagokr__onbid_item_bid_result`) | `open_api_only` |

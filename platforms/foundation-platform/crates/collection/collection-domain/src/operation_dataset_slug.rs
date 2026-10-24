@@ -92,12 +92,15 @@ pub fn standard_code_dataset_slug(operation: &str) -> Option<&'static str> {
 /// Resolves a data.go.kr 차세대 온비드 (KAMCO public sale) `operation` to its canonical `dataset_slug`
 /// (root ADR-0280).
 ///
-/// Returns `None` for any operation outside the four public-auction APIs; callers must treat `None` as a
+/// Returns `None` for any operation outside the five public-auction APIs; callers must treat `None` as a
 /// hard error rather than inventing a slug.
 #[must_use]
 pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     match operation {
         "getRlstCltrList2" => Some("onbid_real_estate_item"),
+        // 물건상세 (data.go.kr 15157247, ADR-0296 §1). Registered as a source here; the collector
+        // does not yet fetch it (that is ADR-0296 Stage B). This map only collapses the Bronze key.
+        "getRlstDtlInf2" => Some("onbid_real_estate_item_detail"),
         "getPbancList2" => Some("onbid_announcement"),
         "getPbancBidRsltList2" => Some("onbid_announcement_bid_result"),
         "getCltrBidRsltDtl2" => Some("onbid_item_bid_result"),
@@ -452,6 +455,10 @@ mod tests {
         assert!(operation_collapses_into_slug(
             "getRlstCltrList2",
             "datagokr__onbid_real_estate_item"
+        ));
+        assert!(operation_collapses_into_slug(
+            "getRlstDtlInf2",
+            "datagokr__onbid_real_estate_item_detail"
         ));
         assert!(!operation_collapses_into_slug(
             "getRlstCltrList2",
