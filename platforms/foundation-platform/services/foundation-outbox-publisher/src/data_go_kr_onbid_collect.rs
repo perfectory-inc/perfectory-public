@@ -125,6 +125,20 @@ pub(crate) struct ResultCodes {
     pub(crate) no_data: String,
 }
 
+/// How 물건상세 photos and appraisal attachments are mirrored to the shared content-addressed store
+/// (ADR-0296 §2 / ADR-0297). Consumed by `onbid_media`.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Media {
+    /// Object-key prefix the content-addressed media lands under (`<prefix>/sha256/<hash>.<ext>`).
+    pub(crate) object_prefix: String,
+    /// The only host whose URLs are fetched (the provider serves all media from `www.onbid.co.kr`).
+    pub(crate) url_host: String,
+    /// Downloads attempted per KST day; starts small so the first collection measures real volume.
+    pub(crate) daily_download_limit: u32,
+    /// A single file larger than this is not stored (safety valve; root: the 5.89 GB single-PUT stall).
+    pub(crate) max_file_bytes: u64,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceContract {
     pub(crate) base_url: String,
@@ -140,6 +154,7 @@ pub(crate) struct SourceContract {
     pub(crate) announcement_bid_result_list: Endpoint,
     pub(crate) item_bid_result: Endpoint,
     pub(crate) item_detail: Endpoint,
+    pub(crate) media: Media,
 }
 
 impl SourceContract {
@@ -197,6 +212,10 @@ pub(crate) struct Budget {
     pub(crate) calls: BTreeMap<String, u32>,
     /// APIs the gateway answered 429 for on this day.
     pub(crate) quota_refused: BTreeSet<String>,
+    /// 물건상세 media downloads attempted on this KST day (ADR-0296 §2), bounded by the contract's
+    /// `media.daily_download_limit`.
+    #[serde(default)]
+    pub(crate) media_downloads: u32,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -1046,6 +1065,7 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     let mut objects = Vec::new();
+    let mut media_report: Option<crate::onbid_media::MediaReport> = None;
     if config.live_write {
         live_write_target_preflight().context("Onbid collection live-write preflight failed")?;
         let pool = PgPool::connect(&required_env_value("DATABASE_URL")?)
@@ -1067,6 +1087,35 @@ pub async fn run() -> anyhow::Result<()> {
                 )
                 .await?,
             );
+        }
+        // ADR-0296 §2 / ADR-0297: mirror this run's 물건상세 photos & appraisal attachments to the
+        // shared content-addressed store, using the just-fetched (fresh, not-yet-expired) URLs. The
+        // whole step is isolated — a client-build or download failure is logged, never fails the run.
+        if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail) {
+            match reqwest::Client::builder()
+                .user_agent(contract.user_agent.clone())
+                .timeout(Duration::from_secs(contract.request_timeout_seconds))
+                .build()
+            {
+                Ok(http) => {
+                    let (report, used) = crate::onbid_media::mirror_detail_lines(
+                        detail_lines,
+                        &contract.media.object_prefix,
+                        &contract.media.url_host,
+                        contract.media.max_file_bytes,
+                        contract.media.daily_download_limit,
+                        state.budget.media_downloads,
+                        storage.as_ref(),
+                        &http,
+                    )
+                    .await;
+                    state.budget.media_downloads = used;
+                    media_report = Some(report);
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "onbid media HTTP client build failed; skipping media");
+                }
+            }
         }
     } else {
         for (api, lines) in &fetcher.lines {
@@ -1090,6 +1139,7 @@ pub async fn run() -> anyhow::Result<()> {
         "live_write": config.live_write,
         "report": report,
         "calls": state.budget.calls,
+        "media": media_report,
         "objects": objects,
     });
     write_json_file(&config.output_dir.join("manifest.json"), &manifest)?;
@@ -1103,8 +1153,20 @@ pub async fn run() -> anyhow::Result<()> {
         objects = objects.len(),
         item_pass_complete = report.item_pass_complete,
         results_received = report.results_received,
+        details_received = report.details_received,
+        media_downloaded = media_report.as_ref().map_or(0, |media| media.downloaded),
+        media_bytes = media_report.as_ref().map_or(0, |media| media.bytes_stored),
         "Onbid collection succeeded"
     );
+    // A durable, grep-able line so the first collection's real photo volume is readable from the
+    // persistent run.log (the manifest is deleted after a successful run): this is the measurement
+    // that sizes ADR-0296 Stage B before `media.daily_download_limit` is raised.
+    if let Some(media) = &media_report {
+        println!(
+            "onbid-media-summary-json {}",
+            serde_json::to_string(media).unwrap_or_default()
+        );
+    }
     println!(
         "foundation-job-outcome {}",
         if objects.iter().any(|object| object.written) {
