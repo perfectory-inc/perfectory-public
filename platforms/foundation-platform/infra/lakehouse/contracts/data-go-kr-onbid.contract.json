@@ -12,11 +12,12 @@
     "no_data": "03"
   },
   "daily_call_limit_per_api": {
-    "$comment": "Our own daily bound per API (KST day). Measured 2026-10-19: the gateway answers every one of the four APIs with X-RateLimit-Limit 100000 (the key is an operating account) and the remaining count showed another user of the same key, so we take at most a fifth of it. The collector stops an API before it would pass this bound and records the stop; it never spreads one API's calls over another's quota. The item list's interval (item_list.every_hours) is set by storage cost, not by this bound.",
+    "$comment": "Our own daily bound per API (KST day). Measured 2026-10-19: the gateway answers every one of the four list/result APIs with X-RateLimit-Limit 100000 (the key is an operating account) and the remaining count showed another user of the same key, so we take at most a fifth of it. The collector stops an API before it would pass this bound and records the stop; it never spreads one API's calls over another's quota. item_detail (getRlstDtlInf2, ADR-0296 §1) is the same gateway and key, bounded the same way until its own volume is measured. The item list's interval (item_list.every_hours) is set by storage cost, not by this bound.",
     "item_list": 20000,
     "announcement_list": 20000,
     "announcement_bid_result_list": 20000,
-    "item_bid_result": 20000
+    "item_bid_result": 20000,
+    "item_detail": 20000
   },
   "property_division_codes": {
     "$comment": "prptDivCd, a mandatory parameter of every list API (the provider's own meanings, swagger 2026-03-20). Every code is asked: a code with no open items costs one call and answers 03.",
@@ -69,6 +70,13 @@
     "path": "/OnbidCltrBidRsltDtlSrvc2/getCltrBidRsltDtl2",
     "retry_after_hours": 24,
     "max_asks": 3,
+    "every_hours": 1
+  },
+  "item_detail": {
+    "$comment": "물건상세 (data.go.kr 15157247, getRlstDtlInf2; ADR-0296 §1, ADR-0297). 열린 회차(open_items) 중 아직 상세를 받지 않은 것을 매 수집에서 daily 한도 안에서 받고, 받은 것은 state.detailed 로 기억해 다시 받지 않는다(끝난 회차는 open_items 에서 빠지며 detailed 에서도 지운다). 응답에 사진 URL 목록(potoUrlList)·썸네일(thnlImgUrlAdr)·감정평가서 첨부(apslEvlClgList)가 들어온다 — 그 바이너리 다운로드·R2 content-addressed 미러는 ADR-0296 Stage B(별도 PR). path 는 기존 온비드 네이밍 규칙에서 유도했고 첫 실제 호출에서 확인한다: 틀리면 상세 수집만 오류로 기록되고(details_errored) 다른 API 수집은 계속된다 — 상세 수집 실패는 run 을 깨지 않는다.",
+    "dataset_slug": "onbid_real_estate_item_detail",
+    "operation": "getRlstDtlInf2",
+    "path": "/OnbidRlstDtlInfSrvc2/getRlstDtlInf2",
     "every_hours": 1
   },
   "status_codes": {

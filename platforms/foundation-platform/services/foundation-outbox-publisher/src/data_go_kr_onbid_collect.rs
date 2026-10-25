@@ -72,15 +72,18 @@ pub(crate) enum Api {
     AnnouncementBidResultList,
     ItemList,
     ItemBidResult,
+    /// 물건상세 (getRlstDtlInf2): the open item conditions' full detail, incl. photo/attachment URLs.
+    ItemDetail,
 }
 
 impl Api {
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 4] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::AnnouncementList,
         Self::AnnouncementBidResultList,
         Self::ItemList,
         Self::ItemBidResult,
+        Self::ItemDetail,
     ];
 
     pub(crate) const fn name(self) -> &'static str {
@@ -89,6 +92,7 @@ impl Api {
             Self::AnnouncementBidResultList => "announcement_bid_result_list",
             Self::ItemList => "item_list",
             Self::ItemBidResult => "item_bid_result",
+            Self::ItemDetail => "item_detail",
         }
     }
 }
@@ -135,6 +139,7 @@ pub(crate) struct SourceContract {
     pub(crate) announcement_list: Endpoint,
     pub(crate) announcement_bid_result_list: Endpoint,
     pub(crate) item_bid_result: Endpoint,
+    pub(crate) item_detail: Endpoint,
 }
 
 impl SourceContract {
@@ -144,6 +149,7 @@ impl SourceContract {
             Api::AnnouncementBidResultList => &self.announcement_bid_result_list,
             Api::ItemList => &self.item_list,
             Api::ItemBidResult => &self.item_bid_result,
+            Api::ItemDetail => &self.item_detail,
         }
     }
 
@@ -208,6 +214,10 @@ pub(crate) struct State {
     /// Closed conditions the provider still had no result for after `max_asks`.
     #[serde(default)]
     pub(crate) results_given_up: u64,
+    /// Open item conditions whose 물건상세 (getRlstDtlInf2) we have already fetched, so a later run
+    /// asks only the new ones. Pruned each run to the still-open set, so it cannot grow unbounded.
+    #[serde(default)]
+    pub(crate) detailed: BTreeSet<ItemKey>,
 }
 
 impl State {
@@ -565,6 +575,12 @@ pub(crate) struct RunReport {
     pub(crate) results_received: usize,
     pub(crate) results_not_yet: usize,
     pub(crate) results_owed: usize,
+    /// 물건상세 responses received this run (00 or 03 — both mark the condition detailed).
+    pub(crate) details_received: usize,
+    /// Open conditions still owed a 물건상세 after this run (budget or an isolated error stopped it).
+    pub(crate) details_owed: usize,
+    /// 물건상세 requests that errored this run; isolated so they never fail the run.
+    pub(crate) details_errored: usize,
     pub(crate) stopped_by_budget: Vec<String>,
 }
 
@@ -679,6 +695,52 @@ pub(crate) async fn collect(
     }
     state.pending_results = kept;
     report.results_owed = state.pending_results.len();
+
+    // 물건상세 (getRlstDtlInf2, ADR-0296 §1 / ADR-0297): the full detail of each open item condition
+    // we have not detailed yet, oldest key first, within the item-detail daily budget. The response's
+    // photo and attachment URLs are mirrored to R2 in a later stage; here the detail only lands in
+    // Bronze. A detail failure is isolated — counted and the loop stops, but the run still succeeds —
+    // so a detail problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
+    if let Some(open) = state.open_items.clone() {
+        state.detailed.retain(|key| open.contains(key));
+        let owed: Vec<ItemKey> = open
+            .iter()
+            .filter(|key| !state.detailed.contains(key))
+            .cloned()
+            .collect();
+        for key in owed {
+            let params = [
+                ("cltrMngNo", key.cltr_mng_no.clone()),
+                ("pbctCdtnNo", key.pbct_cdtn_no.to_string()),
+            ];
+            match fetcher.send(state, Api::ItemDetail, &params, now).await {
+                Ok(Sent::OverBudget | Sent::Answer(Answer::QuotaRefused)) => {
+                    report
+                        .stopped_by_budget
+                        .push(Api::ItemDetail.name().to_owned());
+                    break;
+                }
+                // 00 rows or 03 no-data: the provider answered and the line is in Bronze; mark the
+                // condition detailed so a later run does not ask it again.
+                Ok(Sent::Answer(Answer::Rows { .. } | Answer::NoData)) => {
+                    state.detailed.insert(key);
+                    report.details_received += 1;
+                }
+                Err(error) => {
+                    // The request's raw body was already kept as a Bronze line; stop so a broken
+                    // endpoint does not spend the day's budget, and let the run still succeed.
+                    report.details_errored += 1;
+                    tracing::warn!(error = %error, "Onbid item detail fetch failed; isolated from the run");
+                    break;
+                }
+            }
+        }
+        report.details_owed = open
+            .iter()
+            .filter(|key| !state.detailed.contains(key))
+            .count();
+    }
+
     report.stopped_by_budget.dedup();
     Ok(report)
 }
