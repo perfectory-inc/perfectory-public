@@ -1153,8 +1153,20 @@ pub async fn run() -> anyhow::Result<()> {
         objects = objects.len(),
         item_pass_complete = report.item_pass_complete,
         results_received = report.results_received,
+        details_received = report.details_received,
+        media_downloaded = media_report.as_ref().map_or(0, |media| media.downloaded),
+        media_bytes = media_report.as_ref().map_or(0, |media| media.bytes_stored),
         "Onbid collection succeeded"
     );
+    // A durable, grep-able line so the first collection's real photo volume is readable from the
+    // persistent run.log (the manifest is deleted after a successful run): this is the measurement
+    // that sizes ADR-0296 Stage B before `media.daily_download_limit` is raised.
+    if let Some(media) = &media_report {
+        println!(
+            "onbid-media-summary-json {}",
+            serde_json::to_string(media).unwrap_or_default()
+        );
+    }
     println!(
         "foundation-job-outcome {}",
         if objects.iter().any(|object| object.written) {
