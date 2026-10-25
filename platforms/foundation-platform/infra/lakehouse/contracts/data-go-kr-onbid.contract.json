@@ -73,17 +73,19 @@
     "every_hours": 1
   },
   "item_detail": {
-    "$comment": "물건상세 (data.go.kr 15157247, getRlstDtlInf2; ADR-0296 §1, ADR-0297). 열린 회차(open_items) 중 아직 상세를 받지 않은 것을 매 수집에서 daily 한도 안에서 받고, 받은 것은 state.detailed 로 기억해 다시 받지 않는다(끝난 회차는 open_items 에서 빠지며 detailed 에서도 지운다). 응답 body.items.item 에 사진 목록(potoUrlList[].urlAdr)·감정평가서 첨부(apslEvlClgList[].urlAdr)가 들어오고(둘 다 호스트 www.onbid.co.kr), 용도 대/중/소 이름(cltrUsgLclsCtgrNm 등)도 inline 이다. 그 바이너리 다운로드·R2 content-addressed 미러는 ADR-0296 Stage B(별도 PR). path 는 운영 서비스키 실호출(2026-10-26)로 확인한 값: OnbidRlstDtlSrvc2 다(OnbidRlstDtlInfSrvc2 는 게이트웨이 code 12 '해당 오픈API 서비스가 없거나 폐기됨'). 상세 수집 실패는 details_errored 로 격리되어 run 을 깨지 않는다.",
+    "$comment": "물건상세 (data.go.kr 15157247, getRlstDtlInf2; ADR-0296 §1, ADR-0297). 열린 회차(open_items) 중 아직 상세를 받지 않은 것을 매 수집에서 daily 한도 안에서 받고, 받은 것은 state.detailed 로 기억해 다시 받지 않는다(끝난 회차는 open_items 에서 빠지며 detailed 에서도 지운다). 응답 body.items.item 에 사진 목록(potoUrlList[].urlAdr)·감정평가서 첨부(apslEvlClgList[].urlAdr)가 들어오고(둘 다 호스트 www.onbid.co.kr), 용도 대/중/소 이름(cltrUsgLclsCtgrNm 등)도 inline 이다. 그 바이너리 다운로드·R2 content-addressed 미러는 ADR-0296 Stage B(별도 PR). path 는 운영 서비스키 실호출(2026-10-26)로 확인한 값: OnbidRlstDtlSrvc2 다(OnbidRlstDtlInfSrvc2 는 게이트웨이 code 12 '해당 오픈API 서비스가 없거나 폐기됨'). 상세 수집 실패는 details_errored 로 격리되어 run 을 깨지 않는다. **per_run_limit: 한 run 에서 받는 상세 건수 상한** — 이게 없으면 열린 물건 수만 건을 한 run 에 다 받으려다 작업 systemd 시간제한(약 40분)을 넘겨 timeout 으로 죽고, 수집기는 끝에서 한꺼번에 커밋하므로 그 run 전체가 커밋 못 함(2026-10-26 사고). 전수 backfill 은 여러 run 에 나눠 진행. 안전 복구용으로 작게(50) 시작, 실제 run 시간 측정 후 상향.",
     "dataset_slug": "onbid_real_estate_item_detail",
     "operation": "getRlstDtlInf2",
     "path": "/OnbidRlstDtlSrvc2/getRlstDtlInf2",
+    "per_run_limit": 50,
     "every_hours": 1
   },
   "media": {
     "$comment": "물건상세의 사진·감정평가서 바이너리를 KAMCO(url_host) 공개 URL 에서 받아 공용 content-addressed 저장소(ADR-0290 §7 / ADR-0296 §2, foundation-shared-kernel media.rs)에 object_prefix 아래 sha256/<해시>.<확장자> 로 한 번만 담는다(onbid_media.rs). 실물(2026-10-26): 사진=potoUrlList[].urlAdr, 감정평가서=apslEvlClgList[].urlAdr, 둘 다 www.onbid.co.kr. url_host 외 호스트는 받지 않는다(응답 변조·예상외 호스트로 임의 fetch 방지). 형식은 바이트 매직으로 판정하며(만료 링크의 HTML 오류 페이지는 걸러짐) 판정 실패는 미저장. daily_download_limit 는 '첫 수집 실측 먼저'를 위해 작게 시작하고, 용량을 잰 PR 이 올린다(루트 selection_archive_new_bytes_budget 0 시작 선례와 같은 방식). max_file_bytes 는 비정상적으로 큰 단일 파일이 적재를 깨지 않게 하는 안전밸브(루트: 5.89GB 단일 PUT 사고). 다운로드/저장 실패는 격리되어 수집 run 을 깨지 않는다.",
     "object_prefix": "onbid/media",
     "url_host": "www.onbid.co.kr",
-    "daily_download_limit": 300,
+    "daily_download_limit": 40,
+    "download_timeout_seconds": 20,
     "max_file_bytes": 52428800
   },
   "status_codes": {

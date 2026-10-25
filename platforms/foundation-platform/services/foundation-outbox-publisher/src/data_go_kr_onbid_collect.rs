@@ -112,6 +112,10 @@ pub(crate) struct Endpoint {
     pub(crate) opening_window_days_after: Option<i64>,
     #[serde(default)]
     pub(crate) private_contract_flags: Vec<String>,
+    /// At most this many of this endpoint's item-keyed calls per run, so one run stays within the
+    /// job's time limit (item_detail backfills many open items; without this the run times out).
+    #[serde(default)]
+    pub(crate) per_run_limit: Option<u32>,
     #[serde(default)]
     pub(crate) retry_after_hours: Option<i64>,
     #[serde(default)]
@@ -135,6 +139,9 @@ pub(crate) struct Media {
     pub(crate) url_host: String,
     /// Downloads attempted per KST day; starts small so the first collection measures real volume.
     pub(crate) daily_download_limit: u32,
+    /// Per-download timeout (seconds); short because photos are small — a hung link must not let the
+    /// media step eat the job's time limit.
+    pub(crate) download_timeout_seconds: u64,
     /// A single file larger than this is not stored (safety valve; root: the 5.89 GB single-PUT stall).
     pub(crate) max_file_bytes: u64,
 }
@@ -722,9 +729,17 @@ pub(crate) async fn collect(
     // so a detail problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
     if let Some(open) = state.open_items.clone() {
         state.detailed.retain(|key| open.contains(key));
+        // Only a bounded slice of the owed details per run, so the run finishes within the job's
+        // time limit (the full backfill is spread over many runs). Without this the loop walks every
+        // open item in one run and the job times out before persisting anything (incident 2026-10-26).
+        let per_run = contract
+            .item_detail
+            .per_run_limit
+            .map_or(usize::MAX, |limit| limit as usize);
         let owed: Vec<ItemKey> = open
             .iter()
             .filter(|key| !state.detailed.contains(key))
+            .take(per_run)
             .cloned()
             .collect();
         for key in owed {
@@ -1094,7 +1109,7 @@ pub async fn run() -> anyhow::Result<()> {
         if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail) {
             match reqwest::Client::builder()
                 .user_agent(contract.user_agent.clone())
-                .timeout(Duration::from_secs(contract.request_timeout_seconds))
+                .timeout(Duration::from_secs(contract.media.download_timeout_seconds))
                 .build()
             {
                 Ok(http) => {
