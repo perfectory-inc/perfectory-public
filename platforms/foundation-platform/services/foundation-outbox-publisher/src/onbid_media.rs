@@ -179,10 +179,19 @@ async fn download_and_store(
         "media GET answered HTTP {}",
         response.status().as_u16()
     );
+    // Refuse an over-cap file by its declared length before reading the body, so a huge response
+    // never lands whole in memory on this small host (root: the 5.89 GB single-PUT stall).
+    if response
+        .content_length()
+        .is_some_and(|len| len > max_file_bytes)
+    {
+        return Ok(Stored::Oversize);
+    }
     let bytes = response
         .bytes()
         .await
         .context("reading the media body failed")?;
+    // A chunked response carries no length; the same cap still holds once the bytes are in hand.
     if bytes.len() as u64 > max_file_bytes {
         return Ok(Stored::Oversize);
     }
