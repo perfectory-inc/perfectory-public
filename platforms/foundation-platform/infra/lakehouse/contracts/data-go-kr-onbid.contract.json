@@ -79,6 +79,13 @@
     "path": "/OnbidRlstDtlInfSrvc2/getRlstDtlInf2",
     "every_hours": 1
   },
+  "media": {
+    "$comment": "물건상세의 사진·감정평가서 바이너리를 KAMCO(url_host) 공개 URL 에서 받아 공용 content-addressed 저장소(ADR-0290 §7 / ADR-0296 §2, foundation-shared-kernel media.rs)에 object_prefix 아래 sha256/<해시>.<확장자> 로 한 번만 담는다(onbid_media.rs). 실물(2026-10-26): 사진=potoUrlList[].urlAdr, 감정평가서=apslEvlClgList[].urlAdr, 둘 다 www.onbid.co.kr. url_host 외 호스트는 받지 않는다(응답 변조·예상외 호스트로 임의 fetch 방지). 형식은 바이트 매직으로 판정하며(만료 링크의 HTML 오류 페이지는 걸러짐) 판정 실패는 미저장. daily_download_limit 는 '첫 수집 실측 먼저'를 위해 작게 시작하고, 용량을 잰 PR 이 올린다(루트 selection_archive_new_bytes_budget 0 시작 선례와 같은 방식). max_file_bytes 는 비정상적으로 큰 단일 파일이 적재를 깨지 않게 하는 안전밸브(루트: 5.89GB 단일 PUT 사고). 다운로드/저장 실패는 격리되어 수집 run 을 깨지 않는다.",
+    "object_prefix": "onbid/media",
+    "url_host": "www.onbid.co.kr",
+    "daily_download_limit": 300,
+    "max_file_bytes": 52428800
+  },
   "status_codes": {
     "$comment": "pbctStatCd, the provider's meanings (swagger). Values only; a consumer maps them to its own words.",
     "0001": "입찰준비중",
