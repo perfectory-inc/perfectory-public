@@ -73,10 +73,10 @@
     "every_hours": 1
   },
   "item_detail": {
-    "$comment": "물건상세 (data.go.kr 15157247, getRlstDtlInf2; ADR-0296 §1, ADR-0297). 열린 회차(open_items) 중 아직 상세를 받지 않은 것을 매 수집에서 daily 한도 안에서 받고, 받은 것은 state.detailed 로 기억해 다시 받지 않는다(끝난 회차는 open_items 에서 빠지며 detailed 에서도 지운다). 응답에 사진 URL 목록(potoUrlList)·썸네일(thnlImgUrlAdr)·감정평가서 첨부(apslEvlClgList)가 들어온다 — 그 바이너리 다운로드·R2 content-addressed 미러는 ADR-0296 Stage B(별도 PR). path 는 기존 온비드 네이밍 규칙에서 유도했고 첫 실제 호출에서 확인한다: 틀리면 상세 수집만 오류로 기록되고(details_errored) 다른 API 수집은 계속된다 — 상세 수집 실패는 run 을 깨지 않는다.",
+    "$comment": "물건상세 (data.go.kr 15157247, getRlstDtlInf2; ADR-0296 §1, ADR-0297). 열린 회차(open_items) 중 아직 상세를 받지 않은 것을 매 수집에서 daily 한도 안에서 받고, 받은 것은 state.detailed 로 기억해 다시 받지 않는다(끝난 회차는 open_items 에서 빠지며 detailed 에서도 지운다). 응답 body.items.item 에 사진 목록(potoUrlList[].urlAdr)·감정평가서 첨부(apslEvlClgList[].urlAdr)가 들어오고(둘 다 호스트 www.onbid.co.kr), 용도 대/중/소 이름(cltrUsgLclsCtgrNm 등)도 inline 이다. 그 바이너리 다운로드·R2 content-addressed 미러는 ADR-0296 Stage B(별도 PR). path 는 운영 서비스키 실호출(2026-10-26)로 확인한 값: OnbidRlstDtlSrvc2 다(OnbidRlstDtlInfSrvc2 는 게이트웨이 code 12 '해당 오픈API 서비스가 없거나 폐기됨'). 상세 수집 실패는 details_errored 로 격리되어 run 을 깨지 않는다.",
     "dataset_slug": "onbid_real_estate_item_detail",
     "operation": "getRlstDtlInf2",
-    "path": "/OnbidRlstDtlInfSrvc2/getRlstDtlInf2",
+    "path": "/OnbidRlstDtlSrvc2/getRlstDtlInf2",
     "every_hours": 1
   },
   "status_codes": {
