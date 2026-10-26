@@ -1,5 +1,6 @@
 //! 온비드 물건상세(getRlstDtlInf2)의 사진·감정평가서 바이너리를 공용 content-addressed 미디어
-//! 저장소에 담는다 (ADR-0296 §2 / ADR-0297, root ADR-0290 §7).
+//! 저장소에 담는다 (ADR-0296 §2 / ADR-0297, root ADR-0290 §7). 쓰기는 내용주소 write-once
+//! (`put_object` CreateOnly + sha256), Bronze 객체별 원장 행이 아니다 (ADR-0298).
 //!
 //! 두 부분이다: 물건상세 응답에서 받을 URL 을 고르는 순수 함수 [`candidate_urls`], 그리고 그것을
 //! 하루 예산 안에서 받아 `<prefix>/sha256/<hash>.<ext>` 로 한 번만 저장하는 [`mirror`]. 형식은
