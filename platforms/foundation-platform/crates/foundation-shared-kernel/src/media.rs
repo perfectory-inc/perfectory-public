@@ -4,8 +4,10 @@
 //! shared by every parcel source (root ADR-0290 §7 for court auction, ADR-0296 §2 for public
 //! auction). This module is the pure part — magic-byte format detection and the key scheme
 //! `<prefix>/sha256/<hash>.<ext>` — with no I/O. The capture side differs per source (base64 decode
-//! for court auction, file-URL download for public auction) and the content-addressed write goes
-//! through the Bronze commit gateway (FP-ADR-0016); both reuse the one format and key defined here.
+//! for court auction, file-URL download for public auction). The write is a content-addressed
+//! write-once object (`put_object` CreateOnly + sha256 metadata), NOT a per-object Bronze ledger row
+//! (ADR-0298); the silver photo table is the reference index. Both sources reuse the format and key
+//! defined here.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
