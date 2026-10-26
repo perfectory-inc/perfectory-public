@@ -82,10 +82,11 @@
     "every_hours": 1
   },
   "media": {
-    "$comment": "물건상세의 사진·감정평가서 바이너리를 KAMCO(url_host) 공개 URL 에서 받아 공용 content-addressed 저장소(ADR-0290 §7 / ADR-0296 §2, foundation-shared-kernel media.rs)에 object_prefix 아래 sha256/<해시>.<확장자> 로 한 번만 담는다(onbid_media.rs). 실물(2026-10-26): 사진=potoUrlList[].urlAdr, 감정평가서=apslEvlClgList[].urlAdr, 둘 다 www.onbid.co.kr. url_host 외 호스트는 받지 않는다(응답 변조·예상외 호스트로 임의 fetch 방지). 형식은 바이트 매직으로 판정하며(만료 링크의 HTML 오류 페이지는 걸러짐) 판정 실패는 미저장. daily_download_limit 는 '첫 수집 실측 먼저'를 위해 작게 시작하고, 용량을 잰 PR 이 올린다(루트 selection_archive_new_bytes_budget 0 시작 선례와 같은 방식). max_file_bytes 는 비정상적으로 큰 단일 파일이 적재를 깨지 않게 하는 안전밸브(루트: 5.89GB 단일 PUT 사고). 다운로드/저장 실패는 격리되어 수집 run 을 깨지 않는다. **daily_download_limit=20 은 첫 실측용 소량 재개**(2026-10-26): 앞선 사고(사진 루프가 실패/타임아웃 시 예산을 안 깎아 느린 링크들을 장당 20초씩 다 시도하다 작업 시간제한 초과 → 수집 run 전체 미커밋)는 onbid_media.rs 를 '모든 시도가 예산 소비'로 고쳐 닫았고, JSON 수집 3연속 성공으로 정상화를 확인했으며, ADR-0298 로 쓰기 경로(put_object CreateOnly 내용주소)를 정본화했다. 이제 20 장만 받아 '물건당 사진 수·장당 바이트'를 재고, 그 수치로 다음 PR 이 상향한다(루트 selection_archive_new_bytes_budget 0→측정→상향 선례). 한 run 최악 = daily 잔여 × download_timeout_seconds 로 bounded(20×20s=400s).",
+    "$comment": "물건상세의 사진·감정평가서 바이너리를 KAMCO(url_host) 공개 URL 에서 받아 공용 content-addressed 저장소(ADR-0290 §7 / ADR-0296 §2, foundation-shared-kernel media.rs)에 object_prefix 아래 sha256/<해시>.<확장자> 로 한 번만 담는다(onbid_media.rs). 실물(2026-10-26): 사진=potoUrlList[].urlAdr, 감정평가서=apslEvlClgList[].urlAdr, 둘 다 www.onbid.co.kr. url_host 외 호스트는 받지 않는다(응답 변조·예상외 호스트로 임의 fetch 방지). 형식은 바이트 매직으로 판정하며(만료 링크의 HTML 오류 페이지는 걸러짐) 판정 실패는 미저장. daily_download_limit 는 '첫 수집 실측 먼저'를 위해 작게 시작하고, 용량을 잰 PR 이 올린다(루트 selection_archive_new_bytes_budget 0 시작 선례와 같은 방식). max_file_bytes 는 비정상적으로 큰 단일 파일이 적재를 깨지 않게 하는 안전밸브(루트: 5.89GB 단일 PUT 사고). 다운로드/저장 실패는 격리되어 수집 run 을 깨지 않는다. **1c 상향(2026-10-26 실측 반영)**: 10-26 15:08 UTC run 실측 = 20 시도 중 downloaded 18·deduplicated 1·skipped_unknown_format 1·errored 0, bytes 3,507,256(~190KB/장). R2 `read_object_sha256` 가 404(객체 없음)를 Err 로 보던 결함(#867)을 고친 뒤 저장이 정상화됐다(그 전엔 errored 20·downloaded 0). 이제 **per_run_limit(한 run 당 다운로드 상한) + daily_download_limit 상향**으로 ADR-0300 H(모든 수집 작업은 run당 상한을 선언)에 맞춘다: per_run_limit 가 한 run 의 벽시계를 bound(최악 = per_run_limit × download_timeout_seconds = 50×20s=1000s < 작업 40분 한도)하고, daily_download_limit 는 하루 총량을 bound 해 백로그를 여러 run 에 나눠 뺀다. 전량 backfill 은 실측을 더 쌓은 뒤 추가 상향/전용 경로로.",
     "object_prefix": "onbid/media",
     "url_host": "www.onbid.co.kr",
-    "daily_download_limit": 20,
+    "daily_download_limit": 500,
+    "per_run_limit": 50,
     "download_timeout_seconds": 20,
     "max_file_bytes": 52428800
   },
