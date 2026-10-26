@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: roadmap
-last_reviewed: 2026-08-05
+last_reviewed: 2026-10-26
 ---
 
 # 운영 준비 작업 목록
@@ -48,6 +48,43 @@ last_reviewed: 2026-08-05
   아니다.
 - Kafka 활성화는 어댑터 내부에서 정본 런타임 환경을 요구한다. 직접 호출자가 staging/production
   전송 경계를 생략할 수 없다.
+
+## 진행 중 프로그램 (2026-10 현재)
+
+2026-10 현재 실제로 진행 중인 작업이다. **각 항목의 상세·결정·남은 단계는 가리킨 ADR이 정본**이며,
+여기서는 프로그램과 순서만 고정한다(작업을 복제하지 않는다 — 이 로드맵의 원칙 그대로). 아래가
+"지금 무엇을, 왜, 어떤 순서로" 의 단일 출처다. 어떤 세션·에이전트도 이 절을 먼저 읽는다.
+
+### 공매(Onbid) 전체정보·사진 → 화면
+
+- 수집(물건목록·물건상세·입찰결과)은 상시 가동 중이고 정상이다. 결정: ADR-0280(루트),
+  ADR-0295(공식 영문명 public auction), ADR-0296(전체정보 서빙 + 경매·공매 공용 content-addressed
+  미디어 저장소), ADR-0292(servable gold 는 host-panel PNU 만).
+- 사진·첨부는 내용 해시 write-once 저장: ADR-0290 §7(사진 content-addressed), ADR-0297(원본 우선·
+  파생 사이즈), ADR-0298(write-once 저장소, 객체별 Bronze 원장 아님).
+- [x] 사진 저장을 막던 R2 결함 수정 — `read_object_sha256` 가 404(객체 없음)를 `Err` 로 매핑하던 것을
+  `Ok(None)` 으로(형제 `read_object_sha256_and_size_by_rehash` 와 일치). 첫 쓰기마다 dedup HEAD 가
+  실패해 사진 100% 미저장이던 원인.
+- [ ] 사진 재개·실측 → 한도 상향(전량). 측정은 수집기 run.log 의 `onbid-media-summary-json`.
+- [ ] silver 사진표 + gold v2(사진·입찰결과·용도)를 by-PNU 문서에.
+- [ ] 웹 공매 패널 사진 갤러리.
+
+### 엔지니어링·운영 위생 프로그램
+
+- 결정: ADR-0299(위생 = 기계 강제 불변식, A~O 15 계열 분류, 규칙+가드+수렴, 용어 SSOT/일관/일률)
+  + ADR-0300(15 계열 전부 채택 — 보류 없음, 정합(reconciliation)이 축; P1→P3 순서).
+- 축 = **정합(G 계열, 일관)**: 선언 대비 실제를 기계가 지속 대조·교정. 이번에 맞은 결함들(사진
+  미저장·층 두 세대·수집 timeout)이 전부 이 하나에서 나왔다.
+- P1(공매 병행): 호스트 자원 경보(node_exporter+cadvisor), 수집 run당 한도 통일 어휘 + 가드,
+  postgres 복원드릴 타이머 + 백업 freshness, R2 객체 ↔ silver 색인 대조, expand-contract 마이그 가드.
+  P2/P3 는 ADR-0300.
+- 각 불변식은 그 가드가 착지하는 PR 에서 AGENTS.md `위생 불변식` 절에 규칙 한 줄로 추가된다
+  (가드 없는 규칙은 넣지 않는다).
+
+### 그 밖에 진행 중인 프로그램 (상세는 ADR 소유)
+
+- 행 버전: ADR-0286 사슬. 에디션 관리·감사: ADR-0289. 장소 정체성 수렴: ADR-0288. 법원경매 수집·
+  화면화: ADR-0280/0281/0293. 건물 패널 층 세대 버그(최신 세대 핀 미결).
 
 ## 우선순위 0 — 출시 전 필수 게이트
 
