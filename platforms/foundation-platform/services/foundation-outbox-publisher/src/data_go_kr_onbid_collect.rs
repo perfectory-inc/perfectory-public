@@ -684,10 +684,18 @@ pub(crate) async fn collect(
     state
         .pending_results
         .sort_by_key(|pending| pending.closed_at_utc);
+    // At most this many bid-result asks per run, so a large owed backlog drains over many runs
+    // instead of one run walking thousands at the request spacing and exceeding the job's time
+    // limit (incident 2026-10-26: ~7,600 owed × 0.5s blew past the limit after the daily budget reset).
+    let per_run = contract
+        .item_bid_result
+        .per_run_limit
+        .map_or(usize::MAX, |limit| limit as usize);
+    let mut asked = 0usize;
     let mut kept = Vec::with_capacity(state.pending_results.len());
     let mut stopped = false;
     for mut pending in std::mem::take(&mut state.pending_results) {
-        if stopped || pending.next_ask_at_utc > now {
+        if stopped || asked >= per_run || pending.next_ask_at_utc > now {
             kept.push(pending);
             continue;
         }
@@ -706,8 +714,12 @@ pub(crate) async fn collect(
                     .push(Api::ItemBidResult.name().to_owned());
                 kept.push(pending);
             }
-            Sent::Answer(Answer::Rows { .. }) => report.results_received += 1,
+            Sent::Answer(Answer::Rows { .. }) => {
+                asked += 1;
+                report.results_received += 1;
+            }
             Sent::Answer(Answer::NoData) => {
+                asked += 1;
                 pending.asks += 1;
                 if pending.asks >= max_asks {
                     state.results_given_up += 1;

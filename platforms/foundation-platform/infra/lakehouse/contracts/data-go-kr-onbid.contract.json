@@ -64,10 +64,11 @@
     "every_hours": 1
   },
   "item_bid_result": {
-    "$comment": "물건 입찰결과상세 (data.go.kr 15157254), one call per closed item condition, oldest first, within the daily limit; the rest wait for the next run. A 03 answer is recorded as asked (the provider has no result yet) and asked again after retry_after_hours, at most max_asks times.",
+    "$comment": "물건 입찰결과상세 (data.go.kr 15157254), one call per closed item condition, oldest first; the rest wait for the next run. A 03 answer is recorded as asked (the provider has no result yet) and asked again after retry_after_hours, at most max_asks times. per_run_limit: 한 run 당 입찰결과 ask 상한 — daily_call_limit 만으론 한 run 이 하루치(2만)를 다 돌 수 있어, 밀린 백로그가 크면(2026-10-26 사고: ~7,600건) 한 run 이 request_spacing×수천 = 작업 시간제한을 초과해 죽고 커밋을 못 한다. 백로그는 여러 run 에 나눠 뺀다. 실측 후 상향.",
     "dataset_slug": "onbid_item_bid_result",
     "operation": "getCltrBidRsltDtl2",
     "path": "/OnbidCltrBidRsltDtlSrvc2/getCltrBidRsltDtl2",
+    "per_run_limit": 1000,
     "retry_after_hours": 24,
     "max_asks": 3,
     "every_hours": 1
