@@ -139,24 +139,19 @@ pub(crate) async fn mirror_detail_lines(
             report.budget_exhausted = true;
             break;
         }
+        // Every download ATTEMPT consumes budget — success, skip, or error/timeout — so the media
+        // step cannot exceed `budget * download_timeout` of wall time. Incident 2026-10-26: errors
+        // did not consume budget, so a batch of slow/timing-out URLs walked every candidate at the
+        // per-download timeout and blew the collect job's time limit.
+        budget -= 1;
         match download_and_store(url, &prefix, storage, http, max_file_bytes).await {
             Ok(Stored::New(bytes)) => {
-                budget -= 1;
                 report.downloaded += 1;
                 report.bytes_stored += bytes;
             }
-            Ok(Stored::Deduplicated) => {
-                budget -= 1;
-                report.deduplicated += 1;
-            }
-            Ok(Stored::Oversize) => {
-                budget -= 1;
-                report.skipped_oversize += 1;
-            }
-            Ok(Stored::UnknownFormat) => {
-                budget -= 1;
-                report.skipped_unknown_format += 1;
-            }
+            Ok(Stored::Deduplicated) => report.deduplicated += 1,
+            Ok(Stored::Oversize) => report.skipped_oversize += 1,
+            Ok(Stored::UnknownFormat) => report.skipped_unknown_format += 1,
             Err(error) => {
                 report.errored += 1;
                 tracing::warn!(error = %error, "onbid media download failed; isolated from the run");
