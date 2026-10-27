@@ -76,6 +76,17 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
             (ITEM_SOURCE, PHOTO_SOURCE))
 
 
+def declared_sources(lane: str, carry_lineage: bool, photos: bool) -> tuple[str, ...]:
+    """Every Silver source this build pins. It must name exactly what the rebuild harness pins from
+    `lane_inputs` (the required inputs and every present optional), because `load_source_snapshot_pins`
+    rejects any mismatch — a source pinned but not named here, or named but not pinned, fails the run.
+    2026-10-27: the photo source was pinned (present) but omitted here, crashing the rebuild."""
+    required, _optional, _anchor, _whole = lane_inputs(lane)
+    return (*required,
+            *((LINEAGE_SOURCE,) if carry_lineage else ()),
+            *((PHOTO_SOURCE,) if photos else ()))
+
+
 def rounds(items: Any) -> Any:
     """One row per round: its current item row, carrying that row's PNU as `source_pnu`.
 
@@ -310,8 +321,8 @@ def main(argv=None) -> int:
     if kind.producer != JOB_NAME:
         raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
     args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
-    required, optional, anchor, _ = lane_inputs(args.lane)
-    sources = (*required, *((LINEAGE_SOURCE,) if args.carry_lineage else ()))
+    _required, _optional, anchor, _whole = lane_inputs(args.lane)
+    sources = declared_sources(args.lane, args.carry_lineage, args.photos)
     pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = column_names(contract)
