@@ -349,7 +349,9 @@
         "landArea": "토지 {area}",
         "buildingArea": "건물 {area}",
         "usage": "용도",
-        "share": "지분 물건"
+        "share": "지분 물건",
+        "photoAltFallback": "공매 물건 사진",
+        "appraisalDocument": "감정평가서"
       }
     },
     "complex": {

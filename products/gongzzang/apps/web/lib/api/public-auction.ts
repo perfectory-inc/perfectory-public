@@ -7,6 +7,19 @@ import { PnuSchema } from "./building-edge";
 // the source's own words (root ADR-0070/0078); code-only fields the screen never reads are dropped
 // by the schema rather than declared. A null `usg_*_ctgr_name` is "no name yet" (data.go.kr
 // 15157768 code table pending), not a value to invent.
+// Each auction round carries its onbid media (root ADR-0298): photos and the appraisal report,
+// content-addressed by sha256 on the catalog edge. A round may legitimately carry none.
+const PublicAuctionPhotoSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  media_kind: z.enum(["photo", "appraisal"]),
+  sequence: z.number().nullish(),
+  title: z.string().nullish(),
+  media_format: z.enum(["jpg", "png", "gif", "pdf"]),
+  size_bytes: z.number(),
+});
+
+export type PublicAuctionPhoto = z.infer<typeof PublicAuctionPhotoSchema>;
+
 export const PublicAuctionDocumentSchema = z.object({
   schema_version: z.literal("foundation-platform.parcel_public_auction_by_pnu.v1"),
   pnu: PnuSchema,
@@ -25,10 +38,20 @@ export const PublicAuctionDocumentSchema = z.object({
         usg_scls_ctgr_name: z.string().nullish(),
         usg_mcls_ctgr_name: z.string().nullish(),
         usg_lcls_ctgr_name: z.string().nullish(),
+        photos: z.array(PublicAuctionPhotoSchema).default([]),
       }),
     ),
   }),
 });
+
+/**
+ * The catalog edge serves each onbid media object content-addressed by its sha256 (root ADR-0298),
+ * off the same host the by-PNU documents come from. Returns the public image/PDF URL for a photo.
+ */
+export function onbidMediaSrc(photo: Pick<PublicAuctionPhoto, "sha256" | "media_format">): string {
+  const base = env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
+  return `${base}/onbid/media/sha256/${photo.sha256}.${photo.media_format}`;
+}
 
 export type PublicAuctionRound = z.infer<
   typeof PublicAuctionDocumentSchema
