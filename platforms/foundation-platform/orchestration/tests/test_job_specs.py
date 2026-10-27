@@ -122,6 +122,28 @@ class TheRealJobList(unittest.TestCase):
             with self.subTest(spec.dag_id):
                 self.assertTrue(spec.inputs, "a job must report what it reads")
 
+    def test_every_job_declares_whether_a_deploy_may_interrupt_it(self):
+        # Root ADR-0301: a deploy stops interruptible jobs at step 0 instead of waiting hours for
+        # them, so a long non-critical job never holds the deploy and pauses collection (2026-10-26:
+        # the by-PNU bake held #867 for 1.5 h and collection sat paused 2 h). Every job must say so,
+        # and a collector that commits only at the end must not be interruptible — stopping it loses
+        # the whole run (the 2026-10-26 onbid timeout).
+        jobs = real_inputs()[0]["jobs"]
+        commits_at_end = {
+            "onbid_public_auction_collect", "court_auction_collect", "legal_dong_code_changes",
+            "registered_factory", "vworld_parcel_edition", "parcel_number_change_history",
+            "parcel_registry",
+        }
+        for job in jobs:
+            with self.subTest(job["id"]):
+                self.assertIn("interruptible", job, "a job must declare interruptible (ADR-0301)")
+                self.assertIsInstance(job["interruptible"], bool, "interruptible must be a boolean")
+                if job["id"] in commits_at_end:
+                    self.assertFalse(
+                        job["interruptible"],
+                        "a collector that commits at the end must not be interruptible",
+                    )
+
     def test_floor_cycle_owns_one_complete_spark_job_and_only_its_real_edge(self):
         jobs, _ = real_inputs()
         floor = next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")
