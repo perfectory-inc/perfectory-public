@@ -35,8 +35,8 @@ class InputsTest(unittest.TestCase):
         required, optional, anchor, whole = job.lane_inputs("parcel-public-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "open rounds only: no bid results read")
-        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
-        self.assertEqual(set(whole), {job.ITEM_SOURCE})
+        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
+        self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE})
 
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
@@ -168,12 +168,14 @@ ROUND_SCHEMA = ", ".join(
         ("usg_scls_ctgr_id", "string"), ("appraisal_amount_krw", "long"), ("lowest_bid_price_krw", "long"),
         ("lowest_bid_price_raw", "string"), ("first_bid_price_krw", "long"), ("usbd_nft", "long"),
         ("bid_begins_at", "timestamp"), ("bid_ends_at", "timestamp"), ("land_area_m2", "double"),
-        ("building_area_m2", "double"), ("share_item_yn", "string"))])
+        ("building_area_m2", "double"), ("share_item_yn", "string"), ("photos", job.PHOTO_STRUCT))])
 
 
-def round_row(key, is_open, ends, pnu_value=CURRENT, usage="10000"):
+def round_row(key, is_open, ends, pnu_value=CURRENT, usage="10000",
+              photos=(("a" * 64, "photo", 0, None, "jpg", 100),)):
     return (key, 1, is_open, pnu_value, 1, 2, 3, "1", "synthetic item", "0007", "0001", "0001", "0001",
-            usage, usage + "1", usage + "11", 100, 70, "70", 100, 0, datetime(2099, 1, 1), ends, 10.0, None, "N")
+            usage, usage + "1", usage + "11", 100, 70, "70", 100, 0, datetime(2099, 1, 1), ends, 10.0, None, "N",
+            list(photos))
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
@@ -236,6 +238,43 @@ class DocumentSparkTest(unittest.TestCase):
         written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_auction_json), "public_auction")
         recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
         self.assertEqual(written, recorded)
+
+    def test_a_document_carries_a_round_s_media_in_array_order_with_all_fields(self):
+        # document_rows serializes the round's photos array as given; photos_by_round is what orders it
+        # (by kind then sequence, verified separately), so here the input is already in that order.
+        import json
+        from pyspark.sql import functions as F
+
+        media = [("a" * 64, "appraisal", 0, "감정서", "pdf", 300), ("b" * 64, "photo", 0, "front", "png", 100),
+                 ("c" * 64, "photo", 1, None, "jpg", 200)]
+        rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=media)]), None)
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        photos = json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"]
+        self.assertEqual([(p["media_kind"], p["sequence"], p["sha256"][0]) for p in photos],
+                         [("appraisal", 0, "a"), ("photo", 0, "b"), ("photo", 1, "c")], "array order preserved")
+        self.assertEqual((photos[1]["media_format"], photos[1]["title"], photos[2]["size_bytes"]), ("png", "front", 200))
+
+    def test_a_round_without_media_carries_an_empty_array(self):
+        import json
+        from pyspark.sql import functions as F
+
+        rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=())]), None)
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        self.assertEqual(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"], [])
+
+    def test_photos_by_round_groups_sorts_and_with_photos_fills_absent_rounds(self):
+        photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
+                        "sequence int, title string, media_format string, size_bytes bigint")
+        photo_rows = self.spark.createDataFrame([
+            ("A", 1, "b" * 64, "photo", 1, None, "jpg", 10), ("A", 1, "a" * 64, "photo", 0, "f", "png", 20),
+            ("B", 1, "c" * 64, "appraisal", 0, "g", "pdf", 30)], photo_schema)
+        grouped = job.photos_by_round(photo_rows)
+        by_round = {(r.cltr_mng_no, r.pbct_cdtn_no): [p.sha256[0] for p in r.photos] for r in grouped.collect()}
+        self.assertEqual(by_round[("A", 1)], ["a", "b"])  # one row per round, ordered by sequence
+        rounds = self.spark.createDataFrame([("Z", 1), ("A", 1)], "cltr_mng_no string, pbct_cdtn_no long")
+        filled = {r.cltr_mng_no: r.photos for r in job.with_photos(rounds, grouped).collect()}
+        self.assertEqual(filled["Z"], [], "a round with no media gets an empty array, never null")
+        self.assertEqual([p.sha256[0] for p in filled["A"]], ["a", "b"])
 
     def test_a_document_over_the_ceiling_keeps_the_soonest_closing_rounds(self):
         import json
