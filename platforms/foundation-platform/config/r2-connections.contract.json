@@ -520,7 +520,9 @@
       "section": "public_auction",
       "columns": ["public_auction_json"],
       "producer": "onbid_public_auction_silver_to_gold",
-      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md"
+      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",
+      "document_schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
+      "document_schema_version_reason": "회차 payload에 사진 색인(content-addressed sha256→공개 URL)을 더한다(ADR-0296 §5, v1 ADR-0287 확장). 형식 변경이므로 ADR-0286 규칙에 따라 새 버전 파일(contracts/by-pnu-documents)과 전량 재굽기; silver.onbid_real_estate_item_photo 를 회차별로 조인한다."
     },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
