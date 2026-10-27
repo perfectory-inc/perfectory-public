@@ -38,6 +38,17 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE})
 
+    def test_declared_sources_names_every_pinned_input_so_the_harness_pins_match(self):
+        required, optional, _anchor, _whole = job.lane_inputs("parcel-public-auction")
+        # The rebuild harness pins the required inputs plus every present optional (from lane_inputs);
+        # the producer must declare exactly that set or load_source_snapshot_pins refuses the run
+        # ("must name every Silver source exactly once"). 2026-10-27: photos were pinned but the
+        # producer omitted the photo source, crashing gold_public_auction_rebuild with v1 gold kept.
+        self.assertEqual(set(job.declared_sources("parcel-public-auction", carry_lineage=True, photos=True)),
+                         set(required) | set(optional))
+        self.assertNotIn(job.PHOTO_SOURCE, job.declared_sources("parcel-public-auction", carry_lineage=True, photos=False))
+        self.assertNotIn(job.LINEAGE_SOURCE, job.declared_sources("parcel-public-auction", carry_lineage=False, photos=True))
+
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
 
