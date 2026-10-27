@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicAuction } from "./public-auction";
+import { fetchPublicAuction, onbidMediaSrc, PublicAuctionDocumentSchema } from "./public-auction";
 
 vi.mock("@/lib/env", () => ({
   env: { NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: "https://catalog.example.test" },
@@ -27,10 +27,15 @@ const document = () => ({
         usg_scls_ctgr_name: null,
         usg_mcls_ctgr_name: null,
         usg_lcls_ctgr_name: null,
+        photos: [],
       },
     ],
   },
 });
+
+// Two synthetic 64-hex content addresses (not real onbid media).
+const photoSha = "a".repeat(64);
+const appraisalSha = "b".repeat(64);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -65,5 +70,70 @@ describe("public auction edge", () => {
     await expect(fetchPublicAuction("../manifest.json")).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
     await expect(fetchPublicAuction(pnu)).rejects.toThrow("PNU");
+  });
+});
+
+describe("public auction media", () => {
+  const photo = {
+    sha256: photoSha,
+    media_kind: "photo",
+    sequence: 1,
+    title: "정면",
+    media_format: "jpg",
+    size_bytes: 1234,
+  };
+  const appraisal = {
+    sha256: appraisalSha,
+    media_kind: "appraisal",
+    sequence: null,
+    title: null,
+    media_format: "pdf",
+    size_bytes: 9999,
+  };
+  // The schema takes raw JSON: build rounds and let it validate and apply the photos default.
+  const parse = (rounds: unknown[]) =>
+    PublicAuctionDocumentSchema.parse({ ...document(), public_auction: { rounds } });
+
+  it("parses a round's photos in source order and defaults a round with no photos field to []", () => {
+    const parsed = parse([
+      { item_name: "테스트 물건 1", photos: [photo, appraisal] },
+      { item_name: "테스트 물건 2" }, // omits `photos`: the schema must fill in an empty array
+    ]);
+    expect(parsed.public_auction.rounds.map((r) => r.photos.map((p) => p.media_kind))).toEqual([
+      ["photo", "appraisal"],
+      [],
+    ]);
+  });
+
+  it("accepts the live v1 and the photo-bearing v2, and rejects any other version", () => {
+    for (const schema_version of [
+      "foundation-platform.parcel_public_auction_by_pnu.v1",
+      "foundation-platform.parcel_public_auction_by_pnu.v2",
+    ]) {
+      expect(PublicAuctionDocumentSchema.parse({ ...document(), schema_version })).toMatchObject({
+        schema_version,
+      });
+    }
+    expect(() =>
+      PublicAuctionDocumentSchema.parse({
+        ...document(),
+        schema_version: "foundation-platform.parcel_public_auction_by_pnu.v3",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a malformed content address so it can never reach an img/href", () => {
+    expect(() =>
+      parse([{ item_name: "테스트 물건", photos: [{ ...photo, sha256: "../../etc/passwd" }] }]),
+    ).toThrow();
+  });
+
+  it("builds the media URL off the configured catalog base, content-addressed by sha256", () => {
+    expect(onbidMediaSrc({ sha256: photoSha, media_format: "jpg" })).toBe(
+      `https://catalog.example.test/onbid/media/sha256/${photoSha}.jpg`,
+    );
+    expect(onbidMediaSrc({ sha256: appraisalSha, media_format: "pdf" })).toBe(
+      `https://catalog.example.test/onbid/media/sha256/${appraisalSha}.pdf`,
+    );
   });
 });

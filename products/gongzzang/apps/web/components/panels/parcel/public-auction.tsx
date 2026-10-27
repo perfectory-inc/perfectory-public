@@ -1,7 +1,8 @@
 // apps/web/components/panels/parcel/public-auction.tsx
 "use client";
+import { partition } from "es-toolkit";
 import { useTranslations } from "next-intl";
-import type { PublicAuctionRound } from "@/lib/api/public-auction";
+import { onbidMediaSrc, type PublicAuctionRound } from "@/lib/api/public-auction";
 import { formatAreaM2, formatPriceKrw } from "@/lib/listings/format";
 
 /** The parcel's on-bid public auctions as a category page, one card per auction round. */
@@ -47,10 +48,59 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
                 {t("share")}
               </span>
             )}
+            <RoundMedia t={t} photos={r.photos} />
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/** A round's onbid photos as a thumbnail grid and its appraisal reports as labeled PDF links. */
+function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["photos"] }) {
+  // Order is the source's own (root ADR-0070); partition preserves it within each group.
+  const [images, appraisals] = partition(photos, (p) => p.media_kind === "photo");
+  if (images.length === 0 && appraisals.length === 0) return null;
+  return (
+    <>
+      {images.length > 0 && (
+        <ul className="mt-2 grid grid-cols-3 gap-2">
+          {images.map((photo) => (
+            <li
+              key={photo.sha256}
+              className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-[var(--color-surface-cream-strong)]"
+            >
+              {/* biome-ignore lint/performance/noImgElement: onbid media is immutable,
+                  content-addressed CDN output (sha256); the Next image optimizer would add a
+                  server hop with no gain, so a plain img is correct here. */}
+              <img
+                src={onbidMediaSrc(photo)}
+                alt={photo.title ?? t("photoAltFallback")}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {appraisals.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1">
+          {appraisals.map((doc) => (
+            <li key={doc.sha256}>
+              <a
+                href={onbidMediaSrc(doc)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--color-accent)]"
+              >
+                {doc.title ?? t("appraisalDocument")}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
