@@ -49,7 +49,8 @@ assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.onbid_real_estate_item": "datagokr__onbid_real_estate_item"},
-                         {"silver.onbid_item_bid_result": "datagokr__onbid_item_bid_result"}), (table, slug)
+                         {"silver.onbid_item_bid_result": "datagokr__onbid_item_bid_result"},
+                         {"silver.onbid_real_estate_item_photo": "datagokr__onbid_real_estate_item_detail"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "24")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -160,7 +161,7 @@ class OnbidCommands(unittest.TestCase):
         self.assertEqual(self.copies(), [])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
-        self.assertEqual(plans, ["items", "results"])
+        self.assertEqual(plans, ["items", "results", "photos"])
 
     def test_a_load_of_late_objects_loads_them_and_fails(self):
         # An object no load recorded for longer than the window means loads have been failing; it is
@@ -179,7 +180,7 @@ class OnbidCommands(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertFalse((self.fake / "docker.log").exists())
-        self.assertEqual((self.fake / "calls.log").read_text().split(), ["plan-silver-load-objects"] * 2)
+        self.assertEqual((self.fake / "calls.log").read_text().split(), ["plan-silver-load-objects"] * 3)
 
 
 if __name__ == "__main__":
