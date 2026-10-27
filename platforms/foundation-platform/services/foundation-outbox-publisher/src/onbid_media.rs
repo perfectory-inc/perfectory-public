@@ -1,0 +1,508 @@
+//! 온비드 물건상세(getRlstDtlInf2)의 사진·감정평가서 바이너리를 공용 content-addressed 미디어
+//! 저장소에 담는다 (ADR-0296 §2 / ADR-0297, root ADR-0290 §7). 쓰기는 내용주소 write-once
+//! (`put_object` CreateOnly + sha256), Bronze 객체별 원장 행이 아니다 (ADR-0298).
+//!
+//! 두 부분이다: 물건상세 응답에서 받을 URL 을 고르는 순수 함수 [`candidate_urls`], 그리고 그것을
+//! 하루 예산 안에서 받아 `<prefix>/sha256/<hash>.<ext>` 로 한 번만 저장하는 [`mirror`]. 형식은
+//! 바이트 매직으로 판정하고(`foundation_shared_kernel::MediaFormat::sniff`), 키는 내용 해시라서
+//! 같은 사진은 한 번만 저장된다. 다운로드 실패는 격리된다 — 미디어 미러링은 수집 run 을 깨지 않는다.
+//!
+//! 실물 확인(2026-10-26 운영 서비스키 호출): 사진은 `potoUrlList[].urlAdr`, 감정평가서는
+//! `apslEvlClgList[].urlAdr`, 둘 다 호스트 `www.onbid.co.kr`. 만료 링크는 HTML 오류 페이지를 주므로
+//! 매직바이트 판정이 걸러낸다.
+
+use std::collections::HashMap;
+
+use anyhow::Context as _;
+use foundation_outbox::errors::PublishError;
+use foundation_outbox::object_storage::{ObjectWriteMode, PutObjectRequest};
+use foundation_outbox::ObjectStorageService;
+use foundation_shared_kernel::{content_addressed_key, MediaFormat, ObjectKeyPrefix, Sha256Hex};
+use serde::Serialize;
+use serde_json::Value as JsonValue;
+use sha2::{Digest as _, Sha256};
+
+/// Media objects never change once stored (the key is their content hash), so they cache forever.
+const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+
+/// The photo and appraisal-attachment URLs of one 물건상세 response, on the allowed host only.
+///
+/// `detail` is the parsed `getRlstDtlInf2` response (`{"body":{"items":{"item": obj | [obj]}}}`).
+/// A URL on any other host is dropped (the provider's URLs are all `www.onbid.co.kr`; refusing the
+/// rest keeps a tampered or unexpected response from making us fetch an arbitrary host).
+pub(crate) fn candidate_urls(detail: &JsonValue, host: &str) -> Vec<String> {
+    let item = &detail["body"]["items"]["item"];
+    let items = match item {
+        JsonValue::Array(array) => array.clone(),
+        JsonValue::Object(_) => vec![item.clone()],
+        _ => Vec::new(),
+    };
+    let mut urls = Vec::new();
+    for entry in &items {
+        for field in ["potoUrlList", "apslEvlClgList"] {
+            let Some(list) = entry[field].as_array() else {
+                continue;
+            };
+            for element in list {
+                if let Some(url) = element["urlAdr"].as_str() {
+                    if host_is(url, host) {
+                        urls.push(url.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+fn host_is(url: &str, host: &str) -> bool {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .host_str()
+                .map(|found| found.eq_ignore_ascii_case(host))
+        })
+        .unwrap_or(false)
+}
+
+/// What one run's media mirroring did, for the manifest.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub(crate) struct MediaReport {
+    /// New objects stored this run.
+    pub(crate) downloaded: usize,
+    /// Downloads whose content was already stored (same hash).
+    pub(crate) deduplicated: usize,
+    /// Downloads larger than the contract's `max_file_bytes` (safety valve; not stored).
+    pub(crate) skipped_oversize: usize,
+    /// Downloads whose bytes matched no known media signature (e.g. an expired link's HTML).
+    pub(crate) skipped_unknown_format: usize,
+    /// Downloads that errored; isolated, never fail the run.
+    pub(crate) errored: usize,
+    /// Bytes of the new objects stored this run.
+    pub(crate) bytes_stored: u64,
+    /// The daily download budget ran out before every URL was tried.
+    pub(crate) budget_exhausted: bool,
+    /// This run's own cap (`per_run_limit`) stopped it before every URL was tried, while the day's
+    /// budget still had room — the rest are left for the day's next runs.
+    pub(crate) per_run_reached: bool,
+}
+
+/// The content-addressed facts a stored (or already-present) media file yields for the Silver photo
+/// index. Identical bytes always give the same three, so a re-seen or deduplicated file still maps.
+pub(crate) struct StoredMedia {
+    pub(crate) sha256: String,
+    pub(crate) media_format: MediaFormat,
+    pub(crate) size_bytes: u64,
+}
+
+enum Stored {
+    New(StoredMedia),
+    Deduplicated(StoredMedia),
+    Oversize,
+    UnknownFormat,
+}
+
+/// How many downloads one run may attempt, and whether the day's budget (not this run's own cap) is
+/// what would stop it. The cap is `min(per_run_limit, daily_limit - already_downloaded)`; a tie goes
+/// to the day (if hitting the cap also exhausts the day, the next run waits for the KST reset, not
+/// just the next hourly run).
+fn run_download_bound(
+    daily_limit: u32,
+    per_run_limit: u32,
+    already_downloaded: u32,
+) -> (u32, bool) {
+    let daily_remaining = daily_limit.saturating_sub(already_downloaded);
+    let cap = daily_remaining.min(per_run_limit);
+    (cap, cap == daily_remaining)
+}
+
+/// Mirrors the photos and appraisal attachments of this run's 물건상세 responses.
+///
+/// Reads the fresh getRlstDtlInf2 response lines (before KAMCO's links expire), collects the media
+/// URLs on the allowed host, and stores each once by content hash — within this run's cap and the
+/// day's remaining budget (`min(per_run_limit, daily_limit - already_downloaded)`). Returns the run's
+/// [`MediaReport`] and the new `media_downloads` count to persist. Every failure (a bad prefix, a
+/// download, a store) is isolated and counted, so media mirroring never fails the collection run.
+///
+/// Two bounds (ADR-0300 H): `per_run_limit` caps one run's attempts so its wall time
+/// (attempts × per-download timeout) cannot exceed the collect job's time limit however high the
+/// day's budget is; `daily_limit` caps the day's total, spreading a backlog over the day's runs.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn mirror_detail_lines(
+    detail_lines: &[String],
+    object_prefix: &str,
+    url_host: &str,
+    max_file_bytes: u64,
+    daily_limit: u32,
+    per_run_limit: u32,
+    already_downloaded: u32,
+    storage: &dyn ObjectStorageService,
+    http: &reqwest::Client,
+) -> (MediaReport, u32, Vec<String>) {
+    let mut report = MediaReport::default();
+    let prefix = match ObjectKeyPrefix::parse(object_prefix) {
+        Ok(prefix) => prefix,
+        Err(error) => {
+            tracing::warn!(error = %error, "onbid media object_prefix is invalid; skipping media");
+            return (report, already_downloaded, detail_lines.to_vec());
+        }
+    };
+    let mut urls = Vec::new();
+    for line in detail_lines {
+        let Ok(record) = serde_json::from_str::<JsonValue>(line) else {
+            continue;
+        };
+        let Some(body) = record["body"].as_str() else {
+            continue;
+        };
+        let Ok(response) = serde_json::from_str::<JsonValue>(body) else {
+            continue;
+        };
+        urls.extend(candidate_urls(&response, url_host));
+    }
+    urls.sort();
+    urls.dedup();
+
+    let (this_run_cap, capped_by_day) =
+        run_download_bound(daily_limit, per_run_limit, already_downloaded);
+    let mut attempts: u32 = 0;
+    // The content facts of each resolved URL, so the detail Bronze lines can be rewritten to point at
+    // the stored blob by hash (root ADR-0290 §7). A URL seen in several items is downloaded once.
+    let mut resolved: HashMap<String, StoredMedia> = HashMap::new();
+    for url in &urls {
+        if attempts >= this_run_cap {
+            // A cap stopped us before every URL was tried. Which cap tells the day's next run whether
+            // to keep going today (per-run cap) or wait for the KST budget reset (daily budget).
+            if capped_by_day {
+                report.budget_exhausted = true;
+            } else {
+                report.per_run_reached = true;
+            }
+            break;
+        }
+        // Every download ATTEMPT counts toward both caps — success, skip, or error/timeout — so the
+        // media step's wall time is bounded by `this_run_cap * download_timeout`. Incident 2026-10-26:
+        // errors did not consume the budget, so a batch of slow/timing-out URLs walked every candidate
+        // at the per-download timeout and blew the collect job's time limit.
+        attempts += 1;
+        match download_and_store(url, &prefix, storage, http, max_file_bytes).await {
+            Ok(Stored::New(media)) => {
+                report.downloaded += 1;
+                report.bytes_stored += media.size_bytes;
+                resolved.insert(url.clone(), media);
+            }
+            Ok(Stored::Deduplicated(media)) => {
+                report.deduplicated += 1;
+                resolved.insert(url.clone(), media);
+            }
+            Ok(Stored::Oversize) => report.skipped_oversize += 1,
+            Ok(Stored::UnknownFormat) => report.skipped_unknown_format += 1,
+            Err(error) => {
+                report.errored += 1;
+                tracing::warn!(error = %error, "onbid media download failed; isolated from the run");
+            }
+        }
+    }
+    let rewritten = rewrite_detail_lines(detail_lines, &resolved);
+    (
+        report,
+        already_downloaded.saturating_add(attempts),
+        rewritten,
+    )
+}
+
+/// Rewrites each 물건상세 Bronze line so every stored photo/appraisal entry points at its blob by
+/// content hash (root ADR-0290 §7): `urlAdr` becomes `sha256:<hash>` and the entry gains `sha256`,
+/// `media_format` and `size_bytes`, which the Silver photo loader reads. An entry whose download did
+/// not resolve (failed, over-cap, or an unknown format) keeps its original `urlAdr` and no hash, so
+/// the loader skips it. A line that does not parse, or whose items hold no resolved media, passes
+/// through unchanged.
+fn rewrite_detail_lines(
+    detail_lines: &[String],
+    resolved: &HashMap<String, StoredMedia>,
+) -> Vec<String> {
+    detail_lines
+        .iter()
+        .map(|line| rewrite_one_line(line, resolved).unwrap_or_else(|| line.clone()))
+        .collect()
+}
+
+/// Returns the rewritten line, or `None` when nothing changed (so the caller keeps the original).
+fn rewrite_one_line(line: &str, resolved: &HashMap<String, StoredMedia>) -> Option<String> {
+    let mut record = serde_json::from_str::<JsonValue>(line).ok()?;
+    let body = record.get("body")?.as_str()?;
+    let mut response = serde_json::from_str::<JsonValue>(body).ok()?;
+    let item = response
+        .get_mut("body")?
+        .get_mut("items")?
+        .get_mut("item")?;
+    let mut changed = false;
+    match item {
+        JsonValue::Array(array) => {
+            for entry in array.iter_mut() {
+                changed |= rewrite_item(entry, resolved);
+            }
+        }
+        JsonValue::Object(_) => changed |= rewrite_item(item, resolved),
+        _ => {}
+    }
+    if !changed {
+        return None;
+    }
+    let new_body = serde_json::to_string(&response).ok()?;
+    record
+        .as_object_mut()?
+        .insert("body".to_owned(), JsonValue::String(new_body));
+    serde_json::to_string(&record).ok()
+}
+
+/// Points each resolved media entry of one item at its stored blob; returns whether anything changed.
+fn rewrite_item(item: &mut JsonValue, resolved: &HashMap<String, StoredMedia>) -> bool {
+    let mut changed = false;
+    for field in ["potoUrlList", "apslEvlClgList"] {
+        let Some(list) = item.get_mut(field).and_then(JsonValue::as_array_mut) else {
+            continue;
+        };
+        for entry in list.iter_mut() {
+            let Some(url) = entry
+                .get("urlAdr")
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let Some(media) = resolved.get(&url) else {
+                continue;
+            };
+            let Some(object) = entry.as_object_mut() else {
+                continue;
+            };
+            object.insert("sha256".to_owned(), JsonValue::String(media.sha256.clone()));
+            object.insert(
+                "media_format".to_owned(),
+                JsonValue::String(media.media_format.extension().to_owned()),
+            );
+            object.insert(
+                "size_bytes".to_owned(),
+                JsonValue::Number(media.size_bytes.into()),
+            );
+            object.insert(
+                "urlAdr".to_owned(),
+                JsonValue::String(format!("sha256:{}", media.sha256)),
+            );
+            changed = true;
+        }
+    }
+    changed
+}
+
+async fn download_and_store(
+    url: &str,
+    prefix: &ObjectKeyPrefix,
+    storage: &dyn ObjectStorageService,
+    http: &reqwest::Client,
+    max_file_bytes: u64,
+) -> anyhow::Result<Stored> {
+    let response = http.get(url).send().await.context("media GET failed")?;
+    anyhow::ensure!(
+        response.status().is_success(),
+        "media GET answered HTTP {}",
+        response.status().as_u16()
+    );
+    // Refuse an over-cap file by its declared length before reading the body, so a huge response
+    // never lands whole in memory on this small host (root: the 5.89 GB single-PUT stall).
+    if response
+        .content_length()
+        .is_some_and(|len| len > max_file_bytes)
+    {
+        return Ok(Stored::Oversize);
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .context("reading the media body failed")?;
+    // A chunked response carries no length; the same cap still holds once the bytes are in hand.
+    if bytes.len() as u64 > max_file_bytes {
+        return Ok(Stored::Oversize);
+    }
+    let Some(format) = MediaFormat::sniff(&bytes) else {
+        return Ok(Stored::UnknownFormat);
+    };
+    let hash_hex = sha256_hex(&bytes);
+    let hash = Sha256Hex::parse(&hash_hex).context("sha-256 is not canonical")?;
+    let key =
+        content_addressed_key(prefix, &hash, format).context("media object key is invalid")?;
+    let media = StoredMedia {
+        sha256: hash_hex.clone(),
+        media_format: format,
+        size_bytes: bytes.len() as u64,
+    };
+    // The key is the content hash: if it exists, the stored bytes are identical, so skip the write.
+    if storage
+        .read_object_sha256(key.as_str())
+        .await
+        .context("media head failed")?
+        .is_some()
+    {
+        return Ok(Stored::Deduplicated(media));
+    }
+    match storage
+        .put_object(PutObjectRequest {
+            key: key.as_str().to_owned(),
+            body: bytes.to_vec(),
+            content_type: format.content_type().to_owned(),
+            cache_control: MEDIA_CACHE_CONTROL.to_owned(),
+            write_mode: ObjectWriteMode::CreateOnly,
+            sha256: Some(hash_hex),
+        })
+        .await
+    {
+        Ok(()) => Ok(Stored::New(media)),
+        // A concurrent run stored the same content first: identical bytes, so it is a dedup, not a fault.
+        Err(PublishError::ObjectAlreadyExists { .. }) => Ok(Stored::Deduplicated(media)),
+        Err(error) => Err(error).context("media put_object failed"),
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{candidate_urls, host_is, run_download_bound};
+    use serde_json::json;
+
+    #[test]
+    fn run_download_bound_takes_the_smaller_of_the_two_caps_and_names_the_day_on_a_tie() {
+        // per-run cap is smaller: this run stops at it, more remain for the day's next runs.
+        assert_eq!(run_download_bound(500, 50, 0), (50, false));
+        // the day's remaining is smaller: this run stops at it and the day is spent.
+        assert_eq!(run_download_bound(500, 50, 470), (30, true));
+        // a tie goes to the day (the next run waits for the KST reset, not just the next hour).
+        assert_eq!(run_download_bound(500, 50, 450), (50, true));
+        // the day is already spent: nothing this run, and it is the day that stopped it.
+        assert_eq!(run_download_bound(500, 50, 500), (0, true));
+        // the daily limit itself is below the per-run cap (the small-start case): the day bounds it.
+        assert_eq!(run_download_bound(20, 50, 0), (20, true));
+    }
+
+    fn detail(item: serde_json::Value) -> serde_json::Value {
+        json!({"body": {"items": {"item": item}}})
+    }
+
+    #[test]
+    fn picks_photo_and_appraisal_urls_on_the_allowed_host_only() {
+        let d = detail(json!({
+            "potoUrlList": [
+                {"urlAdr": "https://www.onbid.co.kr/op/a.jpg"},
+                {"urlAdr": "https://www.onbid.co.kr/op/b.jpg"},
+                {"urlAdr": "https://evil.example.test/x.jpg"}
+            ],
+            "apslEvlClgList": [{"urlAdr": "https://www.onbid.co.kr/op/appraisal.pdf", "apslEvlOrgNm": "x"}],
+            "thnlImgUrlAdr": "https://www.onbid.co.kr/op/thumb.jpg"
+        }));
+        let urls = candidate_urls(&d, "www.onbid.co.kr");
+        assert_eq!(
+            urls,
+            vec![
+                "https://www.onbid.co.kr/op/a.jpg".to_owned(),
+                "https://www.onbid.co.kr/op/appraisal.pdf".to_owned(),
+                "https://www.onbid.co.kr/op/b.jpg".to_owned(),
+            ],
+            "only potoUrlList + apslEvlClgList urlAdr on the allowed host, deduped and sorted"
+        );
+    }
+
+    #[test]
+    fn a_single_item_object_is_handled_like_a_one_element_list() {
+        let d = detail(json!({"potoUrlList": [{"urlAdr": "https://www.onbid.co.kr/op/only.jpg"}]}));
+        assert_eq!(candidate_urls(&d, "www.onbid.co.kr").len(), 1);
+    }
+
+    #[test]
+    fn no_media_fields_yields_nothing() {
+        assert!(candidate_urls(&detail(json!({"cltrMngNo": "A-1"})), "www.onbid.co.kr").is_empty());
+        assert!(candidate_urls(&json!({"body": {}}), "www.onbid.co.kr").is_empty());
+    }
+
+    #[test]
+    fn host_match_is_exact_and_rejects_lookalikes() {
+        assert!(host_is("https://www.onbid.co.kr/x.jpg", "www.onbid.co.kr"));
+        assert!(host_is("https://WWW.ONBID.CO.KR/x.jpg", "www.onbid.co.kr"));
+        assert!(!host_is(
+            "https://www.onbid.co.kr.evil.test/x.jpg",
+            "www.onbid.co.kr"
+        ));
+        assert!(!host_is("not a url", "www.onbid.co.kr"));
+    }
+
+    #[test]
+    fn rewrite_points_resolved_media_at_its_hash_and_leaves_the_rest() {
+        use super::{rewrite_detail_lines, StoredMedia};
+        use foundation_shared_kernel::MediaFormat;
+        use std::collections::HashMap;
+
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        let body = detail(json!([{
+            "cltrMngNo": "A-1", "pbctCdtnNo": 1,
+            "potoUrlList": [
+                {"urlAdr": "https://www.onbid.co.kr/op/a.jpg"},
+                {"urlAdr": "https://www.onbid.co.kr/op/missing.jpg"}
+            ],
+            "apslEvlClgList": [{"urlAdr": "https://www.onbid.co.kr/op/x.pdf"}]
+        }]))
+        .to_string();
+        let line = json!({ "body": body }).to_string();
+
+        let mut resolved = HashMap::new();
+        resolved.insert(
+            "https://www.onbid.co.kr/op/a.jpg".to_owned(),
+            StoredMedia {
+                sha256: a.clone(),
+                media_format: MediaFormat::Jpeg,
+                size_bytes: 10,
+            },
+        );
+        resolved.insert(
+            "https://www.onbid.co.kr/op/x.pdf".to_owned(),
+            StoredMedia {
+                sha256: b.clone(),
+                media_format: MediaFormat::Pdf,
+                size_bytes: 20,
+            },
+        );
+
+        let out = rewrite_detail_lines(&[line], &resolved);
+        let record: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap()).unwrap();
+        let item = &response["body"]["items"]["item"][0];
+        let photos = item["potoUrlList"].as_array().unwrap();
+
+        // The resolved photo now points at its blob by hash, with format and size for the loader.
+        assert_eq!(photos[0]["sha256"], json!(a));
+        assert_eq!(photos[0]["media_format"], json!("jpg"));
+        assert_eq!(photos[0]["size_bytes"], json!(10));
+        assert_eq!(photos[0]["urlAdr"], json!(format!("sha256:{a}")));
+        // The unresolved photo keeps its link and has no hash, so the Silver loader skips it.
+        assert!(photos[1].get("sha256").is_none());
+        assert_eq!(
+            photos[1]["urlAdr"],
+            json!("https://www.onbid.co.kr/op/missing.jpg")
+        );
+        // The appraisal attachment is rewritten the same way.
+        assert_eq!(item["apslEvlClgList"][0]["sha256"], json!(b));
+        assert_eq!(item["apslEvlClgList"][0]["media_format"], json!("pdf"));
+    }
+}

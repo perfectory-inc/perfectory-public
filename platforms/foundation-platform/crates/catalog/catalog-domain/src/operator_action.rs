@@ -99,7 +99,7 @@ pub struct RunWindow {
     pub hours: i64,
 }
 
-fn is_clock(value: &str) -> bool {
+const fn is_clock(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 5
         && bytes[2] == b':'

@@ -19,7 +19,7 @@ Called with no args it fails fast with `area dir required, e.g. products/gongzza
 
 ## What it runs
 
-Inside `rust:1.96.0-bookworm` (exactly the root `rust-toolchain.toml` pin),
+Inside the `rust:<pin>-bookworm` image (the pin is `rust_toolchain` in `tools/technology-versions.contract.json`),
 with `SQLX_OFFLINE=true`:
 
 1. `cargo fmt --all -- --check`

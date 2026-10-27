@@ -402,7 +402,7 @@ fn features_by_id(
         extent = layer.extent.unwrap_or(4096);
         for feature in layer.features {
             let mut properties = BTreeMap::new();
-            for pair in feature.tags.chunks_exact(2) {
+            for pair in feature.tags.as_chunks::<2>().0 {
                 let key = usize::try_from(pair[0])
                     .ok()
                     .and_then(|at| layer.keys.get(at))

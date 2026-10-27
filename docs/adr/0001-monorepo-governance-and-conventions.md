@@ -75,3 +75,7 @@ last_reviewed: 2026-07-28
   해당 문구를 필요한 곳에서 고쳤다.
 - migration 이름 변경은 기존에 적용된 로컬 sqlx 이력을 무효화하므로 로컬 데이터베이스를
   다시 만들어야 한다.
+
+---
+
+개정 각주(2026-10-21): 툴체인 버전 값의 정본은 `tools/technology-versions.contract.json` 의 `rust_toolchain` 이다(ADR-0097). 이 문서의 숫자는 결정 당시 값이고, 지금 값은 그 계약을 읽는다.

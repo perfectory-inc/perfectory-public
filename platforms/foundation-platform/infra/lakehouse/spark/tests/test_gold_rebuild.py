@@ -467,6 +467,20 @@ class OwnProducerKind(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.kinds(bad)
 
+    def test_the_public_auction_kind_overrides_the_row_loss_bound_for_auction_volatility(self):
+        # Root ADR-0287: the 공매 kind's rows are the parcels with an OPEN auction, which open and
+        # close daily, so its count swings far more than the 1% stable-register default. Its
+        # kind_tables.overrides entry gives it a wider bound + reason; other kinds keep the default.
+        lines = {**self.LINES, "parcel-public-auction": {
+            "host": "parcel_by_pnu_gateway", "kind": "public-auction", "section": "public_auction",
+            "columns": ["public_auction_json"], "producer": "onbid_public_auction_silver_to_gold"}}
+        template = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))["kind_tables"]
+        tables = rebuild.kind_tables(template, self.kinds(lines), {"gold.parcel_panel": {}})
+        public_auction, zoning = tables["gold.parcel_public_auction"], tables["gold.parcel_zoning"]
+        self.assertEqual(public_auction["max_row_loss_fraction"], 0.5, "공매 uses its auction-volatility override")
+        self.assertIn("auction", public_auction["max_row_loss_reason"].lower())
+        self.assertEqual(zoning["max_row_loss_fraction"], 0.01, "a kind without an override keeps the stable default")
+
 
 if __name__ == "__main__":
     unittest.main()

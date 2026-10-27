@@ -54,7 +54,7 @@ release를 위한 격리 PostGIS build DB를 사용하고 불변 PMTiles를 crea
 R2 prefix hot reload를 확인한 뒤 완전한 static release를 CAS 승격한다. Gongzzang은 ETag로 Catalog
 manifest를 poll해 완전한 vector source 하나를 교체하며 static base와 feature tombstone을 조합하지 않는다.
 
-**기술 스택:** 고정 Docker image의 Rust 1.96.0, PostgreSQL 17/PostGIS 3.5, Apache Iceberg/Spark WAP,
+**기술 스택:** 고정 Docker image의 Rust(`tools/technology-versions.contract.json` 의 `rust_toolchain`), PostgreSQL 17/PostGIS 3.5, Apache Iceberg/Spark WAP,
 계약에 고정된 Martin/MBTiles/PMTiles, Cloudflare R2 S3 API, Axum/SQLx, TypeScript/Zod, Naver Maps의
 bundled mapbox-gl, Vitest, Playwright.
 

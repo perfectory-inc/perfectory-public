@@ -79,6 +79,7 @@ async fn the_probe_holds_no_answer_past_its_read() -> anyhow::Result<()> {
         load: None,
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
+        lane_documents: 0,
         baseline: None,
         run: "r".to_owned(),
     };

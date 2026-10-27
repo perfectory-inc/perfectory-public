@@ -55,6 +55,7 @@ impl EvaluateAccess {
     /// roots free to use a uniform asynchronous command interface.
     #[allow(
         clippy::unused_async,
+        clippy::unused_async_trait_impl,
         reason = "the application command interface is asynchronous by contract"
     )]
     pub async fn execute(

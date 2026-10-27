@@ -3,6 +3,9 @@
 /// Bronze ingestion metadata and object-key contracts.
 pub mod bronze;
 
+/// 법원경매정보 collection rules that hold without I/O (root ADR-0289, ADR-0290).
+pub mod court_auction;
+
 /// Collection domain errors shared by application ports and adapters.
 pub mod errors;
 

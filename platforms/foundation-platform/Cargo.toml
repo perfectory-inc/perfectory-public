@@ -36,7 +36,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.96.0"
+rust-version = "1.99.1"
 license-file = "../../LICENSES/LicenseRef-Proprietary.txt"
 authors = ["Perfectory"]
 publish = false
@@ -52,6 +52,9 @@ unused_imports = "deny"
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
+# Rust 1.99 `assert_is_empty`: its fix (`assert_eq!(x, [] as [T; 0])`) reads worse than
+# `assert!(x.is_empty())` at ~260 sites; revisit when the suggestion improves (toolchain wave 2026-10-21).
+assert_is_empty = "allow"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
@@ -111,11 +114,11 @@ flate2 = "1.1"
 # MVT tiles are protobuf. The lakehouse tile bake's maxzoom gate decodes their ids with it
 # (root ADR-0133 §3) instead of a hand-written wire decoder.
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
-arrow-array = "59"
-arrow-schema = "59"
+arrow-array = "60"
+arrow-schema = "60"
 # zstd is the compression the Gold Iceberg tables are written with; a reader without it fails at
 # the first record batch rather than at configuration time.
-parquet = { version = "59", default-features = false, features = ["arrow", "snap", "zstd"] }
+parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd"] }
 
 # DB
 sqlx = { version = "0.8", default-features = false, features = [

@@ -444,7 +444,9 @@ fn feature_id<'a>(layer: &'a Layer, feature: &Feature, id_key: Option<usize>) ->
     let id_key = u32::try_from(id_key?).ok()?;
     let value = feature
         .tags
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .find(|pair| pair[0] == id_key)?
         .get(1)?;
     layer

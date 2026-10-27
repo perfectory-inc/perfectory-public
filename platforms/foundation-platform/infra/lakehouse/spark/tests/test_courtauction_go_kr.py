@@ -81,22 +81,37 @@ class RowTest(unittest.TestCase):
             self.assertLessEqual(set(names), built, table)
 
 
-def asked(lines, condition):
-    return [{**entry, "request": {"dma_srchGdsDtlSrchInfo": condition}} for entry in lines]
+def asked(lines, condition, window=True):
+    """Lines as the collector writes them: the condition, with the contract's date range when it has one."""
+
+    spec = CONTRACT["item_search"]["date_window"]
+    dates = {spec["start_field"]: "20980102", spec["end_field"]: "21000102"} if window else {}
+    return [{**entry, "request": {"dma_srchGdsDtlSrchInfo": {**condition, **dates}}} for entry in lines]
 
 
 class CompletenessTest(unittest.TestCase):
     def test_a_search_is_complete_only_when_every_condition_was_read_to_its_end(self) -> None:
-        first, *rest = CONTRACT["item_search"]["conditions"]
+        search = CONTRACT["item_search"]
+        first, *rest = search["conditions"]
         ended = [entry for condition in rest for entry in asked([line([])], condition)]
-        self.assertTrue(job.search_complete([*asked([line([item()])], first), *ended], CONTRACT["item_search"]["conditions"]))
-        self.assertFalse(job.search_complete(ended, CONTRACT["item_search"]["conditions"]), "a condition never asked")
+        self.assertTrue(job.search_complete([*asked([line([item()])], first), *ended], search))
+        self.assertFalse(job.search_complete(ended, search), "a condition never asked")
         short = line([item()])
         short["body"] = short["body"].replace('"totalCnt": "1"', '"totalCnt": "2"')
-        self.assertFalse(job.search_complete([*asked([short], first), *ended], CONTRACT["item_search"]["conditions"]),
-                         "stopped before totalCnt")
+        self.assertFalse(job.search_complete([*asked([short], first), *ended], search), "stopped before totalCnt")
         refused = asked([line([item()], status=429)], first)
-        self.assertFalse(job.search_complete([*refused, *ended], CONTRACT["item_search"]["conditions"]), "refused")
+        self.assertFalse(job.search_complete([*refused, *ended], search), "refused")
+
+    def test_a_pass_without_the_date_range_is_not_complete(self) -> None:
+        search = CONTRACT["item_search"]
+        lines = [entry for condition in search["conditions"] for entry in asked([line([])], condition, window=False)]
+        self.assertFalse(job.search_complete(lines, search), "the server's sliding default range")
+
+    def test_the_result_search_has_no_date_range(self) -> None:
+        search = CONTRACT["sale_result_search"]
+        lines = [{**entry, "request": {"dma_srchGdsDtlSrchInfo": condition}}
+                 for condition in search["conditions"] for entry in [line([])]]
+        self.assertTrue(job.search_complete(lines, search))
 
 
 class PlanTest(unittest.TestCase):

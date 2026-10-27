@@ -39,6 +39,7 @@ from typing import Any, Mapping, Sequence
 JOB_NAME = "data_go_kr_onbid"
 ITEM_TABLE = "silver.onbid_real_estate_item"
 RESULT_TABLE = "silver.onbid_item_bid_result"
+PHOTO_TABLE = "silver.onbid_real_estate_item_photo"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "data-go-kr-onbid.contract.json"
 PLAN_SCHEMA = "foundation-platform.silver_load_objects.v1"
 SNAPSHOT_ID = re.compile(r"-(\d{8}t\d{6}z)\.gz$")
@@ -259,11 +260,56 @@ def rows_of(lines: Sequence[Mapping[str, Any]], build: Any, object_key: str, sna
     return list(rows.values())
 
 
+def photo_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str,
+                  ingested_at: datetime) -> list[dict[str, Any]]:
+    """One row per stored media file of each item: its content hash, kind and order in the list.
+
+    The detail Bronze line carries each photo/appraisal entry with a `sha256` ref (root ADR-0290 §7);
+    an entry the collector could not store has no `sha256`, so it is skipped. The last line that holds
+    an (item, hash) wins, so a re-paged item keeps one row.
+    """
+
+    rows: dict[tuple[str, int | None, str], dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        for item in answer_items(line):
+            cltr = str(item["cltrMngNo"]).strip()
+            pbct = whole(item["pbctCdtnNo"])
+            if not cltr or pbct is None:
+                raise ValueError(f"{object_key} line {number}: an item without cltrMngNo and pbctCdtnNo")
+            for media_kind, field in (("photo", "potoUrlList"), ("appraisal", "apslEvlClgList")):
+                entries = item.get(field)
+                if not isinstance(entries, list):
+                    continue
+                for sequence, entry in enumerate(entries):
+                    if not isinstance(entry, dict):
+                        continue
+                    sha = text_or_none(entry.get("sha256"))
+                    if sha is None:
+                        continue
+                    rows[(cltr, pbct, sha)] = {
+                        "cltr_mng_no": cltr,
+                        "pbct_cdtn_no": pbct,
+                        "sha256": sha,
+                        "media_kind": media_kind,
+                        "sequence": sequence,
+                        # The appraisal attachment names its organisation; a photo has no caption field.
+                        "title": text_or_none(entry.get("apslEvlOrgNm")),
+                        "media_format": text_or_none(entry.get("media_format")),
+                        "size_bytes": whole(entry.get("size_bytes")),
+                        "source_record_id": object_key,
+                        "source_line_number": number,
+                        "source_snapshot_id": snapshot_id,
+                        "ingested_at_utc": ingested_at,
+                    }
+    return list(rows.values())
+
+
 def source_slugs(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the role its objects load as (root ADR-0014 `{provider}__{dataset}`)."""
 
     return {f"datagokr__{contract['item_list']['dataset_slug']}": "item_list",
-            f"datagokr__{contract['item_bid_result']['dataset_slug']}": "item_bid_result"}
+            f"datagokr__{contract['item_bid_result']['dataset_slug']}": "item_bid_result",
+            f"datagokr__{contract['item_detail']['dataset_slug']}": "item_photo"}
 
 
 def snapshot_id(object_key: str) -> str:
@@ -297,6 +343,9 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], ingested_
     """What one object loads: its rows and, for an item list, whether the pass was complete."""
 
     lines = read_lines(entry["path"])
+    if entry["role"] == "item_photo":
+        return {"rows": photo_rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at),
+                "complete": False}
     build = (lambda item: item_row(item, contract)) if entry["role"] == "item_list" else result_row
     return {"rows": rows_of(lines, build, entry["object_key"], entry["source_snapshot_id"], ingested_at),
             "complete": entry["role"] == "item_list" and item_pass_complete(lines, contract)}
@@ -387,6 +436,7 @@ def _load(argv: Sequence[str]) -> int:
     try:
         item_table, item_contract, item_columns, item_schema = ensure_table(spark, args, ITEM_TABLE)
         result_table, _, result_columns, result_schema = ensure_table(spark, args, RESULT_TABLE)
+        photo_table, _, photo_columns, photo_schema = ensure_table(spark, args, PHOTO_TABLE)
         if any(entry["role"] == "item_list" for entry in objects):
             # ADR-0288 §1: every parcel source resolves its code to the current pnu here, not by
             # copying the source code. The pairs and the current parcels are read once for the run.
@@ -420,6 +470,9 @@ def _load(argv: Sequence[str]) -> int:
                 line["appended"] = append_source_object(spark, changes, item_columns, item_table, entry["object_key"])
                 changes.unpersist()
                 resolved.unpersist()
+            elif entry["role"] == "item_photo":
+                frame = spark.createDataFrame([tuple(r.get(c) for c in photo_columns) for r in rows], schema=photo_schema)
+                line["appended"] = append_source_object(spark, frame, photo_columns, photo_table, entry["object_key"])
             else:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
                 line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"])

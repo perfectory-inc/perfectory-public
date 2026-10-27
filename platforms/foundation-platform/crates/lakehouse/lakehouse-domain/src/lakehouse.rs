@@ -693,7 +693,10 @@ pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_right_registration::SILVER_LAND_RIGHT_REGISTRATION;
 pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
-pub use crate::onbid_public_sale::{SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM};
+pub use crate::onbid_public_auction::{
+    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
+    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO,
+};
 pub use crate::parcel_number_change_history::SILVER_PARCEL_NUMBER_CHANGE_HISTORY;
 pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
 pub use crate::registered_factory::SILVER_REGISTERED_FACTORY;
@@ -3309,6 +3312,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_PARCEL_NUMBER_CHANGE_HISTORY,
     SILVER_ONBID_REAL_ESTATE_ITEM,
     SILVER_ONBID_ITEM_BID_RESULT,
+    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO,
     SILVER_REGISTERED_FACTORY,
     SILVER_COURT_AUCTION_ITEM,
     SILVER_COURT_AUCTION_SALE_RESULT,

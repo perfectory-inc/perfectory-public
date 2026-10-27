@@ -26,7 +26,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context};
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
     plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
@@ -101,6 +101,38 @@ pub(crate) struct Search {
     pub(crate) path: String,
     pub(crate) page_size: u32,
     pub(crate) conditions: Vec<BTreeMap<String, String>>,
+    /// The bid-date range every request of the search carries (root ADR-0290 §1-§2).
+    #[serde(default)]
+    pub(crate) date_window: Option<DateWindow>,
+}
+
+/// A bid-date range fixed for a whole run: `days_before` to `days_after` around its KST start date.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct DateWindow {
+    pub(crate) start_field: String,
+    pub(crate) end_field: String,
+    pub(crate) days_before: i64,
+    pub(crate) days_after: i64,
+}
+
+/// The condition a request asks: the contract's condition with the search's date range, if it has
+/// one, around `day` (the run's KST start date, so every page of the run asks the same range).
+pub(crate) fn asked_condition(
+    search: &Search,
+    condition: &BTreeMap<String, String>,
+    day: NaiveDate,
+) -> BTreeMap<String, String> {
+    let mut asked = condition.clone();
+    if let Some(window) = &search.date_window {
+        let ymd = |days: i64| {
+            (day + chrono::Duration::days(days))
+                .format("%Y%m%d")
+                .to_string()
+        };
+        asked.insert(window.start_field.clone(), ymd(-window.days_before));
+        asked.insert(window.end_field.clone(), ymd(window.days_after));
+    }
+    asked
 }
 
 /// Read by the test that holds the collector's own source to ADR-0281 §4.
@@ -481,6 +513,8 @@ pub(crate) async fn collect(
             collector.spacing = ProviderRequestSpacing::try_new(Duration::from_secs(delay))?;
         }
     }
+    // The run's KST date, taken from its first request time, fixes the date range of every page.
+    let mut day: Option<NaiveDate> = None;
     for (role, search) in searches(contract) {
         let result = results.entry(role).or_default();
         if !robots.allows(&search.path) {
@@ -496,8 +530,11 @@ pub(crate) async fn collect(
                 if collector.quiet_hours_waived.is_none() && !allowed(at)? {
                     return Ok((results, Some(Stop::QuietHoursEnded)));
                 }
+                let day = *day
+                    .get_or_insert_with(|| (at + chrono::Duration::hours(KST_HOURS)).date_naive());
+                let asked = asked_condition(search, condition, day);
                 match collector
-                    .page(search, condition, page_no, at, &mut result.lines)
+                    .page(search, &asked, page_no, at, &mut result.lines)
                     .await?
                 {
                     Page::Refused(reason) => return Ok((results, Some(Stop::Refused(reason)))),

@@ -28,10 +28,11 @@ last_reviewed: 2026-07-29
 ## 로컬 실행
 
 Foundation workspace에서 pinned Rust Docker를 사용한다.
+이미지 값은 `tools/container-images.env` 의 `RUST_TOOLCHAIN_IMAGE` 다(저장소 루트에서 `set -a; . tools/container-images.env; set +a`).
 
 ```text
 docker run --rm -v "${PWD}:/workspace" -w /workspace/platforms/foundation-platform \
-  rust:1.96.0-bookworm bash -lc \
+  "$RUST_TOOLCHAIN_IMAGE" bash -lc \
   "source /usr/local/cargo/env && SQLX_OFFLINE=true \
    cargo run -p foundation-outbox-publisher --bin foundation-outbox-publisher -- \
    write-canonical-release-proof"

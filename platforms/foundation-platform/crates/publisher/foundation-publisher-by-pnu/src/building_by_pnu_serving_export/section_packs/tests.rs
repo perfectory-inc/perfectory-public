@@ -373,6 +373,7 @@ impl Lane {
             cold_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
             cold_live_read_paths: [(gate::COLD_PATH_R2.to_owned(), size)].into(),
             baseline_lane: None,
+            lane_documents: 0,
         };
         let path = self
             .work
@@ -1209,6 +1210,7 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
         load: None,
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
+        lane_documents: 0,
         baseline: None,
         run: "r".to_owned(),
     };
@@ -1492,6 +1494,7 @@ async fn the_latency_probe_measures_and_refuses_a_slow_route() -> anyhow::Result
         load: None,
         no_gzip_sample_size: 0,
         sample_units: Vec::new(),
+        lane_documents: 0,
         baseline: None,
         run: "r".to_owned(),
     };

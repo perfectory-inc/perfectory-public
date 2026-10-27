@@ -191,7 +191,7 @@ fn numeric_reference(digits: &str) -> Option<char> {
 /// A numeric reference can name a C0 control, and `&#0;` in particular names a byte no Postgres
 /// `text` column accepts. Refusing it here leaves the reference verbatim, where
 /// [`entity_references`] reports it, rather than writing a value that fails four stages later.
-fn representable_in_provider_text(character: char) -> bool {
+const fn representable_in_provider_text(character: char) -> bool {
     !character.is_control() || matches!(character, '\t' | '\n' | '\r')
 }
 

@@ -12,7 +12,7 @@
 
 | 영역 | 선택 | 결정 근거 |
 |------|------|---------|
-| 백엔드 언어 | **Rust 1.96.0** | 모노레포 루트 `rust-toolchain.toml` 단일 기준 → [docs/adr/0001-language-rust-ts.md](./docs/adr/0001-language-rust-ts.md) |
+| 백엔드 언어 | **Rust** (`tools/technology-versions.contract.json` 의 `rust_toolchain`) | 모노레포 루트 `rust-toolchain.toml` 단일 기준 → [docs/adr/0001-language-rust-ts.md](./docs/adr/0001-language-rust-ts.md) |
 | 프론트엔드 | **Next.js 16 + React 19 + TypeScript 5.9.3** | 실제 workspace manifest 기준 → [docs/adr/0003-frontend-nextjs-react19.md](./docs/adr/0003-frontend-nextjs-react19.md) |
 | DB | **PostgreSQL 17 + PostGIS** | → [docs/adr/0004-db-postgres-postgis.md](./docs/adr/0004-db-postgres-postgis.md) |
 | HTTP 서버 | **Axum** + tokio | ADR-0001 |

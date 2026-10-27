@@ -51,3 +51,7 @@ ADR-0193 §9 의 종류 장치는 계약 한 줄(`config/r2-connections.contract
 - 공매 생산자의 PNU 결정과 문서 내용(§7)은 시험(합성 PNU)으로 고정된다. 종류 줄, 문서 레코드, 파이프라인 그래프·작업 연결선은 이 ADR 검토 뒤의 PR 이다.
 - 공짱 웹은 그 뒤에 `parcels/public-sale/by-pnu/{pnu}` 를 읽는 공매 탭을 둔다. 문서가 있을 때만 보이고, 코드를 원천 이름표로 바꾸고, 출처 한 줄을 보인다.
 - 용도 코드 이름 수집(15157768)은 작은 별도 수집이다. 같은 data.go.kr 키의 활용신청이 필요할 수 있다.
+
+---
+
+2026-10-22 개정 각주 (결정 본문 불변): §7 과 본문 "이력이 없는 폐지 PNU 의 공매는 그 PNU 에 남고 `lineage_missing` 으로 표시된다. 공매는 버려지지 않는다" 에서 "그 PNU 에 남고" 는 서빙 Gold 가 아니라 Silver(`silver.onbid_real_estate_item`)를 뜻하도록 [ADR-0292](./0292-public-sale-servable-gold-carries-only-host-panel-pnus.md) 가 좁혔다 — 공매는 주인 패널 섹션이라, 필지 문서가 없는 PNU 의 공매는 서빙 Gold 에 쓰이지 않고 집계·보존만 된다.
