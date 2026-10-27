@@ -64,8 +64,7 @@ function rowsOf(t: Translate, r: CourtAuctionRound): [string, string][] {
     rows.push([t("appraisal"), formatPriceKrw(r.appraisal_amount_krw)]);
   if (r.minimum_bid_price_krw != null)
     rows.push([t("minimumBid"), formatPriceKrw(r.minimum_bid_price_krw)]);
-  if (r.sale_amount_krw != null)
-    rows.push([t("saleAmount"), formatPriceKrw(r.sale_amount_krw)]);
+  if (r.sale_amount_krw != null) rows.push([t("saleAmount"), formatPriceKrw(r.sale_amount_krw)]);
   if (r.sale_date)
     rows.push([t("saleDate"), [r.sale_date, r.sale_time_raw].filter(Boolean).join(" ")]);
   if (r.sale_place) rows.push([t("salePlace"), r.sale_place]);
