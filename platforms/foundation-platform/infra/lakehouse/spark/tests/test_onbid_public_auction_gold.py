@@ -239,17 +239,19 @@ class DocumentSparkTest(unittest.TestCase):
         recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
         self.assertEqual(written, recorded)
 
-    def test_a_round_carries_its_media_ordered_by_kind_then_sequence(self):
+    def test_a_document_carries_a_round_s_media_in_array_order_with_all_fields(self):
+        # document_rows serializes the round's photos array as given; photos_by_round is what orders it
+        # (by kind then sequence, verified separately), so here the input is already in that order.
         import json
         from pyspark.sql import functions as F
 
-        media = [("c" * 64, "photo", 1, None, "jpg", 200), ("b" * 64, "photo", 0, "front", "png", 100),
-                 ("a" * 64, "appraisal", 0, "감정서", "pdf", 300)]
+        media = [("a" * 64, "appraisal", 0, "감정서", "pdf", 300), ("b" * 64, "photo", 0, "front", "png", 100),
+                 ("c" * 64, "photo", 1, None, "jpg", 200)]
         rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=media)]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         photos = json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"]
         self.assertEqual([(p["media_kind"], p["sequence"], p["sha256"][0]) for p in photos],
-                         [("appraisal", 0, "a"), ("photo", 0, "b"), ("photo", 1, "c")], "kind, then the list order")
+                         [("appraisal", 0, "a"), ("photo", 0, "b"), ("photo", 1, "c")], "array order preserved")
         self.assertEqual((photos[1]["media_format"], photos[1]["title"], photos[2]["size_bytes"]), ("png", "front", 200))
 
     def test_a_round_without_media_carries_an_empty_array(self):
