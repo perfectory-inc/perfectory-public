@@ -688,6 +688,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://gold.parcel_court_auction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_court_auction,PROD)",
+          "node_id": "gold-parcel-court-auction",
+          "title": "필지 법원경매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://gold.parcel_forest_ledger",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
           "node_id": "gold-parcel-forest-ledger",
@@ -1123,6 +1131,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
           "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_court_auction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_court_auction,PROD)",
+          "node_id": "gold-parcel-court-auction",
+          "title": "필지 법원경매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2366,6 +2382,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
           "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_court_auction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_court_auction,PROD)",
+          "node_id": "gold-parcel-court-auction",
+          "title": "필지 법원경매 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
