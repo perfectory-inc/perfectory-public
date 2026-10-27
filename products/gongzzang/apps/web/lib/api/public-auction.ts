@@ -21,7 +21,13 @@ const PublicAuctionPhotoSchema = z.object({
 export type PublicAuctionPhoto = z.infer<typeof PublicAuctionPhotoSchema>;
 
 export const PublicAuctionDocumentSchema = z.object({
-  schema_version: z.literal("foundation-platform.parcel_public_auction_by_pnu.v1"),
+  // Accept the live v1 and the photo-bearing v2 through the cut-over: v1 rounds carry no `photos`
+  // (it defaults to []), v2 rounds carry them (root ADR-0296 §5). The web must take v2 before the
+  // document bake cuts over, or the panel would reject every served document.
+  schema_version: z.enum([
+    "foundation-platform.parcel_public_auction_by_pnu.v1",
+    "foundation-platform.parcel_public_auction_by_pnu.v2",
+  ]),
   pnu: PnuSchema,
   public_auction: z.object({
     rounds: z.array(

@@ -105,6 +105,23 @@ describe("public auction media", () => {
     ]);
   });
 
+  it("accepts the live v1 and the photo-bearing v2, and rejects any other version", () => {
+    for (const schema_version of [
+      "foundation-platform.parcel_public_auction_by_pnu.v1",
+      "foundation-platform.parcel_public_auction_by_pnu.v2",
+    ]) {
+      expect(PublicAuctionDocumentSchema.parse({ ...document(), schema_version })).toMatchObject({
+        schema_version,
+      });
+    }
+    expect(() =>
+      PublicAuctionDocumentSchema.parse({
+        ...document(),
+        schema_version: "foundation-platform.parcel_public_auction_by_pnu.v3",
+      }),
+    ).toThrow();
+  });
+
   it("rejects a malformed content address so it can never reach an img/href", () => {
     expect(() =>
       parse([{ item_name: "테스트 물건", photos: [{ ...photo, sha256: "../../etc/passwd" }] }]),
