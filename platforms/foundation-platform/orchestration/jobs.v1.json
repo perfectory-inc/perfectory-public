@@ -1019,6 +1019,28 @@
       "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it."
     },
     {
+      "id": "gold_court_auction_rebuild",
+      "interruptible": true,
+      "description": "법원경매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. 공매(gold_public_auction_rebuild)를 본뜬 자기 생산자 종류라 gold_kind_rebuild 가 아니라 자기 작업에서 돈다(root ADR-0287). by_pnu_serving_bake serves its commit. Off until court collection turns on (court_auction_collect/court_auction_silver).",
+      "systemd_service": "foundation-gold-court-auction-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "35 21 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 65,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-court-auction-item-to-gold-parcel-court-auction"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0287). Off until court collection turns on: court_auction_collect and court_auction_silver stay off until a first supervised night (runbook court-auction.md), and switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_public_auction_rebuild",
       "scope": "full",
       "full_reason": "Each daily build overwrites the whole 공매 Gold: the producer reads its item, photo and document Silver whole (onbid_public_auction_silver_to_gold.lane_inputs), those change every hour, so the plan is full every day (2026-10-28 21:35: \"changed, and the producer does not map a change there to PNUs\").",
