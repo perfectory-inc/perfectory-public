@@ -1106,31 +1106,21 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_object_storage_from_env()
             .await
             .context("failed to configure object storage for Onbid collection")?;
-        for (api, lines) in &fetcher.lines {
-            objects.push(
-                persist(
-                    &contract,
-                    &config.output_dir,
-                    *api,
-                    lines,
-                    now,
-                    Some((&uow, storage.as_ref())),
-                )
-                .await?,
-            );
-        }
         // ADR-0296 §2 / ADR-0297: mirror this run's 물건상세 photos & appraisal attachments to the
-        // shared content-addressed store, using the just-fetched (fresh, not-yet-expired) URLs. The
-        // whole step is isolated — a client-build or download failure is logged, never fails the run.
-        if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail) {
+        // shared content-addressed store, using the just-fetched (fresh, not-yet-expired) URLs, and
+        // rewrite the detail lines to point at each stored blob by hash (root ADR-0290 §7) so the
+        // detail Bronze object persisted below carries the sha256 refs the Silver photo loader reads.
+        // Done BEFORE persist so those refs land in Bronze. The whole step is isolated — a client-build
+        // or download failure is logged, leaves the detail lines unchanged, and never fails the run.
+        if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail).cloned() {
             match reqwest::Client::builder()
                 .user_agent(contract.user_agent.clone())
                 .timeout(Duration::from_secs(contract.media.download_timeout_seconds))
                 .build()
             {
                 Ok(http) => {
-                    let (report, used) = crate::onbid_media::mirror_detail_lines(
-                        detail_lines,
+                    let (report, used, rewritten) = crate::onbid_media::mirror_detail_lines(
+                        &detail_lines,
                         &contract.media.object_prefix,
                         &contract.media.url_host,
                         contract.media.max_file_bytes,
@@ -1143,11 +1133,25 @@ pub async fn run() -> anyhow::Result<()> {
                     .await;
                     state.budget.media_downloads = used;
                     media_report = Some(report);
+                    fetcher.lines.insert(Api::ItemDetail, rewritten);
                 }
                 Err(error) => {
                     tracing::warn!(error = %error, "onbid media HTTP client build failed; skipping media");
                 }
             }
+        }
+        for (api, lines) in &fetcher.lines {
+            objects.push(
+                persist(
+                    &contract,
+                    &config.output_dir,
+                    *api,
+                    lines,
+                    now,
+                    Some((&uow, storage.as_ref())),
+                )
+                .await?,
+            );
         }
     } else {
         for (api, lines) in &fetcher.lines {
