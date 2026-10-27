@@ -124,6 +124,45 @@ class ContractTest(unittest.TestCase):
         self.assertIn("pbct_stat_cd", content)
 
 
+class PhotoTest(unittest.TestCase):
+    @staticmethod
+    def _detail(items):
+        body = {"header": {"resultCode": "00"}, "body": {"items": {"item": items}}}
+        return {"operation": "getRlstDtlInf2", "http_status": 200, "body": json.dumps(body, ensure_ascii=False)}
+
+    def test_a_stored_entry_becomes_a_row_and_an_unstored_one_is_skipped(self) -> None:
+        a, b = "a" * 64, "b" * 64
+        it = {"cltrMngNo": "X-0001", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 10},
+                              {"urlAdr": "https://www.onbid.co.kr/op/missing.jpg"}],
+              "apslEvlClgList": [{"urlAdr": f"sha256:{b}", "sha256": b, "media_format": "pdf", "size_bytes": 20,
+                                  "apslEvlOrgNm": "감정원"}]}
+        rows = job.photo_rows_of([self._detail([it])], "bronze/d.gz", "20990102T030405Z", NOW)
+        self.assertEqual(len(rows), 2)  # the photo and the appraisal; the unstored photo is skipped
+        photo = next(r for r in rows if r["media_kind"] == "photo")
+        self.assertEqual((photo["cltr_mng_no"], photo["pbct_cdtn_no"], photo["sha256"]), ("X-0001", 1, a))
+        self.assertEqual((photo["media_format"], photo["size_bytes"], photo["sequence"]), ("jpg", 10, 0))
+        self.assertIsNone(photo["title"])  # a photo has no caption field
+        appraisal = next(r for r in rows if r["media_kind"] == "appraisal")
+        self.assertEqual((appraisal["sha256"], appraisal["media_format"], appraisal["title"]), (b, "pdf", "감정원"))
+        self.assertEqual(appraisal["source_record_id"], "bronze/d.gz")
+
+    def test_the_same_item_and_hash_on_two_lines_is_one_row(self) -> None:
+        a = "a" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 2,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 1}]}
+        rows = job.photo_rows_of([self._detail([it]), self._detail([it])], "bronze/d.gz", "s", NOW)
+        self.assertEqual(len(rows), 1)
+
+    def test_every_photo_column_is_a_table_column_and_back(self) -> None:
+        a = "a" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 1}]}
+        [row] = job.photo_rows_of([self._detail([it])], "k", "s", NOW)
+        names = {c["name"] for c in load_lakehouse_contract(job.PHOTO_TABLE)["columns"]}
+        self.assertEqual(set(row), names)
+
+
 def combos():
     return [(code, flag) for code in CONTRACT["property_division_codes"] if not code.startswith("$")
             for flag in CONTRACT["item_list"]["private_contract_flags"]]
