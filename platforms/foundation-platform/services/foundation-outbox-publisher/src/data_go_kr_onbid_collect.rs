@@ -137,8 +137,12 @@ pub(crate) struct Media {
     pub(crate) object_prefix: String,
     /// The only host whose URLs are fetched (the provider serves all media from `www.onbid.co.kr`).
     pub(crate) url_host: String,
-    /// Downloads attempted per KST day; starts small so the first collection measures real volume.
+    /// Downloads attempted per KST day; the day's total across runs.
     pub(crate) daily_download_limit: u32,
+    /// Downloads attempted in one collect run — bounds one run's wall time (attempts ×
+    /// `download_timeout_seconds`) so a high daily budget cannot make a run exceed its time limit
+    /// (ADR-0300 H: every collection job declares a per-run bound).
+    pub(crate) per_run_limit: u32,
     /// Per-download timeout (seconds); short because photos are small — a hung link must not let the
     /// media step eat the job's time limit.
     pub(crate) download_timeout_seconds: u64,
@@ -1131,6 +1135,7 @@ pub async fn run() -> anyhow::Result<()> {
                         &contract.media.url_host,
                         contract.media.max_file_bytes,
                         contract.media.daily_download_limit,
+                        contract.media.per_run_limit,
                         state.budget.media_downloads,
                         storage.as_ref(),
                         &http,

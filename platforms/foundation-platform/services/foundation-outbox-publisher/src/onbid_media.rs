@@ -83,6 +83,9 @@ pub(crate) struct MediaReport {
     pub(crate) bytes_stored: u64,
     /// The daily download budget ran out before every URL was tried.
     pub(crate) budget_exhausted: bool,
+    /// This run's own cap (`per_run_limit`) stopped it before every URL was tried, while the day's
+    /// budget still had room — the rest are left for the day's next runs.
+    pub(crate) per_run_reached: bool,
 }
 
 enum Stored {
@@ -92,13 +95,31 @@ enum Stored {
     UnknownFormat,
 }
 
+/// How many downloads one run may attempt, and whether the day's budget (not this run's own cap) is
+/// what would stop it. The cap is `min(per_run_limit, daily_limit - already_downloaded)`; a tie goes
+/// to the day (if hitting the cap also exhausts the day, the next run waits for the KST reset, not
+/// just the next hourly run).
+fn run_download_bound(
+    daily_limit: u32,
+    per_run_limit: u32,
+    already_downloaded: u32,
+) -> (u32, bool) {
+    let daily_remaining = daily_limit.saturating_sub(already_downloaded);
+    let cap = daily_remaining.min(per_run_limit);
+    (cap, cap == daily_remaining)
+}
+
 /// Mirrors the photos and appraisal attachments of this run's 물건상세 responses.
 ///
 /// Reads the fresh getRlstDtlInf2 response lines (before KAMCO's links expire), collects the media
-/// URLs on the allowed host, and stores each once by content hash — within the day's remaining
-/// budget (`daily_limit - already_downloaded`). Returns the run's [`MediaReport`] and the new
-/// `media_downloads` count to persist. Every failure (a bad prefix, a download, a store) is isolated
-/// and counted, so media mirroring never fails the collection run.
+/// URLs on the allowed host, and stores each once by content hash — within this run's cap and the
+/// day's remaining budget (`min(per_run_limit, daily_limit - already_downloaded)`). Returns the run's
+/// [`MediaReport`] and the new `media_downloads` count to persist. Every failure (a bad prefix, a
+/// download, a store) is isolated and counted, so media mirroring never fails the collection run.
+///
+/// Two bounds (ADR-0300 H): `per_run_limit` caps one run's attempts so its wall time
+/// (attempts × per-download timeout) cannot exceed the collect job's time limit however high the
+/// day's budget is; `daily_limit` caps the day's total, spreading a backlog over the day's runs.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn mirror_detail_lines(
     detail_lines: &[String],
@@ -106,6 +127,7 @@ pub(crate) async fn mirror_detail_lines(
     url_host: &str,
     max_file_bytes: u64,
     daily_limit: u32,
+    per_run_limit: u32,
     already_downloaded: u32,
     storage: &dyn ObjectStorageService,
     http: &reqwest::Client,
@@ -134,17 +156,25 @@ pub(crate) async fn mirror_detail_lines(
     urls.sort();
     urls.dedup();
 
-    let mut budget = daily_limit.saturating_sub(already_downloaded);
+    let (this_run_cap, capped_by_day) =
+        run_download_bound(daily_limit, per_run_limit, already_downloaded);
+    let mut attempts: u32 = 0;
     for url in &urls {
-        if budget == 0 {
-            report.budget_exhausted = true;
+        if attempts >= this_run_cap {
+            // A cap stopped us before every URL was tried. Which cap tells the day's next run whether
+            // to keep going today (per-run cap) or wait for the KST budget reset (daily budget).
+            if capped_by_day {
+                report.budget_exhausted = true;
+            } else {
+                report.per_run_reached = true;
+            }
             break;
         }
-        // Every download ATTEMPT consumes budget — success, skip, or error/timeout — so the media
-        // step cannot exceed `budget * download_timeout` of wall time. Incident 2026-10-26: errors
-        // did not consume budget, so a batch of slow/timing-out URLs walked every candidate at the
-        // per-download timeout and blew the collect job's time limit.
-        budget -= 1;
+        // Every download ATTEMPT counts toward both caps — success, skip, or error/timeout — so the
+        // media step's wall time is bounded by `this_run_cap * download_timeout`. Incident 2026-10-26:
+        // errors did not consume the budget, so a batch of slow/timing-out URLs walked every candidate
+        // at the per-download timeout and blew the collect job's time limit.
+        attempts += 1;
         match download_and_store(url, &prefix, storage, http, max_file_bytes).await {
             Ok(Stored::New(bytes)) => {
                 report.downloaded += 1;
@@ -159,7 +189,7 @@ pub(crate) async fn mirror_detail_lines(
             }
         }
     }
-    (report, daily_limit.saturating_sub(budget))
+    (report, already_downloaded.saturating_add(attempts))
 }
 
 async fn download_and_store(
@@ -237,8 +267,22 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate_urls, host_is};
+    use super::{candidate_urls, host_is, run_download_bound};
     use serde_json::json;
+
+    #[test]
+    fn run_download_bound_takes_the_smaller_of_the_two_caps_and_names_the_day_on_a_tie() {
+        // per-run cap is smaller: this run stops at it, more remain for the day's next runs.
+        assert_eq!(run_download_bound(500, 50, 0), (50, false));
+        // the day's remaining is smaller: this run stops at it and the day is spent.
+        assert_eq!(run_download_bound(500, 50, 470), (30, true));
+        // a tie goes to the day (the next run waits for the KST reset, not just the next hour).
+        assert_eq!(run_download_bound(500, 50, 450), (50, true));
+        // the day is already spent: nothing this run, and it is the day that stopped it.
+        assert_eq!(run_download_bound(500, 50, 500), (0, true));
+        // the daily limit itself is below the per-run cap (the small-start case): the day bounds it.
+        assert_eq!(run_download_bound(20, 50, 0), (20, true));
+    }
 
     fn detail(item: serde_json::Value) -> serde_json::Value {
         json!({"body": {"items": {"item": item}}})
