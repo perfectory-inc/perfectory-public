@@ -221,6 +221,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
+| `gold.parcel_court_auction` | 계약만 있음 | PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)를 본떴고 사진 색인은 없다. 수집이 꺼져 있어 데이터가 없는 계약만의 섬(contract_only)이다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6). |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_registry` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `gold.place_id_bridge` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -358,6 +359,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 법정동코드 스냅숏 → 필지 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 용도지역 판정 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 개별공시지가 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
+| 법원경매 진행 물건 → 필지 법원경매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py` |
 | 온비드 부동산 물건 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py` |
 | 온비드 물건 사진 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
 | 온비드 물건 입찰결과 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
