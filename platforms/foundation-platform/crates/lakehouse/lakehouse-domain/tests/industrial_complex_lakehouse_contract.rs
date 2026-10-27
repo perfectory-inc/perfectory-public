@@ -10,7 +10,8 @@ use lakehouse_domain::{
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_TRANSFER_HISTORY,
-    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_PARCEL_BOUNDARIES,
+    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
+    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -294,6 +295,13 @@ fn only_versioned_tables_define_a_current_row_rule() {
             assert!(contract
                 .current_row_latest
                 .is_some_and(|latest| latest.removal_column.is_some()));
+        } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name {
+            // An item's media index: the newest run that recorded a (item, hash) wins, and a
+            // photo reference never vanishes (root ADR-0298).
+            assert_eq!(contract.current_row_predicate, None);
+            assert!(contract
+                .current_row_latest
+                .is_some_and(|latest| latest.removal_column.is_none()));
         } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
         {

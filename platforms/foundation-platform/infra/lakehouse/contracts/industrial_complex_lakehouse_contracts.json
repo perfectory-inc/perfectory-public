@@ -4426,6 +4426,103 @@
         "object_suffix_separator": null
       }
     },
+    "silver.onbid_real_estate_item_photo": {
+      "table_name": "silver.onbid_real_estate_item_photo",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "cltr_mng_no",
+          "pbct_cdtn_no",
+          "sha256"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "cltr_mng_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pbct_cdtn_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "media_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sequence",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "title",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "cltr_mng_no",
+        "pbct_cdtn_no",
+        "sequence"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(cltr_mng_no, pbct_cdtn_no, sha256, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.registered_factory": {
       "table_name": "silver.registered_factory",
       "physical_format": "Parquet",
