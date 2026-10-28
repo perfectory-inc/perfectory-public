@@ -549,14 +549,15 @@ fn checked_full_reason(
         (WriteMode::Overwrite, true, false) | (WriteMode::Overwrite, false, true) => Ok(()),
         (WriteMode::Append, false, false) => Ok(()),
         (WriteMode::Overwrite, false, false) => bail!(
-            "{table} overwrites its release: name compare.content_columns to append only the              changed keys (root ADR-0275), or a full_reason with its measured cost (root ADR-0311)"
+            "{table} overwrites its release: name compare.content_columns to append only the \
+             changed keys (root ADR-0275), or a full_reason with its measured cost (root ADR-0311)"
         ),
-        (WriteMode::Overwrite, true, true) => bail!(
-            "{table} names both compare and full_reason; a lane does one of them"
-        ),
-        (WriteMode::Append, _, _) => bail!(
-            "{table} appends; compare and full_reason are for a lane that overwrites"
-        ),
+        (WriteMode::Overwrite, true, true) => {
+            bail!("{table} names both compare and full_reason; a lane does one of them")
+        }
+        (WriteMode::Append, _, _) => {
+            bail!("{table} appends; compare and full_reason are for a lane that overwrites")
+        }
     }
 }
 
