@@ -1,4 +1,13 @@
-"""A Silver release as a changelog, computed once at load (root ADR-0191).
+"""A Silver release as a changelog, computed once at load (root ADR-0191, as amended by ADR-0311).
+
+**Where the record is (ADR-0311).** A lane that compares (root ADR-0275) already writes each
+release's changes once: `silver_release_compare` appends to `main`, in one commit, every row of a
+changed key and a removal marker per vanished key, and nothing else. That commit is the change
+record. It says so in its snapshot summary (`change_record_options`), and its `from` is its Iceberg
+parent, so no second table holds the same rows. A consumer reads it with `changes_between`: the
+rows `main` gained from its pin to the new head when every step between is a recorded change (or a
+compaction), or None, and the consumer falls back to the snapshot diff (root ADR-0189, ADR-0180).
+The parts below (Z-set, fingerprint, closure, `chain`) are the consumer's tools for that record.
 
 Sources arrive as whole releases. The load compares the staged release with the table's `main`
 head once, by business key and a fingerprint of the content columns, and appends the difference to
@@ -25,6 +34,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
+
 CHANGES_SUFFIX = "__changes"
 FINGERPRINT = "row_fingerprint"
 WEIGHT = "_weight"
@@ -33,6 +44,57 @@ TO_SNAPSHOT = "_to_snapshot_id"
 CHANGE_COLUMNS = (WEIGHT, FROM_SNAPSHOT, TO_SNAPSHOT)
 # Compaction rewrites files without changing rows: a step with nothing to read.
 CONTENT_PRESERVING_OPERATIONS = frozenset({"replace"})
+# On a commit that is one release's whole change to `main` (root ADR-0311): the job that wrote it.
+CHANGE_RECORD_KEY = "foundation.change-record"
+CHANGE_RECORD_RELEASE_COMPARE = "silver-release-compare"
+CHANGED_KEY_ROWS_KEY = "foundation.change-record.changed-key-rows"
+REMOVED_KEYS_KEY = "foundation.change-record.removed-keys"
+
+
+def change_record_options(changed_key_rows: int, removed_keys: int) -> dict[str, str]:
+    """The writer options that make a release compare's commit its own change record."""
+    return {
+        f"{SNAPSHOT_PROPERTY_PREFIX}{CHANGE_RECORD_KEY}": CHANGE_RECORD_RELEASE_COMPARE,
+        f"{SNAPSHOT_PROPERTY_PREFIX}{CHANGED_KEY_ROWS_KEY}": str(int(changed_key_rows)),
+        f"{SNAPSHOT_PROPERTY_PREFIX}{REMOVED_KEYS_KEY}": str(int(removed_keys)),
+    }
+
+
+def recorded_steps(snapshots: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
+    """The (parent, snapshot) step of every append that recorded itself as a change record.
+
+    Only an `append` counts: the record's rows are what the commit added, so a commit of any other
+    kind carrying the key would hand a consumer rows that are not the change.
+    """
+    return [(str(s["parent_id"]), str(s["snapshot_id"])) for s in snapshots
+            if s.get("operation") == "append" and s.get("parent_id") is not None
+            and (s.get("summary") or {}).get(CHANGE_RECORD_KEY) == CHANGE_RECORD_RELEASE_COMPARE]
+
+
+def changes_between(spark: Any, table: str, old: Any, new: Any) -> Any | None:
+    """The rows `main` of `table` gained from snapshot `old` to `new`, or None to fall back.
+
+    Every step between must be a recorded change (`recorded_steps`) or a compaction (`chain`). The
+    rows are each changed key's new rows and each vanished key's removal marker, step by step; a key
+    changed in two steps appears in both, and the table's `current_rows` picks its newest. Their
+    keys are exactly the keys whose current rows differ between `old` and `new`, which is what an
+    incremental Gold recomputes. `table` is the quoted Spark name (`` `cat`.`ns`.`t` ``).
+    """
+    rows = spark.sql(f"SELECT snapshot_id, parent_id, operation, summary FROM {table}.snapshots").collect()
+    snapshots = [{"snapshot_id": r.snapshot_id, "parent_id": r.parent_id, "operation": r.operation,
+                  "summary": r.summary or {}} for r in rows]
+    steps = chain(snapshots, recorded_steps(snapshots), old, new)
+    if steps is None:
+        return None
+    unquoted = table.replace("`", "")
+    frames = [spark.read.format("iceberg").option("start-snapshot-id", from_id).option("end-snapshot-id", to_id)
+              .load(unquoted) for from_id, to_id in steps]
+    if not frames:
+        return spark.table(unquoted).limit(0)
+    changes = frames[0]
+    for frame in frames[1:]:
+        changes = changes.unionByName(frame)
+    return changes
 
 
 def changes_table(table: str) -> str:

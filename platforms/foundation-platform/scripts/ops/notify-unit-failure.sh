@@ -10,11 +10,15 @@ token_file="${FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE:-/etc/foundation-platform
 channel="${FOUNDATION_SOURCE_SWEEP_SLACK_CHANNEL:-#alerts}"
 
 result="$(systemctl show -p Result --value "${unit}" 2>/dev/null || true)"
+# The unit's Documentation= (its runbook), when it names one.
+runbook="$(systemctl show -p Documentation --value "${unit}" 2>/dev/null || true)"
 token="$(tr -d '\r\n' < "${token_file}")"
-payload="$(python3 - "${channel}" "${unit}" "${result:-unknown}" "$(hostname)" <<'PY'
+payload="$(python3 - "${channel}" "${unit}" "${result:-unknown}" "$(hostname)" "${runbook}" <<'PY'
 import json, sys
-channel, unit, result, host = sys.argv[1:5]
+channel, unit, result, host, runbook = sys.argv[1:6]
 text = f"🔴 {unit} 실패 (result={result}, host={host}) — journalctl -u {unit}"
+if runbook:
+    text += f" — 런북: {runbook}"
 print(json.dumps({"channel": channel, "text": text}, ensure_ascii=False))
 PY
 )"

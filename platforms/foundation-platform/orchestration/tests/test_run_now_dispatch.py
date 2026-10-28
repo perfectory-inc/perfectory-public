@@ -35,7 +35,11 @@ class RunNowDispatch(unittest.TestCase):
         jobs = root / "opt/current/orchestration"
         jobs.mkdir(parents=True)
         (jobs / "jobs.v1.json").write_text(json.dumps({"jobs": [
-            {"id": "shape_ledger_check", "enabled": True}, {"id": "parcel_registry", "enabled": False}]}))
+            {"id": "shape_ledger_check", "enabled": True, "systemd_service": "foundation-shape-ledger-check.service"},
+            {"id": "parcel_registry", "enabled": False, "systemd_service": "foundation-parcel-registry.service"}]}))
+        deploy = root / "opt/current/scripts/deploy"
+        deploy.mkdir(parents=True)
+        (deploy / "job_units.py").write_bytes((PLATFORM / "scripts/deploy/job_units.py").read_bytes())
         (root / "release-deploy.conf").write_text("FOUNDATION_DEPLOYER=deployer\n")
         text = SCRIPT.read_text(encoding="utf-8")
         for name, value in (("switches", root / "switches"), ("marks", self.marks),
@@ -52,6 +56,17 @@ class RunNowDispatch(unittest.TestCase):
         (bin_dir / "systemd-run").write_text(
             '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FIXTURE_ROOT/systemd-run.log"\n')
         (bin_dir / "systemd-run").chmod(0o755)
+        # systemctl: FIXTURE_RUNNING names the running unit (list-units), its invocation is `inv-1`,
+        # and a stop is recorded.
+        (bin_dir / "systemctl").write_text(
+            '#!/usr/bin/env bash\n'
+            'case "$1" in\n'
+            '  list-units) for last; do :; done\n'
+            '    [[ "${last}" != "${FIXTURE_RUNNING:-}" ]] || echo "${last} loaded activating x fixture" ;;\n'
+            '  show) echo inv-1 ;;\n'
+            '  stop) printf "%s\\n" "$*" >> "$FIXTURE_ROOT/stopped.log" ;;\n'
+            'esac\n')
+        (bin_dir / "systemctl").chmod(0o755)
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FIXTURE_ROOT": str(root)}
 
     def request(self, request_id, job, expires_at):
@@ -106,6 +121,40 @@ class RunNowDispatch(unittest.TestCase):
         self.request(EXPIRED_ID, "../../etc", at(9))
         out, asked = self.dispatch()
         self.assertEqual(asked, [], out)
+
+
+class AnOperatorsStop(RunNowDispatch):
+    """Root ADR-0282 §5: <job>.stop ends the job's run in progress, once, within ten minutes."""
+
+    STOP_ID = "77777777-7777-4777-8777-777777777777"
+
+    def stop(self, asked_minutes_ago=1):
+        (self.root / "switches/shape_ledger_check.stop").write_text(
+            f"request={self.STOP_ID}\nactor=staff-a\nrequested_at={at(-asked_minutes_ago)}\nreason=wrong round\n")
+
+    def stopped(self):
+        log = self.root / "stopped.log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_a_stop_ends_the_run_in_progress_once_and_names_its_invocation(self):
+        self.stop()
+        out, _ = self.dispatch(FIXTURE_RUNNING="foundation-shape-ledger-check.service")
+        self.assertEqual(self.stopped(), ["stop --no-block foundation-shape-ledger-check.service"], out)
+        mark = (self.marks / "stopped" / self.STOP_ID).read_text().splitlines()
+        self.assertEqual(mark, ["invocation=inv-1", "actor=staff-a"])
+        self.dispatch(FIXTURE_RUNNING="foundation-shape-ledger-check.service")
+        self.assertEqual(len(self.stopped()), 1, "a stop was acted on twice")
+
+    def test_a_late_stop_or_one_with_nothing_running_stops_nothing(self):
+        self.stop(asked_minutes_ago=11)
+        out, _ = self.dispatch(FIXTURE_RUNNING="foundation-shape-ledger-check.service")
+        self.assertEqual(self.stopped(), [])
+        self.assertIn("more than 10 minutes ago", out)
+        (self.marks / "stopped" / self.STOP_ID).unlink()
+        self.stop()
+        out, _ = self.dispatch()
+        self.assertEqual(self.stopped(), [])
+        self.assertIn("is not running", out)
 
 
 class TheReleaseWatchesTheRequests(unittest.TestCase):

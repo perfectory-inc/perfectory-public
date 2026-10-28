@@ -924,7 +924,8 @@ def _manifest_object(manifest: Mapping[str, Any], base: Path, role: str) -> tupl
     return found[0], raw
 
 
-def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any], now: datetime) -> dict[str, Any]:
+def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any], now: datetime,
+                  stage: bool = True) -> dict[str, Any]:
     """Validates a collection run without Spark and hands a changed table to the loader.
 
     Reads the collector manifest in `collect_dir`, refuses a full table whose shape changed
@@ -936,6 +937,10 @@ def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any
     Either way a run that passed every check records when it did (`accepted.json`,
     `checked_at_utc`): the hub exports refuse a crosswalk whose table no collection has confirmed
     within the contract's `projection.max_age_days`.
+
+    With `stage=False` (`check`, run on a dry-run fetch before anything is stored) a changed table
+    writes nothing and says `changed`: the job then commits the table to Bronze and stages it. Only
+    a table that differs from the accepted one is stored (2026-10: 283 identical 58 MB objects).
     """
 
     manifest = json.loads((collect_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -950,6 +955,8 @@ def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any
     if accepted and accepted["table_digest"] == digest:
         _write_accepted(state_dir, {**accepted, "checked_at_utc": now.isoformat()})
         return {"status": "unchanged", **result}
+    if not stage:
+        return {"status": "changed", **result}
     name = Path(table_obj["local_path"]).stem
     pending = state_dir / "pending" / name
     if pending.exists():
@@ -980,17 +987,19 @@ def _write_accepted(state_dir: Path, accepted: Mapping[str, Any]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """The collection job's native step (no Spark): `stage-handoff` validates the run and writes a
-    pending-load handoff when the table changed (`stage_handoff`)."""
+    pending-load handoff when the table changed (`stage_handoff`); `check` only says whether it did."""
 
     import argparse  # noqa: PLC0415
 
     parser = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    stage = commands.add_parser("stage-handoff")
-    stage.add_argument("--collect-dir", required=True, help="The collector's output directory (manifest.json).")
-    stage.add_argument("--state-dir", required=True, help="Holds accepted.json and pending/.")
+    for name in ("stage-handoff", "check"):
+        command = commands.add_parser(name)
+        command.add_argument("--collect-dir", required=True, help="The collector's output directory (manifest.json).")
+        command.add_argument("--state-dir", required=True, help="Holds accepted.json and pending/.")
     args = parser.parse_args(argv)
-    result = stage_handoff(Path(args.collect_dir), Path(args.state_dir), load_source_contract(), datetime.now().astimezone())
+    result = stage_handoff(Path(args.collect_dir), Path(args.state_dir), load_source_contract(), datetime.now().astimezone(),
+                           stage=args.command == "stage-handoff")
     print("legal-dong-code-stage-json " + json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 

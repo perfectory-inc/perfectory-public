@@ -1449,6 +1449,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The database backup is host infrastructure, not a data job: it stays a systemd timer
     # (root ADR-0118 §1). Every data job is started by Airflow (root ADR-0122).
     systemctl enable --now foundation-postgres-backup.timer
+    # The PostgreSQL backup's age check: host infrastructure too.
+    systemctl enable --now foundation-postgres-backup-freshness.timer
     # The identity databases' backup, its age check and its weekly restore drill: host infrastructure too.
     systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
       foundation-identity-restore-drill.timer

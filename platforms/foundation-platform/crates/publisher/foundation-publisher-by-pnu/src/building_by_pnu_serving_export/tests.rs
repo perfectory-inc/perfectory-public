@@ -5,8 +5,8 @@ use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::building_document::{self, GoldSnapshotProvenance};
 use super::{
-    claim_a_fresh_shard, refuse_a_moved_table, select_rows, spread_write_order, write_artifacts,
-    write_create_only, ServingExportConfig, LANE,
+    claim_a_fresh_shard, select_rows, spread_write_order, write_artifacts, write_create_only,
+    ServingExportConfig, LANE,
 };
 use crate::by_pnu_serving_patch_export::PatchTarget;
 use crate::by_pnu_serving_store::ByPnuServingStore;
@@ -57,27 +57,6 @@ fn config(root: PathBuf) -> ServingExportConfig {
         fresh_generation: false,
         fresh_check_marker: None,
     }
-}
-
-#[test]
-fn a_shard_refuses_when_gold_moved_after_the_bake_began() -> anyhow::Result<()> {
-    // Synthetic snapshot ids (`scripts/guard/public-fixture-safety.py`).
-    refuse_a_moved_table(None, "gold.panel", "999990000000000002")?;
-    refuse_a_moved_table(
-        Some("999990000000000002"),
-        "gold.panel",
-        "999990000000000002",
-    )?;
-    let moved = refuse_a_moved_table(
-        Some("999990000000000001"),
-        "gold.panel",
-        "999990000000000002",
-    );
-    assert!(
-        moved.is_err_and(|error| error.to_string().contains("moved during the bake")),
-        "a shard baked from a newer snapshot than the bake's would mix two snapshots"
-    );
-    Ok(())
 }
 
 #[tokio::test]

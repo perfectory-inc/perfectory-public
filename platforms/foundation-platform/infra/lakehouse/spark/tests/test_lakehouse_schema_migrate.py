@@ -85,7 +85,8 @@ class PlanTable(unittest.TestCase):
 class WriteOrder(unittest.TestCase):
     """A range-distributed contract puts its sort order on the live table (root ADR-0164)."""
 
-    ORDERED = {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}
+    ORDERED = {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+               "sort-order": "pnu ASC NULLS FIRST"}
 
     @staticmethod
     def ranged(distribution: str = "range") -> dict:
@@ -101,11 +102,23 @@ class WriteOrder(unittest.TestCase):
             ({"write.distribution-mode": "range", "sort-order": "pnu DESC NULLS LAST"}, True),
             ({"write.distribution-mode": "range", "sort-order": "b ASC NULLS FIRST"}, True),
             ({"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST, b ASC NULLS FIRST"}, True),
+            # Ordered for plain writes but not for the incremental MERGE (root ADR-0307).
+            ({"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}, True),
+            ({**self.ORDERED, "write.merge.distribution-mode": "hash"}, True),
             (self.ORDERED, False),
         ):
             with self.subTest(properties=properties):
                 plan = migrate.plan_table(self.ranged(), ("pnu", "b"), True, "gold.t",
                                           actual_properties=properties)
+                self.assertIs(plan["write_order"], expected)
+
+    def test_a_range_table_missing_a_contract_partition_is_planned(self) -> None:
+        """silver.parcel_boundaries: two editions in one unpartitioned spec (root ADR-0316)."""
+        declared = {**self.ranged(), "partition_spec": ["source_snapshot_id"]}
+        for partitions, expected in (((), True), (("source_snapshot_id",), False), (None, False)):
+            with self.subTest(partitions=partitions):
+                plan = migrate.plan_table(declared, ("pnu", "b"), True, "gold.t",
+                                          actual_properties=self.ORDERED, actual_partitions=partitions)
                 self.assertIs(plan["write_order"], expected)
 
     def test_a_hash_table_is_left_to_its_writer(self) -> None:
@@ -280,6 +293,44 @@ class KnownDrift(unittest.TestCase):
         contracts = load_lakehouse_artifact()["contracts"]
         for table in migrate.load_known_drift():
             self.assertIn(table, contracts)
+
+
+class BackfillKeepsThePins(unittest.TestCase):
+    """Root ADR-0312 §3: a backfill rewrote every row with no pins (lakehouse_schema_migrate.backfill),
+    so the next Gold rebuild found no producer commit at the head and ran whole. It now carries the
+    pins of the producer commit it rewrote, and the planner sees no content change."""
+
+    @staticmethod
+    def snapshot(snapshot_id, parent, operation, **summary):
+        return {"snapshot_id": snapshot_id, "parent_id": parent, "committed_at": "2026-01-01T00:00:00Z",
+                "operation": operation, "summary": {"added-records": "10", "total-records": "10", **summary}}
+
+    def test_the_backfill_commit_is_planned_like_the_producer_commit_it_rewrote(self):
+        import gold_rebuild as rebuild
+
+        pins = {"silver.a": "11"}
+        built = self.snapshot("90", None, "overwrite",
+                              **{rebuild.SOURCE_SNAPSHOTS_PROPERTY: rebuild.pins_property_value(pins)})
+        compacted = self.snapshot("91", "90", "replace")
+        carried = migrate.carried_properties([built, compacted], "91")
+        self.assertEqual(carried, {rebuild.SOURCE_SNAPSHOTS_PROPERTY: rebuild.pins_property_value(pins)})
+        backfilled = self.snapshot("92", "91", "overwrite", **carried)
+        gold = {"head": "92", "snapshots": [built, compacted, backfilled], "row_count": 10}
+        entry = {"producer": "fixture", "max_row_loss_fraction": 0.01,
+                 "incremental": {"max_changed_key_fraction": 0.3, "parity_sample_keys": 1, "reason": "fixture"}}
+        inputs = (("silver.a",), {}, "silver.a")
+        unchanged = {"silver.a": {"head": "11", "snapshots": [self.snapshot("11", None, "append")]}}
+        self.assertEqual(rebuild.plan("gold.x", entry, inputs, gold, unchanged)["action"], "nothing_to_do")
+        moved = {"silver.a": {"head": "12", "snapshots": [self.snapshot("11", None, "append"),
+                                                         self.snapshot("12", "11", "append")]}}
+        self.assertEqual(rebuild.plan("gold.x", entry, inputs, gold, moved)["mode"], "incremental")
+        # Without the carried pins the same history is not a producer commit and rebuilds whole.
+        bare = {**gold, "snapshots": [built, compacted, self.snapshot("92", "91", "overwrite")]}
+        self.assertEqual(rebuild.plan("gold.x", entry, inputs, bare, moved)["mode"], "full")
+
+    def test_a_head_that_is_no_producer_commit_carries_nothing(self):
+        hand = self.snapshot("90", None, "overwrite")
+        self.assertEqual(migrate.carried_properties([hand], "90"), {})
 
 
 if __name__ == "__main__":

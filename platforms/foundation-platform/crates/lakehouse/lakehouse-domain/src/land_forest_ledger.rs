@@ -1,8 +1,9 @@
 //! Named `AL_D003` CSV attributes; forest-ledger fields remain independent of land characteristics (root ADR-0088).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_FOREST_LEDGER_COLUMNS: &[LakehouseColumn] = &[
@@ -101,6 +102,12 @@ const SILVER_LAND_FOREST_LEDGER_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // `removed` on a removal marker (root ADR-0275, ADR-0311); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 /// Canonical source attributes without a second parcel geometry (root ADR-0088).
@@ -110,7 +117,14 @@ pub const SILVER_LAND_FOREST_LEDGER: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only the rows of its changed keys and a removal marker per vanished key
+    // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["pnu"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_LAND_FOREST_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "data_reference_date"],

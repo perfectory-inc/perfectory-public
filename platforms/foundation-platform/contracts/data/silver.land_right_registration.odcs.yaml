@@ -105,6 +105,10 @@ schema:
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
+      - name: "row_state"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "pnu_not_null"

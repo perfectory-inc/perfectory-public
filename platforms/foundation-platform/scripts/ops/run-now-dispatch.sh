@@ -7,7 +7,8 @@
 # through Airflow like a scheduled one, so what it changes starts what reads it (root ADR-0171), and
 # the gate checks and consumes the request when the run starts (stage c). A request is triggered at
 # most once (a mark here, never in the switch directory, which only foundation-api writes) and never
-# after it expired. A disabled job (its DAG paused) starts through the gate directly.
+# after it expired. A disabled job (its DAG paused) starts through the gate directly. It also ends
+# a run an operator stopped (below).
 set -euo pipefail
 
 # Fixed paths, no environment override: a caller cannot appoint what is started.
@@ -22,7 +23,7 @@ UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 deployer="$(sed -n 's/^FOUNDATION_DEPLOYER=\([a-z_][a-z0-9_-]*\)$/\1/p' "${host_conf}" | tail -n 1)"
 [[ -n "${deployer}" ]] || { log "${host_conf} names no FOUNDATION_DEPLOYER"; exit 78; }
 jobs_file="${release_root}/current/orchestration/jobs.v1.json"
-mkdir -p "${marks}/triggered" "${marks}/expired"
+mkdir -p "${marks}/triggered" "${marks}/expired" "${marks}/stopped"
 
 shopt -s nullglob
 for request in "${switches}/run-now.d"/*; do
@@ -71,4 +72,42 @@ PY
       ;;
     *) log "${id}: ${job} is not in the job list; skipped" ;;
   esac
+done
+
+# An operator's stop (root ADR-0282 §5): <switches>/<job>.stop ends the job's run in progress, once,
+# and only within ten minutes of the request, so a stop handled late never ends a later run. The
+# mark names the invocation it stopped and who asked, before the unit is stopped: the gate reports
+# that run as `failed stopped by <who>`. A stop when nothing runs is marked and does nothing.
+for request in "${switches}"/*.stop; do
+  job="${request##*/}" job="${job%.stop}"
+  [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || continue
+  id="$(sed -n 's/^request=//p' "${request}" | head -n 1)"
+  [[ "${id}" =~ ${UUID} && ! -e "${marks}/stopped/${id}" ]] || continue
+  actor="$(sed -n 's/^actor=//p' "${request}" | head -n 1)"
+  stamp="$(sed -n '/^requested_at=/{s///p;q}' "${request}")"
+  asked="$(date -d "${stamp}" +%s 2>/dev/null)" || asked=0
+  if (($(date +%s) - asked > 600)); then
+    printf 'invocation=\nactor=%s\nlate\n' "${actor}" >"${marks}/stopped/${id}"
+    log "${id}: the stop of ${job} was asked more than 10 minutes ago; nothing stopped"
+    continue
+  fi
+  service="$(python3 -I - "${jobs_file}" "${job}" <<'PY'
+import json, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    if job["id"] == sys.argv[2]:
+        print(job["systemd_service"])
+PY
+)"
+  [[ -n "${service}" ]] || { log "${id}: ${job} is not in the job list; skipped"; continue; }
+  running="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" running "${service}")" \
+    || { log "${id}: systemd cannot tell whether ${service} runs; tried again on the next change"; continue; }
+  if [[ -z "${running}" ]]; then
+    printf 'invocation=\nactor=%s\n' "${actor}" >"${marks}/stopped/${id}"
+    log "${id}: ${job} is not running; nothing stopped"
+    continue
+  fi
+  invocation="$(systemctl show -p InvocationID --value "${service}")"
+  printf 'invocation=%s\nactor=%s\n' "${invocation}" "${actor}" >"${marks}/stopped/${id}"
+  systemctl stop --no-block "${service}"
+  log "${id}: stopping ${service} (invocation ${invocation}) for ${actor}"
 done

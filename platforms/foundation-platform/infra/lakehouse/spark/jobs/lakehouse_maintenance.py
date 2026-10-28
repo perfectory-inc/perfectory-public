@@ -384,11 +384,16 @@ def run_snapshot_expiry(
     )
 
 
-def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any]) -> str:
+def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any], ordered: bool = False) -> str:
     """The compaction call. Each file group commits on its own (`partial-progress.enabled`): a
     group that fails to read leaves the groups already rewritten in place instead of discarding them
     all, and the next run takes what is left (2026-10-15: one R2 connection reset discarded the
-    whole of silver.parcel_boundaries's 152-file rewrite)."""
+    whole of silver.parcel_boundaries's 152-file rewrite).
+
+    `ordered`: the table has an Iceberg sort order (a range-distributed contract, root ADR-0164).
+    It is then rewritten with the `sort` strategy, which sorts by that order; the default bin-pack
+    concatenates files as they come and turned gold.parcel_panel's 34 PNU-range files into 9 files
+    that each span the whole country (2026-10-26, root ADR-0307)."""
     options = {
         "min-input-files": compaction["min_input_files"],
         "target-file-size-bytes": compaction["target_file_bytes"],
@@ -396,7 +401,15 @@ def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any])
         "partial-progress.max-commits": compaction["partial_progress_max_commits"],
     }
     pairs = ",".join(f"'{key}','{value}'" for key, value in options.items())
-    return f"CALL {catalog}.system.rewrite_data_files(table => '{table}', options => map({pairs}))"
+    strategy = "strategy => 'sort', " if ordered else ""
+    return f"CALL {catalog}.system.rewrite_data_files(table => '{table}', {strategy}options => map({pairs}))"
+
+
+def has_sort_order(spark: Any, qualified: str) -> bool:
+    """Whether the live table carries an Iceberg sort order (Iceberg reports it as `sort-order`)."""
+    from platform_contracts import SORT_ORDER_PROPERTY, table_properties  # noqa: PLC0415
+
+    return bool(table_properties(spark, qualified).get(SORT_ORDER_PROPERTY, "").strip())
 
 
 def file_shape(spark: Any, qualified: str) -> tuple[int, int]:
@@ -458,8 +471,9 @@ def maintain_table(
     elif dry_run:
         print(f"maintenance-would step=compaction small_files={small}", flush=True)
     else:
-        result = spark.sql(rewrite_data_files_sql(catalog, table, compaction)).collect()[0]
-        print(f"maintenance-done step=compaction read={result[0]} wrote={result[1]}", flush=True)
+        ordered = has_sort_order(spark, qualified)
+        result = spark.sql(rewrite_data_files_sql(catalog, table, compaction, ordered)).collect()[0]
+        print(f"maintenance-done step=compaction read={result[0]} wrote={result[1]} sorted={ordered}", flush=True)
 
     if "snapshot_expiry" in skip:
         print("maintenance-skip step=snapshot_expiry", flush=True)

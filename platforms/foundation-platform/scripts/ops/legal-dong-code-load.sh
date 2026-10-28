@@ -209,11 +209,14 @@ marker.unlink(missing_ok=True)
 PY
 }
 
+# Sets legal_dong_code_wrote to 1 when it loaded or paired anything, the caller's evidence of a write.
 load_legal_dong_code_handoffs() {
   local pending="${LEGAL_DONG_STATE_ROOT}/pending" loaded=0 name handoff snapshot_date table_key table_file reason
+  legal_dong_code_wrote=0
   mkdir -p "${LEGAL_DONG_STATE_ROOT}"
   legal_dong_owe_pairing
   load_parcel_number_change_handoffs
+  [ "${parcel_number_change_loaded}" = 0 ] || legal_dong_code_wrote=1
   mkdir -p "${work}/legal-dong" "${LEGAL_DONG_STATE_ROOT}/loaded"
   chmod 0777 "${work}/legal-dong"
   for handoff in $(find "${pending}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort); do
@@ -234,6 +237,7 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
     legal_dong_pair "${snapshot_date}" "${table_key}"
     mv "${handoff}" "${LEGAL_DONG_STATE_ROOT}/loaded/${name}"
     loaded=$((loaded + 1))
+    legal_dong_code_wrote=1
     job_journal "${journal}" "legal-dong-code loaded handoff=${name} run=${run_id}"
   done
   if [ "${loaded}" != 0 ]; then
@@ -263,6 +267,7 @@ print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handof
 m = json.load(open(sys.argv[1], encoding="utf-8")); print(m["snapshot_date"], m["source_record_id"])' \
     "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json")
   legal_dong_pair "${snapshot_date}" "${table_key}"
+  legal_dong_code_wrote=1
   legal_dong_pairing_paid "${snapshot_date}"
   job_journal "${journal}" "legal-dong-code re-paired (${reason}) on ${snapshot_date} run=${run_id}"
 }

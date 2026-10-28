@@ -68,7 +68,7 @@ pre-push:
   parallel: true
   commands:
     fast-ratchets:
-      run: bash scripts/guard/technology-version-consistency.sh && bash scripts/guard/build-coupling-baseline.sh && bash scripts/guard/pipeline-graph-covers-every-dataset.sh && bash scripts/guard/foundation-parcel-current-selector.sh
+      run: bash scripts/guard/technology-version-consistency.sh && bash scripts/guard/build-coupling-baseline.sh && bash scripts/guard/pipeline-graph-covers-every-dataset.sh && bash scripts/guard/foundation-parcel-current-selector.sh && bash scripts/guard/file-line-limit.sh
       skip: [merge, rebase]
     # The document catalog, audit report and foundation baseline are not committed, and the ADR
     # index is the directory, so no PR regenerates a shared file here (root ADR-0176).
