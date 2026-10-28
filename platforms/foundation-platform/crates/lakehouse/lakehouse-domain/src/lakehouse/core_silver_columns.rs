@@ -1,9 +1,9 @@
 //! Columns of the industrial complex, parcel boundary and land Silver tables. Moved out of
 //! `lakehouse.rs` unchanged.
 
-use super::*;
+use super::LakehouseColumn;
 
-pub(crate) const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "complex_id",
         logical_type: "string",
@@ -208,7 +208,7 @@ pub(crate) const SILVER_INDUSTRIAL_COMPLEXES_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-pub(crate) const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "boundary_id",
         logical_type: "string",
@@ -306,7 +306,7 @@ pub(crate) const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS: &[LakehouseColumn
     },
 ];
 
-pub(crate) const SILVER_PARCEL_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_PARCEL_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "boundary_id",
         logical_type: "string",
@@ -411,7 +411,7 @@ pub(crate) const SILVER_PARCEL_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
 
 // D155 필지별 토지이용계획 속성 CSV 의 열 순서 그대로다 (root ADR-0083). *_name 열은
 // 원천이 준 한국어 표기를 손대지 않고 나른다 — 어휘 번역은 소비자(공짱)의 결정이다.
-pub(crate) const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "pnu",
         logical_type: "string",
@@ -520,7 +520,7 @@ pub use crate::registered_factory::SILVER_REGISTERED_FACTORY;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기
 // 그대로 문자열로 나른다 — 형 변환은 소비 투영의 몫이고, 원천이 준 것을 바꾸지 않는다.
-pub(crate) const SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "pnu",
         logical_type: "string",
@@ -606,7 +606,7 @@ pub(crate) const SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS: &[LakehouseColumn] = &[
 // LMIS 용도지역지구 코드표 (LART_LMISZONE.csv) 열 순서 그대로 (root ADR-0083).
 // `parent_ucode` 는 판정 투영이 걸어 올라가는 트리의 간선이라 여기 있어야 하고,
 // 원천에 빈 부모(UQA500 등)가 실재하므로 필수로 만들 수 없다.
-pub(crate) const SILVER_LAND_USE_ZONE_CODES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_LAND_USE_ZONE_CODES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "ucode",
         logical_type: "string",

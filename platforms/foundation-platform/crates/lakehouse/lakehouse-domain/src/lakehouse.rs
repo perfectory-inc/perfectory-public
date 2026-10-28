@@ -192,7 +192,6 @@ mod core_silver_columns;
 mod legal_dong_and_place_id;
 mod map_edit_and_boundaries;
 
-use building_and_gold_columns::*;
 pub use core_contracts::*;
 pub use core_silver_columns::*;
 pub use legal_dong_and_place_id::*;

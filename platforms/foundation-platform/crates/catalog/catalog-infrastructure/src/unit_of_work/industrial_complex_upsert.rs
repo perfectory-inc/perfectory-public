@@ -1,6 +1,12 @@
 //! Industrial complex upsert by official code. Moved out of `unit_of_work.rs` unchanged.
 
-use super::*;
+use super::{
+    insert_outbox_event, is_unique_violation_code, map_sqlx, row_to_complex, u64_to_i64,
+    CatalogError, CatalogEvent, ComplexId, IndustrialComplex, IndustrialComplexDevelopmentStage,
+    IndustrialComplexLotSalesStatus, IndustrialComplexStatus, PgPool, Postgres, Transaction,
+    UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
+    Utc, INDUSTRIAL_COMPLEX_COLUMNS,
+};
 
 pub(super) async fn upsert_industrial_complexes_by_official_code(
     pool: &PgPool,

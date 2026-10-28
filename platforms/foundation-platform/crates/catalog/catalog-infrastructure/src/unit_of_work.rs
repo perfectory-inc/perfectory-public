@@ -58,16 +58,37 @@ use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
 mod dynamic_release;
 mod industrial_complex_upsert;
 mod lakehouse_bake;
+mod manifest_promotion;
 mod mutation_claim;
 mod readdress;
 mod static_release;
-mod vector_tile_manifest;
 
-use dynamic_release::*;
-use industrial_complex_upsert::*;
-use mutation_claim::*;
-use static_release::*;
-use vector_tile_manifest::*;
+use dynamic_release::{
+    advance_serving_generation, carried_release_ids, current_manifest_selections_tx,
+    find_publication_unit, insert_dynamic_release_tx, insert_manifest_units_tx,
+    insert_release_layers_tx, insert_runtime_manifest_tx, lock_publication_units_tx,
+    lock_release_rows_tx, lock_runtime_manifest_pointer_tx, map_runtime_manifest_gate_error,
+    observed_serving_generation, plan_dynamic_activation, runtime_manifest_published_event,
+    serving_state_conflict, CarriedSelection, LockedPublicationUnit, ManifestUnitSelection,
+};
+use industrial_complex_upsert::{
+    map_industrial_complex_unique_violation, upsert_industrial_complexes_by_official_code,
+};
+use manifest_promotion::{
+    ensure_promote_can_replace_active, insert_promoted_vector_tile_manifest_tx,
+    load_vector_tile_manifest_by_id_tx, lock_active_vector_tile_manifest_tx,
+    promoted_vector_tile_manifest_event, switch_active_vector_tile_manifest_tx,
+    validate_promotion_command,
+};
+use mutation_claim::{
+    claim_build_key_tx, claim_build_start_key_tx, claim_manifest_mutation_key_tx,
+    claim_mutation_key_tx, ensure_recorded_artifact_matches, record_mutation_outbox_event_tx,
+    validate_build_artifact_identity,
+};
+use static_release::{
+    invalid_runtime, lock_validated_build_tx, mark_superseded_build_tx, publish_static_release_tx,
+    set_lock_timeout_tx, MutationClaim, StaticPromotionPlan,
+};
 
 /// `PostgreSQL` implementation of Catalog mutation unit-of-work ports.
 pub struct PgCatalogUnitOfWork {

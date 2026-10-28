@@ -1,7 +1,13 @@
 //! Dynamic activation: publication unit locks, serving generations and the runtime manifest rows.
 //! Moved out of `unit_of_work.rs` unchanged.
 
-use super::*;
+use super::{
+    is_unique_violation_code, map_sqlx, vector_tile_runtime_manifest_object_key, BTreeMap,
+    CatalogError, CatalogEvent, FileAssetId, MarkTileLayerDynamicCommand, Postgres, Row,
+    RuntimeTileLayer, ServingGeneration, Transaction, Uuid, VectorTileRuntimeManifest,
+    VectorTileRuntimeManifestId, VectorTileRuntimeManifestPublishedV2,
+    VectorTileRuntimeUnitSelectionV2,
+};
 
 /// One publication unit as the activation transaction observed it under `FOR UPDATE`.
 pub(super) struct LockedPublicationUnit {

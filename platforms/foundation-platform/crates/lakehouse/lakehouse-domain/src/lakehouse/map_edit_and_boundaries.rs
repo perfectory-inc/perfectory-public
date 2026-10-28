@@ -1,9 +1,12 @@
 //! The map edit ledger and the served boundary tables (industrial complex, administrative, parcel).
 //! Moved out of `lakehouse.rs` unchanged.
 
-use super::*;
+use super::{
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+};
 
-pub(crate) const SILVER_MAP_EDIT_LEDGER_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_MAP_EDIT_LEDGER_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit",
         logical_type: "string",
@@ -96,7 +99,7 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
     },
 };
 
-pub(crate) const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "complex_id",
         logical_type: "string",
@@ -172,7 +175,7 @@ pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
         load: LakehouseLoadUnit::Derived,
     };
 
-pub(crate) const SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "administrative_unit_id",
         logical_type: "string",
@@ -264,7 +267,7 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     },
 };
 
-pub(crate) const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "administrative_unit_id",
         logical_type: "string",
@@ -351,7 +354,7 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     load: LakehouseLoadUnit::Derived,
 };
 
-pub(crate) const GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "pnu",
         logical_type: "string",

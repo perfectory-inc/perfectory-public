@@ -1,9 +1,12 @@
 //! The legal-dong code reference tables, parcel lineage and registry, and the place-id tables.
 //! Moved out of `lakehouse.rs` unchanged.
 
-use super::*;
+use super::{
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+};
 
-pub(crate) const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "region_cd",
         logical_type: "string",
@@ -97,7 +100,7 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     },
 };
 
-pub(crate) const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "change_key",
         logical_type: "string",
@@ -189,7 +192,7 @@ pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTa
     },
 };
 
-pub(crate) const SILVER_PARCEL_LINEAGE_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_PARCEL_LINEAGE_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "predecessor_pnu",
         logical_type: "string",
@@ -283,7 +286,7 @@ pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract
     },
 };
 
-pub(crate) const SILVER_PARCEL_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_PARCEL_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "parcel_id",
         logical_type: "string",
@@ -362,7 +365,7 @@ pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     },
 };
 
-pub(crate) const GOLD_PLACE_ID_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_PLACE_ID_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit",
         logical_type: "string",
@@ -426,7 +429,7 @@ pub const GOLD_PLACE_ID_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     load: LakehouseLoadUnit::Derived,
 };
 
-pub(crate) const GOLD_PLACE_ID_BRIDGE_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_PLACE_ID_BRIDGE_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit",
         logical_type: "string",
@@ -489,7 +492,7 @@ pub const GOLD_PLACE_ID_BRIDGE: LakehouseTableContract = LakehouseTableContract 
     load: LakehouseLoadUnit::Derived,
 };
 
-pub(crate) const GOLD_PLACE_ID_CHANGELOG_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_PLACE_ID_CHANGELOG_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit",
         logical_type: "string",
@@ -564,7 +567,7 @@ pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContra
     },
 };
 
-pub(crate) const GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit",
         logical_type: "string",

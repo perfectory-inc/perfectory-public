@@ -1,9 +1,9 @@
 //! Columns of the building register and complex Silver tables and the complex Gold tables. Moved
 //! out of `lakehouse.rs` unchanged.
 
-use super::*;
+use super::LakehouseColumn;
 
-pub(crate) const SILVER_BUILDING_REGISTER_FLOORS_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_BUILDING_REGISTER_FLOORS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "floor_row_id",
         logical_type: "string",
@@ -109,7 +109,7 @@ pub(crate) const SILVER_BUILDING_REGISTER_FLOORS_COLUMNS: &[LakehouseColumn] = &
 /// Columns of the 표제부 Silver table, measured off the July 2026 national snapshot
 /// (77 pipe-delimited fields; the mapping and the area-column disambiguation are in root
 /// ADR-0073).
-pub(crate) const SILVER_BUILDING_REGISTER_TITLES_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_BUILDING_REGISTER_TITLES_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "title_row_id",
         logical_type: "string",
@@ -282,7 +282,7 @@ pub(crate) const SILVER_BUILDING_REGISTER_TITLES_COLUMNS: &[LakehouseColumn] = &
     },
 ];
 
-pub(crate) const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "unit_row_id",
         logical_type: "string",
@@ -440,7 +440,7 @@ pub(crate) const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-pub(crate) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "area_row_id",
         logical_type: "string",
@@ -603,7 +603,7 @@ pub(crate) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn]
     },
 ];
 
-pub(crate) const SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "membership_id",
         logical_type: "string",
@@ -691,7 +691,7 @@ pub(crate) const SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS: &[LakehouseColumn] =
     },
 ];
 
-pub(crate) const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "complex_id",
         logical_type: "string",
@@ -877,7 +877,7 @@ pub(crate) const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
     },
 ];
 
-pub(crate) const GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS: &[LakehouseColumn] = &[
+pub(super) const GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS: &[LakehouseColumn] = &[
     LakehouseColumn {
         name: "spatial_key",
         logical_type: "string",

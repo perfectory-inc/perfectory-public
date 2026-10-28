@@ -1,7 +1,13 @@
 //! Vector tile manifest promotion: the active manifest switch and its artifact rows. Moved out of
 //! `unit_of_work.rs` unchanged.
 
-use super::*;
+use super::{
+    is_unique_violation_code, map_sqlx, row_to_vector_tile_artifact, row_to_vector_tile_manifest,
+    u64_to_i64, BTreeMap, CatalogError, CatalogEvent, FileAssetId, Postgres, Row, Transaction, Utc,
+    Uuid, VectorTileArtifact, VectorTileArtifactPromotionCommand, VectorTileFileAssetCommand,
+    VectorTileManifest, VectorTileManifestId, VectorTileManifestPromotedV1,
+    VectorTileManifestPromotionCommand, VectorTileSourceRecordCommand,
+};
 
 pub(super) struct ActiveVectorTileManifest {
     pub(super) id: Uuid,

@@ -1,9 +1,16 @@
 //! The publisher loop, the R2 smoke and inventory, the parcel marker anchor rebuild, and the
 //! broadcaster and object-storage settings they read. Moved out of `main.rs` unchanged.
 
-use super::*;
+use super::{
+    bail, env, fs, optional_env_value, r2_smoke_object_key, required_env_value,
+    runtime_environment, tile_derivative_object_storage, watch, Arc, CatalogEventBroadcaster,
+    Context, EventBroadcaster, LoggingBroadcaster, LoggingObjectStorage, ObjectStorageService,
+    ObjectStorageSmokeReport, OutboxScope, OutboxWorker, Path, PgParcelMarkerAnchorRebuilder,
+    PgPool, PgVectorTileManifestReader, PublisherConfig, R2InventoryRequest, R2ObjectStorage,
+    RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput, WebhookBroadcaster,
+};
 
-pub(crate) async fn run_publisher() -> anyhow::Result<()> {
+pub(super) async fn run_publisher() -> anyhow::Result<()> {
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
     let pool = PgPool::connect(&database_url)
         .await
@@ -28,7 +35,7 @@ pub(crate) async fn run_publisher() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_r2_smoke() -> anyhow::Result<()> {
+pub(super) async fn run_r2_smoke() -> anyhow::Result<()> {
     let runtime_environment =
         runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
     validate_runtime_r2_bucket(runtime_environment)?;
@@ -57,7 +64,7 @@ pub(crate) async fn run_r2_smoke() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_publisher_once() -> anyhow::Result<()> {
+pub(super) async fn run_publisher_once() -> anyhow::Result<()> {
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
     let pool = PgPool::connect(&database_url)
         .await
@@ -78,7 +85,7 @@ pub(crate) async fn run_publisher_once() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_parcel_marker_anchor_rebuild() -> anyhow::Result<()> {
+pub(super) async fn run_parcel_marker_anchor_rebuild() -> anyhow::Result<()> {
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
     let source_snapshot_id =
         env::var("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_SOURCE_SNAPSHOT_ID")
@@ -124,7 +131,7 @@ pub(crate) async fn run_parcel_marker_anchor_rebuild() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn write_parcel_marker_anchor_rebuild_summary(
+pub(super) fn write_parcel_marker_anchor_rebuild_summary(
     path: &Path,
     report: &catalog_application::ports::ParcelMarkerAnchorRebuildReport,
 ) -> anyhow::Result<()> {
@@ -160,7 +167,7 @@ pub(crate) fn write_parcel_marker_anchor_rebuild_summary(
     })
 }
 
-pub(crate) fn write_r2_smoke_metrics(
+pub(super) fn write_r2_smoke_metrics(
     path: &Path,
     report: &ObjectStorageSmokeReport,
 ) -> anyhow::Result<()> {
@@ -177,7 +184,7 @@ pub(crate) fn write_r2_smoke_metrics(
         .with_context(|| format!("failed to write R2 smoke metrics file {}", path.display()))
 }
 
-pub(crate) async fn run_r2_inventory() -> anyhow::Result<()> {
+pub(super) async fn run_r2_inventory() -> anyhow::Result<()> {
     let runtime_environment =
         runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
     validate_runtime_r2_bucket(runtime_environment)?;
@@ -202,7 +209,7 @@ pub(crate) async fn run_r2_inventory() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn r2_inventory_request() -> anyhow::Result<R2InventoryRequest> {
+pub(super) fn r2_inventory_request() -> anyhow::Result<R2InventoryRequest> {
     let prefix = optional_env_value("FOUNDATION_PLATFORM_R2_INVENTORY_PREFIX")?;
     let max_keys = optional_env_value("FOUNDATION_PLATFORM_R2_INVENTORY_MAX_KEYS")?
         .map(|raw| raw.parse::<i32>())
@@ -212,7 +219,7 @@ pub(crate) fn r2_inventory_request() -> anyhow::Result<R2InventoryRequest> {
     R2InventoryRequest::new(prefix.as_deref(), max_keys).context("invalid R2 inventory request")
 }
 
-pub(crate) async fn catalog_broadcaster(
+pub(super) async fn catalog_broadcaster(
     pool: PgPool,
     fallback: Arc<dyn EventBroadcaster>,
 ) -> anyhow::Result<Arc<dyn EventBroadcaster>> {
@@ -261,7 +268,7 @@ pub(crate) async fn catalog_broadcaster(
     ))
 }
 
-pub(crate) fn fallback_broadcaster() -> anyhow::Result<Arc<dyn EventBroadcaster>> {
+pub(super) fn fallback_broadcaster() -> anyhow::Result<Arc<dyn EventBroadcaster>> {
     let Some(raw_endpoint_specs) =
         optional_env_value("FOUNDATION_PLATFORM_OUTBOX_WEBHOOK_ENDPOINTS")?
     else {
@@ -283,7 +290,7 @@ pub(crate) fn fallback_broadcaster() -> anyhow::Result<Arc<dyn EventBroadcaster>
     )?))
 }
 
-pub(crate) fn parse_webhook_endpoint_specs(raw: &str) -> anyhow::Result<Vec<(String, String)>> {
+pub(super) fn parse_webhook_endpoint_specs(raw: &str) -> anyhow::Result<Vec<(String, String)>> {
     let mut specs = Vec::new();
     for raw_part in raw.split(';') {
         let part = raw_part.trim();
@@ -313,13 +320,13 @@ pub(crate) fn parse_webhook_endpoint_specs(raw: &str) -> anyhow::Result<Vec<(Str
     Ok(specs)
 }
 
-pub(crate) fn object_storage_driver() -> anyhow::Result<String> {
+pub(super) fn object_storage_driver() -> anyhow::Result<String> {
     let driver =
         required_env_value("FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER")?.to_ascii_lowercase();
     Ok(driver)
 }
 
-pub(crate) fn validate_runtime_r2_bucket(
+pub(super) fn validate_runtime_r2_bucket(
     runtime_environment: runtime_environment::RuntimeEnvironment,
 ) -> anyhow::Result<()> {
     let bucket = required_env_value("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?;

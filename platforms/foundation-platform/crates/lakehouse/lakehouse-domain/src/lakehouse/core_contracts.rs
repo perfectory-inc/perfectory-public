@@ -1,7 +1,19 @@
 //! The industrial complex, parcel, land and building register table contracts. Moved out of
 //! `lakehouse.rs` unchanged.
 
-use super::*;
+use super::building_and_gold_columns::{
+    GOLD_COMPLEX_CATALOG_COLUMNS, GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS,
+    SILVER_BUILDING_REGISTER_FLOORS_COLUMNS, SILVER_BUILDING_REGISTER_TITLES_COLUMNS,
+    SILVER_BUILDING_REGISTER_UNITS_COLUMNS, SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS,
+    SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
+};
+use super::{
+    LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    SILVER_INDUSTRIAL_COMPLEXES_COLUMNS, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
+    SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS, SILVER_LAND_USE_PLAN_COLUMNS,
+    SILVER_LAND_USE_ZONE_CODES_COLUMNS, SILVER_PARCEL_BOUNDARIES_COLUMNS,
+};
 
 /// Canonical Silver table for industrial complex facts.
 pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableContract {
