@@ -1,6 +1,6 @@
 # ADR 0320: 문서 스키마 판 올림은 바뀐 문서만큼만 굽는다 — 선택 필드만 더하는 판은 서빙 중인 문서 위에 패치로 얹고(확장/수축), 깨는 변경의 범위는 종류 레인이 그 종류로 좁힌다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-28
 - Amends: [ADR-0141](./0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md) §5
   ("기본 세대와 다른 문서 스키마는 전량"), [ADR-0274](./0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md)
