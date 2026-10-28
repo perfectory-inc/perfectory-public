@@ -81,4 +81,4 @@
 
 ---
 
-개정 각주(2026-10-22): §4(우선순위 대기열)·§5(실패 장부)는 [ADR-0293](./0293-court-auction-recrawl-is-computed-each-run-from-the-lakehouse-not-a-stored-queue.md)이 고쳤다. Postgres 대기열을 두지 않고, 받을 목록은 매 실행 lakehouse 에서 계산하며 실패 장부도 lakehouse 에 append-only 로 둔다.
+개정 각주(2026-10-22): §4(우선순위 대기열)·§5(실패 장부)는 [ADR-0304](./0304-court-auction-recrawl-is-computed-each-run-from-the-lakehouse-not-a-stored-queue.md)이 고쳤다. Postgres 대기열을 두지 않고, 받을 목록은 매 실행 lakehouse 에서 계산하며 실패 장부도 lakehouse 에 append-only 로 둔다.

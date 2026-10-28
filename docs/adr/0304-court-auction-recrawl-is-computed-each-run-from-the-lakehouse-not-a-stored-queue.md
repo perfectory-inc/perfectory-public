@@ -1,4 +1,4 @@
-# ADR 0293: 법원경매 재수집 목록은 매 실행 lakehouse 에서 계산한다 — Postgres 대기열을 두지 않는다
+# ADR 0304: 법원경매 재수집 목록은 매 실행 lakehouse 에서 계산한다 — Postgres 대기열을 두지 않는다
 
 - Status: Accepted
 - Date: 2026-10-22
