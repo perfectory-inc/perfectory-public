@@ -649,6 +649,25 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
                 self.assertTrue(reports_outcome(program.read_text(encoding="utf-8")),
                                 f"{program.name} never prints `foundation-job-outcome ...`")
 
+    # A program jobs run with different arguments may print the line in one mode only, which the text
+    # check above cannot see (2026-10-28: gold-panel-rebuild.sh printed it for `all` and `kinds`, not for
+    # the one table gold_public_auction_rebuild runs). Each such program's own test runs every registered
+    # job's arguments and reads the run's last line.
+    RUN_FOR_EVERY_JOB = {"gold-panel-rebuild.sh": "test_gold_panel_rebuild.py"}
+
+    def test_a_program_jobs_run_in_several_modes_is_run_in_each(self):
+        modes = {}
+        for spec in job_specs.load_specs():
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            words = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1).split()
+            modes.setdefault(pathlib.PurePosixPath(words[0]).name, set()).add(tuple(words[1:]))
+        for program, arguments in modes.items():
+            if len(arguments) > 1:
+                with self.subTest(program):
+                    self.assertIn(program, self.RUN_FOR_EVERY_JOB, f"jobs run {program} as {sorted(arguments)}")
+                    test = (pathlib.Path(__file__).parent / self.RUN_FOR_EVERY_JOB[program]).read_text(encoding="utf-8")
+                    self.assertIn("def test_every_registered_job_of_this_script_ends_with_one_outcome_line", test)
+
     def test_a_program_that_only_mentions_the_line_is_refused(self):
         self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
         self.assertTrue(reports_outcome('    print("foundation-job-outcome unchanged")\n'))

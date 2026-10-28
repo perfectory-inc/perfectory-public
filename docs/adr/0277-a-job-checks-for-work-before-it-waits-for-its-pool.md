@@ -103,3 +103,7 @@ Airflow 의 기록(task_instance)으로 본 그날:
 - [AIP-17 Smart Sensor](https://cwiki.apache.org/confluence/spaces/AIRFLOW/pages/103093484/AIP-17+Consolidate+and+de-duplicate+sensor+tasks+in+airflow+Smart+Sensor)
 - [Dagster Sensors](https://dagster.io/docs/guides/automate/sensors)
 - [Astronomer: Deferrable operators](https://astronomer.io/docs/learn/deferrable-operators)
+
+---
+
+2026-10-28 개정 주: §3 의 "작업의 시작 기록에도 남지 않는다"는 [ADR-0305](./0305-a-check-that-found-no-work-is-that-jobs-turn.md) 가 고쳤다. `unchanged` 라고 답한 확인은 그 작업의 차례로 적힌다.
