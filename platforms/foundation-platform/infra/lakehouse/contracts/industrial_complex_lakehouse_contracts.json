@@ -663,12 +663,14 @@
           "required": true
         }
       ],
-      "partition_spec": [],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
       "sort_order": [
         "pnu",
         "valid_from_utc"
       ],
-      "write_distribution": "hash",
+      "write_distribution": "range",
       "quality_gates": [
         "pnu passes shared PNU validation",
         "geometry_srid = 4326",

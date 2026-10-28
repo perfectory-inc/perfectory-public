@@ -53,8 +53,11 @@ from lakehouse_object_store import (
     input_paths,
 )
 from platform_contracts import (
+    DISTRIBUTION_MODE_PROPERTY,
+    apply_write_order,
     create_table_columns_sql,
     partition_clause_sql,
+    write_distribution_mode,
 )
 
 DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
@@ -519,10 +522,13 @@ def create_iceberg_table_if_missing(
         TBLPROPERTIES (
             'format-version' = '2',
             'write.parquet.compression-codec' = 'zstd',
-            'write.distribution-mode' = 'hash'
+            '{DISTRIBUTION_MODE_PROPERTY}' = '{write_distribution_mode(contract)}'
         )
         """
     )
+    # A range-distributed contract's partitions and order reach the live table before this append
+    # writes into it, not only at the next deploy's migration (root ADR-0316).
+    apply_write_order(spark, table, contract)
 
 
 @dataclass(frozen=True)
