@@ -132,16 +132,19 @@ hold=("*")
 # same list its skip reads (root ADR-0308): a change that makes it run holds the writers of what it runs over.
 release_changes() {
   local platform=platforms/foundation-platform inputs
+  # Each archive goes to a file and is unpacked on its own: no pipeline decides an `||` (ADR-0012 rule 2).
   git --git-dir="${mirror}" archive "${sha}" "${platform}/scripts/deploy/release_changes.py" \
     "${platform}/scripts/deploy/deploy_steps.py" "${platform}/scripts/deploy/worker_autodeploy.py" \
     "${platform}/config/deploy-steps.contract.json" "${platform}/orchestration/jobs.v1.json" \
     "${platform}/docs/catalog/pipeline-graph.v1.json" "${platform}/migrations" tools/release-build.contract.json \
-    | tar -x -C "${changes}" || return 1
+    >"${changes}/release.tar" || return 1
+  tar -x -C "${changes}" -f "${changes}/release.tar" || return 1
   inputs="$(python3 -I -c 'import json, sys
 print("\n".join(sys.argv[2] + "/" + item for item in json.load(open(sys.argv[1]))["steps"]["lakehouse-migrate"]["inputs"]))' \
     "${changes}/${platform}/config/deploy-steps.contract.json" "${platform}")" || return 1
   # shellcheck disable=SC2086 # one tree path per word
-  git --git-dir="${mirror}" archive "${sha}" ${inputs} | tar -x -C "${changes}" || return 1
+  git --git-dir="${mirror}" archive "${sha}" ${inputs} >"${changes}/inputs.tar" || return 1
+  tar -x -C "${changes}" -f "${changes}/inputs.tar" || return 1
   python3 -I -B "${changes}/${platform}/scripts/deploy/release_changes.py" \
     "${release_root}/current" "${changes}/${platform}" --hold-file "${changes}/hold" --host || return 1
   mapfile -t hold <"${changes}/hold"
