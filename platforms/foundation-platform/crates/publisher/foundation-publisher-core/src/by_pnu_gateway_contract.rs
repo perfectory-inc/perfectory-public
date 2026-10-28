@@ -608,6 +608,9 @@ pub struct SectionPackPolicy {
     pub max_index_entries: usize,
     /// Days a superseded generation is kept after its successor went live (root ADR-0242).
     pub superseded_generation_keep_days: i64,
+    /// The oldest a lane's served manifest may be (its `published_at_utc`) before the hourly
+    /// monitor fails (root ADR-0306): what users get, not what a job reported.
+    pub freshness_budget_hours: f64,
     pub preview_query_parameter: String,
     /// Where the gate's Cloudflare analytics credentials come from.
     pub cloudflare_analytics: CloudflareAnalyticsPolicy,

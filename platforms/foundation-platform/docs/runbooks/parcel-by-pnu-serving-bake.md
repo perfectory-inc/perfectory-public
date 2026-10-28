@@ -460,3 +460,32 @@ foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유
 샤드 굽기·목록 발행·건물 굽기·건물 발행은 위 작업이 되었고, Gold 생성(Spark)은 각 레인의 기존 Spark 잡이
 정본이며, 개수 세기·목록 보기·접두사 삭제 같은 점검·수리 명령은 옮기지 않는다(삭제는 append-only 원칙에 어긋나고
 개수 대조는 발행 명령이 한다).
+
+## 9. 서빙 신선도 경보
+
+[루트 ADR-0306](../../../../docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md).
+레인마다 매시 도는 `foundation-by-pnu-serving-monitor@<레인>` 이 서빙 manifest 의 `published_at_utc` 를 읽어,
+계약 `by_pnu_section_packs.freshness_budget_hours`(값은 그 파일) 보다 오래됐으면 실패하고 Slack 에
+`foundation-by-pnu-serving-monitor@<레인>.service 실패` 가 온다. 일지 마지막 줄은
+`the <레인> lane serves a manifest published <시각> (<N> h ago), past its freshness budget` 이다.
+
+**뜻**: 사용자가 받는 문서가 그 시간 동안 한 번도 새로 발행되지 않았다. 작업이 성공·`unchanged` 라고 말해도
+같다 — 2026-10-16~28 에 모든 레인이 10~12일 묵은 manifest 를 서빙하는 동안 작업 상태와 이 모니터의 서빙 검사가
+모두 초록이었다. 같은 일지에 `breached the monitor` 가 함께 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
+
+처음 세 가지:
+
+1. **작업 결과 줄** — 굽기가 무엇을 했다고 했나:
+   `journalctl -u foundation-by-pnu-serving-bake.service --since -3d | grep -E 'foundation-job-outcome|by-pnu-serving-bake <레인>:'`.
+   레인 줄이 `published` 가 아니라 `nothing to do`(Gold 가 안 움직임 → `gold_panel_rebuild`·`gold_kind_rebuild` 를 본다),
+   `FAILED`, `skipped`, `waiting` 이면 그 이유가 원인이다. 결과 줄이 아예 없으면 실행이 끝나지 않았다(아래 3).
+2. **Airflow 차례 미룸** — 실행이 시작됐나: 굽기는 `takes_turns` 라 같은 풀의 작업이 먼저 돌지 않았으면 미뤄진다.
+   `docker exec airflow-airflow-scheduler-1 sh -c 'grep -rh "start-scheduled-job: by_pnu_serving_bake" /opt/airflow/logs/dag_id=foundation_by_pnu_serving_bake/ | tail'`
+   에 `deferred: ...` 만 이어지면 차례가 오지 않는 것이다(루트 ADR-0138, ADR-0277).
+3. **실행 요약 날짜와 배포 중단** — `ls -lt /data/foundation-platform/by-pnu-bake/<레인>/runs/*/run-summary.json | head -3`
+   과 각 요약의 `published` 필드. 요약이 날마다 생기는데 `published` 가 없거나, 실행이 몇 시간 돌다 결과 없이
+   끝났으면 배포 드레인이 굽기를 멈춘 것이다(루트 ADR-0301): `journalctl -u foundation-autodeploy.service --since -3d` 와
+   굽기 일지의 `result=signal` 을 대조한다. 배포가 날마다 굽기를 멈추면 굽기는 영영 발행에 닿지 못한다.
+
+전량 굽기(새 세대)는 13시간 넘게 걸릴 수 있고 그동안 서빙은 이전 발행 그대로다. 그 사이 경보는 사실이다 — 굽기가
+`published` 로 끝나면 다음 시각 모니터가 초록으로 돌아온다.
