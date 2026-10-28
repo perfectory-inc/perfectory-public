@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_domain::{
@@ -10,8 +11,8 @@ use foundation_shared_kernel::ids::SourceCatalogId;
 use uuid::Uuid;
 
 use super::{
-    dated_file_id, persist, plan, request_spacing, source_contract, CollectConfig, Fetched,
-    DATASET_SLUG, OPERATION, PREFIX,
+    dated_file_id, persist, plan, probe_file_id, request_form, request_spacing, source_contract,
+    CollectConfig, Fetched, DATASET_SLUG, OPERATION, PREFIX,
 };
 
 fn at() -> chrono::DateTime<chrono::Utc> {
@@ -43,6 +44,25 @@ fn the_contract_spacing_is_a_floor_a_setting_cannot_lower() -> anyhow::Result<()
         request_spacing(&contract, Some(60_000))?.interval_millis(),
         60_000
     );
+    Ok(())
+}
+
+#[test]
+fn the_probe_is_the_table_form_narrowed_by_its_change_window() -> anyhow::Result<()> {
+    // Root ADR-0322 §2: the probe posts the full table's form plus the 변경기간 fields, with the
+    // contract's open end (a blank end returns nothing, measured 2026-10-28).
+    let contract = source_contract()?;
+    let full = request_form(&contract.full_table, None)?;
+    assert!(full
+        .iter()
+        .all(|(name, _)| name != "stdate" && name != "enddate"));
+    let since = chrono::NaiveDate::from_ymd_opt(2099, 1, 2).context("date")?;
+    let probe = request_form(&contract.full_table, Some(since))?;
+    assert_eq!(probe.len(), full.len() + 2);
+    assert!(full.iter().all(|pair| probe.contains(pair)));
+    assert!(probe.contains(&("stdate".to_owned(), "2099-01-02".to_owned())));
+    assert!(probe.contains(&("enddate".to_owned(), "9999-12-31".to_owned())));
+    assert_ne!(probe_file_id(at()), dated_file_id(at()));
     Ok(())
 }
 
@@ -202,6 +222,7 @@ async fn a_table_is_committed_once_and_a_local_copy_kept() -> anyhow::Result<()>
         request_spacing: request_spacing(&source_contract()?, None)?,
         live_write: true,
         output_dir: root.join("out"),
+        changed_since: None,
     };
     let fetched = table(at(), b"<table><tr><td>synthetic</td></tr></table>");
     let storage = FileObjectStorage::new(root.join("bronze"))?;

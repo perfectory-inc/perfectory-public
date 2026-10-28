@@ -50,6 +50,14 @@
       "$comment": "The table lists abolished codes too, so it only grows; a smaller table means a broken response, not a real change. min_rows is the floor for the first run (no previous table): 53,403 measured, minus about 6%. max_shrink_share refuses a table smaller than the previous accepted one by more than this share.",
       "min_rows": 50000,
       "max_shrink_share": 0.01
+    },
+    "changed_since_probe": {
+      "$comment": "Root ADR-0322 §2. Before the 58 MB table, each run asks the site's own 변경기간 filter which codes were created or abolished on or after `since` (the same form, plus start_field = since and end_field = window_end; both are required, a blank end returns nothing). Measured 2026-10-28: stdate 2026-07-28, enddate 9999-12-31 returned 32 rows, 72 KB, 3 seconds, the same 32 codes the 2026-10-04 table dates in that window (Trino reference.legal_dong_code_snapshot). A run whose probe returns the rows the last full run anchored (accepted.json `probe`) is confirmed without the table. `since` is the anchoring run's KST date minus lookback_days, so a change dated up to that far back is still in the window. A change the filter cannot see (a rename with no new date, a change dated before `since`) is caught by the full table at least every full_reconcile_days, which also re-anchors the window.",
+      "start_field": "stdate",
+      "end_field": "enddate",
+      "window_end": "9999-12-31",
+      "lookback_days": 31,
+      "full_reconcile_days": 7
     }
   },
   "pairing": {

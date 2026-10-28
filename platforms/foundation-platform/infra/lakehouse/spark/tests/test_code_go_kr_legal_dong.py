@@ -768,6 +768,88 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(after["table_object_key"], accepted["table_object_key"], "an unchanged run keeps the handed-off table")
 
 
+def probe_dir(root, table_rows, since, name="regcode-probe-20990702T051500Z"):
+    """A changed-since probe's output directory, as the Rust collector writes it (root ADR-0322 §2)."""
+
+    collect_dir(root, table_rows, name=name)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    manifest["changed_since"] = since
+    manifest["objects"][0]["role"] = "changed_since_probe"
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+class ChangedSinceProbeTest(unittest.TestCase):
+    """The probe confirms the accepted table only for the window a full run anchored (root ADR-0322 §2).
+
+    The incident: the collector downloaded the 58 MB table about ten times a day (2026-10 audit) while
+    it stood still; the site's 변경기간 filter answers the same question in about 70 KB.
+    """
+
+    def setUp(self):
+        HandoffTest.setUp(self)
+        self.dated = [r for r in self.rows if r[5] == DAY or r[6] == DAY]
+        self.probe = self.contract["full_table"]["changed_since_probe"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def anchor(self, at):
+        since = cg.probe_window(self.state, self.contract, at)
+        return cg.stage_handoff(collect_dir(self.root / f"full-{at:%d%H}", self.rows), self.state, self.contract, at,
+                                probe_dir=probe_dir(self.root / f"anchor-{at:%d%H}", self.dated, since)), since
+
+    def test_the_first_window_is_today_on_the_site_calendar_minus_the_lookback(self):
+        late_utc = datetime(2099, 1, 2, 20, tzinfo=timezone.utc)  # 2099-01-03 05:00 KST
+        self.assertEqual(cg.probe_window(self.state, self.contract, late_utc),
+                         (late_utc.astimezone(cg.KST).date() - cg.timedelta(days=self.probe["lookback_days"])).isoformat())
+
+    def test_the_same_rows_for_the_anchored_window_confirm_the_table_without_it(self):
+        _, since = self.anchor(NOW)
+        later = NOW + cg.timedelta(days=1)
+        self.assertEqual(cg.probe_window(self.state, self.contract, later), since, "the anchored window is reused")
+        result = cg.check_probe(probe_dir(self.root / "p1", self.dated, since), self.state, self.contract, later)
+        self.assertEqual((result["status"], result["confirmed_by"]), ("unchanged", "probe"))
+        accepted = json.loads((self.state / "accepted.json").read_text(encoding="utf-8"))
+        self.assertEqual(accepted["checked_at_utc"], later.isoformat(), "the hub's freshness check sees the probe")
+        self.assertEqual(accepted["full_checked_at_utc"], NOW.isoformat(), "a probe is not a full confirmation")
+
+    def test_a_new_dated_code_or_a_moved_window_reads_the_full_table(self):
+        _, since = self.anchor(NOW)
+        later = NOW + cg.timedelta(days=1)
+        added = self.dated + [row("9911010300", "합성특별시 가구 병동", parent="9911000000", created=DAY)]
+        result = cg.check_probe(probe_dir(self.root / "p1", added, since), self.state, self.contract, later)
+        self.assertEqual((result["status"], result["reason"]), ("check", "the site lists other changes"))
+        moved = cg.check_probe(probe_dir(self.root / "p2", self.dated, "2098-01-01"), self.state, self.contract, later)
+        self.assertEqual((moved["status"], moved["reason"]), ("check", "window moved"))
+        accepted = json.loads((self.state / "accepted.json").read_text(encoding="utf-8"))
+        self.assertEqual(accepted["checked_at_utc"], NOW.isoformat(), "a probe that cannot confirm records nothing")
+
+    def test_the_full_table_is_owed_every_reconcile_interval_and_re_anchors_the_window(self):
+        _, since = self.anchor(NOW)
+        due = NOW + cg.timedelta(days=self.probe["full_reconcile_days"])
+        fresh = cg.probe_window(self.state, self.contract, due)
+        self.assertGreater(fresh, since, "a due reconcile asks from a fresh window")
+        result = cg.check_probe(probe_dir(self.root / "p1", self.dated, since), self.state, self.contract, due)
+        self.assertEqual((result["status"], result["reason"]), ("check", "full reconcile due"))
+        _, anchored = self.anchor(due)
+        self.assertEqual(anchored, fresh)
+        accepted = json.loads((self.state / "accepted.json").read_text(encoding="utf-8"))
+        self.assertEqual((accepted["probe"]["since"], accepted["full_checked_at_utc"]), (fresh, due.isoformat()))
+
+    def test_a_table_accepted_before_the_probe_is_read_whole_once(self):
+        cg.stage_handoff(collect_dir(self.root / "legacy", self.rows), self.state, self.contract, NOW)
+        legacy = json.loads((self.state / "accepted.json").read_text(encoding="utf-8"))
+        for key in ("probe", "full_checked_at_utc", "confirmed_by"):
+            legacy.pop(key, None)
+        (self.state / "accepted.json").write_text(json.dumps(legacy), encoding="utf-8")
+        since = cg.probe_window(self.state, self.contract, NOW)
+        result = cg.check_probe(probe_dir(self.root / "p1", self.dated, since), self.state, self.contract, NOW)
+        self.assertEqual((result["status"], result["reason"]), ("check", "no anchored window"))
+        self.assertEqual(cg.check_probe(probe_dir(self.root / "p2", self.dated, since), self.root / "none",
+                                        self.contract, NOW)["reason"], "no accepted table")
+
+
 # --- steward decisions and reruns -------------------------------------------------------------
 
 
