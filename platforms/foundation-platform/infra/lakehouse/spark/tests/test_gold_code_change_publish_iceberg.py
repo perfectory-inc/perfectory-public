@@ -33,6 +33,8 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
                      .config("spark.sql.catalog.proof", "org.apache.iceberg.spark.SparkCatalog")
                      .config("spark.sql.catalog.proof.type", "hadoop")
                      .config("spark.sql.catalog.proof.warehouse", cls.directory.name)
+                     # Its own: Stages clears sibling stage directories, and other files run beside this one.
+                     .config("spark.local.dir", str(Path(cls.directory.name) / "local"))
                      .config("spark.sql.shuffle.partitions", "4")
                      # Four range files, so a merge has files it must leave alone.
                      .config("spark.sql.adaptive.enabled", "false")
