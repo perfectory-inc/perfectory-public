@@ -21,6 +21,10 @@
     "parcels": 14
   },
   "maxzoom_detail_reason": "Root ADR-0262. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. A unit not listed keeps 12.",
+  "partition_by_feature_id_prefix": {
+    "parcels": 2
+  },
+  "partition_by_feature_id_prefix_reason": "Root ADR-0316. A unit listed here is baked one archive per feature-id prefix and the archives are joined with tile-join (installed beside tippecanoe from the same pinned commit). For parcels the first 2 characters of the PNU are the 시도. Each archive is kept under the bake work root as <unit>-partitions/<prefix>/<sha256 of its rows and bake inputs>.pmtiles, create-only, so an edition that leaves a 시도's rows unchanged reuses that 시도's archive instead of running GDAL and tippecanoe over it again. A unit not listed is baked whole.",
   "work_disk": {
     "min_free_bytes": 2147483648,
     "min_free_bytes_per_handoff_byte": 8,
