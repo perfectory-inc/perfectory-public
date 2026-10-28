@@ -136,6 +136,11 @@ class Layout(unittest.TestCase):
         # Every range-written table has a cluster key the check knows a region of.
         self.assertEqual(set(clustered), ranged)
 
+    def test_a_derived_change_log_is_not_judged(self):
+        # gold.<table>__changes (root ADR-0191 §1) is read by snapshot, never pruned by key range.
+        contracts = {"gold.a__changes": {"write_distribution": "range", "sort_order": ["pnu"]}}
+        self.assertEqual(check.clustered_tables(contracts), {})
+
     def test_layout_reads_only_metadata_tables_and_skips_tables_without_rows(self):
         contracts = {"gold.a": {"write_distribution": "range", "sort_order": ["pnu"]},
                      "gold.b": {"write_distribution": "range", "sort_order": ["pnu"]},

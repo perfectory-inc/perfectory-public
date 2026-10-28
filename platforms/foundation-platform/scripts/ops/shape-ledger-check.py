@@ -102,12 +102,17 @@ KEY_SHARE_FLOOR = 0.01
 # The commit's own count of the keys it changed, a snapshot summary property its writer sets
 # (root ADR-0314 §4); a commit that lacks it cannot be judged and is named instead.
 KEYS_CHANGED = "foundation.keys-changed"
+# A derived change log beside its table (root ADR-0191 §1): exempt from the layout judgment.
+CHANGE_LOG_SUFFIX = "__changes"
 
 
 def clustered_tables(contracts: dict) -> dict[str, str]:
     """Each table written range-distributed by a cluster key the check knows a region of, with
-    that key."""
+    that key. Only contract tables: a derived change log (`gold.<table>__changes`, root ADR-0191
+    §1) has no contract and is not judged — it is appended one commit per change set and read by
+    snapshot, never pruned by key range, so neither its layout nor its byte share says anything."""
     return {name: spec["sort_order"][0] for name, spec in sorted(contracts.items())
+            if not name.endswith(CHANGE_LOG_SUFFIX)
             if spec.get("write_distribution") == "range" and spec.get("sort_order")
             and spec["sort_order"][0] in REGION_DIGITS}
 
