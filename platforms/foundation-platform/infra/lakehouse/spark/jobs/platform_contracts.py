@@ -448,6 +448,10 @@ def sort_order(contract: dict[str, Any]) -> tuple[str, ...]:
 
 WRITE_DISTRIBUTION_MODES = ("hash", "range")
 DISTRIBUTION_MODE_PROPERTY = "write.distribution-mode"
+# Iceberg does not fall back to write.distribution-mode for a copy-on-write MERGE on a partitioned
+# table: unset, it hash-clusters by partition, which with one source_snapshot_id value scatters
+# every PNU over every file (root ADR-0307). The incremental Gold rebuild commits by MERGE.
+MERGE_DISTRIBUTION_MODE_PROPERTY = "write.merge.distribution-mode"
 # Iceberg's Spark table reports its sort order under this reserved property, one
 # "<term> <ASC|DESC> <NULLS FIRST|NULLS LAST>" per field, comma separated.
 SORT_ORDER_PROPERTY = "sort-order"
@@ -491,7 +495,7 @@ def write_order_drift(contract: dict[str, Any], properties: dict[str, str]) -> b
 
     if write_distribution_mode(contract) != "range":
         return False
-    if properties.get(DISTRIBUTION_MODE_PROPERTY) != "range":
+    if any(properties.get(key) != "range" for key in (DISTRIBUTION_MODE_PROPERTY, MERGE_DISTRIBUTION_MODE_PROPERTY)):
         return True
     fields = [
         field.split() for field in properties.get(SORT_ORDER_PROPERTY, "").split(",") if field.strip()
@@ -512,13 +516,15 @@ def apply_write_order(spark: Any, table: str, contract: dict[str, Any]) -> bool:
     Called after ``CREATE TABLE IF NOT EXISTS`` by the writers of a range-distributed table and
     by the deploy's lakehouse migration, so the order is the contract's whichever reaches the
     table first. ``WRITE ORDERED BY`` sets the table sort order and ``write.distribution-mode``
-    to ``range`` in one metadata commit; no data file is rewritten, and only writes after it are
-    ordered. Returns whether it changed the table.
+    to ``range`` in one metadata commit, and ``write.merge.distribution-mode`` is set to ``range``
+    so the incremental rebuild's MERGE keeps the order too (root ADR-0307); no data file is
+    rewritten, and only writes after it are ordered. Returns whether it changed the table.
     """
 
     if not write_order_drift(contract, table_properties(spark, table)):
         return False
     spark.sql(f"ALTER TABLE {table} WRITE ORDERED BY {', '.join(sort_order(contract))}")
+    spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ('{MERGE_DISTRIBUTION_MODE_PROPERTY}' = 'range')")
     if write_order_drift(contract, table_properties(spark, table)):
         raise ValueError(
             f"{table} did not take the contract's write order {list(sort_order(contract))}"
