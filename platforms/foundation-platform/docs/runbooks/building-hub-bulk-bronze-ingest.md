@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-28
 ---
 
 # hub.go.kr 벌크 Bronze 수집 실행 Runbook
@@ -167,15 +167,12 @@ sudo chown 65534:foundation-platform /etc/foundation-platform/secrets/alertmanag
 sudo chmod 0440 /etc/foundation-platform/secrets/alertmanager-slack-bot-token
 ```
 
-3. **퍼블리셔 바이너리 사본.** sweep 은 릴리스에서 빌드한 서버 사본을 쓴다. 배포 후
-   바이너리를 다시 빌드했으면 이 사본도 갱신한다:
-
-```bash
-sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/bin
-sudo install -o foundation-platform -g foundation-platform -m 0755 \
-  ~perfectory/publisher-bin/foundation-outbox-publisher /var/lib/foundation-platform/bin/
-sudo install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/source-sweep
-```
+3. **퍼블리셔 바이너리는 손으로 두지 않는다.** sweep 은 배포된 `current` 릴리스의 빌드 산출물
+   `/opt/foundation-platform/artifacts/<release sha>/foundation-outbox-publisher` 만 실행한다
+   (`scripts/ops/admitted-writer-runtime.sh --current` 가 그 경로를 정하고 `build.json` 의 sha256 과 대조한다;
+   환경 변수나 상태 디렉터리의 사본은 받지 않는다, 루트 ADR-0134 §3·ADR-0276). 바이너리를 바꾸려면 새 릴리스를
+   배포한다. 상태 디렉터리 `/var/lib/foundation-platform/source-sweep`·`/data/foundation-platform/source-sweep` 도
+   릴리스가 만든다(`orchestration/jobs.v1.json` 의 `state_directories` → `systemd-tmpfiles --create`).
 
 4. **서비스 설치** — 릴리스 스크립트의 `timers` 동사가 서비스 유닛과 Airflow 의 시작 권한을 설치한다
    (일정은 `orchestration/jobs.v1.json`, [예약 작업 운영](./production-orchestrator-cutover.md)):
