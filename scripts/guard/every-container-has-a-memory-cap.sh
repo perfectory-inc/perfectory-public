@@ -425,7 +425,10 @@ def scheduled_load(section: dict) -> tuple[int, str]:
     for pool, spec in pools.items():
         members = [job for job in jobs.values() if job["pool"] == pool and job["id"] in peaks]
         worst, worst_set = 0, ()
-        for size in range(1, len(members) + 1):
+        # Every job takes at least one slot, so a group larger than the pool's slots never fits: not
+        # enumerating them keeps this polynomial, not 2^n (30 spark jobs took 16 minutes on CI,
+        # 2026-10-28), as job_specs.longest_wait_minutes does.
+        for size in range(1, min(len(members), spec["slots"]) + 1):
             for group in itertools.combinations(members, size):
                 if sum(job.get("pool_slots", 1) for job in group) > spec["slots"]:
                     continue
