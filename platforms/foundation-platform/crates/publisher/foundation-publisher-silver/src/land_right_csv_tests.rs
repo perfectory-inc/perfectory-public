@@ -118,6 +118,7 @@ async fn land_right_csv_preserves_every_registration_and_verbatim_registry_field
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect()
     );
     Ok(())

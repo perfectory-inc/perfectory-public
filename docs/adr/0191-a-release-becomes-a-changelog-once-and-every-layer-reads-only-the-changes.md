@@ -1,6 +1,6 @@
 # ADR 0191: 릴리스는 적재 때 한 번 변경 기록이 되고, 모든 층은 변경만 읽는다
 
-- Status: Proposed — 단계 ②(허브 덮어쓰기 레인 셋이 `changelog.py` 를 부른다)와 함께 병합될 때 Accepted
+- Status: Accepted as amended by [ADR-0311](./0311-silver-lanes-overwrite-only-with-a-declared-reason-and-the-compare-commit-is-the-changelog.md) (2026-10-28: 변경 기록은 비교 커밋, `__changes` 표는 만들지 않는다) — 원래: Proposed — 단계 ②(허브 덮어쓰기 레인 셋이 `changelog.py` 를 부른다)와 함께 병합될 때 Accepted
 - Date: 2026-10-12
 - Builds on: [ADR-0180](./0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md) (Gold 는 바뀐 PNU 만),
   ADR-0189 (PR #425, 병합 대기) (append 입력은 추가분이 변경 집합),

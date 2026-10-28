@@ -339,6 +339,64 @@ fn a_contract_that_would_misload_its_lane_is_refused() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
+    // silver.land_forest_ledger rewrote 39.9M rows a week for about 5K changes while its contract
+    // said nothing about it (root ADR-0311): an overwriting lane names compare or a priced reason.
+    let undeclared: Vec<(Lane, Box<dyn FnOnce(&mut serde_json::Value)>)> = vec![
+        (
+            Lane::LandForestLedger,
+            Box::new(|v| {
+                if let Some(block) = v["silver_refresh"].as_object_mut() {
+                    block.remove("compare");
+                }
+            }),
+        ),
+        (
+            Lane::Titles,
+            Box::new(|v| {
+                if let Some(block) = v["silver_refresh"].as_object_mut() {
+                    block.remove("full_reason");
+                }
+            }),
+        ),
+        // a reason with no measured cost is not an exception anybody priced
+        (
+            Lane::Titles,
+            Box::new(|v| v["silver_refresh"]["full_reason"]["measured_cost"] = " ".into()),
+        ),
+        // both: a lane does one of them
+        (
+            Lane::LandForestLedger,
+            Box::new(|v| {
+                v["silver_refresh"]["full_reason"] =
+                    serde_json::json!({"reason": "r", "measured_cost": "c"});
+            }),
+        ),
+        // an appending lane has nothing to excuse
+        (
+            Lane::ApartmentPrice,
+            Box::new(|v| {
+                v["silver_refresh"]["full_reason"] =
+                    serde_json::json!({"reason": "r", "measured_cost": "c"});
+            }),
+        ),
+    ];
+    for (lane, edit) in undeclared {
+        let text = planted(lane, edit)?;
+        assert!(LaneContract::parse(lane, &text).is_err(), "accepted {text}");
+    }
+    for lane in Lane::ALL {
+        let (_, text) = lane.contract_source();
+        let value: serde_json::Value = serde_json::from_str(text)?;
+        let block = &value["silver_refresh"];
+        let overwrites = block["spark"]["iceberg_write_mode"] == "overwrite";
+        let declared = block.get("compare").is_some() != block.get("full_reason").is_some();
+        assert_eq!(overwrites, declared, "{lane:?}");
+    }
+    Ok(())
+}
+
 // ---- unchanged or changed (root ADR-0169 §3–4) --------------------------------------------
 
 fn title_release(day: &str) -> anyhow::Result<Release> {

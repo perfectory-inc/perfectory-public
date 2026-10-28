@@ -84,6 +84,9 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
                          iceberg_catalog_name="proof")
         return job.compare_and_append(self.spark, args)
 
+    def head(self):
+        return self.spark.sql(f"SELECT snapshot_id FROM {TABLE}.refs WHERE name = 'main'").collect()[0].snapshot_id
+
     def current(self):
         from platform_contracts import current_rows
 
@@ -100,7 +103,16 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
         self.stage("20990901", september, "load_september")
         self.assertEqual(self.current(), Counter((lot(n), s, r) for n, s, r in june), "staged is not published")
 
+        before = self.head()
         summary = self.compare("20990901", "load_september")
+
+        # The commit is the release's change record (root ADR-0311): a consumer reads its 5 rows, not
+        # two snapshots of the table, and their keys are exactly the lots whose current rows moved.
+        import changelog
+
+        changes = changelog.changes_between(self.spark, TABLE, before, self.head())
+        self.assertEqual(changes.count(), 4 + 1)
+        self.assertEqual({row.pnu for row in changes.collect()}, {lot(3), lot(4), lot(5), lot(6)})
 
         # Lot 3 changed (1 row), lot 4 gained a repeat (its 2 rows), lot 6 is new; lot 5 vanished.
         self.assertEqual((summary["outcome"], summary["changed_key_rows"], summary["removed_keys"]), ("appended", 4, 1))
@@ -118,6 +130,17 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
         self.assertEqual(self.spark.table(UNQUOTED).count(), rows)
         self.assertIn("bronze/20991201.zip", ingest.read_ingested_objects(self.spark, TABLE, UNQUOTED))
         self.assertEqual(self.current(), Counter((lot(n), s, r) for n, s, r in september))
+        # Both records chain from the September pin's parent: an empty step reads nothing.
+        self.assertEqual(changelog.changes_between(self.spark, TABLE, before, self.head()).count(), 5)
+
+    def test_an_overwrite_of_main_by_a_comparing_lane_is_refused(self):
+        import lakehouse_ingest as ingest
+
+        if not self.spark.table(UNQUOTED).count():
+            ingest.append_batch_once(self.spark, self.frame("20990301", [(9, 1, "x")]), self.columns, TABLE, CONTRACT)
+        with self.assertRaisesRegex(ValueError, "on main"):
+            ingest.append_batch_once(self.spark, self.frame("20990401", [(9, 1, "y")]), self.columns, TABLE,
+                                     CONTRACT, write_mode="overwrite")
 
 
 if __name__ == "__main__":
