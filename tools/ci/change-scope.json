@@ -722,7 +722,8 @@
       },
       {
         "name": "file-line-limit",
-        "always": "Any tracked source or document file can grow past the line limit; the scan is one `git ls-files` and a newline count."
+        "always": "Any tracked source or document file can grow past the line limit; the scan is one `git ls-files` and a newline count.",
+        "budget_seconds": 10
       },
       {
         "name": "every-job-declares-its-scope-self-test",
