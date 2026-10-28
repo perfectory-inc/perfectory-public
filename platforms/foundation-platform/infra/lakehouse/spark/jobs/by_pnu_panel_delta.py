@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Name the PNUs a by-PNU serving patch must carry (root ADR-0141 §3, ADR-0099).
 
-The Gold panels are rebuilt whole, so Iceberg's incremental read answers "what changed between
-snapshots" with "everything". The real question is content: this job joins two snapshots of
-`gold.parcel_panel` or `gold.building_panel` on PNU and compares `row_digest` — the fingerprint of
-exactly the columns the serving document is built from, lineage excluded. Changed and new PNUs
-are the patch's upserts; PNUs gone from Gold are its tombstones.
+The question is content: which PNUs' `row_digest` — the fingerprint of exactly the columns the
+serving document is built from, lineage excluded — differs between two snapshots of a lane's Gold.
+Changed and new PNUs are the patch's upserts; PNUs gone from Gold are its tombstones.
+
+An incremental Gold commit records the PNUs it merged (`gold.<t>__changes`, root ADR-0191 §4,
+ADR-0312 §1). When every commit between the two snapshots is recorded (or a compaction), only those
+PNUs are compared: both snapshots are semi-joined to them, so nothing is shuffled but the recorded
+keys, and a run with no recorded change reads no row. A step without a record (a full rebuild, a
+schema backfill) falls back to joining the two snapshots whole. Both paths give the same counts.
 
 The comparison snapshot is the one the serving manifest last reflected
 (`reflected_gold_iceberg_snapshot_id`), never a guess. Designed refusals, each a distinct exit:
@@ -143,8 +147,9 @@ def classify(baseline: Any, current: Any) -> Any:
 
 
 def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str,
-                   key_suffix_column: str | None = None) -> Any:
-    """The snapshot's rows as (pnu, row_digest, present), `pnu` being the lane's document key."""
+                   key_suffix_column: str | None = None, pnus: Any | None = None) -> Any:
+    """The snapshot's rows as (pnu, row_digest, present), `pnu` being the lane's document key; only
+    the rows of `pnus` (a list of PNUs, pushed into the scan, or a frame of `pnu`) when given."""
     from pyspark.sql import functions as F
 
     known = spark.sql(
@@ -163,6 +168,10 @@ def snapshot_frame(spark: Any, catalog: str, table: str, snapshot_id: str,
             f"snapshot {snapshot_id} of {table} carries no row_digest; a digest-less snapshot "
             "cannot be compared — re-base the lane (ADR-0099, ADR-0146)",
         )
+    if isinstance(pnus, list):
+        frame = frame.where(F.col("pnu").isin(pnus))
+    elif pnus is not None:
+        frame = frame.join(pnus, "pnu", "left_semi")
     key = F.col("pnu") if key_suffix_column is None else F.concat(F.col("pnu"), F.col(key_suffix_column))
     return frame.select(key.alias("pnu"), "row_digest", F.lit(True).alias("present"))
 
@@ -205,6 +214,49 @@ def same_content(spark: Any, table: str, baseline_id: str, current_id: str) -> i
                           gold_fingerprint.recorded(spark, table, current_id))
 
 
+def unchanged_rest(current_rows: int, counts: dict[str, int]) -> int:
+    """The current rows outside the recorded PNUs, with the same verdict among them (`same`)."""
+    rest = current_rows - counts.get("changed", 0) - counts.get("new", 0)
+    if rest < counts.get("same", 0):
+        raise ValueError(f"the current snapshot holds {current_rows} rows, fewer than the recorded PNUs' {counts}")
+    return rest
+
+
+def snapshot_rows(spark: Any, table: str, snapshot_id: str) -> int:
+    """The row count the snapshot's summary records."""
+    row = spark.sql(f"SELECT summary['total-records'] AS rows FROM {table}.snapshots "
+                    f"WHERE snapshot_id = {int(snapshot_id)}").first()
+    if row is None or row.rows is None:
+        raise Refusal(EXIT_NO_COMPARISON, f"{table} snapshot {snapshot_id} records no row count")
+    return int(row.rows)
+
+
+# Up to this many recorded PNUs are a filter Iceberg prunes data files with (its metrics evaluators
+# treat a longer IN as "might match"), so a small change set reads only the files holding it and an
+# empty one reads none. Above it they are a semi-join, broadcast up to BROADCAST_PNUS.
+PUSHDOWN_PNUS = 200
+BROADCAST_PNUS = 500_000
+
+
+def recorded_pnus(spark: Any, args: argparse.Namespace, table: str) -> Any | None:
+    """The PNUs the Gold commits between the two snapshots recorded, or None (compare whole)."""
+    from pyspark.sql import functions as F
+
+    import gold_incremental
+
+    pnus = gold_incremental.recorded_changes(spark, f"`{args.iceberg_catalog_name}`.{table}",
+                                             args.baseline_snapshot_id, args.current_snapshot_id)
+    if pnus is None:
+        print(f"{JOB_NAME}-change-source diff: a commit between the snapshots recorded no change set")
+        return None
+    pnus = pnus.persist()
+    count = pnus.count()
+    print(f"{JOB_NAME}-change-source recorded pnus={count}")
+    if count <= PUSHDOWN_PNUS:
+        return sorted(row.pnu for row in pnus.collect())
+    return F.broadcast(pnus) if count <= BROADCAST_PNUS else pnus
+
+
 def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     from pyspark import StorageLevel
     from pyspark.sql import functions as F
@@ -218,14 +270,20 @@ def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
         write_pnus(spark.createDataFrame([], "pnu string"), args.delete_output)
         return judge({"same": unchanged}, args.max_delta_fraction)
     suffix = KEY_SUFFIX_COLUMNS.get(args.unit)
-    baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id, suffix)
-    current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id, suffix)
+    pnus = recorded_pnus(spark, args, table)
+    baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id, suffix, pnus)
+    current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id, suffix, pnus)
     refuse_missing_digests(baseline, "baseline")
     refuse_missing_digests(current, "current")
     # One join, kept on disk: the counts and both lists read it instead of joining again.
     classified = classify(baseline, current).persist(StorageLevel.DISK_ONLY)
     counts = {row["verdict"]: int(row["count"]) for row in classified.groupBy("verdict").count().collect()}
+    if pnus is not None:
+        # No commit between the two touched any other row, so the rest of the current rows are the same.
+        counts["same"] = unchanged_rest(snapshot_rows(spark, f"`{args.iceberg_catalog_name}`.{table}",
+                                                      args.current_snapshot_id), counts)
     metrics = judge(counts, args.max_delta_fraction)
+    metrics["change_source"] = "diff" if pnus is None else "recorded"
     write_pnus(classified.where(F.col("verdict").isin("changed", "new")).select("pnu"), args.upsert_output)
     write_pnus(classified.where(F.col("verdict") == "deleted").select("pnu"), args.delete_output)
     classified.unpersist()

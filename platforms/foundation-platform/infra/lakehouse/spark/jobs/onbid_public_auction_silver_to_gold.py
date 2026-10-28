@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 JOB_NAME = "onbid_public_auction_silver_to_gold"
@@ -249,8 +250,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     import section_coverage  # noqa: PLC0415
 
     section_coverage.add_arguments(parser)
+    # Root ADR-0312 §2: the harness passes the incremental flags when the plan says `incremental`.
+    import gold_incremental  # noqa: PLC0415
+
+    gold_incremental.add_arguments(parser)
     args = parser.parse_args(argv)
-    args.region_prefix = None
+    # The shared build_or_merge reads these; this producer always writes the whole kind or merges.
+    args.region_prefix, args.iceberg_write_mode, args.expected_count = None, "overwrite", None
     section_coverage.validate_arguments(args)
     if args.minimum_count is not None and args.minimum_count < 0:
         parser.error("--minimum-count must be non-negative")
@@ -259,59 +265,192 @@ def parse_args(argv=None) -> argparse.Namespace:
     return args
 
 
-def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int]) -> Any:
-    """The kind's Gold rows at `pins`: one per PNU that holds a served round."""
+GOLD_CONTENT = ("public_auction_json", "attached_via")
+# The round identifiers of a served document, enough to find which PNUs a round is served under.
+DOCUMENT_ROUND_KEYS = "struct<rounds:array<struct<cltr_mng_no:string,pbct_cdtn_no:bigint>>>"
+
+
+@dataclass
+class Placement:
+    """What places a round besides its own rows: the lineage (whole-table inputs) and the build time."""
+
+    as_of: str
+    candidates: Any | None = None
+    merges: Any | None = None
+    usage: Any | None = None
+
+
+def placement(frames: dict[str, Any], how: Placement) -> Any:
+    """The served rounds of `frames` placed on their PNUs (one row per round and PNU, with photos).
+
+    `frames[PARCEL_SOURCE]` is a frame of `pnu`: the current parcels, of which only those a sale or
+    its lineage names matter (`parcels_named`)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    served = served_rounds(rounds(frames[ITEM_SOURCE]), F.to_timestamp(F.lit(how.as_of)))
+    photos = None
+    if PHOTO_SOURCE in frames:
+        photos = photos_by_round(current_rows(frames[PHOTO_SOURCE], load_lakehouse_contract(PHOTO_SOURCE)))
+    return placed(with_photos(with_usage_names(served, how.usage), photos), frames[PARCEL_SOURCE],
+                  how.candidates, how.merges)
+
+
+def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...]) -> Any:
+    """The kind's Gold rows from placed rounds: one per PNU that holds a servable round."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    return document_rows(servable(located)).select(
+        "pnu", *GOLD_CONTENT, F.lit(source_snapshot_id).alias("source_snapshot_id"),
+        F.lit(as_of).alias("published_at_utc"),
+    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", *GOLD_CONTENT)), 256)).select(*columns)
+
+
+def parcels_named(parcels: Any, items: Any, candidates: Any | None, merges: Any | None) -> Any:
+    """The current parcels placement can ask about: every PNU an item row names and every successor
+    the lineage may move it to. `placed` only tests those for being current, so the rest of the
+    ~40M parcels are never carried past this join (root ADR-0312 §2)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    sources = items.select(F.col("pnu").alias("source_pnu")).where(F.col("source_pnu").isNotNull()).distinct()
+    named = sources.select(F.col("source_pnu").alias("pnu"))
+    if candidates is not None:
+        named = named.unionByName(candidates.join(sources, "source_pnu").select(F.col("successor_pnu").alias("pnu")))
+    if merges is not None:
+        named = named.unionByName(merges.join(sources.withColumnRenamed("source_pnu", "predecessor_pnu"), "predecessor_pnu")
+                                  .select(F.col("successor_pnu").alias("pnu")))
+    return parcels.join(F.broadcast(named.distinct()), "pnu", "left_semi")
+
+
+def rounds_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
+    """`frames` with the item and photo rows cut to the rounds of `keys` (every version of each)."""
+    return {name: frame.join(keys, list(KEY), "left_semi") if name in (ITEM_SOURCE, PHOTO_SOURCE) else frame
+            for name, frame in frames.items()}
+
+
+def restrict_inputs(frames: dict[str, Any], keys: Any, how: Placement) -> dict[str, Any]:
+    """The input rows the Gold rows of the PNUs `keys` are built from: every round placed on them."""
+    return rounds_of(frames, placement(frames, how).join(keys, "pnu", "left_semi").select(*KEY).distinct())
+
+
+def document_round_keys(gold: Any) -> Any:
+    """(pnu, round key) for every round a Gold document serves."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    rounds_json = F.from_json("public_auction_json", DOCUMENT_ROUND_KEYS)["rounds"]
+    return (gold.select("pnu", F.explode(rounds_json).alias("_r"))
+            .select("pnu", *[F.col(f"_r.{k}").alias(k) for k in KEY]))
+
+
+def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, current_gold: Any,
+                  previous_as_of: str | None, changed: list[str]) -> Any:
+    """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
+
+    A round is touched when a row of it changed in the item or photo table, or when its close time
+    passed since the current Gold was built (`previous_as_of`: it left the served rounds with no
+    input change). Its PNUs are those the current Gold serves it under and those it is placed on
+    now, so a round that moved, closed or appeared reaches both ends."""
+    from functools import reduce  # noqa: PLC0415
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    import gold_incremental as incremental  # noqa: PLC0415
+
+    touched = [incremental.changed_rows(old[name], new[name], KEY)
+               for name in (ITEM_SOURCE, PHOTO_SOURCE) if name in changed and name in old and name in new]
+    open_rounds = rounds(new[ITEM_SOURCE]).where(F.col("is_open") & F.col("bid_ends_at").isNotNull())
+    closed = open_rounds.where(F.col("bid_ends_at") <= F.to_timestamp(F.lit(how.as_of)))
+    if previous_as_of is not None:
+        closed = closed.where(F.col("bid_ends_at") > F.to_timestamp(F.lit(previous_as_of)))
+    touched.append(closed.select(*KEY))
+    keys = reduce(lambda a, b: a.unionByName(b), [t.select(*KEY) for t in touched]).distinct()
+    now = placement(rounds_of(new, keys), how).select("pnu")
+    before = document_round_keys(current_gold).join(keys, list(KEY), "left_semi").select("pnu")
+    return now.unionByName(before).distinct()
+
+
+def validate_gold(gold: Any, expected: int | None = None) -> tuple[int, dict[str, int]]:
+    """One row per valid PNU (the quality gates the contract names)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
+
+    rows = gold.count()
+    duplicates = gold.groupBy("pnu").count().where(F.col("count") > 1).count()
+    invalid = gold.where(~F.col("pnu").rlike(panel.PNU_PATTERN)).count()
+    if duplicates or invalid:
+        raise ValueError(f"Gold quality gates failed: {duplicates} duplicated and {invalid} invalid PNUs")
+    if expected is not None and rows != expected:
+        raise ValueError(f"Expected {expected} Gold rows, found {rows}")
+    return rows, {}
+
+
+def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], counters: dict[str, int],
+                previous: dict[str, str] | None) -> tuple[dict[str, Any], dict[str, Any] | None, Placement]:
+    """(the inputs at `pins`, the item and photo tables at `previous` or None, how rounds are placed)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
     from lakehouse_snapshot_pins import read_pinned_iceberg  # noqa: PLC0415
-    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from platform_contracts import load_lakehouse_contract, with_contract_columns  # noqa: PLC0415
 
-    as_of = panel.normalize_utc_timestamp(args.published_at_utc)
+    def versions(source: str, at: dict[str, str]) -> Any:
+        # Every version, as the contract's columns (an older snapshot reads a later column as null).
+        table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{source.split('.', 1)[1]}"
+        return with_contract_columns(read_pinned_iceberg(spark, table, source, at), load_lakehouse_contract(source))
+
+    tables = [ITEM_SOURCE, *((PHOTO_SOURCE,) if args.photos and PHOTO_SOURCE in pins else ())]
+    frames = {name: versions(name, pins).cache() for name in tables}
+    old = None if previous is None else {name: versions(name, previous) for name in tables if name in previous}
+    named = frames[ITEM_SOURCE].select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
+    sources = {r.predecessor_pnu for r in named.collect()}
+    # Only the candidates from a PNU a sale names: a few thousand, not the lineage's 6.5M.
+    candidates = panel.read_carry_candidates(spark, args, counters, pins, sources) if args.carry_lineage else None
+    merges = None
+    if args.carry_lineage:
+        merges = (panel.read_source(spark, args, LINEAGE_SOURCE, pins).where(F.col("relation") == F.lit("merge"))
+                  .select("predecessor_pnu", "successor_pnu", "grade")
+                  .join(F.broadcast(named), "predecessor_pnu", "left_semi").cache())
+    usage = None
+    if USAGE_CODE_SOURCE in pins:
+        usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
     # The parcel universe is the SERVED edition only (root ADR-0148), the same one the panel, map and
     # catalog are built from — not every edition held side by side in silver.parcel_boundaries. Reading
     # all editions (the generic read_source) attached sales to parcels a newer, unpromoted edition
     # holds but the served map does not (2026-10-21: 632 PNUs of editions 202609/202610 served under
     # 202606), which the by-PNU serving gate then refused. read_served_parcels is the panel's own
-    # served-edition reader, so this kind sees exactly the parcels the host lane serves.
-    parcels = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
-    # Read whole: rounds() runs the contract's current_rows over every version to take each round's current row.
-    items = read_pinned_iceberg(spark, f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{ITEM_SOURCE.split('.', 1)[1]}",
-                                ITEM_SOURCE, pins)
-    candidates = panel.read_carry_candidates(spark, args, counters, pins) if args.carry_lineage else None
-    merges = None
-    if args.carry_lineage:
-        merges = (panel.read_source(spark, args, LINEAGE_SOURCE, pins).where(F.col("relation") == F.lit("merge"))
-                  .select("predecessor_pnu", "successor_pnu", "grade"))
-    usage = None
-    if USAGE_CODE_SOURCE in pins:
-        usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
-    photos = None
-    if args.photos and PHOTO_SOURCE in pins:
-        # Read whole and take each (item, hash)'s current row, the same way rounds() reads items.
-        photo_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{PHOTO_SOURCE.split('.', 1)[1]}"
-        photos = photos_by_round(current_rows(read_pinned_iceberg(spark, photo_table, PHOTO_SOURCE, pins),
-                                              load_lakehouse_contract(PHOTO_SOURCE)))
-    round_rows = rounds(items)
-    served = served_rounds(round_rows, F.to_timestamp(F.lit(as_of)))
-    counters["served_rounds"] = served.count()
-    counters["served_rounds_without_pnu"] = served.where(F.col("source_pnu").isNull()).count()
-    located = placed(with_photos(with_usage_names(served, usage), photos), parcels, candidates, merges)
+    # served-edition reader, so this kind sees exactly the parcels the host lane serves. It is read
+    # once, cut to the parcels a sale can reach, and kept.
+    served = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
+    frames[PARCEL_SOURCE] = parcels_named(served, frames[ITEM_SOURCE], candidates, merges).cache()
+    return frames, old, Placement(args.published_at_utc, candidates, merges, usage)
+
+
+def count_placement(located: Any, counters: dict[str, int]) -> None:
+    """The run summary's counts of a full build's placed rounds."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    counters["served_rounds"] = located.select(*KEY).distinct().count()
     counters["rounds_with_photos"] = located.where(F.size("photos") > 0).count()
     counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
-    documents = document_rows(servable(located))
-    return documents.select(
-        "pnu", "public_auction_json", "attached_via",
-        F.lit(pins[PARCEL_SOURCE]).alias("source_snapshot_id"), F.lit(as_of).alias("published_at_utc"),
-    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_auction_json", "attached_via")), 256))
+
+
+def previous_build_time(spark: Any, table: str) -> str | None:
+    """When the current Gold's newest rows were built (its rows' latest published_at_utc), or None."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    if not spark.catalog.tableExists(table.replace("`", "")):
+        return None
+    return spark.table(table).agg(F.max("published_at_utc")).first()[0]
 
 
 def main(argv=None) -> int:
-    from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
+    from pyspark.sql import SparkSession  # noqa: PLC0415
 
     import by_pnu_kinds  # noqa: PLC0415
+    import gold_incremental as incremental  # noqa: PLC0415
     import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
-    from gold_rebuild import assert_minimum_row_count, write_gold_snapshot  # noqa: PLC0415
+    from gold_rebuild import assert_minimum_row_count  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
     from lakehouse_snapshot_pins import load_source_snapshot_pins  # noqa: PLC0415
     from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract  # noqa: PLC0415
@@ -321,24 +460,33 @@ def main(argv=None) -> int:
     if kind.producer != JOB_NAME:
         raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
     args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
-    _required, _optional, anchor, _whole = lane_inputs(args.lane)
+    _required, _optional, anchor, whole = lane_inputs(args.lane)
     sources = declared_sources(args.lane, args.carry_lineage, args.photos)
     pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
+    previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
-    columns = column_names(contract)
+    columns = tuple(column_names(contract))
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     assert_catalog_env(args.iceberg_catalog_name)
     spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
                                    .config("spark.sql.session.timeZone", "UTC"), args.iceberg_catalog_name).getOrCreate()
     counters: dict[str, int] = {}
     try:
-        gold = build_gold(spark, args, pins, counters).select(*columns).cache()
-        rows = gold.count()
-        duplicates = gold.groupBy("pnu").count().where(F.col("count") > 1).count()
-        invalid = gold.where(~F.col("pnu").rlike(panel.PNU_PATTERN)).count()
-        if duplicates or invalid:
-            raise ValueError(f"Gold quality gates failed: {duplicates} duplicated and {invalid} invalid PNUs")
-        assert_minimum_row_count(rows, args.minimum_count)
+        frames, old, how = read_inputs(spark, args, pins, counters, previous)
+
+        def build(inputs: dict[str, Any]) -> Any:
+            located = placement(inputs, how).cache()
+            if inputs is frames:
+                count_placement(located, counters)
+            return gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], columns)
+
+        lane = incremental.Lane(
+            build=build, restrict=lambda inputs, keys: restrict_inputs(inputs, keys, how),
+            affected=lambda changed, _appended: affected_pnus(
+                old or {}, frames, how, spark.table(table), previous_build_time(spark, table), changed),
+            validate=validate_gold, content_columns=GOLD_CONTENT, gold_columns=columns, whole_table_inputs=whole)
+        outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, validate_gold,
+                                             assert_minimum_row_count)
         # This open-auction kind is held to the whole-table row-loss floor (contract
         # max_row_loss_fraction 0.5, #836), not ADR-0272's per-시도 section-coverage gate. That gate
         # refuses a Gold whose section lost a 시도's coverage, for sections that grow slowly (a
@@ -347,18 +495,22 @@ def main(argv=None) -> int:
         # regional drop is not a defect here, and a regional gate waits until that volatility is
         # measured against a clean baseline (root ADR-0292). parse_args still accepts the harness's
         # section-coverage flags so the scheduled rebuild (gold_rebuild.plan) does not die on them.
-        if not args.validate_only:
-            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
-            ensure_contract_table(spark, table, contract)
-            write_gold_snapshot(gold, table, "overwrite", pins, F.lit(True))
-        summary = {
-            "schema_version": panel.RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": kind.gold_table,
-            "lane": args.lane, "created_at_utc": panel.normalize_utc_timestamp(None), "row_count": rows,
-            "write_disposition": "validate_only" if args.validate_only else "iceberg_overwrite",
-            "quality_metrics": counters, "columns": list(columns),
-            "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())), "rebuild": {"mode": "full"},
-        }
-        gold.unpersist()
+        try:
+            if not args.validate_only:
+                spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
+                ensure_contract_table(spark, table, contract)
+                outcome.commit(spark, table, pins, args.iceberg_write_mode)
+                incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
+                                                   kind.gold_table, pins)
+            summary = {
+                "schema_version": panel.RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": kind.gold_table,
+                "lane": args.lane, "created_at_utc": panel.normalize_utc_timestamp(None), "row_count": outcome.row_count,
+                "write_disposition": "validate_only" if args.validate_only else outcome.disposition(args),
+                "quality_metrics": {**outcome.metrics, **counters}, "columns": list(columns),
+                "source_iceberg_snapshots_by_dataset": dict(sorted(pins.items())), "rebuild": outcome.report(),
+            }
+        finally:
+            outcome.release()
     finally:
         spark.stop()
     panel.emit_run_summary(summary, args.summary_output)
@@ -366,7 +518,8 @@ def main(argv=None) -> int:
         with open(args.lineage_output, "w", encoding="utf-8") as lineage:
             json.dump({"job_name": JOB_NAME, "output_dataset": kind.gold_table, "inputs": dict(sorted(pins.items()))},
                       lineage, sort_keys=True)
-    print(f"gold-kind-{'validate' if args.validate_only else 'write'}-ok lane={args.lane} rows={rows} mode=full")
+    print(f"gold-kind-{'validate' if args.validate_only else 'write'}-ok lane={args.lane} rows={outcome.row_count} "
+          f"mode={outcome.mode}")
     return 0
 
 
