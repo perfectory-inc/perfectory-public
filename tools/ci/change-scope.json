@@ -689,6 +689,20 @@
         "always": "Any tracked source or document file can grow past the line limit; the scan is one `git ls-files` and a newline count."
       },
       {
+        "name": "every-job-declares-its-scope-self-test",
+        "paths": [
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "tools/ci/full-scope-jobs.baseline.json"
+        ]
+      },
+      {
+        "name": "every-job-declares-its-scope",
+        "paths": [
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "tools/ci/full-scope-jobs.baseline.json"
+        ]
+      },
+      {
         "name": "by-pnu-document-records-are-append-only-self-test",
         "paths": []
       },

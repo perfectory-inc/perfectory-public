@@ -14,6 +14,11 @@ the shape ledger refresh workflow reads and compares them and prepares the pull 
 holds no GitHub token (root ADR-0279). A stale run says it is waiting (root ADR-0260); stale for
 more than 48 hours since first seen (first-stale.json), it fails and alerts. The fresh ledgers
 also stay in /var/lib/foundation-shape-ledger/ (the unit's StateDirectory).
+
+It also reads, from the same metadata tables and no data file, how each table its readers prune by
+key is laid out and was last written (root ADR-0314): a one-region read that opens most of the
+table's files, or a commit that added far more of its bytes than the share of keys it says it
+changed, fails the run at once. A rewrite that does not say what it changed is named.
 """
 
 from __future__ import annotations
@@ -77,6 +82,96 @@ def publish(files: dict[str, str]) -> str:
     except OSError as error:
         return f"not published ({error}); copy {STATE}/*.json into a pull request"
     return f"published to {bucket}/{PUBLISH_PREFIX}; the shape ledger refresh workflow prepares the pull request"
+
+
+# Layout and write amplification (root ADR-0314 §3, §4). A table its readers prune by key is one
+# whose contract writes it range-distributed by its sort order: the leading sort column is its
+# cluster key. For `pnu` a reader's unit is one 시도, the key's first two digits (a by-PNU bake
+# shard, root ADR-0164). On 2026-10-28 every one of gold.parcel_panel's 9 files spanned PNUs 11..52,
+# so each shard read the whole 4 GB table.
+CONTRACTS = "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+REGION_DIGITS = {"pnu": 2}
+# A one-region read may open at most this share of the table's data files. Range-written tables
+# measured 2026-10-28 read 0.16-0.33; the three whose files all span the country read 1.00.
+REGION_READ_SHARE_LIMIT = 0.5
+# A commit that changed a share of the keys may add at most this many times that share of the
+# table's bytes; the share is floored, so a small table or change is not judged on noise. On
+# 2026-10-26 a 0.12% change added 100% of gold.parcel_panel's bytes.
+AMPLIFICATION_LIMIT = 10
+KEY_SHARE_FLOOR = 0.01
+# The commit's own count of the keys it changed, a snapshot summary property its writer sets
+# (root ADR-0314 §4); a commit that lacks it cannot be judged and is named instead.
+KEYS_CHANGED = "foundation.keys-changed"
+
+
+def clustered_tables(contracts: dict) -> dict[str, str]:
+    """Each table written range-distributed by a cluster key the check knows a region of, with
+    that key."""
+    return {name: spec["sort_order"][0] for name, spec in sorted(contracts.items())
+            if spec.get("write_distribution") == "range" and spec.get("sort_order")
+            and spec["sort_order"][0] in REGION_DIGITS}
+
+
+def region_read_share(bounds: list[tuple[str, str]], digits: int) -> float:
+    """The mean share of data files a read of one region opens, by each file's lower and upper key
+    bound: a region is the key's first `digits` characters, and a file holds every region between
+    its bounds' regions. The regions are those the bounds name."""
+    spans = [(low[:digits], high[:digits]) for low, high in bounds]
+    regions = sorted({region for span in spans for region in span})
+    if len(spans) < 2 or not regions:
+        return 0.0
+    return sum(sum(low <= region <= high for low, high in spans) for region in regions) / (len(regions) * len(spans))
+
+
+def amplification(summary: dict) -> tuple[float, float | None]:
+    """(share of the table's bytes the commit added, share of its keys it says it changed)."""
+    added, total = int(summary.get("added-files-size", 0)), int(summary.get("total-files-size", 0))
+    byte_share = added / total if total else 0.0
+    keys, records = summary.get(KEYS_CHANGED), int(summary.get("total-records", 0))
+    return byte_share, (int(keys) / records if keys is not None and records else None)
+
+
+def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary: dict | None) -> tuple[list[str], list[str]]:
+    """(failures, notes) for one clustered table: its files' key ranges, and its last data commit
+    (`summary`, None for a table with no commit after its first)."""
+    failures, notes = [], []
+    share = region_read_share(bounds, REGION_DIGITS[key])
+    if share > REGION_READ_SHARE_LIMIT:
+        failures.append(f"{table}: a one-region read of {key} opens {share:.0%} of its {len(bounds)} data files "
+                        f"(limit {REGION_READ_SHARE_LIMIT:.0%}); its files are not ordered by {key}")
+    if summary is not None:
+        byte_share, key_share = amplification(summary)
+        if key_share is None:
+            if byte_share > REGION_READ_SHARE_LIMIT:
+                notes.append(f"{table}: its last commit added {byte_share:.0%} of its bytes and does not say "
+                             f"how many keys it changed ({KEYS_CHANGED})")
+        elif byte_share > AMPLIFICATION_LIMIT * max(key_share, KEY_SHARE_FLOOR):
+            failures.append(f"{table}: its last commit changed {key_share:.2%} of its keys and added "
+                            f"{byte_share:.0%} of its bytes (limit {AMPLIFICATION_LIMIT}x the key share, "
+                            f"floored at {KEY_SHARE_FLOOR:.0%})")
+    return failures, notes
+
+
+def layout(trino_rows, trino_url: str, contracts: dict, lakehouse: dict) -> tuple[list[str], list[str]]:
+    """(failures, notes) for every clustered table production holds rows in, read from Trino's
+    `$files` and `$snapshots` metadata tables; no data file is read."""
+    failures, notes = [], []
+    for table, key in clustered_tables(contracts).items():
+        shape = lakehouse["tables"].get(table)
+        if not shape or not shape["has_rows"]:
+            continue
+        field = next(field[0] for field in shape["fields"] if field[1] == key)
+        namespace, name = table.split(".", 1)
+        bounds = [(low, high) for low, high in trino_rows(trino_url, (
+            f"SELECT element_at(lower_bounds, {field}), element_at(upper_bounds, {field}) "
+            f'FROM r2.{namespace}."{name}$files" WHERE content = 0')) if low is not None and high is not None]
+        last = trino_rows(trino_url, (
+            f'SELECT summary FROM r2.{namespace}."{name}$snapshots" '
+            "WHERE operation <> 'replace' AND parent_id IS NOT NULL ORDER BY committed_at DESC LIMIT 1"))
+        found, noted = layout_findings(table, key, bounds, dict(last[0][0]) if last else None)
+        failures += found
+        notes += noted
+    return failures, notes
 
 
 STALE_GRACE_HOURS = 48
@@ -174,15 +269,31 @@ def main() -> int:
     # Current or not: CI compares what production holds now, and says so either way.
     published = publish({Path(LAKEHOUSE).name: lakehouse_text, Path(POSTGRES).name: postgres_text})
     print(f"shape-ledger-check: captures {published}")
+    trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
+    misplaced, notes = layout(capture.trino_rows, trino_url,
+                              json.loads((RELEASE / CONTRACTS).read_text(encoding="utf-8"))["contracts"], lakehouse)
+    for line in notes:
+        print(f"shape-ledger-check: NOTE {line}")
+    for line in misplaced:
+        print(f"shape-ledger-check: LAYOUT {line}")
     now = datetime.now(timezone.utc)
     first_seen = first_seen_at(now, bool(found))
     if first_seen is None:
         print("shape-ledger-check: production holds the shapes the release's ledgers record")
+        if misplaced:
+            print(f"foundation-job-outcome failed {len(misplaced)} tables are laid out or written against "
+                  "their cluster key (root ADR-0314)")
+            return 1
         print("foundation-job-outcome unchanged")  # root ADR-0260: the run's last line
         return 0
     for line in found:
         print(f"shape-ledger-check: STALE {line}")
     line, status = verdict(now, first_seen, len(found), published)
+    if misplaced:
+        # A layout finding fails the run at once; the ledgers' 48 hours do not apply to it.
+        line = line.replace("foundation-job-outcome waiting", "foundation-job-outcome failed", 1)
+        line += f"; {len(misplaced)} tables are laid out or written against their cluster key (root ADR-0314)"
+        status = 1
     print(line)
     return status
 

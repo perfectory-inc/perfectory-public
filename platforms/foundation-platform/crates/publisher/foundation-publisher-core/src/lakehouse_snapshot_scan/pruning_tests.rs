@@ -295,6 +295,8 @@ async fn a_shard_skips_only_the_files_whose_bounds_exclude_its_prefix() -> anyho
     assert_eq!(scanned.skipped_data_file_count, 2);
     assert_eq!(scanned.skipped_record_count, 4);
     assert_eq!(scanned.read_record_count, 3);
+    // Only the two files read count toward what the shard cost (1,024 bytes each in the manifest).
+    assert_eq!(scanned.read_file_bytes, 2_048);
     // The files read are decoded, or skipped a row group at a time where its statistics allow.
     assert_eq!(
         scanned.decoded_row_count + scanned.skipped_row_group_record_count,

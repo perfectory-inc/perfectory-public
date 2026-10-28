@@ -399,9 +399,9 @@ declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}" [gold_
 write_summary() {
   local args=()
   for key in "${!summary[@]}"; do args+=("${key}=${summary[${key}]}"); done
-  python3 -I - "${run}/run-summary.json" "${args[@]}" <<'PY'
-import json, sys
-path, pairs = sys.argv[1], sys.argv[2:]
+  python3 -I - "${run}/run-summary.json" "${summary_dir:-}" "${args[@]}" <<'PY'
+import json, pathlib, sys
+path, shards, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
 summary = dict(pair.split("=", 1) for pair in pairs)
 counts = {"base_generation", "base_object_count", "patches_before", "cumulative_changes_before",
           "max_patches", "upserts", "deletes", "new", "target_generation", "target_patch",
@@ -410,6 +410,21 @@ counts = {"base_generation", "base_object_count", "patches_before", "cumulative_
 for key in counts & summary.keys():
     summary[key] = int(summary[key])
 summary["max_cumulative_change_ratio"] = float(summary["max_cumulative_change_ratio"])
+# What the run read, wrote and changed (root ADR-0314 §4), from the shard summaries written so far:
+# a shard that skipped none of several data files read the whole lane Gold.
+reads, written = [], 0
+for shard in sorted(pathlib.Path(shards).glob("shard-*.json")) if shards else []:
+    shard = json.loads(shard.read_text())
+    reads += [shard["read"]] if shard.get("read") else []
+    written += sum(pack.get("bytes", 0) for pack in shard.get("packs", []))
+if reads:
+    summary["data_files"] = max(read["data_files"] for read in reads)
+    summary["bytes_read"] = sum(read["bytes_read"] for read in reads)
+    summary["shards_reading_every_data_file"] = sum(
+        1 for read in reads if read["skipped_data_files"] == 0 and read["data_files"] > 1)
+    summary["bytes_written"] = written
+if {"upserts", "deletes"} <= summary.keys():
+    summary["keys_changed"] = summary["upserts"] + summary["deletes"]
 summary["schema_version"] = "foundation-platform.by_pnu_serving_bake_run.v1"
 with open(path, "w") as out:
     json.dump(summary, out, sort_keys=True, indent=2)
