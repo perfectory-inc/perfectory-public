@@ -891,11 +891,11 @@
     {
       "id": "gold_court_auction_rebuild",
       "interruptible": true,
-      "description": "법원경매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. 공매(gold_public_auction_rebuild)를 본뜬 자기 생산자 종류라 gold_kind_rebuild 가 아니라 자기 작업에서 돈다(root ADR-0287). by_pnu_serving_bake serves its commit. Off until court collection turns on (court_auction_collect/court_auction_silver).",
+      "description": "법원경매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. 공매(gold_public_auction_rebuild)를 본뜬 자기 생산자 종류라 gold_kind_rebuild 가 아니라 자기 작업에서 돈다(root ADR-0287). by_pnu_court_auction_bake serves its commit (root ADR-0303). At 22:05, not the public-auction rebuild's 21:35: both take the whole spark pool and the rebuild lock, so one would be refused nightly. Off until court collection turns on (court_auction_collect/court_auction_silver).",
       "systemd_service": "foundation-gold-court-auction-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
-      "schedule": "35 21 * * *",
+      "schedule": "5 22 * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
@@ -1047,6 +1047,33 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-28T00:00:00Z"
+    },
+    {
+      "id": "by_pnu_court_auction_bake",
+      "interruptible": true,
+      "description": "Reflect each new Gold snapshot of gold.parcel_court_auction (the own-producer court-auction kind, root ADR-0287) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-court-auction), as section packs (root ADR-0147, ADR-0193 §9), exactly as by_pnu_public_auction_bake does for its lane. Its own job because `by_pnu_serving_bake all` skips every own-producer lane (root ADR-0303). Started when gold_court_auction_rebuild commits a new snapshot, and at 11:15 as the fallback (root ADR-0171), apart from the panel bake's 10:15 and the public-auction bake's 10:45 so no two clock starts share the fixed-name lakehouse-target-init container. It does not take turns: one slot for at most two hours, which the folds run beside and FLOOR waits out within the pool's starvation bound. One slot and MemoryMax=3G, so it runs beside both other bakes inside the host memory budget (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-court-auction-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "15 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0287, ADR-0303). Off until court collection turns on: court_auction_collect and court_auction_silver stay off until a first supervised night (runbook court-auction.md), and switching it on is a separate deploy step (ADR-0122 §4)."
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",

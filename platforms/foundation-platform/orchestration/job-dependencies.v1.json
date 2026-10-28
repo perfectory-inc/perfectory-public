@@ -2786,14 +2786,6 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://gold.parcel_court_auction",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_court_auction,PROD)",
-          "node_id": "gold-parcel-court-auction",
-          "title": "필지 법원경매 by-PNU 표",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
-        {
           "dataset": "iceberg://gold.parcel_forest_ledger",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_forest_ledger,PROD)",
           "node_id": "gold-parcel-forest-ledger",
@@ -2892,14 +2884,6 @@
           "surface_kind": "r2_baked_documents"
         },
         {
-          "dataset": "perfectory://parcel-court-auction-by-pnu-section-packs",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-court-auction-by-pnu-section-packs,PROD)",
-          "node_id": "parcel-court-auction-by-pnu-section-packs",
-          "title": "필지 법원경매 by-PNU 묶음 파일",
-          "kind": "serving_surface",
-          "surface_kind": "r2_baked_documents"
-        },
-        {
           "dataset": "perfectory://parcel-forest-ledger-by-pnu-section-packs",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-forest-ledger-by-pnu-section-packs,PROD)",
           "node_id": "parcel-forest-ledger-by-pnu-section-packs",
@@ -2970,6 +2954,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-public-auction-by-pnu-section-packs,PROD)",
           "node_id": "parcel-public-auction-by-pnu-section-packs",
           "title": "필지 공매 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "by_pnu_court_auction_bake",
+      "producers": [
+        "gold_court_auction_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_court_auction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_court_auction,PROD)",
+          "node_id": "gold-parcel-court-auction",
+          "title": "필지 법원경매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-court-auction-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-court-auction-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-court-auction-by-pnu-section-packs",
+          "title": "필지 법원경매 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }
