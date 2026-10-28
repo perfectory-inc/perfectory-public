@@ -40,6 +40,7 @@ control_releases="${test_root}/opt/perfectory-control/releases"
 sed -e "s|^admission=.*|admission=\"${test_root}/admission\"|" \
   -e "s|^retention_contract=.*|retention_contract=\"${retention_contract}\"|" \
   -e "s|^control_releases_dir=.*|control_releases_dir=\"${control_releases}\"|" \
+  -e "s|^prune_program=.*|prune_program=\"${repo_root}/scripts/deploy/foundation-release-prune.py\"|" \
   "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
 # Every activation ends with `prune`. The release flows below install fewer releases than this
 # keeps, so prune removes nothing there; its own section further down plants what it must remove.
