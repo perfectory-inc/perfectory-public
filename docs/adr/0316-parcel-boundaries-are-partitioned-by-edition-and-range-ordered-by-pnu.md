@@ -74,3 +74,31 @@ sigungu 분할을 걷어 낸 뒤 쓴 파일은 분할이 없다. ADR-0066 의 �
   (빠진 필드만 더하고 지우지 않음), Rust 계약 시험.
 - 공매 조인처럼 `pnu` 조건 없이 조인하는 읽기는 판 가지치기만 얻는다. 파일 건너뛰기까지 얻으려면 읽는 쪽이
   PNU 조건을 걸어야 하고, 그것은 이 ADR 범위 밖이다.
+
+## Part C — 시도별 필지 타일 (#897)
+
+같은 원칙(바뀐 몫만)을 필지 벡터 타일에 적용한다. 구현은 별도 초안 PR #897 이다.
+
+**문제.** 필지 벡터 타일은 판마다 전국을 다시 굽는다(ADR-0133 §7 실측: GDAL 60분 + tippecanoe 109분,
+`/data` 최대 43.7 GB, 판 5.55 GB). 바뀐 시도가 하나여도 4천만 필지를 모두 다시 돈다.
+[ADR-0111](./0111-update-map-tiles-by-changed-tiles-served-from-the-edge.md) 의 base+patch 는 Accepted 지만
+만들어지지 않았다.
+
+**결정.** 그보다 싼 앞 단계로, 필지를 시도(PNU 앞 2자리)마다 따로 굽고 `tile-join` 으로 합친다.
+
+1. 새 스위치를 만들지 않고 기존 `config/tile-bake-containers.contract.json` 에 단위별 표
+   `partition_by_feature_id_prefix`(`parcels: 2`)를 둔다. 없는 단위는 예전처럼 통째로 굽는다.
+2. 오븐은 핸드오프를 한 번 흘리며 시도별 GDAL 입력으로 나눈다. 시도 archive 의 이름은 헤더·행 수·행 해시
+   합(순서 무관)·굽기 입력(gdal digest, tippecanoe 버전 배너, CRS, tippecanoe 인자)의 SHA-256 이다.
+3. `<WORK_ROOT>/parcels-partitions/<시도>/<해시>.pmtiles` 가 있으면 다시 쓰고, 없을 때만 그 시도를
+   GDAL·tippecanoe 로 굽는다. 완성된 archive 는 hard link 로 create-only 등록하며 지우지 않는다(append-only).
+4. 같은 tippecanoe 이미지의 `tile-join`(같은 고정 커밋에서 설치)으로 모든 시도를 `--no-tile-size-limit` 로
+   합친다. 합친 판은 기존 최대 줌 id 관문과 첫 판 동등성 관문을 그대로 통과해야 승격된다.
+
+**비용(계산).** 시도 하나가 바뀐 판: GDAL+tippecanoe 169분 → 평균 약 10분(가장 큰 시도 약 25분) +
+tile-join(미측정, 5.55 GB 재작성). 첫 실행은 지금과 같다. 시도 archive 캐시 5.55 GB 가 `/data` 에 상시
+남고, 판마다 바뀐 시도 몫만큼 늘어난다.
+
+**남는 것.** 대조 관문·서빙본 Gold 는 여전히 전국이다. `--detect-shared-borders` 는 시도 안에서만 작동해
+시도 경계의 단순화가 전국 굽기와 미세하게 다를 수 있다(관문이 판정). 캐시 보존 규칙은 정하지 않았다.
+작업은 꺼진 채이며 켜는 것은 사장 결정이다.
