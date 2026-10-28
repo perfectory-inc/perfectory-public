@@ -1,0 +1,42 @@
+{
+  "$comment": "Shrink-only (scripts/catalog/documentation_ratchets.py). Fix an entry and delete its line; never add one.",
+  "dead-reference": [
+    ".claude/CLAUDE.md",
+    "crates/gongzzang-persistence/src/api_health.rs",
+    "docs/compliance/retention.md",
+    "docs/compliance/third-party-licenses.md",
+    "docs/observability/api-drift-smoke-test.md",
+    "docs/schema.md",
+    "docs/schema/auth.md",
+    "docs/schema/parcel.md",
+    "docs/site-builder.md",
+    "platforms/foundation-platform/crates/catalog/catalog-application/tests/industrial_complex_catalog_import_use_case.rs",
+    "platforms/foundation-platform/crates/lakehouse/lakehouse-infrastructure/tests/spatial_tile_wap.rs",
+    "platforms/foundation-platform/scripts/tiles/reconcile-spatial-tile-publication.sh",
+    "platforms/foundation-platform/services/foundation-api/tests/runtime_manifest_edge_policy.rs",
+    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs",
+    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_projection.rs",
+    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_refresh_observation.rs",
+    "products/gongzzang/apps/web/tests/probes/foundation-vector-source-publication.probe.ts",
+    "scripts/tiles/active-map-refresh-soak.sh",
+    "tests/fixtures/building_panel_gold_row.json",
+    "tests/test_parcel_panel_validate_args.py"
+  ],
+  "unindexed-runbook": [
+    "platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md",
+    "platforms/foundation-platform/docs/runbooks/gold-panel-rebuild.md",
+    "platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md",
+    "platforms/foundation-platform/docs/runbooks/lakehouse-registry.md",
+    "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+    "platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md",
+    "platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md",
+    "platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md",
+    "platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md",
+    "platforms/foundation-platform/docs/runbooks/security-advisories.md",
+    "platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md"
+  ],
+  "proposed-adr-cited-by-code": [],
+  "supersession-unrecorded": [
+    "ADR-0090 supersedes ADR-0089"
+  ]
+}

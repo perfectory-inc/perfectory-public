@@ -10,7 +10,7 @@ last_reviewed: 2026-07-28
 산업용 부동산 정보 플랫폼 — 공장·창고·산업단지·지식산업센터 매물과 입지·규제 정보를
 매수자(투자자·기업), 매도자, 공인중개사, 시행사에게 제공한다. 한국 시장 고정(한국어·KRW·KST),
 반응형 웹 + PWA. 필지·건물·산단 카탈로그 데이터는 Foundation Platform published contract로만
-소비한다 — 공공 API 직접 수집 금지 ([AGENTS.md](./AGENTS.md) §0.5/§3).
+소비한다 — 공공 API 직접 수집 금지 ([데이터 원천 경계](./docs/data-sources/README.md#catalog-원천-경계)).
 
 ## 책임 트리
 
@@ -83,7 +83,7 @@ Grafana/Prometheus/Loki/Tempo/Sentry/OpenTelemetry. 상세와 SSOT 맵: [TECH.md
 
 ## 진입점 (라우팅)
 
-- [AGENTS.md](./AGENTS.md) — AI 에이전트 규칙 (절대 규칙·영역 경계·작업별 라우팅 표)
+- [AGENTS.md](./AGENTS.md) — AI 에이전트 규칙 (소유 범위·규칙과 강제 장치·검증 명령)
 - [CLAUDE.md](./CLAUDE.md) — Claude Code 1줄 위임
 - [TECH.md](./TECH.md) — 기술 스택 + SSOT 맵
 - [docs/](./docs/README.md) — 도메인별 SSOT 문서 (adr·backend·frontend·auth·data·…)

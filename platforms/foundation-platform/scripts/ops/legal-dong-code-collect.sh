@@ -7,13 +7,15 @@
 #                                            스튜어드 결정 한 건을 파일로 남긴다(다음 짝 맞추기가 반영)
 #
 # 매일 수집:
-#   1. 표 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 받아 Bronze 에 남긴다(collect-code-go-kr-legal-dong).
-#           원천은 내려받은 데이터뿐이다. 코드변경안내 게시판은 읽지 않는다(ADR-0144).
-#   2. 검사 — 표의 형식이 계약과 같은지, 직전에 넘긴 표보다 계약의 한계 넘게 줄지 않았는지 본다
-#             (code_go_kr_legal_dong.py stage-handoff). 표의 행이 바뀌었을 때만 적재 대기 넘김
-#             (pending/<표 객체>/)을 쓴다. 검사를 통과하면 바뀐 것이 없어도 확인 시각(accepted.json
+#   1. 받기 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 받기만 한다(collect-code-go-kr-legal-dong 의
+#             dry run: Bronze 에 쓰지 않는다). 원천은 내려받은 데이터뿐이다. 코드변경안내 게시판은 읽지 않는다(ADR-0144).
+#   2. 검사 — 표의 형식이 계약과 같은지, 직전에 넘긴 표보다 계약의 한계 넘게 줄지 않았는지, 행이 바뀌었는지
+#             본다(code_go_kr_legal_dong.py check). 검사를 통과하면 바뀐 것이 없어도 확인 시각(accepted.json
 #             checked_at_utc)을 남긴다: 허브 내보내기는 계약의 projection.max_age_days 보다 오래 확인되지
-#             않은 대응표를 거부한다.
+#             않은 대응표를 거부한다. 행이 같으면 아무것도 남기지 않고 unchanged 로 끝난다. 받은 사본마다
+#             시각이 달라 sha256 이 매번 다르므로(같은 표 283 벌, 15 GB, 2026-10-04~28) 비교는 쓰기 전, 행으로 한다.
+#   3. 남기기 — 행이 바뀐 표만 다시 받아 Bronze 에 남기고(live write), 적재 대기 넘김(pending/<표 객체>/)을
+#             쓴다(stage-handoff).
 #
 # 적재와 짝 맞추기는 lineage_stewardship 단위가 자기 단계 앞에서 한다(legal-dong-code-load.sh). 어느
 # 단계든 실패하면 0 이 아닌 값으로 끝나고, Airflow 실패 알림이 슬랙에 간다(ADR-0122).
@@ -50,25 +52,43 @@ fi
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
-mkdir -p "${work}/collect"
+mkdir -p "${work}/fetch" "${work}/collect"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "legal-dong-code collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
-# 1. 표
-env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
+# The status in a `legal-dong-code-stage-json` line (root ADR-0171, ADR-0260).
+stage_status() {
+  "${PY[@]}" -c '
+import json, sys
+prefix = "legal-dong-code-stage-json "
+print(next(json.loads(line[len(prefix):])["status"] for line in sys.stdin if line.startswith(prefix)))
+' <<<"$1"
+}
+
+# 1. 받기 (dry run: nothing is stored)
+env "${COLLECT}_OUTPUT_DIR=${work}/fetch" \
   "${PUBLISHER_BIN}" collect-code-go-kr-legal-dong >> "${run_log}" 2>&1
 
-# 2. 검사와 넘김
+# 2. 검사
+result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" check --collect-dir "${work}/fetch" \
+  --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
+# The dry-run copy is scratch once checked; a run that failed the check keeps it for the diagnosis.
+rm -rf "${work}/fetch"
+if [ "$(stage_status "${result}")" = unchanged ]; then
+  job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
+  printf 'foundation-job-outcome unchanged\n'
+  exit 0
+fi
+
+# 3. 남기기와 넘김. shortcut: the changed table is fetched a second time to commit it (two requests,
+# only on the rare day the table changes); a collector that commits the dry-run copy would save it.
+env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
+  "${PUBLISHER_BIN}" collect-code-go-kr-legal-dong >> "${run_log}" 2>&1
 result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" stage-handoff --collect-dir "${work}/collect" \
   --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
 job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
 # The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0260).
-status="$("${PY[@]}" -c '
-import json, sys
-prefix = "legal-dong-code-stage-json "
-print(next(json.loads(line[len(prefix):])["status"] for line in sys.stdin if line.startswith(prefix)))
-' <<<"${result}")"
-if [ "${status}" = staged ]; then
+if [ "$(stage_status "${result}")" = staged ]; then
   printf 'foundation-job-outcome changed\n'
 else
   printf 'foundation-job-outcome unchanged\n'

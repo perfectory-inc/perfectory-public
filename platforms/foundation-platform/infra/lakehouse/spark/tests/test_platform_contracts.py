@@ -608,14 +608,19 @@ class WriteDistributionTest(unittest.TestCase):
         import platform_contracts
 
         spark = MagicMock()
-        live = [{}, {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}]
+        live = [{}, {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+                     "sort-order": "pnu ASC NULLS FIRST"}]
         with patch.object(platform_contracts, "evolve_iceberg_table_to_contract", return_value=()), \
-                patch.object(platform_contracts, "table_properties", side_effect=live):
+                patch.object(platform_contracts, "table_properties", side_effect=live), \
+                patch.object(platform_contracts, "table_partition_fields", return_value=("source_snapshot_id",)):
             platform_contracts.ensure_contract_table(spark, "`c`.`gold`.`example`", self.ranged())
         statements = [call.args[0] for call in spark.sql.call_args_list]
         self.assertIn("'write.distribution-mode' = 'range'", statements[0])
         self.assertEqual(statements[1], "ALTER TABLE `c`.`gold`.`example` WRITE ORDERED BY pnu")
-        self.assertEqual(len(statements), 2)
+        # The incremental rebuild's MERGE does not fall back to write.distribution-mode (ADR-0307).
+        self.assertEqual(statements[2],
+                         "ALTER TABLE `c`.`gold`.`example` SET TBLPROPERTIES ('write.merge.distribution-mode' = 'range')")
+        self.assertEqual(len(statements), 3)
 
     def test_an_order_the_table_did_not_take_is_an_error(self) -> None:
         from unittest.mock import MagicMock
@@ -625,6 +630,55 @@ class WriteDistributionTest(unittest.TestCase):
         with patch.object(platform_contracts, "table_properties", return_value={}), \
                 self.assertRaisesRegex(ValueError, "did not take"):
             platform_contracts.apply_write_order(MagicMock(), "t", self.ranged())
+
+    def test_a_partition_field_the_live_spec_lacks_is_added_before_the_order(self) -> None:
+        """silver.parcel_boundaries held two editions in one unpartitioned spec (root ADR-0316)."""
+        from unittest.mock import MagicMock
+
+        import platform_contracts
+
+        spark = MagicMock()
+        ordered = {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+                   "sort-order": "pnu ASC NULLS FIRST"}
+        with patch.object(platform_contracts, "table_properties", return_value=ordered), \
+                patch.object(platform_contracts, "table_partition_fields",
+                             side_effect=[(), ("source_snapshot_id",)]):
+            self.assertTrue(platform_contracts.apply_write_order(spark, "t", self.ranged()))
+        statements = [call.args[0] for call in spark.sql.call_args_list]
+        self.assertEqual(statements[0], "ALTER TABLE t ADD PARTITION FIELD source_snapshot_id")
+        self.assertEqual(statements[1], "ALTER TABLE t WRITE ORDERED BY pnu")
+
+    def test_a_partition_field_only_the_live_spec_has_is_never_dropped(self) -> None:
+        from platform_contracts import missing_partition_fields, write_order_drift
+
+        ordered = {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+                   "sort-order": "pnu ASC NULLS FIRST"}
+        live = ("source_snapshot_id", "bucket(16, pnu)")
+        self.assertEqual(missing_partition_fields(self.ranged(), live), ())
+        self.assertFalse(write_order_drift(self.ranged(), ordered, live))
+        self.assertTrue(write_order_drift(self.ranged(), ordered, ()))
+        self.assertEqual(missing_partition_fields(self.ranged(partition_spec=["bucket(16,pnu)"]), live), ())
+
+    def test_the_live_spec_is_read_from_describe_table(self) -> None:
+        from unittest.mock import MagicMock
+
+        from platform_contracts import table_partition_fields
+
+        spark = MagicMock()
+        spark.sql.return_value.collect.return_value = [
+            ("pnu", "string", ""), ("", "", ""), ("# Partitioning", "", ""),
+            ("Part 0", "source_snapshot_id", ""), ("Part 1", "bucket(16, pnu)", "")]
+        self.assertEqual(table_partition_fields(spark, "t"), ("source_snapshot_id", "bucket(16, pnu)"))
+        # Spark 3.4+ prints an identity-only spec Hive style.
+        spark.sql.return_value.collect.return_value = [
+            ("pnu", "string", ""), ("source_snapshot_id", "string", ""),
+            ("# Partition Information", "", ""), ("# col_name", "data_type", "comment"),
+            ("source_snapshot_id", "string", ""), ("", "", ""),
+            ("# Metadata Columns", "", ""), ("_spec_id", "int", "")]
+        self.assertEqual(table_partition_fields(spark, "t"), ("source_snapshot_id",))
+        spark.sql.return_value.collect.return_value = [
+            ("pnu", "string", ""), ("# Partitioning", "", ""), ("Not partitioned", "", "")]
+        self.assertEqual(table_partition_fields(spark, "t"), ())
 
     def test_a_hash_table_is_created_as_before_and_not_reordered(self) -> None:
         from unittest.mock import MagicMock

@@ -1,6 +1,6 @@
 # ADR 0203: PR CI 벽시계 예산은 숫자 하나이고, 매주 실측과 비교한다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-13
 - Related: [ADR-0149](./0149-local-hooks-are-a-fast-pre-filter-and-every-hook-step-runs-in-ci.md) (로컬 훅 예산), [ADR-0155](./0155-ci-and-release-builds-reuse-content-addressed-dependency-builds.md) (CI 빌드 재사용·머지 큐)
 
@@ -52,3 +52,5 @@ PR 하나가 판정을 받기까지의 대기가 길어졌다. 2026-10-13 측정
 - 2026-10-13 기준 직전 4주 p50은 예산을 넘는다. 주간 실행은 단축 작업이 예산 안으로 들어올 때까지
   붉다 — 의도한 신호다.
 - 예산을 바꾸는 것은 계약 파일 한 줄이며, 테스트는 그 값을 읽어 경계 양쪽을 검사한다.
+
+2026-10-28: 구현 확인 — `tools/ci/ci-time-budget.contract.json`, `scripts/ci/ci_time_budget.py`, `.github/workflows/ci-time-budget.yml`

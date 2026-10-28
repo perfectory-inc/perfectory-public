@@ -102,3 +102,7 @@ GitHub Actions 캐시는 이 저장소에서 10GB·7일(`tools/github/actions-ca
   매니페스트가 바뀌면 그 층부터 다시 빌드한다.
 - CI 안에서 Docker 로 Rust 를 빌드하는 경로(boundary slice·compose smoke)는 호스트 캐시와 설정 밖이다. 이 ADR 의
   범위가 아니며, 같은 실패가 그쪽에서 보이면 같은 환경값을 컨테이너에 넘기는 것으로 따로 다룬다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `scripts/ci/install-cargo-deny.sh` → `cargo xtask ci install-cargo-deny`(`tools/xtask/src/ci.rs`, #798)

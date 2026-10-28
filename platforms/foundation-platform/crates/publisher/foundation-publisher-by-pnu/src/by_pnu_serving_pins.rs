@@ -237,6 +237,32 @@ pub async fn release_older(
     released
 }
 
+/// The Gold snapshot a bake shard reads: the one the bake pinned (`…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID`)
+/// wherever the table is now, or the current one when the bake names none. A long bake finishes
+/// at its pin instead of stopping when Gold moves (root ADR-0310); an expired pin is refused with
+/// the catalog's "no longer holds snapshot", which the bake script reads.
+///
+/// # Errors
+/// Refuses a pin that is not a snapshot id, an expired pin, a missing table and a table with no
+/// snapshot.
+pub async fn load_baked_snapshot(
+    catalog: &IcebergRestCatalog,
+    table: &str,
+    pinned: Option<&str>,
+) -> anyhow::Result<lakehouse_infrastructure::IcebergSnapshotManifestList> {
+    let loaded = match pinned {
+        Some(pinned) => {
+            catalog
+                .load_snapshot_manifest_list(table, parse_snapshot(pinned)?)
+                .await
+        }
+        None => catalog.load_current_snapshot_manifest_list(table).await,
+    };
+    loaded
+        .with_context(|| format!("failed to resolve the {table} snapshot to bake"))?
+        .with_context(|| format!("{table} has no Iceberg snapshot to bake"))
+}
+
 /// An Iceberg snapshot id as the manifest stores it (a decimal string).
 ///
 /// # Errors

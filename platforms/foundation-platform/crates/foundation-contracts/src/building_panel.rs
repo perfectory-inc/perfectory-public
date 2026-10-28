@@ -19,6 +19,12 @@ pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building
 pub const BUILDING_DOCUMENT_SCHEMA_EXPANDS: &[&str] =
     &["foundation-platform.building_by_pnu_profile.v2"];
 
+/// Wire version of one page of a building document too large for one request (root ADR-0325).
+///
+/// The document's fields cut into pages, each naming its index and the page count. Its own schema,
+/// so a reader that knows only the whole document refuses a page instead of taking it as whole.
+pub const BUILDING_PAGE_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_page.v1";
+
 /// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct BuildingPanelBuilding {

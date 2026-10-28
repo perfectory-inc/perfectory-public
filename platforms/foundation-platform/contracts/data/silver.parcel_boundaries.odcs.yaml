@@ -88,6 +88,8 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
+        partitioned: true
+        partitionKeyPosition: 1
       - name: "valid_from_utc"
         physicalType: "timestamp"
         logicalType: "timestamp"

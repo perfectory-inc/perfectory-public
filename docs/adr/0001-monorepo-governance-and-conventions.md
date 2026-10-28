@@ -79,3 +79,8 @@ last_reviewed: 2026-07-28
 ---
 
 개정 각주(2026-10-21): 툴체인 버전 값의 정본은 `tools/technology-versions.contract.json` 의 `rust_toolchain` 이다(ADR-0097). 이 문서의 숫자는 결정 당시 값이고, 지금 값은 그 계약을 읽는다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `scripts/guard/toolchain-consistency.sh` → `scripts/guard/technology-version-consistency.sh`로 합쳐짐(#508)
+- `scripts/guard/no-stale-sibling-paths.sh` → 삭제, 같은 검사는 `scripts/guard/public-repository-safety.sh`가 맡음(#480)

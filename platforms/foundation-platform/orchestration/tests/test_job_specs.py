@@ -39,6 +39,13 @@ def reports_outcome(text):
     return any("foundation-job-outcome" in line and not line.lstrip().startswith("#") for line in text.splitlines())
 
 
+def changed_without_unchanged(text):
+    """Whether a program can print `foundation-job-outcome changed` but has no `unchanged` to print."""
+    code = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    return (any("foundation-job-outcome changed" in line for line in code)
+            and not any("foundation-job-outcome unchanged" in line for line in code))
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -289,17 +296,20 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
         # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight), once by each
-        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, one
-        # bake run), and by what already holds the pool when its turn comes: one panel Gold rebuild
-        # (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160. The hourly
-        # Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of it once too.
+        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, each
+        # 1-slot bake run), and by what already holds the pool when its turn comes: one panel Gold
+        # rebuild (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
+        # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
+        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) counts like the serving bake;
+        # the bound reads no takes_turns, so it counts though it does not take turns.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake", "onbid_public_auction_silver"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
+                                         "onbid_public_auction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -436,9 +446,12 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertLessEqual({"silver_refresh_building_register_titles", "silver_refresh_building_register_units",
                               "silver_refresh_building_register_unit_areas"},
                              set(specs["gold_panel_rebuild"].producers))
-        # The bake serves the panels and the data kinds; the kinds follow the panels (root ADR-0193 §9).
+        # The bake serves the panels and the panel-section kinds; the kinds follow the panels (root
+        # ADR-0193 §9). The own-producer public-auction kind bakes in its own job (root ADR-0303),
+        # so gold_public_auction_rebuild feeds that job, not this one.
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
-                         ("gold_panel_rebuild", "gold_public_auction_rebuild", "gold_kind_rebuild"))
+                         ("gold_panel_rebuild", "gold_kind_rebuild"))
+        self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
         # and the table it writes then reads does not start it again.
@@ -492,8 +505,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_auction_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
-                                        "that writes them (gold_panel_rebuild, gold_public_auction_rebuild, "
-                                        "gold_kind_rebuild) is switched off")
+                                        "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
 
     def test_a_job_is_never_started_by_what_it_writes(self):
         # The Gold rebuild writes the unit prices it then reads (root ADR-0182); the fold reads the
@@ -625,12 +637,14 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
 
     def test_a_lighter_narrower_job_still_counts_every_time(self):
         # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
-        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load.
+        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load and
+        # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         self.assertIn("by_pnu_serving_bake", blockers)
+        self.assertIn("by_pnu_public_auction_bake", blockers)
         self.assertIn("onbid_public_auction_silver", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45)
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
@@ -649,11 +663,47 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
                 self.assertTrue(reports_outcome(program.read_text(encoding="utf-8")),
                                 f"{program.name} never prints `foundation-job-outcome ...`")
 
+    # A program jobs run with different arguments may print the line in one mode only, which the text
+    # check above cannot see (2026-10-28: gold-panel-rebuild.sh printed it for `all` and `kinds`, not for
+    # the one table gold_public_auction_rebuild runs). Each such program's own test runs every registered
+    # job's arguments and reads the run's last line.
+    RUN_FOR_EVERY_JOB = {"gold-panel-rebuild.sh": "test_gold_panel_rebuild.py",
+                         "by-pnu-serving-bake.sh": "test_by_pnu_serving_bake.py"}
+
+    def test_a_program_jobs_run_in_several_modes_is_run_in_each(self):
+        modes = {}
+        for spec in job_specs.load_specs():
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            words = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1).split()
+            modes.setdefault(pathlib.PurePosixPath(words[0]).name, set()).add(tuple(words[1:]))
+        for program, arguments in modes.items():
+            if len(arguments) > 1:
+                with self.subTest(program):
+                    self.assertIn(program, self.RUN_FOR_EVERY_JOB, f"jobs run {program} as {sorted(arguments)}")
+                    test = (pathlib.Path(__file__).parent / self.RUN_FOR_EVERY_JOB[program]).read_text(encoding="utf-8")
+                    self.assertIn("def test_every_registered_job_of_this_script_ends_with_one_outcome_line", test)
+
     def test_a_program_that_only_mentions_the_line_is_refused(self):
         self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
         self.assertTrue(reports_outcome('    print("foundation-job-outcome unchanged")\n'))
         self.assertFalse(reports_outcome("# ends with `foundation-job-outcome changed`\nexec run\n"))
         self.assertFalse(reports_outcome("exec run\n"))
+
+    def test_a_program_that_can_say_changed_can_also_say_unchanged(self):
+        # `changed` starts the readers, so it has to rest on evidence of a write. A program with no
+        # `unchanged` branch says `changed` on every no-op: 2026-10-27 the floor job did on
+        # `already_retained ... persisted_row_count=0`, as did the outbox tick and the lineage cycle.
+        for spec in job_specs.load_specs():
+            program = job_specs.PLATFORM_ROOT / entry_script(spec)[len(job_specs.RELEASE_PREFIX):]
+            with self.subTest(spec.job_id):
+                self.assertFalse(changed_without_unchanged(program.read_text(encoding="utf-8")),
+                                 f"{program.name} can say `changed` but never `unchanged`")
+
+    def test_a_program_that_always_says_changed_is_refused(self):
+        self.assertTrue(changed_without_unchanged("run\nprintf 'foundation-job-outcome changed\\n'\n"))
+        self.assertFalse(changed_without_unchanged(
+            "[ \"$n\" = 0 ] && echo foundation-job-outcome unchanged && exit 0\necho foundation-job-outcome changed\n"))
+        self.assertFalse(changed_without_unchanged("# foundation-job-outcome changed\necho foundation-job-outcome failed x\n"))
 
 
 class TheRunOutcome(unittest.TestCase):
@@ -831,6 +881,41 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
                 self.assertIn(expected, problems[0])
 
 
+class FloorCycleOutcome(unittest.TestCase):
+    """`changed` needs evidence of a write: the cycle's persisted rows (2026-10-27: the floor job said
+    `changed` on `action=already_retained ... persisted_row_count=0`, and could start Gold for nothing)."""
+
+    def run_cycle(self, printed):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            script, release = FloorCycleAdapter().release_wrapper(root, "#!/bin/sh\nprintf '%s\\n' '" + printed + "'\n")
+            env = {
+                "PATH": os.environ["PATH"], "DATABASE_URL": "postgres://fixture/fixture",
+                "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT": str(release),
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
+                "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
+                "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": "/fixture/state",
+                "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": "/fixture/ivy",
+            }
+            result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.splitlines()[-1]
+
+    def test_an_already_retained_edition_is_unchanged(self):
+        self.assertEqual(self.run_cycle(
+            "remote-lakehouse-job-ok job=building_register_floors_pipeline_full action=already_retained "
+            "retained_row_count=21 persisted_row_count=0 audit_recorded=false"), "foundation-job-outcome unchanged")
+
+    def test_persisted_rows_are_a_change(self):
+        self.assertEqual(self.run_cycle(
+            "remote-lakehouse-job-ok job=building_register_floors_pipeline_full contract=floor row_count=21 "
+            "persisted_row_count=21"), "foundation-job-outcome changed")
+
+    def test_no_job_line_is_not_a_change(self):
+        self.assertEqual(self.run_cycle("ran"),
+                         "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line")
+
+
 class FloorCycleAdapter(unittest.TestCase):
     # The host layout (root ADR-0134): the read-only source under releases/<sha>, its trusted
     # build output under artifacts/<sha>, and FLOOR's configuration under config/<sha>.
@@ -949,9 +1034,10 @@ class FloorCycleAdapter(unittest.TestCase):
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0260).
+            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0260); this
+            # stand-in reports no job, which is not taken for a change (FloorCycleOutcome).
             self.assertEqual(result.stdout.splitlines(), [
-                source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome changed"])
+                source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line"])
             self.assertEqual(result.stderr, "")
             # A failed Compose command must not be masked by a successful JSON consumer.
             docker.write_text(docker.read_text() + "exit 19\n")
@@ -982,7 +1068,7 @@ class FloorCycleAdapter(unittest.TestCase):
                 "PUBLISHER_BIN": str(stale),
             }
             script = root / "current/scripts/ops/building-register-floor-cycle.sh"
-            for args, lines in [([], ["run-building-register-floor-cycle", "foundation-job-outcome changed"]),
+            for args, lines in [([], ["run-building-register-floor-cycle", "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line"]),
                                 (["cleanup"], ["stop-building-register-floor-cycle"])]:
                 result = subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)

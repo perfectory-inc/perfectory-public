@@ -24,11 +24,17 @@
 //! states `key_length`, every key is that long, and an entry is `key_length + 9` bytes. A pack
 //! whose keys are PNUs is always written as format 1, so the packs already served keep their bytes.
 //!
+//! A document past what one request may copy is served as pages (root ADR-0325): its entry's
+//! member is page 1, pages 2.. follow it in the body, and the header's `pages` table names every
+//! page's member length by key. The index, its entry size and the format version do not change; a
+//! pack none of whose documents is paged has no table and the same bytes as before.
+//!
 //! Gzip is the one compression the Worker can both decode natively (`DecompressionStream`) and
 //! hand to a client unchanged as `Content-Encoding: gzip`. Every member is written with mtime 0
 //! and no file name, so the same document always compresses to the same bytes under one pinned
 //! `flate2`; the golden test notices any change.
 
+use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 
 use anyhow::{bail, ensure, Context};
@@ -74,6 +80,11 @@ pub struct PackHeader {
     /// 19-digit PNUs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_length: Option<u64>,
+    /// The keys whose document is served as pages (root ADR-0325), each with every page's member
+    /// length: the first is the entry's own member, the others follow it in the body in order.
+    /// Absent from a pack where every document is whole, so such a pack keeps its bytes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pages: BTreeMap<String, Vec<u32>>,
 }
 
 /// What the writer is told; the counts, lengths and checksum are the writer's to fill in.
@@ -110,6 +121,7 @@ pub struct PackWriter {
     identity: PackIdentity,
     entries: Vec<IndexEntry>,
     body: Vec<u8>,
+    pages: BTreeMap<String, Vec<u32>>,
 }
 
 impl PackWriter {
@@ -128,6 +140,7 @@ impl PackWriter {
             identity,
             entries: Vec::new(),
             body: Vec::new(),
+            pages: BTreeMap::new(),
         })
     }
 
@@ -137,27 +150,68 @@ impl PackWriter {
     /// Refuses a PNU out of order or outside the unit, a body past 4 GiB, and a document whose
     /// member is past the contract's request CPU budget (root ADR-0233).
     pub fn push_document(&mut self, pnu: &str, document: &[u8]) -> anyhow::Result<()> {
-        self.check_next(pnu)?;
-        let compressed = gzip(document)?;
+        self.push_members(pnu, &[document])
+    }
+
+    /// Appends `key`'s document served as pages (root ADR-0325): each page compressed alone, the
+    /// first as the entry's member and the others right after it, every length in the header's
+    /// pages table.
+    ///
+    /// # Errors
+    /// Refuses what [`Self::push_document`] refuses, for every page, and fewer than two pages or
+    /// more than the contract's `max_pages`.
+    pub fn push_pages(&mut self, key: &str, pages: &[Vec<u8>]) -> anyhow::Result<()> {
+        let max = section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .pages
+            .max_pages;
+        ensure!(
+            (2..=usize::try_from(max)?).contains(&pages.len()),
+            "{key} is served as {} pages; a document of pages has 2 to {max} (root ADR-0325)",
+            pages.len()
+        );
+        self.push_members(key, &pages.iter().map(Vec::as_slice).collect::<Vec<_>>())
+    }
+
+    fn push_members(&mut self, key: &str, documents: &[&[u8]]) -> anyhow::Result<()> {
+        self.check_next(key)?;
         let bound = section_pack_policy()?
             .read_path
             .request_cpu_budget
             .document_max_bytes;
-        ensure!(
-            u64::try_from(compressed.len())? <= bound,
-            "the document of {pnu} is {} bytes compressed, above the {bound} one request may copy              (request_cpu_budget.document_max_bytes); narrow the lane's document key (root              ADR-0233)",
-            compressed.len()
-        );
+        let mut members = Vec::with_capacity(documents.len());
+        for document in documents {
+            let compressed = gzip(document)?;
+            ensure!(
+                u64::try_from(compressed.len())? <= bound,
+                "the document of {key} is {} bytes compressed, above the {bound} one request may \
+                 copy (request_cpu_budget.document_max_bytes, root ADR-0233); a document past it \
+                 is served as pages (root ADR-0325)",
+                compressed.len()
+            );
+            members.push(compressed);
+        }
         let offset = u32::try_from(self.body.len()).context("pack body passed 4 GiB")?;
-        let length = u32::try_from(compressed.len()).context("one document passed 4 GiB")?;
-        u32::try_from(self.body.len() + compressed.len()).context("pack body passed 4 GiB")?;
-        self.body.extend_from_slice(&compressed);
+        let lengths = members
+            .iter()
+            .map(|member| u32::try_from(member.len()))
+            .collect::<Result<Vec<_>, _>>()
+            .context("one document passed 4 GiB")?;
+        u32::try_from(self.body.len() + members.iter().map(Vec::len).sum::<usize>())
+            .context("pack body passed 4 GiB")?;
+        for member in &members {
+            self.body.extend_from_slice(member);
+        }
         self.entries.push(IndexEntry {
-            pnu: pnu.to_owned(),
+            pnu: key.to_owned(),
             offset,
-            length,
+            length: lengths[0],
             state: EntryState::Document,
         });
+        if lengths.len() > 1 {
+            self.pages.insert(key.to_owned(), lengths);
+        }
         Ok(())
     }
 
@@ -262,6 +316,7 @@ impl PackWriter {
             body_length: u64::try_from(self.body.len())?,
             body_sha256: format!("{:x}", Sha256::digest(&self.body)),
             key_length: header_key_length,
+            pages: self.pages,
         };
         let header = serde_json::to_vec(&header).context("failed to serialize a pack header")?;
         let head = PREFIX_BYTES + header.len() + index.len();
@@ -454,7 +509,39 @@ pub fn read_head(bytes: &[u8]) -> anyhow::Result<(PackHeader, Vec<IndexEntry>)> 
         header.patch.is_some() || tombstones == 0,
         "a base pack holds a tombstone"
     );
+    check_pages(&header, &entries, policy)?;
     Ok((header, entries))
+}
+
+/// The header's pages table (root ADR-0325) names document entries only, each with 2 to
+/// `max_pages` members inside the body, the first being the entry's own and none past what one
+/// request may copy.
+fn check_pages(
+    header: &PackHeader,
+    entries: &[IndexEntry],
+    policy: &crate::by_pnu_gateway_contract::SectionPackPolicy,
+) -> anyhow::Result<()> {
+    let budget = &policy.read_path.request_cpu_budget;
+    let max_pages = usize::try_from(budget.pages.max_pages)?;
+    for (key, lengths) in &header.pages {
+        let entry = entries
+            .binary_search_by(|entry| entry.pnu.as_str().cmp(key))
+            .ok()
+            .and_then(|position| entries.get(position))
+            .filter(|entry| entry.state == EntryState::Document)
+            .with_context(|| format!("the pack header pages {key}, no document of its index"))?;
+        let total = lengths.iter().map(|length| u64::from(*length)).sum::<u64>();
+        ensure!(
+            (2..=max_pages).contains(&lengths.len())
+                && lengths.first() == Some(&entry.length)
+                && lengths
+                    .iter()
+                    .all(|length| *length > 0 && u64::from(*length) <= budget.document_max_bytes)
+                && u64::from(entry.offset) + total <= header.body_length,
+            "the pack header's pages of {key} are not 2 to {max_pages} members of its body"
+        );
+    }
+    Ok(())
 }
 
 impl Pack {
@@ -509,6 +596,48 @@ impl Pack {
             .map(Some)
             .with_context(|| format!("pack entry {} does not decode", entry.pnu))
     }
+
+    /// How many pages the entry's document is served as (root ADR-0325): 1 when it is whole.
+    pub fn page_count(&self, entry: &IndexEntry) -> usize {
+        self.header.pages.get(&entry.pnu).map_or(1, Vec::len)
+    }
+
+    /// Page `page` of the entry's document, decompressed: page 1 is the entry's own member,
+    /// [`Self::document`]; `None` for a page the document does not have, and for a tombstone.
+    ///
+    /// # Errors
+    /// Refuses a page that does not decode.
+    pub fn page(&self, entry: &IndexEntry, page: usize) -> anyhow::Result<Option<Vec<u8>>> {
+        if page == 1 {
+            return self.document(entry);
+        }
+        let Some(lengths) = self.header.pages.get(&entry.pnu) else {
+            return Ok(None);
+        };
+        let Some(length) = page.checked_sub(1).and_then(|at| lengths.get(at)) else {
+            return Ok(None);
+        };
+        let before = lengths[..page - 1]
+            .iter()
+            .map(|length| usize::try_from(*length))
+            .sum::<Result<usize, _>>()?;
+        let start = usize::try_from(entry.offset)? + before;
+        let compressed = self
+            .body
+            .get(start..start + usize::try_from(*length)?)
+            .with_context(|| format!("page {page} of {} points past the body", entry.pnu))?;
+        gunzip(compressed)
+            .map(Some)
+            .with_context(|| format!("page {page} of {} does not decode", entry.pnu))
+    }
+}
+
+/// Bytes of `document`'s gzip member as a pack holds it: what one request copies of it.
+///
+/// # Errors
+/// Returns an error when the compressor fails.
+pub fn member_length(document: &[u8]) -> anyhow::Result<usize> {
+    Ok(gzip(document)?.len())
 }
 
 /// One document as one gzip member: mtime 0, no name, best compression.

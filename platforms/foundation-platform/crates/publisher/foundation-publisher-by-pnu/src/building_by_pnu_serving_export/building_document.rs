@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 pub use foundation_contracts::building_panel::{
     BUILDING_DOCUMENT_SCHEMA_EXPANDS, BUILDING_DOCUMENT_SCHEMA_VERSION,
+    BUILDING_PAGE_SCHEMA_VERSION,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +65,282 @@ impl BuildingByPnuDocument {
         body.push(b'\n');
         Ok(body)
     }
+}
+
+/// Where one page sits among its document's pages (root ADR-0325); page 1 answers the PNU's own
+/// path, page `n` the path `<pnu>/<n>`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
+pub struct PageOf {
+    pub index: u32,
+    pub count: u32,
+}
+
+/// One page of a building document too large for one request (root ADR-0325). The pages, in
+/// order, hold the document's buildings and unlinked units; a building cut across pages appears on
+/// each with its fields, its floors on its first page only, and the next page's units continue
+/// its own. A reader joins consecutive buildings of the same id ([`join_pages`]).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(utoipa::ToSchema))]
+pub struct BuildingByPnuPage {
+    pub schema_version: String,
+    pub pnu: String,
+    pub source: ServingSource,
+    pub page: PageOf,
+    pub buildings: Vec<BuildingPanelBuilding>,
+    pub unlinked_units: Vec<UnitResponse>,
+    /// Why the document is not served (root ADR-0325 §4): it cannot be cut into pages within the
+    /// contract. The page then holds nothing else and is the only one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub withheld: Option<String>,
+}
+
+impl BuildingByPnuPage {
+    /// The served bytes, written the way the whole document's are.
+    pub fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        let mut body =
+            serde_json::to_vec_pretty(self).context("failed to serialize a building page")?;
+        body.push(b'\n');
+        Ok(body)
+    }
+}
+
+/// What one PNU's building document is served as (root ADR-0325).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum Served {
+    /// The document whole: its member fits what one request may copy.
+    Whole(Vec<u8>),
+    /// Its pages, in order, each member within the contract's page target.
+    Pages(Vec<Vec<u8>>),
+    /// One page saying why the document is withheld, and the reason.
+    Withheld { page: Vec<u8>, reason: String },
+}
+
+/// How `document` is served: whole while its gzip member fits `document_max_bytes`, else cut into
+/// pages; a document no cut fits is withheld, so one document never stops its lane (2026-10-28:
+/// one PNU's 268,404-byte member refused the whole building bake six times).
+///
+/// # Errors
+/// Returns an error when the document does not serialize or the contract cannot be read.
+pub(super) fn served(document: &BuildingByPnuDocument) -> anyhow::Result<Served> {
+    let whole = document.to_bytes()?;
+    let budget = &crate::by_pnu_gateway_contract::section_pack_policy()?
+        .read_path
+        .request_cpu_budget;
+    let bound = usize::try_from(budget.document_max_bytes)?;
+    // Deflate adds at most 5 bytes per 16 KiB block and an 18-byte frame: a document this short
+    // fits without compressing it twice.
+    if whole.len() + whole.len() / 1024 + 64 <= bound {
+        return Ok(Served::Whole(whole));
+    }
+    let member = crate::by_pnu_pack::member_length(&whole)?;
+    if member <= bound {
+        return Ok(Served::Whole(whole));
+    }
+    let target = usize::try_from(budget.pages.page_target_bytes)?;
+    let max_pages = usize::try_from(budget.pages.max_pages)?;
+    match paginate(document, member, target, max_pages) {
+        Ok(pages) => Ok(Served::Pages(pages)),
+        Err(error) => {
+            let reason = format!(
+                "document_too_large: its {member}-byte member does not cut into at most \
+                 {max_pages} pages of {target} bytes ({error:#})"
+            );
+            let page = BuildingByPnuPage {
+                schema_version: BUILDING_PAGE_SCHEMA_VERSION.to_owned(),
+                pnu: document.pnu.clone(),
+                source: document.source.clone(),
+                page: PageOf { index: 1, count: 1 },
+                buildings: Vec::new(),
+                unlinked_units: Vec::new(),
+                withheld: Some(reason.clone()),
+            };
+            Ok(Served::Withheld {
+                page: page.to_bytes()?,
+                reason,
+            })
+        }
+    }
+}
+
+/// One piece of a document a page boundary may fall between: a building with its fields and
+/// floors, one of its units, or one unlinked unit.
+#[derive(Clone, Copy)]
+enum Piece {
+    Building(usize),
+    Unit(usize, usize),
+    Unlinked(usize),
+}
+
+/// The fewest pages, from the member's share of `target` up to `max_pages`, whose every member is
+/// within `target`; they join back into exactly `document`.
+fn paginate(
+    document: &BuildingByPnuDocument,
+    member: usize,
+    target: usize,
+    max_pages: usize,
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    let mut pieces = Vec::new();
+    for (at, building) in document.buildings.iter().enumerate() {
+        let mut fields = building.clone();
+        fields.units.clear();
+        pieces.push((Piece::Building(at), serde_json::to_vec(&fields)?.len()));
+        for (unit, value) in building.units.iter().enumerate() {
+            pieces.push((Piece::Unit(at, unit), serde_json::to_vec(value)?.len()));
+        }
+    }
+    for (at, value) in document.unlinked_units.iter().enumerate() {
+        pieces.push((Piece::Unlinked(at), serde_json::to_vec(value)?.len()));
+    }
+    // A piece no page can hold ends the search at once: more pages never shrink it. Only a piece
+    // longer than the target can compress past it.
+    for (piece, size) in &pieces {
+        if *size > target {
+            let alone = match *piece {
+                Piece::Building(at) => {
+                    let mut fields = document.buildings[at].clone();
+                    fields.units.clear();
+                    serde_json::to_vec(&fields)?
+                }
+                Piece::Unit(at, unit) => serde_json::to_vec(&document.buildings[at].units[unit])?,
+                Piece::Unlinked(at) => serde_json::to_vec(&document.unlinked_units[at])?,
+            };
+            let member = crate::by_pnu_pack::member_length(&alone)?;
+            ensure!(
+                member <= target,
+                "one building or unit alone has a {member}-byte member"
+            );
+        }
+    }
+    let whole = document.to_bytes()?;
+    let mut count = member.div_ceil(target).max(2);
+    let mut largest = member;
+    while count <= max_pages {
+        let pages = cut(document, &pieces, count);
+        let bytes = pages
+            .iter()
+            .map(BuildingByPnuPage::to_bytes)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        largest = bytes
+            .iter()
+            .map(|page| crate::by_pnu_pack::member_length(page))
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
+            .max()
+            .unwrap_or(0);
+        if largest <= target && bytes.len() >= 2 {
+            ensure!(
+                join_pages(&pages)?.to_bytes()? == whole,
+                "the pages of {} do not join back into its document",
+                document.pnu
+            );
+            return Ok(bytes);
+        }
+        // The largest page's overshoot says about how many more pages it takes; at least one.
+        count = (count + 1).max((count * largest).div_ceil(target));
+    }
+    anyhow::bail!("the largest page still has a {largest}-byte member")
+}
+
+/// `document` cut into at most `count` pages of about equal serialized size, in order; a page
+/// left empty is dropped and the rest are numbered as served.
+fn cut(
+    document: &BuildingByPnuDocument,
+    pieces: &[(Piece, usize)],
+    count: usize,
+) -> Vec<BuildingByPnuPage> {
+    let total = pieces.iter().map(|(_, size)| size).sum::<usize>().max(1);
+    let mut pages: Vec<(Vec<BuildingPanelBuilding>, Vec<UnitResponse>)> =
+        vec![(Vec::new(), Vec::new()); count];
+    let mut before = 0;
+    for (piece, size) in pieces {
+        // Each piece goes to the page its middle falls in, so pages stay in document order.
+        let at = ((before + size / 2) * count / total).min(count - 1);
+        before += size;
+        let (buildings, unlinked) = &mut pages[at];
+        match *piece {
+            Piece::Building(building) => {
+                let mut fields = document.buildings[building].clone();
+                fields.units.clear();
+                buildings.push(fields);
+            }
+            Piece::Unit(building, unit) => {
+                let source = &document.buildings[building];
+                let value = source.units[unit].clone();
+                match buildings.last_mut().filter(|last| last.id == source.id) {
+                    Some(last) => last.units.push(value),
+                    None => {
+                        let mut continued = source.clone();
+                        continued.floors.clear();
+                        continued.units = vec![value];
+                        buildings.push(continued);
+                    }
+                }
+            }
+            Piece::Unlinked(unit) => unlinked.push(document.unlinked_units[unit].clone()),
+        }
+    }
+    pages.retain(|(buildings, unlinked)| !buildings.is_empty() || !unlinked.is_empty());
+    let served = u32::try_from(pages.len()).unwrap_or(u32::MAX);
+    pages
+        .into_iter()
+        .zip(1..)
+        .map(|((buildings, unlinked_units), index)| BuildingByPnuPage {
+            schema_version: BUILDING_PAGE_SCHEMA_VERSION.to_owned(),
+            pnu: document.pnu.clone(),
+            source: document.source.clone(),
+            page: PageOf {
+                index,
+                count: served,
+            },
+            buildings,
+            unlinked_units,
+            withheld: None,
+        })
+        .collect()
+}
+
+/// The document a set of pages holds, as every reader joins them (root ADR-0325): pages 1 to
+/// `count` of one PNU and one Gold snapshot, in order; consecutive buildings of one id are one
+/// building, its floors and units continued.
+///
+/// # Errors
+/// Refuses pages out of order, of another PNU, snapshot or count, and a withheld page.
+pub fn join_pages(pages: &[BuildingByPnuPage]) -> anyhow::Result<BuildingByPnuDocument> {
+    let first = pages.first().context("a document has at least one page")?;
+    let count = u32::try_from(pages.len())?;
+    let mut buildings: Vec<BuildingPanelBuilding> = Vec::new();
+    let mut unlinked_units = Vec::new();
+    for (page, index) in pages.iter().zip(1..) {
+        ensure!(
+            page.schema_version == BUILDING_PAGE_SCHEMA_VERSION
+                && page.pnu == first.pnu
+                && page.source == first.source
+                && page.page == PageOf { index, count }
+                && page.withheld.is_none(),
+            "page {index} of {} is not page {index} of {count} of the same document",
+            first.pnu
+        );
+        for building in &page.buildings {
+            match buildings.last_mut().filter(|last| last.id == building.id) {
+                Some(last) => {
+                    last.floors.extend(building.floors.iter().cloned());
+                    last.units.extend(building.units.iter().cloned());
+                }
+                None => buildings.push(building.clone()),
+            }
+        }
+        unlinked_units.extend(page.unlinked_units.iter().cloned());
+    }
+    Ok(BuildingByPnuDocument {
+        schema_version: BUILDING_DOCUMENT_SCHEMA_VERSION.to_owned(),
+        pnu: first.pnu.clone(),
+        source: first.source.clone(),
+        buildings,
+        unlinked_units,
+    })
 }
 
 #[cfg(test)]
@@ -553,6 +830,194 @@ pub(super) mod tests {
         let document: JsonValue = serde_json::from_slice(&build(&provenance(), &plain)?.body)?;
         assert!(document["buildings"][0].get("purpose_name").is_none());
         assert!(document["buildings"][0].get("structure_name").is_none());
+        Ok(())
+    }
+
+    /// Text gzip cannot shrink much: hex digits of a xorshift stream.
+    pub fn noise(seed: usize, length: usize) -> String {
+        let mut state = u64::try_from(seed)
+            .unwrap_or(0)
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            | 1;
+        (0..length)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                char::from(b"0123456789abcdef"[usize::try_from(state % 16).unwrap_or(0)])
+            })
+            .collect()
+    }
+
+    /// A synthetic Gold row of a reserved (99999) PNU: `buildings` buildings of `units` units
+    /// each, and `unlinked` unlinked units, every unit carrying `noise` bytes of name gzip cannot
+    /// shrink.
+    pub fn large_row(
+        pnu: &str,
+        buildings: usize,
+        units: usize,
+        unlinked: usize,
+        noise_bytes: usize,
+    ) -> anyhow::Result<JsonMap<String, JsonValue>> {
+        let parcel = parcel_id_for_pnu(&Pnu::parse(pnu.to_owned())?).as_uuid();
+        let unit_of =
+            |pk: String, parent: Option<&str>, seed: usize| -> anyhow::Result<JsonValue> {
+                let mut value = unit(parent.map(building_id_for_register_pk))?;
+                value["unit_pnu"] = json!(pnu);
+                value["parcel_id"] = json!(parcel);
+                value["building_register_pk"] = json!(parent);
+                value["id"] = json!(building_unit_id_for_register_pk(&pk));
+                value["register_pk"] = json!(pk);
+                value["building_name"] = json!(noise(seed, noise_bytes));
+                Ok(value)
+            };
+        let mut built = Vec::new();
+        for b in 0..buildings {
+            let pk = format!("BLDG-{b}");
+            let units = (0..units)
+                .map(|u| unit_of(format!("UNIT-{b}-{u}"), Some(&pk), b * units + u))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            built.push(json!({
+                "register_pk": pk, "id": building_id_for_register_pk(&pk), "parcel_id": parcel,
+                "purpose_code": "03000", "structure_code": null, "floor_area_m2": null,
+                "stories": null, "below_ground_floors": 0, "has_rooftop": false,
+                "rooftop_area_m2": null, "rooftop_usage": "", "built_year": null,
+                "floors": [{"floor_row_id": format!("FLOOR-{b}"), "floor_kind": "above_ground",
+                    "floor_number": 1, "floor_index": 1, "floor_display_ko": "1"}],
+                "units": units
+            }));
+        }
+        let loose = (0..unlinked)
+            .map(|u| unit_of(format!("LOOSE-{u}"), None, 1_000_000 + u))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut gold = row();
+        gold.insert("pnu".to_owned(), json!(pnu));
+        gold.insert(
+            "buildings_json".to_owned(),
+            json!(serde_json::to_string(&built)?),
+        );
+        gold.insert(
+            "unlinked_units_json".to_owned(),
+            json!(serde_json::to_string(&loose)?),
+        );
+        Ok(gold)
+    }
+
+    fn pages_of(bytes: &[Vec<u8>]) -> anyhow::Result<Vec<BuildingByPnuPage>> {
+        bytes
+            .iter()
+            .map(|page| Ok(serde_json::from_slice(page)?))
+            .collect()
+    }
+
+    /// Root ADR-0325: a cut at any page target keeps document order, keeps every page within the
+    /// target, and joins back into the same bytes, also across a building cut between pages.
+    #[test]
+    fn pages_join_back_into_the_document_they_cut() -> anyhow::Result<()> {
+        let document = document_with_approvals(
+            &provenance(),
+            &large_row(PNU, 3, 40, 7, 64)?,
+            &ApprovedBuildingLinks::default(),
+        )?;
+        let whole = document.to_bytes()?;
+        let member = crate::by_pnu_pack::member_length(&whole)?;
+        for target in [member / 2 + 1, member / 3, member / 7] {
+            let bytes = paginate(&document, member, target, 64)?;
+            let pages = pages_of(&bytes)?;
+            assert!(pages.len() >= 2, "{target}: {} pages", pages.len());
+            for (page, served) in pages.iter().zip(&bytes) {
+                assert!(crate::by_pnu_pack::member_length(served)? <= target);
+                assert_eq!(page.schema_version, BUILDING_PAGE_SCHEMA_VERSION);
+                assert_eq!(page.page.count, u32::try_from(pages.len())?);
+            }
+            assert_eq!(join_pages(&pages)?.to_bytes()?, whole);
+            // A building's floors are on its first page only.
+            let floors = pages
+                .iter()
+                .flat_map(|page| &page.buildings)
+                .map(|building| building.floors.len())
+                .sum::<usize>();
+            assert_eq!(floors, 3);
+        }
+        Ok(())
+    }
+
+    /// Root ADR-0325: pages that are not one document's 1..n in order are refused, never joined.
+    #[test]
+    fn pages_of_another_document_or_order_are_refused() -> anyhow::Result<()> {
+        let document = document_with_approvals(
+            &provenance(),
+            &large_row(PNU, 2, 30, 3, 64)?,
+            &ApprovedBuildingLinks::default(),
+        )?;
+        let member = crate::by_pnu_pack::member_length(&document.to_bytes()?)?;
+        let pages = pages_of(&paginate(&document, member, member / 3, 64)?)?;
+        let mut reversed = pages.clone();
+        reversed.reverse();
+        assert!(join_pages(&reversed).is_err());
+        assert!(join_pages(&pages[1..]).is_err(), "a missing first page");
+        let mut other = pages.clone();
+        other[1].source.iceberg_snapshot_id = "999990000000000002".to_owned();
+        assert!(join_pages(&other).is_err(), "a page of another snapshot");
+        Ok(())
+    }
+
+    /// The 2026-10-28 stop (root ADR-0325): a document whose member passes what one request may
+    /// copy is served as pages, each within the target; one that fits stays whole, byte for byte;
+    /// one with a single unit too large for any page is withheld instead of failing the bake.
+    #[test]
+    fn a_document_past_one_request_is_paged_and_one_no_cut_fits_is_withheld() -> anyhow::Result<()>
+    {
+        let budget = &crate::by_pnu_gateway_contract::section_pack_policy()?
+            .read_path
+            .request_cpu_budget;
+        let small = document_with_approvals(
+            &provenance(),
+            &large_row(PNU, 1, 3, 1, 16)?,
+            &ApprovedBuildingLinks::default(),
+        )?;
+        assert_eq!(served(&small)?, Served::Whole(small.to_bytes()?));
+
+        let large = document_with_approvals(
+            &provenance(),
+            &large_row(PNU, 4, 150, 10, 1_000)?,
+            &ApprovedBuildingLinks::default(),
+        )?;
+        let member = crate::by_pnu_pack::member_length(&large.to_bytes()?)?;
+        assert!(
+            u64::try_from(member)? > budget.document_max_bytes,
+            "{member}"
+        );
+        let Served::Pages(bytes) = served(&large)? else {
+            anyhow::bail!("a document past one request was not paged");
+        };
+        for page in &bytes {
+            assert!(
+                u64::try_from(crate::by_pnu_pack::member_length(page)?)?
+                    <= budget.pages.page_target_bytes
+            );
+        }
+        assert_eq!(
+            join_pages(&pages_of(&bytes)?)?.to_bytes()?,
+            large.to_bytes()?
+        );
+
+        let one_huge_unit = document_with_approvals(
+            &provenance(),
+            &large_row(PNU, 1, 1, 0, 600_000)?,
+            &ApprovedBuildingLinks::default(),
+        )?;
+        let Served::Withheld { page, reason } = served(&one_huge_unit)? else {
+            anyhow::bail!("a document no cut fits was not withheld");
+        };
+        assert!(reason.starts_with("document_too_large"), "{reason}");
+        let page: BuildingByPnuPage = serde_json::from_slice(&page)?;
+        assert_eq!(page.withheld.as_deref(), Some(reason.as_str()));
+        assert!(page.buildings.is_empty() && page.unlinked_units.is_empty());
+        assert!(
+            join_pages(&[page]).is_err(),
+            "a withheld page joins into nothing"
+        );
         Ok(())
     }
 

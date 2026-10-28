@@ -18,8 +18,11 @@ use arrow_schema::{DataType, TimeUnit};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, SecondsFormat, TimeDelta, Utc};
 use lakehouse_domain::LakehouseTableContract;
-use parquet::arrow::arrow_reader::{ArrowPredicateFn, ParquetRecordBatchReaderBuilder, RowFilter};
+use parquet::arrow::arrow_reader::{
+    ArrowPredicateFn, ArrowReaderBuilder, ParquetRecordBatchReaderBuilder, RowFilter,
+};
 use parquet::arrow::ProjectionMask;
+use parquet::file::metadata::ParquetMetaData;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 /// Iceberg `manifest_file.content` / `data_file.content` value for row data.
@@ -286,41 +289,8 @@ pub(super) fn decode_rows_under(
 ) -> anyhow::Result<(u64, u64)> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
         .context("failed to open Iceberg Parquet data file")?;
-    let file_rows = u64::try_from(builder.metadata().file_metadata().num_rows())
-        .context("a Parquet file declares a negative row count")?;
-    let mut group_skipped: u64 = 0;
-    let builder = match prefix {
-        None => builder,
-        Some((column, prefix)) => {
-            let leaf = builder
-                .parquet_schema()
-                .columns()
-                .iter()
-                .position(|leaf| leaf.path().parts() == [column]);
-            let mut read = Vec::new();
-            for (index, group) in builder.metadata().row_groups().iter().enumerate() {
-                if leaf.is_some_and(|leaf| row_group_excludes(group.column(leaf), prefix)) {
-                    group_skipped = group_skipped
-                        .checked_add(u64::try_from(group.num_rows())?)
-                        .context("skipped row count overflow")?;
-                } else {
-                    read.push(index);
-                }
-            }
-            let builder = builder.with_row_groups(read);
-            match leaf {
-                Some(leaf) => {
-                    let mask = ProjectionMask::leaves(builder.parquet_schema(), [leaf]);
-                    let prefix = prefix.to_owned();
-                    let under = ArrowPredicateFn::new(mask, move |batch: RecordBatch| {
-                        Ok(starts_with(batch.column(0), &prefix))
-                    });
-                    builder.with_row_filter(RowFilter::new(vec![Box::new(under)]))
-                }
-                None => builder,
-            }
-        }
-    };
+    let file_rows = file_row_count(builder.metadata())?;
+    let (builder, group_skipped) = keep_prefix(builder, prefix)?;
     let reader = builder
         .build()
         .context("failed to build the Iceberg Parquet reader")?;
@@ -328,22 +298,89 @@ pub(super) fn decode_rows_under(
     let mut decoded: u64 = 0;
     for batch in reader {
         let batch = batch.context("failed to read an Iceberg Parquet record batch")?;
-        assert_batch_matches_contract(contract, &batch)?;
-        for index in 0..batch.num_rows() {
-            let row = decode_row(contract, &batch, index)?;
-            decoded = decoded
-                .checked_add(1)
-                .context("decoded row count overflow")?;
-            if !visit(row) {
-                return Ok((decoded, group_skipped));
-            }
+        if !visit_batch(contract, &batch, &mut decoded, &mut visit)? {
+            return Ok((decoded, group_skipped));
         }
     }
-    // Read to the end: every row not handed over was skipped by its row group or filtered out.
-    let skipped = file_rows
+    Ok((decoded, rows_not_handed_over(file_rows, decoded)?))
+}
+
+/// The row count a Parquet file's footer declares.
+pub(super) fn file_row_count(metadata: &ParquetMetaData) -> anyhow::Result<u64> {
+    u64::try_from(metadata.file_metadata().num_rows())
+        .context("a Parquet file declares a negative row count")
+}
+
+/// The rows of a file decoded to its end that were never handed over: skipped by their row group,
+/// or filtered out under the prefix.
+pub(super) fn rows_not_handed_over(file_rows: u64, decoded: u64) -> anyhow::Result<u64> {
+    file_rows
         .checked_sub(decoded)
-        .context("decoded more rows than the Parquet file declares")?;
-    Ok((decoded, skipped))
+        .context("decoded more rows than the Parquet file declares")
+}
+
+/// Narrows a Parquet reader to `column` values under `prefix`: the row groups whose statistics
+/// prove they hold none are left out, and the rest are filtered on `column` alone before any other
+/// column decodes. Returns the narrowed builder and the rows of the row groups left out. Shared by
+/// the in-memory reader and the ranged one ([`super::ranged_parquet`]), so both keep the same rows
+/// whatever bytes they were handed.
+pub(super) fn keep_prefix<T>(
+    builder: ArrowReaderBuilder<T>,
+    prefix: Option<(&str, &str)>,
+) -> anyhow::Result<(ArrowReaderBuilder<T>, u64)> {
+    let Some((column, prefix)) = prefix else {
+        return Ok((builder, 0));
+    };
+    let leaf = builder
+        .parquet_schema()
+        .columns()
+        .iter()
+        .position(|leaf| leaf.path().parts() == [column]);
+    let mut group_skipped: u64 = 0;
+    let mut read = Vec::new();
+    for (index, group) in builder.metadata().row_groups().iter().enumerate() {
+        if leaf.is_some_and(|leaf| row_group_excludes(group.column(leaf), prefix)) {
+            group_skipped = group_skipped
+                .checked_add(u64::try_from(group.num_rows())?)
+                .context("skipped row count overflow")?;
+        } else {
+            read.push(index);
+        }
+    }
+    let builder = builder.with_row_groups(read);
+    let builder = match leaf {
+        Some(leaf) => {
+            let mask = ProjectionMask::leaves(builder.parquet_schema(), [leaf]);
+            let prefix = prefix.to_owned();
+            let under = ArrowPredicateFn::new(mask, move |batch: RecordBatch| {
+                Ok(starts_with(batch.column(0), &prefix))
+            });
+            builder.with_row_filter(RowFilter::new(vec![Box::new(under)]))
+        }
+        None => builder,
+    };
+    Ok((builder, group_skipped))
+}
+
+/// Hands each row of one decoded batch to `visit`, counting it in `decoded`. Returns whether to go
+/// on: false once `visit` answered false.
+pub(super) fn visit_batch(
+    contract: &LakehouseTableContract,
+    batch: &RecordBatch,
+    decoded: &mut u64,
+    visit: &mut impl FnMut(JsonMap<String, JsonValue>) -> bool,
+) -> anyhow::Result<bool> {
+    assert_batch_matches_contract(contract, batch)?;
+    for index in 0..batch.num_rows() {
+        let row = decode_row(contract, batch, index)?;
+        *decoded = decoded
+            .checked_add(1)
+            .context("decoded row count overflow")?;
+        if !visit(row) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// The filter mask of one string column: values starting with `prefix`, and nulls (kept so the

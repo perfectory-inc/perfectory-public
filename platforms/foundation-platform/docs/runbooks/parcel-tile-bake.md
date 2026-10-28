@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-29
 ---
 
 # 필지 타일 전국 굽기 — 레이크하우스 오븐 런북
@@ -29,19 +29,38 @@ last_reviewed: 2026-10-13
 3. `parcel_boundary_served_gold.py` 가 `gold.parcel_boundary_served` 를 커밋하고 v2 조각을 쓴다.
 4. `bake-lakehouse-tiles` 가 GDAL·tippecanoe 로 굽고, 관문(최대 줌 feature id 전수)과 첫 판 동등성 관문을
    통과하면 R2 에 create-only 로 올리고 승격한다. 승격 전 실패는 서비스에 아무것도 바꾸지 않는다.
+   필지는 시도마다 따로 굽는다(루트 ADR-0316, 계약 `partition_by_feature_id_prefix`). 행·굽기 입력이 그대로인
+   시도는 `<WORK_ROOT>/parcels-partitions/<시도>/<내용 해시>.pmtiles` 를 다시 쓰고, 바뀐 시도만 GDAL·tippecanoe 를
+   돌린 뒤 `tile-join` 으로 전국 판을 만든다. 저널 줄 `lakehouse-tile-bake-partitions` 에 구운 시도와 재사용 수가 있다.
+   이 폴더는 쌓기만 하며 지우지 않는다(판마다 바뀐 시도 몫만 늘어난다).
+5. 필지는 4단계 앞에서 먼저 **패치**를 시도한다(루트 ADR-0323, 계약 `vector_tile_gateway.patches`).
+   - 핸드오프를 한 번 읽어 feature 색인(id·내용 해시·상자)을 만든다.
+   - 서빙 중인 스냅숏의 색인 `<WORK_ROOT>/parcels-feature-index/<스냅숏>.<입력 해시>.idx` 와 비교해 더러운 타일을 낸다.
+   - 그 이웃만 같은 GDAL·tippecanoe 로 굽고, 누적 패치 `…/parcels-<release>.patch-<n>.pmtiles` 를 create-only 로 올린다.
+   - 그 뒤 manifest `…/parcels-<release>.patches.json` 을 CAS 로 바꾼다. Catalog 의 활성 release 는 그대로다.
+   - 저널 줄은 `lakehouse-tile-bake-patch-plan`(바뀐 수·더러운 타일·한도), `-patch-neighbourhood`, `-patch-gate`,
+     `-patch-ok` 다.
+   - 색인이 없거나, 굽기 입력이 바뀌었거나, 누적 패치가 기본판 타일의 5% 를 넘으면 `-patch-skipped reason=…` 을
+     남기고 4단계(전량, 새 기본판)로 간다. 색인 폴더도 쌓기만 한다(판마다 약 1.6GB).
 
 PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `foundation-job-outcome changed`, 아니면 `unchanged` 다.
 
 ## 2. 예행 (판을 옮기기 전, 작업을 켜기 전)
 
 두 작업은 `enabled: false` 로 등록된다. 새 판을 지도에 올리기 전에 사람이 예행한다(루트 ADR-0253 2항).
-예행은 계약이 가진 **가장 새 판**을 굽고, 아무것도 서비스하지 않는다.
+예행은 운영자가 **이름으로 고른 판**(`<YYYYMM>`, 계약이 가진 판)을 굽고, 아무것도 서비스하지 않는다
+(`scripts/ops/parcel-tile-bake.sh` 머리말: 계약이 Silver 가 아직 적재하지 않은 판도 가질 수 있어 판을 이름으로 받는다).
+조작 명령은 모두 터미널에서 직접 친다(`ssh -t`) — 시작 동작은 `--requested-at`·`--reason` 이 맨 뒤에 있어야 하고,
+10분 지난 요청은 거부된다(`by-pnu-pack-operator.sh` 의 `attended_start`, 루트 ADR-0270 §2b).
 
 1. 서버 창(Spark 가 비는 시간)을 조정자에게 받는다.
-2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold --requested-at "$(date +%s)" --reason "<왜>"`
-   를 실행한다. 대조 관문과 서빙본 Gold 를 돌린다. 관문이 거부해도 기록만 하고 계속한다.
-3. `... parcel-tiles status` 로 끝을 확인한 뒤 `... parcel-tiles rehearse bake` 를 실행한다. 모든 관문을 돌리고, build 행·
-   업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
+2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> --requested-at "$(date +%s)" --reason "<왜>"`
+   를 실행한다(예: `... rehearse gold 202609 ...`; 판 없이 치면 `takes one edition, YYYYMM` 로 거부된다).
+   유닛 `foundation-parcel-tile-bake@rehearsal-gold-<YYYYMM>.service` 가 대조 관문과 서빙본 Gold 를 돌린다.
+   관문이 거부해도 기록만 하고 계속한다.
+3. `... parcel-tiles status` 로 끝을 확인한 뒤
+   `... parcel-tiles rehearse bake --requested-at "$(date +%s)" --reason "<왜>"` 를 실행한다(판은 받지 않는다 — 2단계가
+   준비해 둔 Gold 를 굽는다). 모든 관문을 돌리고, build 행·업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
    동등성 전체 증거는 `/data/foundation-platform/tile-bake/bake/parcels-first-release-equivalence-rehearsal-*.json` 이다.
 4. 두 반쪽의 시간·최대 메모리·`/data` 최대 사용량, 관문 판정, 동등성 분류(ADR-0251)를 4절에 적는다.
 5. 사장이 `served_edition` 을 옮기는 PR 을 승인하면(타일과 패널이 함께 옮겨진다), 두 작업을 켜는 PR 을 낸다.
@@ -50,6 +69,13 @@ PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `fou
 ## 3. 되돌리기
 
 승격 전 실패(관문 거부 포함)는 되돌릴 것이 없다. build 가 `failed` 로 남고 활성 판은 그대로다.
+
+패치(1절 5단계)는 manifest 를 이전 내용으로 되돌리면 된다(ADR-0323 §5). 이전 패치 객체는 R2 에 그대로 있다.
+순서는 다음과 같다.
+
+1. 먼저 `parcel_tile_bake` 를 멈춘다. 멈추지 않으면 다음 실행이 같은 Gold 로 같은 패치를 다시 낸다.
+2. manifest 를 되돌린다.
+3. 다음 발행은 이미 객체가 있는 세대 번호를 건너뛴다.
 
 승격 뒤에는 **이전 판을 다시 승격하는 명령이 없다**(`readdress-static-release` 는 활성 판의 바이트만 새 주소로
 옮긴다). 이전 판의 PMTiles 객체는 R2 에 create-only 로 남아 있다. 틀린 판은 앞으로 고친다. 원인(Silver·서빙본)을

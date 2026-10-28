@@ -17,6 +17,9 @@ last_reviewed: 2026-10-04
 - 서빙 Worker: `services/foundation-by-pnu-gateway` 의 필지 레인(`wrangler.parcel.jsonc`, 루트 ADR-0160; 경로·캐시·CORS 의 정의는
   `config/r2-connections.contract.json` 의 `parcel_by_pnu_gateway`)
 
+객체에서 묶음 파일로의 레인 전환 절차는 [건물 전환 런북](./building-section-pack-cutover.md)과
+[필지 전환 런북](./parcel-section-pack-cutover.md)이 소유한다.
+
 ## 0. 전제
 
 - 무거운 실행은 전부 배치 호스트(ai-server)에서. 배포는 릴리스 스크립트로만, 장기 실행은
@@ -402,16 +405,21 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - 굽기는 재시도하지 않는다(`retries: 0`). 시간 상한에 걸리면 다음 차례에 이어 굽는다.
 - 차례(`takes_turns`): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
   `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-scheduler/starts/` 에 적고, 차례가 아니면
-  `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공).
+  `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공). 확인(`check_service`)이 할 일이 없다고
+  답한 작업도 그때 차례를 가진 것으로 적힌다(root ADR-0305).
 
 그래서 최악의 대기는(재시도까지 시간 상한을 다 쓴 경우) **FLOOR 약 34시간, 계보 검토 약 38시간, 매시 접기 약 17시간**
 이다(굽기 한 실행 + 차례가 올 때 이미 돌던 접기 + 같은 무게의 상대). `job_specs.pool_starvation` 이 이 상한을 계산해
 자기 일정 주기 20번과 비교한다. 굽기는 Gold 에 새 스냅숏이 있을 때만 돈다.
 
-Gold 가 전국 굽기 한 번(실행 여러 번에 걸침)보다 자주 바뀌면 굽기마다 "moved during the bake" 로 멈춘다. 그때는:
-발행하지 않는다(서빙은 이전 세대 그대로), 반쯤 쓴 세대는 서빙되지도 이어 굽지도 않은 채 남는다(로그에
-`abandoned: generation N holds the objects ...`), 다음 실행은 그 위 세대로 처음부터 굽는다. 남은 세대를 지우는 것은
-수동이며(append-only 원칙상 예약 작업은 지우지 않는다), Gold 를 만드는 쪽이 굽기 주기에 맞춰야 끝까지 굽힌다.
+Gold 가 전국 굽기 한 번(실행 여러 번에 걸침)보다 자주 바뀌어도 굽기는 멈추지 않는다(루트 ADR-0310): 각 샤드는
+굽기가 고정한 스냅숏(`…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID`)을 읽고, 배포·실패로 끊긴 full 굽기는 다음 실행이 같은
+세대·같은 스냅숏으로 이어 굽는다(로그 `finishing the full bake pinned to Gold snapshot ...`, 끝난 샤드는 건너뜀).
+발행 뒤 다음 실행이 고정 스냅숏에서 현재 스냅숏까지의 변경분을 패치로 올린다(ADR-0274 상한 그대로). 이어 굽지
+않는 경우는 셋이다: 끝난 샤드의 문서 스키마가 지금 export 와 다를 때, 완료 검사에서 거부된 세대(`refused_incomplete`)일
+때, 고정 스냅숏이 만료됐을 때(로그 `Gold no longer holds snapshot ...`·`abandoned: ...`). 그 세대는 서빙되지 않은 채
+남고 다음 full 굽기는 그 위 세대로 현재 스냅숏을 굽는다. 남은 세대를 지우는 것은 수동이다(append-only 원칙상 예약
+작업은 지우지 않는다).
 
 단위의 `MemoryMax=14G` 와 행 상한 90만은 2026-10-03 ai-server scratch 측정에서 정했다. **로컬 출력으로 잰 값이다**:
 R2 경로는 동시 쓰기 128개와 최대 90만 개의 목록 키를 더 쥐므로 감독 실행(아래 1)에서 `systemctl show -p MemoryPeak
@@ -460,3 +468,32 @@ foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유
 샤드 굽기·목록 발행·건물 굽기·건물 발행은 위 작업이 되었고, Gold 생성(Spark)은 각 레인의 기존 Spark 잡이
 정본이며, 개수 세기·목록 보기·접두사 삭제 같은 점검·수리 명령은 옮기지 않는다(삭제는 append-only 원칙에 어긋나고
 개수 대조는 발행 명령이 한다).
+
+## 9. 서빙 신선도 경보
+
+[루트 ADR-0306](../../../../docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md).
+레인마다 매시 도는 `foundation-by-pnu-serving-monitor@<레인>` 이 서빙 manifest 의 `published_at_utc` 를 읽어,
+계약 `by_pnu_section_packs.freshness_budget_hours`(값은 그 파일) 보다 오래됐으면 실패하고 Slack 에
+`foundation-by-pnu-serving-monitor@<레인>.service 실패` 가 온다. 일지 마지막 줄은
+`the <레인> lane serves a manifest published <시각> (<N> h ago), past its freshness budget` 이다.
+
+**뜻**: 사용자가 받는 문서가 그 시간 동안 한 번도 새로 발행되지 않았다. 작업이 성공·`unchanged` 라고 말해도
+같다 — 2026-10-16~28 에 모든 레인이 10~12일 묵은 manifest 를 서빙하는 동안 작업 상태와 이 모니터의 서빙 검사가
+모두 초록이었다. 같은 일지에 `breached the monitor` 가 함께 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
+
+처음 세 가지:
+
+1. **작업 결과 줄** — 굽기가 무엇을 했다고 했나:
+   `journalctl -u foundation-by-pnu-serving-bake.service --since -3d | grep -E 'foundation-job-outcome|by-pnu-serving-bake <레인>:'`.
+   레인 줄이 `published` 가 아니라 `nothing to do`(Gold 가 안 움직임 → `gold_panel_rebuild`·`gold_kind_rebuild` 를 본다),
+   `FAILED`, `skipped`, `waiting` 이면 그 이유가 원인이다. 결과 줄이 아예 없으면 실행이 끝나지 않았다(아래 3).
+2. **Airflow 차례 미룸** — 실행이 시작됐나: 굽기는 `takes_turns` 라 같은 풀의 작업이 먼저 돌지 않았으면 미뤄진다.
+   `docker exec airflow-airflow-scheduler-1 sh -c 'grep -rh "start-scheduled-job: by_pnu_serving_bake" /opt/airflow/logs/dag_id=foundation_by_pnu_serving_bake/ | tail'`
+   에 `deferred: ...` 만 이어지면 차례가 오지 않는 것이다(루트 ADR-0138, ADR-0277).
+3. **실행 요약 날짜와 배포 중단** — `ls -lt /data/foundation-platform/by-pnu-bake/<레인>/runs/*/run-summary.json | head -3`
+   과 각 요약의 `published` 필드. 요약이 날마다 생기는데 `published` 가 없거나, 실행이 몇 시간 돌다 결과 없이
+   끝났으면 배포 드레인이 굽기를 멈춘 것이다(루트 ADR-0301): `journalctl -u foundation-autodeploy.service --since -3d` 와
+   굽기 일지의 `result=signal` 을 대조한다. 배포가 날마다 굽기를 멈추면 굽기는 영영 발행에 닿지 못한다.
+
+전량 굽기(새 세대)는 13시간 넘게 걸릴 수 있고 그동안 서빙은 이전 발행 그대로다. 그 사이 경보는 사실이다 — 굽기가
+`published` 로 끝나면 다음 시각 모니터가 초록으로 돌아온다.

@@ -14,7 +14,8 @@
 # Every start is recorded under the scheduler's home. A `takes_turns` job (the multi-day by-PNU
 # bake) is deferred — reported, exit 0, nothing started — when a job in its pool that cannot run
 # beside it has not started since the deferred job last did. Airflow alone would let a light job
-# take the free slot again and again while a heavier one waits for all of them (root ADR-0138).
+# take the free slot again and again while a heavier one waits for all of them (root ADR-0138). A
+# check that found nothing to do counts as that job's turn (root ADR-0305).
 #
 # The service's journal ends with its `foundation-job-outcome` line: `changed`, `unchanged`,
 # `waiting <reason>` or `failed <reason>`. The DAG reads it to decide whether the run's outputs
@@ -26,8 +27,9 @@ jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/or
 starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-scheduler/starts}"
 request="${SSH_ORIGINAL_COMMAND:-}"
 # `<job> check` starts the job's check service instead (jobs.v1.json `check_service`, root
-# ADR-0277): it only decides whether the run has work, so it is never deferred, never recorded as
-# the job's start, and its last `foundation-job-check` line is repeated for the DAG.
+# ADR-0277): it only decides whether the run has work, so it is never deferred, and its last
+# `foundation-job-check` line is repeated for the DAG. Its start is not the job's; an answer of
+# `unchanged` is recorded as the job's turn (root ADR-0305), since the run it skips never is.
 checking=false
 [[ "${request}" == *" check" ]] && checking=true && request="${request% check}"
 # `<job> requested <id>`: an operator's run-now (root ADR-0282 §4), from a DAG run whose conf names
@@ -77,7 +79,7 @@ if [[ -z "${requested}" && -e "${switches}/${job}" ]]; then
 fi
 
 mkdir -p "${starts}" || refuse "cannot keep the start record ${starts}"
-# A check is not a turn: it is passed as `triggered`, which is never deferred.
+# A check is never deferred: it is passed as `triggered`.
 turn="$(python3 - "${jobs_file}" "${job}" "${starts}" "$([[ "${checking}" == true ]] && echo true || echo "${triggered}")" <<'PY'
 import json, pathlib, sys
 listing, job_id, starts = json.load(open(sys.argv[1])), sys.argv[2], pathlib.Path(sys.argv[3])
@@ -240,8 +242,16 @@ fi
 result="$(state Result)"
 if [[ "${checking}" == true ]]; then
   # The check's answer, read from its own journal; a check that failed gives none.
-  [[ "${result}" == success ]] && journalctl --no-pager -o cat -n 200 "_SYSTEMD_INVOCATION_ID=${invocation}" \
-    | grep -E '^foundation-job-check [^ ]+$' | tail -n 1
+  answer=""
+  [[ "${result}" == success ]] && answer="$(journalctl --no-pager -o cat -n 200 "_SYSTEMD_INVOCATION_ID=${invocation}" \
+    | grep -E '^foundation-job-check [^ ]+$' | tail -n 1)"
+  [[ -z "${answer}" ]] || printf '%s\n' "${answer}"
+  # A check that found nothing to do was the job's turn (root ADR-0305): its run is skipped, so it
+  # would never be recorded, and a takes_turns job would wait for it forever (2026-10-19..28: the
+  # by-PNU bake deferred every clock start to twelve Silver lanes with nothing to load).
+  if [[ "${answer}" == "foundation-job-check unchanged" ]]; then
+    date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
+  fi
   printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
   exit 0
 fi
@@ -259,7 +269,12 @@ if [[ "${result}" != success ]]; then
   # the by-PNU bake said `changed` for the lane that published and exited 1 for the one that did
   # not). A run that claimed another outcome is named, so the contradiction is not lost.
   claimed="${outcome#foundation-job-outcome }"
-  if [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
+  # An operator's stop names who ended the run (root ADR-0282 §5): foundation-run-now marks the
+  # invocation it stopped before it stops it.
+  stopper="$(grep -lx "invocation=${invocation}" "${FOUNDATION_OPERATOR_STOPS_DIR:-/var/lib/foundation-run-now/stopped}"/* 2>/dev/null | head -n 1)" || stopper=""
+  if [[ -n "${stopper}" ]]; then
+    printf 'foundation-job-outcome failed stopped by %s\n' "$(sed -n 's/^actor=//p' "${stopper}" | head -n 1)"
+  elif [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
     printf 'foundation-job-outcome failed systemd result=%s after the run said %s\n' "${result}" "${claimed}"
   else
     printf 'foundation-job-outcome failed systemd result=%s\n' "${result}"

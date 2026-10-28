@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-28
 ---
 
 # SLO 알림 정책
@@ -73,10 +73,16 @@ Prometheus와 Alertmanager를 배포하고 이 rule file을 읽은 뒤 private C
 다루며 API process·database readiness·API 5xx rate·request timeout count·app-level overload
 rejection count·lakehouse batch staleness·DB pool pressure·API p95 latency·ingestion staleness·
 ingestion failure·ingestion duration·outbox pending age·outbox retry backlog gauge를 포함한다.
-출시 전 Alertmanager receiver는 `prelaunch-audit`이며 외부 paging provider로 보내지 않고 운영자
-rehearsal용 routed alert를 보존·노출한다. 공개 launch 전에는 소유한 staff notification route와
-secret을 만들고 전달을 테스트해야 한다. 같은 controlled outage alert가 Prometheus와 Alertmanager
-양쪽에서 활성화된 뒤 API 복구 후 해제되어야 pre-launch rehearsal을 통과한다.
+Alertmanager 의 기본 receiver 는 이름이 `prelaunch-audit` 이지만 **이미 외부로 보낸다**: 슬랙 봇 토큰으로
+Slack Web API `chat.postMessage` 를 불러 `#alerts` 채널에 firing·resolved 를 모두 보낸다
+(`infra/observability/alertmanager/alertmanager.yml` 의 `slack_configs`, 2026-09-03 소유자 결정). 운영 지도 문제
+(`service="data-flow"`, 루트 ADR-0195)와 보안 권고(`service="security"`, 루트 ADR-0278)도 같은 receiver 로 가며, 시작과 해제 때
+한 번씩만 알린다. 토큰은 호스트 파일 `/etc/foundation-platform/secrets/alertmanager-slack-bot-token` 이고
+`compose.observability.yml` 이 읽기 전용으로 마운트한다. 설치와 배달 증명은
+[저비용 운영 강화 런북](./foundation-platform-low-cost-production-hardening.md)의 "알림은 슬랙에 닿는다"다 — Slack Web API 는
+채널 오타·토큰 회수에도 HTTP 200 을 주므로, 채널에 메시지가 보여야만 배달된 것이다. 별도 paging provider(on-call
+호출)는 아직 없다. 같은 controlled outage alert가 Prometheus와 Alertmanager 양쪽에서 활성화되고 `#alerts` 에
+도착한 뒤, API 복구 후 resolved 로 해제되어야 pre-launch rehearsal을 통과한다.
 같은 scrape endpoint는 freshness dashboard용으로 최신 성공 lakehouse batch의 생성 시각·기록
 시각·행 수를 contract별로 내보낸다. 최신 Bronze ingestion 종료 시각·duration·확인 record 수·
 작성 object 수·source별 raw response bytes와 status, Catalog outbox pending/retry/oldest-age

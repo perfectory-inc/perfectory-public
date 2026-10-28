@@ -49,6 +49,18 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - **나중 파일이 앞 파일을 대체하는 구조에서는 유효 집합 전체를 읽어라.** 마이그레이션 디렉터리가
   그렇다. `CREATE OR REPLACE`로 교체된 함수 본문을 검사하며 초록불이던 테스트가 있었다.
 
+### 새 메커니즘 전에 "이미 있는지" 증명하라 (강제 — 반복 발생한 오류)
+
+스위치·플래그·창(window)·게이트·필드·헬퍼·엔드포인트·"방식"을 **새로 만들기 전에, 코드 한 줄 쓰기 전에** 같은 일을 하는 것이 이미 있는지 **증명한다.** 이것은 위 2항(현행 근거 우선)의 실행 절차이며 건너뛸 수 없다:
+
+1. **전 트리를 조사한다** — 눈앞 파일 하나가 아니라 저장소 전체를 grep 하고, 스캔 범위를 함께 쓴다(아래 "전수 확인" 규칙). 같은 개념이 다른 영역(API·수집·계약·운영 스크립트·다른 언어)에 살아 있을 수 있다.
+2. **`docs/adr/*`, 해당 영역의 AGENTS.md·런북**을 확인한다.
+3. **결과를 변경 설명/PR에 남긴다.** 있으면 **재사용·확장이 기본값**이고, 없으면 "왜 없는지"를 적은 뒤에만 5항(커스텀)으로 넘어간다.
+
+눈앞 파일에 없다고 "없다"고 단정하지 마라. 같은 개념의 **두 번째 구현은 그 자체가 결함**이다(§원칙 2 SSOT). 증명을 보이지 못하면 새로 만들지 않는다.
+
+이미 지불한 비용: 2026-10-23, 공매 cut-over의 시간창을 넘기려고 cut-over 스크립트 하나만 보고 "없다"고 단정한 뒤 CLI 플래그를 새로 만들었다. 실제로는 같은 일을 하는 운영자 스위치([ADR-0282](./docs/adr/0282-operator-switches-are-issued-by-foundation-api-and-land-as-files-the-runner-reads.md) `set_window`, 법원경매 수집 상시화에 이미 사용)가 있었고, 새 플래그는 SSOT를 쪼개고 그 ADR의 안전 원칙까지 어겼다.
+
 ### 계층을 넓게 쌓기 전에 한 경로를 끝까지 뚫어라
 
 명령·타입·테스트를 계층별로 넓게 만들고 나중에 연결하면, 연결 시점에야 드러나는 제약이 그때까지
@@ -103,8 +115,15 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - `scripts/guard/monorepo-guard.sh` 가 위 규칙을 기계 검사한다(CI + pre-push).
 - **검증 SSOT**: `cargo xtask verify <area>` 하나를 로컬 하네스와 CI가 똑같이 부른다([ADR-0004](./docs/adr/0004-verification-ssot.md)). 워크플로우에 raw `cargo clippy/fmt` 금지.
 - **CI 시간 예산**: PR 벽시계 상한은 [`tools/ci/ci-time-budget.contract.json`](./tools/ci/ci-time-budget.contract.json) 하나뿐이다. 주간 `ci-time-budget` 워크플로가 직전 주 p50과 비교한다([ADR-0203](./docs/adr/0203-pull-request-ci-has-one-wall-clock-budget.md)). CI를 느리게 하는 변경은 이 숫자 안에서 설명한다.
+- **줄 수 상한·문서 부채는 줄기만 한다**: 소스·문서 파일은 1500줄 이하다(`scripts/guard/file-line-limit.sh`, 예외와 이유는 [`tools/ci/file-line-limit.exceptions.json`](./tools/ci/file-line-limit.exceptions.json)). 문서의 죽은 경로, README 에 없는 런북, 코드가 기대는 Proposed ADR, 기록 안 된 대체는 [`scripts/catalog/documentation-debt.baseline.json`](./scripts/catalog/documentation-debt.baseline.json)에 있는 것만 허용하고, 그 목록은 줄기만 한다(`audit-documentation.py --check`). 새 항목을 목록에 더하지 말고 문서를 고친다.
 - **번호는 열린 PR까지 본다**: ADR 번호와 마이그레이션 버전은 main만이 아니라 다른 열린 PR이 이미 잡은 것도 피한다. PR CI의 `numbering_collisions.py`(`required/repository`)가 main이나 더 먼저 연 PR이 가진 번호를 거부하고 다음 빈 번호를 알려 준다. 나중에 연 쪽이 번호를 바꾼다.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
+
+## 위생 불변식
+
+기계가 강제하는 위생 규칙만 둔다: 규칙 + 그것을 강제하는 장치 + 결정 ADR([ADR-0299](./docs/adr/0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md) §5).
+
+- **서빙 신선도(B·C)**: 모든 by-PNU 레인은 사용자가 받는 manifest 의 나이(`published_at_utc`)를 계약 예산(`by_pnu_section_packs.freshness_budget_hours`) 안에 둔다 — 작업 상태가 아니라 산출물로 잰다. 장치: 매시 `foundation-by-pnu-serving-monitor@<lane>` 실패 → Slack([ADR-0306](./docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md)).
 
 ## 작업 목록 SSOT
 

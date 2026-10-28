@@ -27,8 +27,10 @@ from platform_contracts import (
     current_row_predicate,
     declared_geometry_srid,
     load_lakehouse_contract,
+    partition_column_names,
     required_column_names,
     required_string_column_names,
+    sort_order,
 )
 
 JOB_NAME = "vworld_parcel_boundaries_handoff_to_silver"
@@ -281,11 +283,12 @@ def validate_parcel_frame(
 
 
 def write_silver_parquet(silver: Any, output_path: str) -> None:
+    partitions = partition_column_names(TABLE_CONTRACT)
     (
-        silver.repartition("sigungu_code")
-        .sortWithinPartitions("pnu", "valid_from_utc")
+        silver.repartitionByRange(*partitions, *sort_order(TABLE_CONTRACT))
+        .sortWithinPartitions(*sort_order(TABLE_CONTRACT))
         .write.mode("overwrite")
-        .partitionBy("sigungu_code")
+        .partitionBy(*partitions)
         .parquet(output_path)
     )
 

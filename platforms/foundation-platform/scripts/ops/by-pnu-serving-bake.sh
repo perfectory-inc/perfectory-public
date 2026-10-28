@@ -48,7 +48,14 @@
 #    - full bakes start from the remembered shard plan (1..9 at first); a patch keeps only its
 #      change set's rows, so it starts as one shard over the whole table. A shard over the export's
 #      row cap is split into ten longer prefixes. A crash is retried and resumes. Each shard is told
-#      the Gold snapshot the bake is of, so a table that moves mid-bake stops the bake there.
+#      the Gold snapshot the bake is of and reads that snapshot, wherever the table has moved since.
+#    - a long bake finishes at its pin, then patches forward (root ADR-0310): a full bake left
+#      unfinished (a deploy stopped it, a shard failed) is resumed at the snapshot it pinned even
+#      when Gold has moved since, its finished shards skipped; once it is published, the next run
+#      patches it forward to the current snapshot through the change set of step 2. Not resumed at
+#      its pin: a bake whose shards hold another document schema than the export bakes now, and
+#      one refused as incomplete; both are left unserved and the next full bake goes above them.
+#      A pin Gold no longer holds (expired) abandons its generation the same way.
 # 4. publishes only a complete bake: a full bake's shards exported exactly the Gold row count; a
 #    patch's shards exported exactly the change set's upserts and tombstones. The publisher then
 #    checks the patch against its change set again (ADR-0141 §7) before it moves the manifest.
@@ -69,6 +76,7 @@
 # <lanes>` when any lane failed: the last word matches the exit status. When nothing failed or
 # published and a lane found its lock held by another run (an operator's attended bake, 2026-10-19),
 # the run waits for it like any job (held-lock.sh): `waiting the lanes <lanes> is held by another run`.
+# A lane run on its own ends with its own line: `changed`, `unchanged` or `failed <reason>`.
 #
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
@@ -91,6 +99,9 @@ case "${UNIT}" in
     # ADR-0171).
     BY_PNU_BAKE_PUBLISHED="$(mktemp)"
     export BY_PNU_BAKE_PUBLISHED
+    # A lane that published but withheld a document names itself here (root ADR-0325 §4).
+    BY_PNU_BAKE_WITHHELD="$(mktemp)"
+    export BY_PNU_BAKE_WITHHELD
     # The lanes run as hand runs (exit 75 when held) and name what they found held; this run decides.
     FOUNDATION_HELD_LOCKS="$(mktemp)"
     export FOUNDATION_HELD_LOCKS
@@ -111,6 +122,15 @@ case "${UNIT}" in
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
     for lane in building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
       [[ -n "${lane}" ]] || continue
+      # An own-producer kind (its own Gold producer; servability resolved at Gold, root ADR-0292)
+      # bakes in its own by-PNU bake job, concurrently with this one, so `all` does not bake it
+      # (root ADR-0303). Its superseded generations are still retired below, like every lane's.
+      own_producer=""
+      [[ "${lane}" == building ]] || own_producer="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${lane}" own_producer)"
+      if [[ -n "${own_producer}" ]]; then
+        echo "by-pnu-serving-bake ${lane}: skipped: an own-producer lane bakes in its own job (root ADR-0303)"
+        continue
+      fi
       # A lane whose documents follow another's (contract documents_follow_lane, root ADR-0190) is
       # not baked in a run where that lane failed: it would serve units where the served documents
       # of the other do not place them yet. The failed lane fails the run already.
@@ -131,6 +151,12 @@ case "${UNIT}" in
     done
     # Then every lane's superseded pack generations past their rollback window (root ADR-0242).
     "${BASH_SOURCE[0]}" retire || { lane_status=$?; failed+="retire "; ((status)) || status=${lane_status}; }
+    # A lane that withheld a document published the rest and fails the run here (root ADR-0325 §4).
+    while read -r lane; do
+      [[ -n "${lane}" ]] || continue
+      failed+="${lane}-withheld "
+      ((status)) || status=1
+    done <"${BY_PNU_BAKE_WITHHELD}"
     # The last word matches the exit: a run that exits non-zero says failed, though another lane
     # published (2026-10-16: `changed` and then exit 1). What did publish is named with it.
     # A run where nothing failed or published but a lane waited ends as that lane's wait.
@@ -144,7 +170,7 @@ case "${UNIT}" in
     elif [[ "${waiting}" != " " ]]; then
       outcome=waiting
     fi
-    rm -f "${BY_PNU_BAKE_PUBLISHED}" "${FOUNDATION_HELD_LOCKS}"
+    rm -f "${BY_PNU_BAKE_PUBLISHED}" "${BY_PNU_BAKE_WITHHELD}" "${FOUNDATION_HELD_LOCKS}"
     if [[ "${outcome}" == waiting ]]; then
       waiting="${waiting# }"
       export FOUNDATION_JOB_SERVICE="${job_service}" FOUNDATION_HELD_LOCKS=""
@@ -248,6 +274,23 @@ if ! flock -n 9; then
   log "refused: another run of the ${UNIT} lane holds ${STATE_ROOT}/lane.lock; this run starts after it finishes"
   lock_held_by_another_run "the ${UNIT} lane"
 fi
+# A lane run on its own (not a lane of `all`, which decides the run's outcome above) ends with the
+# outcome line itself, whichever way it exits (root ADR-0260: a run without one is failed).
+if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
+  BY_PNU_BAKE_PUBLISHED="$(mktemp)"
+  lane_outcome() {
+    local code=$?
+    if ((code)); then
+      echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
+    elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
+      echo "foundation-job-outcome changed"
+    else
+      echo "foundation-job-outcome unchanged"
+    fi
+    rm -f "${BY_PNU_BAKE_PUBLISHED}"
+  }
+  trap lane_outcome EXIT
+fi
 
 # 1. What is there to do?
 state="${STATE_ROOT}/state.json"
@@ -344,8 +387,39 @@ if [[ "${gold}" == "${reflected}" ]]; then
   exit 0
 fi
 
+# Pack runs keep their own work directories and target record beside the object lane's.
+RUN_TAG="" PROGRESS_NAME=in-progress.json
+[[ "${LANE_SERVES}" == packs ]] && RUN_TAG=packs- PROGRESS_NAME=in-progress-packs.json
+progress="${STATE_ROOT}/${PROGRESS_NAME}"
+
+# Root ADR-0310: a full bake this lane left unfinished at the Gold snapshot it pinned is finished
+# there, though Gold has moved since; the run after its publish patches it forward. On 2026-10-24
+# generation 5 of the parcel lane was thrown away after 15 h because Gold moved, and generation 6
+# started from zero. Not when its shards hold another document schema than the export bakes now
+# (one generation is one schema), nor once it was refused as incomplete (resuming changes nothing).
+gold_now="${gold}"
+pinned="$(python3 -I - "${progress}" "${gold}" "${base}" "${schema_now}" "${STATE_ROOT}/runs" "${RUN_TAG}" <<'PY'
+import json, pathlib, sys
+progress, gold, base, schema = pathlib.Path(sys.argv[1]), sys.argv[2], int(sys.argv[3]), sys.argv[4]
+runs, tag = pathlib.Path(sys.argv[5]), sys.argv[6]
+earlier = json.loads(progress.read_text()) if progress.exists() else None
+if earlier and "target" not in earlier:  # a record of the full-only bake before ADR-0141
+    earlier = {**earlier, "mode": "full", "target": earlier["target_generation"]}
+if (earlier and earlier.get("mode", "full") == "full" and not earlier.get("refused_incomplete")
+        and earlier["gold_iceberg_snapshot_id"] != gold
+        and earlier.get("base_generation", base) == base and earlier["target"] > base):
+    pin = earlier["gold_iceberg_snapshot_id"]
+    run = runs / f"{pin}-{tag}g{earlier['target']}"
+    baked = {json.loads(path.read_text()).get("document_schema_version", schema)
+             for path in [*run.glob("shard-*.json"), *run.glob("summaries/shard-*.json")]}
+    if baked <= {schema}:
+        print(pin)
+PY
+)"
+[[ -z "${pinned}" ]] || gold="${pinned}"
+
 # Every choice and count of this run, for the run summary.
-declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}"
+declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}" [gold_now_iceberg_snapshot_id]="${gold_now}"
   [reflected_gold_iceberg_snapshot_id]="${reflected}" [base_generation]="${base}"
   [base_object_count]="${base_objects}" [patches_before]="${patch_count}"
   [cumulative_changes_before]="${cumulative}" [max_patches]="${max_patches}"
@@ -374,7 +448,9 @@ PY
 
 # 2. Patch, reflect or full?
 mode="" reason=""
-if [[ "${FORCE_FULL}" == true ]]; then
+if [[ -n "${pinned}" ]]; then
+  mode=full reason="finishing the full bake pinned to Gold snapshot ${pinned} (Gold is now at ${gold_now}); the next run patches it forward (root ADR-0310)"
+elif [[ "${FORCE_FULL}" == true ]]; then
   mode=full reason="forced by the operator: ${FORCE_FULL_REASON}"
 elif [[ "${schemas}" == breaks ]]; then
   mode=full reason="the export bakes ${schema_now} documents, the base holds ${served_schema}"
@@ -535,10 +611,6 @@ open_run() {
   write_summary
 }
 
-# Pack runs keep their own work directories and target record beside the object lane's.
-RUN_TAG="" PROGRESS_NAME=in-progress.json
-[[ "${LANE_SERVES}" == packs ]] && RUN_TAG=packs- PROGRESS_NAME=in-progress-packs.json
-
 if [[ "${mode}" == reflect ]]; then
   open_run "${gold}-${RUN_TAG}reflect"
   if [[ "${LANE_SERVES}" == packs ]]; then
@@ -565,7 +637,6 @@ if [[ "${mode}" == reflect ]]; then
 fi
 
 # 3. Which generation, or which patch?
-progress="${STATE_ROOT}/${PROGRESS_NAME}"
 read -r target fresh < <(python3 -I - "${progress}" "${gold}" "${mode}" "${base}" "${highest_listed}" \
   "${newest_patch}" "${highest_patch_listed}" <<'PY'
 import json, pathlib, sys
@@ -598,6 +669,24 @@ record_target() {
 # by the export before its first write, and a re-run writes the same bytes. So a pack target is
 # this lane's own from the start.
 [[ "${fresh}" == true && "${LANE_SERVES}" == objects ]] || record_target
+# Root ADR-0310 §4: Gold no longer holds the snapshot this bake reads (expiry). Nothing baked for it
+# can be finished or mixed with another snapshot: the target is left unserved, never resumed, and
+# the next run starts over from the current snapshot.
+abandon_an_expired_pin() {
+  grep -q 'no longer holds snapshot' "$1" || return 0
+  tail -n 5 "$1" >&2
+  rm -f "${progress}"
+  log "FAILED: Gold no longer holds snapshot ${gold}, which ${where} is pinned to (expired); nothing was published, the next run starts over from the current snapshot"
+  log "abandoned: ${where} holds what this bake wrote for Gold snapshot ${gold}; it is never served or resumed, and removing it is a manual step (runbook 8절)"
+  exit 1
+}
+# A publish: its output is kept beside the shard logs, so an expired pin is found there too.
+publish_bake() {
+  "$@" 2>&1 | tee "${run}/publish.log" && return 0
+  abandon_an_expired_pin "${run}/publish.log"
+  log "FAILED: the publish of ${where} was refused; the next run resumes it"
+  exit 1
+}
 if [[ "${mode}" == full ]]; then
   open_run "${gold}-${RUN_TAG}g${target}"
   generation="${target}" patch_env=() where="generation ${target}"
@@ -667,12 +756,7 @@ while ((${#queue[@]})); do
     rm -f "${shard_summary}.partial"
     [[ "${fresh}" == true && -s "${checked}" ]] && record_target
     # Refusals a retry cannot change end the run now, not after every other shard.
-    if grep -q 'moved during the bake' "${attempt_log}"; then
-      tail -n 5 "${attempt_log}" >&2
-      log "FAILED: the Gold table moved off snapshot ${gold} during the bake; nothing was published, the next run starts over"
-      log "abandoned: ${where} holds the objects this bake wrote for Gold snapshot ${gold}; it is never served or resumed, and removing it is a manual step (runbook 8절)"
-      exit 1
-    fi
+    abandon_an_expired_pin "${attempt_log}"
     if grep -q 'holds packs of Gold snapshot' "${attempt_log}"; then
       tail -n 5 "${attempt_log}" >&2
       # Another snapshot's packs sit in the target: never let a later run resume it.
@@ -712,8 +796,18 @@ done
 [[ -z "${plan}" ]] || { printf '%s\n' "${done_shards[@]}" >"${plan}.next" && mv "${plan}.next" "${plan}"; }
 
 # 4. Complete? Then publish.
-counts="$(by_pnu_bake_complete "by-pnu-serving-bake: refused to publish" "${summary_dir}" "${gold}" "${mode}" \
-  "${LANE_SERVES}" "${generation}" "${target}" "${upserts:-0}" "${deletes:-0}" "${done_shards[@]}")"
+if ! counts="$(by_pnu_bake_complete "by-pnu-serving-bake: refused to publish" "${summary_dir}" "${gold}" "${mode}" \
+  "${LANE_SERVES}" "${generation}" "${target}" "${upserts:-0}" "${deletes:-0}" "${done_shards[@]}")"; then
+  # A rerun of this snapshot still resumes it (a summary removed by hand re-bakes that shard), but
+  # once Gold moves it is not finished at its pin (root ADR-0310): resuming would change nothing.
+  python3 -I - "${progress}" <<'PY'
+import json, pathlib, sys
+progress = pathlib.Path(sys.argv[1])
+if progress.exists():
+    progress.write_text(json.dumps({**json.loads(progress.read_text()), "refused_incomplete": True}) + "\n")
+PY
+  exit 1
+fi
 read -r expected tombstones <<<"${counts}"
 if [[ "${LANE_SERVES}" == packs ]]; then
   # The publisher holds a base to the Gold row count the catalog records, and a patch to its
@@ -723,17 +817,17 @@ if [[ "${LANE_SERVES}" == packs ]]; then
   [[ "${mode}" == full ]] || publish_env+=("${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json"
     "${ENV_PREFIX}_UPSERT_LIST_PATH=${run}/upserts.txt" "${ENV_PREFIX}_DELETE_LIST_PATH=${run}/deletes.txt")
   log "complete: ${where} holds ${expected} documents and ${tombstones} tombstones; publishing it"
-  env "${publish_env[@]}" "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-section-packs"
+  publish_bake env "${publish_env[@]}" "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-section-packs"
 elif [[ "${mode}" == full ]]; then
   log "complete: ${#done_shards[@]} shards exported all ${expected} rows; publishing generation ${target}"
-  env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_FROM_LISTING=true" \
+  publish_bake env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_FROM_LISTING=true" \
     "${ENV_PREFIX}_TARGET_GENERATION=${target}" \
     "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
     "${ENV_PREFIX}_EXPECTED_OBJECT_COUNT=${expected}" \
     "${PUBLISHER_BIN}" "publish-${UNIT}-by-pnu-serving-manifest"
 else
   log "complete: patch ${target} holds ${expected} documents and ${tombstones} tombstones; publishing it"
-  env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_PATCH=true" \
+  publish_bake env "${ENV_PREFIX}_CONFIRM_PUBLISH=true" "${ENV_PREFIX}_PUBLISH_PATCH=true" \
     "${ENV_PREFIX}_TARGET_GENERATION=${base}" "${ENV_PREFIX}_TARGET_PATCH=${target}" \
     "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
     "${ENV_PREFIX}_CHANGE_SET_SUMMARY_PATH=${run}/change-set.json" \
@@ -756,3 +850,20 @@ for path in pathlib.Path(sys.argv[1]).glob("shard-*.json"):
     path.write_text(json.dumps(summary, sort_keys=True) + "\n")
 PY
 log "published ${where}: ${expected} documents, ${tombstones} tombstones from Gold snapshot ${gold}"
+# Root ADR-0325 §4: a document no cut into pages fits is withheld (its page says so) and every other
+# is published, so one document never stops the lane again (2026-10-28: one oversized building
+# document refused the whole lane six times; it had served nothing new for 585 hours). The run still
+# fails after publishing, so the unit's failure notice names it. Under `all` the lane exits 0 and the
+# run fails at its end, so a lane that follows this one is still baked.
+withheld="$(python3 -I - "${summary_dir}" <<'PY'
+import json, pathlib, sys
+keys = sorted(document["key"] for path in pathlib.Path(sys.argv[1]).glob("shard-*.json")
+              for document in json.loads(path.read_text()).get("withheld", []))
+print(f"{len(keys)} ({' '.join(keys[:20])})" if keys else "")
+PY
+)"
+if [[ -n "${withheld}" ]]; then
+  log "WITHHELD (root ADR-0325 §4): ${withheld} documents answer only that they are withheld; the rest is published"
+  [[ -z "${BY_PNU_BAKE_WITHHELD:-}" ]] || { echo "${UNIT}" >>"${BY_PNU_BAKE_WITHHELD}"; exit 0; }
+  exit 1
+fi

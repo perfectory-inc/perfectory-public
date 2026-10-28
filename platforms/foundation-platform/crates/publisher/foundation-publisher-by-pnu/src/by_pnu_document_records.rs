@@ -14,7 +14,9 @@ use anyhow::{bail, ensure, Context};
 use serde_json::{json, Value};
 use utoipa::ToSchema;
 
-use crate::building_by_pnu_serving_export::building_document::BuildingByPnuDocument;
+use crate::building_by_pnu_serving_export::building_document::{
+    BuildingByPnuDocument, BuildingByPnuPage, BUILDING_PAGE_SCHEMA_VERSION,
+};
 use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
 use crate::by_pnu_serving_manifest_publish::{
     document_schema_version, readable_document_schema_versions,
@@ -394,6 +396,15 @@ fn every_by_pnu_document_has_the_fields_its_schema_version_recorded() -> anyhow:
         if let Err(error) = check(document_schema_version(lane), &shape, &held) {
             failures.push(format!("{} lane: {error:#}", lane.name()));
         }
+    }
+    // A building document past one request is served as pages of their own schema (root
+    // ADR-0325), beside the lane's whole documents.
+    if let Err(error) = check(
+        BUILDING_PAGE_SCHEMA_VERSION,
+        &shape_of::<BuildingByPnuPage>()?,
+        &[],
+    ) {
+        failures.push(format!("building lane pages: {error:#}"));
     }
     ensure!(failures.is_empty(), "{}\n\n{RULE}", failures.join("\n\n"));
     Ok(())

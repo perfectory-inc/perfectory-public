@@ -79,6 +79,7 @@ async fn land_characteristic_csv_preserves_named_fields_and_numeric_area_without
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect()
     );
     Ok(())

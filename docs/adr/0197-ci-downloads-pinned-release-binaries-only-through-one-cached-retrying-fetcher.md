@@ -78,3 +78,8 @@ cargo-chef, RAON 에이전트 `.deb`)도 CI 잡이 아니므로 여기서 다루
   `PERFECTORY_PINNED_CACHE=/opt/perfectory-pinned` 에 actionlint 를 미리 채운다.
 - 남은 망 의존: 컨테이너 이미지 당겨오기, apt, crates.io, npm, rustup. 각자 재시도는 있으나 캐시는 없다. 이들이
   PR 을 떨어뜨리는 일이 측정되면 별도 결정으로 다룬다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `scripts/ci/osv-vulnerability-gate.sh` → `cargo xtask ci osv-gate`(`tools/xtask/src/ci.rs`, #798)
+- `scripts/ci/install-cargo-deny.sh` → `cargo xtask ci install-cargo-deny`(`tools/xtask/src/ci.rs`, #798)

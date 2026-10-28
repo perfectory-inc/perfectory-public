@@ -102,6 +102,11 @@ last_reviewed: 2026-10-26
 [`foundation-kafka-outbox-contract-test.md`](../../platforms/foundation-platform/docs/runbooks/foundation-kafka-outbox-contract-test.md)와
 [`0028-foundation-kafka-raw-written-design.md`](../../platforms/foundation-platform/docs/adr/0028-foundation-kafka-raw-written-design.md)에 있다.
 
+> **2026-10-28:** [ADR-0118](../adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md) §3은
+> Foundation 이벤트와 DataHub 가 Kafka 하나를 같이 쓰기로 정했지만, 그 실행 순서 ③(Kafka)은 아직
+> 착수 전이다 — main 에서 Kafka 이미지는 DataHub 전용 compose(`platforms/foundation-platform/infra/datahub/compose.yml`)에만
+> 있다. 위 항목은 그 착수 때까지 열어 둔다.
+
 ### 데이터 원장·복구
 
 - [ ] 운영 R2/Postgres 버킷·DB를 개발/CI와 분리하고 런타임 가드로 강제
@@ -154,10 +159,16 @@ last_reviewed: 2026-10-26
   > `catalog.building`·`catalog.building_unit`에는 생산자가 없다
   > ([기반 목표](./foundation-goals.md) G1의 21표에 둘 다 포함된다). **읽을 데이터가 없어서가
   > 아니라 읽는 코드가 없어서다.**
+  >
+  > **2026-10-28:** 두 표는 [ADR-0194](../adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md)가
+  > 지웠다(`platforms/foundation-platform/migrations/20261014021000_drop_the_catalog_parcel_building_and_unit_copies.sql`).
+  > 건물은 R2 by-PNU 묶음이 서빙하므로 이 생산자 공백은 더 이상 열린 일이 아니다.
 - [ ] dbt Gold 모델 또는 Spark Gold projection 중 하나를 정식 Gold 계약으로 확정
 - [ ] Trino/Spark/Iceberg catalog 연결, snapshot 승격·롤백·재처리 증명
 - [ ] LLM 정규화 provider, 비용/쿼터, proposal 승인·적용 권한과 감사 로그 확정
-- [ ] production orchestrator 선택, 소유자·스케줄·재시도·취소·롤백을 ADR로 결정
+- [x] production orchestrator 선택, 소유자·스케줄·재시도·취소·롤백을 ADR로 결정 — Airflow
+  ([ADR-0118](../adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md),
+  [ADR-0122](../adr/0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md))
 
 ### 카탈로그 도메인 모델 교정
 

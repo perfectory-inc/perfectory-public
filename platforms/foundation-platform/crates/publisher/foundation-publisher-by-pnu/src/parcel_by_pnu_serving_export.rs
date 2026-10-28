@@ -84,16 +84,12 @@ pub async fn run() -> anyhow::Result<()> {
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
-    let snapshot = catalog
-        .load_current_snapshot_manifest_list(GOLD_PARCEL_PANEL.table_name)
-        .await
-        .context("failed to resolve the Gold parcel panel snapshot")?
-        .with_context(|| {
-            format!(
-                "{} has no current Iceberg snapshot to export",
-                GOLD_PARCEL_PANEL.table_name
-            )
-        })?;
+    let snapshot = crate::by_pnu_serving_pins::load_baked_snapshot(
+        &catalog,
+        GOLD_PARCEL_PANEL.table_name,
+        config.expected_gold_snapshot.as_deref(),
+    )
+    .await?;
 
     let lakehouse = LakehouseObjectReader::from_env()?;
     let output = ByPnuServingStore::open(LANE, &config.output)?;
@@ -290,11 +286,6 @@ async fn export(
     output: &ByPnuServingStore,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<ServingExportSummary> {
-    refuse_a_moved_table(
-        config.expected_gold_snapshot.as_deref(),
-        &snapshot.table_name,
-        &snapshot.snapshot_id.to_string(),
-    )?;
     let provenance = GoldSnapshotProvenance {
         table: snapshot.table_name.clone(),
         iceberg_snapshot_id: snapshot.snapshot_id.to_string(),
@@ -421,19 +412,6 @@ async fn export(
         tombstone_count,
         artifacts: entries,
     })
-}
-
-/// Refuses a shard whose Gold table is no longer at the snapshot the bake is of.
-fn refuse_a_moved_table(expected: Option<&str>, table: &str, current: &str) -> anyhow::Result<()> {
-    if let Some(expected) = expected {
-        ensure!(
-            expected == current,
-            "{table} moved during the bake: this bake is of snapshot {expected} but the table is \
-             now at {current}; nothing more is baked into this generation, the next run starts a \
-             new one"
-        );
-    }
-    Ok(())
 }
 
 /// Refuses to write into a generation this run started when the shard's range already holds

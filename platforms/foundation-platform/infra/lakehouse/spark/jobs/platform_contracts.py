@@ -448,6 +448,10 @@ def sort_order(contract: dict[str, Any]) -> tuple[str, ...]:
 
 WRITE_DISTRIBUTION_MODES = ("hash", "range")
 DISTRIBUTION_MODE_PROPERTY = "write.distribution-mode"
+# Iceberg does not fall back to write.distribution-mode for a copy-on-write MERGE on a partitioned
+# table: unset, it hash-clusters by partition, which with one source_snapshot_id value scatters
+# every PNU over every file (root ADR-0307). The incremental Gold rebuild commits by MERGE.
+MERGE_DISTRIBUTION_MODE_PROPERTY = "write.merge.distribution-mode"
 # Iceberg's Spark table reports its sort order under this reserved property, one
 # "<term> <ASC|DESC> <NULLS FIRST|NULLS LAST>" per field, comma separated.
 SORT_ORDER_PROPERTY = "sort-order"
@@ -482,22 +486,58 @@ def write_distribution_mode(contract: dict[str, Any]) -> str:
     return value
 
 
-def write_order_drift(contract: dict[str, Any], properties: dict[str, str]) -> bool:
+def write_order_drift(
+    contract: dict[str, Any], properties: dict[str, str], partitions: tuple[str, ...] | None = None
+) -> bool:
     """Whether a live table's write layout differs from what its contract declares.
 
-    ``properties`` are the table's (``SHOW TBLPROPERTIES``). Only a range-distributed contract
-    is checked: a hash table's layout is whatever its writer asks for, as before ADR-0164.
+    ``properties`` are the table's (``SHOW TBLPROPERTIES``) and ``partitions`` its current spec
+    (``table_partition_fields``; ``None`` leaves the spec unchecked). Only a range-distributed
+    contract is checked: a hash table's layout is whatever its writer asks for, as before ADR-0164.
     """
 
     if write_distribution_mode(contract) != "range":
         return False
-    if properties.get(DISTRIBUTION_MODE_PROPERTY) != "range":
+    if partitions is not None and missing_partition_fields(contract, partitions):
+        return True
+    if any(properties.get(key) != "range" for key in (DISTRIBUTION_MODE_PROPERTY, MERGE_DISTRIBUTION_MODE_PROPERTY)):
         return True
     fields = [
         field.split() for field in properties.get(SORT_ORDER_PROPERTY, "").split(",") if field.strip()
     ]
     live = tuple((field[0].strip("`"), field[1] if len(field) > 1 else "") for field in fields)
     return live != tuple((name, "ASC") for name in sort_order(contract))
+
+
+def missing_partition_fields(contract: dict[str, Any], partitions: tuple[str, ...]) -> tuple[str, ...]:
+    """The contract's partition fields the live spec lacks. Never the other way: a field the live
+    spec has and the contract does not is left alone, so evolving a spec only ever adds (root ADR-0316)."""
+
+    live = {field.replace(" ", "") for field in partitions}
+    return tuple(field for field in partition_spec(contract) if field.replace(" ", "") not in live)
+
+
+def table_partition_fields(spark: Any, table: str) -> tuple[str, ...]:
+    """A live table's current partition spec, as ``DESCRIBE TABLE`` lists it. Spark prints identity-only
+    specs Hive style (``# Partition Information``, a ``# col_name`` header, then one column per row)
+    and any other spec as ``# Partitioning`` with ``Part 0`` -> ``bucket(256, pnu)`` rows. Files
+    written under an earlier spec keep theirs; this is the spec the next write uses."""
+
+    rows = [(str(row[0] or "").strip(), str(row[1] or "").strip())
+            for row in spark.sql(f"DESCRIBE TABLE {table}").collect()]
+    fields: list[str] = []
+    section = None
+    for name, value in rows:
+        if name.startswith("#"):
+            section = name if name in ("# Partition Information", "# Partitioning") else (
+                section if name == "# col_name" else None)
+        elif not name:
+            section = None
+        elif section == "# Partition Information":
+            fields.append(name)
+        elif section == "# Partitioning" and re.fullmatch(r"Part \d+", name):
+            fields.append(value)
+    return tuple(fields)
 
 
 def table_properties(spark: Any, table: str) -> dict[str, str]:
@@ -507,21 +547,33 @@ def table_properties(spark: Any, table: str) -> dict[str, str]:
 
 
 def apply_write_order(spark: Any, table: str, contract: dict[str, Any]) -> bool:
-    """Bring a live table's sort order and distribution mode to its contract.
+    """Bring a live table's partition spec, sort order and distribution mode to its contract.
 
     Called after ``CREATE TABLE IF NOT EXISTS`` by the writers of a range-distributed table and
     by the deploy's lakehouse migration, so the order is the contract's whichever reaches the
-    table first. ``WRITE ORDERED BY`` sets the table sort order and ``write.distribution-mode``
-    to ``range`` in one metadata commit; no data file is rewritten, and only writes after it are
-    ordered. Returns whether it changed the table.
+    table first. A contract partition field the live spec lacks is added (``ADD PARTITION FIELD``,
+    root ADR-0316: silver.parcel_boundaries held two editions in one unpartitioned spec, so every
+    reader of one edition opened every file). ``WRITE ORDERED BY`` sets the table sort order and
+    ``write.distribution-mode`` to ``range`` in one metadata commit, and
+    ``write.merge.distribution-mode`` is set to ``range`` so the incremental rebuild's MERGE keeps
+    the order too (root ADR-0307). All metadata: no data file is rewritten, files already written
+    keep their spec and layout, and only writes after it are partitioned and ordered. Returns
+    whether it changed the table.
     """
 
-    if not write_order_drift(contract, table_properties(spark, table)):
+    if write_distribution_mode(contract) != "range":
         return False
+    partitions = table_partition_fields(spark, table)
+    if not write_order_drift(contract, table_properties(spark, table), partitions):
+        return False
+    for field in missing_partition_fields(contract, partitions):
+        spark.sql(f"ALTER TABLE {table} ADD PARTITION FIELD {field}")
     spark.sql(f"ALTER TABLE {table} WRITE ORDERED BY {', '.join(sort_order(contract))}")
-    if write_order_drift(contract, table_properties(spark, table)):
+    spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ('{MERGE_DISTRIBUTION_MODE_PROPERTY}' = 'range')")
+    if write_order_drift(contract, table_properties(spark, table), table_partition_fields(spark, table)):
         raise ValueError(
-            f"{table} did not take the contract's write order {list(sort_order(contract))}"
+            f"{table} did not take the contract's partitions {list(partition_spec(contract))} "
+            f"and write order {list(sort_order(contract))}"
         )
     return True
 
