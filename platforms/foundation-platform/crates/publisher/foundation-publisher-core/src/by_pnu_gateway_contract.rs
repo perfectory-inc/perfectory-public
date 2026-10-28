@@ -653,6 +653,16 @@ pub struct RequestCpuBudget {
     pub document_max_bytes: u64,
     /// A pack's prefix, header and index, what the Worker reads and keeps of every pack.
     pub pack_head_max_bytes: u64,
+    /// How a document past `document_max_bytes` is served instead of refused (root ADR-0325).
+    pub pages: DocumentPagesPolicy,
+}
+
+/// A document too large for one request, served as pages (root ADR-0325): each page's member is
+/// at most `page_target_bytes`, and a document is at most `max_pages` pages.
+#[derive(Debug, Deserialize)]
+pub struct DocumentPagesPolicy {
+    pub page_target_bytes: u64,
+    pub max_pages: u32,
 }
 
 /// The environment variables that carry the analytics account and its read-only token. The file
@@ -924,6 +934,10 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || parts.part_target_bytes == 0
         || packs.read_path.request_cpu_budget.document_max_bytes == 0
         || packs.read_path.request_cpu_budget.pack_head_max_bytes == 0
+        || packs.read_path.request_cpu_budget.pages.page_target_bytes == 0
+        || packs.read_path.request_cpu_budget.pages.page_target_bytes
+            > packs.read_path.request_cpu_budget.document_max_bytes
+        || !(2..=99).contains(&packs.read_path.request_cpu_budget.pages.max_pages)
         || parts.part_target_bytes > packs.read_path.whole_pack_max_bytes
         || parts.index_file_name.is_empty()
         || parts.index_schema_version.is_empty()

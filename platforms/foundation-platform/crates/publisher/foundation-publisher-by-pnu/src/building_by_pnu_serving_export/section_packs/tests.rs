@@ -128,10 +128,10 @@ fn pack_provenance(snapshot: &str) -> PackProvenance {
 fn as_pack(
     document: &super::super::building_document::BuildingByPnuDocument,
 ) -> anyhow::Result<PackDocument> {
-    Ok(PackDocument {
-        pnu: document.pnu.clone(),
-        bytes: document.to_bytes()?,
-    })
+    Ok(PackDocument::whole(
+        document.pnu.clone(),
+        document.to_bytes()?,
+    ))
 }
 
 fn object(row: &JsonMap<String, JsonValue>, snapshot: &str) -> anyhow::Result<Vec<u8>> {
@@ -874,6 +874,76 @@ async fn a_large_dong_is_one_pack_read_by_head_and_range() -> anyhow::Result<()>
             .map(|pack| pack.unit.as_str())
             .collect::<Vec<_>>(),
         vec![UNIT]
+    );
+    Ok(())
+}
+
+/// The 2026-10-28 stop (root ADR-0325): one building document past what one request may copy
+/// refused the whole lane's bake six times and nothing was published. Now that document is baked
+/// as pages that join back into it, a document no cut fits is withheld and named in the summary,
+/// and the lane publishes an answer for every Gold row.
+#[tokio::test]
+async fn a_document_past_one_request_is_paged_and_the_lane_still_publishes() -> anyhow::Result<()> {
+    let rows = vec![
+        building_document::tests::large_row(PNU_A, 4, 150, 10, 1_000)?,
+        building_document::tests::large_row(PNU_B, 1, 1, 0, 600_000)?,
+        empty_row(PNU_C),
+    ];
+    let lane = Lane::serving_objects("paged", &rows).await?;
+    let base = lane.bake(&rows, SNAPSHOT, None).await?;
+    assert_eq!(base.exported_row_count, 3);
+    assert_eq!(base.paged_documents, 1);
+    assert_eq!(
+        base.withheld
+            .iter()
+            .map(|document| document.key.as_str())
+            .collect::<Vec<_>>(),
+        vec![PNU_B]
+    );
+    let summaries = lane.summaries("paged", &[&base])?;
+    let equality = lane.equality(&summaries, 3)?;
+    let latency = lane.latency(&equality, gate::PRODUCTION_ENVIRONMENT, 0.0)?;
+    lane.publish_with(
+        Some(summaries),
+        SNAPSHOT,
+        3,
+        Some((equality, latency)),
+        None,
+    )
+    .await?;
+
+    // The PNU's own path answers page 1; the pack's pages table holds the rest, and all of them
+    // join back into the document the Gold row renders.
+    let first: building_document::BuildingByPnuPage =
+        serde_json::from_slice(&joined(lane.answer(PNU_A).await?)?)?;
+    assert_eq!(first.page.index, 1);
+    assert!(first.page.count >= 2, "{:?}", first.page);
+    let key = by_pnu_packs::pack_key(LANE, sections::DOCUMENTS, 1, None, UNIT)?;
+    let pack = crate::by_pnu_pack::Pack::read(&std::fs::read(lane.root.join(key))?)?;
+    let entry = pack.find(PNU_A).context("A is in its dong's pack")?;
+    let mut pages = Vec::new();
+    for page in 1..=pack.page_count(entry) {
+        let bytes = pack
+            .page(entry, page)?
+            .context("every counted page reads")?;
+        pages.push(serde_json::from_slice(&bytes)?);
+    }
+    assert_eq!(usize::try_from(first.page.count)?, pages.len());
+    assert_eq!(
+        building_document::join_pages(&pages)?.to_bytes()?,
+        object(&rows[0], SNAPSHOT)?
+    );
+
+    // The withheld document answers with the page that says so, not with nothing.
+    let withheld: building_document::BuildingByPnuPage =
+        serde_json::from_slice(&joined(lane.answer(PNU_B).await?)?)?;
+    assert!(withheld
+        .withheld
+        .as_deref()
+        .is_some_and(|reason| reason.starts_with("document_too_large")));
+    assert_eq!(
+        joined(lane.answer(PNU_C).await?)?,
+        object(&rows[2], SNAPSHOT)?
     );
     Ok(())
 }

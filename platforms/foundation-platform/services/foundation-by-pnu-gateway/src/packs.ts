@@ -177,6 +177,9 @@ export interface PackHead {
   bodyLength: number;
   /// The pack's R2 `etag`, unquoted: what every later read of the same key must return.
   etag: string;
+  /// The header's pages table (root ADR-0325): each paged key's page member lengths, the first
+  /// the entry's own. Empty for a pack whose every document is whole.
+  pages: ReadonlyMap<string, readonly number[]>;
 }
 
 /// What one pack read leaves behind: its head (root ADR-0233: every pack is read by head, then
@@ -333,7 +336,31 @@ export function parseHead(bytes: Uint8Array, etag: string): PackHead | null {
     bodyStart: headLength,
     bodyLength: header.body_length,
     etag,
+    pages: pagesOf(header.pages),
   };
+}
+
+const pagesPolicy = readPolicy.request_cpu_budget.pages;
+
+/// The header's pages table (root ADR-0325), held to the shape the publisher writes: 2 to
+/// `max_pages` member lengths a key, each within what one request may copy. Where the members sit
+/// is checked against the entry when one is read.
+function pagesOf(raw: unknown): ReadonlyMap<string, readonly number[]> {
+  if (raw === undefined) return new Map();
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new PackFormatError("pages table is not an object");
+  const pages = new Map<string, readonly number[]>();
+  for (const [key, lengths] of Object.entries(raw)) {
+    if (
+      !Array.isArray(lengths) ||
+      lengths.length < 2 ||
+      lengths.length > pagesPolicy.max_pages ||
+      !lengths.every((length) => Number.isInteger(length) && length > 0 && length <= readPolicy.request_cpu_budget.document_max_bytes)
+    ) {
+      throw new PackFormatError("pages table names no pages");
+    }
+    pages.set(key, lengths as number[]);
+  }
+  return pages;
 }
 
 function keyLengthOf(version: number, header: Record<string, unknown>): number {
@@ -699,8 +726,9 @@ const ANSWER_ETAG_HEADER = "X-Member-Etag";
 /// The edge cache identity of one PNU's served member under one served state: the plan's
 /// fingerprint names the generations and patches, so a new publish never answers from a copy of
 /// the previous one, and the synthetic origin keeps any client URL from naming or shaping it.
-export function answerCacheUrl(fingerprint: string, pnu: string): string {
-  return `${answerCacheOrigin}${encodeURIComponent(fingerprint)}/${pnu}`;
+/// Page 1 keeps the PNU's own identity; page `n` of a paged document is `<pnu>/<n>` (root ADR-0325).
+export function answerCacheUrl(fingerprint: string, pnu: string, page = 1): string {
+  return `${answerCacheOrigin}${encodeURIComponent(fingerprint)}/${pnu}${page === 1 ? "" : `/${page}`}`;
 }
 
 /// The edge copy of a served member: its bytes as the pack holds them, its entity tag beside them.
@@ -713,8 +741,8 @@ export function answerCacheResponse(document: ServedDocument): Response {
 
 /// A PNU's served member from the edge cache, or `null` when there is none (or it carries no tag).
 /// A warm read of the same PNU is then one cache lookup, as on the object path, with no pack read.
-export async function answerFromCache(fingerprint: string, pnu: string): Promise<ServedDocument | null> {
-  const cached = await caches.default.match(answerCacheUrl(fingerprint, pnu));
+export async function answerFromCache(fingerprint: string, pnu: string, page = 1): Promise<ServedDocument | null> {
+  const cached = await caches.default.match(answerCacheUrl(fingerprint, pnu, page));
   if (cached === undefined) return null;
   const etag = cached.headers.get(ANSWER_ETAG_HEADER);
   const member = new Uint8Array(await cached.arrayBuffer());
@@ -736,11 +764,26 @@ export function packKey(
   return `${root}/${section.name}/g${section.generation}/${patchDir}${unit}${packPolicy.suffix}`;
 }
 
+/// Page `page` of a document's entry (root ADR-0325): page 1 is the entry itself; a later page
+/// follows it in the body by the pack's pages table. `null` when the document has no such page.
+function pageEntry(head: PackHead, key: string, entry: Entry, page: number): Entry | null {
+  if (page === 1) return entry;
+  const lengths = head.pages.get(key);
+  if (lengths === undefined || page > lengths.length) return null;
+  if (lengths[0] !== entry.length) throw new PackFormatError("pages table disagrees with its entry");
+  let offset = entry.offset;
+  for (let i = 0; i < page - 1; i += 1) offset += lengths[i] ?? 0;
+  const length = lengths[page - 1] ?? 0;
+  if (offset + length > head.bodyLength) throw new PackFormatError("page past the body");
+  return { state: entry.state, offset, length };
+}
+
 /// The document of `pnu` in one section: the newest patch naming its unit and holding it, else the
 /// base. A patch the manifest lists but R2 lacks is an outage, not an absence. The base and the
 /// patches of a parted generation share its parts (root ADR-0163 §4), so a patch naming a parted
-/// dong by its bare dong was written under other part counts: an outage too.
-async function findDocument(reads: PackReads, plan: PackPlan, section: PackSection, pnu: string): Promise<Resolved> {
+/// dong by its bare dong was written under other part counts: an outage too. Every page of a paged
+/// document comes from the pack that holds its entry, so pages of two bakes never mix.
+async function findDocument(reads: PackReads, plan: PackPlan, section: PackSection, pnu: string, page: number): Promise<Resolved> {
   const unit = partUnit(await partCounts(reads, section, plan.lane.unit), plan.unitLength, pnu);
   const dong = pnu.slice(0, plan.unitLength);
   for (const patch of plan.patches) {
@@ -755,7 +798,9 @@ async function findDocument(reads: PackReads, plan: PackPlan, section: PackSecti
     const entry = findEntry(copy.head, pnu);
     if (entry === null) continue;
     if (entry.state === STATE_TOMBSTONE) return { kind: "tombstone" };
-    return { kind: "document", ...(await readDocument(reads, section.name, key, copy, entry)) };
+    const paged = pageEntry(copy.head, pnu, entry, page);
+    if (paged === null) return { kind: "absent" };
+    return { kind: "document", ...(await readDocument(reads, section.name, key, copy, paged)) };
   }
   const key = packKey(section, null, unit, plan.lane.packRoot);
   const copy = await readPack(reads, section.name, key);
@@ -763,16 +808,19 @@ async function findDocument(reads: PackReads, plan: PackPlan, section: PackSecti
   const entry = findEntry(copy.head, pnu);
   if (entry === null) return { kind: "absent" };
   if (entry.state === STATE_TOMBSTONE) throw new PackFormatError("tombstone in a base pack");
-  return { kind: "document", ...(await readDocument(reads, section.name, key, copy, entry)) };
+  const paged = pageEntry(copy.head, pnu, entry, page);
+  if (paged === null) return { kind: "absent" };
+  return { kind: "document", ...(await readDocument(reads, section.name, key, copy, paged)) };
 }
 
-/// The PNU's answer, from the lane's one section (the contract's anchor, `documents`).
-export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string): Promise<Resolved> {
+/// The PNU's answer, from the lane's one section (the contract's anchor, `documents`): page
+/// `page` of its document, 1 unless the request names a later page (root ADR-0325).
+export async function resolvePacks(reads: PackReads, plan: PackPlan, pnu: string, page = 1): Promise<Resolved> {
   const [section, ...others] = plan.sections;
   if (section === undefined || others.length > 0 || section.name !== lanePacks.anchor_section) {
     throw new PackFormatError("a plan serves exactly the contract's one documents section");
   }
-  return findDocument(reads, plan, section, pnu);
+  return findDocument(reads, plan, section, pnu, page);
 }
 
 /// A synthetic two-entry pack's head, parsed and searched for a hit and a miss: the isolate's
