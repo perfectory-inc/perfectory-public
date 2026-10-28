@@ -15,7 +15,7 @@
 # bake) is deferred — reported, exit 0, nothing started — when a job in its pool that cannot run
 # beside it has not started since the deferred job last did. Airflow alone would let a light job
 # take the free slot again and again while a heavier one waits for all of them (root ADR-0138). A
-# check that found nothing to do counts as that job's turn (root ADR-0304).
+# check that found nothing to do counts as that job's turn (root ADR-0305).
 #
 # The service's journal ends with its `foundation-job-outcome` line: `changed`, `unchanged`,
 # `waiting <reason>` or `failed <reason>`. The DAG reads it to decide whether the run's outputs
@@ -29,7 +29,7 @@ request="${SSH_ORIGINAL_COMMAND:-}"
 # `<job> check` starts the job's check service instead (jobs.v1.json `check_service`, root
 # ADR-0277): it only decides whether the run has work, so it is never deferred, and its last
 # `foundation-job-check` line is repeated for the DAG. Its start is not the job's; an answer of
-# `unchanged` is recorded as the job's turn (root ADR-0304), since the run it skips never is.
+# `unchanged` is recorded as the job's turn (root ADR-0305), since the run it skips never is.
 checking=false
 [[ "${request}" == *" check" ]] && checking=true && request="${request% check}"
 # `<job> requested <id>`: an operator's run-now (root ADR-0282 §4), from a DAG run whose conf names
@@ -246,7 +246,7 @@ if [[ "${checking}" == true ]]; then
   [[ "${result}" == success ]] && answer="$(journalctl --no-pager -o cat -n 200 "_SYSTEMD_INVOCATION_ID=${invocation}" \
     | grep -E '^foundation-job-check [^ ]+$' | tail -n 1)"
   [[ -z "${answer}" ]] || printf '%s\n' "${answer}"
-  # A check that found nothing to do was the job's turn (root ADR-0304): its run is skipped, so it
+  # A check that found nothing to do was the job's turn (root ADR-0305): its run is skipped, so it
   # would never be recorded, and a takes_turns job would wait for it forever (2026-10-19..28: the
   # by-PNU bake deferred every clock start to twelve Silver lanes with nothing to load).
   if [[ "${answer}" == "foundation-job-check unchanged" ]]; then

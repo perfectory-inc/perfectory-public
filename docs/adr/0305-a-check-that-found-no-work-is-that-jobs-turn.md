@@ -1,4 +1,4 @@
-# ADR 0304: 할 일이 없다고 답한 확인은 그 작업의 차례로 친다 — takes_turns 무한 미룸 해소
+# ADR 0305: 할 일이 없다고 답한 확인은 그 작업의 차례로 친다 — takes_turns 무한 미룸 해소
 
 - Status: Accepted
 - Date: 2026-10-28

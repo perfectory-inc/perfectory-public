@@ -397,7 +397,7 @@ class TheCheckBeforeThePool(HostFixture):
         self.assertFalse((self.starts / "floor").exists(), "takes_turns counts runs, not checks")
 
     def test_a_check_that_found_nothing_to_do_is_the_jobs_turn(self):
-        # Root ADR-0304, 2026-10-19..28: every daily check of the Silver lanes found nothing, their runs
+        # Root ADR-0305, 2026-10-19..28: every daily check of the Silver lanes found nothing, their runs
         # were skipped and never recorded, and the bake deferred every clock start to them.
         self.record("bake", 2000)
         self.record("floor", 1000)
