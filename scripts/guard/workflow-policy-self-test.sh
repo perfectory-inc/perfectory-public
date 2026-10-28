@@ -129,12 +129,35 @@ expect_rejected required-step-name-spoof "$test_root/step-name-spoof"
 # exactly when a `scope` job exists, and never in place of a result mapping.
 mkdir "$test_root/scoped"
 sed 's/^  build:$/  scope:\n    name: Change scope\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo synthetic\n  build:/; s/needs: \[build, test\]/needs: [scope, build, test]/; s/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}\n          REQUIRED_RESULT_BUILD:/' \
-  "$test_root/valid/example.yml" >"$test_root/scoped/example.yml"
+  "$test_root/valid/example.yml" >"$test_root/scoped.yml"
+# Root ADR-0324: the terminal job of a scoped workflow is skipped when the area is untouched.
+scoped_if="if: \${{ always() \&\& (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}"
+sed "s/^    if: \${{ always() }}\$/    $scoped_if/" "$test_root/scoped.yml" >"$test_root/scoped/example.yml"
 "$checker" "$test_root/scoped" "$test_root/ruleset.json" "$test_root/actions.json" \
   --semantic-self-test >/dev/null || {
   echo "FAIL workflow-policy-self-test: rejected a valid scoped workflow" >&2
   exit 1
 }
+mkdir "$test_root/scoped-always" "$test_root/scoped-weaker-if" "$test_root/scoped-skip-list" \
+  "$test_root/skip-list-twice" "$test_root/skip-list-without-scope"
+cp "$test_root/scoped.yml" "$test_root/scoped-always/example.yml"
+expect_rejected scoped-terminal-with-plain-always "$test_root/scoped-always"
+sed "s/needs.scope.result != 'success' || //" "$test_root/scoped/example.yml" \
+  >"$test_root/scoped-weaker-if/example.yml"
+expect_rejected scoped-terminal-skipped-on-a-failed-scope "$test_root/scoped-weaker-if"
+sed 's/^          CHANGE_SCOPE_RUN:.*$/&\n          CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}/' \
+  "$test_root/scoped/example.yml" >"$test_root/scoped-skip-list/example.yml"
+"$checker" "$test_root/scoped-skip-list" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null || {
+  echo "FAIL workflow-policy-self-test: rejected a scope job's list of skipped jobs" >&2
+  exit 1
+}
+sed 's/^          CHANGE_SCOPE_SKIPPED:.*$/&\n&/' "$test_root/scoped-skip-list/example.yml" \
+  >"$test_root/skip-list-twice/example.yml"
+expect_rejected skip-list-twice "$test_root/skip-list-twice"
+sed 's/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}\n          REQUIRED_RESULT_BUILD:/' \
+  "$test_root/valid/example.yml" >"$test_root/skip-list-without-scope/example.yml"
+expect_rejected skip-list-without-scope-job "$test_root/skip-list-without-scope"
 mkdir "$test_root/scoped-without-answer"
 sed '/CHANGE_SCOPE_RUN:/d' "$test_root/scoped/example.yml" >"$test_root/scoped-without-answer/example.yml"
 expect_rejected scoped-terminal-without-scope-answer "$test_root/scoped-without-answer"
@@ -637,5 +660,33 @@ for refused in   "CHANGE_SCOPE_RUN=true REQUIRED_RESULT_SCOPE=success REQUIRED_R
     exit 1
   fi
 done
+
+# Root ADR-0324: in a touched area, exactly the jobs the scope job listed may be skipped.
+scoped_ok CHANGE_SCOPE_RUN=true REQUIRED_RESULT_SCOPE=success 'CHANGE_SCOPE_SKIPPED=["kafka-integration", "build"]' \
+  REQUIRED_RESULT_BUILD=skipped REQUIRED_RESULT_KAFKA_INTEGRATION=skipped REQUIRED_RESULT_TEST=success || {
+  echo "FAIL workflow-policy-self-test: terminal helper refused jobs the scope job skipped" >&2
+  exit 1
+}
+scoped_ok CHANGE_SCOPE_RUN=false REQUIRED_RESULT_SCOPE=success 'CHANGE_SCOPE_SKIPPED=[]' REQUIRED_RESULT_BUILD=skipped || {
+  echo "FAIL workflow-policy-self-test: terminal helper refused an untouched area with an empty skip list" >&2
+  exit 1
+}
+for refused in \
+  'CHANGE_SCOPE_SKIPPED=["build"] REQUIRED_RESULT_TEST=skipped' \
+  'CHANGE_SCOPE_SKIPPED=["build"] REQUIRED_RESULT_BUILD=failure' \
+  'CHANGE_SCOPE_SKIPPED=["scope"] REQUIRED_RESULT_BUILD=success' \
+  'CHANGE_SCOPE_SKIPPED=build REQUIRED_RESULT_BUILD=skipped' \
+  'CHANGE_SCOPE_SKIPPED= REQUIRED_RESULT_BUILD=skipped' \
+  'CHANGE_SCOPE_SKIPPED=["Build;x"] REQUIRED_RESULT_BUILD=skipped'; do
+  # shellcheck disable=SC2086 # each case is a list of NAME=value words
+  if scoped_ok CHANGE_SCOPE_RUN=true REQUIRED_RESULT_SCOPE=success $refused; then
+    echo "FAIL workflow-policy-self-test: terminal helper accepted: $refused" >&2
+    exit 1
+  fi
+done
+if scoped_ok REQUIRED_RESULT_SCOPE=success 'CHANGE_SCOPE_SKIPPED=["build"]' REQUIRED_RESULT_BUILD=skipped; then
+  echo "FAIL workflow-policy-self-test: terminal helper took a skip list without a scope answer" >&2
+  exit 1
+fi
 
 echo "OK workflow-policy-self-test"

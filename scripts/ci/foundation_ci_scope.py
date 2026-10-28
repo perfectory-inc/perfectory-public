@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Select Foundation CI's expensive integration gates from changed repository paths.
 
-The workflow always starts. This module only decides whether a heavy job should do
-its expensive work after checkout; an unselected job still finishes successfully so
-the existing required/foundation result contract remains unchanged.
+The workflow always starts. Its `scope` job asks `--skipped-jobs` which jobs have no work, and
+those never take a runner (root ADR-0324); required/foundation admits exactly those as skipped.
+A job that runs still asks `--gate` for itself and guards every step, as before.
 """
 
 from __future__ import annotations
@@ -134,6 +134,25 @@ RULES = {
             "platforms/foundation-platform/tests/static_release_toolchain/",
         ],
     },
+}
+
+# The jobs `--skipped-jobs` may name besides the gates (root ADR-0324). Each has no work when:
+# rust-quality and postgres-integration: the change reaches no crate (`change_scope.py crates`);
+# suites: it selects no Python or Node suite (`change_scope.py suites`); supply-chain: it changes
+# no manifest, lock, cargo-deny policy or pinned tool (SUPPLY_CHAIN_RULE).
+CRATE_JOBS = ("rust-quality", "postgres-integration")
+SUITE_JOB = "suites"
+SUPPLY_CHAIN_JOB = "supply-chain"
+WORKSPACE = "platforms/foundation-platform"
+# What cargo-deny and the SBOM read, besides every Cargo.toml of the workspace and any lock (run
+# all). Advisories change without a commit: the nightly full run and dependency-advisories.yml.
+SUPPLY_CHAIN_RULE = {
+    "exact": [
+        "platforms/foundation-platform/deny.toml",
+        "tools/cargo-deny.env",
+        "tools/syft.env",
+    ],
+    "prefixes": ["tools/xtask/"],
 }
 
 # Independent witnesses are regression guards, not a second matcher. Every
@@ -297,19 +316,93 @@ def deferral_warning(gate: str) -> str:
     )
 
 
+def supply_chain_selected(paths: Iterable[str] | None, crates_all: bool) -> bool:
+    if paths is None or crates_all:
+        return True
+    for raw in paths:
+        path = normalize_path(raw)
+        if _runs_all(path) or _matches_rule(path, SUPPLY_CHAIN_RULE):
+            return True
+        if path.startswith(f"{WORKSPACE}/") and PurePosixPath(path).name == "Cargo.toml":
+            return True
+    return False
+
+
+def skipped_jobs(
+    *, selected: set[str], paths: Iterable[str] | None, crates_answer: str, suites_answer: str
+) -> list[str]:
+    """The Foundation CI jobs with no work (root ADR-0324), from the gate selection and the crate
+    and suite selectors' answers. An empty (unreadable) answer skips none of its jobs."""
+    skipped = {gate for gate in GATES if gate not in selected}
+    crate_lines = crates_answer.splitlines()
+    crates_kind = crate_lines[0].split("\t", 1)[0] if crate_lines else ""
+    if crates_kind == "some" and not any(line.startswith("affected\t") for line in crate_lines):
+        skipped.update(CRATE_JOBS)
+    suite_lines = suites_answer.splitlines()
+    if len(suite_lines) == 1 and suite_lines[0].split("\t", 1)[0] == "some":
+        skipped.add(SUITE_JOB)
+    if not supply_chain_selected(paths, crates_kind != "some"):
+        skipped.add(SUPPLY_CHAIN_JOB)
+    return sorted(skipped)
+
+
+def _selector(command: str) -> str:
+    """One `change_scope.py` answer for the workspace; empty when unreadable."""
+    try:
+        return subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("change_scope.py")), command, "--workspace", WORKSPACE],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"foundation-ci-scope: {command} selection unreadable, its jobs run: {error}", file=sys.stderr)
+        return ""
+
+
+def skipped_jobs_main(args: argparse.Namespace) -> int:
+    skipped: list[str] = []
+    if args.affected == "true":
+        comparable = args.event_name != "workflow_dispatch" and args.base and args.head and set(args.base) != {"0"}
+        try:
+            paths = git_changed_paths(args.repository, args.base, args.head) if comparable else None
+            selected = selected_gates(event_name=args.event_name, base=args.base, head=args.head, paths=paths)
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"foundation-ci-scope: git comparison unavailable, every gate runs: {error}", file=sys.stderr)
+            paths, selected = None, set(GATES)
+        skipped = skipped_jobs(
+            selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites")
+        )
+    print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
+    with args.github_output.open("a", encoding="utf-8", newline="\n") as output:
+        output.write(f"skipped={json.dumps(skipped)}\n")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gate", required=True, choices=GATES)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--gate", choices=GATES)
+    mode.add_argument("--skipped-jobs", action="store_true", help="write skipped=<JSON list> to --github-output")
+    parser.add_argument("--affected", choices=("true", "false"), help="the scope job's answer, for --skipped-jobs")
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--base", default="")
     parser.add_argument("--head", default="")
     parser.add_argument("--repository", type=Path, default=Path.cwd())
-    parser.add_argument("--github-env", type=Path, required=True)
-    return parser.parse_args(argv)
+    parser.add_argument("--github-env", type=Path)
+    parser.add_argument("--github-output", type=Path)
+    args = parser.parse_args(argv)
+    if args.gate and not args.github_env:
+        parser.error("--gate needs --github-env")
+    if args.skipped_jobs and (not args.github_output or not args.affected):
+        parser.error("--skipped-jobs needs --affected and --github-output")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.skipped_jobs:
+        return skipped_jobs_main(args)
     fallback_reason = None
     deferred: set[str] = set()
     try:

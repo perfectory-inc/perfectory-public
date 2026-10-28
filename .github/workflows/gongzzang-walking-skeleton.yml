@@ -136,7 +136,7 @@ jobs:
 
   required:
     name: required/gongzzang-e2e
-    if: ${{ always() }}
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
     needs: [scope, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
