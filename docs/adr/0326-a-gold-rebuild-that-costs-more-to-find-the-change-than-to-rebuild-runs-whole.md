@@ -44,7 +44,7 @@ Spark UI 의 단계별 입력 행이 이 수와 맞는다(면적 228,830,213, �
 | 층(10-20 새 세대 대 09-29 세대), `floor_row_id` 빼고 | 행 21,189,570 · 대장 8,039,312 | 행 29,754 · 대장 13,074 |
 | 전유공용면적(09 판 대 10 판), `area_row_id` 빼고 | 대장 19,859,303 | 대장 25,114 |
 
-`floor_row_id`·`area_row_id` 는 `building-register-floor:bronze/source=…/OPN202610201222511830.zip#line-5053181`
+`floor_row_id`·`area_row_id` 는 `building-register-floor:bronze/source=…/<원천 파일>.zip#line-<줄>`
 처럼 **원천 파일 이름과 줄 번호**다(`building_register_row_identity.rs`). 매달 새 파일이 오면 모든 행의 id 가
 바뀐다. 건물 패널은 이 둘을 비교 열(`BUILD_COLUMNS`)에 두었으므로 매달 모든 행이 "바뀐 행" 이다. ADR-0180 §1 은
 "계보 열은 비교에서 뺀다" 고 했지만 이 둘은 이름만 id 인 계보다. 게다가 ADR-0189 §3 은 읽는 배치가 바뀌면(새 층 세대,
