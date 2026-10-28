@@ -245,6 +245,9 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         head = self.gold_head("building_panel")
         self.assertEqual(head.operation, "overwrite")
         self.assertEqual(json.loads(head.summary["foundation.source-iceberg-snapshots"]), pins2)
+        # The commit says how many keys it changed, which the amplification check reads (ADR-0314 §4).
+        self.assertEqual(head.summary["foundation.keys-changed"],
+                         str(counts["inserted_pnus"] + counts["updated_pnus"] + counts["deleted_pnus"]))
         tag = "foundation-gold-input-gold-building_panel"
         for name, snapshot in pins2.items():
             ref = self.spark.sql(f"SELECT snapshot_id FROM proof.{name}.refs WHERE name = '{tag}'").first()

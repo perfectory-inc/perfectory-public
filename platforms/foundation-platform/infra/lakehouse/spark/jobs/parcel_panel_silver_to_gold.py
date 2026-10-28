@@ -967,12 +967,15 @@ SECTION_VIA_COLUMNS: dict[str, str] = {section.name: section.via_column for sect
 
 
 def read_carry_candidates(
-    spark: SparkSession, args: argparse.Namespace, counters: dict[str, int], pins: dict[str, str]
+    spark: SparkSession, args: argparse.Namespace, counters: dict[str, int], pins: dict[str, str],
+    sources: set[str] | None = None,
 ) -> DataFrame | None:
     """The lineage's candidate sources per successor PNU, as a small frame (root ADR-0113 §6).
 
     Lineage rows are few next to the panel (re-lotted parcels, not all parcels), so the chain walk
     runs on the driver through the same function the tests pin, and the result is broadcast.
+    `sources`: keep only the candidates from these PNUs (a kind that places a few thousand sales
+    broadcasts those, not the 6.5M of the whole lineage; root ADR-0312 §2).
     """
 
     if not args.carry_lineage:
@@ -999,7 +1002,8 @@ def read_carry_candidates(
     for reason, count in sorted(stopped.items()):
         counters[f"lineage_stopped_{reason}"] = count
     schema = "successor_pnu string, source_pnu string, hop int, path string"
-    rows = [(c.successor_pnu, c.source_pnu, c.hop, c.path) for c in candidates]
+    rows = [(c.successor_pnu, c.source_pnu, c.hop, c.path) for c in candidates
+            if sources is None or c.source_pnu in sources]
     return F.broadcast(spark.createDataFrame(rows, schema=schema))
 
 
