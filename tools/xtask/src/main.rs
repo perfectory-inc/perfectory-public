@@ -995,8 +995,11 @@ fn main() {
                     "usage: cargo xtask verify <area|all> [--part cargo|suites] [--affected]",
                 )
             });
-            // The repository guard runs once per gate: with the whole verify, or with its cargo part.
-            if part != VerifyPart::Suites {
+            // The repository guard runs once per CI run, in `required/repository` (`verify tooling`),
+            // and with `verify all`; never once per area (root ADR-0313: it ran six times per merge
+            // group and took 9.3 of rust-quality's 10.7 minutes on a pull request that selected no crate).
+            let target = args.get(1).map(String::as_str);
+            if part != VerifyPart::Suites && matches!(target, Some("all" | "tooling" | "tools/xtask")) {
                 repository_guard(&mut log);
             }
             match args.get(1).map(String::as_str) {
@@ -1171,13 +1174,18 @@ fn selection_for(area: &Area, affected: bool, log: &mut FailureLog) -> Option<Se
 
 fn verify(area: &Area, part: VerifyPart, affected: bool, log: &mut FailureLog) {
     let dir = repo_root().join(area.dir);
-    ensure_apt(area.apt_deps);
     if part == VerifyPart::Suites {
+        ensure_apt(area.apt_deps);
         return verify_suites(area, &dir, affected, log);
     }
     let Some(selection) = selection_for(area, affected, log) else {
         return;
     };
+    // The native headers are for the crates; a selection of none needs none (root ADR-0313: an
+    // `apt-get` before the selection took 4m07s on a documentation-only pull request, #870).
+    if part == VerifyPart::Whole || !selection.is_empty() {
+        ensure_apt(area.apt_deps);
+    }
     match part {
         VerifyPart::Cargo => return verify_cargo(area, &dir, &selection, log),
         VerifyPart::Suites => return verify_suites(area, &dir, affected, log),
@@ -1283,7 +1291,13 @@ fn integration_lane(area: &Area, lane_name: &str, affected: bool, log: &mut Fail
         return;
     };
     let dir = repo_root().join(area.dir);
-    ensure_apt(area.apt_deps);
+    if lane
+        .targets
+        .iter()
+        .any(|target| selection.verifies(target.package()))
+    {
+        ensure_apt(area.apt_deps);
+    }
     let mut lane_total = 0;
     let mut lane_targets = 0;
     for (target, command) in lane.targets.iter().zip(lane_commands(lane)) {

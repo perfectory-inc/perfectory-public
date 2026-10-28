@@ -9,6 +9,9 @@ on:
     branches: [main]
   merge_group:
     # Intentionally unfiltered so required/gongzzang-frontend always reports.
+  # The merge queue narrows to this area's inputs (root ADR-0313); every night main runs it whole.
+  schedule:
+    - cron: "41 17 * * *"
 
 defaults:
   run:

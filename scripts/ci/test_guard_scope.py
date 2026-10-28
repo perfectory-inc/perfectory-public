@@ -24,7 +24,7 @@ class Fixture:
         self.run = [
             {"name": "alpha", "paths": ["areas/a/**"]},
             {"name": "alpha-self-test", "paths": []},
-            {"name": "beta", "always": "reads every file"},
+            {"name": "beta", "always": "reads every file", "budget_seconds": 5},
             {"name": "gamma", "paths": ["areas/g/**"]},
         ]
         self.write("areas/a/one.txt", "a\n")
@@ -89,8 +89,10 @@ class SelectTest(unittest.TestCase):
 
     def test_other_events_and_unknown_comparison_run_everything(self) -> None:
         f = Fixture(self)
-        for event in ("push", "merge_group", "schedule", "workflow_dispatch", ""):
+        for event in ("push", "schedule", "workflow_dispatch", ""):
             self.assertEqual(f.select(set(), event), ALL, event)
+        # Root ADR-0313: the merge queue narrows as a pull request does.
+        self.assertEqual(f.select({"areas/a/one.txt"}, "merge_group"), f.select({"areas/a/one.txt"}))
         self.assertEqual(f.select(None), ALL)
 
     def test_runner_library_contract_and_selectors_run_everything(self) -> None:
@@ -133,12 +135,12 @@ class CheckTest(unittest.TestCase):
 
     def test_listed_guard_without_script_is_refused(self) -> None:
         f = Fixture(self)
-        f.run.append({"name": "delta", "always": "x"})
+        f.run.append({"name": "delta", "always": "x", "budget_seconds": 5})
         f.save()
         self.assertRefused(f, "no scripts/guard/delta.sh")
 
     def test_entry_must_be_scoped_or_justified_not_both(self) -> None:
-        for entry in ({"name": "gamma"}, {"name": "gamma", "paths": ["areas/g/**"], "always": "x"}):
+        for entry in ({"name": "gamma"}, {"name": "gamma", "paths": ["areas/g/**"], "always": "x", "budget_seconds": 5}):
             f = Fixture(self)
             f.run[3] = entry
             f.save()
@@ -146,9 +148,26 @@ class CheckTest(unittest.TestCase):
 
     def test_always_without_reason_is_refused(self) -> None:
         f = Fixture(self)
-        f.run[2] = {"name": "beta", "always": " "}
+        f.run[2] = {"name": "beta", "always": " ", "budget_seconds": 5}
         f.save()
         self.assertRefused(f, "states why")
+
+    def test_always_without_a_budget_is_refused(self) -> None:
+        """Root ADR-0313: an `always` guard runs on every change; 2026-10-28 one took 8.5 minutes."""
+        for budget in (None, 0, 61, "5", 5.0):
+            with self.subTest(budget=budget):
+                f = Fixture(self)
+                f.run[2] = {"name": "beta", "always": "reads every file"}
+                if budget is not None:
+                    f.run[2]["budget_seconds"] = budget
+                f.save()
+                self.assertRefused(f, "declares `budget_seconds`")
+
+    def test_a_budget_on_a_scoped_guard_is_refused(self) -> None:
+        f = Fixture(self)
+        f.run[3] = {"name": "gamma", "paths": ["areas/g/**"], "budget_seconds": 5}
+        f.save()
+        self.assertRefused(f, "belongs to an `always` guard")
 
     def test_stale_glob_is_refused(self) -> None:
         f = Fixture(self)
@@ -196,9 +215,9 @@ class RepositoryTest(unittest.TestCase):
     def test_the_repository_guard_list_holds(self) -> None:
         self.assertEqual(gs.check(), [])
 
-    def test_every_listed_guard_runs_outside_a_pull_request(self) -> None:
+    def test_every_listed_guard_runs_outside_a_pull_request_and_the_queue(self) -> None:
         contract = gs.cs.load_contract()
-        self.assertEqual(gs.select(contract, "merge_group", set())[0], [e["name"] for e in gs.guards(contract)])
+        self.assertEqual(gs.select(contract, "schedule", set())[0], [e["name"] for e in gs.guards(contract)])
 
 
 if __name__ == "__main__":

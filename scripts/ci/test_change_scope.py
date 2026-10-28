@@ -46,7 +46,7 @@ REQUIRED_JOB = """\
           REQUIRED_RESULT_BUILD: ${{ needs.build.result }}
         run: bash scripts/ci/require-successful-needs.sh
 """
-ON_BLOCK = "name: example\non:\n  pull_request:\n    branches: [main]\n  merge_group:\n"
+ON_BLOCK = "name: example\non:\n  pull_request:\n    branches: [main]\n  merge_group:\n  schedule:\n    - cron: '0 0 * * *'\n"
 
 
 class Fixture:
@@ -155,10 +155,36 @@ class DecideTest(unittest.TestCase):
         self.assertTrue(fixture.decide("workflow_dispatch", set()))
         self.assertTrue(fixture.decide("schedule", set()))
 
-    def test_merge_group_runs_everything(self) -> None:
+    def test_merge_group_narrows_like_a_pull_request(self) -> None:
+        """Root ADR-0313: the queue compares its head with its base, not everything every time."""
         fixture = Fixture(self)
-        self.assertFalse(fixture.decide("pull_request", {"docs/guide.md"}))
-        self.assertTrue(fixture.decide("merge_group", {"docs/guide.md"}))
+        for event in ("pull_request", "merge_group"):
+            with self.subTest(event=event):
+                self.assertFalse(fixture.decide(event, {"docs/guide.md"}))
+                self.assertTrue(fixture.decide(event, {"platforms/example/src/lib.rs"}))
+                self.assertTrue(fixture.decide(event, None))
+
+class QueueVerifiedTest(unittest.TestCase):
+    """Root ADR-0313: a push to main the merge queue passed on the same tree does nothing."""
+
+    RUNS = [{"id": 2, "head_commit": {"tree_id": "other"}}, {"id": 1, "html_url": "u1", "head_commit": {"tree_id": "t"}}]
+
+    def test_a_push_on_a_tree_the_queue_passed_is_verified(self) -> None:
+        self.assertEqual(cs.queue_verified("push", "t", lambda: self.RUNS), "u1")
+
+    def test_another_tree_or_event_is_not(self) -> None:
+        self.assertIsNone(cs.queue_verified("push", "new", lambda: self.RUNS))
+        self.assertIsNone(cs.queue_verified("push", None, lambda: self.RUNS))
+        for event in ("pull_request", "merge_group", "schedule", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertIsNone(cs.queue_verified(event, "t", lambda: self.RUNS))
+
+    def test_unreadable_runs_run_everything(self) -> None:
+        def unreadable():
+            raise OSError("403")
+
+        self.assertIsNone(cs.queue_verified("push", "t", unreadable))
+        self.assertIsNone(cs.queue_verified("push", "t", lambda: [{"head_commit": None}]))
 
     def test_all_zero_base_is_unknown(self) -> None:
         self.assertIsNone(cs.git_changed_paths(cs.ROOT, "0" * 40, "abc"))
@@ -177,6 +203,12 @@ class CheckTest(unittest.TestCase):
         fixture = Fixture(self)
         fixture.workflow(ON_BLOCK + "jobs:\n  x:\n    runs-on: ubuntu-24.04\n", "new.yml")
         self.assertRejected(fixture, "new.yml: a pull-request workflow must be scoped")
+
+    def test_a_merge_group_workflow_without_a_schedule_is_refused(self) -> None:
+        fixture = Fixture(self)
+        text = fixture.files[".github/workflows/example-ci.yml"]
+        fixture.workflow(text.replace("  schedule:\n    - cron: '0 0 * * *'\n", ""))
+        self.assertRejected(fixture, "keeps a `schedule:` full run")
 
     def test_schedule_only_workflow_is_exempt(self) -> None:
         fixture = Fixture(self)
@@ -326,8 +358,9 @@ class CratesTest(unittest.TestCase):
                 selected, _, _, reason = self.decide({path, "platforms/ws/services/api/src/lib.rs"})
                 self.assertIsNone(selected, reason)
 
-    def test_events_other_than_a_pull_request_select_everything(self) -> None:
-        for event in ("merge_group", "push", "schedule", "workflow_dispatch", ""):
+    def test_events_other_than_a_pull_request_or_the_queue_select_everything(self) -> None:
+        self.assertEqual(self.decide({"platforms/ws/services/api/src/lib.rs"}, "merge_group")[0], {"api"})
+        for event in ("push", "schedule", "workflow_dispatch", ""):
             with self.subTest(event=event):
                 self.assertIsNone(self.decide({"platforms/ws/services/api/src/lib.rs"}, event)[0])
         self.assertIsNone(self.decide(None)[0])
@@ -435,7 +468,7 @@ class SuitesTest(unittest.TestCase):
 
     def test_run_all_and_other_events_run_them(self) -> None:
         self.assertTrue(self.decide({"platforms/ws/Cargo.lock"}))
-        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs"}, event="merge_group"))
+        self.assertTrue(self.decide({"platforms/ws/services/api/src/lib.rs"}, event="push"))
         self.assertTrue(self.decide(None))
 
     def test_suite_reads_scan_non_rust_sources_only(self) -> None:
@@ -511,7 +544,7 @@ class SuiteModulesTest(unittest.TestCase):
         for event, changed in (
             ("pull_request", {"tools/xtask/src/main.rs", "platforms/ws/scripts/job.py"}),
             ("pull_request", {cs.SELECTOR}),
-            ("merge_group", {"platforms/ws/scripts/job.py"}),
+            ("push", {"platforms/ws/scripts/job.py"}),
             ("pull_request", None),
         ):
             with self.subTest(event=event, changed=changed):
