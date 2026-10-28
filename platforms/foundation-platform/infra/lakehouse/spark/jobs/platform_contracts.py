@@ -375,6 +375,26 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     return ranked.where(F.col(latest.removal_column).isNull() | (F.col(latest.removal_column) != F.lit(REMOVED)))
 
 
+def rows_as_of(frame: Any, contract: dict[str, Any], edition: str) -> Any:
+    """The rows the contract called current when ``edition`` was the newest (root ADR-0317).
+
+    For a table that stores editions as versions: the first edition whole, then each edition's
+    changed keys and a removal marker per vanished key, ordered by ``newest_first`` whose first
+    column is the edition. The state at an edition is ``current_rows`` over the versions at or
+    before it, the SCD2 "as of" read (Kimball type 2; Delta ``VERSION AS OF``, Iceberg time travel
+    over a changelog). Later editions are not read, so the answer never changes once that edition
+    is loaded. A table that does not mark vanished keys cannot answer: an older row of a key the
+    edition dropped would still look current.
+    """
+
+    from pyspark.sql import functions as F
+
+    latest = current_row_latest(contract)
+    if latest is None or latest.removal_column is None:
+        raise ValueError(f"{contract.get('table_name')} keeps no versions with removal markers to read as of an edition")
+    return current_rows(frame.where(F.col(latest.newest_first[0]) <= F.lit(edition)), contract)
+
+
 def current_rows_of_versioned(frame: Any, table_name: str) -> Any:
     """``current_rows`` for a table that keeps versions (its contract declares ``current_row_latest``);
     any other table as read, including one with no contract (a staging copy the lineage is given).

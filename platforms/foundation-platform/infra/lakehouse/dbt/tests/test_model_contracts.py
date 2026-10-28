@@ -386,6 +386,8 @@ class FoundationDbtModelContractTest(unittest.TestCase):
                 "세대 공시가격 — 열쇠 기반 증인 (price_candidates; 원천이 대장 "
                 "관리번호 보유, 운영 검산 열쇠 조인 24,736·이름 검증 일치 99.45%)"
             ),
+            # The same rows stored as versions (root ADR-0317); the witness moves with the readers.
+            "silver.unit_official_price_versions": "세대 공시가격 판 버전 — 위와 같은 열쇠 기반 증인(같은 행의 버전 저장)",
             "silver.industrial_complexes": "단지 표시명 — 식별은 코드(두 id 체계), 이름은 표시용",
             "silver.building_register_floors": "층구분명 원문 — 어휘 칸, 층 규칙이 정규화(식별자 아님)",
             "silver.building_register_titles": "표제부 동명 — canonical_dong_join_key 로 호↔건물 연결에 사용",
@@ -499,8 +501,8 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         )
         link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
-        self.assertIn("name: unit_official_price", sources)
-        self.assertIn("{{ foundation_current_rows('unit_official_price') }}", staging)
+        self.assertIn("name: unit_official_price_versions", sources)
+        self.assertIn("{{ foundation_current_rows('unit_official_price_versions') }}", staging)
         # 열쇠 기반: 관리번호 + pnu 동시 일치, 열쇠당 단일 표기만 후보다.
         self.assertIn("price_latest.mgm_bldrgst_pk = unit_scope.mgm_bldrgst_pk", candidates)
         self.assertIn("price_latest.pnu = unit_scope.pnu", candidates)

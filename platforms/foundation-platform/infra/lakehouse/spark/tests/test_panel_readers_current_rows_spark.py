@@ -69,7 +69,7 @@ class PanelReadersCurrentRowsTest(unittest.TestCase):
 
     def read(self, module, name, contract, root, **extra):
         job = __import__(module)
-        args = Namespace(input_mode="parquet", input_root=str(root), price_source_snapshot_id=None,
+        args = Namespace(input_mode="parquet", input_root=str(root), price_vintage=None,
                          iceberg_catalog_name="lakehouse", source_iceberg_namespace="silver")
         with mock.patch.object(job, "load_lakehouse_contract", side_effect=lambda _: contract):
             return job.read_source(self.spark, args, name, {}, **extra)

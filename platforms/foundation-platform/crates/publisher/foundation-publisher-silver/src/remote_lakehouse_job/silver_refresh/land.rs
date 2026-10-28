@@ -804,7 +804,13 @@ pub(in crate::remote_lakehouse_job) async fn load(
     match &contract.compare_content {
         Some(content) => {
             append_changes(
-                contract, runtime, catalog, &branch, &identity, release, content,
+                contract,
+                runtime,
+                catalog,
+                &branch,
+                &identity,
+                release.object_keys(),
+                content,
             )
             .await?;
         }
@@ -819,17 +825,16 @@ pub(in crate::remote_lakehouse_job) async fn load(
 /// Appends the staged release's changes to `main` instead of publishing the branch, then drops
 /// the branch (root ADR-0275): `main` keeps every row it held. A table that had no snapshot when
 /// the load began was written on `main` directly, whole; there is nothing to compare.
-async fn append_changes(
+pub(super) async fn append_changes(
     contract: &LaneContract,
     runtime: &Runtime,
     catalog: &IcebergRestCatalog,
     branch: &str,
     identity: &str,
-    release: &LandRelease,
+    objects: Vec<String>,
     content: &[String],
 ) -> anyhow::Result<()> {
     let table = &contract.table;
-    let objects = release.object_keys();
     let staged = catalog
         .load_snapshot_refs(table)
         .await?

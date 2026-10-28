@@ -497,7 +497,7 @@
     {
       "id": "silver_refresh_building_register_apartment_price",
       "interruptible": true,
-      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price_versions already records it or a newer one (`unchanged`), export, stage it on a load branch and append only its changed keys and removal markers (`changed`, root ADR-0317). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
       "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
       "systemd_timer": null,
@@ -514,7 +514,7 @@
       "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-building-hub-bulk-to-silver-building-register-apartment-price"
+        "source-building-hub-bulk-to-silver-building-register-apartment-price-versions"
       ],
       "enabled": true,
       "enabled_since": "2026-10-14T02:51:17Z"
@@ -722,7 +722,7 @@
     {
       "id": "gold_panel_rebuild",
       "interruptible": true,
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price_versions for the newest vintage both hub price tables hold, re-joining only the management keys whose inputs changed and appending only the changed keys, unless that batch is already held (root ADR-0182, ADR-0317). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -740,12 +740,12 @@
         "silver-building-register-floors-to-gold-building-panel",
         "silver-building-register-units-to-gold-building-panel",
         "silver-building-register-unit-areas-to-gold-building-panel",
-        "silver-unit-official-price-to-gold-building-panel",
+        "silver-unit-official-price-versions-to-gold-building-panel",
         "silver-building-register-titles-to-gold-unit-price-panel",
         "silver-building-register-units-to-gold-unit-price-panel",
-        "silver-unit-official-price-to-gold-unit-price-panel",
-        "silver-building-register-apartment-price-to-silver-unit-official-price",
-        "silver-building-register-exclusive-unit-to-silver-unit-official-price",
+        "silver-unit-official-price-versions-to-gold-unit-price-panel",
+        "silver-building-register-apartment-price-versions-to-silver-unit-official-price-versions",
+        "silver-building-register-exclusive-unit-to-silver-unit-official-price-versions",
         "silver-parcel-boundaries-to-gold-parcel-panel",
         "silver-land-use-plan-to-gold-parcel-panel",
         "silver-land-use-zone-code-to-gold-parcel-panel",

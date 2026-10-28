@@ -25,13 +25,13 @@ from lakehouse_engine import (apply_catalog_settings, assert_catalog_env, assert
                               iceberg_packages)
 from lakehouse_snapshot_pins import load_source_snapshot_pins, read_pinned_iceberg
 from platform_contracts import (column_names, current_row_latest, current_rows, ensure_contract_table,
-    load_lakehouse_contract, partition_column_names, required_column_names, sort_order, with_contract_columns)
+    load_lakehouse_contract, partition_column_names, required_column_names, rows_as_of, sort_order,
+    with_contract_columns)
 from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identifier
 
 from building_link_evidence import evidence_policy, verified_building_links
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
-from unit_official_price import batch_commit_order, newest_batch
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -45,7 +45,8 @@ TITLE_SOURCE = "silver.building_register_titles"
 FLOOR_SOURCE = "silver.building_register_floors"
 UNIT_SOURCE = "silver.building_register_units"
 AREA_SOURCE = "silver.building_register_unit_areas"
-PRICE_SOURCE = "silver.unit_official_price"
+# The unit prices as versions: the current rows are the newest vintage (root ADR-0317).
+PRICE_SOURCE = "silver.unit_official_price_versions"
 ALL_SOURCES = (TITLE_SOURCE, FLOOR_SOURCE, UNIT_SOURCE, AREA_SOURCE, PRICE_SOURCE)
 # The columns build_gold_panel_frame reads from each input, and the only ones it is handed: the
 # incremental rebuild compares exactly these between two Silver snapshots (root ADR-0180 §1), so a
@@ -86,7 +87,7 @@ def parse_args(argv=None):
     parser.add_argument("--iceberg-snapshot-id", required=True,
                         help="Title-table Iceberg snapshot to read; local source identity in parquet mode.")
     parser.add_argument("--source-snapshots-path", help="JSON file mapping all Silver tables to pinned Iceberg snapshot IDs.")
-    parser.add_argument("--price-source-snapshot-id", help="Exact logical price batch within the pinned append-only Silver snapshot.")
+    parser.add_argument("--price-vintage", help="Serve the unit prices as of this vintage (YYYYMM) instead of the newest (root ADR-0317).")
     parser.add_argument("--published-at-utc")
     parser.add_argument("--region-prefix")
     parser.add_argument("--pnu-prefix")
@@ -117,17 +118,17 @@ def validate_args(args):
     for name in ("expected_count", "minimum_count"):
         if getattr(args, name) is not None and getattr(args, name) < 0:
             raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
-    if args.price_source_snapshot_id is not None and not args.price_source_snapshot_id.strip():
-        raise ValueError("--price-source-snapshot-id must be non-empty")
+    if args.price_vintage is not None and not re.fullmatch(r"[0-9]{6}", args.price_vintage):
+        raise ValueError("--price-vintage must be YYYYMM")
     if (args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite" and
             not args.validate_only and not args.target_iceberg_table.endswith("_smoke") and
             not args.allow_non_smoke_overwrite):
         raise ValueError("Refusing non-smoke overwrite without --allow-non-smoke-overwrite")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env(args.iceberg_catalog_name)
-    if incremental.validate_arguments(args, ALL_SOURCES) is not None and args.price_source_snapshot_id:
-        # The batch filter names a batch of the new snapshot; the old snapshot has another.
-        raise ValueError("--incremental-from-snapshots cannot compare a --price-source-snapshot-id batch")
+    if incremental.validate_arguments(args, ALL_SOURCES) is not None and args.price_vintage:
+        # A pinned vintage is not the current rows the change detection compares.
+        raise ValueError("--incremental-from-snapshots cannot compare a --price-vintage")
     return load_snapshot_pins(args)
 
 
@@ -159,16 +160,9 @@ def read_source(spark, args, name, pins, after=None, batches=None):
     frame = frame.select(*column_names(contract))
     if batches is not None:
         frame = frame.where(F.col("source_snapshot_id").isin(*batches))
-    elif name == PRICE_SOURCE:
-        # The price table keeps every vintage's batch, each the whole history of reference dates;
-        # the panel serves the newest (root ADR-0182). Ids the derivation did not write leave the
-        # mix to be refused (assert_single_snapshot), unless a batch is named.
-        order = batch_commit_order(spark, iceberg_table(args, name)) \
-            if args.input_mode == "iceberg" else ()
-        batch = args.price_source_snapshot_id or newest_batch(
-            (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
-        if batch is not None:
-            frame = frame.where(F.col("source_snapshot_id") == batch)
+    elif name == PRICE_SOURCE and getattr(args, "price_vintage", None):
+        # The prices as they stood at a vintage the operator names (root ADR-0317).
+        return rows_as_of(frame, contract, args.price_vintage)
     elif name == FLOOR_SOURCE:
         # Floors append one logical batch per load (root ADR-0128): the current scheme is
         # building-register-floor-content-v1-<hash>, while the 2026-09 batch kept its legacy
@@ -184,6 +178,15 @@ def read_source(spark, args, name, pins, after=None, batches=None):
 
 
 def assert_single_snapshot(frame, name):
+    latest = current_row_latest(load_lakehouse_contract(name))
+    if latest is not None:
+        # A table of versions holds the current rows of many loads by design (root ADR-0275,
+        # ADR-0317); `frame` is its current rows, named by its newest version. The Iceberg pin
+        # beside it (source_iceberg_snapshots_by_dataset) is exact.
+        newest = frame.agg(F.max(F.struct(*latest.newest_first, "source_snapshot_id")).alias("v")).first()["v"]
+        if newest is None or not newest["source_snapshot_id"]:
+            raise ValueError(f"{name} has no current row")
+        return newest["source_snapshot_id"]
     values = [r.source_snapshot_id for r in frame.select("source_snapshot_id").distinct().limit(3).collect()]
     if len(values) != 1 or not values[0]:
         raise ValueError(f"{name} must carry exactly one non-empty source_snapshot_id: {values}")
@@ -484,6 +487,12 @@ def appended_changes(spark, args, previous, pins, snapshots, new, appended):
     """
     result = {}
     for name in appended:
+        if current_row_latest(load_lakehouse_contract(name)) is not None:
+            # A table of versions changes a key's current rows only by appending a version of it
+            # (root ADR-0317): the appended versions, removal markers included, name every key.
+            added = incremental.read_appended(spark, iceberg_table(args, name), previous[name], pins[name])
+            result[name] = (incremental.project_build_inputs({name: added}, BUILD_COLUMNS)[name], new[name])
+            continue
         old_batch, new_batch = assert_single_snapshot(read_source(spark, args, name, previous), name), snapshots[name]
         if old_batch == new_batch:
             added = read_source(spark, args, name, pins, after=previous[name], batches=(new_batch,))

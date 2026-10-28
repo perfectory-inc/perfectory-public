@@ -42,9 +42,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |
 |---|---:|---|---|---|
-| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 공동주택가격 (`silver.building_register_apartment_price`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
-| ↳ 장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. | | | | |
-| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 (`silver.unit_official_price`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 전유부 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 전유부 (`silver.building_register_exclusive_unit`)<br>세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
 | ↳ 전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>필지 서빙본 (`gold.parcel_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 스튜어드 결정 (필지 계보·법정동 짝)<br>필지 경계 서빙 | 필지 지도 타일<br>행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
@@ -68,6 +66,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 산업입지정보 산업단지: ILIS 산업단지 목록<br>ILIS 산업단지 고시 목록<br>ILIS 산업단지 상세 | 3 endpoint | 산업단지 기본 정보 (`silver.industrial_complexes`)<br>산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 제공용 프로필 (`gold.complex_catalog`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지<br>산업단지 프로필 포인터<br>산업단지 경계 서빙 | 산업단지 지도 타일<br>카탈로그 조회 API<br>산업단지 프로필 게이트웨이<br>공짱 지도·상세 패널 |
 | ↳ ILIS 목록·고시·상세는 산업단지 주소 해석의 근거이다. 프로필 본문은 브이월드에서 온다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 산업단지 경계 | 1 endpoint | 산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지 경계 서빙 | 산업단지 지도 타일<br>공짱 지도·상세 패널 |
+| 건축HUB 파일: 건축물대장 공동주택 가격 파일 | 1 endpoint | 건물·층·호 by-PNU 제공용 패널 (`gold.building_panel`)<br>호 공시가격 by-PNU 패널 (`gold.unit_price`)<br>건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`)<br>세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | 세대 공시가격 연혁 | 공짱 지도·상세 패널 |
+| ↳ 공동주택가격 판을 버전 표의 load branch 에 쌓고, (관리번호, 기준일)마다 현재 행과 비교해 바뀐 키의 행과 사라진 키의 삭제 표시만 main 에 덧붙인다(루트 ADR-0275, ADR-0317). | | | | |
 | 브이월드 공간·토지 파일: VWorld 읍면동 경계 | 1 endpoint | — | 행정경계 서빙 | 행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | ↳ Silver 표를 거치지 않는 행정경계 직접 서빙 레인이다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 시군구 경계<br>VWorld 산업단지 개요 | 2 endpoint | 산업단지 기본 정보 (`silver.industrial_complexes`)<br>산업단지 경계 (`silver.industrial_complex_boundaries`)<br>산업단지 제공용 프로필 (`gold.complex_catalog`)<br>산업단지 경계 서빙본 (`gold.industrial_complex_boundary_served`) | 산업단지<br>산업단지 프로필 포인터<br>산업단지 경계 서빙 | 산업단지 지도 타일<br>카탈로그 조회 API<br>산업단지 프로필 게이트웨이<br>공짱 지도·상세 패널 |
@@ -212,6 +212,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 표 | 상태 | 이유 |
 |---|---|---|
+| `silver.building_register_apartment_price` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
+| `silver.unit_official_price` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
 | `silver.court_auction_item` | 계약만 있음 | 물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.court_auction_sale_result` | 계약만 있음 | 매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
@@ -322,10 +324,10 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건물 층별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 호별 전유·공용 면적 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
-| 세대별 기준일 공시가격 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
+| 세대별 기준일 공시가격 판 버전 → 건물·층·호 by-PNU 제공용 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py` |
 | 건물 표제부 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 건물 호별 정보 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
-| 세대별 기준일 공시가격 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
+| 세대별 기준일 공시가격 판 버전 → 호 공시가격 by-PNU 패널 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py` |
 | 건축HUB 파일 → 건축물대장 공동주택가격 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건축물대장 전유부 | `export-building-register-exclusive-unit-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지 경계 | `export-vworld-cadastral-shapefile-silver-handoff`<br>`export-vworld-cadastral-silver-handoff-shard`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py` |
@@ -364,7 +366,12 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 경계 → 필지 경계 서빙 | `rebuild-postgis-parcel-boundary-mirror-national-from-contract`<br>`publish-parcel-boundary-postgis` |
 | 건축물대장 공동주택가격 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 건축물대장 전유부 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
-| 세대별 기준일 공시가격 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
+| 세대별 기준일 공시가격 판 버전 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
+| 건축물대장 공동주택가격 → 건축물대장 공동주택가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/vintage_versions.py` |
+| 세대별 기준일 공시가격 → 세대별 기준일 공시가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/vintage_versions.py` |
+| 건축HUB 파일 → 건축물대장 공동주택가격 판 버전 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py` |
+| 건축물대장 공동주택가격 판 버전 → 세대별 기준일 공시가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
+| 건축물대장 전유부 → 세대별 기준일 공시가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 산업단지 기본 정보 → 산업단지 | `load-industrial-complex-canonical` |
 | 산업단지 경계 → 산업단지 경계 서빙 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_silver_to_postgis_handoff.py`<br>`publish-industrial-complex-boundary-postgis` |
 | 산업단지 제공용 프로필 → 산업단지 Gold 포인터 발행 | `export-industrial-complex-gold-profiles`<br>`publish-industrial-complex-gold-pointer` |

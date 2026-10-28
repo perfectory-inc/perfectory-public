@@ -27,7 +27,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-register-titles` | `silver.building_register_titles` | 표제부 | 한 묶음 overwrite |
 | `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | 한 묶음 overwrite |
 | `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | 한 묶음 overwrite |
-| `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
+| `building-register-apartment-price` | `silver.building_register_apartment_price_versions` | 공동주택가격 | 부분 40개씩 브랜치에 쌓고, 바뀐 키만 main 에 append(루트 ADR-0317) |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 첫 4 객체 overwrite, 나머지 4개씩 append |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
@@ -133,8 +133,11 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
    찍혔는지도 본다.
 
 공동주택가격 조합(`unit_official_price.py`)은 손으로 돌리지 않는다: Gold 재생성의 건물 단계가 계획 전에 두 표가 함께
-가진 가장 새 월을 전국 한 묶음으로 조합하고, 그 월을 이미 가지면 아무것도 쓰지 않는다. 건물 패널은 가장 새 월의 묶음을
-읽는다(루트 ADR-0182). 그 줄은 Gold 재생성 journal 의 `unit prices: vintage … appended|already held` 다.
+가진 가장 새 월을 조합하되, 입력이 바뀐 관리번호만 다시 조합해 `silver.unit_official_price_versions` 에 바뀐 키만
+덧붙인다. 같은 스냅숏 묶음을 이미 가지면 아무것도 쓰지 않는다. 건물 패널은 버전 표의 현재 행(가장 새 월)을 읽고, 운영자는
+`--price-vintage YYYYMM` 으로 그 월 시점을 읽힐 수 있다(루트 ADR-0182, ADR-0317). 그 줄은 Gold 재생성 journal 의
+`unit prices: vintage … appended|already held` 다. 옛 두 표(`silver.building_register_apartment_price`,
+`silver.unit_official_price`)는 2026-10 까지의 판 전체 사본으로 남고 더 쓰지 않는다.
 
 ## 4. 거부와 고치는 법
 

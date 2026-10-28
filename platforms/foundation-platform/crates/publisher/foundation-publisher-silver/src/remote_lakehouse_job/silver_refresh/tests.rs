@@ -258,6 +258,28 @@ fn the_lane_contracts_say_how_each_lane_runs() -> anyhow::Result<()> {
         price.handoff_prefix.as_deref(),
         Some("silver-handoff/hubgokr__building_register_apartment_price")
     );
+    // Its vintages are versions: staged on a branch, then only their changes appended (root ADR-0317).
+    assert_eq!(
+        price.table,
+        "silver.building_register_apartment_price_versions"
+    );
+    let content = price
+        .compare_content
+        .context("the apartment-price lane appends its changes")?;
+    for column in [
+        "mgmt_key",
+        "base_date",
+        "vintage",
+        "source_part_id",
+        "source_line_number",
+    ] {
+        assert!(!content.iter().any(|c| c == column), "compares {column}");
+    }
+    assert!(content.iter().any(|c| c == "raw_columns"));
+    assert_eq!(
+        units.compare_content, None,
+        "a one-run lane publishes whole"
+    );
     Ok(())
 }
 
@@ -326,6 +348,20 @@ fn a_contract_that_would_misload_its_lane_is_refused() -> anyhow::Result<()> {
         (
             Lane::ApartmentPrice,
             Box::new(|v| v["handoff_prefix"] = serde_json::Value::Null),
+        ),
+        // comparing on the key, or a one-run lane that compares
+        (
+            Lane::ApartmentPrice,
+            Box::new(|v| {
+                v["silver_refresh"]["compare"] =
+                    serde_json::json!({"content_columns": ["mgmt_key"]})
+            }),
+        ),
+        (
+            Lane::Titles,
+            Box::new(|v| {
+                v["silver_refresh"]["compare"] = serde_json::json!({"content_columns": ["pnu"]})
+            }),
         ),
     ];
     for (lane, edit) in refused {

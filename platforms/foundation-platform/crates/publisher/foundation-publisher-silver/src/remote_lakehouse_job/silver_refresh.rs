@@ -511,7 +511,22 @@ async fn refresh_parts(
         .iter()
         .map(|part| part.object_key.clone())
         .collect();
-    publish_load(catalog, &contract.table, &branch, &parts).await?;
+    match &contract.compare_content {
+        // The vintage's changes against main's current rows, not the staged copy (root ADR-0317).
+        Some(content) => {
+            land::append_changes(
+                contract,
+                runtime,
+                catalog,
+                &branch,
+                &evidence_name,
+                parts,
+                content,
+            )
+            .await?;
+        }
+        None => publish_load(catalog, &contract.table, &branch, &parts).await?,
+    }
     runtime.reset_work()?;
     Ok((decision, key, Some(rows)))
 }

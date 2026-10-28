@@ -36,8 +36,11 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         ], "mgmt_key string,base_date string,notice_date string,price_won string").createOrReplaceTempView("price_source")
         cls.spark.sql(silver.PRICES_SQL).createOrReplaceTempView("reference_prices")
         cls.prices = (cls.spark.sql(silver.JOIN_SQL).withColumn("sido", F.lit("99"))
+                      .withColumn("vintage", F.lit("209908"))
                       .withColumn("source_snapshot_id", F.lit("synthetic-source-a"))
-                      .withColumn("source_record_id", F.lit("unit-official-price/base-date-v2/99/fixture")))
+                      .withColumn("source_record_id", F.lit("unit-official-price/versions/fixture"))
+                      .withColumn("ingested_at_utc", F.lit("2099-08-01 00:00:00").cast("timestamp"))
+                      .withColumn("row_state", F.lit(None).cast("string")))
         cls.units = cls.spark.createDataFrame([
             (cls.pnu, "UNIT-1", "BLDG-1", "", "101동", "101호", "101호", 1, "above_ground"),
             (cls.pnu, "UNIT-2", None, "", "101동", "102호", "102호", 1, "above_ground"),
@@ -75,16 +78,14 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         for column in contract["columns"]:
             self.assertEqual(actual_types[column["name"]], spark_sql_type(column["logical_type"]).lower())
         with tempfile.TemporaryDirectory() as temp:
-            older = self.prices.withColumn("source_snapshot_id", self.F.lit("older-source"))
-            self.prices.unionByName(older).write.parquet(temp + "/unit_official_price")
-            args = SimpleNamespace(input_mode="parquet", input_root=temp, price_source_snapshot_id=None)
-            mixed = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
-            with self.assertRaisesRegex(ValueError, "exactly one"):
-                self.gold.assert_single_snapshot(mixed, self.gold.PRICE_SOURCE)
-            args.price_source_snapshot_id = "synthetic-source-a"
+            # An older vintage's versions of the same keys stay in the table; the current rows are these.
+            older = (self.prices.withColumn("source_snapshot_id", self.F.lit("older-source"))
+                     .withColumn("vintage", self.F.lit("209907")).withColumn("price_won", self.F.lit(1).cast("long")))
+            self.prices.unionByName(older).write.parquet(temp + "/unit_official_price_versions")
+            args = SimpleNamespace(input_mode="parquet", input_root=temp, price_vintage=None)
             prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), "synthetic-source-a")
-            self.assertEqual(mixed.count(), 6, "older Silver rows remain available")
+            self.assertEqual(prices.count(), 3, "one current row per (unit, reference date)")
             frames = {self.gold.PRICE_SOURCE: prices, self.gold.UNIT_SOURCE: self.units,
                       self.gold.TITLE_SOURCE: self.titles, self.gold.AREA_SOURCE: self.areas,
                       self.gold.FLOOR_SOURCE: self.floors}
@@ -118,25 +119,26 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         self.assertEqual((building["purpose_code"], building["purpose_name"]), ("03000", "공장"))
         self.assertEqual((building["structure_code"], building["structure_name"]), ("21", "철근콘크리트구조"))
 
-    def test_the_panel_reads_the_newest_vintages_batch_of_the_append_only_table(self):
-        # Root ADR-0182: every vintage stays in the table; the panel serves the newest one.
+    def test_the_panel_reads_the_newest_vintage_and_an_operator_can_pin_an_older_one(self):
+        # Root ADR-0317: the table holds every vintage as versions; the panel serves the newest.
         import unit_official_price as silver
         older = silver.batch_source_snapshot_id(1, 2, "209907")
         newer = silver.batch_source_snapshot_id(3, 4, "209908")
         with tempfile.TemporaryDirectory() as temp:
-            (self.prices.withColumn("source_snapshot_id", self.F.lit(older))
+            (self.prices.withColumn("source_snapshot_id", self.F.lit(older)).withColumn("vintage", self.F.lit("209907"))
              .unionByName(self.prices.withColumn("source_snapshot_id", self.F.lit(newer))
                           .withColumn("price_won", self.F.col("price_won") + 1))
-             .write.parquet(temp + "/unit_official_price"))
-            args = SimpleNamespace(input_mode="parquet", input_root=temp, price_source_snapshot_id=None)
+             .write.parquet(temp + "/unit_official_price_versions"))
+            args = SimpleNamespace(input_mode="parquet", input_root=temp, price_vintage=None)
             prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), newer)
             self.assertEqual(sorted(r.price_won for r in prices.collect()),
                              sorted(r.price_won + 1 for r in self.prices.collect()))
-            # A named batch still wins: an operator can serve an older vintage on purpose.
-            args.price_source_snapshot_id = older
+            # A pinned vintage: the prices as they stood then.
+            args.price_vintage = "209907"
             prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), older)
+            self.assertEqual(sorted(r.price_won for r in prices.collect()), sorted(r.price_won for r in self.prices.collect()))
 
     def test_duplicate_dates_invalid_dates_and_negative_values_fail_closed(self):
         titles = self.titles.withColumn("id", self.gold.canonical_id("building", self.F.col("mgm_bldrgst_pk")))

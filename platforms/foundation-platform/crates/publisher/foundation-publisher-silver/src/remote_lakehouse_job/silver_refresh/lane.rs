@@ -80,7 +80,11 @@ impl Lane {
 
     /// The Silver table this lane writes, the one its contract must name.
     pub(in crate::remote_lakehouse_job) fn table(self) -> String {
-        format!("silver.{}", self.id().replace('-', "_"))
+        match self {
+            // Its vintages are stored as versions beside the full copies (root ADR-0317).
+            Self::ApartmentPrice => "silver.building_register_apartment_price_versions".to_owned(),
+            _ => format!("silver.{}", self.id().replace('-', "_")),
+        }
     }
 
     pub(in crate::remote_lakehouse_job) const fn contract_source(
@@ -266,7 +270,8 @@ struct Block {
     #[serde(default)]
     export_chunk_rows: Option<u32>,
     spark: SparkRunner,
-    /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
+    /// Lanes that append a release's changes instead of publishing it whole (root ADR-0275): land
+    /// lanes, and hub part lanes whose vintages are stored as versions (root ADR-0317).
     #[serde(default)]
     compare: Option<CompareBlock>,
 }
@@ -454,10 +459,6 @@ impl LaneContract {
             block.source.is_none() && block.member_name.is_none() && block.completeness.is_none(),
             "a hub lane reads roles from the ledger month, not land member names"
         );
-        ensure!(
-            block.compare.is_none(),
-            "a hub lane publishes its release whole; compare is for land lanes (root ADR-0275)"
-        );
         let block_roles = block
             .roles
             .context("a hub lane names the roles of its release")?;
@@ -471,6 +472,14 @@ impl LaneContract {
         for slug in block_roles.values() {
             checked_slug(slug, "hubgokr__")?;
         }
+        ensure!(
+            block.compare.is_none() || !kind.loads_as_one_run(),
+            "a one-run hub lane publishes its release whole; a part lane may append its changes"
+        );
+        let compare_content = block
+            .compare
+            .map(|compare| checked_compare(&block.table, compare.content_columns))
+            .transpose()?;
         let handoff_prefix = if kind.loads_as_one_run() {
             // One run is one load identity; a split input would write only its first batch
             // (silver_scalar_handoff_to_lakehouse.py refuses it before writing).
@@ -507,7 +516,7 @@ impl LaneContract {
             handoff_prefix,
             land: None,
             spark,
-            compare_content: None,
+            compare_content,
         })
     }
 }

@@ -808,6 +808,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.building_register_apartment_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price_versions,PROD)",
+          "node_id": "silver-building-register-apartment-price-versions",
+          "title": "건축물대장 공동주택가격 판 버전",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.building_register_exclusive_unit",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_exclusive_unit,PROD)",
           "node_id": "silver-building-register-exclusive-unit",
@@ -1020,6 +1028,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
           "node_id": "silver-unit-official-price",
           "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price_versions,PROD)",
+          "node_id": "silver-unit-official-price-versions",
+          "title": "세대별 기준일 공시가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -1247,6 +1263,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.building_register_apartment_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price_versions,PROD)",
+          "node_id": "silver-building-register-apartment-price-versions",
+          "title": "건축물대장 공동주택가격 판 버전",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.building_register_exclusive_unit",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_exclusive_unit,PROD)",
           "node_id": "silver-building-register-exclusive-unit",
@@ -1461,6 +1485,14 @@
           "title": "세대별 기준일 공시가격",
           "kind": "silver_table",
           "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price_versions,PROD)",
+          "node_id": "silver-unit-official-price-versions",
+          "title": "세대별 기준일 공시가격 판 버전",
+          "kind": "silver_table",
+          "surface_kind": null
         }
       ],
       "writes": []
@@ -1560,10 +1592,10 @@
       ],
       "writes": [
         {
-          "dataset": "iceberg://silver.building_register_apartment_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price,PROD)",
-          "node_id": "silver-building-register-apartment-price",
-          "title": "건축물대장 공동주택가격",
+          "dataset": "iceberg://silver.building_register_apartment_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price_versions,PROD)",
+          "node_id": "silver-building-register-apartment-price-versions",
+          "title": "건축물대장 공동주택가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -1815,10 +1847,10 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://silver.building_register_apartment_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price,PROD)",
-          "node_id": "silver-building-register-apartment-price",
-          "title": "건축물대장 공동주택가격",
+          "dataset": "iceberg://silver.building_register_apartment_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price_versions,PROD)",
+          "node_id": "silver-building-register-apartment-price-versions",
+          "title": "건축물대장 공동주택가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1935,10 +1967,10 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://silver.unit_official_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
-          "node_id": "silver-unit-official-price",
-          "title": "세대별 기준일 공시가격",
+          "dataset": "iceberg://silver.unit_official_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price_versions,PROD)",
+          "node_id": "silver-unit-official-price-versions",
+          "title": "세대별 기준일 공시가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -1969,10 +2001,10 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://silver.unit_official_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
-          "node_id": "silver-unit-official-price",
-          "title": "세대별 기준일 공시가격",
+          "dataset": "iceberg://silver.unit_official_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price_versions,PROD)",
+          "node_id": "silver-unit-official-price-versions",
+          "title": "세대별 기준일 공시가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -2490,6 +2522,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.building_register_apartment_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_apartment_price_versions,PROD)",
+          "node_id": "silver-building-register-apartment-price-versions",
+          "title": "건축물대장 공동주택가격 판 버전",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.building_register_exclusive_unit",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_exclusive_unit,PROD)",
           "node_id": "silver-building-register-exclusive-unit",
@@ -2702,6 +2742,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
           "node_id": "silver-unit-official-price",
           "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price_versions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price_versions,PROD)",
+          "node_id": "silver-unit-official-price-versions",
+          "title": "세대별 기준일 공시가격 판 버전",
           "kind": "silver_table",
           "surface_kind": null
         }

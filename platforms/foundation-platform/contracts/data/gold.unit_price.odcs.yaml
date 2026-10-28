@@ -75,4 +75,4 @@ customProperties:
     value:
       - "silver.building_register_titles"
       - "silver.building_register_units"
-      - "silver.unit_official_price"
+      - "silver.unit_official_price_versions"
