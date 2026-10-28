@@ -29,6 +29,10 @@ JSON is hashed as its canonical form.
 The rebuild contract's `code_version` (contracts/gold-panel-rebuild.contract.json) narrows it:
 - `plumbing_modules`: modules that cannot change a row (the planner, the Spark session settings),
   with the reason; nothing of theirs is followed.
+- `plumbing_symbols`: `module.symbol`s a full build never runs or that only land its rows unchanged
+  (the incremental merge machinery and its dependency maps, held to the full build by the parity
+  sample and the incremental == full tests, root ADR-0180 §4), with the reason; nothing of theirs is
+  followed either. The version is the identity of the full build, the function from pins to rows.
 - `scoped_contracts`: a registry many tables share (every table's columns, every by-PNU lane) counts
   only at the entries this table reads: the parts it `keep`s, and under each `entries` path the
   entries its selector picks: `tables` (the Gold table and its inputs) or `lanes` (the by-PNU lanes
@@ -170,6 +174,16 @@ def settings(contract: dict[str, Any], jobs: Path = JOBS) -> dict[str, Any]:
     missing = sorted(name for name in plumbing if not (jobs / f"{name}.py").is_file())
     if missing:
         raise ValueError(f"code_version.plumbing_modules names modules that do not exist: {missing}")
+    symbols = declared.get("plumbing_symbols", {})
+    if not (isinstance(symbols, dict) and all(isinstance(w, str) and w.strip() for w in symbols.values())):
+        raise ValueError("code_version.plumbing_symbols must map each module.symbol to why it cannot change a "
+                         "full build's rows")
+    absent = sorted(qualified for qualified in symbols if "." not in qualified
+                    or not (jobs / f"{qualified.split('.')[0]}.py").is_file()
+                    or qualified.split(".", 1)[1] not in Module(qualified.split(".")[0],
+                                                                jobs / f"{qualified.split('.')[0]}.py").symbols)
+    if absent:
+        raise ValueError(f"code_version.plumbing_symbols names symbols that do not exist: {absent}")
     scoped = declared.get("scoped_contracts", {})
     for name, rule in scoped.items():
         entries = rule.get("entries", {}) if isinstance(rule, dict) else None
@@ -177,7 +191,7 @@ def settings(contract: dict[str, Any], jobs: Path = JOBS) -> dict[str, Any]:
                 and isinstance(rule.get("keep", []), list) and str(rule.get("reason", "")).strip()):
             raise ValueError(f"code_version.scoped_contracts.{name} needs `entries` (path -> one of {SELECTORS}), "
                              "an optional `keep` list and its reason")
-    return {"plumbing": plumbing, "scoped": scoped}
+    return {"plumbing": plumbing, "plumbing_symbols": symbols, "scoped": scoped}
 
 
 def _at(document: Any, path: str) -> Any:
@@ -211,6 +225,7 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
     """{part: sha256} of the code `producer` builds `table` from `inputs` with: each reached symbol as
     `<path relative to the platform>::<symbol>`, each contract as its path."""
     plumbing, scoped = config["plumbing"], config["scoped"]
+    left_out = set(config.get("plumbing_symbols", {}))
     modules: dict[str, Module | None] = {}
 
     def module(name: str) -> Module | None:
@@ -226,7 +241,7 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
     seen: set[tuple[str, str]] = set()
     while queue:
         name, symbol = queue.pop()
-        if (name, symbol) in seen:
+        if (name, symbol) in seen or f"{name}.{symbol}" in left_out:
             continue
         seen.add((name, symbol))
         source = module(name)

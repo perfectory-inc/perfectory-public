@@ -78,8 +78,9 @@ class Tree:
         (self.root / path).write_text(text, encoding="utf-8")
         return self
 
-    def version(self, plumbing=None, scoped=None, table="gold.t", inputs=("silver.a",)):
-        return code.value("producer", {"plumbing": plumbing or {}, "scoped": scoped or {}}, table, inputs,
+    def version(self, plumbing=None, scoped=None, table="gold.t", inputs=("silver.a",), symbols=None):
+        return code.value("producer", {"plumbing": plumbing or {}, "plumbing_symbols": symbols or {},
+                                       "scoped": scoped or {}}, table, inputs,
                           jobs=self.jobs, contract_dirs=(self.contracts,), root=self.root)
 
     def parts(self, **kwargs):
@@ -154,6 +155,16 @@ class Version(unittest.TestCase):
         self.assertTrue(code.same(before, tree.version(plumbing)))
         self.assertIn("jobs/planner.py::X", tree.parts())
 
+    def test_a_plumbing_symbol_and_what_only_it_reaches_are_left_out(self):
+        # e.g. the incremental merge machinery: a full build never runs it.
+        tree = fixture_tree(self)
+        symbols = {"deep.f": "lands rows; builds none"}
+        parts = tree.parts(symbols=symbols)
+        self.assertFalse({"jobs/deep.py::f", "jobs/deep.py::g"} & parts)
+        before = tree.version(symbols=symbols)
+        tree.write("jobs/deep.py", DEEP.replace("return 1", "return 2"))
+        self.assertTrue(code.same(before, tree.version(symbols=symbols)))
+
     def test_a_shared_registry_counts_only_at_the_entries_the_table_reads(self):
         registry = {"contracts": {"gold.t": 1, "silver.a": 2, "silver.other": 3}, "domains": 4, "prose": 5}
         lanes = {"by_pnu_lanes": {"t": {"x": 1}, "u": {"host": "parcel_by_pnu_gateway", "x": 2},
@@ -187,9 +198,12 @@ class Version(unittest.TestCase):
         declared = code.settings(rebuild.load_contract())
         self.assertIn("gold_rebuild", declared["plumbing"])
         self.assertIn("r2-connections.contract.json", declared["scoped"])
+        self.assertIn("gold_incremental.Outcome", declared["plumbing_symbols"])
         for bad in ({"plumbing_modules": {"no_such_module": "why"}}, {"plumbing_modules": {"gold_rebuild": " "}},
                     {"scoped_contracts": {"x.json": {"reason": "r", "entries": {"a": "everything"}}}},
-                    {"scoped_contracts": {"x.json": {"entries": {"a": "tables"}}}}):
+                    {"scoped_contracts": {"x.json": {"entries": {"a": "tables"}}}},
+                    {"plumbing_symbols": {"gold_incremental.no_such_symbol": "why"}},
+                    {"plumbing_symbols": {"gold_incremental.Outcome": ""}}):
             with self.assertRaises(ValueError):
                 code.settings({"code_version": bad})
 
@@ -201,6 +215,8 @@ class Version(unittest.TestCase):
             self.assertIn(f"infra/lakehouse/spark/jobs/{entry['producer']}.py::<module>", parts)
             self.assertIn(f"infra/lakehouse/spark/jobs/{entry['producer']}.py::main", parts)
             self.assertFalse(set(config["plumbing"]) & {Path(p.split("::")[0]).stem for p in parts}, entry["producer"])
+            named = {f"{Path(p.split('::')[0]).stem}.{p.split('::')[1]}" for p in parts if "::" in p}
+            self.assertFalse(set(config["plumbing_symbols"]) & named, entry["producer"])
 
     def test_a_test_runner_is_not_a_producer_and_records_no_version(self):
         self.assertIsNone(code.of_running_producer("gold.parcel_panel", PINS))

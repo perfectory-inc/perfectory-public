@@ -55,13 +55,37 @@
   },
   "code_version": {
     "decision": "docs/adr/0321-a-gold-commit-records-the-code-that-built-it.md",
-    "purpose": "Every producer commit records its code version (infra/lakehouse/spark/jobs/gold_code_version.py: the top-level symbols of spark/jobs the producer script's call graph reaches, at any depth, and the JSON contracts they name) beside its source pins. When that version changes, the planner recomputes every row and publishes the build by key: written to a shadow branch, compared with main by row_digest, and only the differing keys merged and recorded (root ADR-0321 §5). A module named here cannot change a Gold row, so nothing of it is followed, and a change to it rebuilds nothing.",
+    "purpose": "Every producer commit records its code version (infra/lakehouse/spark/jobs/gold_code_version.py: the top-level symbols of spark/jobs the producer script's call graph reaches, at any depth, and the JSON contracts they name) beside its source pins. When that version changes, the planner recomputes every row and publishes the build by key: written to a shadow branch, compared with main by row_digest, and only the differing keys merged and recorded (root ADR-0321 §5). A module named under plumbing_modules cannot change a Gold row, and a symbol under plumbing_symbols never runs in a full build or only lands its rows unchanged, so nothing of either is followed, and a change to it rebuilds nothing.",
     "plumbing_modules": {
       "gold_rebuild": "The planner and the commit writer: it decides whether to rebuild and writes the producer's frame unchanged with summary entries.",
       "gold_fingerprint": "Computes the summary fingerprint of rows already built; it does not build them.",
       "section_coverage": "A check that refuses a build before it writes; it never alters a row.",
       "lakehouse_engine": "Spark session, catalog and R2 retry settings: how the rows are read and written, not which. The session time zone (UTC) is set by each producer.",
       "lakehouse_snapshot_pins": "Parses the pins file; which snapshot is read is the recorded source pin itself."
+    },
+    "plumbing_symbols": {
+      "gold_incremental.Outcome": "Commits a built frame unchanged (overwrite, metadata-only append, or publish by changed keys) and reports it; it builds no row.",
+      "gold_incremental.build_or_merge": "Chooses incremental or full; the full path is lane.build (the producer's own function, versioned there) and the gates that refuse before a write.",
+      "gold_incremental.Lane": "A container of the producer's functions and key columns; the functions are versioned where the producer defines them.",
+      "gold_incremental.plan_merge": "Incremental merge machinery: never runs in a full build; the parity sample and the incremental == full Iceberg tests hold it to the full build (root ADR-0180 §4).",
+      "gold_incremental.plan_merge_in": "Incremental merge machinery, as plan_merge.",
+      "gold_incremental.Stages": "Where the incremental merge spills its stages; how, not which, rows.",
+      "gold_incremental.merge_source": "The upserts and deletes that turn the served Gold into a built one; the result equals the build by construction (row_digest).",
+      "gold_incremental.merge_into_gold": "Runs the MERGE of a source already computed; it builds no row.",
+      "gold_incremental.merge_sql": "The MERGE statement merge_into_gold runs, as merge_into_gold.",
+      "gold_incremental.record_changes": "Records the keys a commit changed (root ADR-0312 §1); it writes no Gold row.",
+      "gold_incremental.retain_input_snapshots": "Tags the Silver pins so expiry keeps them; it writes no Gold row.",
+      "gold_incremental.validate_arguments": "Checks the producer flags; a flag that changes rows is the build's own argument, versioned in the producer's parse_args.",
+      "gold_incremental.add_arguments": "Declares the incremental and publish flags, as validate_arguments.",
+      "parcel_panel_silver_to_gold.affected_pnus": "The incremental dependency map (which PNUs a Silver change reaches): never runs in a full build; held to it by the parity sample (root ADR-0180 §4).",
+      "parcel_panel_silver_to_gold.restrict_inputs": "The incremental input restriction to the affected PNUs: never runs in a full build; held to it by the parity sample.",
+      "building_panel_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "building_panel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "unit_price_panel_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "unit_price_panel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "by_pnu_kind_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "onbid_public_auction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "onbid_public_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
     },
     "scoped_contracts": {
       "industrial_complex_lakehouse_contracts.json": {
