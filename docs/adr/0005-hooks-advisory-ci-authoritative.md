@@ -7,6 +7,8 @@ last_reviewed: 2026-07-28
 
 # ADR 0005: Git 훅은 조언, CI는 권위
 
+- Status: Accepted
+
 ## 배경
 
 `markdown-links` pre-push 훅이 `cargo xtask docs`를 호출했지만 이 저장소는 Rust를
@@ -54,3 +56,5 @@ Docker 안에서만 빌드하고 개발 호스트에는 cargo가 없었다. 그 
 - 모든 구체적인 하위 도구가 설정된 root에서 실행되는 완전한 개발 환경에서는 기존처럼
   훅이 실행된다. PATH에 실행기가 있다는 사실만으로는 충분하지 않다.
 - 권위 보장은 ADR-0004의 검증 SSOT가 재현 가능하게 만드는 CI에 있다.
+
+2026-10-28: 상태 줄 추가 — 원문에 없던 `Status`를 실물에 맞춰 적었다. 근거: 루트 `lefthook.yml`, `scripts/guard/lefthook-advisory-policy-self-test.sh`.

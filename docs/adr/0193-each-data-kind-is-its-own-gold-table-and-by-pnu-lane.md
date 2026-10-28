@@ -272,3 +272,5 @@
 - Cloudflare R2 가격표(Class A 쓰기 단위 과금) — 묶음 수가 비용을 정한다. <https://developers.cloudflare.com/r2/pricing/>
 
 개정 각주(2026-10-20): §9 의 "종류 = 주인 패널의 섹션"은 [ADR-0287](./0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md) 이 넓혔다. 종류 줄은 자기 생산자를 이름 지을 수 있고, 그런 종류는 주인 패널에 묶이지 않는다.
+
+2026-10-28: 구현 점검 — Proposed 유지. 땅 쪽 kind 레인과 생산자는 있다(`platforms/foundation-platform/config/r2-connections.contract.json`, `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py`). 건물 kind 셋(ADR-0252), `unit-price`의 건물 관문 이전, §5 웹의 레인별 조립, §6.5 묶음 은퇴는 아직 없다.
