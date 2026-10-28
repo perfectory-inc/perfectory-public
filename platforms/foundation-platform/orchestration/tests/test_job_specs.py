@@ -656,6 +656,12 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
                 self.assertTrue(reports_outcome(program.read_text(encoding="utf-8")),
                                 f"{program.name} never prints `foundation-job-outcome ...`")
 
+    def test_a_program_that_only_mentions_the_line_is_refused(self):
+        self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
+        self.assertTrue(reports_outcome('    print("foundation-job-outcome unchanged")\n'))
+        self.assertFalse(reports_outcome("# ends with `foundation-job-outcome changed`\nexec run\n"))
+        self.assertFalse(reports_outcome("exec run\n"))
+
     def test_a_program_that_can_say_changed_can_also_say_unchanged(self):
         # `changed` starts the readers, so it has to rest on evidence of a write. A program with no
         # `unchanged` branch says `changed` on every no-op: 2026-10-27 the floor job did on
@@ -671,12 +677,6 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
         self.assertFalse(changed_without_unchanged(
             "[ \"$n\" = 0 ] && echo foundation-job-outcome unchanged && exit 0\necho foundation-job-outcome changed\n"))
         self.assertFalse(changed_without_unchanged("# foundation-job-outcome changed\necho foundation-job-outcome failed x\n"))
-
-    def test_a_program_that_only_mentions_the_line_is_refused(self):
-        self.assertTrue(reports_outcome("run\nprintf 'foundation-job-outcome changed\\n'\n"))
-        self.assertTrue(reports_outcome('    print("foundation-job-outcome unchanged")\n'))
-        self.assertFalse(reports_outcome("# ends with `foundation-job-outcome changed`\nexec run\n"))
-        self.assertFalse(reports_outcome("exec run\n"))
 
 
 class TheRunOutcome(unittest.TestCase):
