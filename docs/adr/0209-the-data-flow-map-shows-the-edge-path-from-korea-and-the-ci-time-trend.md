@@ -1,6 +1,6 @@
 # ADR 0209: 데이터 흐름 화면은 한국에서 서비스 주소까지의 경로와 PR CI 시간 추이를 보인다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-13
 - Related: [ADR-0195](./0195-dawneer-shows-every-jobs-health-on-the-data-flow-map.md) (데이터 흐름 지도),
   [ADR-0203](./0203-pull-request-ci-has-one-wall-clock-budget.md) (PR CI 벽시계 예산),
@@ -58,3 +58,5 @@
 - **8주를 한 번에 다시 재기**: 2026-10-12 하루만 PR 실행 1,608건이다. 익명 60회로는 한 번에 못 끝내고 자동
   배포의 몫까지 먹는다.
 - **blackbox exporter 등 새 서비스**: 표준 라이브러리 스크립트 하나로 충분하다.
+
+2026-10-28: 구현 확인 — `platforms/foundation-platform/scripts/ops/service-checks.py`, `platforms/foundation-platform/infra/systemd/foundation-service-checks.timer`, `consoles/dawneer/web/src/components/ServiceChecks.tsx`

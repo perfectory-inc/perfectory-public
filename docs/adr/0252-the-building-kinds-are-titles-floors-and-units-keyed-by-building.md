@@ -80,3 +80,5 @@
 - **호를 층 단위 문서로:** 화면은 건물의 호 목록을 펼친다. 층 키는 요청을 층 수만큼 늘린다.
 - **근거를 공개 문서에 그대로 둔다:** ADR-0125 의 소비 경계 대조가 사라지고, 크기의 큰 몫을 쓴다.
 - **호 면적·전유부를 각자의 레인으로:** 결정 4·5.
+
+2026-10-28: 구현 점검 — Proposed 유지. 미구현 — `platforms/foundation-platform/config/r2-connections.contract.json`에 `building-titles`·`building-floors`·`building-units` 레인이 없다(이름은 크기 측정 스크립트 `by_pnu_kind_sizes.py`에만 있다).

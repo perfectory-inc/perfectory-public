@@ -10,7 +10,7 @@ last_reviewed: 2026-07-29
 - 소스: https://github.com/UrbanWatcherKr/korean-land-mcp
 - 라이선스: MIT
 - 역할: **V-World API를 MCP로 래핑** (AI 에이전트의 개발 탐색용)
-- 프로덕션 사용 금지 — [AGENTS.md §3](../../AGENTS.md)
+- 프로덕션 사용 금지 — [데이터 원천 README 의 에이전트 전용 규칙](./README.md#에이전트-전용-규칙)
 - Catalog facts and source ingestion remain Foundation Platform-owned. This MCP is
   not a Gongzzang runtime data source, admin lookup backend, or SSOT.
 
@@ -36,9 +36,7 @@ last_reviewed: 2026-07-29
 
 ## 설치
 
-프로젝트에서는 `.mcp.json` 을 통해 자동 구성 예정.
-
-수동 설치:
+영역의 `.mcp.json` 에는 아직 등록된 서버가 없다(`mcpServers` 가 비어 있다). 수동 설치:
 ```bash
 git clone https://github.com/UrbanWatcherKr/korean-land-mcp .mcp-local/korean-land-mcp
 cd .mcp-local/korean-land-mcp
@@ -60,7 +58,7 @@ VWORLD_DOMAIN=localhost
 
 ## 법규 해석이 필요할 때
 
-`analyze_parcel` 결과 → [korean-law-mcp](./korean-law-mcp.md) 로 `verify_citations` → 최종 결론.
+`analyze_parcel` 결과 → [korean-law-mcp](./korean-law.md#2-에이전트-경로--korean-law-mcp) 로 `verify_citations` → 최종 결론.
 
 ## 한계
 

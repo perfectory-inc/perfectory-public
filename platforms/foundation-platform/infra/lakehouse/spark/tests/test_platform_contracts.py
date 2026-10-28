@@ -608,14 +608,18 @@ class WriteDistributionTest(unittest.TestCase):
         import platform_contracts
 
         spark = MagicMock()
-        live = [{}, {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}]
+        live = [{}, {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+                     "sort-order": "pnu ASC NULLS FIRST"}]
         with patch.object(platform_contracts, "evolve_iceberg_table_to_contract", return_value=()), \
                 patch.object(platform_contracts, "table_properties", side_effect=live):
             platform_contracts.ensure_contract_table(spark, "`c`.`gold`.`example`", self.ranged())
         statements = [call.args[0] for call in spark.sql.call_args_list]
         self.assertIn("'write.distribution-mode' = 'range'", statements[0])
         self.assertEqual(statements[1], "ALTER TABLE `c`.`gold`.`example` WRITE ORDERED BY pnu")
-        self.assertEqual(len(statements), 2)
+        # The incremental rebuild's MERGE does not fall back to write.distribution-mode (ADR-0307).
+        self.assertEqual(statements[2],
+                         "ALTER TABLE `c`.`gold`.`example` SET TBLPROPERTIES ('write.merge.distribution-mode' = 'range')")
+        self.assertEqual(len(statements), 3)
 
     def test_an_order_the_table_did_not_take_is_an_error(self) -> None:
         from unittest.mock import MagicMock

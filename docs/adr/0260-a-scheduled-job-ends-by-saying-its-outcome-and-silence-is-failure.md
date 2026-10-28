@@ -1,6 +1,6 @@
 # ADR 0260: 예약 작업은 결과를 말하고 끝나며, 말하지 않은 실행은 실패다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
 - Builds on: [ADR-0122](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)(작업 = systemd 유닛, 호스트의 한 진입점),
   [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)(`foundation-job-outcome changed|unchanged` 줄),
@@ -108,3 +108,5 @@ Alertmanager 는 그 Airflow 결과를 읽는다. ADR-0171 의 결과 줄은 하
   빌드 중에 손으로 시작한 유닛도 여전히 실패로 알린다.
 - 배포 밖에서 손으로 돌린 빌드(`foundation-release.sh prepare`)는 일정을 되돌려 주지 않으므로, 그동안 미뤄진 작업은 다음
   배포나 다음 정시에 돈다.
+
+2026-10-28: 구현 확인 — `platforms/foundation-platform/scripts/ops/start-scheduled-job.sh`, `platforms/foundation-platform/orchestration/dags/job_specs.py`

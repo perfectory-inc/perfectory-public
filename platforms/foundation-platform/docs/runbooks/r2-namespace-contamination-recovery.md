@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-28
 ---
 
 # R2 네임스페이스 오염 복구
@@ -53,12 +53,19 @@ cargo run -p foundation-outbox-publisher -- delete-r2-candidates
 
 ## 보호 prefix
 
-이 워크플로로 다음을 절대 삭제하지 않는다.
+삭제 명령(`services/foundation-outbox-publisher/src/r2_delete_candidates.rs` 의 `is_protected_key`)이 스스로
+거부하는 것은 다음뿐이다. 전체 규칙은 [R2 Inventory Audit](./r2-inventory-audit.md)의 "보호되는 것과 아닌 것"이다.
 
-- `__r2_data_catalog/`
-- `gold/manifest.json`
-- `gold/v*/`
-- `bronze/source=*/run_id=*/partition=*`
+- 인벤토리 감사가 `keep` 으로 분류하는 모든 키(`audit_keeps`, 루트 ADR-0264): `__r2_data_catalog/`,
+  `control/evidence/`, `gold/manifest.json`, by-PNU 서빙 키, `gold/vector-tiles/{artifacts,manifests,releases}/`,
+  `gold/parcel-marker-anchors/artifacts/`, `silver-handoff/` 등
+- `warehouse/` 전부
+- 날짜 분할이 아닌 `bronze/source=…` 전부
+
+**`gold/v*/` 는 보호되지 않는다.** 감사는 `gold/v<숫자>/…` 를 `legacy_gold_artifact`(`review`)로 두어 후보 파일에 넣지
+않지만, 삭제 manifest 에 `delete_candidate` 로 적혀 있으면 지운다. 그래서 manifest 를 손으로 고치지 않고, 허용
+prefix 를 `gold/` 처럼 넓게 쓰지 않으며, `gold/v*/` 정리는 그 키를 가리키는 Catalog·manifest 포인터가 없음을 먼저
+확인한 뒤 그 prefix 하나로만 dry-run 을 검토하고 실행한다.
 
 레거시 날짜 분할 Bronze 키는 현재 계약 객체로 보호되지는 않지만 정리 작업에서 직접 삭제하지
 않는다. 먼저 `write-r2-bronze-key-migration-plan`과 `migrate-r2-bronze-keys`를 사용한다.

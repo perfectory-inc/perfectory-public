@@ -125,3 +125,7 @@ catalog.industrial_complex.primary_bjdong_code  character(10) NOT NULL
 - 남은 일: (1) `catalog.industrial_complex` 를 넓혀 주소·상태·지정일을 서빙할지, 아니면 무거운
   상세를 Gold 프로필 포인터(ADR-0036·0037)로 보낼지 결정. (2) 이 적재기를 정기 실행에 넣는 일 —
   오늘은 운영자가 부르는 커맨드다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `docs/roadmap/foundation-baseline.md` → 삭제(#388, ADR-0176: 생성 문서는 커밋하지 않는다)

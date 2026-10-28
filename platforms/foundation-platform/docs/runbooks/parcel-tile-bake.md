@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-28
 ---
 
 # 필지 타일 전국 굽기 — 레이크하우스 오븐 런북
@@ -35,13 +35,19 @@ PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `fou
 ## 2. 예행 (판을 옮기기 전, 작업을 켜기 전)
 
 두 작업은 `enabled: false` 로 등록된다. 새 판을 지도에 올리기 전에 사람이 예행한다(루트 ADR-0253 2항).
-예행은 계약이 가진 **가장 새 판**을 굽고, 아무것도 서비스하지 않는다.
+예행은 운영자가 **이름으로 고른 판**(`<YYYYMM>`, 계약이 가진 판)을 굽고, 아무것도 서비스하지 않는다
+(`scripts/ops/parcel-tile-bake.sh` 머리말: 계약이 Silver 가 아직 적재하지 않은 판도 가질 수 있어 판을 이름으로 받는다).
+조작 명령은 모두 터미널에서 직접 친다(`ssh -t`) — 시작 동작은 `--requested-at`·`--reason` 이 맨 뒤에 있어야 하고,
+10분 지난 요청은 거부된다(`by-pnu-pack-operator.sh` 의 `attended_start`, 루트 ADR-0270 §2b).
 
 1. 서버 창(Spark 가 비는 시간)을 조정자에게 받는다.
-2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold --requested-at "$(date +%s)" --reason "<왜>"`
-   를 실행한다. 대조 관문과 서빙본 Gold 를 돌린다. 관문이 거부해도 기록만 하고 계속한다.
-3. `... parcel-tiles status` 로 끝을 확인한 뒤 `... parcel-tiles rehearse bake` 를 실행한다. 모든 관문을 돌리고, build 행·
-   업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
+2. `sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> --requested-at "$(date +%s)" --reason "<왜>"`
+   를 실행한다(예: `... rehearse gold 202609 ...`; 판 없이 치면 `takes one edition, YYYYMM` 로 거부된다).
+   유닛 `foundation-parcel-tile-bake@rehearsal-gold-<YYYYMM>.service` 가 대조 관문과 서빙본 Gold 를 돌린다.
+   관문이 거부해도 기록만 하고 계속한다.
+3. `... parcel-tiles status` 로 끝을 확인한 뒤
+   `... parcel-tiles rehearse bake --requested-at "$(date +%s)" --reason "<왜>"` 를 실행한다(판은 받지 않는다 — 2단계가
+   준비해 둔 Gold 를 굽는다). 모든 관문을 돌리고, build 행·업로드·승격 없이 멈춘다. 저널 마지막 줄 `lakehouse-tile-bake-rehearsal` 에 판 크기와 동등성 건수가 있다.
    동등성 전체 증거는 `/data/foundation-platform/tile-bake/bake/parcels-first-release-equivalence-rehearsal-*.json` 이다.
 4. 두 반쪽의 시간·최대 메모리·`/data` 최대 사용량, 관문 판정, 동등성 분류(ADR-0251)를 4절에 적는다.
 5. 사장이 `served_edition` 을 옮기는 PR 을 승인하면(타일과 패널이 함께 옮겨진다), 두 작업을 켜는 PR 을 낸다.

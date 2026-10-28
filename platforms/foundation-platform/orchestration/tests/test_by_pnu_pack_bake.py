@@ -3,9 +3,9 @@
 The dispatcher (`by-pnu-pack-operator.sh <lane> bake <generation>`) starts it in a transient unit;
 here it runs directly against a fake publisher in the host's release layout (root ADR-0134), as in
 test_by_pnu_serving_bake.py. The fake export keeps the real refusals the bake reacts to: a shard
-over the row cap ("shard the run with ..._PNU_PREFIX"), a Gold table that moved away from the
-pinned snapshot ("moved during the bake"), and transient read failures. PNUs and snapshot ids are
-synthetic.
+over the row cap ("shard the run with ..._PNU_PREFIX"), a pinned snapshot the table no longer
+holds ("no longer holds snapshot"; a table that moved is read at the pin, root ADR-0310), and
+transient read failures. PNUs and snapshot ids are synthetic.
 """
 
 import fcntl
@@ -67,9 +67,12 @@ time.sleep(float(os.environ.get("FAKE_SECONDS", "0.3")))
 gold_file = os.environ["FAKE_GOLD_FILE"]
 gold = open(gold_file).read().strip()
 expected = os.environ.get(P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
-if expected and expected != gold:
-    record("moved")
-    sys.exit(f"Error: gold.parcel_panel moved during the bake: this bake is of snapshot {expected} but the table is now at {gold}")
+# Like the real export, a pinned shard reads its pin wherever the table is now (root ADR-0310), and
+# refuses a pin the table no longer holds.
+if expected and expected == os.environ.get("FAKE_EXPIRED"):
+    record("expired")
+    sys.exit(f"Error: failed to resolve the gold.parcel_panel snapshot to bake\n\nCaused by:\n    gold.parcel_panel metadata no longer holds snapshot {expected}")
+gold = expected or gold
 failures = json.loads(os.environ.get("FAKE_FAIL", "{}"))
 counter = os.environ["FAKE_LOG"] + ".attempts-" + prefix
 attempts = int(open(counter).read()) if os.path.exists(counter) else 0
@@ -224,13 +227,12 @@ class PackBake(unittest.TestCase):
         self.assertIn("shard 3 attempt 2/3 failed", result.stdout)
         self.assertIn("shard 3 baked: 0 documents of Gold snapshot 202", result.stdout)
 
-    def test_a_gold_table_that_moves_stops_the_bake_and_never_mixes_snapshots(self):
+    def test_a_gold_table_that_moves_is_read_at_the_pin_and_never_mixes_snapshots(self):
+        # Root ADR-0310: on 2026-10-24 the parcel lane's generation 5 was thrown away after 15 h
+        # because Gold moved. Every shard after the first is pinned and reads the pin to the end.
         result, calls = self.run_bake(FAKE_MOVE_TO="303")
-        self.assertEqual(result.returncode, 1, result.stdout)
-        # Every shard after the first was pinned, so the moved table refused it at once (no retry).
-        moved = [call for call in calls if call["outcome"] == "moved"]
-        self.assertTrue(moved)
-        self.assertEqual(len(moved), len({call["prefix"] for call in moved}))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"complete: generation 2 holds {len(PNUS)} documents of Gold snapshot 202", result.stdout)
         self.assertEqual({json.loads((self.work / "summaries" / f"shard-{shard}.json").read_text())
                           ["gold_iceberg_snapshot_id"] for shard in self.summaries()}, {"202"})
         # Summaries of two snapshots are never resumed.
@@ -241,6 +243,17 @@ class PackBake(unittest.TestCase):
         self.assertEqual(result.returncode, 65, result.stdout)
         self.assertIn("more than one Gold snapshot", result.stderr)
         self.assertEqual(calls, [])
+
+    def test_a_pin_the_table_no_longer_holds_stops_the_bake_without_retrying(self):
+        # Expiry took the pinned snapshot: a retry cannot bring it back, and the table's current
+        # snapshot is never baked in its place.
+        result, calls = self.run_bake(FAKE_MOVE_TO="303", FAKE_EXPIRED="202")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        expired = [call for call in calls if call["outcome"] == "expired"]
+        self.assertTrue(expired)
+        self.assertEqual(len(expired), len({call["prefix"] for call in expired}))
+        self.assertEqual({json.loads((self.work / "summaries" / f"shard-{shard}.json").read_text())
+                          ["gold_iceberg_snapshot_id"] for shard in self.summaries()}, {"202"})
 
     def test_the_lane_lock_and_the_arguments_are_checked_before_anything_runs(self):
         (self.state_root / "parcel").mkdir(parents=True)

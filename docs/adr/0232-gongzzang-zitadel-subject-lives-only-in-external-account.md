@@ -1,6 +1,6 @@
 # ADR 0232: 공짱 사용자의 Zitadel subject 는 `external_account` 한 곳에만 산다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-14
 - Area: `products/gongzzang`
 
@@ -40,3 +40,5 @@
 
 - `audit_log.before_state/after_state` 의 사용자 스냅숏(`to_jsonb("user".*)`)에 `zitadel_sub` 키가 더 없다.
 - `.sqlx` 오프라인 캐시 하나(`find_by_id` 의 `query_as!`)가 런타임 쿼리로 바뀌어 지워졌다.
+
+2026-10-28: 구현 확인 — `products/gongzzang/migrations/20261014100000_external_account_is_the_only_zitadel_subject.sql`, `products/gongzzang/crates/gongzzang-persistence/src/user.rs`

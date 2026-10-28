@@ -26,6 +26,8 @@ last_reviewed: 2026-07-29
 ## Frontend 통합
 
 - [SP6-i Frontend Integration](./frontend-integration.md) — 로컬 개발 / 디버깅 / 장애 대응
+- 운영 승격 전 실제 IdP 증거와 Zitadel 기동은 Identity Platform 이 소유한다(루트 ADR-0228):
+  [LAN 호스트에서 신원 스택 기동](../../../../platforms/identity-platform/docs/runbooks/production-bringup-on-a-lan-host.md) 6절
 
 ## 관련 ADR
 - [ADR 0005 — Zitadel 인증](../adr/0005-auth-zitadel.md)

@@ -509,7 +509,7 @@ for publication_script in (
             f"publication path contains raw Git transport: {publication_script}")
 
 cargo_verify = Path("scripts/verify/cargo-verify.sh").read_text(encoding="utf-8")
-xtask = Path("tools/xtask/src/main.rs").read_text(encoding="utf-8")
+xtask = "".join(path.read_text(encoding="utf-8") for path in sorted(Path("tools/xtask/src").glob("*.rs")))
 require("pack-objects --stdout" in cargo_verify
         and "index-pack --stdin" in cargo_verify
         and "gitdir: /perfectory-git" in cargo_verify

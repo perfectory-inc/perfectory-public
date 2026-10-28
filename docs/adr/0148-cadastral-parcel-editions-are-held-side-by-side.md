@@ -1,6 +1,6 @@
 # ADR 0148: 연속지적도 판은 나란히 쌓고, 지번 근거는 변경마다 제 판 쌍으로 읽는다
 
-- Status: Accepted
+- Status: Accepted — 수동 PR 승격 조항은 [ADR-0291](./0291-the-served-cadastral-edition-is-operator-chosen-and-readiness-gated.md)이 대체(Superseded in part by ADR-0291)
 - Date: 2026-10-05
 - Amends: [ADR-0067](./0067-the-parcel-source-covers-the-country-twice.md) (원천 계약에 판을 둔다),
   [ADR-0144](./0144-region-code-changes-are-derived-from-downloaded-data-only.md) §3.2·§4 (지번 단계의 판 쌍을 정하는 법),

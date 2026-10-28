@@ -16,7 +16,7 @@ last_reviewed: 2026-07-29
 ## 도입 시점
 
 **Phase 3 (사용자 출시 직전, sub-project 3 인증 단계)**.
-Phase 1-2엔 자리만 (`crates/data-clients/nice/` 빈 README).
+Phase 1-2엔 어댑터 crate 를 만들지 않는다(`crates/data-clients/` 에 아직 없음).
 
 ## 인증 / 등록
 

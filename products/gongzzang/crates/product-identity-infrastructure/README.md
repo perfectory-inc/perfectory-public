@@ -28,7 +28,7 @@ last_reviewed: 2026-07-29
 
 ## 의존
 - `deadpool-redis` — Valkey 8 세션용 Redis protocol client
-- `crates/data-clients/nice-identity` — NICE
+- `crates/data-clients/nice-identity` — NICE (예정 — 아직 없음)
 - `tracing` (계측 — 관측성 초기화는 각 service 가 직접 수행)
 - `jsonwebtoken`, `argon2` (해싱), `oauth2`
 
