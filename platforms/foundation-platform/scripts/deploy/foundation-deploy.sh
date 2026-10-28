@@ -42,6 +42,10 @@ mirror=/var/lib/perfectory/control-source.git
 # What this deploy holds, for the operator's starts (by-pnu-pack-operator.sh): its pid, then `*`
 # from step 0 until the build is done, then the jobs its release holds until it is live (D5).
 deploy_hold=/run/foundation-deploy-hold
+# What the deploy is doing and since when, for node-exporter's textfile collector and the
+# FoundationDeploy* alerts (root ADR-0321 §5). Under /var/lib, not /run: DAGs a deploy left paused
+# stay paused across a reboot, and so does the series that says so.
+deploy_metrics=/var/lib/perfectory/metrics/deploy.prom
 identity="${control_root}/current/tools/github/repository-identity.json"
 repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
 
@@ -140,9 +144,12 @@ log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 
 # running release its schedule back; one that stops during the switch says loudly that they stay
 # paused (deploy-start-once.sh, root ADR-0173). A signal (the unit's time limit) ends it the same way.
 phase=before-switch
-trap 'status=$?; rm -f "${deploy_hold}"; deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}"' EXIT
+trap 'status=$?; rm -f "${deploy_hold}"
+  deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}" && deploy_metric_paused none; deploy_metric_end' EXIT
 trap 'exit 143' TERM INT HUP
 printf 'pid %s\n*\n' "$$" >"${deploy_hold}"
+deploy_metric_phase drain
+deploy_metric_paused all
 for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
 echo "paused ${#jobs[@]} DAGs"
 # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
@@ -172,6 +179,7 @@ fi
 ln -sfn "releases/${sha}" "${control_root}/current.next"
 mv -T "${control_root}/current.next" "${control_root}/current"
 release="${control_root}/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh"
+deploy_metric_phase build
 
 log "2. prepare (admission build under the build lock)"
 archive="$(mktemp /var/lib/perfectory/foundation-XXXXXX.tar.gz)"
@@ -185,6 +193,8 @@ log "2b. the schedule comes back for every job ${sha} does not hold (root ADR-02
 # release it started with (D1) and outlives the Airflow restart in step 5 (D2), and a run step 6
 # starts is joined, not doubled. The held jobs stay paused until step 7.
 deploy_unpause_unheld "${changes}.hold"
+if grep -qx '[*]' "${changes}.hold"; then :; elif [[ -s "${changes}.hold" ]]; then deploy_metric_paused held
+else deploy_metric_paused none; fi
 { printf 'pid %s\n' "$$"; cat "${changes}.hold"; } >"${deploy_hold}.next" && mv -f "${deploy_hold}.next" "${deploy_hold}"
 rm -f "${changes}.hold"
 
@@ -205,6 +215,7 @@ log "3b. staging smoke of ${sha}: a few real inputs under staging/ and foundatio
 
 log "4. activate, migrate, timers"
 phase=switching
+deploy_metric_phase switch
 "${release}" activate "${sha}"
 "${release}" migrate
 "${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
@@ -216,7 +227,9 @@ as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up 
 log "6. start once, under the new release, each job its registry marks started_once_after_deploy"
 # Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).
 phase=after-switch
+deploy_metric_phase start-once
 start_once_then_unpause "${sha}"
+deploy_metric_paused none
 rm -f "${deploy_hold}"
 phase=done
 
@@ -230,6 +243,7 @@ fi
 log "8. the data catalog's containers follow the release (only services whose config changed)"
 # After the DAGs are back: a catalog that fails to come up fails the deploy and alerts, and no job
 # waits on it.
+deploy_metric_phase datahub
 "${release}" datahub
 
 log "DONE: production runs ${sha}"

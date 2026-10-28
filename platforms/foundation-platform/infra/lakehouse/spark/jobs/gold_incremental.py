@@ -307,7 +307,7 @@ class Outcome:
         from pyspark.sql import functions as F
 
         import gold_fingerprint
-        from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, pins_property_value, write_gold_snapshot
+        from gold_rebuild import pins_properties, write_gold_snapshot
 
         current = current_fingerprint(spark, table)
         if self.mode == "full":
@@ -323,7 +323,7 @@ class Outcome:
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
         unchanged = {} if current is None else {gold_fingerprint.PROPERTY: current}
         self.merged = merge_into_gold(spark, table, self.merge["source"],
-                                      {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}, self.merge["row_key"],
+                                      pins_properties(table, pins), self.merge["row_key"],
                                       unchanged)
         phase_done("merge", started)
 

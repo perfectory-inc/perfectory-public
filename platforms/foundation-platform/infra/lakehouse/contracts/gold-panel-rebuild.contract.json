@@ -53,6 +53,29 @@
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     }
   },
+  "code_version": {
+    "decision": "docs/adr/0321-a-gold-commit-records-the-code-that-built-it.md",
+    "purpose": "Every producer commit records its code version (infra/lakehouse/spark/jobs/gold_code_version.py: the producer script, the modules of spark/jobs it imports transitively, and the JSON contracts they name) beside its source pins; the planner rebuilds a table in full when that version changes. A module named here cannot change a Gold row, so it and what only it imports are left out of the version, and a change to it rebuilds nothing.",
+    "plumbing_modules": {
+      "gold_rebuild": "The planner and the commit writer: it decides whether to rebuild and writes the producer's frame unchanged with summary entries.",
+      "gold_fingerprint": "Computes the summary fingerprint of rows already built; it does not build them.",
+      "section_coverage": "A check that refuses a build before it writes; it never alters a row.",
+      "lakehouse_engine": "Spark session, catalog and R2 retry settings: how the rows are read and written, not which. The session time zone (UTC) is set by each producer.",
+      "lakehouse_snapshot_pins": "Parses the pins file; which snapshot is read is the recorded source pin itself."
+    },
+    "scoped_contracts": {
+      "industrial_complex_lakehouse_contracts.json": {
+        "reason": "Every lakehouse table's contract in one file: 39 of its commits in the 30 days to 2026-10-28, most for tables no panel reads (court auction, place id, boundaries). A table's rows follow its own contract and its inputs' (their columns, keys and current-row rule), and the shared value domains.",
+        "keep": ["value_domains", "jsonl_transports"],
+        "entries": {"contracts": "tables"}
+      },
+      "r2-connections.contract.json": {
+        "reason": "Every R2 connection and serving setting in one file: 38 of its commits in the same 30 days, 16 for section packs and 12 for the building gateway that no Gold producer reads. A producer reads its by-PNU lanes (kind lines and their columns) and the building gateway's PNU pattern.",
+        "keep": ["building_by_pnu_gateway.object_key"],
+        "entries": {"by_pnu_lanes": "lanes"}
+      }
+    }
+  },
   "section_coverage": {
     "decision": "docs/adr/0272-a-served-section-may-not-silently-lose-a-region.md",
     "purpose": "Every table that carries served sections (the host panel of a kind line in config/r2-connections.contract.json by_pnu_lanes, and each kind table) is held to this one bound before it writes (infra/lakehouse/spark/jobs/section_coverage.py). Per section and per 시도 (the PNU's first two digits), and over the whole table, a panel's share of PNUs whose section is non-empty, or a kind table's count of them, may fall by at most max_share_drop_fraction of what the served snapshot (the plan's previous Gold head) has. A 시도 whose served count is below min_region_pnus is judged only inside the whole table. 시도 codes a pair in reference.legal_dong_code_change joins, split between the served snapshot and the build, are compared as one region.",
