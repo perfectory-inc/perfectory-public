@@ -16,7 +16,10 @@
 //! 3. start a `lakehouse_bake` build against the active validated static release;
 //! 4. reproject and repair with GDAL (`-makevalid`), tile with tippecanoe — both pinned containers
 //!    with the memory caps of `config/tile-bake-containers.contract.json`, tippecanoe's temporary
-//!    files under the work directory;
+//!    files under the work directory. A unit the contract partitions (root ADR-0316: parcels by
+//!    시도) is split by feature-id prefix in step 2, only the partitions whose rows or bake inputs
+//!    changed are baked, each into a create-only archive kept under the work root, and every
+//!    partition's archive is joined into the unit's with tile-join;
 //! 5. gate: the archive is PMTiles v3 MVT over the layer's zoom range, and its maxzoom tiles carry
 //!    exactly the served feature ids, read by streaming the archive without decoding geometry;
 //! 6. upload create-only and rehash, record the result, promote (the unit is left with no fallback);
@@ -27,7 +30,7 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead as _, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead as _, BufReader, BufWriter, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,6 +71,16 @@ pub mod subpixel;
 #[path = "tile_equivalence.rs"]
 pub mod tile_equivalence;
 
+#[path = "lakehouse_tile_bake_gate.rs"]
+mod gate;
+#[path = "lakehouse_tile_bake_partitions.rs"]
+mod partitions;
+
+use gate::classify_missing;
+pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
+pub use partitions::{
+    bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
+};
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
@@ -95,6 +108,10 @@ pub struct BakeContract {
     /// whose features its default 12 drops; a unit not listed keeps the default.
     #[serde(default)]
     pub maxzoom_detail: std::collections::BTreeMap<String, u8>,
+    /// Root ADR-0316: a unit listed here is baked one archive per feature-id prefix (a 시도 for
+    /// parcels) and the archives are joined; a prefix whose rows did not change keeps its archive.
+    #[serde(default)]
+    pub partition_by_feature_id_prefix: std::collections::BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,6 +162,13 @@ impl BakeContract {
                 .values()
                 .all(|detail| (12..=16).contains(detail)),
             "a maxzoom_detail is between tippecanoe's default 12 and 16"
+        );
+        ensure!(
+            contract
+                .partition_by_feature_id_prefix
+                .values()
+                .all(|chars| (1..=10).contains(chars)),
+            "a partition_by_feature_id_prefix is between 1 and 10 characters"
         );
         Ok(contract)
     }
@@ -445,7 +469,7 @@ fn csv_field(value: &str) -> String {
 /// Streams the handoff once into `csv` — one CSV row per feature: id, properties, hex WKB —
 /// refusing repeats, a CRS or a property set that differs between rows, a part whose bytes or
 /// count differ from the summary, and a total the summary did not promise.
-pub fn prepare_handoff<W: Write>(
+pub fn prepare_handoff<W: CsvOut>(
     summary: &ServedSummary,
     handoff: &Path,
     mut csv: W,
@@ -485,7 +509,7 @@ pub fn prepare_handoff<W: Write>(
                 .chain(row.properties.keys().cloned())
                 .collect();
             let header: Vec<String> = names.iter().map(|name| csv_field(name)).collect();
-            writeln!(csv, "{},geometry", header.join(","))?;
+            csv.header(&format!("{},geometry", header.join(",")))?;
             columns = Some(names);
         }
         let columns = columns.as_deref().unwrap_or_default();
@@ -496,7 +520,7 @@ pub fn prepare_handoff<W: Write>(
                 .map(|name| csv_field(row.properties.get(name).map_or("", String::as_str))),
         );
         fields.push(row.geometry_wkb_hex);
-        writeln!(csv, "{}", fields.join(","))?;
+        csv.row(&row.feature_id, &fields.join(","))?;
         hashes.push(id_hash(&row.feature_id));
         Ok(())
     })?;
@@ -544,181 +568,6 @@ fn ids_with_hashes(
     Ok(named)
 }
 
-/// The layer the active release serves, which the new archive must reproduce.
-#[derive(Debug, Clone)]
-pub struct ServedLayer {
-    pub source_layer: String,
-    pub feature_id_property: String,
-    pub tile_min_zoom: u8,
-    pub tile_max_zoom: u8,
-    /// The deepest zoom the map draws this layer at, overzooming the maxzoom tiles (ADR-0262).
-    pub render_max_zoom: u8,
-    pub properties: Vec<String>,
-}
-
-/// Checks a PMTiles v3 header: MVT tiles over exactly the layer's zoom range, in compressions the
-/// gate can read.
-pub fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow::Result<()> {
-    use pmtiles_feature_ids::{Header, COMPRESSION_GZIP, COMPRESSION_NONE, TILE_TYPE_MVT};
-    let header = Header::parse(header)?;
-    ensure!(
-        header.tile_type == TILE_TYPE_MVT,
-        "archive tiles are not MVT"
-    );
-    ensure!(
-        (header.min_zoom, header.max_zoom) == (layer.tile_min_zoom, layer.tile_max_zoom),
-        "archive zooms {}..{} differ from the layer's {}..{}",
-        header.min_zoom,
-        header.max_zoom,
-        layer.tile_min_zoom,
-        layer.tile_max_zoom
-    );
-    for (what, code) in [
-        ("directory", header.internal_compression),
-        ("tile", header.tile_compression),
-    ] {
-        ensure!(
-            [COMPRESSION_NONE, COMPRESSION_GZIP].contains(&code),
-            "archive {what} compression {code} is not one the gate reads"
-        );
-    }
-    Ok(())
-}
-
-/// The gate: the archive's header matches the layer, and its maxzoom tiles carry exactly the
-/// served ids — none missing, none extra. A feature appears in every maxzoom tile it touches, so
-/// presence is a bit per served id. Returns the evidence digest of the id set.
-pub fn gate_archive(
-    archive: &Path,
-    layer: &ServedLayer,
-    columns: &[String],
-    ids: &ServedIds,
-    classify_missing: impl FnOnce(&[u128]) -> anyhow::Result<Missing>,
-    observe: &mut dyn FnMut(u64, &str) -> anyhow::Result<()>,
-) -> anyhow::Result<IdGate> {
-    let mut header = vec![0_u8; pmtiles_feature_ids::HEADER_BYTES];
-    File::open(archive)
-        .and_then(|mut file| file.read_exact(&mut header))
-        .context("archive is shorter than a PMTiles header")?;
-    check_pmtiles_header(&header, layer)?;
-    let mut found = vec![0_u64; ids.len().div_ceil(64)];
-    let (mut extra, mut extra_named) = (0_u64, Vec::new());
-    pmtiles_feature_ids::for_each_feature_id(
-        archive,
-        &pmtiles_feature_ids::Expect {
-            zoom: layer.tile_max_zoom,
-            layer: &layer.source_layer,
-            id_property: &layer.feature_id_property,
-            properties: columns,
-        },
-        |tile, id| {
-            observe(tile, id)?;
-            if let Some(index) = ids.position(id_hash(id)) {
-                found[index / 64] |= 1_u64 << (index % 64);
-            } else {
-                extra += 1;
-                if extra_named.len() < NAMED_IDS && !extra_named.iter().any(|named| named == id) {
-                    extra_named.push(id.to_owned());
-                }
-            }
-            Ok(())
-        },
-    )?;
-    let present = |index: usize| found[index / 64] & (1_u64 << (index % 64)) != 0;
-    let missing: Vec<u128> = ids
-        .sorted
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !present(*index))
-        .map(|(_, hash)| *hash)
-        .collect();
-    // A bake that lost this many is broken, not tiny; it is refused without reading the handoff.
-    ensure!(
-        missing.len() <= MAX_CLASSIFIED_MISSING && extra == 0,
-        "maxzoom tiles miss {} of the {} served ids and carry {extra} feature(s) the snapshot does not serve; extra {extra_named:?}",
-        missing.len(),
-        ids.len()
-    );
-    let classified = if missing.is_empty() {
-        Missing::default()
-    } else {
-        classify_missing(&missing)?
-    };
-    ensure!(
-        classified.subpixel.len() + classified.unexplained.len() == missing.len(),
-        "the handoff named {} of the {} ids the maxzoom tiles miss",
-        classified.subpixel.len() + classified.unexplained.len(),
-        missing.len()
-    );
-    if !classified.unexplained.is_empty() {
-        let named: Vec<&String> = classified.unexplained.iter().take(NAMED_IDS).collect();
-        bail!(
-            "maxzoom tiles miss {} of the {} served ids: {} sub-pixel at render_max_zoom {} (allowed, ADR-0262) and {} that are not; not sub-pixel {named:?}",
-            missing.len(),
-            ids.len(),
-            classified.subpixel.len(),
-            layer.render_max_zoom,
-            classified.unexplained.len()
-        );
-    }
-    Ok(IdGate {
-        digest: ids.digest(),
-        subpixel: classified.subpixel,
-    })
-}
-
-/// The served ids the maxzoom tiles miss, by whether their own geometry explains it (ADR-0262).
-#[derive(Debug, Default)]
-pub struct Missing {
-    /// Sub-pixel at the layer's render_max_zoom: nothing the map could draw. Allowed, listed.
-    pub subpixel: Vec<String>,
-    /// Anything else, an unreadable geometry included. Refused.
-    pub unexplained: Vec<String>,
-}
-
-/// What the maxzoom id gate proves: the archive carries every served id but the listed sub-pixel ones.
-#[derive(Debug)]
-pub struct IdGate {
-    pub digest: String,
-    pub subpixel: Vec<String>,
-}
-
-/// Reads the handoff again for the rows whose id hash is in `missing` and classifies each by its
-/// geometry (ADR-0262).
-fn classify_missing(
-    summary: &ServedSummary,
-    handoff: &Path,
-    missing: &[u128],
-    render_max_zoom: u8,
-) -> anyhow::Result<Missing> {
-    let wanted: std::collections::HashSet<u128> = missing.iter().copied().collect();
-    let mut out = Missing::default();
-    for_each_handoff_line(summary, handoff, |line, location| {
-        let row: ServedRow = serde_json::from_str(line)
-            .with_context(|| format!("{} is not a served row", location()))?;
-        if wanted.contains(&id_hash(&row.feature_id)) {
-            let subpixel = hex_bytes(&row.geometry_wkb_hex)
-                .and_then(|wkb| subpixel::is_subpixel(&wkb, render_max_zoom));
-            match subpixel {
-                Ok(true) => out.subpixel.push(row.feature_id),
-                Ok(false) | Err(_) => out.unexplained.push(row.feature_id),
-            }
-        }
-        Ok(())
-    })?;
-    out.subpixel.sort_unstable();
-    out.unexplained.sort_unstable();
-    Ok(out)
-}
-
-fn hex_bytes(hex: &str) -> anyhow::Result<Vec<u8>> {
-    ensure!(hex.len().is_multiple_of(2), "odd-length WKB hex");
-    (0..hex.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).context("WKB hex"))
-        .collect()
-}
-
 /// Refuses a work disk with less free space than the contract asks for this handoff.
 pub fn ensure_work_disk(free: u64, handoff_bytes: u64, disk: &WorkDisk) -> anyhow::Result<()> {
     let needed = handoff_bytes
@@ -751,6 +600,8 @@ struct Config {
     rehearsal: bool,
     /// ADR-0262: the contract's maxzoom detail for this unit, if it sets one.
     maxzoom_detail: Option<u8>,
+    /// ADR-0316: the contract's partition prefix length for this unit, if it sets one.
+    partition_prefix: Option<usize>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -814,6 +665,7 @@ impl Config {
             ))?)?,
             rehearsal: rehearsal_flag(optional_env_value(&format!("{PREFIX}_REHEARSAL"))?)?,
             maxzoom_detail: None,
+            partition_prefix: None,
         })
     }
 }
@@ -1014,6 +866,7 @@ async fn build_archive(
     columns: &[String],
     srid: i32,
     layer: &ServedLayer,
+    partitions: Option<Vec<CsvPart>>,
 ) -> anyhow::Result<PathBuf> {
     let missing: Vec<&String> = layer
         .properties
@@ -1024,6 +877,73 @@ async fn build_archive(
         missing.is_empty(),
         "the served snapshot lacks properties the served layer promises: {missing:?}"
     );
+    let Some(partitions) = partitions else {
+        bake_unit(config, images, work, columns, srid, layer).await?;
+        return Ok(work.join("unit.pmtiles"));
+    };
+    // ADR-0316: the tippecanoe version, not the release's image ID, which every release build
+    // changes while the pinned source commit (and so the bytes it bakes) stays the same.
+    let bake_inputs = format!(
+        "{:?}",
+        (
+            &images.gdal.image,
+            &images.tippecanoe.version_banner,
+            srid,
+            tippecanoe_args(layer, columns, config.maxzoom_detail),
+        )
+    );
+    let root = config
+        .work_root
+        .join(format!("{}-partitions", config.unit_key));
+    let archives = bake_partitions(work, &root, partitions, &bake_inputs, |dir| async move {
+        bake_unit(config, images, &dir, columns, srid, layer).await
+    })
+    .await?;
+    std::fs::remove_dir_all(work_partition_csvs(&work.join("served.csv")))?;
+    let join = work.join("join");
+    std::fs::create_dir_all(&join)?;
+    let mut prefixes = Vec::with_capacity(archives.len());
+    for (prefix, archive, _) in &archives {
+        std::fs::hard_link(archive, join.join(format!("{prefix}.pmtiles")))?;
+        prefixes.push(prefix.clone());
+    }
+    let baked: Vec<&str> = archives
+        .iter()
+        .filter(|(_, _, baked)| *baked)
+        .map(|(prefix, _, _)| prefix.as_str())
+        .collect();
+    println!(
+        "lakehouse-tile-bake-partitions unit={} partitions={} baked={} reused={}",
+        config.unit_key,
+        archives.len(),
+        baked.join(","),
+        archives.len() - baked.len()
+    );
+    let mut tile_join = run_args(
+        work,
+        &images.tippecanoe,
+        config.container_project.as_deref(),
+    );
+    // The image's entrypoint is tippecanoe; tile-join is installed beside it from the same commit.
+    let image = tile_join
+        .pop()
+        .context("docker run arguments end with the image")?;
+    tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
+    tile_join.extend(tile_join_args(&prefixes));
+    docker(tile_join, config.tool_timeout, "tile-join").await?;
+    std::fs::remove_dir_all(&join)?;
+    Ok(work.join("unit.pmtiles"))
+}
+
+/// GDAL then tippecanoe in `work`: `served.csv` in, `unit.pmtiles` out.
+async fn bake_unit(
+    config: &Config,
+    images: &ImageSet,
+    work: &Path,
+    columns: &[String],
+    srid: i32,
+    layer: &ServedLayer,
+) -> anyhow::Result<()> {
     let source_srs = format!("EPSG:{srid}");
     let project = config.container_project.as_deref();
     let mut gdal = run_args(work, &images.gdal, project);
@@ -1082,7 +1002,7 @@ async fn build_archive(
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
     std::fs::remove_file(work.join("served.geojsons"))?;
-    Ok(work.join("unit.pmtiles"))
+    Ok(())
 }
 
 async fn record_fold(
@@ -1123,6 +1043,10 @@ pub async fn run() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?
         .with_release_tippecanoe(optional_env_value(&format!("{PREFIX}_TIPPECANOE_IMAGE"))?)?;
     config.maxzoom_detail = contract.maxzoom_detail.get(&config.unit_key).copied();
+    config.partition_prefix = contract
+        .partition_by_feature_id_prefix
+        .get(&config.unit_key)
+        .copied();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1158,12 +1082,20 @@ async fn bake_in(
 ) -> anyhow::Result<()> {
     let summary = Arc::new(summary);
     let prepared = {
-        let (summary, handoff, csv) = (
+        let (summary, handoff, csv, partition_prefix) = (
             summary.clone(),
             config.served_handoff.clone(),
             work.join("served.csv"),
+            config.partition_prefix,
         );
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Prepared> {
+            if let Some(chars) = partition_prefix {
+                let dir = work_partition_csvs(&csv);
+                std::fs::create_dir_all(&dir)?;
+                let prepared =
+                    prepare_handoff(&summary, &handoff, PartitionedCsv::new(dir, chars))?;
+                return Ok((prepared.columns, prepared.ids, Some(prepared.csv.finish()?)));
+            }
             let out = BufWriter::with_capacity(1 << 20, File::create(&csv)?);
             let prepared = prepare_handoff(&summary, &handoff, out)?;
             prepared
@@ -1171,7 +1103,7 @@ async fn bake_in(
                 .into_inner()
                 .map_err(|error| error.into_error())?
                 .sync_all()?;
-            Ok((prepared.columns, prepared.ids))
+            Ok((prepared.columns, prepared.ids, None))
         })
         .await
         .context("the handoff reader stopped")??
@@ -1275,6 +1207,15 @@ async fn bake_in(
     Ok(())
 }
 
+/// The tile properties, the served ids and, for a partitioned unit (ADR-0316), each partition's
+/// GDAL input in place of the one `served.csv`.
+type Prepared = (Vec<String>, ServedIds, Option<Vec<CsvPart>>);
+
+/// The directory a partitioned unit's per-partition CSVs are written to, beside `served.csv`.
+fn work_partition_csvs(served_csv: &Path) -> PathBuf {
+    served_csv.with_file_name("partition-csv")
+}
+
 /// What the bake produced before anything is written: the archive, the maxzoom id gate (the SHA-256
 /// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0262), and — when the active release came from another oven — the first-release equivalence
 /// outcome with the file its whole evidence was written to.
@@ -1292,14 +1233,22 @@ async fn bake_and_gate(
     images: &ImageSet,
     label: &str,
     work: &Path,
-    (columns, ids): (Vec<String>, ServedIds),
+    (columns, ids, partitions): Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
 ) -> anyhow::Result<Gated> {
     let layer = &active.layer;
-    let archive =
-        build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
+    let archive = build_archive(
+        config,
+        images,
+        work,
+        &columns,
+        summary.geometry_srid,
+        layer,
+        partitions,
+    )
+    .await?;
     let (id_gate, collector, ids) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
@@ -1370,7 +1319,7 @@ async fn rehearse(
     config: &Config,
     images: &ImageSet,
     work: &Path,
-    prepared: (Vec<String>, ServedIds),
+    prepared: Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
@@ -1413,7 +1362,7 @@ async fn bake_and_upload(
     images: &ImageSet,
     build_job_id: VectorTileBuildJobId,
     work: &Path,
-    prepared: (Vec<String>, ServedIds),
+    prepared: Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,

@@ -29,6 +29,10 @@ last_reviewed: 2026-10-28
 3. `parcel_boundary_served_gold.py` 가 `gold.parcel_boundary_served` 를 커밋하고 v2 조각을 쓴다.
 4. `bake-lakehouse-tiles` 가 GDAL·tippecanoe 로 굽고, 관문(최대 줌 feature id 전수)과 첫 판 동등성 관문을
    통과하면 R2 에 create-only 로 올리고 승격한다. 승격 전 실패는 서비스에 아무것도 바꾸지 않는다.
+   필지는 시도마다 따로 굽는다(루트 ADR-0316, 계약 `partition_by_feature_id_prefix`). 행·굽기 입력이 그대로인
+   시도는 `<WORK_ROOT>/parcels-partitions/<시도>/<내용 해시>.pmtiles` 를 다시 쓰고, 바뀐 시도만 GDAL·tippecanoe 를
+   돌린 뒤 `tile-join` 으로 전국 판을 만든다. 저널 줄 `lakehouse-tile-bake-partitions` 에 구운 시도와 재사용 수가 있다.
+   이 폴더는 쌓기만 하며 지우지 않는다(판마다 바뀐 시도 몫만 늘어난다).
 
 PostGIS 는 읽지도 쓰지도 않는다. 마지막 줄은 승격했으면 `foundation-job-outcome changed`, 아니면 `unchanged` 다.
 
