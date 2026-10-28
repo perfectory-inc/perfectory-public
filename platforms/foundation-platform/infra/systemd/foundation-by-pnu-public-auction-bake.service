@@ -1,0 +1,42 @@
+[Unit]
+Description=Foundation Platform by-PNU public-auction bake: gold.parcel_public_auction to R2 by-PNU serving section packs, its own job so it bakes beside the panel bake (ADR-0287, ADR-0292, ADR-0303)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The same files the by-PNU serving bake reads: admitted-writer runtime settings, the lakehouse R2
+# settings, and the Gold read and served-snapshot tag (catalog and R2 lakehouse writer). The
+# optional last file holds only non-secret tuning (FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY).
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
+# The single own-producer public-auction lane, baked alone (root ADR-0303); a slow national parcel
+# re-bake in by_pnu_serving_bake no longer holds it (2026-10-28).
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh parcel-public-auction
+# The job list's time_limit_minutes (jobs.v1.json). Generated from the list, not hand-set:
+# `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=115m
+# A tiny lane's export, not the parcel lane's: gold.parcel_public_auction is about 4,621 rows of
+# small JSON (4,677 sections), so 5G is a generous conservative bound, to be tightened from the
+# first production run's measured peak. The parcel lane's 14G is x1.3 of a 900,000-row shard and its
+# ~7.8GB whole-file decode floor, which this kind never reaches. 5G keeps the worst spark-slot
+# combination (this + the parcel bake + the hourly onbid Silver, 5 + 14 + 2.5 = 21.5g) inside the
+# host memory budget, below the 22g release builder, so the host total stays at the current 60.95g
+# (root ADR-0138, ADR-0303). The change set runs before the export in the compose `spark-small`
+# container (2560m), a Docker cgroup the host budget counts beside this unit.
+# scripts/guard/every-container-has-a-memory-cap.sh reads this line; without it the guard fails.
+MemoryMax=5G
+MemorySwapMax=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Work files only on the data disk, never the root disk.
+ReadWritePaths=/data/foundation-platform/by-pnu-bake

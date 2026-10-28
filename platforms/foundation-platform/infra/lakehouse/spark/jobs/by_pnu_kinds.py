@@ -70,17 +70,18 @@ def lane_fields(lane: str, path: Path = CONTRACT_PATH) -> dict[str, str]:
     """What the operator's and bake's scripts read of a `by_pnu_lanes` lane, whether it is written
     whole (root ADR-0190) or as a kind line (root ADR-0193 §4, §9): its Gold table, the lane whose
     preview its latency is measured against, the lane whose documents it follows (`""` for none),
-    and the runtime-secrets group its serving monitor reads."""
+    the runtime-secrets group its serving monitor reads, and its Spark `producer` (`""` for none):
+    an own-producer kind bakes in its own by-PNU bake job, not in `all` (root ADR-0303)."""
     entry = json.loads(path.read_text(encoding="utf-8"))["by_pnu_lanes"][lane]
     if "host" not in entry:
         return {"gold_table": entry["gold_table"], "latency_baseline_lane": entry["latency_baseline_lane"],
                 "documents_follow_lane": entry.get("documents_follow_lane", ""),
-                "monitor_group": f"{lane}-serving-monitor"}
+                "monitor_group": f"{lane}-serving-monitor", "own_producer": ""}
     found = kind(lane, path)
     host_lane = found.host.removesuffix("_by_pnu_gateway")
     return {"gold_table": found.gold_table, "latency_baseline_lane": host_lane,
             "documents_follow_lane": entry.get("documents_follow_lane", host_lane),
-            "monitor_group": "by-pnu-kind-serving-monitor"}
+            "monitor_group": "by-pnu-kind-serving-monitor", "own_producer": found.producer or ""}
 
 
 def document_record(document: str, path: Path = RECORDS_PATH) -> set[str]:
