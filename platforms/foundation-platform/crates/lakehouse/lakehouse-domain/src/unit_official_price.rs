@@ -54,6 +54,16 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
             logical_type: "string",
             required: true,
         },
+        // The vintage the batch joined: what orders the batches, so a reader takes the newest
+        // without parsing the batch id (root ADR-0286 stage 1c). The job always fills it and the
+        // deploy backfills the batches appended before it (lakehouse_schema_migrate.BACKFILLS).
+        // Not required: the scan reads data files of the earlier 9-column shape, which Iceberg
+        // serves with the column null (root ADR-0259 section 3).
+        LakehouseColumn {
+            name: "vintage",
+            logical_type: "string",
+            required: false,
+        },
         LakehouseColumn {
             name: "source_record_id",
             logical_type: "string",
