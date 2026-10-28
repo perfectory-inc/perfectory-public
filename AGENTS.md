@@ -30,6 +30,10 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 
 조사의 깊이는 결정의 영향에 비례해야 한다. 단순하고 국소적인 변경에 형식적인 시장 조사를 강제하지 않는다.
 
+### 부분 처리가 기본, 전량은 계약 예외
+
+모든 처리는 바뀐 것만 다시 하고, 각 단위는 자기 몫만 읽는다. 작업·Silver 레인·Gold 표·CI always 항목·배포 단계는 처리 범위를 기존 SSOT 에 `changed-keys`·`new-objects`·`skip-if-unchanged`·`full` 중 하나로 선언하고, `full` 은 `full_reason`·잰 비용·고칠 곳을 함께 적는 예외다. 가드: `scripts/guard/every-job-declares-its-scope.sh`(작업마다 scope, `full` 목록은 줄기만 한다), 매일 `shape-ledger-check.py`(키로 읽는 표의 파일 배치와 커밋 증폭). 근거: [ADR-0314](./docs/adr/0314-partial-processing-is-the-default-and-full-is-a-contract-exception.md) — 2026-10-26 0.12% 변경이 4.27 GB 표 전부를 다시 썼다.
+
 ### 검증 결과를 그 문면대로 읽어라 (반복 발생한 오류)
 
 근거: [ADR-0012 검증 결과는 그 문면대로여야 한다](./docs/adr/0012-verification-results-must-mean-what-they-say.md).

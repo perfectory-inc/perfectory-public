@@ -276,7 +276,8 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(self.content("building_panel", job), self.content("building_panel_full", job))
 
     def test_an_appended_price_batch_is_its_own_change_set(self):
-        """Root ADR-0189: appends are read as the change set, and a switched batch maps both batches."""
+        """Root ADR-0189: appends are read as the change set; a switched batch maps the row difference
+        of the two batches (root ADR-0326)."""
         import building_panel_silver_to_gold as job
 
         names = self.building_tables()
@@ -285,7 +286,10 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         data = self.building_v1()
         batch_a, batch_b = "price:1|exclusive:2|vintage:202501", "price:3|exclusive:4|vintage:202601"
         prices_a = [{**row, "source_snapshot_id": batch_a} for row in data["prices"]]
-        pins1 = {names[k]: self.put(names[k], prices_a if k == "prices" else rows) for k, rows in data.items()}
+        # Floor batches are ordered by their ingest instant (newest_floor_batch).
+        floors_a = [{**row, "ingested_at_utc": datetime(2098, 1, 1)} for row in data["floors"]]
+        data = {**data, "prices": prices_a, "floors": floors_a}
+        pins1 = {names[k]: self.put(names[k], rows) for k, rows in data.items()}
         self.run_job(job, pins1, "building_append", "2099-01-01T00:00:00Z")
         price = names["prices"]
         phases = ("affected", "restrict", "build", "parity", "merge")
@@ -300,8 +304,9 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         switched = self.run_job(job, pins2, "building_append", "2099-02-01T00:00:00Z", previous=pins1)
         self.assertEqual(switched["rebuild"]["mode"], "incremental", switched["rebuild"])
         self.assertEqual(switched["rebuild"]["appended_inputs"], [price])
-        # Both batches' units: every priced PNU, PNU 1 among them.
-        self.assertEqual(switched["rebuild"]["counts"]["affected_pnus"], len(prices_a))
+        # The rows that differ between the batches, not every priced PNU: U1 left (PNU 1), U5 gained
+        # a date (PNU 5), U7 was corrected (PNU 7).
+        self.assertEqual(switched["rebuild"]["counts"]["affected_pnus"], 3, switched["rebuild"])
         for phase in phases:
             self.assertIn(f"gold-incremental-phase {phase} seconds=", self.log)
         self.run_job(job, pins2, "building_append_full", "2099-02-01T00:00:00Z")
@@ -322,6 +327,19 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual((diffed["rebuild"]["mode"], diffed["rebuild"]["appended_inputs"]), ("incremental", []))
         self.assertEqual(diffed["rebuild"]["counts"]["affected_pnus"], 1, diffed["rebuild"])
         self.run_job(job, pins4, "building_append_full", "2099-04-01T00:00:00Z")
+        self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
+
+        # A new floor generation (root ADR-0128): every floor reloaded under a new batch id, only
+        # T9's changed. One PNU, not every PNU with a floor (the 2026-10-28 rebuild, root ADR-0326).
+        floor = names["floors"]
+        generation = [{**row, "source_snapshot_id": "floors-v2", "ingested_at_utc": datetime(2099, 1, 1),
+                       **({"floor_display_ko": "1F*"} if row["mgm_bldrgst_pk"] == "T9" else {})}
+                      for row in floors_a]
+        pins5 = {**pins4, floor: self.append(floor, generation)}
+        reloaded = self.run_job(job, pins5, "building_append", "2099-05-01T00:00:00Z", previous=pins4)
+        self.assertEqual((reloaded["rebuild"]["mode"], reloaded["rebuild"]["appended_inputs"]), ("incremental", [floor]))
+        self.assertEqual(reloaded["rebuild"]["counts"]["affected_pnus"], 1, reloaded["rebuild"])
+        self.run_job(job, pins5, "building_append_full", "2099-05-01T00:00:00Z")
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
 
     # ---- parcel panel ------------------------------------------------------------------------

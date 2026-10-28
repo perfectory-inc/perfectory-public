@@ -74,6 +74,93 @@ class WaitingThenFailed(unittest.TestCase):
                 self.assertFalse((pathlib.Path(state) / check.FIRST_SEEN).exists())
 
 
+def key(region):
+    """A synthetic PNU in `region` (its first two digits); never a real parcel."""
+    return f"{region}99999999999999999"
+
+
+class Layout(unittest.TestCase):
+    """A table readers prune by key fails when a one-region read opens most of its files, or when
+    a commit added far more of its bytes than the keys it changed (root ADR-0314)."""
+
+    # gold.parcel_panel on 2026-10-28: all 9 files span 시도 11..52.
+    COUNTRY_WIDE = [(key("11"), key("52"))] * 9
+    # gold.parcel_characteristics the same day: 11 files in PNU order.
+    ORDERED = [(key(low), key(high)) for low, high in (
+        ("11", "31"), ("31", "41"), ("41", "43"), ("43", "44"), ("44", "46"), ("46", "46"),
+        ("46", "47"), ("47", "48"), ("48", "51"), ("51", "52"), ("52", "52"))]
+
+    def summary(self, added, total, records=1_000_000, keys=None):
+        found = {"added-files-size": str(added), "total-files-size": str(total), "total-records": str(records)}
+        return found if keys is None else {**found, check.KEYS_CHANGED: str(keys)}
+
+    def test_files_that_each_span_the_country_are_flagged(self):
+        self.assertEqual(check.region_read_share(self.COUNTRY_WIDE, 2), 1.0)
+        failures, _ = check.layout_findings("gold.t", "pnu", self.COUNTRY_WIDE, None)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("opens 100% of its 9 data files", failures[0])
+
+    def test_files_in_key_order_pass(self):
+        self.assertLess(check.region_read_share(self.ORDERED, 2), 0.3)
+        self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED, None), ([], []))
+
+    def test_one_file_is_never_misplaced(self):
+        self.assertEqual(check.region_read_share(self.COUNTRY_WIDE[:1], 2), 0.0)
+
+    def test_a_tiny_change_that_rewrote_the_table_fails(self):
+        # 2026-10-26: 48,477 of 39,861,511 PNUs changed and 100% of the bytes were added.
+        failures, _ = check.layout_findings("gold.t", "pnu", self.ORDERED,
+                                            self.summary(4_265_500_804, 4_265_500_804, 39_861_511, 48_477))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("changed 0.12% of its keys and added 100% of its bytes", failures[0])
+
+    def test_a_change_that_rewrote_its_share_passes(self):
+        self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED,
+                                               self.summary(50, 100, 1_000, 500)), ([], []))
+
+    def test_the_floor_keeps_a_small_change_from_being_judged_on_noise(self):
+        # 0.01% of the keys, 5% of the bytes: under 10x the 1% floor.
+        self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED,
+                                               self.summary(5, 100, 1_000_000, 100)), ([], []))
+
+    def test_a_rewrite_that_does_not_say_what_it_changed_is_named_not_failed(self):
+        failures, notes = check.layout_findings("gold.t", "pnu", self.ORDERED, self.summary(100, 100))
+        self.assertEqual(failures, [])
+        self.assertIn(check.KEYS_CHANGED, notes[0])
+
+    def test_the_real_contracts_cluster_the_served_gold_by_pnu(self):
+        contracts = json.loads((PLATFORM / check.CONTRACTS).read_text(encoding="utf-8"))["contracts"]
+        clustered = check.clustered_tables(contracts)
+        self.assertEqual(clustered.get("gold.parcel_panel"), "pnu")
+        ranged = {name for name, spec in contracts.items() if spec["write_distribution"] == "range"}
+        # Every range-written table has a cluster key the check knows a region of.
+        self.assertEqual(set(clustered), ranged)
+
+    def test_a_derived_change_log_is_not_judged(self):
+        # gold.<table>__changes (root ADR-0191 §1) is read by snapshot, never pruned by key range.
+        contracts = {"gold.a__changes": {"write_distribution": "range", "sort_order": ["pnu"]}}
+        self.assertEqual(check.clustered_tables(contracts), {})
+
+    def test_layout_reads_only_metadata_tables_and_skips_tables_without_rows(self):
+        contracts = {"gold.a": {"write_distribution": "range", "sort_order": ["pnu"]},
+                     "gold.b": {"write_distribution": "range", "sort_order": ["pnu"]},
+                     "silver.c": {"write_distribution": "hash", "sort_order": ["pnu"]}}
+        shape = {"has_rows": True, "fields": [[7, "pnu", "string", True]]}
+        lakehouse = {"tables": {"gold.a": shape, "gold.b": {**shape, "has_rows": False}, "silver.c": shape}}
+        asked = []
+
+        def rows(url, sql):
+            asked.append(sql)
+            return [[low, high] for low, high in self.COUNTRY_WIDE] if "$files" in sql else []
+
+        failures, _ = check.layout(rows, "http://trino", contracts, lakehouse)
+        self.assertEqual(len(failures), 1)
+        self.assertTrue(failures[0].startswith("gold.a:"))
+        self.assertEqual(len(asked), 2)
+        self.assertTrue(all('"a$files"' in sql or '"a$snapshots"' in sql for sql in asked))
+        self.assertIn("element_at(lower_bounds, 7)", asked[0])
+
+
 class FakeGitHub:
     """Answers the calls refresh_pull_request makes; a tree's sha is its content."""
 

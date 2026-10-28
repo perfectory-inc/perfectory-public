@@ -198,6 +198,10 @@ pub struct PackExportSummary {
     /// Every live row of the Gold snapshot, by its manifests' record counts; not only the shard's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gold_record_count: Option<u64>,
+    /// What the shard's scan of the Gold read (root ADR-0314 §4); the bake's run summary adds the
+    /// shards up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<ShardRead>,
     pub exported_row_count: u64,
     pub tombstone_count: u64,
     pub totals: BTreeMap<String, SectionTotals>,
@@ -237,6 +241,18 @@ impl PackExportSummary {
             .copied()
             .unwrap_or(self.generation)
     }
+}
+
+/// What one shard's scan of the Gold read: all its data files is a shard that pruned nothing
+/// (on 2026-10-28 every shard read all 4 GB of gold.parcel_panel, root ADR-0314).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ShardRead {
+    /// Data files of the Gold snapshot, read or skipped.
+    pub data_files: u64,
+    /// Data files the scan skipped because their bounds exclude the shard's prefix.
+    pub skipped_data_files: u64,
+    /// Bytes of the data files it read.
+    pub bytes_read: u64,
 }
 
 /// What a run compared before writing, and the sample candidates it drew (base runs only).
@@ -364,7 +380,8 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         Some(_) => Probe::needed(lane, served_state(lane, &store).await?),
         None => None,
     };
-    let (rows, gold_record_count) = scan(&config, &lakehouse, &snapshot, probe.as_ref()).await?;
+    let (rows, gold_record_count, shard_read) =
+        scan(&config, &lakehouse, &snapshot, probe.as_ref()).await?;
     let provenance = snapshot_provenance(&snapshot);
     // Before anything is written: a refused probe leaves no pack behind.
     let expansion_probe = match &probe {
@@ -387,6 +404,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let mut summary = bake(&config, &store, &provenance, &rows, &renderer).await?;
     summary.gold_record_count = Some(gold_record_count);
     summary.expansion_probe = expansion_probe;
+    summary.read = Some(shard_read);
     write_summary(&config.summary_path, &summary)?;
     tracing::info!(
         generation = summary.generation,
@@ -410,13 +428,13 @@ fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> PackProvenance
     }
 }
 
-/// The kept rows, and the snapshot's whole row count by its manifests.
+/// The kept rows, the snapshot's whole row count by its manifests, and what the scan read.
 async fn scan(
     config: &BakeConfig,
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
     probe: Option<&Probe>,
-) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64)> {
+) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64, ShardRead)> {
     let rows = scan_snapshot_rows_kept(
         sections::gold_table(config.lane),
         lakehouse,
@@ -451,7 +469,12 @@ async fn scan(
             .iter()
             .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str)),
     )?;
-    Ok((rows.rows, rows.manifest_record_count))
+    let read = ShardRead {
+        data_files: rows.data_file_count,
+        skipped_data_files: rows.skipped_data_file_count,
+        bytes_read: rows.read_file_bytes,
+    };
+    Ok((rows.rows, rows.manifest_record_count, read))
 }
 
 /// Where each baked section goes, and what a section re-baked alone is joined with.
@@ -782,6 +805,7 @@ pub async fn bake(
         sections: config.sections.clone(),
         pnu_prefix: config.pnu_prefix.clone(),
         gold_record_count: None,
+        read: None,
         exported_row_count: exported,
         tombstone_count: deleted,
         totals,

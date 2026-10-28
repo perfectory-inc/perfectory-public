@@ -113,9 +113,10 @@ elif command.startswith("export-") and command.endswith("-section-packs"):
                    "patch": int(patch) if patch else None, "pnu_prefix": prefix or None,
                    "gold_record_count": len(pnus), "exported_row_count": len(kept) - (1 if short else 0),
                    "tombstone_count": len(tombstones) - lost_tombstone,
+                   "read": {"data_files": 4, "skipped_data_files": 0, "bytes_read": 4096},
                    "withheld": [{"key": pnu, "reason": "document_too_large: planted"} for pnu in kept
                                 if pnu in json.loads(os.environ.get("FAKE_WITHHELD", "[]"))],
-                   "packs": [{"unit": pnu[:10]} for pnu in kept + tombstones]}, out)
+                   "packs": [{"unit": pnu[:10], "bytes": 100} for pnu in kept + tombstones]}, out)
 elif command.startswith("export-"):
     prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
     target = int(os.environ[prefix_env + "TARGET_GENERATION"])
@@ -1129,6 +1130,10 @@ class SectionPackBake(unittest.TestCase):
                              for call in calls), "an object command ran on a lane serving packs")
         summary = json.loads((summaries.parent / "run-summary.json").read_text())
         self.assertEqual((summary["lane_serves"], summary["mode"], summary["target_patch"]), ("packs", "patch", 6))
+        # What the run read, wrote and changed (root ADR-0314 §4): its one shard read all 4 data
+        # files, wrote a 100-byte pack per document and tombstone, and changed 3 keys.
+        self.assertEqual((summary["data_files"], summary["bytes_read"], summary["shards_reading_every_data_file"],
+                          summary["bytes_written"], summary["keys_changed"]), (4, 4096, 1, 300, 3))
         self.assertFalse((self.state_root / "building/in-progress-packs.json").exists())
 
     def test_an_empty_change_set_publishes_the_packs_reflect_alone(self):

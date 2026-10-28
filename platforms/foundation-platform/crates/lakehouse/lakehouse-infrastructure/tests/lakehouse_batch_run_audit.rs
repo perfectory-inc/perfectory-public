@@ -124,6 +124,9 @@ fn summary(suffix: &str, created_at: &str) -> Result<SparkRunSummary, chrono::Pa
         source_snapshot_count: 1,
         source_snapshot_ids: vec![format!("bronze-snapshot-{suffix}")],
         source_snapshot_truncated: false,
+        bytes_read: None,
+        bytes_written: None,
+        keys_changed: None,
     })
 }
 
