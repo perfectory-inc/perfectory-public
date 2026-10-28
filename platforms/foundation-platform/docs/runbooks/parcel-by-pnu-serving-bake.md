@@ -402,7 +402,8 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - 굽기는 재시도하지 않는다(`retries: 0`). 시간 상한에 걸리면 다음 차례에 이어 굽는다.
 - 차례(`takes_turns`): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
   `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-scheduler/starts/` 에 적고, 차례가 아니면
-  `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공).
+  `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공). 확인(`check_service`)이 할 일이 없다고
+  답한 작업도 그때 차례를 가진 것으로 적힌다(root ADR-0305).
 
 그래서 최악의 대기는(재시도까지 시간 상한을 다 쓴 경우) **FLOOR 약 34시간, 계보 검토 약 38시간, 매시 접기 약 17시간**
 이다(굽기 한 실행 + 차례가 올 때 이미 돌던 접기 + 같은 무게의 상대). `job_specs.pool_starvation` 이 이 상한을 계산해

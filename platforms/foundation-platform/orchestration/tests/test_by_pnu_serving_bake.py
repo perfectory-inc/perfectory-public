@@ -525,6 +525,34 @@ class ByPnuServingBake(unittest.TestCase):
         # 2026-10-16: this run said `changed` and exited 1. The last word now matches the exit.
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome failed parcel; published: building")
         self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
+        # `all` decides the run's outcome alone: its lanes add no line of their own.
+        self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
+
+    def test_a_lane_run_on_its_own_ends_with_one_outcome_line(self):
+        # Root ADR-0260: a run without the line is failed, whichever way the lane ended.
+        result, _ = self.bake(FAKE_GOLD="101")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        self.log.unlink()
+        result, calls = self.bake()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(self.published(calls)), 1)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
+        self.log.unlink()
+        result, _ = self.bake(FAKE_GOLD="404", FAKE_CAP="0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.splitlines()[-1],
+                         f"foundation-job-outcome failed the parcel lane exited {result.returncode}")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
+        # A lane another run holds waits, and says so once (held-lock.sh).
+        import fcntl
+        with open(self.state_root / "parcel/lane.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result, _ = self.bake(FOUNDATION_JOB_SERVICE="1")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome waiting the parcel lane is held by another run")
+        self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
 
     def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
         # Root ADR-0190. The release ships the contract that names the pack-only lanes.

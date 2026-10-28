@@ -477,6 +477,49 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(len(self.producer_calls(calls)), 2)
 
+    def test_every_registered_job_of_this_script_ends_with_one_outcome_line(self):
+        # Root ADR-0260: a run without the line is failed. 2026-10-28: gold_public_auction_rebuild runs one
+        # table (`gold-panel-rebuild.sh parcel-public-auction`), which printed none, so every run that
+        # committed was still `failed no outcome reported` and never started the bake.
+        programs = {}
+        for spec in job_specs.load_specs():
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            for line in unit.splitlines():
+                if line.startswith("ExecStart=") and "/scripts/ops/gold-panel-rebuild.sh " in line:
+                    programs[spec.job_id] = line.split("gold-panel-rebuild.sh ", 1)[1].split()
+        self.assertIn(["parcel-public-auction"], programs.values())
+        for job_id, args in programs.items():
+            with self.subTest(job_id):
+                self.log.unlink(missing_ok=True)
+                result, _, _ = self.rebuild(table_fixture(False), table_fixture(False), *args)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+                self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
+
+    def test_a_table_run_on_its_own_says_whether_it_committed_or_failed(self):
+        result, _, catalog = self.rebuild(table_fixture(True), table_fixture(False), "parcel")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(catalog["gold.parcel_panel"]["commits"]), 1)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
+        # A dry run, or an incremental run that changed no row, commits no change for the bake.
+        result, _, _ = self.rebuild(table_fixture(True), table_fixture(False), "parcel", "--dry-run")
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        result, _, _ = self.rebuild({**table_fixture(True), "crash": True}, table_fixture(False), "parcel")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome failed the parcel rebuild exited 1")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
+        # A table whose lock another rebuild holds waits, and says so once (held-lock.sh).
+        state = self.root / "state"
+        state.mkdir(exist_ok=True)
+        with open(state / "rebuild.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.env["FOUNDATION_JOB_SERVICE"] = "1"
+            result, _, _ = self.rebuild(table_fixture(True), table_fixture(False), "parcel")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["foundation-job-outcome waiting the Gold panel rebuild is held by another run"])
+
     def test_an_unknown_unit_or_option_is_refused(self):
         for args in (("everything",), ("parcel", "--force")):
             with self.subTest(args=args):
