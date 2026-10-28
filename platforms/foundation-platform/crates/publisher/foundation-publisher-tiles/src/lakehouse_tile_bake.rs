@@ -75,6 +75,12 @@ pub mod tile_equivalence;
 mod gate;
 #[path = "lakehouse_tile_bake_partitions.rs"]
 mod partitions;
+#[path = "lakehouse_tile_patch.rs"]
+pub mod patch;
+#[path = "lakehouse_tile_patch_run.rs"]
+mod patch_run;
+#[path = "pmtiles_write.rs"]
+pub mod pmtiles_write;
 
 use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
@@ -881,17 +887,7 @@ async fn build_archive(
         bake_unit(config, images, work, columns, srid, layer).await?;
         return Ok(work.join("unit.pmtiles"));
     };
-    // ADR-0316: the tippecanoe version, not the release's image ID, which every release build
-    // changes while the pinned source commit (and so the bytes it bakes) stays the same.
-    let bake_inputs = format!(
-        "{:?}",
-        (
-            &images.gdal.image,
-            &images.tippecanoe.version_banner,
-            srid,
-            tippecanoe_args(layer, columns, config.maxzoom_detail),
-        )
-    );
+    let bake_inputs = bake_inputs(images, srid, layer, columns, config.maxzoom_detail);
     let root = config
         .work_root
         .join(format!("{}-partitions", config.unit_key));
@@ -933,6 +929,21 @@ async fn build_archive(
     docker(tile_join, config.tool_timeout, "tile-join").await?;
     std::fs::remove_dir_all(&join)?;
     Ok(work.join("unit.pmtiles"))
+}
+
+/// Everything besides the rows that decides a baked tile's bytes. ADR-0316: the tippecanoe
+/// version, not the release's image ID, which every release build changes while the pinned source
+/// commit (and so the bytes it bakes) stays the same.
+fn bake_inputs(
+    images: &ImageSet,
+    srid: i32,
+    layer: &ServedLayer,
+    columns: &[String],
+    detail: Option<u8>,
+) -> String {
+    let args = tippecanoe_args(layer, columns, detail);
+    let banner = &images.tippecanoe.version_banner;
+    format!("{:?}", (&images.gdal.image, banner, srid, args))
 }
 
 /// GDAL then tippecanoe in `work`: `served.csv` in, `unit.pmtiles` out.
@@ -1081,6 +1092,16 @@ async fn bake_in(
     work: &Path,
 ) -> anyhow::Result<()> {
     let summary = Arc::new(summary);
+    // Root ADR-0323: a patched unit first tries to publish only the tiles its changes touch.
+    let policy = patch::PatchPolicy::load()?;
+    let mut indexed = None;
+    if policy.covers(&config.unit_key) {
+        let index = patch_run::index_handoff(&summary, &config.served_handoff, work).await?;
+        if patch_run::try_patch(config, contract, &policy, &summary, work, &index).await? {
+            return Ok(());
+        }
+        indexed = Some(index.without_records());
+    }
     let prepared = {
         let (summary, handoff, csv, partition_prefix) = (
             summary.clone(),
@@ -1115,6 +1136,14 @@ async fn bake_in(
         active.snapshot != summary.canonical_iceberg_snapshot_id,
         "the active release already serves Gold snapshot {}",
         active.snapshot
+    );
+    let srid = summary.geometry_srid;
+    let inputs = bake_inputs(
+        &contract.images,
+        srid,
+        &active.layer,
+        &prepared.0,
+        config.maxzoom_detail,
     );
     if config.rehearsal {
         return rehearse(
@@ -1197,6 +1226,10 @@ async fn bake_in(
         .await?;
     // Only after the tiles that contain the edits are served may the overlay forget them.
     record_fold(config, summary.edits_through_change_seq, release_id).await?;
+    // The new base's index: the next bake of this unit can patch it (ADR-0323).
+    if let Some(indexed) = &indexed {
+        indexed.keep(config, &summary.canonical_iceberg_snapshot_id, &inputs)?;
+    }
     println!(
         "lakehouse-tile-bake-ok unit={} build_job_id={build_job_id} release_id={release_id} manifest_generation={} gold_snapshot={} folded_through_change_seq={}",
         config.unit_key,

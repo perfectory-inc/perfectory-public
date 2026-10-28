@@ -431,6 +431,19 @@
         "file:///tmp/app",
         "https://app.example.test/path"
       ]
+    },
+    "patches": {
+      "decision": "docs/adr/0323-parcel-tiles-patch-only-the-tiles-changed-parcels-touch.md",
+      "units": [
+        "parcels"
+      ],
+      "manifest_suffix": ".patches.json",
+      "manifest_schema_version": "foundation-platform.vector_tile_patches.v1",
+      "patch_infix": ".patch-",
+      "manifest_cache_seconds": 60,
+      "cache_control": "public, max-age=3600",
+      "max_patched_tile_ratio": 0.05,
+      "max_patched_tile_ratio_reason": "Root ADR-0111 §9's initial compaction point (5% of the base's tiles), under Mapbox Tiling Service's advice to retile in full above 15% changed. Above it the bake is a full one and makes a new base. The 202606 to 202609 editions moved 0.26% of PNUs in and out where no region was reorganized and 16.2% where one was (root ADR-0251): the first is a patch, the second a new base."
     }
   },
   "map_edit_gateway": {
