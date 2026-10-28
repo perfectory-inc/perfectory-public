@@ -554,6 +554,26 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome waiting the parcel lane is held by another run")
         self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
 
+    def test_every_registered_job_of_this_script_ends_with_one_outcome_line(self):
+        # Root ADR-0260: a run without the line is failed. by_pnu_serving_bake runs `all`, and the
+        # own-producer public-auction bake one lane as its whole program (root ADR-0303), which must
+        # end with the line itself, exactly once.
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        programs = {}
+        for spec in job_specs.load_specs():
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            for line in unit.splitlines():
+                if line.startswith("ExecStart=") and "/scripts/ops/by-pnu-serving-bake.sh " in line:
+                    programs[spec.job_id] = line.split("by-pnu-serving-bake.sh ", 1)[1].split()
+        self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
+        for job_id, args in programs.items():
+            with self.subTest(job_id):
+                self.log.unlink(missing_ok=True)
+                result, _ = self.bake(*args, FAKE_GOLD="101")
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+                self.assertEqual(result.stdout.count("foundation-job-outcome"), 1, result.stdout)
+
     def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
         # Root ADR-0190. The release ships the contract that names the pack-only lanes.
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")

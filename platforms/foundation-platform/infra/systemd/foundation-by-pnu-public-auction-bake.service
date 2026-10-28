@@ -34,6 +34,9 @@ TimeoutStartSec=115m
 # scripts/guard/every-container-has-a-memory-cap.sh reads this line; without it the guard fails.
 MemoryMax=5G
 MemorySwapMax=0
+# As the sibling serving bake: a process killed at MemoryMax fails the script's step, and the script
+# still ends with its `foundation-job-outcome failed ...` line instead of systemd stopping it first.
+OOMPolicy=continue
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
