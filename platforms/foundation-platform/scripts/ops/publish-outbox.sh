@@ -16,6 +16,13 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 export FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER="${FOUNDATION_PLATFORM_OBJECT_STORAGE_DRIVER:-r2}"
-"${PUBLISHER_BIN}" publish-outbox-once
-# A tick that published (or found nothing pending) ran to its end (root ADR-0260).
-printf 'foundation-job-outcome changed\n'
+tick_out="$(mktemp)"
+trap 'rm -f "${tick_out}"' EXIT
+"${PUBLISHER_BIN}" publish-outbox-once 2>&1 | tee "${tick_out}"
+# A tick ran to its end (root ADR-0260); `changed` only when it published an event (2026-10-28: a tick
+# with "catalog_published":0 said `changed`, 48 times a day).
+if grep -Eq '"catalog_published":[1-9]' "${tick_out}"; then
+  printf 'foundation-job-outcome changed\n'
+else
+  printf 'foundation-job-outcome unchanged\n'
+fi

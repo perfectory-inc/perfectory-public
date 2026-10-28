@@ -43,6 +43,19 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   export DATABASE_URL
 fi
 
-"${publisher}" run-building-register-floor-cycle
-# Reached only when the cycle exited 0 (set -e): it ran to its end (root ADR-0171, ADR-0260).
-printf 'foundation-job-outcome changed\n'
+cycle_out="$(mktemp)"
+trap 'rm -f "${cycle_out}"' EXIT
+"${publisher}" run-building-register-floor-cycle | tee "${cycle_out}"
+# Reached only when the cycle exited 0 (set -e, pipefail): it ran to its end (root ADR-0171, ADR-0260).
+# `changed` only when it persisted rows: an edition already retained writes nothing (2026-10-27 said
+# `changed` on `action=already_retained ... persisted_row_count=0`).
+ok_line="$(grep '^remote-lakehouse-job-ok ' "${cycle_out}" | tail -n 1)" || true
+if [[ "${ok_line}" =~ \ persisted_row_count=([0-9]+) ]]; then
+  if (( BASH_REMATCH[1] > 0 )); then
+    printf 'foundation-job-outcome changed\n'
+  else
+    printf 'foundation-job-outcome unchanged\n'
+  fi
+else
+  printf 'foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line\n'
+fi
