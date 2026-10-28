@@ -56,6 +56,7 @@ platforms/foundation-platform/scripts/ops/vworld-login.sh,30,true,systemd-job,ru
 platforms/foundation-platform/scripts/ops/vworld-parcel-edition-collect.sh,161,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/vworld-sweep-lane.sh,24,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/recovery/check-identity-backup-freshness.sh,28,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/check-postgres-backup-freshness.sh,28,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/identity-backup-lib.sh,53,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/identity-restore-drill.sh,130,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/postgres-restore-drill.sh,82,true,systemd-job,runner,Backup/restore drill started by a systemd unit
