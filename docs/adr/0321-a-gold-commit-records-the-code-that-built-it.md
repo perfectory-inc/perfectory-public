@@ -145,7 +145,7 @@ foundation-api 하나).
 - 증분 기계를 고친 것은 재구축을 부르지 않는다(`plumbing_symbols`). 그 정확성은 패리티 표본과 증분 = 전량 시험이 진다.
 - 긴 배포 0단계·긴 배포·DAG 멈춤이 Slack 으로 온다. 배포가 실패해 DAG 이 멈춘 채로 남아도, unpause 될 때까지 경보가
   남는다.
-- 이 PR 은 아직 main 에 없는 #902(ADR-0312, `__changes`)를 합쳐 싣는다. #902 가 먼저 들어가야 한다.
+- 바뀐 키 기록은 #902(ADR-0312)의 `__changes`·`keys-changed` 를 그대로 쓴다. 새 기록 장치는 없다.
 
 ## Alternatives rejected
 
