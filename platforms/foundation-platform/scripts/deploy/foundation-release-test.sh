@@ -35,12 +35,13 @@ git -C "${canonical}" config user.email 'release-rehearsal@example.invalid'
 # Production has no verifier-path or repository override. The real admission implementation
 # still compares real Git ancestry and every file; this is not a marker-accepting stub.
 release_script="${test_root}/foundation-release.sh"
+prune_program="${repo_root}/scripts/deploy/foundation-release-prune.py"
 retention_contract="${test_root}/release-retention.contract.json"
 control_releases="${test_root}/opt/perfectory-control/releases"
 sed -e "s|^admission=.*|admission=\"${test_root}/admission\"|" \
   -e "s|^retention_contract=.*|retention_contract=\"${retention_contract}\"|" \
   -e "s|^control_releases_dir=.*|control_releases_dir=\"${control_releases}\"|" \
-  -e "s|^prune_program=.*|prune_program=\"${repo_root}/scripts/deploy/foundation-release-prune.py\"|" \
+  -e "s|^prune_program=.*|prune_program=\"${prune_program}\"|" \
   "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
 # Every activation ends with `prune`. The release flows below install fewer releases than this
 # keeps, so prune removes nothing there; its own section further down plants what it must remove.
@@ -1128,8 +1129,20 @@ mutate() {
     exit 1
   fi
 }
-mutate shared-image-holds 's/(own - kept_images) | set(tags)/own | set(tags)/'
-mutate shared-image-removed 's/found\[0\] in kept_images and found\[0\] not in kept_tagged/False/'
+# The prune is its own program (foundation-release-prune.py): its mutations go there, and the
+# installer copy runs pointed at the mutated program.
+mutate_prune() {
+  local name="$1" expression="$2"
+  sed "${expression}" "${prune_program}" >"${test_root}/${name}.py"
+  if cmp -s "${prune_program}" "${test_root}/${name}.py"; then
+    printf 'mutation %s changed nothing; its expression no longer matches the prune program\n' "${name}" >&2
+    exit 1
+  fi
+  sed "s|^prune_program=.*|prune_program=\"${test_root}/${name}.py\"|" "${release_script}" >"${test_root}/${name}.sh"
+  chmod +x "${test_root}/${name}.sh"
+}
+mutate_prune shared-image-holds 's/(own - kept_images) | set(tags)/own | set(tags)/'
+mutate_prune shared-image-removed 's/found\[0\] in kept_images and found\[0\] not in kept_tagged/False/'
 for name in shared-image-holds shared-image-removed; do
   if prune_shared_image_rehearsal "${test_root}/${name}.sh" 2>/dev/null; then
     printf 'prune shared-image rehearsal passed with mutation %s\n' "${name}" >&2
@@ -1137,13 +1150,13 @@ for name in shared-image-holds shared-image-removed; do
   fi
   printf 'prune-%s-mutation=refused\n' "${name}"
 done
-mutate without-unseal 's/        admission.set_immutable(path, False)/        pass/'
+mutate_prune without-unseal 's/        admission.set_immutable(path, False)/        pass/'
 if prune_rehearsal "${test_root}/without-unseal.sh" 2>/dev/null; then
   printf 'prune rehearsal passed without lifting the immutable seal\n' >&2
   exit 1
 fi
 printf 'prune-without-unseal-mutation=refused\n'
-mutate without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
+mutate_prune without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
 if prune_rehearsal "${test_root}/without-build-lock.sh" 2>/dev/null; then
   printf 'prune rehearsal passed without taking the release build lock\n' >&2
   exit 1
@@ -1152,9 +1165,7 @@ grep -q '^prune-ok ' "${test_root}/prune.log"
 printf 'prune-without-build-lock-mutation=refused\n'
 
 # The emergency rule is what keeps the oldest release here: without it this rehearsal must fail.
-sed '/retention rule: the emergency return/d' "${release_script}" >"${test_root}/without-emergency.sh"
-chmod +x "${test_root}/without-emergency.sh"
-! cmp -s "${release_script}" "${test_root}/without-emergency.sh"
+mutate_prune without-emergency '/retention rule: the emergency return/d'
 if prune_rehearsal "${test_root}/without-emergency.sh" 2>/dev/null; then
   printf 'prune rehearsal passed with the emergency-keep rule removed\n' >&2
   exit 1
