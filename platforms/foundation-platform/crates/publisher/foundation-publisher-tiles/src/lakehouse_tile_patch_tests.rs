@@ -103,13 +103,19 @@ fn the_contract_patches_parcels_and_derives_keys_beside_the_base() -> anyhow::Re
 fn the_writer_round_trips_through_the_reader_with_leaf_directories() -> anyhow::Result<()> {
     // Enough tiles that the root no longer fits 16 KiB, so leaves are written and walked.
     let (first, _) = zoom_range(14);
-    // Irregular gaps and sizes, so the directory does not compress into the root.
-    let tiles: Vec<(u64, Vec<u8>)> = (0..40_000_u64)
-        .map(|n| {
-            (
-                first + n * 10 + (n * 7_919) % 9,
-                vec![7; 1 + (n * 31 % 200) as usize],
-            )
+    // Pseudo-random gaps and sizes (an LCG), so the directory cannot compress into the root.
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = |bound: u64| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        1 + (state >> 33) % bound
+    };
+    let mut id = first;
+    let tiles: Vec<(u64, Vec<u8>)> = (0..40_000)
+        .map(|_| {
+            id += next(5_000);
+            (id, vec![7; next(400) as usize])
         })
         .collect();
     let mut template = archive(14, 16, &[]);
@@ -131,7 +137,7 @@ fn the_writer_round_trips_through_the_reader_with_leaf_directories() -> anyhow::
             .unwrap_or_else(|| panic!("tile {id}"));
         assert_eq!(&reader.entry_raw(&entry)?, stored);
     }
-    assert!(reader.find_entry(first + 1)?.is_none());
+    assert!(reader.find_entry(first)?.is_none());
     let mut seen = 0;
     reader.for_each_entry((0, u64::MAX), &mut |_, _| {
         seen += 1;
