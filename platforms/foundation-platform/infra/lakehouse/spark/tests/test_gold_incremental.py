@@ -270,5 +270,16 @@ class RecordedSteps(unittest.TestCase):
         self.assertEqual(incremental.changes_table("`r2`.gold.parcel_panel"), "`r2`.gold.parcel_panel__changes")
 
 
+class KeysChanged(unittest.TestCase):
+    """The merge commit's `foundation.keys-changed` (root ADR-0314 §4): what it inserted, updated or
+    deleted, not what it recomputed and found equal."""
+
+    def test_recomputed_but_equal_pnus_are_not_changes(self):
+        counts = {"affected_pnus": 10, "parity_sample_pnus": 4, "inserted_pnus": 2, "updated_pnus": 3,
+                  "deleted_pnus": 1, "unchanged_recomputed_pnus": 4}
+        self.assertEqual(incremental.keys_changed(counts), 6)
+        self.assertEqual(incremental.KEYS_CHANGED_PROPERTY, "foundation.keys-changed")
+
+
 if __name__ == "__main__":
     unittest.main()

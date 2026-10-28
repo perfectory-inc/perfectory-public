@@ -66,6 +66,14 @@ STAGES_PREFIX = "gold-incremental-"
 MERGE_MODE_PROPERTY = "write.merge.mode"
 COPY_ON_WRITE = "copy-on-write"
 HASH_SPACE = 2**32
+# The keys a commit changed, on the commit itself: the shape-ledger check weighs the bytes it
+# rewrote against them (root ADR-0314 §4).
+KEYS_CHANGED_PROPERTY = "foundation.keys-changed"
+
+
+def keys_changed(counts: dict[str, int]) -> int:
+    """The PNUs a merge inserts, updates or deletes; recomputed PNUs that came out equal are not."""
+    return counts["inserted_pnus"] + counts["updated_pnus"] + counts["deleted_pnus"]
 
 
 class IncrementalRefusal(ValueError):
@@ -331,7 +339,9 @@ class Outcome:
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
         unchanged = {} if current is None else {gold_fingerprint.PROPERTY: current}
         self.merged = merge_into_gold(spark, table, self.merge["source"],
-                                      {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}, self.merge["row_key"],
+                                      {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins),
+                                       KEYS_CHANGED_PROPERTY: str(keys_changed(self.merge["counts"]))},
+                                      self.merge["row_key"],
                                       unchanged)
         phase_done("merge", started)
         record_changes(spark, table, self.merge["source"] if self.merged else None)
