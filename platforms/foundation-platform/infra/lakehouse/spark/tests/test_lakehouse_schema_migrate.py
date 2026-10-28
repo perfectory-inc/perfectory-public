@@ -85,7 +85,8 @@ class PlanTable(unittest.TestCase):
 class WriteOrder(unittest.TestCase):
     """A range-distributed contract puts its sort order on the live table (root ADR-0164)."""
 
-    ORDERED = {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}
+    ORDERED = {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+               "sort-order": "pnu ASC NULLS FIRST"}
 
     @staticmethod
     def ranged(distribution: str = "range") -> dict:
@@ -101,6 +102,9 @@ class WriteOrder(unittest.TestCase):
             ({"write.distribution-mode": "range", "sort-order": "pnu DESC NULLS LAST"}, True),
             ({"write.distribution-mode": "range", "sort-order": "b ASC NULLS FIRST"}, True),
             ({"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST, b ASC NULLS FIRST"}, True),
+            # Ordered for plain writes but not for the incremental MERGE (root ADR-0307).
+            ({"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST"}, True),
+            ({**self.ORDERED, "write.merge.distribution-mode": "hash"}, True),
             (self.ORDERED, False),
         ):
             with self.subTest(properties=properties):
