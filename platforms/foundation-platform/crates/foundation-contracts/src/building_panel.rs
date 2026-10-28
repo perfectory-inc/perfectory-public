@@ -12,8 +12,9 @@ use uuid::Uuid;
 /// fields: `contracts/by-pnu-documents`.
 pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v4";
 
-/// The earlier versions v4 only adds optional fields to (root ADR-0320): a served base of one of
-/// them takes v4 patches, and its documents stay served beside them until the next whole
+/// The earlier versions v4 only adds optional fields to (root ADR-0320).
+///
+/// A served base of one of them takes v4 patches, and its documents stay served beside them until the next whole
 /// generation. v3 has no record of its fields, so a v3 base is still rebaked whole.
 pub const BUILDING_DOCUMENT_SCHEMA_EXPANDS: &[&str] =
     &["foundation-platform.building_by_pnu_profile.v2"];
