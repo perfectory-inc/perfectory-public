@@ -58,6 +58,14 @@ class PlanTable(unittest.TestCase):
         )
         self.assertEqual(plan["backfill"], ["row_digest"])
 
+    def test_a_registered_optional_column_is_backfilled_and_an_unregistered_one_is_only_added(self) -> None:
+        plan = migrate.plan_table(
+            contract(("pnu", True), ("vintage", False)), ("pnu",), True, "silver.unit_official_price"
+        )
+        self.assertEqual((plan["add"], plan["backfill"]), (["vintage"], ["vintage"]))
+        plan = migrate.plan_table(contract(("a", True), ("b", False)), ("a",), True, "gold.t")
+        self.assertEqual((plan["add"], plan["backfill"]), (["b"], []))
+
     def test_a_failed_backfill_is_planned_again_after_the_column_was_added(self) -> None:
         plan = migrate.plan_table(
             contract(("pnu", True), ("row_digest", True)), ("pnu", "row_digest"),
@@ -216,13 +224,13 @@ class Backfills(unittest.TestCase):
                           and any(isinstance(target, ast.Name) and target.id in self.TABLE_CONSTANTS for target in node.targets)]
                 self.assertEqual(tables, [table])
 
-    def test_every_backfill_names_a_required_contract_column(self) -> None:
+    def test_every_backfill_names_a_contract_column(self) -> None:
         from platform_contracts import load_lakehouse_contract
 
         for table, column in migrate.BACKFILLS:
             with self.subTest(f"{table}.{column}"):
-                declared = {c["name"]: c["required"] for c in load_lakehouse_contract(table)["columns"]}
-                self.assertTrue(declared.get(column), f"{table}.{column} is not a required contract column")
+                declared = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+                self.assertIn(column, declared, f"{table}.{column} is not a contract column")
 
 
 class KnownDrift(unittest.TestCase):
