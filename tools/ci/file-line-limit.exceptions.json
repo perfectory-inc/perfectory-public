@@ -1,0 +1,54 @@
+{
+  "$comment": "Files allowed past the line limit, read by scripts/guard/file-line-limit.sh. `lines` is a ceiling the file may only shrink under; delete the entry once the file is back under `limit`. A new entry needs a reason a reviewer can accept: the guard exists because files grew past the rule one commit at a time. `generated` files are not counted: their size belongs to their source.",
+  "limit": 1500,
+  "generated": [
+    "*.generated.ts",
+    "*.d.ts"
+  ],
+  "exceptions": {
+    "docs/guides/single-source-spatial-publication-implementation.md": {
+      "lines": 1541,
+      "reason": "Over the limit before the guard (2026-10-28); split by #892."
+    },
+    "platforms/foundation-platform/crates/catalog/catalog-infrastructure/src/unit_of_work.rs": {
+      "lines": 2995,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/spatial_tile_publication.rs": {
+      "lines": 1839,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/lakehouse.rs": {
+      "lines": 3349,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/tests.rs": {
+      "lines": 1671,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py": {
+      "lines": 1692,
+      "reason": "Over the limit before the guard (2026-10-28); no split started yet."
+    },
+    "platforms/foundation-platform/scripts/deploy/foundation-release.sh": {
+      "lines": 1521,
+      "reason": "Over the limit before the guard (2026-10-28); no split started yet."
+    },
+    "platforms/foundation-platform/services/foundation-api/tests/deploy_contract.rs": {
+      "lines": 1587,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs": {
+      "lines": 1514,
+      "reason": "Over the limit before the guard (2026-10-28); split by #890."
+    },
+    "scripts/tiles/mvt_assert.rs": {
+      "lines": 1723,
+      "reason": "Over the limit before the guard (2026-10-28); split by #891."
+    },
+    "tools/xtask/src/main.rs": {
+      "lines": 3625,
+      "reason": "Over the limit before the guard (2026-10-28); split by #888."
+    }
+  }
+}
