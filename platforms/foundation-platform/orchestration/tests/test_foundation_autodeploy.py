@@ -818,13 +818,15 @@ class TheWholeDeploy(unittest.TestCase):
             for tree in (new, old) if relative in shared else (new,):
                 (tree / relative).parent.mkdir(parents=True, exist_ok=True)
                 if (PLATFORM / relative).is_dir():
-                    shutil.copytree(PLATFORM / relative, tree / relative, dirs_exist_ok=True)
+                    # Bytecode another test left in the repository is not part of a release.
+                    shutil.copytree(PLATFORM / relative, tree / relative, dirs_exist_ok=True,
+                                    ignore=shutil.ignore_patterns("__pycache__"))
                 else:
                     (tree / relative).write_bytes((PLATFORM / relative).read_bytes())
         # This host migrated the running release (its record), so the running release is the baseline.
-        sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
-        import deploy_steps
-        deploy_steps.ran(old, "lakehouse-migrate", self.root)
+        subprocess.run([sys.executable, "-I", "-B", str(PLATFORM / "scripts/deploy/deploy_steps.py"), "ran", str(old),
+                        "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(self.root)},
+                       check=True, timeout=60)
         # The running release has applied the migrations the commit carries: none is new.
         shutil.copytree(self.root / "commit/platforms/foundation-platform/migrations", old / "migrations")
         if changed_table:

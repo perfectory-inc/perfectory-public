@@ -146,9 +146,9 @@ class ReleaseChanges(unittest.TestCase):
         (host / "var/lib/perfectory").chmod(0o755)
         lines = self.host_run(host)
         self.assertIn("every table (2): the running release is not what this host last migrated", lines[0])
-        sys.path.insert(0, str(SCRIPT.parent))
-        import deploy_steps
-        deploy_steps.ran(self.running, "lakehouse-migrate", host)
+        subprocess.run([sys.executable, "-I", "-B", str(SCRIPT.parent / "deploy_steps.py"), "ran", str(self.running),
+                        "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(host)},
+                       check=True, timeout=30)
         self.assertEqual(self.host_run(host)[0], "lakehouse tables this release changes: none")
 
     def test_two_trees_are_its_arguments(self):
