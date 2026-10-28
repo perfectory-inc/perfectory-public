@@ -57,6 +57,11 @@ def value(column, kind, n, vintage):
     raise AssertionError(f"no synthetic {kind}")
 
 
+def hashable(row):
+    """A row as a tuple a Counter can count: an array column (`raw_columns`) as a tuple."""
+    return tuple(tuple(v) if isinstance(v, list) else v for v in row)
+
+
 @unittest.skipUnless(has_pyspark(), "requires pyspark")
 class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
     @classmethod
@@ -130,8 +135,8 @@ class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
                                  "the changed and added keys and one marker, not the table")
                 after = current_rows(june.unionByName(changes), contract)
                 compared = [*key, *content]
-                self.assertEqual(Counter(tuple(r) for r in after.select(*compared).collect()),
-                                 Counter(tuple(r) for r in september.select(*compared).collect()),
+                self.assertEqual(Counter(hashable(r) for r in after.select(*compared).collect()),
+                                 Counter(hashable(r) for r in september.select(*compared).collect()),
                                  "current rows equal the release an overwrite would have written")
 
 
