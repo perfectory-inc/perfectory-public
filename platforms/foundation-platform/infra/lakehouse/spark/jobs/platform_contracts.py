@@ -332,6 +332,10 @@ def admit_write(contract_table: str, intent: str, *, target: str | None = None, 
 
     if intent not in WRITE_INTENTS:
         raise ValueError(f"write intent must be one of {WRITE_INTENTS}, not {intent!r}")
+    if intent == "rewrite":
+        # The same rows, whatever the declaration: asked before the contract is loaded, so a
+        # migration of a table the artifact does not hold (a test's own) is not refused for that.
+        return
     declared = row_versions(load_lakehouse_contract(contract_table))
     kind = declared["kind"]
     if kind == "unwritten":

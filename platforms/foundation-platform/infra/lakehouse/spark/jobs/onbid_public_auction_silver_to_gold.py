@@ -350,7 +350,7 @@ def main(argv=None) -> int:
         if not args.validate_only:
             spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
             ensure_contract_table(spark, table, contract)
-            write_gold_snapshot(gold, table, "overwrite", pins, F.lit(True))
+            write_gold_snapshot(gold, table, "overwrite", pins, F.lit(True), contract_table=kind.gold_table)
         summary = {
             "schema_version": panel.RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": kind.gold_table,
             "lane": args.lane, "created_at_utc": panel.normalize_utc_timestamp(None), "row_count": rows,

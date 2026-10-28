@@ -473,7 +473,8 @@ def _load(argv: Sequence[str]) -> int:
                 resolved.unpersist()
             elif entry["role"] == "item_photo":
                 frame = spark.createDataFrame([tuple(r.get(c) for c in photo_columns) for r in rows], schema=photo_schema)
-                line["appended"] = append_source_object(spark, frame, photo_columns, photo_table, entry["object_key"])
+                line["appended"] = append_source_object(spark, frame, photo_columns, photo_table, entry["object_key"],
+                                                         contract_table=PHOTO_TABLE)
             else:
                 frame = spark.createDataFrame([tuple(r.get(c) for c in result_columns) for r in rows], schema=result_schema)
                 line["appended"] = append_source_object(spark, frame, result_columns, result_table, entry["object_key"],

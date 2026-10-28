@@ -464,6 +464,24 @@ class WriterAdmissionTest(unittest.TestCase):
     def test_every_iceberg_write_in_the_jobs_is_admitted(self) -> None:
         self.assertEqual(unadmitted_writes(JOBS_DIR), [])
 
+    def test_every_call_of_a_shared_writer_names_its_contract_table(self) -> None:
+        # `contract_table` is keyword-only and required: a job that misses it raises TypeError only
+        # when the scheduled load reaches the write (the Onbid photo append and the public-auction
+        # Gold rebuild, both landed after stage 3 was written).
+        writers = {"append_source_object", "write_gold_snapshot"}
+        missing, calls = [], 0
+        for path in sorted(JOBS_DIR.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                if name in writers:
+                    calls += 1
+                    if not any(keyword.arg in ("contract_table", None) for keyword in node.keywords):
+                        missing.append(f"{path.name}:{node.lineno} {name}")
+        self.assertGreater(calls, 0)
+        self.assertEqual(missing, [])
+
     def test_the_write_guard_refuses_each_way_around_the_admission(self) -> None:
         jobs = {
             # The three paths that did not go through the shared writers on 2026-10-20.

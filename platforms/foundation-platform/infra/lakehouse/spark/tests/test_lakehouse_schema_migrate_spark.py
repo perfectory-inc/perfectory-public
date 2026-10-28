@@ -94,7 +94,8 @@ class MigrationSpark(unittest.TestCase):
 
         evidence = {"building_link_source_record_id", "building_link_input_sha256", "building_link_reason"}
         for name in ("silver.building_register_units", "silver.building_register_unit_areas"):
-            for mode in ("append", "overwrite"):
+            # A Replaced unit table is loaded by overwrite (silver_refresh); an append is refused.
+            for mode in ("overwrite",):
                 with self.subTest(table=name, mode=mode):
                     contract, first = self.scalar_fixture(name, "first")
                     columns = contract["columns"]
@@ -123,8 +124,7 @@ class MigrationSpark(unittest.TestCase):
                     scalar.write_silver_iceberg(
                         self.spark, second.select(*reversed(second.columns)), self.scalar_args(name, mode), contract, F)
                     rows = self.spark.table(table).collect()
-                    expected = [first_expected, second_expected] if mode == "append" else [second_expected]
-                    self.assertCountEqual([row.asDict() for row in rows], expected)
+                    self.assertCountEqual([row.asDict() for row in rows], [second_expected])
 
     def test_scalar_unit_tables_reject_missing_input_columns_without_committing(self):
         from pyspark.errors import AnalysisException
@@ -136,7 +136,7 @@ class MigrationSpark(unittest.TestCase):
             with self.subTest(table=name, missing=missing):
                 contract, frame = self.scalar_fixture(name, "present")
                 table = self.table(name, create_table_columns_sql(contract))
-                scalar.write_silver_iceberg(self.spark, frame, self.scalar_args(name, "append"), contract, F)
+                scalar.write_silver_iceberg(self.spark, frame, self.scalar_args(name, "overwrite"), contract, F)
                 before = self.spark.table(table).first().asDict()
                 snapshot_query = f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'"
                 snapshot = self.spark.sql(snapshot_query).first()[0]
@@ -147,7 +147,7 @@ class MigrationSpark(unittest.TestCase):
                     scalar.read_handoff_parquet(self.spark, handoff, contract)
                 with self.assertRaisesRegex(AnalysisException, missing):
                     scalar.write_silver_iceberg(
-                        self.spark, incomplete.drop(missing), self.scalar_args(name, "append"), contract, F)
+                        self.spark, incomplete.drop(missing), self.scalar_args(name, "overwrite"), contract, F)
                 self.assertEqual(self.spark.sql(snapshot_query).first()[0], snapshot)
                 self.assertEqual(self.spark.table(table).count(), 1)
                 self.assertEqual(self.spark.table(table).first().asDict(), before)
