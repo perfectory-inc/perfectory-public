@@ -1272,3 +1272,5 @@ mod write_retry_tests;
 #[cfg(test)]
 #[path = "r2/timeout_tests.rs"]
 mod timeout_tests;
+
+// probe: one-crate timing for ADR-0313 (never merged)
