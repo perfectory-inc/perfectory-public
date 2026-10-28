@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, w1kch9812-cmd/v8-probe-after-base]
   merge_group:
     # Intentionally unfiltered so required/gongzzang-frontend always reports.
   # The merge queue narrows to this area's inputs (root ADR-0313); every night main runs it whole.

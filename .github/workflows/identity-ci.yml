@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   # Pull requests are intentionally unfiltered so required/identity reports.
   pull_request:
-    branches: [main]
+    branches: [main, w1kch9812-cmd/v8-probe-after-base]
   merge_group:
   # A pull request verifies only the crates it reaches (root ADR-0269); every night
   # main verifies every crate, as the merge queue does.
