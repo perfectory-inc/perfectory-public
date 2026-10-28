@@ -186,16 +186,19 @@ class RecordedChangesIcebergTest(unittest.TestCase):
         source = self.spark.createDataFrame(
             [(p[1], "b2", "d1b", False), (p[4], "e", "d4", False), (p[2], None, None, True)],
             f"pnu string, payload string, row_digest string, {incremental.DELETE_FLAG} boolean")
-        merge = {"source": source, "row_key": ("pnu",), "counts": {}, "persisted": [], "stages": None}
+        counts = {"inserted_pnus": 1, "updated_pnus": 1, "deleted_pnus": 1}
+        merge = {"source": source, "row_key": ("pnu",), "counts": counts, "persisted": [], "stages": None}
         incremental.Outcome(mode="incremental", row_count=4, metrics={}, merge=merge).commit(
             self.spark, self.TABLE, {"silver.example": "12"}, "overwrite")
         second = self.head()
+        summary = self.spark.sql(f"SELECT summary FROM {self.TABLE}.snapshots WHERE snapshot_id = {second}").first()[0]
+        self.assertEqual(summary[incremental.KEYS_CHANGED_PROPERTY], "3")
         recorded = {r.pnu for r in incremental.recorded_changes(self.spark, self.TABLE, first, second).collect()}
         self.assertEqual(recorded, {p[1], p[2], p[4]})
         # An empty merge records its step too, so the walk passes it.
         empty = self.spark.createDataFrame([], f"pnu string, payload string, row_digest string, {incremental.DELETE_FLAG} boolean")
         incremental.Outcome(mode="incremental", row_count=4, metrics={},
-                            merge={**merge, "source": empty}).commit(self.spark, self.TABLE, {"silver.example": "13"}, "overwrite")
+                            merge={**merge, "source": empty, "counts": dict.fromkeys(counts, 0)}).commit(self.spark, self.TABLE, {"silver.example": "13"}, "overwrite")
         third = self.head()
         self.spark.sql(f"CALL proof.system.rewrite_data_files(table => 'gold.recorded_panel', options => map('rewrite-all', 'true'))")
         compacted = self.head()
