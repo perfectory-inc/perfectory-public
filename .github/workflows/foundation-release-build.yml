@@ -1,8 +1,9 @@
 name: foundation-release-build
 # Each commit on main is built once into the release's artifacts, listed in one manifest and signed
 # with a Sigstore keyless SLSA provenance attestation over the manifest and every blob it names
-# (root ADR-0276 §2, §3, §9; stage R1). The server keeps building for itself until stage R3, so
-# nothing reads this yet. It gates no pull request: a pull request does not build a release.
+# (root ADR-0276 §2, §3, §9). The host installs only this (stage R3, ADR-0309): it pulls the release
+# by digest and verifies the attestation offline. It gates no pull request: a pull request does not
+# build a release.
 # workflow_dispatch rebuilds the same ref.
 on:
   push:
@@ -18,7 +19,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Root ADR-0309: a commit that changes nothing the release is made of or the host reads
+  # (tools/ci/change-scope.json) gets no release, and the host does not deploy it. A manual run
+  # always builds. 2026-10-27: the web-only #879 got a 10.5 min release build and a 12 min deploy.
+  scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.select.outputs.affected }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select
+        id: select
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.after || github.sha }}
+        run: python3 scripts/ci/change_scope.py select --workflow foundation-release-build.yml
+
   build:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Build and attest the release
     runs-on: ubuntu-24.04
     timeout-minutes: 150

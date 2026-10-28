@@ -70,3 +70,7 @@ ai-server의 메모리 예산(`tools/host-memory-budget.contract.json`)은 다�
   `inactive`·`failed` 가 아니면 실행 중으로 본다. 또 검사 직후 작업이 시작되는 틈을 막으려고, 빌드는 검사 전에
   `/run/foundation-platform-release-build.lock` 을 배타로 잡고, 모든 등록 작업의 `ExecStartPre`(`verify-current`)는 그
   잠금이 잡혀 있으면 거부한다(Airflow 가 재시도한다). 위 결정 본문은 고치지 않았다.
+- 2026-10-28: 운영 경로에서 서버는 빌드하지 않는다([ADR-0309](./0309-ci-builds-the-release-once-and-only-for-a-commit-in-its-scope-the-host-only-pulls-it.md),
+  ADR-0276 R3). 상한은 CI 빌드가 같은 계약에서 읽는다. §4 "빌드는 혼자 돈다"는 되돌리기 스위치 `artifacts_from: server-build` 일 때만
+  적용되고, 그때 배포 0단계가 모든 작업을 비운다([ADR-0308](./0308-the-deploy-stops-only-the-jobs-its-release-holds-and-skips-a-step-whose-inputs-did-not-change.md)).
+  위 결정 본문은 고치지 않았다.
