@@ -440,12 +440,12 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
                          ("gold_panel_rebuild", "gold_public_auction_rebuild", "gold_kind_rebuild"))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
-        # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
-        # and the table it writes then reads does not start it again.
+        # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182,
+        # ADR-0317), and the table it writes then reads does not start it again.
         gold = specs["gold_panel_rebuild"]
         self.assertLessEqual({"silver_refresh_building_register_apartment_price",
                               "silver_refresh_building_register_exclusive_unit"}, set(gold.producers))
-        unit_price = ("iceberg", "silver.unit_official_price")
+        unit_price = ("iceberg", "silver.unit_official_price_versions")
         self.assertIn(unit_price, gold.inputs)
         self.assertIn(unit_price, gold.outputs)
         self.assertNotIn(unit_price, gold.starting_inputs)
