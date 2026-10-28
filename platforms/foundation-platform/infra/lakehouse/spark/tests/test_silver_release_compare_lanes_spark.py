@@ -48,6 +48,8 @@ def value(column, kind, n, vintage):
         return n
     if kind == "double":
         return float(n)
+    if kind == "array<string>":
+        return [f"{column}-{n}-{vintage}"]
     if kind == "date":
         return date(2099, 1, 1)
     if kind == "timestamp":
@@ -75,7 +77,8 @@ class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
         from platform_contracts import column_names, create_table_columns_sql
 
         kinds = {c["name"]: c["logical_type"] for c in contract["columns"]}
-        first_content = content[0]
+        # The column a changed key changes: a text column, since a PNU is synthetic and fixed per key.
+        first_content = next(c for c in content if c != "pnu" and kinds[c] == "string")
         rows = []
         for n in keys:
             row = {}
