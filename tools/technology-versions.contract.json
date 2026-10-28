@@ -47,6 +47,7 @@
     "postgis/postgis:17-3.5": "sha256:404171ea9058c801f405af25d63b3b8e5c9e50f2759e49390dbcc3c7ee533f4d",
     "postgis/postgis:17-3.5-alpine": "sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da",
     "postgres:17-alpine": "sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193",
+    "prom/node-exporter:v1.12.1": "sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0",
     "prom/alertmanager:v0.28.1": "sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba",
     "prom/prometheus:v3.5.0": "sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
     "python:3.11-bookworm": "sha256:b7ae8a4dcc0ab327e333c5e46a3eaa6c1b0ff585bed77e01cd6de4be1325837e",
