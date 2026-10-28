@@ -289,17 +289,19 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
         # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight), once by each
-        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, one
-        # bake run), and by what already holds the pool when its turn comes: one panel Gold rebuild
-        # (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160. The hourly
-        # Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of it once too.
+        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, each
+        # 1-slot bake run), and by what already holds the pool when its turn comes: one panel Gold
+        # rebuild (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
+        # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
+        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) counts like the serving bake.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake", "onbid_public_auction_silver"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
+                                         "onbid_public_auction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -436,9 +438,12 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertLessEqual({"silver_refresh_building_register_titles", "silver_refresh_building_register_units",
                               "silver_refresh_building_register_unit_areas"},
                              set(specs["gold_panel_rebuild"].producers))
-        # The bake serves the panels and the data kinds; the kinds follow the panels (root ADR-0193 §9).
+        # The bake serves the panels and the panel-section kinds; the kinds follow the panels (root
+        # ADR-0193 §9). The own-producer public-auction kind bakes in its own job (root ADR-0303),
+        # so gold_public_auction_rebuild feeds that job, not this one.
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
-                         ("gold_panel_rebuild", "gold_public_auction_rebuild", "gold_kind_rebuild"))
+                         ("gold_panel_rebuild", "gold_kind_rebuild"))
+        self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
         # and the table it writes then reads does not start it again.
@@ -492,8 +497,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
             for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_auction_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
-                                        "that writes them (gold_panel_rebuild, gold_public_auction_rebuild, "
-                                        "gold_kind_rebuild) is switched off")
+                                        "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
 
     def test_a_job_is_never_started_by_what_it_writes(self):
         # The Gold rebuild writes the unit prices it then reads (root ADR-0182); the fold reads the
@@ -625,12 +629,14 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
 
     def test_a_lighter_narrower_job_still_counts_every_time(self):
         # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
-        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load.
+        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load and
+        # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         self.assertIn("by_pnu_serving_bake", blockers)
+        self.assertIn("by_pnu_public_auction_bake", blockers)
         self.assertIn("onbid_public_auction_silver", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45)
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

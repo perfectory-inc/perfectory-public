@@ -559,11 +559,17 @@ class ByPnuServingBake(unittest.TestCase):
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
         result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the others.
+        # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the
+        # others, EXCEPT an own-producer kind, which bakes in its own job (root ADR-0303) and `all`
+        # skips. Its superseded generations are still retired below, like every lane's.
         lanes = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
+        baked = [lane for lane in lanes if not lanes[lane].get("producer")]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
                          ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
-                          *(f"show-{lane}-by-pnu-serving-state" for lane in lanes)])
+                          *(f"show-{lane}-by-pnu-serving-state" for lane in baked)])
+        skipped = [line for line in result.stdout.splitlines() if "an own-producer lane bakes in its own job" in line]
+        self.assertEqual(skipped, [f"by-pnu-serving-bake {lane}: skipped: an own-producer lane bakes in its own job "
+                                   "(root ADR-0303)" for lane in lanes if lanes[lane].get("producer")])
         # Then every lane retires its superseded pack generations past the window (root ADR-0242).
         retired = [call for call in calls if call["command"].startswith("retire-")]
         self.assertEqual([call["command"] for call in retired],
@@ -576,12 +582,20 @@ class ByPnuServingBake(unittest.TestCase):
         waiting = [line for line in result.stdout.splitlines() if "is not cut over yet" in line]
         self.assertEqual(waiting, ["by-pnu-serving-bake unit-price: nothing to do: the pack-only unit-price lane is not "
                                    "cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
-        self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 1 + len(lanes), result.stdout)
+        self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 1 + len(baked), result.stdout)
         # Once cut over its state is a served lane's, and it is baked like the others.
         self.log.unlink()
         result, calls = self.bake("unit-price", FAKE_GOLD="101")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("not cut over", result.stdout)
+        self.assertIn("already reflects Gold snapshot 101", result.stdout)
+        # The own-producer lane runs as a single lane (its dedicated job, root ADR-0303); only `all`
+        # skips it. Called directly it reads its state and bakes like any other.
+        self.log.unlink()
+        result, calls = self.bake("parcel-public-auction", FAKE_GOLD="101")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("an own-producer lane bakes in its own job", result.stdout)
+        self.assertIn("show-parcel-public-auction-by-pnu-serving-state", [call["command"] for call in calls])
         self.assertIn("already reflects Gold snapshot 101", result.stdout)
 
     def test_a_failed_retirement_fails_the_job_and_still_retires_the_other_lanes(self):

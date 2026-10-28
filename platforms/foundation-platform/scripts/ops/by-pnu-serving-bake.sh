@@ -109,6 +109,15 @@ case "${UNIT}" in
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
     for lane in building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
       [[ -n "${lane}" ]] || continue
+      # An own-producer kind (its own Gold producer; servability resolved at Gold, root ADR-0292)
+      # bakes in its own by-PNU bake job, concurrently with this one, so `all` does not bake it
+      # (root ADR-0303). Its superseded generations are still retired below, like every lane's.
+      own_producer=""
+      [[ "${lane}" == building ]] || own_producer="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${lane}" own_producer)"
+      if [[ -n "${own_producer}" ]]; then
+        echo "by-pnu-serving-bake ${lane}: skipped: an own-producer lane bakes in its own job (root ADR-0303)"
+        continue
+      fi
       # A lane whose documents follow another's (contract documents_follow_lane, root ADR-0190) is
       # not baked in a run where that lane failed: it would serve units where the served documents
       # of the other do not place them yet. The failed lane fails the run already.

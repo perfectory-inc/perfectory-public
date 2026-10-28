@@ -994,11 +994,38 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
-        "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"
+    },
+    {
+      "id": "by_pnu_public_auction_bake",
+      "interruptible": true,
+      "description": "Reflect each new Gold snapshot of gold.parcel_public_auction (the own-producer public-auction kind, root ADR-0287) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-public-auction), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job so it bakes concurrently with the panel/parcel bake instead of waiting behind it in `by_pnu_serving_bake all` (root ADR-0303): a slow national parcel re-bake no longer holds public-auction serving for hours (2026-10-28). Own-producer because its servability is resolved at Gold (section_coverage, root ADR-0292); it always reads the published parcel state, so it needs no within-run coupling to the panel bake. Started when gold_public_auction_rebuild commits a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start. One slot, a small MemoryMax (its single pack lane's whole-file decode floor), so it runs beside the panel bake inside the host memory budget (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-public-auction-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "15 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "takes_turns": true,
+      "pipeline_graph_edges": [
+        "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-28T00:00:00Z"
     }
   ],
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",
