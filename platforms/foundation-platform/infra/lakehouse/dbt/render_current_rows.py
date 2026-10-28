@@ -20,7 +20,7 @@ SOURCES = HERE / "models" / "sources" / "foundation_sources.yml"
 MACRO = HERE / "macros" / "foundation_current_rows.sql"
 sys.path.insert(0, str(HERE.parent / "spark" / "jobs"))
 
-from platform_contracts import current_row_latest, current_row_predicate, load_lakehouse_contract  # noqa: E402
+from platform_contracts import REMOVED, current_row_latest, current_row_predicate, load_lakehouse_contract  # noqa: E402
 
 
 def foundation_tables(text: str) -> list[tuple[str, str]]:
@@ -40,9 +40,10 @@ def rule_literal(name: str, table: str) -> str:
         return f"    '{name}': none,"
     parts = [f"'predicate': {predicate!r}" if predicate else "'predicate': none"]
     if latest is None:
-        parts += ["'key': none", "'newest_first': none"]
+        parts += ["'key': none", "'newest_first': none", "'removal': none"]
     else:
-        parts += [f"'key': {list(latest.key)!r}", f"'newest_first': {list(latest.newest_first)!r}"]
+        parts += [f"'key': {list(latest.key)!r}", f"'newest_first': {list(latest.newest_first)!r}",
+                  f"'removal': {latest.removal_column!r}" if latest.removal_column else "'removal': none"]
     return f"    '{name}': {{{', '.join(parts)}}},"
 
 
@@ -68,6 +69,7 @@ def render() -> str:
         {{% if rule['predicate'] %}}where {{{{ rule['predicate'] }}}}{{% endif %}}
     ) as ranked
     {{% if rule['key'] %}}where _current_row_rank = 1{{% endif %}}
+    {{% if rule['removal'] %}}and ({{{{ rule['removal'] }}}} is null or {{{{ rule['removal'] }}}} <> '{REMOVED}'){{% endif %}}
 ) as {{{{ name }}}}
 {{%- endif -%}}
 {{% endmacro %}}

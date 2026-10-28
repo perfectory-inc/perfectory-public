@@ -110,6 +110,7 @@ fn config(live: &MockServer, pack: &MockServer, concurrency: usize) -> LatencyCo
         load: None,
         no_gzip_sample_size: 2,
         sample_units: Vec::new(),
+        lane_documents: 0,
         baseline: None,
         run: "r".to_owned(),
     }

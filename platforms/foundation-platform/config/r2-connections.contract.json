@@ -118,6 +118,14 @@
       }
     }
   },
+  "parcel_media": {
+    "purpose": "content-addressed 미디어(경매·공매 공용, 내용해시 write-once)를 공개 서빙한다. 파일명이 곧 내용해시라 immutable·1년 캐시·egress 0 이고, 필지 엣지(parcel lane = catalog.perfectory.io)에서 해시 규칙 하나로 서빙한다(ADR-0296 §5 / ADR-0297 §5, 새 호스트·새 버킷 없음 — parcel_by_pnu_gateway 가 이미 바인딩한 lakehouse 버킷의 onbid/media 를 읽기만 한다). 원본 서빙 MVP: 표시 크기 사다리·엣지 변환은 디자인이 정해지면 가산적으로(ADR-0297 §4). SSOT: 미디어 키·형식 판정 = foundation-shared-kernel media.rs, 쓰기 접두어 = data-go-kr-onbid.contract.json media.object_prefix(onbid/media).",
+    "lane": "parcel",
+    "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+    "path_pattern": "onbid/media/sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|pdf)",
+    "cache_control": "public, max-age=31536000, immutable",
+    "decision": "docs/adr/0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md"
+  },
   "connections": {
     "lakehouse": {
       "required_env": [
@@ -514,6 +522,16 @@
       "document_schema_version_reason": "forest_ledger gained ownership_kind_name (#746) without a new version, so the bake weighed the whole lane as a patch and its mass-change brake stopped it; v2 declares the whole-document change and the next bake writes a full generation (contracts/by-pnu-documents)"},
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
     "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
+    "parcel-public-auction": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "public-auction",
+      "section": "public_auction",
+      "columns": ["public_auction_json"],
+      "producer": "onbid_public_auction_silver_to_gold",
+      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",
+      "document_schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
+      "document_schema_version_reason": "회차 payload에 사진 색인(content-addressed sha256→공개 URL)을 더한다(ADR-0296 §5, v1 ADR-0287 확장). 형식 변경이므로 ADR-0286 규칙에 따라 새 버전 파일(contracts/by-pnu-documents)과 전량 재굽기; silver.onbid_real_estate_item_photo 를 회차별로 조인한다."
+    },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

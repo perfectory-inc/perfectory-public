@@ -12,9 +12,6 @@
       "unmeasured_inputs": {
         "silver.parcel_lineage": "Absent from the catalog when the parcel rebuild was measured (2026-10-03) and still absent on 2026-10-04, so the 20g cap was shown only with --no-carry-lineage, where the run already peaked at 18.0GiB anon. Carrying the lineage adds a join; measure it before a run may read it (root ADR-0139)."
       },
-      "absent_inputs_accepted": {
-        "silver.parcel_lineage": "Its producer (parcel_lineage_to_silver) is not scheduled and has never written the table, so the panel and its kinds are built with --no-carry-lineage and attached_via stays empty (2026-10-14). The plan refuses this entry once the table exists, and refuses the table while it holds no rows."
-      },
       "incremental": {
         "max_changed_key_fraction": 0.3,
         "parity_sample_keys": 20000,
@@ -69,6 +66,12 @@
     "producer": "by_pnu_kind_silver_to_gold",
     "max_row_loss_fraction": 0.01,
     "max_row_loss_reason": "One row per PNU that has the kind's section, a subset of its host panel's rows. A monthly vintage moves those PNUs by far less than 1%; losing more means an input lost a region or a join broke, which must not reach the bake.",
+    "overrides": {
+      "parcel-public-auction": {
+        "max_row_loss_fraction": 0.5,
+        "max_row_loss_reason": "The 공매 kind's rows are the parcels with an OPEN Onbid auction as of the build (root ADR-0287 §7), which open and close every day — unlike the slowly-growing registers the 1% default is for, this count swings widely day to day (a batch of rounds closing drops those PNUs). The bound here catches a catastrophic loss (an input lost a region, a join broke, or, as on 2026-10-21, a producer change that drops real sales) rather than normal daily variation; tighten it once the daily open-auction volatility is measured against a clean baseline."
+      }
+    },
     "incremental": {
       "max_changed_key_fraction": 0.3,
       "parity_sample_keys": 20000,

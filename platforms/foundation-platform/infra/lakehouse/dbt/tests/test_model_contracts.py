@@ -1,5 +1,6 @@
 from pathlib import Path
 import copy
+import re
 import sys
 import unittest
 from unittest import mock
@@ -218,7 +219,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         self.assertIn("court_pnu as", sql)
         self.assertIn("building_relevant as", sql)
         self.assertIn("candidate_area_keys as", sql)
-        self.assertIn("{{ source('foundation', 'building_register_unit_area') }}", sql)
+        self.assertIn("{{ foundation_current_rows('building_register_unit_area') }}", sql)
         self.assertIn("area_kind = 'exclusive'", sql)
         self.assertIn("unit_number_scope_rollup as", sql)
         self.assertIn("safe_unit_number_scope as", sql)
@@ -499,7 +500,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
         self.assertIn("name: unit_official_price", sources)
-        self.assertIn("{{ source('foundation', 'unit_official_price') }}", staging)
+        self.assertIn("{{ foundation_current_rows('unit_official_price') }}", staging)
         # 열쇠 기반: 관리번호 + pnu 동시 일치, 열쇠당 단일 표기만 후보다.
         self.assertIn("price_latest.mgm_bldrgst_pk = unit_scope.mgm_bldrgst_pk", candidates)
         self.assertIn("price_latest.pnu = unit_scope.pnu", candidates)
@@ -524,6 +525,8 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
     """Root ADR-0275: dbt reads a Foundation Silver table's current rows by its contract, through the
     rendered macro, as Spark does through platform_contracts.current_rows."""
 
+    DIRECT_SOURCE = re.compile(r"""source\(\s*['"]foundation['"]""")
+
     @classmethod
     def setUpClass(cls) -> None:
         sys.path.insert(0, str(DBT_ROOT))
@@ -535,12 +538,23 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
         self.assertEqual((DBT_ROOT / "macros" / "foundation_current_rows.sql").read_text(encoding="utf-8"),
                          self.render.render(), "run python render_current_rows.py")
 
-    def test_the_versioned_lanes_models_read_through_the_macro(self) -> None:
-        for model, name in (("stg_foundation__building_register_unit", "building_register_unit"),
-                            ("stg_foundation__land_right_registration", "land_right_registration")):
-            sql = (DBT_ROOT / "models" / "staging" / "foundation" / f"{model}.sql").read_text(encoding="utf-8")
-            self.assertIn(f"{{{{ foundation_current_rows('{name}') }}}}", sql)
-            self.assertNotIn(f"source('foundation', '{name}')", sql)
+    def test_no_model_reads_a_foundation_table_around_the_macro(self) -> None:
+        # The macro is the one access point, as dbt-project-evaluator allows only one layer to touch a
+        # source: a direct `source('foundation', ...)` reads every version once the lane appends
+        # them (ADR-0275), and no list here has to remember which tables do.
+        direct = [
+            path.relative_to(DBT_ROOT).as_posix()
+            for path in sorted((DBT_ROOT / "models").rglob("*.sql"))
+            if self.DIRECT_SOURCE.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(direct, [])
+
+    def test_the_access_rule_refuses_a_direct_source(self) -> None:
+        for planted in ("from {{ source('foundation', 'unit_official_price') }}",
+                        'join {{source("foundation","building_register_unit_area")}} as a'):
+            self.assertIsNotNone(self.DIRECT_SOURCE.search(planted), planted)
+        self.assertIsNone(self.DIRECT_SOURCE.search("from {{ foundation_current_rows('unit_official_price') }}"))
+        self.assertIsNone(self.DIRECT_SOURCE.search("from {{ source('gongzzang', 'court_auction_property') }}"))
 
     def test_a_declared_newest_per_key_rule_renders_the_newest_row_per_key(self) -> None:
         real = self.render.load_lakehouse_contract
@@ -548,13 +562,16 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
         def versioned(name):
             contract = copy.deepcopy(real(name))
             if name == "silver.land_right_registration":
-                contract["current_row_latest"] = {"key": ["pnu", "right_serial_no"], "newest_first": ["ingested_at_utc"]}
+                contract["current_row_latest"] = {"key": ["pnu", "right_serial_no"], "newest_first": ["ingested_at_utc"],
+                                                  "removal_column": "source_record_id"}
             return contract
 
         with mock.patch.object(self.render, "load_lakehouse_contract", side_effect=versioned):
             macro = self.render.render()
         self.assertIn("'land_right_registration': {'predicate': none, 'key': ['pnu', 'right_serial_no'], "
-                      "'newest_first': ['ingested_at_utc']},", macro)
+                      "'newest_first': ['ingested_at_utc'], 'removal': 'source_record_id'},", macro)
+        # A key whose newest row is a removal marker has no current row, as in Spark (ADR-0275).
+        self.assertIn("and ({{ rule['removal'] }} is null or {{ rule['removal'] }} <> 'removed')", macro)
         self.assertIn("'building_register_unit': none,", macro, "an unversioned table is read as it is")
         self.assertIn("rank() over (", macro)
         self.assertIn("where _current_row_rank = 1", macro)

@@ -68,6 +68,13 @@ const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: true,
     },
+    // The 시도 code of the province file the row came from (its member name): each 시도 file is
+    // re-released whole, so this is the group whose newest edition is current (root ADR-0286).
+    LakehouseColumn {
+        name: "source_region_code",
+        logical_type: "string",
+        required: true,
+    },
     LakehouseColumn {
         name: "source_record_id",
         logical_type: "string",

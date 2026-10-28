@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 차세대 온비드 public sale from data.go.kr, the collection half: land each due API's responses in Bronze within its daily limit, stage a pending-load handoff (root ADR-0280)
+Description=Foundation Platform 차세대 온비드 public sale from data.go.kr, the collection half: land each due API's responses in Bronze within its daily limit; the Silver load finds them in R2 (root ADR-0280)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

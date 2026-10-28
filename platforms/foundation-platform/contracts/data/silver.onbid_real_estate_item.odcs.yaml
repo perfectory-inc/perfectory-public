@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_real_estate_item"
 name: "온비드 부동산 물건"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 적재 레인은 있고(키를 기다리며 꺼져 있음), 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0287)."
 team:
   name: "foundation-platform"
 servers:
@@ -202,7 +202,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-real-estate-item"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

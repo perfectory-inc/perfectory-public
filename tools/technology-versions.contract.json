@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "purpose": "Version pins the repository enforces from one file (root ADR-0097, ADR-0118 §5). manifest_exact_pins: JS manifests must state exactly these values (technology-version guard). container_images: every pinned container image, repository:tag -> digest; every reference in a tracked file must match and every entry must be used (scripts/catalog/sync-container-images.py --check, --write rewrites references after a digest change). rust_toolchain: the Rust compiler pin; the root rust-toolchain.toml channel, every Cargo.toml literal rust-version (workspace roots only; members inherit with rust-version.workspace = true) and every Dockerfile rust: base tag must equal it (technology-version guard). cargo_version_requirements: crates more than one Cargo workspace declares; every Cargo.toml literal requirement for the crate must equal it, members inherit with workspace = true (technology-version guard, root ADR-0256). Other documents point here instead of restating them.",
-  "rust_toolchain": "1.96.0",
+  "rust_toolchain": "1.99.1",
   "cargo_version_requirements": {
     "jsonwebtoken": "11.1",
     "utoipa": "5"
@@ -10,13 +10,13 @@
     "node": "24.20.0",
     "pnpm": "9.12.0",
     "packageManager": "pnpm@9.12.0",
-    "next": "16.3.8",
+    "next": "16.4.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "5.9.3",
     "tailwindcss": "4.3.3",
-    "vite": "8.2.2",
-    "vitest": "5.0.0",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
     "turbo": "2.10.12",
     "@biomejs/biome": "2.5.12",
     "@tailwindcss/postcss": "4.3.3"
@@ -51,7 +51,7 @@
     "prom/prometheus:v3.5.0": "sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
     "python:3.11-bookworm": "sha256:b7ae8a4dcc0ab327e333c5e46a3eaa6c1b0ff585bed77e01cd6de4be1325837e",
     "redpandadata/redpanda:v24.3.6": "sha256:04baa40ed34edf86028396f762be802f3b6b0acaab65e9de696a3f15d54c550f",
-    "rust:1.96.0-bookworm": "sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc",
+    "rust:1.99.1-bookworm": "sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e",
     "trinodb/trino:481": "sha256:5b5e0a97f599a30a2e23c7c7061e4e4d546a914b4fad2a2a002998140ceb4006",
     "ubuntu:24.04": "sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3",
     "valkey/valkey:8-alpine": "sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec"

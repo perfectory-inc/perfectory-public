@@ -42,6 +42,9 @@ class KindSpec:
         self.kind = by_pnu_kinds.kind(lane)
         if self.kind.host != "parcel_by_pnu_gateway":
             raise ValueError(f"{lane}: this producer builds parcel kinds; {self.kind.host} has no section table yet")
+        if not self.kind.follows_host_panel:
+            raise ValueError(f"{lane}: a kind with its own producer ({self.kind.producer}) is built there, not from a "
+                             f"panel section (root ADR-0287)")
         self.section = panel.SECTIONS_BY_NAME[self.kind.section]
         self.contract = load_lakehouse_contract(self.kind.gold_table)
         self.gold_columns = column_names(self.contract)

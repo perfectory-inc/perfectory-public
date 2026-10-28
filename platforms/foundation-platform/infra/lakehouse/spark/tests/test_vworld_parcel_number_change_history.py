@@ -321,8 +321,18 @@ class TableContractTest(unittest.TestCase):
         from platform_contracts import column_names, load_lakehouse_contract  # noqa: PLC0415
 
         rows = job.table_rows(job.parse_rows(SAMPLE, CONTRACT), member=MEMBER, source_record_id="k",
-                              source_snapshot_id="s", provider_updated_on=date(2099, 9, 15), now=NOW)
+                              source_snapshot_id="s", provider_updated_on=date(2099, 9, 15), now=NOW,
+                              contract=CONTRACT)
         self.assertEqual(set(rows[0]), set(column_names(load_lakehouse_contract(job.TABLE_CONTRACT))))
+        self.assertEqual({row["source_region_code"] for row in rows}, {"99"})
+
+    def test_the_region_code_is_the_member_names_province(self):
+        # Root ADR-0286: the edition group. An old-name file keeps its own code beside the renamed one.
+        self.assertEqual(job.region_code("ABPD_UNQ_NO_CHG_HIST_98_209801.txt", CONTRACT), "98")
+        self.assertEqual(job.region_code(MEMBER, CONTRACT), "99")
+        for broken in ("ABPD_UNQ_NO_CHG_HIST_9_209909.txt", "ABPD_UNQ_NO_CHG_HIST_99_209909.csv", "other.txt"):
+            with self.subTest(member=broken), self.assertRaises(job.SourceFormatError):
+                job.region_code(broken, CONTRACT)
 
 
 if __name__ == "__main__":

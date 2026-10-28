@@ -364,7 +364,8 @@ class Contract(unittest.TestCase):
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))
         self.assertEqual(rebuild.producer_inputs(prices), (prices.ALL_SOURCES, {}, prices.TITLE_SOURCE))
         producers = {"gold.parcel_panel": parcel, "gold.building_panel": building, "gold.unit_price": prices,
-                     **{kind.gold_table: kinds_job for kind in kinds.values()}}
+                     **{kind.gold_table: kinds_job if kind.follows_host_panel else __import__(kind.producer)
+                        for kind in kinds.values()}}
         # Every unmeasured input is one the producer actually reads.
         for name, entry in contract["tables"].items():
             producer = producers[name]
@@ -386,6 +387,15 @@ class Contract(unittest.TestCase):
         for lane, kind in kinds.items():
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
+            if not kind.follows_host_panel:
+                # Root ADR-0287: its own producer and inputs, no host pin, always a whole rebuild.
+                self.assertEqual(entry["producer"], kind.producer)
+                self.assertNotIn("pins_from", entry)
+                self.assertNotIn("incremental", entry)
+                producer = __import__(kind.producer)
+                required, _, anchor = rebuild.producer_inputs(producer, entry)
+                self.assertEqual(anchor, parcel.PARCEL_SOURCE)
+                continue
             self.assertEqual(entry["pins_from"]["gold_table"], kind.host_panel)
             self.assertEqual(entry["pins_from"]["inputs"], "all")
             self.assertEqual(entry["pins_from"]["parity_argument"], "--parity-panel-snapshot-id")
@@ -416,6 +426,60 @@ class Contract(unittest.TestCase):
                 path.write_text(json.dumps(bad), encoding="utf-8")
                 with self.assertRaises(rebuild.PlanError):
                     rebuild.load_contract(path)
+
+
+
+class OwnProducerKind(unittest.TestCase):
+    """Root ADR-0287: a kind line naming its own producer is served on its host's lane but is built
+    from its own Silver, so it is neither pinned to nor checked against the host panel."""
+
+    LINES = {
+        "parcel-zoning": {"host": "parcel_by_pnu_gateway", "kind": "zoning", "section": "zonings",
+                          "columns": ["zonings_json"]},
+        "parcel-example": {"host": "parcel_by_pnu_gateway", "kind": "example", "section": "example",
+                           "columns": ["example_json"], "producer": "example_silver_to_gold"},
+    }
+
+    def kinds(self, lines):
+        import tempfile
+        import by_pnu_kinds
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "r2.json"
+            path.write_text(json.dumps({"by_pnu_lanes": lines}), encoding="utf-8")
+            return by_pnu_kinds.kinds(path)
+
+    def test_its_entry_names_its_producer_and_carries_no_host_pin(self):
+        kinds = self.kinds(self.LINES)
+        self.assertTrue(kinds["parcel-zoning"].follows_host_panel)
+        self.assertFalse(kinds["parcel-example"].follows_host_panel)
+        template = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))["kind_tables"]
+        tables = rebuild.kind_tables(template, kinds, {"gold.parcel_panel": {"unmeasured_inputs": {"silver.x": "fixture"}}})
+        own = tables["gold.parcel_example"]
+        self.assertEqual((own["producer"], own["producer_arguments"]), ("example_silver_to_gold", ["--lane", "parcel-example"]))
+        self.assertNotIn("pins_from", own)
+        self.assertNotIn("unmeasured_inputs", own, "the host panel's input notes are not its")
+        section = tables["gold.parcel_zoning"]
+        self.assertEqual(section["producer"], template["producer"])
+        self.assertEqual(section["pins_from"]["gold_table"], "gold.parcel_panel")
+
+    def test_a_producer_that_is_not_a_module_name_is_refused(self):
+        bad = {**self.LINES, "parcel-example": {**self.LINES["parcel-example"], "producer": "../evil.py"}}
+        with self.assertRaises(ValueError):
+            self.kinds(bad)
+
+    def test_the_public_auction_kind_overrides_the_row_loss_bound_for_auction_volatility(self):
+        # Root ADR-0287: the 공매 kind's rows are the parcels with an OPEN auction, which open and
+        # close daily, so its count swings far more than the 1% stable-register default. Its
+        # kind_tables.overrides entry gives it a wider bound + reason; other kinds keep the default.
+        lines = {**self.LINES, "parcel-public-auction": {
+            "host": "parcel_by_pnu_gateway", "kind": "public-auction", "section": "public_auction",
+            "columns": ["public_auction_json"], "producer": "onbid_public_auction_silver_to_gold"}}
+        template = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))["kind_tables"]
+        tables = rebuild.kind_tables(template, self.kinds(lines), {"gold.parcel_panel": {}})
+        public_auction, zoning = tables["gold.parcel_public_auction"], tables["gold.parcel_zoning"]
+        self.assertEqual(public_auction["max_row_loss_fraction"], 0.5, "공매 uses its auction-volatility override")
+        self.assertIn("auction", public_auction["max_row_loss_reason"].lower())
+        self.assertEqual(zoning["max_row_loss_fraction"], 0.01, "a kind without an override keeps the stable default")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ use crate::http::request_id::RequestId;
 
 /// HTTP `User-Agent` 헤더 도메인 합리적 상한 (SP-Obs T3). DB `audit_log.user_agent`
 /// 는 `text` (무제한) 라 상한이 도메인 정책 — 추적 가치 vs storage 트레이드오프.
+#[allow(dead_code)] // MutationContextBuilder 만 쓴다 — 핸들러 미마이그(아래 struct 와 같은 이유).
 const UA_MAX_LEN: usize = 500;
 
 /// HTTP 요청 → `MutationContext::new_user_action(actor_id, correlation_id, action)`.
@@ -83,7 +84,18 @@ where
 {
     type Rejection = ProblemResponse;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        // Nothing to await: everything comes from the request's headers and extensions.
+        std::future::ready(Self::from_parts(parts))
+    }
+}
+
+impl MutationContextBuilder {
+    #[allow(dead_code)] // the extractor is its only caller; no handler adopts it yet.
+    fn from_parts(parts: &Parts) -> Result<Self, ProblemResponse> {
         let auth = parts
             .extensions
             .get::<AuthenticatedUser>()
@@ -119,6 +131,7 @@ where
 /// **production trust boundary 주의**: ALB / Cloudflare 가 *마지막 hop* 만
 /// trusted 이라면 first IP 가 client (정상). 직접 노출 환경에서는 스푸핑 가능 —
 /// SP8 `IaC` 단계에서 trusted proxy hop count 명시 (1차 = first IP 채택).
+#[allow(dead_code)] // MutationContextBuilder 만 쓴다 — 핸들러 미마이그.
 fn extract_client_ip(parts: &Parts) -> Option<String> {
     parts
         .headers
@@ -131,6 +144,7 @@ fn extract_client_ip(parts: &Parts) -> Option<String> {
 }
 
 /// `User-Agent` header → ≤500자 trim. 한글 / multibyte 안전 (chars iter).
+#[allow(dead_code)] // MutationContextBuilder 만 쓴다 — 핸들러 미마이그.
 fn extract_user_agent(parts: &Parts) -> Option<String> {
     parts
         .headers

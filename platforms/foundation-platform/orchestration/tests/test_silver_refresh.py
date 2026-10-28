@@ -179,7 +179,7 @@ class TheJobOutcome(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / self.RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("silver-refresh.sh", "admitted-writer-runtime.sh"):
+        for name in ("silver-refresh.sh", "admitted-writer-runtime.sh", "held-lock.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (base / "current").symlink_to(pathlib.Path("releases") / self.RELEASE_ID)

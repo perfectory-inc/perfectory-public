@@ -36,7 +36,7 @@ perfectory 모노레포의 `products/gongzzang` 영역이다. 전 영역 공통 
 
 ## 빠른 시작
 
-Rust 툴체인은 모노레포 루트 `rust-toolchain.toml`(1.96.0 단일 핀)이 rustup의 상위 디렉토리
+Rust 툴체인은 모노레포 루트 `rust-toolchain.toml`(단일 핀, 값은 `tools/technology-versions.contract.json` 의 `rust_toolchain`)이 rustup의 상위 디렉토리
 탐색으로 자동 적용된다 — 별도 install/default 명령 불필요, 영역 내 toolchain 파일 생성 금지.
 
 ```bash

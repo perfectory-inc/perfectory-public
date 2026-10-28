@@ -9,7 +9,7 @@ last_reviewed: 2026-07-29
 
 ## 1. 도구
 
-- **rustc**: 1.96.0 (모노레포 **루트** `rust-toolchain.toml` 단일 고정 — 영역별 toolchain 파일은 가드가 금지)
+- **rustc**: `tools/technology-versions.contract.json` 의 `rust_toolchain` (모노레포 **루트** `rust-toolchain.toml` 단일 고정 — 영역별 toolchain 파일은 가드가 금지)
 - **포맷**: rustfmt (`rustfmt.toml`)
 - **lint**: clippy pedantic + nursery (`clippy.toml` + `Cargo.toml [workspace.lints]`)
 - **공급망**: cargo-audit + cargo-deny (`deny.toml`)
@@ -85,7 +85,7 @@ pub enum ListingError {
 ## 5. async / 동시성
 
 - 런타임: `tokio` 풀 기능 (`features = ["full"]`)
-- async trait: `async-trait` crate (Rust 1.96.0 기준 stable async fn in trait 사용 가능)
+- async trait: `async-trait` crate (현재 툴체인 기준 stable async fn in trait 사용 가능)
 - `.await` 후 lock 보유 금지 (deadlock 위험)
 - `Arc<Mutex<T>>`보다 actor 패턴 또는 channel 선호
 

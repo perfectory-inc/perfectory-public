@@ -1,6 +1,6 @@
 # ADR 0283: 법원경매 수집기의 User-Agent 는 연락처 없이 우리 이름만 밝힌다
 
-- Status: Accepted
+- Status: Superseded by ADR-0289
 - Date: 2026-10-19
 - Amends: [ADR-0281](./0281-court-auction-is-collected-openly-politely-and-stops-when-refused.md) §1 (연락처를 필수에서 선택으로)
 

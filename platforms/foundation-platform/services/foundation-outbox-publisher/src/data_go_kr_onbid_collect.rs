@@ -72,15 +72,18 @@ pub(crate) enum Api {
     AnnouncementBidResultList,
     ItemList,
     ItemBidResult,
+    /// 물건상세 (getRlstDtlInf2): the open item conditions' full detail, incl. photo/attachment URLs.
+    ItemDetail,
 }
 
 impl Api {
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 4] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::AnnouncementList,
         Self::AnnouncementBidResultList,
         Self::ItemList,
         Self::ItemBidResult,
+        Self::ItemDetail,
     ];
 
     pub(crate) const fn name(self) -> &'static str {
@@ -89,6 +92,7 @@ impl Api {
             Self::AnnouncementBidResultList => "announcement_bid_result_list",
             Self::ItemList => "item_list",
             Self::ItemBidResult => "item_bid_result",
+            Self::ItemDetail => "item_detail",
         }
     }
 }
@@ -108,6 +112,10 @@ pub(crate) struct Endpoint {
     pub(crate) opening_window_days_after: Option<i64>,
     #[serde(default)]
     pub(crate) private_contract_flags: Vec<String>,
+    /// At most this many of this endpoint's item-keyed calls per run, so one run stays within the
+    /// job's time limit (item_detail backfills many open items; without this the run times out).
+    #[serde(default)]
+    pub(crate) per_run_limit: Option<u32>,
     #[serde(default)]
     pub(crate) retry_after_hours: Option<i64>,
     #[serde(default)]
@@ -119,6 +127,27 @@ pub(crate) struct Endpoint {
 pub(crate) struct ResultCodes {
     pub(crate) ok: String,
     pub(crate) no_data: String,
+}
+
+/// How 물건상세 photos and appraisal attachments are mirrored to the shared content-addressed store
+/// (ADR-0296 §2 / ADR-0297). Consumed by `onbid_media`.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Media {
+    /// Object-key prefix the content-addressed media lands under (`<prefix>/sha256/<hash>.<ext>`).
+    pub(crate) object_prefix: String,
+    /// The only host whose URLs are fetched (the provider serves all media from `www.onbid.co.kr`).
+    pub(crate) url_host: String,
+    /// Downloads attempted per KST day; the day's total across runs.
+    pub(crate) daily_download_limit: u32,
+    /// Downloads attempted in one collect run — bounds one run's wall time (attempts ×
+    /// `download_timeout_seconds`) so a high daily budget cannot make a run exceed its time limit
+    /// (ADR-0300 H: every collection job declares a per-run bound).
+    pub(crate) per_run_limit: u32,
+    /// Per-download timeout (seconds); short because photos are small — a hung link must not let the
+    /// media step eat the job's time limit.
+    pub(crate) download_timeout_seconds: u64,
+    /// A single file larger than this is not stored (safety valve; root: the 5.89 GB single-PUT stall).
+    pub(crate) max_file_bytes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -135,6 +164,8 @@ pub(crate) struct SourceContract {
     pub(crate) announcement_list: Endpoint,
     pub(crate) announcement_bid_result_list: Endpoint,
     pub(crate) item_bid_result: Endpoint,
+    pub(crate) item_detail: Endpoint,
+    pub(crate) media: Media,
 }
 
 impl SourceContract {
@@ -144,6 +175,7 @@ impl SourceContract {
             Api::AnnouncementBidResultList => &self.announcement_bid_result_list,
             Api::ItemList => &self.item_list,
             Api::ItemBidResult => &self.item_bid_result,
+            Api::ItemDetail => &self.item_detail,
         }
     }
 
@@ -191,6 +223,10 @@ pub(crate) struct Budget {
     pub(crate) calls: BTreeMap<String, u32>,
     /// APIs the gateway answered 429 for on this day.
     pub(crate) quota_refused: BTreeSet<String>,
+    /// 물건상세 media downloads attempted on this KST day (ADR-0296 §2), bounded by the contract's
+    /// `media.daily_download_limit`.
+    #[serde(default)]
+    pub(crate) media_downloads: u32,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -208,6 +244,10 @@ pub(crate) struct State {
     /// Closed conditions the provider still had no result for after `max_asks`.
     #[serde(default)]
     pub(crate) results_given_up: u64,
+    /// Open item conditions whose 물건상세 (getRlstDtlInf2) we have already fetched, so a later run
+    /// asks only the new ones. Pruned each run to the still-open set, so it cannot grow unbounded.
+    #[serde(default)]
+    pub(crate) detailed: BTreeSet<ItemKey>,
 }
 
 impl State {
@@ -565,6 +605,12 @@ pub(crate) struct RunReport {
     pub(crate) results_received: usize,
     pub(crate) results_not_yet: usize,
     pub(crate) results_owed: usize,
+    /// 물건상세 responses received this run (00 or 03 — both mark the condition detailed).
+    pub(crate) details_received: usize,
+    /// Open conditions still owed a 물건상세 after this run (budget or an isolated error stopped it).
+    pub(crate) details_owed: usize,
+    /// 물건상세 requests that errored this run; isolated so they never fail the run.
+    pub(crate) details_errored: usize,
     pub(crate) stopped_by_budget: Vec<String>,
 }
 
@@ -642,10 +688,18 @@ pub(crate) async fn collect(
     state
         .pending_results
         .sort_by_key(|pending| pending.closed_at_utc);
+    // At most this many bid-result asks per run, so a large owed backlog drains over many runs
+    // instead of one run walking thousands at the request spacing and exceeding the job's time
+    // limit (incident 2026-10-26: ~7,600 owed × 0.5s blew past the limit after the daily budget reset).
+    let per_run = contract
+        .item_bid_result
+        .per_run_limit
+        .map_or(usize::MAX, |limit| limit as usize);
+    let mut asked = 0usize;
     let mut kept = Vec::with_capacity(state.pending_results.len());
     let mut stopped = false;
     for mut pending in std::mem::take(&mut state.pending_results) {
-        if stopped || pending.next_ask_at_utc > now {
+        if stopped || asked >= per_run || pending.next_ask_at_utc > now {
             kept.push(pending);
             continue;
         }
@@ -664,8 +718,12 @@ pub(crate) async fn collect(
                     .push(Api::ItemBidResult.name().to_owned());
                 kept.push(pending);
             }
-            Sent::Answer(Answer::Rows { .. }) => report.results_received += 1,
+            Sent::Answer(Answer::Rows { .. }) => {
+                asked += 1;
+                report.results_received += 1;
+            }
             Sent::Answer(Answer::NoData) => {
+                asked += 1;
                 pending.asks += 1;
                 if pending.asks >= max_asks {
                     state.results_given_up += 1;
@@ -679,6 +737,60 @@ pub(crate) async fn collect(
     }
     state.pending_results = kept;
     report.results_owed = state.pending_results.len();
+
+    // 물건상세 (getRlstDtlInf2, ADR-0296 §1 / ADR-0297): the full detail of each open item condition
+    // we have not detailed yet, oldest key first, within the item-detail daily budget. The response's
+    // photo and attachment URLs are mirrored to R2 in a later stage; here the detail only lands in
+    // Bronze. A detail failure is isolated — counted and the loop stops, but the run still succeeds —
+    // so a detail problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
+    if let Some(open) = state.open_items.clone() {
+        state.detailed.retain(|key| open.contains(key));
+        // Only a bounded slice of the owed details per run, so the run finishes within the job's
+        // time limit (the full backfill is spread over many runs). Without this the loop walks every
+        // open item in one run and the job times out before persisting anything (incident 2026-10-26).
+        let per_run = contract
+            .item_detail
+            .per_run_limit
+            .map_or(usize::MAX, |limit| limit as usize);
+        let owed: Vec<ItemKey> = open
+            .iter()
+            .filter(|key| !state.detailed.contains(key))
+            .take(per_run)
+            .cloned()
+            .collect();
+        for key in owed {
+            let params = [
+                ("cltrMngNo", key.cltr_mng_no.clone()),
+                ("pbctCdtnNo", key.pbct_cdtn_no.to_string()),
+            ];
+            match fetcher.send(state, Api::ItemDetail, &params, now).await {
+                Ok(Sent::OverBudget | Sent::Answer(Answer::QuotaRefused)) => {
+                    report
+                        .stopped_by_budget
+                        .push(Api::ItemDetail.name().to_owned());
+                    break;
+                }
+                // 00 rows or 03 no-data: the provider answered and the line is in Bronze; mark the
+                // condition detailed so a later run does not ask it again.
+                Ok(Sent::Answer(Answer::Rows { .. } | Answer::NoData)) => {
+                    state.detailed.insert(key);
+                    report.details_received += 1;
+                }
+                Err(error) => {
+                    // The request's raw body was already kept as a Bronze line; stop so a broken
+                    // endpoint does not spend the day's budget, and let the run still succeed.
+                    report.details_errored += 1;
+                    tracing::warn!(error = %error, "Onbid item detail fetch failed; isolated from the run");
+                    break;
+                }
+            }
+        }
+        report.details_owed = open
+            .iter()
+            .filter(|key| !state.detailed.contains(key))
+            .count();
+    }
+
     report.stopped_by_budget.dedup();
     Ok(report)
 }
@@ -984,6 +1096,7 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     let mut objects = Vec::new();
+    let mut media_report: Option<crate::onbid_media::MediaReport> = None;
     if config.live_write {
         live_write_target_preflight().context("Onbid collection live-write preflight failed")?;
         let pool = PgPool::connect(&required_env_value("DATABASE_URL")?)
@@ -993,6 +1106,40 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_object_storage_from_env()
             .await
             .context("failed to configure object storage for Onbid collection")?;
+        // ADR-0296 §2 / ADR-0297: mirror this run's 물건상세 photos & appraisal attachments to the
+        // shared content-addressed store, using the just-fetched (fresh, not-yet-expired) URLs, and
+        // rewrite the detail lines to point at each stored blob by hash (root ADR-0290 §7) so the
+        // detail Bronze object persisted below carries the sha256 refs the Silver photo loader reads.
+        // Done BEFORE persist so those refs land in Bronze. The whole step is isolated — a client-build
+        // or download failure is logged, leaves the detail lines unchanged, and never fails the run.
+        if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail).cloned() {
+            match reqwest::Client::builder()
+                .user_agent(contract.user_agent.clone())
+                .timeout(Duration::from_secs(contract.media.download_timeout_seconds))
+                .build()
+            {
+                Ok(http) => {
+                    let (report, used, rewritten) = crate::onbid_media::mirror_detail_lines(
+                        &detail_lines,
+                        &contract.media.object_prefix,
+                        &contract.media.url_host,
+                        contract.media.max_file_bytes,
+                        contract.media.daily_download_limit,
+                        contract.media.per_run_limit,
+                        state.budget.media_downloads,
+                        storage.as_ref(),
+                        &http,
+                    )
+                    .await;
+                    state.budget.media_downloads = used;
+                    media_report = Some(report);
+                    fetcher.lines.insert(Api::ItemDetail, rewritten);
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "onbid media HTTP client build failed; skipping media");
+                }
+            }
+        }
         for (api, lines) in &fetcher.lines {
             objects.push(
                 persist(
@@ -1028,6 +1175,7 @@ pub async fn run() -> anyhow::Result<()> {
         "live_write": config.live_write,
         "report": report,
         "calls": state.budget.calls,
+        "media": media_report,
         "objects": objects,
     });
     write_json_file(&config.output_dir.join("manifest.json"), &manifest)?;
@@ -1041,8 +1189,20 @@ pub async fn run() -> anyhow::Result<()> {
         objects = objects.len(),
         item_pass_complete = report.item_pass_complete,
         results_received = report.results_received,
+        details_received = report.details_received,
+        media_downloaded = media_report.as_ref().map_or(0, |media| media.downloaded),
+        media_bytes = media_report.as_ref().map_or(0, |media| media.bytes_stored),
         "Onbid collection succeeded"
     );
+    // A durable, grep-able line so the first collection's real photo volume is readable from the
+    // persistent run.log (the manifest is deleted after a successful run): this is the measurement
+    // that sizes ADR-0296 Stage B before `media.daily_download_limit` is raised.
+    if let Some(media) = &media_report {
+        println!(
+            "onbid-media-summary-json {}",
+            serde_json::to_string(media).unwrap_or_default()
+        );
+    }
     println!(
         "foundation-job-outcome {}",
         if objects.iter().any(|object| object.written) {

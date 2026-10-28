@@ -97,11 +97,12 @@
       ],
       "lineage_stewardship": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_registry": [{"project": "foundation-platform-compute", "service": "spark"}],
-      "onbid_public_sale_silver": [{"project": "foundation-platform-compute", "service": "spark-small"}],
+      "onbid_public_auction_silver": [{"project": "foundation-platform-compute", "service": "spark-small"}],
       "registered_factory": [{"project": "foundation-platform-compute", "service": "spark"}],
       "court_auction_silver": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_public_auction_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_served_gold": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_tile_bake": [

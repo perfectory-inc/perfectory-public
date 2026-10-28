@@ -41,6 +41,8 @@ command = sys.argv[1]
 env = {key: value for key, value in os.environ.items() if "_BY_PNU_SERVING_" in key}
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": command, "env": env}) + "\n")
+if os.environ.get("FAKE_EXIT_COMMAND") == command:
+    sys.exit(int(os.environ["FAKE_EXIT_CODE"]))
 lane = "PARCEL" if "parcel" in command else "BUILDING"
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
 if command.startswith("show-") and os.environ.get("FAKE_NOT_CUT_OVER") == command:
@@ -239,7 +241,7 @@ class ByPnuServingBake(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("by-pnu-serving-bake.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh"):
+        for name in ("by-pnu-serving-bake.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh", "held-lock.sh"):
             (release / "scripts/ops" / name).write_bytes((OPS / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         # A lane's derived fields (the lane it follows) are read through it (root ADR-0193 §9).
@@ -819,6 +821,41 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(calls, [], "a second run of the lane went ahead")
         result, calls = self.patch_bake()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_a_scheduled_run_waits_for_a_lane_another_run_holds_and_still_fails_on_anything_else(self):
+        # 2026-10-19: an operator's attended full parcel bake held the lane; the scheduled run beside it
+        # exited 75, showed red and sent a failure notice. Waiting for that run is not a failure.
+        import fcntl
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        for lane in ("parcel", "building"):
+            with self.subTest(held=lane):
+                lock = self.state_root / lane / "lane.lock"
+                lock.parent.mkdir(parents=True, exist_ok=True)
+                with open(lock, "a") as held:
+                    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.log.unlink(missing_ok=True)
+                    by_hand, _ = self.bake("all", FAKE_GOLD="101")
+                    self.log.unlink(missing_ok=True)
+                    result, calls = self.bake("all", FAKE_GOLD="101", FOUNDATION_JOB_SERVICE="1")
+                # By hand the run stops there (75), so a chain that started it does not go on.
+                self.assertEqual(by_hand.returncode, 75, by_hand.stdout)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                last = result.stdout.splitlines()[-1]
+                self.assertTrue(last.startswith(f"foundation-job-outcome waiting the lanes {lane}"), last)
+                self.assertTrue(last.endswith(" is held by another run"), last)
+                self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
+                self.assertNotIn(f"show-{lane}-by-pnu-serving-state", [call["command"] for call in calls])
+        # A lane whose documents follow the held one waits with it (root ADR-0190).
+        self.assertIn("by-pnu-serving-bake unit-price: waiting: the building lane it follows is held by another run",
+                      result.stdout)
+        self.assertNotIn("show-unit-price-by-pnu-serving-state", [call["command"] for call in calls])
+        # The same exit from anything but the held lock is still a failure, in the job's own service too.
+        self.log.unlink(missing_ok=True)
+        result, _ = self.bake("all", FAKE_GOLD="101", FAKE_EXIT_COMMAND="show-parcel-by-pnu-serving-state",
+                              FAKE_EXIT_CODE="75", FOUNDATION_JOB_SERVICE="1")
+        self.assertEqual(result.returncode, 75, result.stdout)
+        self.assertTrue(result.stdout.splitlines()[-1].startswith("foundation-job-outcome failed parcel"), result.stdout)
+        self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
 
     def test_a_verified_rebase_over_half_the_table_is_not_a_delta(self):
         result, calls = self.patch_bake(FAKE_REBASE_FAIL="900 of 1000 PNUs differ: not a delta", **self.REBASE)

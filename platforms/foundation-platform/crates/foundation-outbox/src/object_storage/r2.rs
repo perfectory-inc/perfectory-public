@@ -868,18 +868,27 @@ impl ObjectStorageService for R2ObjectStorage {
     }
 
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError> {
-        let output = self
+        // A missing object is Ok(None), not an error: content-addressed writers HEAD before every
+        // write and the key is usually absent (the sibling read_object_sha256_and_size_by_rehash
+        // already maps not-found this way, and the file adapter + object_storage tests fix the
+        // contract as "absent => None"). Mapping 404 to Err made every first-time media write fail
+        // with "media head failed" (2026-10-26: onbid photos, 20/20 errored, 0 stored).
+        let output = match self
             .client
             .head_object()
             .bucket(&self.bucket_name)
             .key(key)
             .send()
             .await
-            .map_err(|error| {
-                PublishError::Broadcaster(format!(
+        {
+            Ok(output) => output,
+            Err(error) if is_r2_not_found(&error) => return Ok(None),
+            Err(error) => {
+                return Err(PublishError::Broadcaster(format!(
                     "failed to head R2 object for checksum {key}: {error}"
-                ))
-            })?;
+                )))
+            }
+        };
         // R2 returns user metadata with the `x-amz-meta-` prefix already stripped by the SDK, so the
         // bare `sha256` key is what we stamped on write. Absent => the object has no stored checksum.
         Ok(output

@@ -88,10 +88,17 @@ class PlanMode(unittest.TestCase):
         decision = self.plan(gold(merged), silver(a=("11", "12", "13")))
         self.assertEqual(decision["previous_source_snapshots"], {"silver.a": "12", "silver.b": "21"})
 
-    def test_the_contract_declares_incremental_for_both_tables_with_a_reason(self):
+    def test_incremental_is_declared_wherever_a_rebuild_can_merge(self):
         contract = rebuild.load_contract()
         for name, table in contract["tables"].items():
-            self.assertIn("incremental", table, name)
+            # Root ADR-0287: a kind with its own producer (a --lane argument, no host-panel pin) reads
+            # its own inputs at their own heads and rebuilds whole, so it carries no incremental merge;
+            # a panel and a kind pinned to its host panel merge only the changed PNUs and must declare it.
+            own_producer = "pins_from" not in table and table.get("producer_arguments", [])[:1] == ["--lane"]
+            if own_producer:
+                self.assertNotIn("incremental", table, name)
+            else:
+                self.assertIn("incremental", table, name)
         broken = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
         broken["tables"]["gold.building_panel"]["incremental"]["max_changed_key_fraction"] = 0
         path = Path(self.id().replace(".", "_") + ".json")

@@ -763,6 +763,28 @@ def build_legal_dong(parcels: DataFrame, names: DataFrame) -> DataFrame:
     )
 
 
+def collect_sorted_unique(frame, dedup_keys, order_by, entry, sort_comparator):
+    """One row per PNU: for each `dedup_keys` group keep the entry whose `order_by` columns are
+    smallest (nulls first, as a `row_number()` asc_nulls_first window picks row 1), then collect the
+    kept entries per PNU ordered by `sort_comparator`. Returns `pnu` and `sorted_entries` (an array).
+
+    The dedup is `min()` over a struct of (order_by..., entry): Spark reduces it map-side before the
+    shuffle and orders struct fields nulls-first ascending (matching asc_nulls_first). A `row_number()`
+    window cannot reduce map-side — it sorts each whole partition on one executor, the spill that made
+    the full rebuild time out (measured 2026-10-22: the full parcel-panel rebuild hit its 160-minute
+    limit and failed). `dedup_keys` must contain "pnu"; `order_by` must be a total order within a group.
+    """
+    ordered = F.struct(*(c.alias(f"_o{i}") for i, c in enumerate(order_by)), entry.alias("_entry"))
+    chosen = (
+        frame.groupBy(*dedup_keys)
+        .agg(F.min(ordered).alias("_pick"))
+        .select("pnu", F.col("_pick._entry").alias("entry"))
+    )
+    return chosen.groupBy("pnu").agg(
+        F.expr(f"array_sort(collect_list(entry), {sort_comparator})").alias("sorted_entries")
+    )
+
+
 def build_transfer_history(transfer: DataFrame) -> DataFrame:
     missing_parcel_seq = transfer.where(
         F.col("parcel_history_seq").isNull() | (F.length(F.trim(F.col("parcel_history_seq"))) == 0)
@@ -786,54 +808,49 @@ def build_transfer_history(transfer: DataFrame) -> DataFrame:
         "area_m2",
         "closure_seq",
     )
-    # The loader's DISTINCT ON identity with its NULLS FIRST total order over the payload.
-    dedup = Window.partitionBy("pnu", "transfer_history_seq", "parcel_history_seq").orderBy(
-        F.col("reason_code").asc_nulls_first(),
-        F.col("reason").asc_nulls_first(),
-        F.col("moved_at").asc_nulls_first(),
-        F.col("erased_at").asc_nulls_first(),
-        F.col("land_category").asc_nulls_first(),
-        F.col("area_m2").asc_nulls_first(),
-        F.col("closure_seq").asc_nulls_first(),
+    # One entry per (pnu, transfer_history_seq, parcel_history_seq) — the loader's DISTINCT ON
+    # identity — kept by the loader's NULLS FIRST total order over the payload. Every entry field is
+    # a dedup key or an order column, so a tie in the order picks an identical entry: the result is
+    # byte-for-byte what the row_number() window produced, without its whole-partition sort.
+    entry = F.struct(
+        F.col("reason"),
+        F.col("reason_code"),
+        F.col("moved_at"),
+        F.col("erased_at"),
+        F.col("land_category"),
+        F.col("area_m2"),
+        F.col("transfer_history_seq").alias("history_seq"),
+        F.col("parcel_history_seq"),
+        F.col("closure_seq"),
     )
-    unique = (
-        normalized.withColumn("_row_number", F.row_number().over(dedup))
-        .where(F.col("_row_number") == 1)
-        .drop("_row_number")
-    )
-    entries = unique.select(
-        "pnu",
-        F.struct(
-            F.col("reason"),
+    collected = collect_sorted_unique(
+        normalized,
+        ["pnu", "transfer_history_seq", "parcel_history_seq"],
+        [
             F.col("reason_code"),
+            F.col("reason"),
             F.col("moved_at"),
             F.col("erased_at"),
             F.col("land_category"),
             F.col("area_m2"),
-            F.col("transfer_history_seq").alias("history_seq"),
-            F.col("parcel_history_seq"),
             F.col("closure_seq"),
-        ).alias("entry"),
+        ],
+        entry,
+        # The API's ORDER BY: moved_at DESC NULLS LAST, history_seq DESC, parcel_history_seq
+        # DESC — moved_at and parcel_history_seq compare as text, history_seq as a number.
+        """(l, r) -> CASE
+            WHEN l.moved_at IS NULL AND r.moved_at IS NOT NULL THEN 1
+            WHEN l.moved_at IS NOT NULL AND r.moved_at IS NULL THEN -1
+            WHEN l.moved_at > r.moved_at THEN -1
+            WHEN l.moved_at < r.moved_at THEN 1
+            WHEN l.history_seq > r.history_seq THEN -1
+            WHEN l.history_seq < r.history_seq THEN 1
+            WHEN l.parcel_history_seq > r.parcel_history_seq THEN -1
+            WHEN l.parcel_history_seq < r.parcel_history_seq THEN 1
+            ELSE 0 END""",
     )
-    # The API's ORDER BY: moved_at DESC NULLS LAST, history_seq DESC, parcel_history_seq
-    # DESC — moved_at and parcel_history_seq compare as text, history_seq as a number.
-    return entries.groupBy("pnu").agg(
-        F.to_json(
-            F.expr(
-                """
-                array_sort(collect_list(entry), (l, r) -> CASE
-                    WHEN l.moved_at IS NULL AND r.moved_at IS NOT NULL THEN 1
-                    WHEN l.moved_at IS NOT NULL AND r.moved_at IS NULL THEN -1
-                    WHEN l.moved_at > r.moved_at THEN -1
-                    WHEN l.moved_at < r.moved_at THEN 1
-                    WHEN l.history_seq > r.history_seq THEN -1
-                    WHEN l.history_seq < r.history_seq THEN 1
-                    WHEN l.parcel_history_seq > r.parcel_history_seq THEN -1
-                    WHEN l.parcel_history_seq < r.parcel_history_seq THEN 1
-                    ELSE 0 END)
-                """
-            )
-        ).alias("transfer_history_json")
+    return collected.select(
+        "pnu", F.to_json(F.col("sorted_entries")).alias("transfer_history_json")
     )
 
 
@@ -852,52 +869,43 @@ def build_land_rights(land_right: DataFrame) -> DataFrame:
         F.col("closure_kind_name").alias("closure_kind"),
         "closure_kind_code",
     )
-    dedup = Window.partitionBy(
-        "pnu", "right_serial_no", "dong_name", "floor_name", "ho_name", "room_name"
-    ).orderBy(
-        F.col("building_name").asc_nulls_first(),
-        F.col("right_ratio").asc_nulls_first(),
-        F.col("closure_kind_code").asc_nulls_first(),
-        F.col("closure_kind").asc_nulls_first(),
+    # Every entry field is a dedup key or an order column, so a tie in the order picks an identical
+    # entry: the result matches the row_number() window the map-side min() replaces.
+    entry = F.struct(
+        F.col("right_serial_no"),
+        F.col("building_name"),
+        F.col("dong_name"),
+        F.col("floor_name"),
+        F.col("ho_name"),
+        F.col("room_name"),
+        F.col("right_ratio"),
+        F.col("closure_kind"),
+        F.col("closure_kind_code"),
     )
-    unique = (
-        normalized.withColumn("_row_number", F.row_number().over(dedup))
-        .where(F.col("_row_number") == 1)
-        .drop("_row_number")
-    )
-    entries = unique.select(
-        "pnu",
-        F.struct(
-            F.col("right_serial_no"),
+    collected = collect_sorted_unique(
+        normalized,
+        ["pnu", "right_serial_no", "dong_name", "floor_name", "ho_name", "room_name"],
+        [
             F.col("building_name"),
-            F.col("dong_name"),
-            F.col("floor_name"),
-            F.col("ho_name"),
-            F.col("room_name"),
             F.col("right_ratio"),
-            F.col("closure_kind"),
             F.col("closure_kind_code"),
-        ).alias("entry"),
+            F.col("closure_kind"),
+        ],
+        entry,
+        """(l, r) -> CASE
+            WHEN l.right_serial_no < r.right_serial_no THEN -1
+            WHEN l.right_serial_no > r.right_serial_no THEN 1
+            WHEN l.dong_name < r.dong_name THEN -1
+            WHEN l.dong_name > r.dong_name THEN 1
+            WHEN l.floor_name < r.floor_name THEN -1
+            WHEN l.floor_name > r.floor_name THEN 1
+            WHEN l.ho_name < r.ho_name THEN -1
+            WHEN l.ho_name > r.ho_name THEN 1
+            WHEN l.room_name < r.room_name THEN -1
+            WHEN l.room_name > r.room_name THEN 1
+            ELSE 0 END""",
     )
-    aggregated = entries.groupBy("pnu").agg(
-        F.expr(
-            """
-            array_sort(collect_list(entry), (l, r) -> CASE
-                WHEN l.right_serial_no < r.right_serial_no THEN -1
-                WHEN l.right_serial_no > r.right_serial_no THEN 1
-                WHEN l.dong_name < r.dong_name THEN -1
-                WHEN l.dong_name > r.dong_name THEN 1
-                WHEN l.floor_name < r.floor_name THEN -1
-                WHEN l.floor_name > r.floor_name THEN 1
-                WHEN l.ho_name < r.ho_name THEN -1
-                WHEN l.ho_name > r.ho_name THEN 1
-                WHEN l.room_name < r.room_name THEN -1
-                WHEN l.room_name > r.room_name THEN 1
-                ELSE 0 END)
-            """
-        ).alias("sorted_entries")
-    )
-    return aggregated.select(
+    return collected.select(
         "pnu",
         F.to_json(F.slice(F.col("sorted_entries"), 1, LAND_RIGHT_PAGE_BOUND)).alias(
             "land_rights_json"
@@ -1620,9 +1628,11 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         whole_table_inputs=WHOLE_TABLE_INPUTS,
     )
-    # Root ADR-0272: every section a kind line serves from this panel, by its first content column.
+    # Root ADR-0272: every section a kind line serves from this panel, by its first content column. A
+    # kind with its own producer (root ADR-0287) shares this panel's host lane but is not a section of
+    # it, so the panel does not write its column and the coverage guard must not look for it.
     sections = {kind.section: kind.columns[0] for kind in by_pnu_kinds.kinds().values()
-                if kind.host_panel == GOLD_CONTRACT_NAME}
+                if kind.host_panel == GOLD_CONTRACT_NAME and kind.follows_host_panel}
     coverage = section_coverage.guard_from_arguments(spark, args, qualified_target_table(args), sections,
                                                      frames.get(CODE_CHANGE_SOURCE), shares=True)
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous,

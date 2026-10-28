@@ -13,7 +13,10 @@ COMPOSE_FILE_RELATIVE="scripts/tiles/compose.yaml"
 HTTP_EVIDENCE_HELPER="$SCRIPT_DIR/http-evidence.sh"
 source "$HTTP_EVIDENCE_HELPER"
 
-RUST_IMAGE="rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc"
+RUST_IMAGE="rust:1.99.1-bookworm@sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e"
+# The toolchain is the image tag (rust:<version>-bookworm), so it is never spelled twice.
+RUST_TOOLCHAIN="${RUST_IMAGE#rust:}"
+RUST_TOOLCHAIN="${RUST_TOOLCHAIN%%-*}"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 COMPOSE_PROJECT="tiles-slice-proof-$$-${RANDOM}"
@@ -596,7 +599,7 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "$COMPOSE_NETWORK" \
   --workdir /work/platforms/foundation-platform \
   --env SQLX_OFFLINE=true \
   --env CARGO_TERM_COLOR=always \
-  --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
+  --env RUSTUP_TOOLCHAIN="${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu" \
   --env "FOUNDATION_MIGRATOR_DATABASE_URL=postgres://postgres:${TILES_SLICE_POSTGRES_PASSWORD}@postgis:5432/tiles_slice_proof" \
   "$RUST_IMAGE" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 for _ in 1 2; do
@@ -650,7 +653,7 @@ for source_id in parcels parcel_anchor_aggregate parcel_anchor; do
 done
 
 MSYS_NO_PATHCONV=1 docker run --rm \
-  --env RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu \
+  --env RUSTUP_TOOLCHAIN="${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu" \
   --volume "$REPO_HOST_PATH:/workspace" --workdir /workspace \
   "$RUST_IMAGE" rustc --edition=2021 -D warnings scripts/tiles/mvt_assert.rs \
   -o "/workspace/$DECODER_RELATIVE"

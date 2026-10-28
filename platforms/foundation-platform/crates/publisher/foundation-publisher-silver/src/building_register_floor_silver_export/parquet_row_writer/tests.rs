@@ -94,7 +94,7 @@ fn preserves_file_chunks_and_the_final_partial_chunk() -> Result<()> {
         }
         for batch in builder.build()? {
             let batch = batch?;
-            assert!(batch == expected.slice(offset, batch.num_rows()));
+            assert_eq!(batch, expected.slice(offset, batch.num_rows()));
             offset += batch.num_rows();
         }
     }

@@ -39,7 +39,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 
 | 역할 | canonical 기술/버전 | 근거·현재 상태 |
 |---|---|---|
-| Rust backend/toolchain | Rust `1.96.0` | 루트 `rust-toolchain.toml`, Docker builder, `docs/adr/0001`가 단일 기준. 실행 중 |
+| Rust backend/toolchain | Rust (`tools/technology-versions.contract.json` 의 `rust_toolchain`) | 루트 `rust-toolchain.toml`, Docker builder, `docs/adr/0001`가 단일 기준. 실행 중 |
 | HTTP backend | Axum `0.8`, Tokio workspace | 네 플랫폼의 API/worker Cargo manifest. 실행 중 |
 | JavaScript runtime | Node — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `.nvmrc`·CI `node-version`·package `engines`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | JavaScript package manager | pnpm — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `packageManager`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |

@@ -274,6 +274,12 @@ pub struct LatencyEvidence {
     /// live side was the lane's own object path. The publish holds it to the contract's.
     #[serde(default)]
     pub baseline_lane: Option<String>,
+    /// The lane's whole Gold document count (the equality evidence's `expected_documents`): a lane
+    /// of fewer than `latency_sample_size` documents is sampled whole, so its floor is the lane,
+    /// not a target it can never reach. `0` when unknown (old evidence, a stand-in), and then the
+    /// floor stays the full target.
+    #[serde(default)]
+    pub lane_documents: u64,
 }
 
 /// The environment a production probe names.
@@ -316,6 +322,15 @@ impl LatencyEvidence {
         #[allow(clippy::cast_precision_loss)]
         let enough_answered =
             self.answered as f64 >= self.sample_size as f64 * slo.availability_min;
+        // A lane of fewer documents than the target is sampled whole (every PNU is a candidate,
+        // `candidate_rate`), so its floor is the lane itself, not a target it can never reach
+        // (2026-10-23: the public-auction lane, 4,821 documents). The full target holds for any lane
+        // whose document count is unknown (`0`: old evidence, a stand-in).
+        let sample_floor = if self.lane_documents > 0 {
+            u64::try_from(gate.latency_sample_size)?.min(self.lane_documents)
+        } else {
+            u64::try_from(gate.latency_sample_size)?
+        };
         // A pack-only lane is timed against another lane's documents (root ADR-0190), so its own
         // p95 is also held to the contract's absolute bound.
         let within_absolute = crate::by_pnu_gateway_contract::ByPnuLane::from_unit(&self.lane)
@@ -324,7 +339,7 @@ impl LatencyEvidence {
                 self.pack_ms.p95 <= pack.latency_p95_max_ms
                     && (self.warm_answered == 0 || self.pack_warm_ms.p95 <= pack.latency_p95_max_ms)
             });
-        Ok(self.sample_size >= u64::try_from(gate.latency_sample_size)?
+        Ok(self.sample_size >= sample_floor
             && within_absolute
             && self.mismatched == 0
             && enough_answered

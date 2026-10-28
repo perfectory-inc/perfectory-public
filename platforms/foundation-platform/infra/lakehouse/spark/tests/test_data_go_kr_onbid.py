@@ -58,6 +58,18 @@ class PnuTest(unittest.TestCase):
         self.assertEqual(row["ltno_pnu_raw"], "99999-bad")
         self.assertEqual(job.item_row(item(), CONTRACT)["ltno_pnu_raw"], "9999999999000010000")
 
+    def test_a_superseded_onbid_code_carries_to_the_current_pnu(self) -> None:
+        # ADR-0288 §1: 공매's format-valid source code is resolved to the CURRENT pnu, not kept as the
+        # old one. Synthetic codes (reserved 99999 namespace); the real case is a 분구 (화성시 → 동탄구).
+        import place_identity_resolver as resolver  # noqa: PLC0415
+
+        row = job.item_row(item(ltnoPnu="9999900100009120008"), CONTRACT)
+        self.assertEqual(row["pnu"], "9999900100109120008")  # format-valid source code: the resolver's input
+        self.assertEqual(row["ltno_pnu_raw"], "9999900100009120008")
+        remap, _ambiguous = resolver.code_crosswalk([("9999900100", "9999900200")])
+        current = resolver.with_current_code(row["pnu"], remap[row["pnu"][:10]])
+        self.assertEqual(current, "9999900200109120008")
+
 
 class ValueTest(unittest.TestCase):
     def test_provider_minutes_are_korean_time(self) -> None:
@@ -110,6 +122,45 @@ class ContractTest(unittest.TestCase):
         for name in (*job.KEY, *job.LOAD_COLUMNS):
             self.assertNotIn(name, content)
         self.assertIn("pbct_stat_cd", content)
+
+
+class PhotoTest(unittest.TestCase):
+    @staticmethod
+    def _detail(items):
+        body = {"header": {"resultCode": "00"}, "body": {"items": {"item": items}}}
+        return {"operation": "getRlstDtlInf2", "http_status": 200, "body": json.dumps(body, ensure_ascii=False)}
+
+    def test_a_stored_entry_becomes_a_row_and_an_unstored_one_is_skipped(self) -> None:
+        a, b = "a" * 64, "b" * 64
+        it = {"cltrMngNo": "X-0001", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 10},
+                              {"urlAdr": "https://www.onbid.co.kr/op/missing.jpg"}],
+              "apslEvlClgList": [{"urlAdr": f"sha256:{b}", "sha256": b, "media_format": "pdf", "size_bytes": 20,
+                                  "apslEvlOrgNm": "감정원"}]}
+        rows = job.photo_rows_of([self._detail([it])], "bronze/d.gz", "20990102T030405Z", NOW)
+        self.assertEqual(len(rows), 2)  # the photo and the appraisal; the unstored photo is skipped
+        photo = next(r for r in rows if r["media_kind"] == "photo")
+        self.assertEqual((photo["cltr_mng_no"], photo["pbct_cdtn_no"], photo["sha256"]), ("X-0001", 1, a))
+        self.assertEqual((photo["media_format"], photo["size_bytes"], photo["sequence"]), ("jpg", 10, 0))
+        self.assertIsNone(photo["title"])  # a photo has no caption field
+        appraisal = next(r for r in rows if r["media_kind"] == "appraisal")
+        self.assertEqual((appraisal["sha256"], appraisal["media_format"], appraisal["title"]), (b, "pdf", "감정원"))
+        self.assertEqual(appraisal["source_record_id"], "bronze/d.gz")
+
+    def test_the_same_item_and_hash_on_two_lines_is_one_row(self) -> None:
+        a = "a" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 2,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 1}]}
+        rows = job.photo_rows_of([self._detail([it]), self._detail([it])], "bronze/d.gz", "s", NOW)
+        self.assertEqual(len(rows), 1)
+
+    def test_every_photo_column_is_a_table_column_and_back(self) -> None:
+        a = "a" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 1}]}
+        [row] = job.photo_rows_of([self._detail([it])], "k", "s", NOW)
+        names = {c["name"] for c in load_lakehouse_contract(job.PHOTO_TABLE)["columns"]}
+        self.assertEqual(set(row), names)
 
 
 def combos():

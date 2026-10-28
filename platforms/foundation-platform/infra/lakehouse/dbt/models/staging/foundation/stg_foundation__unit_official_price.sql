@@ -8,6 +8,6 @@ select
     base_date,
     source_snapshot_id,
     source_snapshot_id as lineage_run_id
-from {{ source('foundation', 'unit_official_price') }}
+from {{ foundation_current_rows('unit_official_price') }}
 where nullif(ho_name, '') is not null
   and nullif(pnu, '') is not null

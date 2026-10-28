@@ -36,7 +36,14 @@
       {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "20000"},
       {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "10000"},
       {"cortAuctnSrchCondCd": "0004602", "lclDspslGdsLstUsgCd": "20000"}
-    ]
+    ],
+    "date_window": {
+      "$comment": "Root ADR-0290 §1-§2. Every item-search request carries this bid-date range, fixed for the whole run from its KST start date. Without it the server answers a default range that slides a day every day (2026-10-21: the four conditions held 63,005 rows without dates and 108,306 with this range), so items whose sale date lies past the default look as if they left the list. The Silver load counts a pass as complete only when its requests carried both fields.",
+      "start_field": "bidBgngYmd",
+      "end_field": "bidEndYmd",
+      "days_before": 365,
+      "days_after": 365
+    }
   },
   "sale_result_search": {
     "$comment": "매각결과 검색: the same row shape for items whose sale date has passed, with the sale amount.",
@@ -48,6 +55,42 @@
       {"lclDspslGdsLstUsgCd": "10000"},
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
+  },
+  "collection": {
+    "$comment": "Root ADR-0289/0290 values the collection rules read (collection-domain::court_auction). The transport, the queue and Bronze stay outside; these are only what the rules need. Separate from the ADR-0281 manners/refusal/forbidden_in_collector above, which the current collector still reads until it is replaced.",
+    "block_signals": {
+      "$comment": "ADR-0289 §3. A block is HTTP 200 with data.ipcheck=false, a redirect, or HTML where JSON belongs; a good answer has status=200 and an object at /data. Checked before any failure so a blocked session is not read as a broken request.",
+      "http_statuses": [301, 302, 303, 307, 403, 429],
+      "ipcheck_pointer": "/data/ipcheck",
+      "data_pointer": "/data",
+      "status_pointer": "/status",
+      "ok_status": 200
+    },
+    "change_fields": {
+      "$comment": "ADR-0290 §2. The list-row fields whose change means a case's detail should be re-read; fields outside this set do not count. Validated against real rows when the detail lane lands; this is the state a list row carries.",
+      "item_search": ["jinstatCd", "maeGiil", "minmaePrice", "gamevalAmt", "maeAmt", "flbdNcnt"]
+    },
+    "pace": {
+      "$comment": "ADR-0289 §4. Per endpoint group, the AIMD width: start/min/max requests in flight, widen after increase_after clear and timely answers, divide by decrease_divisor on a block or a response slower than slow_response_millis. Starts from the 2026-10-21 spike (item search is serial on the server; case detail took concurrency; goods detail is photo-heavy).",
+      "item_search": {"start": 2, "min": 1, "max": 3, "increase_after": 5, "decrease_divisor": 2, "slow_response_millis": 3000},
+      "case_detail": {"start": 4, "min": 1, "max": 10, "increase_after": 5, "decrease_divisor": 2, "slow_response_millis": 3000},
+      "goods_detail": {"start": 2, "min": 1, "max": 6, "increase_after": 5, "decrease_divisor": 2, "slow_response_millis": 6000}
+    },
+    "recrawl": {
+      "$comment": "ADR-0290 §3. A case's detail is due when never read, when its watched row fields changed, on the days around its sale date, or after max_age_days (a backstop). closed_status_codes are the 종국 jinstatCd values; left empty until measured, so until then the backstop and row-change drive re-reads (never under-reads).",
+      "days_before_sale": [1],
+      "days_after_sale": [1],
+      "closed_status_codes": [],
+      "max_age_days": 30
+    },
+    "pnu_assembly": {
+      "$comment": "ADR-0290 §8. The 19-digit PNU from the goods-detail object: legal-dong code (4 fields) + ledger-kind digit (산 -> 임야 2, else 토지 1) + 본번 + 부번. Prose lots do not assemble. Measured 2026-10-21: assemblable for 98.6% of 매각대상.",
+      "legal_dong_code_fields": ["rprsAdongSdCd", "rprsAdongSggCd", "rprsAdongEmdCd", "rprsAdongRiCd"],
+      "lot_field": "rprsLtnoAddr",
+      "ledger_kind_digits": ["1", "2", "8", "9"],
+      "flat_ledger_kind": "1",
+      "mountain_ledger_kind": "2"
+    }
   },
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",

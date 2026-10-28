@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const POSTGIS_IMAGE: &str = "postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da";
 const RUST_IMAGE: &str =
-    "rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc";
+    "rust:1.99.1-bookworm@sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e";
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -235,7 +235,8 @@ fn proof_script_locks_toolchain_feature_checks_and_r2_write_safety() {
             "MSYS_NO_PATHCONV=1 docker compose",
             "MSYS_NO_PATHCONV=1 docker run",
             RUST_IMAGE,
-            "RUSTUP_TOOLCHAIN=1.96.0-x86_64-unknown-linux-gnu",
+            "RUST_TOOLCHAIN=\"${RUST_IMAGE#rust:}\"",
+            "RUSTUP_TOOLCHAIN=\"${RUST_TOOLCHAIN}-x86_64-unknown-linux-gnu\"",
             "PERFECTORY_PMTILES_IMAGE",
             "--entrypoint martin-cp",
             "--entrypoint mbtiles",

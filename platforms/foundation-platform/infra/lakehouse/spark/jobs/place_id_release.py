@@ -105,15 +105,29 @@ def parcel_changelog(rows: Sequence[pi.RegistryRow], previous_as_of: str, as_of:
 
 # --- administrative units: from consecutive Silver snapshots -----------------------------------
 
+# The valid_from/valid_to of a bridge row recovered from the code-change record rather than from a
+# boundary snapshot (root ADR-0288 §3): the old code predates our snapshots, so its live window is
+# not in our data and both ends carry the source; resolve() keys on the (id, code) link, not the
+# window. Admin valid_from values are snapshot labels, so a label-shaped source fits the column.
+PAIR_SOURCE = "legal-dong-code-change"
+
 
 def admin_release(
     snapshots: Sequence[tuple[str, Mapping[str, str]]],
+    code_remap: Mapping[str, str] | None = None,
+    ambiguous: Iterable[str] = (),
 ) -> tuple[list[RegistryEntry], list[BridgeEntry], list[Change]]:
     """`snapshots` in order: (snapshot label, {administrative_unit_id: canonical_code}).
 
     The registry is every id any snapshot served, current if the newest serves it; the bridge holds
     each (id, code) from the first snapshot it appeared in until the snapshot that replaced it; the
     changelog compares the newest snapshot with the one before.
+
+    `code_remap` (old code -> current code, from `place_identity_resolver.code_crosswalk`) recovers a
+    code the snapshots never carried — a 분구's old dong code is abolished before our first boundary
+    snapshot (root ADR-0288 §3) — and bridges it to the place its current code identifies today, so
+    an old reference resolves to the same place_id. `ambiguous` (one old -> many new) is left for the
+    steward, never a guessed link.
     """
 
     if not snapshots:
@@ -132,6 +146,14 @@ def admin_release(
         for i, code in units.items():
             opened.setdefault((i, code), label)
     bridge.extend(BridgeEntry(i, code, start, None) for (i, code), start in opened.items())
+    if code_remap:
+        ambiguous = set(ambiguous)
+        current_to_id = {code: i for i, code in newest.items()}
+        bridged = {b.code for b in bridge}
+        for old, current in sorted(code_remap.items()):
+            unit = current_to_id.get(current)
+            if unit is not None and old not in ambiguous and old not in bridged:
+                bridge.append(BridgeEntry(unit, old, PAIR_SOURCE, PAIR_SOURCE))
     changes: list[Change] = []
     if len(snapshots) >= 2:
         _, previous = snapshots[-2]

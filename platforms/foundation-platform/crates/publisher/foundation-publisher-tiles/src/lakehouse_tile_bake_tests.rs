@@ -1,5 +1,3 @@
-use std::io::Write as _;
-
 use serde_json::json;
 
 use super::pmtiles_feature_ids::tests::{archive, tile, written};

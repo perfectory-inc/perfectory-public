@@ -143,7 +143,7 @@ exclusive_areas as (
         unit_area.mgm_bldrgst_pk,
         unit_area.pnu,
         sum(unit_area.area_m2) as exclusive_area_sqm
-    from {{ source('foundation', 'building_register_unit_area') }} as unit_area
+    from (select * from {{ foundation_current_rows('building_register_unit_area') }}) as unit_area
     join candidate_area_keys
       on unit_area.mgm_bldrgst_pk = candidate_area_keys.mgm_bldrgst_pk
      and unit_area.pnu = candidate_area_keys.pnu

@@ -249,6 +249,63 @@ async fn a_round_that_leaves_the_list_gets_its_result_asked_once() -> anyhow::Re
 }
 
 #[tokio::test]
+async fn an_open_item_is_detailed_once_and_not_re_asked() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(contract.item_list.path.clone()))
+        .and(query_param("prptDivCd", "0007"))
+        .and(query_param("pvctTrgtYn", "N"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rows(&[item("A-1", 1)])))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    // 물건상세 of the open condition, with a synthetic photo URL (no real data).
+    Mock::given(method("GET"))
+        .and(path(contract.item_detail.path.clone()))
+        .and(query_param("cltrMngNo", "A-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rows(&[json!({
+            "cltrMngNo": "A-1", "pbctCdtnNo": 1,
+            "potoUrlList": [{"potoUrl": "https://example.test/synthetic.jpg"}]
+        })])))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(no_data()))
+        .with_priority(10)
+        .mount(&server)
+        .await;
+
+    let mut state = State::default();
+    let first = at("2099-01-01T00:00:00Z");
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(&contract, &mut fetcher, &mut state, first).await?;
+    assert_eq!(report.details_received, 1);
+    assert_eq!(report.details_owed, 0);
+    assert_eq!(report.details_errored, 0);
+    assert_eq!(state.detailed, BTreeSet::from([key("A-1", 1)]));
+    let detail_lines = fetcher
+        .lines
+        .get(&Api::ItemDetail)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(detail_lines.len(), 1);
+    // The detail line kept the photo URL and never the service key.
+    assert!(detail_lines[0].contains("synthetic.jpg"));
+    assert!(detail_lines[0].contains("cltrMngNo"));
+    assert!(!detail_lines[0].contains(KEY));
+
+    // Three hours later the item list is due again with the same open item: detail is not re-asked.
+    let later = at("2099-01-01T03:00:00Z");
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(&contract, &mut fetcher, &mut state, later).await?;
+    assert_eq!(report.details_received, 0);
+    assert!(!fetcher.lines.contains_key(&Api::ItemDetail));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_spent_budget_stops_the_api_and_leaves_the_pass_incomplete() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let now = at("2099-01-01T00:00:00Z");
