@@ -320,7 +320,7 @@ for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
         print(match.group(1))
 PY
   )
-  printf '%s\n' "${silver_lanes[@]}" | grep -qxF -- "${SILVER_LANE}" \
+  grep -qxF -- "${SILVER_LANE}" < <(printf '%s\n' "${silver_lanes[@]}") \
     || refuse "${SILVER_LANE:-<none>} is not a Silver refresh lane (${silver_lanes[*]})"
   SILVER_UNIT="foundation-silver-refresh@${SILVER_LANE}.service"
   case "${ACTION}" in
@@ -489,7 +489,8 @@ if [[ "${LANE}" == gold ]]; then
   # Every table's unit, the kind lines' too (root ADR-0193 §9; gold_rebuild.load_contract).
   mapfile -t table_units < <(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import gold_rebuild; print("\n".join(t["unit"] for t in gold_rebuild.load_contract()["tables"].values()))' \
     "${RELEASE}/infra/lakehouse/spark/jobs")
-  printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
+  # Not `printf | grep -q`: grep -q exits at the first match and pipefail turns printf's SIGPIPE into a refusal.
+  grep -qxF -- "$1" < <(printf '%s\n' "${table_units[@]}") || refuse "${1:-<none>} is not a table's unit of gold-panel-rebuild.contract.json (${table_units[*]})"
   TABLE_UNIT="$1"
   # A dry run commits nothing and may read an input the contract lists as unmeasured: how it is measured.
   [[ "${2:-}" != --dry-run ]] || TABLE_DRY_RUN=(--dry-run)

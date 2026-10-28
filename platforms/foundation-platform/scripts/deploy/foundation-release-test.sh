@@ -904,7 +904,7 @@ if release_functions deployer_grant_verdict deployer --exclusive "${test_root}/s
 fi
 # A second path on the same line as the exact one is still a second grant.
 rm "${test_root}/sudoers.d/legacy-deployer"
-release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"* | grep -q '^deployer-access-ok'
+grep -q '^deployer-access-ok' < <(release_functions deployer_grant_verdict deployer --exclusive "${test_root}/sudoers.d/"*)
 printf 'deployer ALL=(root) NOPASSWD: %s, /opt/foundation-platform/releases/*/scripts/deploy/foundation-release.sh\n' \
   /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh \
   >"${test_root}/sudoers.d/combined"
