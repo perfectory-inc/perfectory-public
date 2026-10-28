@@ -513,6 +513,13 @@ def main() -> int:
                 print(f"  {row['path']}: {row['metadata']}", file=sys.stderr)
             return 1
     if args.check:
+        # Ratchets on documentation debt and drift warnings (documentation_ratchets.py). They run
+        # first so a link or language failure below does not hide a new dead reference.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import documentation_ratchets
+
+        if documentation_ratchets.main([]) != 0:
+            return 1
         violations = policy_violations()
         if violations:
             for path, message in violations:
