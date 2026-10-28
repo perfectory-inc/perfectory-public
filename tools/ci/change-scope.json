@@ -190,12 +190,12 @@
       {
         "name": "hook-isolation-self-test",
         "always": "Re-runs fixture-building self-tests under a poisoned GIT_DIR; any guard change can break isolation.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "no-subdir-github",
         "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "technology-version-consistency",
@@ -221,7 +221,7 @@
       {
         "name": "static-release-toolchain-ssot",
         "always": "Any tracked file may restate a pinned static-release tool version or digest.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "foundation-kafka-contract",
@@ -270,7 +270,7 @@
       {
         "name": "r2-reads-have-one-path",
         "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "environment-variable-naming-self-test",
@@ -429,7 +429,7 @@
       {
         "name": "public-repository-safety",
         "always": "Public-tree hygiene: any tracked path or content may leak private evidence.",
-        "budget_seconds": 60
+        "budget_seconds": 30
       },
       {
         "name": "tracked-paths-are-portable-self-test",
@@ -438,7 +438,7 @@
       {
         "name": "tracked-paths-are-portable",
         "always": "Every tracked path must check out on every OS; any change can add a path.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "container-runtime-policy-self-test",
@@ -451,7 +451,7 @@
       {
         "name": "container-runtime-policy",
         "always": "Every compose file, Dockerfile and shell script in any area may pull an image or publish a port.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "every-container-has-a-memory-cap-self-test",
@@ -462,7 +462,7 @@
       {
         "name": "every-container-has-a-memory-cap",
         "always": "Walks the whole tree for compose files; any area may add a service.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "runtime-secrets-contract-self-test",
@@ -488,7 +488,7 @@
       {
         "name": "credential-names",
         "always": "Reads every tracked file for a credential-shaped FOUNDATION_PLATFORM_ name.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "container-images-match-the-contract-self-test",
@@ -500,7 +500,7 @@
       {
         "name": "container-images-match-the-contract",
         "always": "Any tracked file may carry an image digest; the contract must match all of them.",
-        "budget_seconds": 60
+        "budget_seconds": 18
       },
       {
         "name": "workflow-policy-self-test",
@@ -544,7 +544,7 @@
       {
         "name": "pinned-downloads",
         "always": "Any script in any area may download a release outside the pinned fetcher.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "repository-identity-policy-self-test",
@@ -779,7 +779,7 @@
       {
         "name": "region-code-pairs-have-one-home",
         "always": "Walks every source and contract file for a second home of a region-code pair.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "area-registry-self-test",
@@ -788,7 +788,7 @@
       {
         "name": "area-registry",
         "always": "Walks every tracked non-prose file for a hand-written copy of the area list.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "a-deploy-verifies-the-schema-it-left-self-test",
@@ -1002,7 +1002,7 @@
       {
         "name": "public-github-policy",
         "always": "Pins the GitHub desired state and the publication machinery, which names every area's verification.",
-        "budget_seconds": 60
+        "budget_seconds": 10
       },
       {
         "name": "public-root-builder",
