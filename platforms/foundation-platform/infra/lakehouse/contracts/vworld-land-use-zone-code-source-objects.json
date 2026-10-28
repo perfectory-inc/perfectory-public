@@ -23,6 +23,10 @@
       "driver_memory": "4g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 1
+    },
+    "full_reason": {
+      "reason": "1,270행 코드표다. 통째로 쓰는 37 KB 가 비교 작업 한 번(Spark 기동과 두 판 읽기)보다 싸고, source_snapshot_id 가 판 날짜가 아니라(vworldkr-land-use-zone-code:30508-1--sha256-…) 키마다 최신을 고르는 순서(newest_first)가 될 수 없다.",
+      "measured_cost": "2026-10-14 덮어쓰기 실측(Trino $snapshots): 1,270행·37,025 B."
     }
   }
 }

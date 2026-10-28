@@ -601,6 +601,12 @@ pub(super) const SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // `removed` on a removal marker (root ADR-0275, ADR-0311); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 // LMIS 용도지역지구 코드표 (LART_LMISZONE.csv) 열 순서 그대로 (root ADR-0083).

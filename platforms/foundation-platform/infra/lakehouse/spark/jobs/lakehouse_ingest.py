@@ -21,8 +21,10 @@ itself — which reports the same green as passing.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from platform_contracts import load_identity_from_value, load_unit
@@ -317,6 +319,37 @@ def identities_under_derivation(identities: Sequence[str], derivation: str | Non
     return sorted(f"{identity}{DERIVATION_SEPARATOR}{label}" for identity in identities)
 
 
+# The lane contracts (`*-source-objects.json`, root ADR-0169), beside the table contracts.
+LANE_CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
+COMPARE = "compare"
+FULL_REASON = "full_reason"
+
+
+def overwrite_declaration(contract_table: str, lanes_dir: Path = LANE_CONTRACTS_DIR) -> str:
+    """How the Silver lane writing `contract_table` answers for an overwrite: `compare` or `full_reason`.
+
+    An overwrite rewrites the whole table for whatever changed. `silver.land_forest_ledger` did that
+    every week, 39.9M rows for about 5K changes, and nothing anywhere said so (root ADR-0311). So an
+    overwrite is refused unless the lane's contract names `compare.content_columns` (the release is
+    staged on its load branch and only the changed keys reach `main`, root ADR-0275) or a
+    `full_reason` with a measured cost. The lane parser (`silver_refresh/lane.rs`) refuses the same
+    contracts; this is the same rule where the write happens, for any other caller.
+    """
+    for path in sorted(lanes_dir.glob("*-source-objects.json")):
+        block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh") or {}
+        if block.get("table") != contract_table:
+            continue
+        if (block.get(COMPARE) or {}).get("content_columns"):
+            return COMPARE
+        full = block.get(FULL_REASON) or {}
+        if str(full.get("reason", "")).strip() and str(full.get("measured_cost", "")).strip():
+            return FULL_REASON
+    raise ValueError(
+        f"Refusing to overwrite {contract_table}: no Silver lane contract names compare.content_columns "
+        "(append only the changed keys, root ADR-0275) or a full_reason with its measured cost (root ADR-0311)"
+    )
+
+
 def unquoted_table_name(qualified_table: str) -> str:
     """Strip the identifier quotes a `spark.sql` name carries.
 
@@ -364,11 +397,14 @@ def append_batch_once(
     `main` in one commit, so readers never see part of it. Whether the batch is already held is
     asked of the branch, so a retried load continues where it stopped.
     """
+    unquoted = unquoted_table_name(qualified_table)
+    # A `_smoke` copy is a disposable proof table, overwritten by design (the jobs' --allow-non-smoke-overwrite).
+    declared = (overwrite_declaration(contract_table)
+                if write_mode == "overwrite" and not unquoted.endswith("_smoke") else None)
     record_ids = identities_under_derivation(
         batch_load_identities(frame, contract_table), derivation
     )
     token = ingest_batch_token(record_ids)
-    unquoted = unquoted_table_name(qualified_table)
     ref = MAIN
     target = qualified_table
     # A table with no snapshot yet has nothing a branch could be made from, and no reader yet.
@@ -377,6 +413,12 @@ def append_batch_once(
         spark.sql(f"ALTER TABLE {qualified_table} CREATE BRANCH IF NOT EXISTS {ref}")
         target = f"{qualified_table}.`branch_{ref}`"
     ingested = read_ingested_objects(spark, qualified_table, unquoted, ref)
+    # A comparing lane overwrites only its load branch; `main` gets the changed keys (root ADR-0275).
+    if declared == COMPARE and ref == MAIN and table_holds_rows(spark, qualified_table, unquoted, MAIN):
+        raise ValueError(
+            f"Refusing to overwrite {qualified_table} on main: its lane compares, so a release is staged "
+            "on a load branch and only its changed keys are appended to main (root ADR-0275, ADR-0311)"
+        )
 
     # A table with rows and no registry is not an empty table. Read as one — which is what
     # happened until 2026-09-01 — every object looks unloaded and the whole table is appended a

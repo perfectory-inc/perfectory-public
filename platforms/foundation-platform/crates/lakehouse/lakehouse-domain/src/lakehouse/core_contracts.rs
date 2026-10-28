@@ -170,7 +170,14 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only the rows of its changed keys and a removal marker per vanished key
+    // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["pnu"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "base_year", "base_month"],
