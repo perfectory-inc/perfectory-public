@@ -17,8 +17,7 @@ Foundation 과 같은 장비에서 돈다.
 
 | 무엇 | 위치 |
 |---|---|
-| 업스트림 compose(이미지 digest 고정) | `infra/datahub/compose.yml` |
-| 우리 설정(포트·비밀값·로그인·메모리) | `infra/datahub/compose.override.yml` |
+| 업스트림 compose(이미지 digest 고정)와 우리 설정(포트·비밀값·로그인·메모리) | `infra/datahub/compose.yml` (별도 override 파일 없음) |
 | 실행 스크립트 | `scripts/deploy/datahub-runtime.sh` |
 | 비밀값·상태 | `config/host-layout.contract.json` 의 `datahub.state_dir`(`/var/lib/foundation-platform/datahub`, root 0700) 하나뿐이다. 다른 곳에 설치된 장비(`adopt_from`)는 배포의 `foundation-release.sh datahub` 가 한 번 복사해 옮긴다. 컴포즈 명령은 root 로 돈다 |
 | Zitadel 로그인 앱 | identity-platform `config/staff-console-applications.v1.json` 의 `datahub` 줄 |

@@ -1,6 +1,6 @@
 # ADR 0208: 데이터 흐름 지도의 문제는 이미 있는 Alertmanager 로 Slack 에 간다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-13
 - Related: [ADR-0195](./0195-dawneer-shows-every-jobs-health-on-the-data-flow-map.md) (지도의 다섯 신호), [ADR-0173](./0173-a-failed-post-deploy-run-does-not-pause-the-schedule.md) (유닛 실패 알림)
 
@@ -48,3 +48,5 @@ ADR-0195 로 지도는 작업마다 실패·멈춤·늦음·느림·양 이상�
   ([런북](../../platforms/foundation-platform/docs/runbooks/operations-map.md)).
 - 유닛 실패는 두 알림이 온다(`OnFailure` 의 "유닛 실패"와 이 알림의 원인 한 줄). 앞의 것은 지도가 못 읽을 때의 안전망이다.
 - 배포마다 Prometheus·Alertmanager 가 몇 초 재시작한다.
+
+2026-10-28: 구현 확인 — `platforms/foundation-platform/services/foundation-api/src/routes/data_catalog/alerts.rs`, `platforms/foundation-platform/infra/observability/alertmanager/alertmanager.yml`

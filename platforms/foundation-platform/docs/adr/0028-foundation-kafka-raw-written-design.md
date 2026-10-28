@@ -239,3 +239,5 @@ environment 이름을 문서화한다.
    실패한다.
 5. collection crate는 `rdkafka`를 import하지 않고 outbox infrastructure adapter만 import한다.
 6. event contract와 topic은 향후 Debezium Outbox Event Router migration에서 계속 사용할 수 있다.
+
+개정 각주(2026-10-28, 경로 이동): `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(루트 `tools/xtask/src/live.rs`, #799).

@@ -296,3 +296,8 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
     일부러 만들지 않았다. Bazel 수준의 엄격함이며, 그런 타깃이 생기면 레인 표에서
     빼는 것이 옳은 답이라고 본다. 필요해지는 시점에 `expected_zero` 같은 플래그가 아니라
     이 판단부터 다시 검토해야 한다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `scripts/verify/foundation-r2-lakehouse-live.sh` → `cargo xtask live r2-lakehouse`(`tools/xtask/src/live.rs`, #799)
+- `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(`tools/xtask/src/live.rs`, #799)

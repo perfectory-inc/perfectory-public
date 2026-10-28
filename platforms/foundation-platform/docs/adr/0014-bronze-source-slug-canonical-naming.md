@@ -120,3 +120,5 @@ runtime이며 `catalog.bronze_object`와 `catalog.outbox_event` DB row만 남음
   stable-keys principle this ADR overrides for the slug segment.
 - Dated impact-audit evidence is retained outside the public code tree under
   [root ADR-0007](../../../../docs/adr/0007-public-code-private-operations-boundary.md).
+
+개정 각주(2026-10-28, 경로 이동): `crates/catalog/catalog-domain/src/bronze.rs` → `crates/collection/collection-domain/src/bronze.rs`.

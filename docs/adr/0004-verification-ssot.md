@@ -7,6 +7,8 @@ last_reviewed: 2026-07-28
 
 # ADR 0004: 검증 단일 진실 원천(`cargo xtask verify`)
 
+- Status: Accepted
+
 ## 배경
 
 모노레포의 첫 실제 CI 실행에서 반복적인 실패 유형이 드러났다. 로컬에서는 성공한
@@ -112,3 +114,5 @@ workspace 코드는 기존 전체 디버그 정보를 유지하고 외부 의존
 채택하지 않는다. 캐시 삭제·추가 빌드 래퍼·시간 제한만 늘리는 방법도 원인을 없애지 않는다.
 CI의 시간 제한은 캐시가 없는 최초 네이티브 컴파일과 전체 검사를 포함하도록 유한하게 두되,
 실제 검증 명령과 시험 범위는 기존 `cargo xtask verify foundation`을 그대로 사용한다.
+
+2026-10-28: 상태 줄 추가 — 원문에 없던 `Status`를 실물에 맞춰 적었다. 근거: `tools/xtask/src/main.rs`의 `verify` 하위 명령, 각 영역 CI 워크플로가 `cargo xtask verify`를 부른다.

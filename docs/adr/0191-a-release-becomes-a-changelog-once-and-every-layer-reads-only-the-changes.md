@@ -117,3 +117,5 @@
 - Silver 에 `row_fingerprint` 열이 늘고, 덮어쓰기 레인 셋이 브랜치 적재로 바뀐다.
 - 원천이 통째인 한 적재 때 차이 한 번(옛 판을 두 열로 한 번, 나간 행의 모습을 위해 모든 열로 한 번 읽기)은 피할 수 없다. 그 뒤 모든 층은 변경 크기에 비례한다.
 - 변경 기록이 없거나 끊긴 범위는 지금 길(ADR-0189·0180)로 내려가므로 이주 중에도 정합성은 그대로다.
+
+2026-10-28: 구현 점검 — Proposed 유지. 단계 ①만 있다(`platforms/foundation-platform/infra/lakehouse/spark/jobs/changelog.py`와 그 시험). 위 상태 줄의 Accepted 조건인 단계 ②(허브 덮어쓰기 레인 셋이 `changelog.py`를 부른다)와 ③–⑤는 아직 없다 — 시험 밖에서 `changelog`를 import 하는 곳이 없다.

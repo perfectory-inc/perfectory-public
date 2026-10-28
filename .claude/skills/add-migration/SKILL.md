@@ -45,8 +45,8 @@ but `+1` versions collide when two branches add migrations in parallel;
 - `bash scripts/guard/migration-naming.sh` — all four areas, filename regex and tree-wide unique version
   `^[0-9]{14}_[a-z0-9_]+\.sql$` (part of `scripts/guard/monorepo-guard.sh`).
 - gongzzang additionally: repo-guard `migration-version-prefixes` (same regex
-  + rejects duplicate version prefixes). Runs on pre-push via lefthook
-  (`products/gongzzang/scripts/lefthook/migration-version-prefixes.sh`);
+  + rejects duplicate version prefixes). Runs in CI
+  (`.github/workflows/gongzzang-ci.yml`, step "Migration version prefixes");
   manual run from `products/gongzzang/`:
 
   ```bash

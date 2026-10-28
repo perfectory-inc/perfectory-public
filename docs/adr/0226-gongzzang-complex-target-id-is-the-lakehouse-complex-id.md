@@ -1,6 +1,6 @@
 # ADR 0226: 공짱이 저장하는 산업단지 대상 id 는 lakehouse complex id(UUIDv5) 하나다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-14
 - Area: `products/gongzzang`
 
@@ -44,3 +44,5 @@
   위반 행이 있으면 마이그레이션이 실패해 배포가 멈춘다 — 그때는 행을 v5 로 고친 뒤 다시 배포한다.
 - 도메인 생성자(`BookmarkExternal::try_new`, `FeaturedContent::try_new`)는 형식을 보지 않는다. 쓰기 API 가 생기면
   `LakehouseComplexId` 로 400 을 먼저 내게 한다.
+
+2026-10-28: 구현 확인 — `products/gongzzang/migrations/20261014101000_complex_target_id_is_lakehouse_complex_id.sql`, `products/gongzzang/crates/gongzzang-persistence/tests/bookmark_integration.rs`
