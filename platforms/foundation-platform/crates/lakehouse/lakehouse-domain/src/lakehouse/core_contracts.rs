@@ -103,19 +103,20 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     current_row_predicate: Some("valid_to_utc IS NULL"),
     current_row_latest: None,
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
-    // No partitions. Root ADR-0063 removed the `pnu` bucket from beside `sigungu_code` and left
-    // sigungu in place; measuring afterwards showed sigungu is not earning its keep either. The
-    // table is 7.44 GB — fifteen target files — and every consumer reads it whole: the PostGIS
-    // mirror and the tile artifacts. A scan that skips nothing gains nothing from partitions,
-    // and the 257 partitions capped file size at 29 MB against a 512 MB target while giving two
-    // stray district codes a one-row file each (root ADR-0066).
+    // One partition per edition, range ordered by PNU (root ADR-0316). Root ADR-0063 removed the
+    // `pnu` bucket and ADR-0066 sigungu, whose 257 partitions capped files at 29 MB. But the
+    // table holds every edition side by side, each current by the predicate (ADR-0148), and
+    // every reader takes the served one: on 2026-10-28 two editions (79.7M rows, 14.93 GB) sat
+    // in 29 files that each spanned the whole country and, under the 16-character bound
+    // truncation, both editions, so a read of one edition opened all 137 splits. An edition is
+    // ~7.5 GB, fifteen 512 MB files, so this partition costs no small files.
     //
     //   sigungu + bucket    65,280 partitions   43,649 files   0.28 MB each
     //   sigungu only           257 partitions      257 files     29.0 MB each
-    //   unpartitioned                          about 15 files    500 MB each
-    partition_spec: &[],
+    //   per edition       1 per edition    about 15 files each  500 MB each
+    partition_spec: &["source_snapshot_id"],
     sort_order: &["pnu", "valid_from_utc"],
-    write_distribution: LakehouseWriteDistribution::Hash,
+    write_distribution: LakehouseWriteDistribution::Range,
     quality_gates: &[
         "pnu passes shared PNU validation",
         "geometry_srid = 4326",
@@ -170,7 +171,14 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only the rows of its changed keys and a removal marker per vanished key
+    // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["pnu"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "base_year", "base_month"],

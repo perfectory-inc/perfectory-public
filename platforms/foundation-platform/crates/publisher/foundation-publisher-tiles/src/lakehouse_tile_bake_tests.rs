@@ -2,6 +2,7 @@ use serde_json::json;
 
 use super::pmtiles_feature_ids::tests::{archive, tile, written};
 use super::*;
+use std::io::Write as _;
 
 fn summary(rows: usize) -> ServedSummary {
     serde_json::from_value(json!({
@@ -725,4 +726,209 @@ fn only_one_spelling_makes_a_rehearsal_and_a_misspelt_one_is_refused() -> anyhow
         assert!(rehearsal_flag(Some(wrong.to_owned())).is_err(), "{wrong}");
     }
     Ok(())
+}
+
+#[test]
+fn the_contract_bakes_parcels_one_archive_per_sido_and_other_units_whole() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    // The PNU's first two digits are its 시도.
+    assert_eq!(
+        contract.partition_by_feature_id_prefix.get("parcels"),
+        Some(&2)
+    );
+    assert_eq!(contract.partition_by_feature_id_prefix.get("complex"), None);
+    for bad in [0, 11] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        value["partition_by_feature_id_prefix"]["parcels"] = json!(bad);
+        assert!(BakeContract::parse(&value.to_string()).is_err(), "{bad}");
+    }
+    Ok(())
+}
+
+/// The synthetic PNUs share the reserved 99999 range, so every one is in 시도 "99"; the tests split
+/// them at six characters ("999990" and "999991") to have two partitions.
+const SYNTHETIC_PREFIX_CHARS: usize = 6;
+
+fn partitioned(
+    parts: &[(&str, &[&str])],
+    csv_dir: &Path,
+) -> anyhow::Result<(PreparedHandoff<PartitionedCsv>, Vec<CsvPart>)> {
+    let (handoff, summary) = v2(parts)?;
+    std::fs::create_dir_all(csv_dir)?;
+    let mut prepared = prepare_handoff(
+        &summary,
+        handoff.path(),
+        PartitionedCsv::new(csv_dir.to_path_buf(), SYNTHETIC_PREFIX_CHARS),
+    )?;
+    let csv = std::mem::replace(
+        &mut prepared.csv,
+        PartitionedCsv::new(csv_dir.to_path_buf(), SYNTHETIC_PREFIX_CHARS),
+    );
+    Ok((prepared, csv.finish()?))
+}
+
+#[test]
+fn a_partitioned_handoff_writes_one_csv_per_prefix_each_with_the_header() -> anyhow::Result<()> {
+    let work = tempfile::tempdir()?;
+    let (prepared, parts) = partitioned(
+        &[(
+            "part-0.jsonl",
+            &[
+                "9999900101100010000",
+                "9999910101100010000",
+                "9999900101100020000",
+            ],
+        )],
+        &work.path().join("csv"),
+    )?;
+    assert_eq!(prepared.ids.len(), 3);
+    let prefixes: Vec<&str> = parts.iter().map(|part| part.prefix.as_str()).collect();
+    assert_eq!(prefixes, ["999990", "999991"]);
+    assert_eq!(
+        parts.iter().map(|part| part.rows).collect::<Vec<_>>(),
+        [2, 1]
+    );
+    for part in &parts {
+        let text = std::fs::read_to_string(&part.csv)?;
+        let mut lines = text.lines();
+        assert_eq!(lines.next(), Some("\"pnu\",geometry"));
+        assert!(
+            lines.all(|line| line.starts_with(&format!("\"{}", part.prefix))),
+            "{text}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_partitions_content_ignores_row_order_and_changes_with_any_row() -> anyhow::Result<()> {
+    let work = tempfile::tempdir()?;
+    let (_, first) = partitioned(
+        &[
+            ("a.jsonl", &["9999900101100010000"]),
+            ("b.jsonl", &["9999900101100020000", "9999910101100010000"]),
+        ],
+        &work.path().join("first"),
+    )?;
+    let (_, reordered) = partitioned(
+        &[(
+            "c.jsonl",
+            &[
+                "9999910101100010000",
+                "9999900101100020000",
+                "9999900101100010000",
+            ],
+        )],
+        &work.path().join("reordered"),
+    )?;
+    let (_, changed) = partitioned(
+        &[(
+            "c.jsonl",
+            &[
+                "9999910101100030000",
+                "9999900101100020000",
+                "9999900101100010000",
+            ],
+        )],
+        &work.path().join("changed"),
+    )?;
+    let contents = |parts: &[CsvPart]| -> Vec<String> {
+        parts.iter().map(|part| part.content.clone()).collect()
+    };
+    assert_eq!(contents(&first), contents(&reordered));
+    assert_eq!(contents(&first)[0], contents(&changed)[0]);
+    assert_ne!(contents(&first)[1], contents(&changed)[1]);
+    Ok(())
+}
+
+/// Bakes `parts` with a stub that copies the partition's CSV as its archive, and returns which
+/// partitions it baked.
+async fn stub_bake(
+    work: &Path,
+    root: &Path,
+    parts: Vec<CsvPart>,
+    inputs: &str,
+) -> anyhow::Result<(Vec<(String, PathBuf, bool)>, Vec<String>)> {
+    let mut baked = Vec::new();
+    let archives = bake_partitions(work, root, parts, inputs, |dir: PathBuf| {
+        baked.push(
+            dir.file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
+        );
+        async move {
+            ensure!(dir.join("tmp").is_dir(), "tippecanoe's -t directory exists");
+            std::fs::copy(dir.join("served.csv"), dir.join("unit.pmtiles"))?;
+            Ok(())
+        }
+    })
+    .await?;
+    Ok((archives, baked.into_iter().flatten().collect()))
+}
+
+#[tokio::test]
+async fn only_a_changed_partition_is_rebaked_and_an_unchanged_archive_is_left_untouched(
+) -> anyhow::Result<()> {
+    let work = tempfile::tempdir()?;
+    let root = work.path().join("parcels-partitions");
+    let (_, edition_1) = partitioned(
+        &[("p.jsonl", &["9999900101100010000", "9999910101100010000"])],
+        &work.path().join("csv-1"),
+    )?;
+    let (first, baked) = stub_bake(work.path(), &root, edition_1, "inputs").await?;
+    assert_eq!(baked, ["partition-999990", "partition-999991"]);
+    assert!(first
+        .iter()
+        .all(|(_, archive, baked)| *baked && archive.is_file()));
+    let unchanged = &first[0].1;
+    let (bytes, modified) = (
+        std::fs::read(unchanged)?,
+        std::fs::metadata(unchanged)?.modified()?,
+    );
+
+    // The next edition changes one parcel of 999991 only.
+    let (_, edition_2) = partitioned(
+        &[("p.jsonl", &["9999900101100010000", "9999910101100020000"])],
+        &work.path().join("csv-2"),
+    )?;
+    let (second, baked) = stub_bake(work.path(), &root, edition_2, "inputs").await?;
+    assert_eq!(baked, ["partition-999991"]);
+    assert_eq!(second[0], ("999990".to_owned(), unchanged.clone(), false));
+    assert_eq!(std::fs::read(unchanged)?, bytes);
+    assert_eq!(std::fs::metadata(unchanged)?.modified()?, modified);
+    assert!(second[1].2 && second[1].1 != first[1].1);
+    // Append-only: the earlier edition's 999991 archive stays beside the new one.
+    assert!(first[1].1.is_file() && second[1].1.is_file());
+    assert!(std::fs::read_to_string(&second[1].1)?.contains("9999910101100020000"));
+    // A reused partition's CSV is dropped, and no partition directory is left behind.
+    assert!(!work.path().join("csv-2").join("999990.csv").exists());
+    assert!(!work.path().join("partition-999991").exists());
+
+    // Another bake input (tippecanoe version, flags, CRS) rebakes every partition.
+    let (_, edition_3) = partitioned(
+        &[("p.jsonl", &["9999900101100010000", "9999910101100020000"])],
+        &work.path().join("csv-3"),
+    )?;
+    let (_, baked) = stub_bake(work.path(), &root, edition_3, "other inputs").await?;
+    assert_eq!(baked, ["partition-999990", "partition-999991"]);
+    Ok(())
+}
+
+#[test]
+fn tile_join_reads_every_partition_and_keeps_tiles_whole() {
+    let args: Vec<String> = tile_join_args(&["11".to_owned(), "26".to_owned()])
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        [
+            "-o",
+            "/w/unit.pmtiles",
+            "--no-tile-size-limit",
+            "--force",
+            "--quiet",
+            "/w/join/11.pmtiles",
+            "/w/join/26.pmtiles",
+        ]
+    );
 }

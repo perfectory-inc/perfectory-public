@@ -53,6 +53,10 @@ jobs:
         run: python3 scripts/catalog/audit-documentation.py --check --strict
       - name: Test document audit tool
         run: python3 -m unittest scripts/catalog/test_audit_documentation.py -v
+      # The shrink-only ratchets `--check` runs above (dead paths, unindexed runbooks, Proposed ADRs
+      # code relies on, unrecorded supersessions): each one fails on a planted tree.
+      - name: Test document ratchets
+        run: python3 -m unittest scripts/catalog/test_documentation_ratchets.py -v
       - name: Check ADR names, headings and numbers
         if: ${{ !cancelled() }}
         # The ADR index is the directory (root ADR-0176); this refuses a bad name or heading and two

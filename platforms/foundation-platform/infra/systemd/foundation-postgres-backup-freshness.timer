@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the PostgreSQL backup's age every six hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:45:00
+Persistent=true
+Unit=foundation-postgres-backup-freshness.service
+
+[Install]
+WantedBy=timers.target

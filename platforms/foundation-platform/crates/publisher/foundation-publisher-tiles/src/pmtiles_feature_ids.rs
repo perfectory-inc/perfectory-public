@@ -39,6 +39,8 @@ pub struct Header {
     pub tile_type: u8,
     pub min_zoom: u8,
     pub max_zoom: u8,
+    /// The number of addressed tiles; 0 when the writer did not count them.
+    pub addressed_tiles: u64,
 }
 
 /// Compression codes of the PMTiles v3 header.
@@ -72,6 +74,7 @@ impl Header {
             tile_type: bytes[99],
             min_zoom: bytes[100],
             max_zoom: bytes[101],
+            addressed_tiles: le_u64(bytes, 72),
         })
     }
 }
@@ -312,8 +315,31 @@ impl<R: Read + Seek> Archive<R> {
         decompress(raw, self.header.tile_compression, "a tile")
     }
 
+    /// The stored bytes of one tile entry, still in the archive's tile compression (root ADR-0323:
+    /// a patch copies tiles between archives without re-encoding them).
+    pub fn entry_raw(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
+        let at = self
+            .header
+            .tile_data_offset
+            .checked_add(entry.offset)
+            .context("tile offset overflows")?;
+        self.read_block(at, entry.length, "a tile")
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
     /// The decompressed bytes of the tile with this id, or `None` when the archive has no such tile.
     pub fn tile(&mut self, id: u64) -> anyhow::Result<Option<Vec<u8>>> {
+        match self.find_entry(id)? {
+            Some(entry) => self.entry_tile(&entry).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The tile entry holding this id, or `None` when the archive has no such tile.
+    pub fn find_entry(&mut self, id: u64) -> anyhow::Result<Option<Entry>> {
         let (mut offset, mut length) = self.header.root_directory;
         for _ in 0..MAX_DIRECTORY_DEPTH {
             let entries = self.directory_at(offset, length)?;
@@ -329,10 +355,7 @@ impl<R: Read + Seek> Archive<R> {
                 length = entry.length;
                 continue;
             }
-            if id < entry.tile_id.saturating_add(entry.run_length) {
-                return self.entry_tile(&entry).map(Some);
-            }
-            return Ok(None);
+            return Ok((id < entry.tile_id.saturating_add(entry.run_length)).then_some(entry));
         }
         bail!("archive directories nest deeper than {MAX_DIRECTORY_DEPTH}")
     }

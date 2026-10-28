@@ -1,0 +1,44 @@
+name: stale-pull-requests
+# Weekly report of open pull requests that are rotting: drafts open longer than seven days and pull
+# requests that conflict with main. It gates nothing and closes nothing; the lists are the job
+# summary.
+#
+# What it prevents: on 2026-10-28 26 pull requests were open, 19 of them older than a week, in
+# stale chains that conflicted with each other and with main. Nobody saw the pile until it hid an
+# incident and made every rebase churn. Open pull requests are public data on a public repository,
+# so the read-only job token is enough (monorepo-guard.yml reads them the same way).
+on:
+  schedule:
+    - cron: "41 0 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  report:
+    name: Stale pull requests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # GitHub computes `mergeable` lazily; a pull request nobody looked at lately reads UNKNOWN on
+      # the first call and is counted, not listed.
+      - name: List old drafts and pull requests that conflict with main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr list --state open --limit 500 --json number,title,isDraft,createdAt,mergeable,url > open.json
+          table='if length == 0 then "None." else (["| PR | Opened | Title |", "|---|---|---|"] + map("| [#\(.number)](\(.url)) | \(.createdAt[:10]) | \(.title | gsub("\\|"; "\\|")) |") | join("\n")) end'
+          {
+            echo "## Drafts open longer than 7 days"
+            jq -r "[.[] | select(.isDraft and ((.createdAt | fromdateiso8601) < (now - 604800)))] | sort_by(.createdAt) | $table" open.json
+            echo
+            echo "## Conflicting with main"
+            jq -r "[.[] | select(.mergeable == \"CONFLICTING\")] | sort_by(.createdAt) | $table" open.json
+            echo
+            jq -r '"Open: \(length). Mergeability not yet computed: \([.[] | select(.mergeable == "UNKNOWN")] | length)."' open.json
+          } >> "$GITHUB_STEP_SUMMARY"

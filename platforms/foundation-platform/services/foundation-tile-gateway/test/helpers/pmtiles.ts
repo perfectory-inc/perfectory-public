@@ -14,13 +14,23 @@ function varint(value: number): number[] {
 }
 
 export function syntheticArchive({ tileType = 1, tileCompression = 1, internalCompression = 1 } = {}): Uint8Array {
-  const payloads = TILE_BYTES.map((bytes) => tileCompression === 2 ? gzipSync(bytes) : bytes);
+  return archiveOf(TILE_BYTES.map((bytes, id): [number, Uint8Array] => [id, bytes]), {
+    tileType, tileCompression, internalCompression,
+  });
+}
+
+/** An archive of the given (ascending Hilbert id, uncompressed tile) pairs. */
+export function archiveOf(
+  tiles: [number, Uint8Array][],
+  { tileType = 1, tileCompression = 1, internalCompression = 1 } = {},
+): Uint8Array {
+  const payloads = tiles.map(([, bytes]) => tileCompression === 2 ? gzipSync(bytes) : bytes);
   const directory = new Uint8Array([
-    ...varint(2), // entry count
-    ...varint(0), ...varint(1), // delta-coded Hilbert ids
-    ...varint(1), ...varint(1), // run lengths
+    ...varint(tiles.length), // entry count
+    ...tiles.flatMap(([id], index) => varint(id - (index === 0 ? 0 : tiles[index - 1]![0]))), // delta-coded ids
+    ...tiles.flatMap(() => varint(1)), // run lengths
     ...payloads.flatMap((bytes) => varint(bytes.length)),
-    ...varint(1), ...varint(0), // offset+1, then contiguous offset sentinel
+    ...tiles.flatMap((_, index) => varint(index === 0 ? 1 : 0)), // offset+1, then contiguous sentinels
   ]);
   const root = internalCompression === 2 ? gzipSync(directory) : directory;
   const metadata = internalCompression === 2 ? gzipSync("{}") : new TextEncoder().encode("{}");
@@ -32,7 +42,8 @@ export function syntheticArchive({ tileType = 1, tileCompression = 1, internalCo
   const header = new DataView(archive.buffer);
   for (const [offset, value] of [
     [8, 127], [16, root.length], [24, 127 + root.length], [32, metadata.length],
-    [40, tileOffset], [48, 0], [56, tileOffset], [64, tileLength], [72, 2], [80, 2], [88, 2],
+    [40, tileOffset], [48, 0], [56, tileOffset], [64, tileLength],
+    [72, tiles.length], [80, tiles.length], [88, tiles.length],
   ] as const) header.setBigUint64(offset, BigInt(value), true);
   archive[96] = 1; // clustered
   archive[97] = internalCompression;
@@ -60,6 +71,13 @@ export class FakeBucket {
   async get(key: string, options?: R2GetOptions): Promise<R2ObjectBody | null> {
     if (this.failure !== undefined) throw this.failure;
     const range = options?.range;
+    // A patch manifest is a small JSON object read whole (ADR-0323); archives are read by range only.
+    if (range === undefined && key.endsWith(".patches.json")) {
+      this.reads.push({ key, offset: 0, length: -1 });
+      const object = this.objects.get(key);
+      if (object === undefined) return null;
+      return { etag: this.etag, body: new Response(object).body, arrayBuffer: async () => object.slice().buffer } as R2ObjectBody;
+    }
     if (range === undefined || !("offset" in range) || range.offset === undefined ||
       !("length" in range) || range.length === undefined) {
       throw new Error("The gateway must use bounded R2 range reads");

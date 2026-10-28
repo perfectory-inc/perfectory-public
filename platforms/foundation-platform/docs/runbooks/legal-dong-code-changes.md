@@ -37,10 +37,12 @@ last_reviewed: 2026-10-05
 
 ```text
 legal_dong_code_changes (05:15, default_pool)
-  1. collect-code-go-kr-legal-dong             전체 표 → Bronze (요청 둘: 양식 화면, 표)
-  2. stage-handoff                             형식·표 크기 검사; 행이 바뀌었으면 → pending/<표 객체>/
-                                               바뀐 것이 없으면 넘기지 않는다(journal 에 unchanged)
+  1. collect-code-go-kr-legal-dong (dry run)   전체 표를 받기만 한다 (요청 둘: 양식 화면, 표)
+  2. check                                     형식·표 크기 검사, 행이 accepted.json 의 표와 같은지
                                                통과하면 어느 쪽이든 accepted.json 의 checked_at_utc 를 남긴다
+                                               같으면 아무것도 남기지 않고 끝난다(unchanged)
+  3. collect-code-go-kr-legal-dong (live)      행이 바뀐 표만 다시 받아 → Bronze
+     stage-handoff                             → pending/<표 객체>/
 parcel_number_change_history (05:25, default_pool; 감독 실행 전까지 꺼짐)
   1. plan/inventory-vworld-dataset-files       30527 목록만. 시도 파일마다 제공자 갱신일을 accepted.json 과 비교
   2. ingest-vworld-dataset-files               갱신일이 바뀐 파일만 Bronze 로(같은 파일 번호라도 다시 받는다)
@@ -229,7 +231,7 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 어디서 | 문구 | 뜻 | 할 일 |
 | --- | --- | --- | --- |
 | 수집 | `returned HTTP …`, `answered with an empty body` | 사이트가 응답하지 않았다 | 다음 날 다시 받는다. 이틀 넘으면 사이트를 확인한다 |
-| 수집 | `columns changed`, `no table headed` | 사이트 화면 형식이 바뀌었다 | 아무것도 적재되지 않았다. 원본은 Bronze 에 있다. 계약의 머리글을 새 형식에 맞추는 PR 을 낸다 |
+| 수집 | `columns changed`, `no table headed` | 사이트 화면 형식이 바뀌었다 | 아무것도 적재되지 않았다. 받은 원본은 그 실행의 `runs/<id>/fetch/` 에 있다(검사 전이라 Bronze 에는 없다). 계약의 머리글을 새 형식에 맞추는 PR 을 낸다 |
 | 수집 | `TableShrunk` | 전체 표가 직전보다 계약의 한계(1%) 넘게 줄었다 | 깨진 응답이다. 아무것도 넘기지 않았다. 다음 날 다시 받는다 |
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |

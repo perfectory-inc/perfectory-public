@@ -15,6 +15,10 @@ records every Bronze object of the release in its snapshot summary, as `append_b
 loaded" reads the same as for an overwrite, and a re-run after the commit writes nothing. A release
 with no change still commits, empty, to record that it was loaded.
 
+The commit is also the release's change record (root ADR-0191 as amended by ADR-0311): its summary
+names it one (`changelog.change_record_options`), so a consumer reads only these rows
+(`changelog.changes_between`) instead of diffing two snapshots of the table.
+
 The last stdout line, and `--summary-output`, is `silver-release-compare {json}`.
 """
 
@@ -26,6 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from changelog import change_record_options
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_ingest import (
     MAIN,
@@ -149,7 +154,9 @@ def compare_and_append(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
           flush=True)
 
     writer = changes.writeTo(unquoted)
-    for option, value in snapshot_property_options(objects, ingest_batch_token(objects)).items():
+    options = {**snapshot_property_options(objects, ingest_batch_token(objects)),
+               **change_record_options(appended, removed)}
+    for option, value in options.items():
         writer = writer.option(option, value)
     writer.append()
     changes.unpersist()

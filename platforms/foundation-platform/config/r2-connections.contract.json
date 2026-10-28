@@ -238,6 +238,8 @@
     "content_type": "application/octet-stream",
     "cache_control": "public, max-age=31536000, immutable",
     "max_index_entries": 1000000,
+    "freshness_budget_hours": 48,
+    "freshness_budget_hours_reason": "root ADR-0306: the hourly serving monitor (foundation-by-pnu-serving-monitor@<lane>) fails when a lane's served manifest was published longer ago than this. Every lane is refreshed by the one daily by_pnu_serving_bake (orchestration/jobs.v1.json, 10:15 UTC), whose every publish (patch, full or reflect) rewrites published_at_utc, and its Gold is rebuilt daily; so a healthy lane is at most about 24 h plus one bake old, and a full bake took 13 h and more (2026-10-23), which 36 h would report as a breach. 48 h is two daily turns: one whole missed turn fires it, on the second day. public-auction is collected hourly but rebuilt and baked daily like the rest, so it gets no tighter bound until it bakes more often. 2026-10-28: every lane served a 10-16..10-18 manifest for 10-12 days while each monitor run passed",
     "superseded_generation_keep_days": 7,
     "superseded_generation_keep_days_reason": "root ADR-0242: a pack generation the manifest no longer names is kept this long after the generation that replaced it went live (the first manifest naming it), as the rollback, and then its objects are deleted by retire-<lane>-superseded-pack-generations: serving copies are rebuilt from Gold, which stays the source, so a second full copy is not kept for good",
     "preview_query_parameter": "packs",
@@ -431,6 +433,19 @@
         "file:///tmp/app",
         "https://app.example.test/path"
       ]
+    },
+    "patches": {
+      "decision": "docs/adr/0323-parcel-tiles-patch-only-the-tiles-changed-parcels-touch.md",
+      "units": [
+        "parcels"
+      ],
+      "manifest_suffix": ".patches.json",
+      "manifest_schema_version": "foundation-platform.vector_tile_patches.v1",
+      "patch_infix": ".patch-",
+      "manifest_cache_seconds": 60,
+      "cache_control": "public, max-age=3600",
+      "max_patched_tile_ratio": 0.05,
+      "max_patched_tile_ratio_reason": "Root ADR-0111 §9's initial compaction point (5% of the base's tiles), under Mapbox Tiling Service's advice to retile in full above 15% changed. Above it the bake is a full one and makes a new base. The 202606 to 202609 editions moved 0.26% of PNUs in and out where no region was reorganized and 16.2% where one was (root ADR-0251): the first is a patch, the second a new base."
     }
   },
   "map_edit_gateway": {
