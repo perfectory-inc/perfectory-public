@@ -84,6 +84,35 @@ ZITADEL subject·토큰은 출력하지 않는다.
 롤백은 기록해 둔 이전 이미지 digest와 시크릿 매니저 바인딩 버전을 사용하고 동일한 멱등 프로비저너를
 다시 실행한다. 임의 SQL이나 소비자 서비스의 DB 접근으로 권한을 수리하지 않는다.
 
+## 소비 서비스 쪽 계약 — 토큰 파일과 교체
+
+발급된 자격을 쓰는 서비스(예: `gongzzang-api` 의 공개 Catalog 읽기, `gongzzang-outbox-publisher` 의
+Lakehouse Registry 계약)는 짧은 수명의 Zitadel 워크로드 bearer 를 마운트된 파일에서 읽어 `foundation-api` 를
+호출한다. 공짱은 그 파일 경로를 `FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE` 로 받는다
+(`products/gongzzang/crates/foundation-platform-client/src/lib.rs`). 정적 service-token 대체는 금지한다.
+
+- 배포는 호출자만 읽을 수 있는 파일로 자격을 마운트한다. 소비 서비스는 요청마다 파일을 다시 읽으므로 파일
+  교체에 프로세스 설정 변경이 필요 없다.
+- Foundation Platform 은 bearer 를 검증하고 호출자·요청 자원에 default-deny 정책을 적용한다. 소비 서비스는
+  권한 범위나 정책 결정을 custom header 로 보내지 않는다 — bearer 에서 소유자가 계산한다.
+
+교체 순서:
+
+1. 같은 service identity 의 교체 자격을 발급한다.
+2. 마운트된 자격 파일을 원자적으로 교체한다.
+3. 호출자의 허용된 Foundation 요청 하나가 성공하는지 확인한다.
+4. 호출자의 허용 계약 밖 요청 하나가 거부되는지 확인한다.
+5. 두 확인이 통과한 뒤 이전 자격을 revoke 한다.
+
+실패 처리:
+
+- 토큰 파일이 없거나 비었거나 읽을 수 없으면 Foundation 호출 전에 시작 또는 요청을 실패시킨다.
+- bearer 가 거부되면 인증 재시도를 멈추고 워크로드 자격을 교체·수리한다.
+- Foundation Platform 이 응답하지 않으면 호출자 timeout·circuit breaker 를 쓰며 정적 토큰으로 전환하지 않는다.
+
+기록: 배포 revision, 호출 service identity, 교체 시각, 허용·거부 호출 결과, correlation ID. bearer 값이나 토큰
+파일 내용은 기록하지 않는다.
+
 ## 검증 증거
 
 - `manifest_contract.rs`는 엄격한 versioning, 정확한 binding 범위, placeholder 거부, 커밋된

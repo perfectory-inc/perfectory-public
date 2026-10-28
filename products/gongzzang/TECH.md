@@ -33,7 +33,8 @@
 
 ## 2. 데이터 소스 (SSOT)
 
-프로덕션은 공식 API 직접, 에이전트는 MCP 별도. 자세한 규칙은 [AGENTS.md §3](./AGENTS.md).
+V-World·data.go.kr Catalog 원천은 Foundation Platform 이 소유하고 공짱은 그 계약으로만 소비한다. 공짱이
+직접 부르는 원천과 에이전트 전용 MCP 의 구분은 [데이터 원천 README](./docs/data-sources/README.md).
 
 | 소스 | 운영 기관 | 진입점 | 문서 |
 |------|----------|-------|------|

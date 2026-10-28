@@ -15,6 +15,9 @@ last_reviewed: 2026-10-05
 
 전환 관문을 모두 통과하기 전에는 지금의 객체 방식이 그대로 서빙한다. 옛 객체는 지우지 않는다.
 
+같은 레인 묶음의 다른 런북: 필지 레인의 차이와 순서는 [필지 전환 런북](./parcel-section-pack-cutover.md),
+굽기·발행·예약 굽기의 공통 절차는 [필지 by-PNU 서빙 굽기 런북](./parcel-by-pnu-serving-bake.md)이 소유한다.
+
 > **2026-10-18, [루트 ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md): 전환은 끝났고 레인은 묶음 전용(`pack_only`)이다.** Worker 는 객체를
 > 읽지 않는다(묶음 없는 manifest 는 503). 아래 단계표의 `code`·`packs` 단계와 `*_PACK_SERVING` 바인딩, 계약
 > `fallback` 블록은 은퇴했다 — 이 문서의 해당 부분은 전환 당시의 기록이다. 새 코드는

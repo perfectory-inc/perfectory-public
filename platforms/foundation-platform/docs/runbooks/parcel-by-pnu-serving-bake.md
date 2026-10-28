@@ -17,6 +17,9 @@ last_reviewed: 2026-10-04
 - 서빙 Worker: `services/foundation-by-pnu-gateway` 의 필지 레인(`wrangler.parcel.jsonc`, 루트 ADR-0160; 경로·캐시·CORS 의 정의는
   `config/r2-connections.contract.json` 의 `parcel_by_pnu_gateway`)
 
+객체에서 묶음 파일로의 레인 전환 절차는 [건물 전환 런북](./building-section-pack-cutover.md)과
+[필지 전환 런북](./parcel-section-pack-cutover.md)이 소유한다.
+
 ## 0. 전제
 
 - 무거운 실행은 전부 배치 호스트(ai-server)에서. 배포는 릴리스 스크립트로만, 장기 실행은
