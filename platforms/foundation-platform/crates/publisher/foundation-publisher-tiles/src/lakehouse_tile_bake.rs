@@ -30,7 +30,7 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead as _, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead as _, BufReader, BufWriter, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;

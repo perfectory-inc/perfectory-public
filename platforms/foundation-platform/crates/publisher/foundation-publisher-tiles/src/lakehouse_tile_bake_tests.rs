@@ -2,6 +2,7 @@ use serde_json::json;
 
 use super::pmtiles_feature_ids::tests::{archive, tile, written};
 use super::*;
+use std::io::Write as _;
 
 fn summary(rows: usize) -> ServedSummary {
     serde_json::from_value(json!({
