@@ -12,7 +12,7 @@ slow-timeout = { period = "20s", terminate-after = 3 }
 # 4-core host) starts about 385 Python processes; it is the one test that needs more. Its limit is
 # its own, so it cannot raise the limit of anything else.
 [[profile.default.overrides]]
-filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
+filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery::postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
 slow-timeout = { period = "30s", terminate-after = 4 }
 
 # The profile CI runs (`NEXTEST_PROFILE=ci`, set by scripts/ci/rust-setup.sh; root ADR-0269), as
