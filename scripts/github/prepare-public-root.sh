@@ -34,7 +34,7 @@ source_commit="$("$git_transport" --repository "$source_root" rev-parse --verify
 }
 source_head="$("$git_transport" --repository "$source_root" rev-parse HEAD)"
 source_index_flags="$("$git_transport" --repository "$source_root" ls-files -v)"
-if printf '%s\n' "$source_index_flags" | grep -Eq '^[hSs] '; then
+if grep -Eq '^[hSs] ' <<<"$source_index_flags"; then
   echo "FAIL public-root-prepare: source index contains skip-worktree or assume-unchanged entries" >&2
   printf '%s\n' "$source_index_flags" | grep -E '^[hSs] ' >&2
   exit 1
@@ -51,8 +51,9 @@ if [ -n "$source_status" ]; then
   printf '%s\n' "$source_status" >&2
   exit 1
 fi
-if "$git_transport" --repository "$source_root" ls-tree -r "$source_commit" \
-  | grep -Eq '^(120000 blob|160000 commit) '; then
+# Captured first: a failed listing stops here (set -e) instead of reading as "no symlink".
+source_tree="$("$git_transport" --repository "$source_root" ls-tree -r "$source_commit")"
+if grep -Eq '^(120000 blob|160000 commit) ' <<<"$source_tree"; then
   echo "FAIL public-root-prepare: public snapshot must not contain symlinks or gitlinks" >&2
   exit 1
 fi

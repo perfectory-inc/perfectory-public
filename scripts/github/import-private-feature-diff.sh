@@ -80,7 +80,7 @@ live_ref="$("$git_transport" --no-repository \
   exit 1
 }
 if [ "$(printf '%s\n' "$live_ref" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ] \
-  || ! printf '%s\n' "$live_ref" | grep -Eq '^[0-9a-f]{40}[[:space:]]+refs/heads/main$'; then
+  || ! grep -Eq '^[0-9a-f]{40}[[:space:]]+refs/heads/main$' <<<"$live_ref"; then
   echo "FAIL private-feature-import: canonical public main did not resolve exactly once" >&2
   exit 1
 fi
@@ -130,8 +130,9 @@ index_git=("$git_transport" --trusted-index-file "$temporary_index" --repository
 "${index_git[@]}" apply --check --index --whitespace=error-all "$patch_file"
 "${index_git[@]}" apply --index --whitespace=error-all "$patch_file"
 
-if "${index_git[@]}" ls-files --stage \
-  | grep -Eq '^(120000|160000) '; then
+# Captured first: a failed listing stops here (set -e) instead of reading as "no symlink".
+staged="$("${index_git[@]}" ls-files --stage)"
+if grep -Eq '^(120000|160000) ' <<<"$staged"; then
   echo "FAIL private-feature-import: imported delta contains a symlink or gitlink" >&2
   exit 1
 fi

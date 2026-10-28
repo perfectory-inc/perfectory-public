@@ -570,7 +570,7 @@ published_zoom_range="$(psql_value "SELECT layer.tile_min_zoom || ',' || layer.t
 # because a third field is exactly what this forbids.
 complex_fields="$(printf '%s' "$complex_tilejson" | grep -o '"fields":{[^}]*}')"
 for identity_key in complex_id official_complex_code; do
-  printf '%s' "$complex_fields" | grep -q "\"$identity_key\":" \
+  grep -q "\"$identity_key\":" <<<"$complex_fields" \
     || fail "the complex layer does not publish $identity_key"
 done
 complex_field_count="$(printf '%s' "$complex_fields" | grep -o '":"' | wc -l | tr -d '[:space:]')"
@@ -661,8 +661,7 @@ docker run -d --name "$STATIC_MARTIN" --network "$NET" \
 
 static_ready=false
 for _ in $(seq 1 60); do
-  if curl --fail --silent "http://127.0.0.1:$STATIC_MARTIN_PORT/catalog" 2>/dev/null \
-    | grep -q "\"$STATIC_SOURCE_ID\""; then
+  if grep -q "\"$STATIC_SOURCE_ID\"" < <(curl --fail --silent "http://127.0.0.1:$STATIC_MARTIN_PORT/catalog" 2>/dev/null); then
     static_ready=true
     break
   fi

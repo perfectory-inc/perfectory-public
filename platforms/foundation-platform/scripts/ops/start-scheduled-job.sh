@@ -73,7 +73,7 @@ read -r service wait_limit <<<"${listing}" || true
 # downstream starts. Only the operator's own run-now runs it while paused.
 if [[ -z "${requested}" && -e "${switches}/${job}" ]]; then
   printf 'start-scheduled-job: %s is paused by an operator: %s\n' "${job}" \
-    "$(sed -n 's/^reason=//p' "${switches}/${job}" | head -n 1)"
+    "$(sed -n 's/^reason=//p' "${switches}/${job}" | sed -n 1p)"
   [[ "${checking}" == true ]] || printf 'foundation-job-outcome skipped paused\n'
   exit 0
 fi
@@ -186,7 +186,7 @@ if [[ -n "${requested}" ]]; then
   ask="${switches}/run-now.d/${requested}" why=""
   if [[ ! -r "${ask}" ]]; then
     why="no such request"
-  elif [[ "$(sed -n 's/^job=//p' "${ask}" | head -n 1)" != "${job}" ]]; then
+  elif [[ "$(sed -n 's/^job=//p' "${ask}" | sed -n 1p)" != "${job}" ]]; then
     why="the request is another job's"
   else
     stamp="$(sed -n '/^expires_at=/{s///p;q}' "${ask}")"
@@ -203,7 +203,7 @@ if [[ -n "${requested}" ]]; then
     exit 0
   fi
   printf 'start-scheduled-job: run-now %s of %s by %s: %s\n' "${requested}" "${job}" \
-    "$(sed -n 's/^actor=//p' "${ask}" | head -n 1)" "$(sed -n 's/^reason=//p' "${ask}" | head -n 1)"
+    "$(sed -n 's/^actor=//p' "${ask}" | sed -n 1p)" "$(sed -n 's/^reason=//p' "${ask}" | sed -n 1p)"
 fi
 
 # A run already in progress (started by hand, or a retry racing the last one) is joined, not doubled.

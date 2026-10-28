@@ -133,7 +133,7 @@ if [ "$confirmation" = true ]; then
   fi
 elif [ "$confirmation" = false ]; then
   if [ "$strict_status" -eq 0 ] \
-    || ! printf '%s\n' "$strict_output" | grep -q 'publication denied'; then
+    || ! grep -q 'publication denied' <<<"$strict_output"; then
     echo "FAIL legal-publication-self-test: provisional SSOT did not fail strict validation" >&2
     printf '%s\n' "$strict_output" >&2
     exit 1
@@ -229,16 +229,15 @@ JSON
   set -e
   if [ "$expected_defense" = early ]; then
     if [ "$prepare_status" -eq 0 ] \
-      || ! printf '%s\n' "$prepare_output" \
-        | grep -q 'source index contains skip-worktree or assume-unchanged entries' \
+      || ! grep -q 'source index contains skip-worktree or assume-unchanged entries' <<<"$prepare_output" \
       || [ -e "$destination" ]; then
       echo "FAIL legal-publication-self-test: $label concealed a false committed attestation" >&2
       printf '%s\n' "$prepare_output" >&2
       exit 1
     fi
   elif [ "$prepare_status" -eq 0 ] \
-    || ! printf '%s\n' "$prepare_output" | grep -q 'publication denied' \
-    || printf '%s\n' "$prepare_output" | grep -q 'OK workflow-policy' \
+    || ! grep -q 'publication denied' <<<"$prepare_output" \
+    || grep -q 'OK workflow-policy' <<<"$prepare_output" \
     || [ ! -d "$destination" ]; then
     echo "FAIL legal-publication-self-test: cloned false commit bypassed authoritative strict validation" >&2
     printf '%s\n' "$prepare_output" >&2
@@ -284,7 +283,7 @@ provisional_ci_output="$(
 provisional_ci_status=$?
 set -e
 if [ "$provisional_ci_status" -eq 0 ] \
-  || ! printf '%s\n' "$provisional_ci_output" | grep -q 'publication denied'; then
+  || ! grep -q 'publication denied' <<<"$provisional_ci_output"; then
   echo "FAIL legal-publication-self-test: canonical CI accepted provisional fixture" >&2
   printf '%s\n' "$provisional_ci_output" >&2
   exit 1
@@ -301,7 +300,7 @@ cwd_output="$(
 cwd_status=$?
 set -e
 if [ "$cwd_status" -eq 0 ] \
-  || ! printf '%s\n' "$cwd_output" | grep -q 'publication denied'; then
+  || ! grep -q 'publication denied' <<<"$cwd_output"; then
   echo "FAIL legal-publication-self-test: hostile CWD replaced the control-root policy" >&2
   printf '%s\n' "$cwd_output" >&2
   exit 1
@@ -338,7 +337,7 @@ if [ "$confirmation" = true ]; then
     exit 1
   fi
 elif [ "$canonical_status" -eq 0 ] \
-  || ! printf '%s\n' "$canonical_output" | grep -q 'publication denied'; then
+  || ! grep -q 'publication denied' <<<"$canonical_output"; then
   echo "FAIL legal-publication-self-test: canonical required CI accepted provisional legal identity" >&2
   printf '%s\n' "$canonical_output" >&2
   exit 1

@@ -18,7 +18,7 @@ value_from_file() {
   local file="$1"
   local key="$2"
   [ -f "$file" ] || return 1
-  sed -n "s/^${key}=//p" "$file" | head -n 1 | tr -d '\r'
+  sed -n "s/^${key}=//p" "$file" | sed -n 1p | tr -d '\r'
 }
 
 check_profile_file() {

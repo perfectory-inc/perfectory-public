@@ -153,8 +153,7 @@ symlink_output="$(
 symlink_status=$?
 set -e
 if [ "$symlink_status" -eq 0 ] \
-  || ! printf '%s\n' "$symlink_output" \
-    | grep -Fq '120000 synthetic-tracked-symlink'; then
+  || ! grep -Fq '120000 synthetic-tracked-symlink' <<<"$symlink_output"; then
   echo "FAIL public-tree-snapshot-self-test: persistent guard accepted a tracked mode-120000 symlink" >&2
   printf '%s\n' "$symlink_output" >&2
   exit 1
@@ -171,8 +170,7 @@ mode_output="$(
 mode_status=$?
 set -e
 if [ "$mode_status" -eq 0 ] \
-  || ! printf '%s\n' "$mode_output" \
-    | grep -Fq "100644 $non_executable_script"; then
+  || ! grep -Fq "100644 $non_executable_script" <<<"$mode_output"; then
   echo "FAIL public-tree-snapshot-self-test: persistent guard accepted a non-executable tracked shebang script" >&2
   printf '%s\n' "$mode_output" >&2
   exit 1

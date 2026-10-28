@@ -242,7 +242,7 @@ DEPLOY_HOLD="${FOUNDATION_OPERATOR_DEPLOY_HOLD:-/run/foundation-deploy-hold}"
 refuse_while_the_deploy_holds() {
   local pid held job
   [[ -r "${DEPLOY_HOLD}" ]] || return 0
-  pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${DEPLOY_HOLD}" | head -n 1)"
+  pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${DEPLOY_HOLD}" | sed -n 1p)"
   [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null || return 0
   held="$(grep -v '^pid ' "${DEPLOY_HOLD}" || true)"
   ! grep -qxF '*' <<<"${held}" \
@@ -725,7 +725,7 @@ case "${ACTION}" in
     [[ -s "${WORK}/latency.json" ]] || refuse "${WORK}/latency.json does not exist; run latency first" 65
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
     snapshot="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["gold_iceberg_snapshot_id"])' \
-      "$(ls "${WORK}"/summaries/*.json | head -1)")"
+      "$(ls "${WORK}"/summaries/*.json | sed -n 1p)")"
     env=("${P}_OUTPUT_STORAGE_DRIVER=r2" "${P}_CONFIRM_PACK_PUBLISH=true" "${P}_PACK_SUMMARY_DIR=${WORK}/summaries"
       "${P}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${snapshot}"
       "${P}_PACK_EQUALITY_EVIDENCE_PATH=${WORK}/equality.json" "${P}_PACK_LATENCY_EVIDENCE_PATH=${WORK}/latency.json")

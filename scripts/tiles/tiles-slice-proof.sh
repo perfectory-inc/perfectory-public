@@ -269,7 +269,7 @@ validate_r2_direct_bucket() {
   local bucket="$1" expected contract
   contract="$REPO_ROOT/platforms/foundation-platform/config/r2-connections.contract.json"
   [[ -r "$contract" ]] || fail "R2 connection contract is missing"
-  expected="$(sed -n 's/.*\"FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p' "$contract" | head -n 1)"
+  expected="$(sed -n 's/.*\"FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p' "$contract" | sed -n 1p)"
   [[ -n "$expected" ]] || fail "R2 tile bucket is missing from the connection contract"
   [[ "$bucket" == "$expected" ]] \
     || fail "canonical tile R2 mode only permits the contract bucket"
@@ -648,7 +648,7 @@ dynamic_catalog_status="$(clean_curl --silent --show-error --connect-timeout 5 -
   || fail "dynamic Martin catalog request failed with HTTP $dynamic_catalog_status"
 dynamic_catalog_compact="$(tr -d '\r\n\t' < "$DYNAMIC_CATALOG_PATH")"
 for source_id in parcels parcel_anchor_aggregate parcel_anchor; do
-  printf '%s' "$dynamic_catalog_compact" | grep -q "\"$source_id\"" \
+  grep -q "\"$source_id\"" <<<"$dynamic_catalog_compact" \
     || fail "dynamic Martin catalog is missing configured source $source_id"
 done
 

@@ -89,7 +89,7 @@ expect_allowed "$plain_pipeline"
 # Out of scope on purpose: fail-closed conditions. A broken command yields no output, the filter
 # finds nothing, and the assertion goes red.
 fail_closed="$test_root/fail-closed"
-fixture "$fail_closed" 'if ! psql "$DATABASE_URL" -c "select 1" | grep -q "^1$"; then exit 1; fi'
+fixture "$fail_closed" 'if ! psql "$DATABASE_URL" -c "select 1" | grep -q "^1$"; then exit 1; fi' # early-exit-reader: fixture text for this guard, never run
 expect_allowed "$fail_closed"
 
 # `|` inside a case pattern is alternation, not a pipeline.

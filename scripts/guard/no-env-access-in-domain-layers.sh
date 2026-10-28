@@ -46,7 +46,7 @@ while IFS= read -r manifest; do
     # Drop only unambiguous full-line comments. An inline comment or a string
     # literal that names an environment read stays fail-closed: deciding which
     # occurrences are inert would mean parsing Rust here.
-    if sed '/^[[:space:]]*\/\//d' "$source_file" | grep -Eq "$pattern"; then
+    if grep -Eq "$pattern" < <(sed '/^[[:space:]]*\/\//d' "$source_file"); then
       echo "FAIL no-env-access-in-domain-layers: ${source_file#"$repo_root/"} reads the process environment; inject the decision as a type instead" >&2
       failed=1
     fi

@@ -892,6 +892,16 @@
         ]
       },
       {
+        "name": "a-pipefail-pipe-has-no-early-exit-reader-self-test",
+        "paths": []
+      },
+      {
+        "name": "a-pipefail-pipe-has-no-early-exit-reader",
+        "paths": [
+          "**/*.sh"
+        ]
+      },
+      {
         "name": "publication-authority-self-test",
         "paths": [
           "scripts/github/**",

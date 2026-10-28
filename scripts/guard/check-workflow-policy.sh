@@ -667,7 +667,7 @@ for workflow in "${workflows[@]}"; do
     case "$image_ref" in
       *:local) ;;
       *)
-        if ! printf '%s\n' "$image_ref" | grep -Eq '^[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'; then
+        if ! grep -Eq '^[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$' <<<"$image_ref"; then
           echo "FAIL workflow-policy: mutable workflow service image: $workflow: $image_ref" >&2
           exit 1
         fi
@@ -713,14 +713,14 @@ while IFS=$'\t' read -r action location; do
       exit 1
       ;;
     docker://*)
-      if ! printf '%s\n' "$action" | grep -Eq '^docker://[^[:space:]@]+(:[^[:space:]@]+)?@sha256:[0-9a-f]{64}$'; then
+      if ! grep -Eq '^docker://[^[:space:]@]+(:[^[:space:]@]+)?@sha256:[0-9a-f]{64}$' <<<"$action"; then
         echo "FAIL workflow-policy: mutable Docker action at $location: $action" >&2
         exit 1
       fi
       continue
       ;;
   esac
-  if ! printf '%s\n' "$action" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.\/-]+@[0-9a-f]{40}$'; then
+  if ! grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.\/-]+@[0-9a-f]{40}$' <<<"$action"; then
     echo "FAIL workflow-policy: external Action must use a full commit SHA at $location: $action" >&2
     exit 1
   fi

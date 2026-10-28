@@ -119,6 +119,8 @@ scripts/github/validate-legal-publication.sh,48,true,ci,xtask,Helper called from
 scripts/github/validate-public-repository-identity.sh,39,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
 scripts/guard/a-deploy-verifies-the-schema-it-left-self-test.sh,103,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/a-deploy-verifies-the-schema-it-left.sh,84,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/a-pipefail-pipe-has-no-early-exit-reader-self-test.sh,50,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/a-pipefail-pipe-has-no-early-exit-reader.sh,93,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/actions-cache-controls-self-test.sh,90,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage-self-test.sh,124,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage.sh,119,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

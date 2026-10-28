@@ -52,7 +52,7 @@ read_cache_limit() {
   status="$(printf '%s\n' "$response" | sed -n '1s#^HTTP/[0-9.]* \([0-9][0-9][0-9]\).*#\1#p')"
   if [ "$status" = 200 ] && [ "$exit_code" -eq 0 ]; then
     actual="$(api "$endpoint" --jq ".$field")"
-    if ! printf '%s\n' "$actual" | grep -Eq '^[0-9]+$' \
+    if ! grep -Eq '^[0-9]+$' <<<"$actual" \
       || [ "$actual" -gt "$maximum" ]; then
       echo "FAIL actions-cache-controls: $field must be at most $maximum, found '$actual'" >&2
       rm -f -- "$error_file"
@@ -111,7 +111,7 @@ fi
 
 usage="$(api "repos/$target/actions/cache/usage" \
   --jq '[.active_caches_size_in_bytes, .active_caches_count] | @tsv')"
-if ! printf '%s\n' "$usage" | grep -Eq '^[0-9]+[[:space:]][0-9]+$'; then
+if ! grep -Eq '^[0-9]+[[:space:]][0-9]+$' <<<"$usage"; then
   echo "FAIL actions-cache-controls: cache usage response is malformed" >&2
   exit 1
 fi
