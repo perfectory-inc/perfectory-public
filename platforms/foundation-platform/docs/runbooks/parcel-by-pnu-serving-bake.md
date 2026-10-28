@@ -408,10 +408,14 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 이다(굽기 한 실행 + 차례가 올 때 이미 돌던 접기 + 같은 무게의 상대). `job_specs.pool_starvation` 이 이 상한을 계산해
 자기 일정 주기 20번과 비교한다. 굽기는 Gold 에 새 스냅숏이 있을 때만 돈다.
 
-Gold 가 전국 굽기 한 번(실행 여러 번에 걸침)보다 자주 바뀌면 굽기마다 "moved during the bake" 로 멈춘다. 그때는:
-발행하지 않는다(서빙은 이전 세대 그대로), 반쯤 쓴 세대는 서빙되지도 이어 굽지도 않은 채 남는다(로그에
-`abandoned: generation N holds the objects ...`), 다음 실행은 그 위 세대로 처음부터 굽는다. 남은 세대를 지우는 것은
-수동이며(append-only 원칙상 예약 작업은 지우지 않는다), Gold 를 만드는 쪽이 굽기 주기에 맞춰야 끝까지 굽힌다.
+Gold 가 전국 굽기 한 번(실행 여러 번에 걸침)보다 자주 바뀌어도 굽기는 멈추지 않는다(루트 ADR-0310): 각 샤드는
+굽기가 고정한 스냅숏(`…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID`)을 읽고, 배포·실패로 끊긴 full 굽기는 다음 실행이 같은
+세대·같은 스냅숏으로 이어 굽는다(로그 `finishing the full bake pinned to Gold snapshot ...`, 끝난 샤드는 건너뜀).
+발행 뒤 다음 실행이 고정 스냅숏에서 현재 스냅숏까지의 변경분을 패치로 올린다(ADR-0274 상한 그대로). 이어 굽지
+않는 경우는 셋이다: 끝난 샤드의 문서 스키마가 지금 export 와 다를 때, 완료 검사에서 거부된 세대(`refused_incomplete`)일
+때, 고정 스냅숏이 만료됐을 때(로그 `Gold no longer holds snapshot ...`·`abandoned: ...`). 그 세대는 서빙되지 않은 채
+남고 다음 full 굽기는 그 위 세대로 현재 스냅숏을 굽는다. 남은 세대를 지우는 것은 수동이다(append-only 원칙상 예약
+작업은 지우지 않는다).
 
 단위의 `MemoryMax=14G` 와 행 상한 90만은 2026-10-03 ai-server scratch 측정에서 정했다. **로컬 출력으로 잰 값이다**:
 R2 경로는 동시 쓰기 128개와 최대 90만 개의 목록 키를 더 쥐므로 감독 실행(아래 1)에서 `systemctl show -p MemoryPeak

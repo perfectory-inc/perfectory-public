@@ -56,8 +56,8 @@ by_pnu_runtime_database_url() {
 #   by_pnu_bake_complete <refusal prefix> <summary dir> <gold snapshot> <full|patch> <objects|packs> \
 #     <generation> <target> <upserts> <deletes> <shard>...
 #
-# The shards may not overlap, every one is of the one Gold snapshot, the generation (and patch) and
-# its own prefix, they all scanned the same Gold row count, and a full bake exported exactly that
+# The shards may not overlap, every one is of the one Gold snapshot and the one document schema,
+# the generation (and patch) and its own prefix, they all scanned the same Gold row count, and a full bake exported exactly that
 # many rows (a patch: exactly its change set's upserts and tombstones).
 by_pnu_bake_complete() {
   python3 -I - "$@" <<'PY'
@@ -73,12 +73,13 @@ named = [shard for shard in shards if shard != "all"]
 nested = sorted(f"{a} inside {b}" for a in named for b in named if a != b and a.startswith(b))
 if nested or len(set(shards)) != len(shards) or ("all" in shards and len(shards) > 1):
     refuse(f"shards overlap ({', '.join(nested) or 'repeated or whole-table shard'}); their rows would count twice")
-gold_rows, exported, tombstones = set(), 0, 0
+gold_rows, schemas, exported, tombstones = set(), set(), 0, 0
 for prefix in shards:
     summary = json.loads((run / f"shard-{prefix}.json").read_text())
     if summary["gold_iceberg_snapshot_id"] != gold:
         refuse(f"shard {prefix} baked Gold snapshot {summary['gold_iceberg_snapshot_id']}, not {gold}; "
-               "the table moved during the bake, the next run starts over")
+               "a bake of two snapshots is never published (root ADR-0310)")
+    schemas.add(summary.get("document_schema_version"))
     want_patch = None if mode == "full" else target
     if serves == "packs":
         # A pack patch's sections each carry their served generation; the publisher holds them
@@ -95,6 +96,8 @@ for prefix in shards:
     gold_rows.add(rows)
     exported += summary["exported_row_count"]
     tombstones += summary.get("tombstone_count", 0)
+if len(schemas) != 1:
+    refuse(f"shards baked different document schemas {sorted(map(str, schemas))}; a bake of two schemas is never published")
 if len(gold_rows) != 1:
     refuse(f"shards scanned different Gold row counts {sorted(gold_rows)}")
 (total,) = gold_rows
