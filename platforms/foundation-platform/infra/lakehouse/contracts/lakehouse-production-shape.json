@@ -1,7 +1,7 @@
 {
  "schema_version": "foundation-platform.lakehouse_production_shape.v1",
  "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
- "captured_at": "2026-10-27T23:37:48Z",
+ "captured_at": "2026-10-28T21:00:28Z",
  "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
  "tables": {
   "gold.administrative_boundary_served": {
@@ -842,10 +842,13 @@
     [25, "data_reference_date", "string", true],
     [26, "source_record_id", "string", true],
     [27, "source_snapshot_id", "string", true],
-    [28, "ingested_at_utc", "timestamp", true]
+    [28, "ingested_at_utc", "timestamp", true],
+    [29, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+   ]
   },
   "silver.land_forest_ledger": {
    "has_rows": true,
@@ -868,10 +871,13 @@
     [16, "source_sigungu_code", "string", true],
     [17, "source_record_id", "string", true],
     [18, "source_snapshot_id", "string", true],
-    [19, "ingested_at_utc", "timestamp", true]
+    [19, "ingested_at_utc", "timestamp", true],
+    [20, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+   ]
   },
   "silver.land_individual_price": {
    "has_rows": true,
@@ -891,10 +897,13 @@
     [13, "source_sigungu_code", "string", true],
     [14, "source_record_id", "string", true],
     [15, "source_snapshot_id", "string", true],
-    [16, "ingested_at_utc", "timestamp", true]
+    [16, "ingested_at_utc", "timestamp", true],
+    [17, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+   ]
   },
   "silver.land_right_registration": {
    "has_rows": true,
@@ -919,10 +928,13 @@
     [18, "source_sigungu_code", "string", true],
     [19, "source_record_id", "string", true],
     [20, "source_snapshot_id", "string", true],
-    [21, "ingested_at_utc", "timestamp", true]
+    [21, "ingested_at_utc", "timestamp", true],
+    [22, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+   ]
   },
   "silver.land_transfer_history": {
    "has_rows": true,
