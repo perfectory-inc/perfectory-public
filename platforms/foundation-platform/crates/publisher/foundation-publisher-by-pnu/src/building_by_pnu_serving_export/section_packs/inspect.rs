@@ -51,12 +51,12 @@ pub async fn inspect(
 ) -> anyhow::Result<JsonValue> {
     let lane = store.lane();
     by_pnu::check_key(lane, pnu)?;
-    let (view, from, schema) = match generation {
+    let (view, from, schemas) = match generation {
         // An unpublished generation is this release's bake: its schema.
         Some(generation) => (
             PackView::unpublished(store, lane, generation).await?,
             format!("generation {generation}"),
-            crate::by_pnu_serving_manifest_publish::document_schema_version(lane).to_owned(),
+            vec![crate::by_pnu_serving_manifest_publish::document_schema_version(lane).to_owned()],
         ),
         None => {
             let (bytes, _) = store.read_manifest().await?;
@@ -67,11 +67,11 @@ pub async fn inspect(
             (
                 PackView::served(store, lane, &state).await?,
                 "manifest".to_owned(),
-                state.document_schema_version.clone(),
+                served_schemas(&state),
             )
         }
     };
-    inspect_view(store, pnu, &view, from, &schema).await
+    inspect_view(store, pnu, &view, from, &schemas).await
 }
 
 /// The report of one PNU as `state` (a recorded manifest's section packs) serves it.
@@ -90,9 +90,18 @@ pub async fn inspect_state(
         pnu,
         &view,
         "recorded state".to_owned(),
-        &state.document_schema_version,
+        &served_schemas(state),
     )
     .await
+}
+
+/// The document schemas `state` serves (root ADR-0320): its base's and its patches'.
+fn served_schemas(state: &crate::by_pnu_section_pack_manifest::SectionPacksState) -> Vec<String> {
+    state
+        .served_document_schema_versions()
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 async fn inspect_view(
@@ -100,8 +109,9 @@ async fn inspect_view(
     pnu: &str,
     view: &PackView,
     from: String,
-    schema: &str,
+    schemas: &[String],
 ) -> anyhow::Result<JsonValue> {
+    let schemas = schemas.iter().map(String::as_str).collect::<Vec<_>>();
     let lane = store.lane();
     let dong = by_pnu_packs::unit_of(pnu)?.to_owned();
     // The one base pack per section that can hold the PNU, asked for by key: listing a parted
@@ -145,7 +155,7 @@ async fn inspect_view(
     let (answer, document) = match read::resolve(&packs, pnu) {
         Ok(Resolved::Document(fragments)) => (
             "document".to_owned(),
-            serde_json::from_slice::<JsonValue>(&read::joined_bytes(lane, schema, &fragments)?)?,
+            serde_json::from_slice::<JsonValue>(&read::joined_bytes(lane, &schemas, &fragments)?)?,
         ),
         Ok(Resolved::Tombstone) => ("tombstone".to_owned(), JsonValue::Null),
         Ok(Resolved::Absent) => ("absent".to_owned(), JsonValue::Null),

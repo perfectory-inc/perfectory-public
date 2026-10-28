@@ -55,6 +55,7 @@ elif command.startswith("show-"):
         json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v2",
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
                    "document_schema_version": "doc.v2",
+                   "readable_document_schema_versions": json.loads(os.environ.get("FAKE_READABLE", '["doc.v2"]')),
                    "published": {"manifest_schema_version": 2,
                                  "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
                                  "base_object_count": int(os.environ.get("FAKE_BASE_OBJECTS", "100")),
@@ -1001,6 +1002,45 @@ class SectionPackBake(unittest.TestCase):
         self.assertEqual(publish["command"], "publish-building-by-pnu-section-packs")
         self.assertNotIn(self.PREFIX + "CHANGE_SET_SUMMARY_PATH", publish["env"])
         self.assertNotIn(self.PREFIX + "PACK_EXPECTED_DOCUMENT_COUNT", publish["env"])
+
+    def test_a_version_that_expands_the_served_ones_is_patched_over_them(self):
+        # Root ADR-0320: v2 only adds optional fields to v1, so the v1 documents stay served and
+        # the change set alone decides what is re-rendered.
+        result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v1",
+                                                         served_document_schema_versions=["doc.v1"]),
+                                  FAKE_READABLE='["doc.v2", "doc.v1"]',
+                                  FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("only adds optional fields to the served doc.v1", result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--baseline-snapshot-id"], "150")
+        [export] = self.exports(calls)
+        self.assertEqual(export["env"][self.PREFIX + "TARGET_PATCH"], "6")
+        self.assertNotIn(self.PREFIX + "PACK_GENERATION", export["env"])
+        [publish] = self.published(calls)
+        summary = json.loads((pathlib.Path(publish["env"][self.PREFIX + "PACK_SUMMARY_DIR"]).parent
+                              / "run-summary.json").read_text())
+        self.assertEqual((summary["mode"], summary["document_schema_expansion"]), ("patch", "doc.v1 -> doc.v2"))
+
+    def test_an_expanding_version_still_compacts_at_the_patch_limit(self):
+        result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v1", max_live_patches=7,
+                                                         served_document_schema_versions=["doc.v1", "doc.v2"]),
+                                  FAKE_READABLE='["doc.v2", "doc.v1"]')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("full — the base carries 7 patches", result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+
+    def test_a_served_version_the_export_does_not_expand_bakes_a_new_generation(self):
+        # A patch of v1 sits over a v0 base, and v2 expands only v1: the v0 documents would stay.
+        result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v0",
+                                                         served_document_schema_versions=["doc.v0", "doc.v1"],
+                                                         generations_with_packs=[1, 2, 4]),
+                                  FAKE_READABLE='["doc.v2", "doc.v1"]')
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("full — the export bakes doc.v2 documents, the base holds doc.v0,doc.v1", result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        for call in self.exports(calls):
+            self.assertEqual(call["env"][self.PREFIX + "PACK_GENERATION"], "5")
 
     def test_an_incomplete_pack_patch_is_not_published_and_the_rerun_resumes_it(self):
         change = {"FAKE_DELTA_UPSERTS": json.dumps(PNUS[:2]),

@@ -19,8 +19,11 @@
 # 2. chooses how to reflect the new snapshot (root ADR-0141 §5, §8), and records the choice:
 #    - full: a new base generation, when the operator forces it (FOUNDATION_BY_PNU_BAKE_FORCE_FULL
 #      with a FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON), when the export now bakes another document
-#      schema than the base holds, when the base already carries max_patches patches (or more,
-#      after max_patches was lowered), when its patches are listed by another prefix length than
+#      schema than the served documents hold and it does not expand theirs (a version that only
+#      adds optional fields to the served ones is patched over them, root ADR-0320; the full
+#      compaction later re-renders every document under it), when the base already carries
+#      max_patches patches (or more, after max_patches was lowered), when its patches are listed
+#      by another prefix length than
 #      the contract's pnu_prefix_length, or when the change set would take the patches past
 #      max_cumulative_change_ratio of the base. A full bake is also the compaction.
 #    - otherwise the change set decides. `by_pnu_panel_delta.py` compares row_digest between the
@@ -281,25 +284,41 @@ PY
 # Does the lane serve from section packs (root ADR-0147)? Then every choice below is made against
 # the packs: their reflected snapshot, document schema and count, the patches some section still
 # reads, the highest section generation, and every generation and patch number holding a pack.
+# The packs may serve documents of more than one schema (root ADR-0320): the base's, and a later
+# one a patch expanded it to. `same`: all are the one the export bakes; `expands`: the export's
+# version only adds optional fields to each (the state's readable versions), so a patch of it goes
+# over them; `breaks`: one of them is not readable, and only a new generation serves the export's.
 read -r packs packs_reflected packs_schema packs_count packs_newest packs_live packs_cumulative \
-  packs_generation packs_listed packs_patch_listed < <(python3 -I - "${state}" <<'PY'
+  packs_generation packs_listed packs_patch_listed packs_served packs_schemas < <(python3 -I - "${state}" <<'PY'
 import json, sys
-packs = json.load(open(sys.argv[1])).get("section_packs")
+state = json.load(open(sys.argv[1]))
+packs = state.get("section_packs")
 if packs is None:
-    print("no", *["-"] * 9)
+    print("no", *["-"] * 11)
 else:
     for name in ("generations_with_packs", "patches_with_packs"):
         listed = packs[name]
         if not (isinstance(listed, list) and all(type(g) is int and g >= 1 for g in listed)):
             sys.exit(f"{name} is not a list of numbers: {listed!r}")
+    now = state["document_schema_version"]
+    served = packs.get("served_document_schema_versions") or [packs["document_schema_version"]]
+    readable = state.get("readable_document_schema_versions") or [now]
+    if not all(isinstance(v, str) and v and " " not in v for v in [*served, *readable]):
+        sys.exit(f"the document schemas are not names: {served!r} {readable!r}")
+    verdict = ("same" if set(served) == {now}
+               else "expands" if readable[0] == now and set(served) <= set(readable) else "breaks")
     print("yes", packs["reflected_gold_iceberg_snapshot_id"], packs["document_schema_version"],
           packs["document_count"], packs["newest_patch"], packs["max_live_patches"],
           packs["cumulative_changes"], max(s["generation"] for s in packs["sections"]),
-          max(packs["generations_with_packs"], default=0), max(packs["patches_with_packs"], default=0))
+          max(packs["generations_with_packs"], default=0), max(packs["patches_with_packs"], default=0),
+          ",".join(sorted(served)), verdict)
 PY
 )
-[[ -n "${packs_patch_listed:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
+[[ -n "${packs_schemas:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
 LANE_SERVES=objects
+# An object base holds one document schema; only packs carry patches of an expanding one.
+schemas=same
+[[ "${served_schema}" == "${schema_now}" ]] || schemas=breaks
 if [[ "${packs}" == yes ]]; then
   # A verified re-base reads the served objects (root ADR-0146), which stop taking the daily
   # changes once packs serve: from them it would publish a stale view of the lane.
@@ -307,7 +326,8 @@ if [[ "${packs}" == yes ]]; then
   LANE_SERVES=packs
   base="${packs_generation}" base_objects="${packs_count}" reflected="${packs_reflected}"
   patch_count="${packs_live}" newest_patch="${packs_newest}" cumulative="${packs_cumulative}"
-  served_schema="${packs_schema}" highest_listed="${packs_listed}" highest_patch_listed="${packs_patch_listed}"
+  served_schema="${packs_served}" schemas="${packs_schemas}"
+  highest_listed="${packs_listed}" highest_patch_listed="${packs_patch_listed}"
   # Pack patches name legal dongs, not the object lane's prefixes: the prefix rule does not apply.
   served_prefix_length="${prefix_length}"
 fi
@@ -356,12 +376,18 @@ PY
 mode="" reason=""
 if [[ "${FORCE_FULL}" == true ]]; then
   mode=full reason="forced by the operator: ${FORCE_FULL_REASON}"
-elif [[ "${served_schema}" != "${schema_now}" ]]; then
+elif [[ "${schemas}" == breaks ]]; then
   mode=full reason="the export bakes ${schema_now} documents, the base holds ${served_schema}"
 elif ((patch_count >= max_patches)); then
   mode=full reason="the base carries ${patch_count} patches, the contract's max_patches is ${max_patches}"
 elif ((patch_count > 0)) && [[ "${served_prefix_length}" != "${prefix_length}" ]]; then
   mode=full reason="the patches are listed by ${served_prefix_length}-digit prefixes, the contract's pnu_prefix_length is ${prefix_length}"
+fi
+if [[ -z "${mode}" && "${schemas}" == expands ]]; then
+  # Expand/contract (root ADR-0320): the served documents stay as they are, and the change set
+  # alone decides which ones the new version re-renders; the next whole generation contracts.
+  summary[document_schema_expansion]="${served_schema} -> ${schema_now}"
+  log "the export bakes ${schema_now}, which only adds optional fields to the served ${served_schema}: the change set decides, not the version (root ADR-0320)"
 fi
 if [[ "${REBASE}" == true && -n "${mode}" ]]; then
   log "refused: the lane needs a full bake (${reason}); a verified re-base cannot stand in for it"

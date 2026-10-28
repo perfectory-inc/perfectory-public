@@ -159,7 +159,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line. A kind
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
-const DERIVED_LANE_HAND_FIELDS: [&str; 11] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 12] = [
     "decision",
     "host",
     "kind",
@@ -171,6 +171,7 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 11] = [
     "documents_follow_lane_reason",
     "document_schema_version",
     "document_schema_version_reason",
+    "document_schema_expands",
 ];
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
@@ -272,6 +273,34 @@ pub fn resolve_lane_entry(
             })?
             .to_owned(),
     };
+    // The earlier versions the stated one only adds optional fields to (root ADR-0320): a served
+    // base of one of them takes a patch of the new version instead of a whole new generation. The
+    // records hold the claim (`by_pnu_document_records`); here only its form.
+    if let Some(expands) = fields.get("document_schema_expands") {
+        let current = version
+            .strip_prefix(document.as_str())
+            .and_then(|number| number.parse::<u32>().ok())
+            .unwrap_or(1);
+        let mut seen = std::collections::BTreeSet::new();
+        let valid = expands.as_array().is_some_and(|expands| {
+            !expands.is_empty()
+                && expands.iter().all(|earlier| {
+                    earlier
+                        .as_str()
+                        .and_then(|earlier| earlier.strip_prefix(document.as_str()))
+                        .and_then(|number| number.parse::<u32>().ok())
+                        .is_some_and(|number| {
+                            number >= 1 && number < current && seen.insert(number)
+                        })
+                })
+        });
+        if !valid {
+            return Err(format!(
+                "by_pnu_lanes.{name}.document_schema_expands must list distinct earlier versions \
+                 {document}<n> of the stated {version}"
+            ));
+        }
+    }
     derived.insert("document_schema_version".to_owned(), json!(version));
     derived.insert("gold_table".to_owned(), json!(format!("gold.{snake}")));
     derived.insert("latency_baseline_lane".to_owned(), json!(host_lane));
@@ -331,6 +360,10 @@ struct PackLaneEntry {
     pack_only: bool,
     gold_table: String,
     document_schema_version: String,
+    /// The earlier document versions `document_schema_version` only adds optional fields to (root
+    /// ADR-0320); empty when a bump is a whole new generation.
+    #[serde(default)]
+    document_schema_expands: Vec<String>,
     /// The live lane whose preview serves the same PNUs: the pack-only gate (나) measures this
     /// lane's preview against it.
     latency_baseline_lane: String,
@@ -378,6 +411,9 @@ pub struct PackLane {
     /// The Gold panel the lane bakes: one row per PNU, every content column a `*_json` field.
     pub gold: &'static LakehouseTableContract,
     pub document_schema_version: String,
+    /// The earlier versions this one expands (root ADR-0320): documents of them stay served beside
+    /// it until the next whole generation.
+    pub document_schema_expands: Vec<String>,
     pub latency_baseline_lane: String,
     pub latency_p95_max_ms: f64,
     /// The document key's suffix, for a lane keyed narrower than a PNU (root ADR-0204).
@@ -491,6 +527,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         ),
         gold,
         document_schema_version: entry.document_schema_version,
+        document_schema_expands: entry.document_schema_expands,
         latency_baseline_lane: entry.latency_baseline_lane,
         latency_p95_max_ms: entry.latency_p95_max_ms,
         key_suffix,
@@ -1191,6 +1228,32 @@ mod tests {
         let mut bumped = lane.clone();
         bumped["document_schema_version"] = json!("foundation-platform.parcel_zoning_by_pnu.v2");
         bumped["document_schema_version_reason"] = reason;
+        // What a version expands is a list of its own earlier versions (root ADR-0320).
+        for expands in [
+            json!([]),
+            json!("foundation-platform.parcel_zoning_by_pnu.v1"),
+            json!(["foundation-platform.parcel_zoning_by_pnu.v2"]),
+            json!(["foundation-platform.parcel_price_by_pnu.v1"]),
+            json!([
+                "foundation-platform.parcel_zoning_by_pnu.v1",
+                "foundation-platform.parcel_zoning_by_pnu.v1"
+            ]),
+        ] {
+            let mut entry = bumped.clone();
+            entry["document_schema_expands"] = expands.clone();
+            assert!(
+                resolve_lane_entry("parcel-zoning", &entry, &contract).is_err(),
+                "{expands}"
+            );
+        }
+        let mut expanding = bumped.clone();
+        expanding["document_schema_expands"] =
+            json!(["foundation-platform.parcel_zoning_by_pnu.v1"]);
+        assert_eq!(
+            resolve_lane_entry("parcel-zoning", &expanding, &contract)
+                .map_err(anyhow::Error::msg)?["document_schema_expands"],
+            json!(["foundation-platform.parcel_zoning_by_pnu.v1"])
+        );
         assert_eq!(
             resolve_lane_entry("parcel-zoning", &bumped, &contract).map_err(anyhow::Error::msg)?
                 ["document_schema_version"],
@@ -1230,6 +1293,12 @@ mod tests {
             forest.document_schema_version,
             "foundation-platform.parcel_forest_ledger_by_pnu.v2"
         );
+        // v2 only added an optional field, so a served v1 base takes v2 patches (root ADR-0320).
+        assert_eq!(
+            forest.document_schema_expands,
+            ["foundation-platform.parcel_forest_ledger_by_pnu.v1"]
+        );
+        assert!(pack.document_schema_expands.is_empty());
         assert_eq!(lane.unit(), "parcel-zoning-by-pnu");
         Ok(())
     }

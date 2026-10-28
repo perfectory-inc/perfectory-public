@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-pub use foundation_contracts::building_panel::BUILDING_DOCUMENT_SCHEMA_VERSION;
+pub use foundation_contracts::building_panel::{
+    BUILDING_DOCUMENT_SCHEMA_EXPANDS, BUILDING_DOCUMENT_SCHEMA_VERSION,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct BuildingServingArtifact {

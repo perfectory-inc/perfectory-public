@@ -25,6 +25,11 @@ use sha2::{Digest, Sha256};
 /// Wire schema version of the published by-PNU serving document.
 pub const PARCEL_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.parcel_by_pnu_profile.v2";
 
+/// The earlier versions v2 only adds optional fields to (root ADR-0320): v1 documents stay served
+/// beside v2 patches until the next whole generation, so the bump costs the documents that change.
+pub const PARCEL_DOCUMENT_SCHEMA_EXPANDS: &[&str] =
+    &["foundation-platform.parcel_by_pnu_profile.v1"];
+
 /// One serving artifact, ready to be written under a generation directory.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParcelServingArtifact {

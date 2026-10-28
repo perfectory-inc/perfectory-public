@@ -81,6 +81,12 @@ pub struct PackPatch {
     pub deleted: u64,
     /// The legal dongs the patch wrote packs for, sorted.
     pub units: Vec<String>,
+    /// The document schema the patch's documents were baked under, when it is not the base's
+    /// (`SectionPacksState::document_schema_version`): a version that expands the base's adds
+    /// optional fields only, so a patch of it goes over the base, and the base's documents stay
+    /// served as they are until the next whole generation (root ADR-0320). Absent: the base's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_schema_version: Option<String>,
 }
 
 /// The evidence files the first pack publish was gated on, by checksum.
@@ -118,6 +124,36 @@ impl SectionPacksState {
                 .max()
                 .unwrap_or(0),
         )
+    }
+
+    /// The document schema `patch`'s documents were baked under.
+    pub fn document_schema_of<'a>(&'a self, patch: &'a PackPatch) -> &'a str {
+        patch
+            .document_schema_version
+            .as_deref()
+            .unwrap_or(&self.document_schema_version)
+    }
+
+    /// The document schema of the newest documents the lane serves: the newest patch's, else the
+    /// base's. The next patch is baked under it or under a version that expands it.
+    pub fn newest_document_schema_version(&self) -> &str {
+        self.patches
+            .first()
+            .map_or(self.document_schema_version.as_str(), |patch| {
+                self.document_schema_of(patch)
+            })
+    }
+
+    /// Every document schema an answer of the lane may be stamped with: the base's and every
+    /// listed patch's (root ADR-0320). One until a patch expands the base's version.
+    pub fn served_document_schema_versions(&self) -> BTreeSet<&str> {
+        std::iter::once(self.document_schema_version.as_str())
+            .chain(
+                self.patches
+                    .iter()
+                    .map(|patch| self.document_schema_of(patch)),
+            )
+            .collect()
     }
 
     /// The patches that apply to `section`, newest first.
@@ -293,7 +329,35 @@ pub mod tests {
             upserted: 1,
             deleted: 1,
             units: units.iter().map(|unit| (*unit).to_owned()).collect(),
+            document_schema_version: None,
         }
+    }
+
+    /// A patch of a version that expands the base's names it; one of the base's does not, and
+    /// a block written before root ADR-0320 reads as all of the base's.
+    #[test]
+    fn a_patch_of_an_expanding_version_names_it_beside_the_base() -> anyhow::Result<()> {
+        let mut block = state(1)?;
+        assert_eq!(block.newest_document_schema_version(), "doc.v2");
+        block.patches.push(patch(1, &["9999900001"]));
+        assert_eq!(block.newest_document_schema_version(), "doc.v2");
+        let mut expanding = patch(2, &["9999900001"]);
+        expanding.document_schema_version = Some("doc.v3".to_owned());
+        block.patches.insert(0, expanding);
+        block.check_writable(ByPnuLane::Building)?;
+        assert_eq!(block.newest_document_schema_version(), "doc.v3");
+        assert_eq!(
+            block.served_document_schema_versions(),
+            BTreeSet::from(["doc.v2", "doc.v3"])
+        );
+        let written = serde_json::to_value(&block)?;
+        assert_eq!(written["patches"][0]["document_schema_version"], "doc.v3");
+        assert!(written["patches"][1]
+            .get("document_schema_version")
+            .is_none());
+        let read: SectionPacksState = serde_json::from_value(written)?;
+        assert_eq!(read, block);
+        Ok(())
     }
 
     #[test]
