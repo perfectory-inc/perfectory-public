@@ -22,10 +22,66 @@
 #                      the DAGs stay paused and a line in capitals says so. The deploy's own failure
 #                      reaches Slack through foundation-autodeploy.service's OnFailure.
 #       after-switch   the release is live and steps 6–7 failed to unpause a DAG: the line says so.
+#     Returns non-zero when it leaves DAGs paused.
 #
 # On 2026-10-09 the sweep's post-deploy run failed in three deploys in a row; each deploy exited at
 # step 6 before step 7, every DAG (17 of 17) stayed paused, and nothing scheduled ran for about three
 # hours until a person unpaused them by hand.
+
+# deploy_metric_phase <phase>, deploy_metric_paused <all|held|none>, deploy_metric_end   what the
+#     deploy is doing, as Prometheus series in the file ${deploy_metrics} that node-exporter's textfile
+#     collector serves (root ADR-0321 §5). The alert rules (FoundationDeploy*) fire on how long a
+#     phase, the deploy or a pause has lasted, so a pause is never silent again (2026-10-26: step 0
+#     waited 1.5h on the by-PNU bake with every DAG paused and collection stopped for 2h unnoticed).
+#     The paused series outlives the deploy when its EXIT trap leaves DAGs paused. The file is
+#     replaced whole by a rename, so a scrape never reads half of it.
+deploy_metric_write() {
+  # A metric that cannot be written never stops the deploy; FoundationDeployMetricsUnread says so.
+  ( set -e; deploy_metric_render ) || printf 'foundation-deploy: could not write %s\n' "${deploy_metrics}" >&2
+}
+
+deploy_metric_render() {
+  local file="${deploy_metrics}"
+  mkdir -p "$(dirname "${file}")"
+  {
+    echo "# HELP foundation_deploy_started_timestamp_seconds When the deploy under way started (root ADR-0321)."
+    echo "# TYPE foundation_deploy_started_timestamp_seconds gauge"
+    [[ -z "${deploy_metric_started:-}" ]] \
+      || printf 'foundation_deploy_started_timestamp_seconds{sha="%s"} %s\n' "${sha}" "${deploy_metric_started}"
+    echo "# HELP foundation_deploy_phase_started_timestamp_seconds When the deploy's current phase started."
+    echo "# TYPE foundation_deploy_phase_started_timestamp_seconds gauge"
+    [[ -z "${deploy_metric_phase:-}" ]] \
+      || printf 'foundation_deploy_phase_started_timestamp_seconds{phase="%s"} %s\n' "${deploy_metric_phase}" "${deploy_metric_phase_at}"
+    echo "# HELP foundation_deploy_dags_paused_since_timestamp_seconds Since when a deploy holds DAGs paused; scope all or held."
+    echo "# TYPE foundation_deploy_dags_paused_since_timestamp_seconds gauge"
+    [[ -z "${deploy_metric_paused:-}" ]] \
+      || printf 'foundation_deploy_dags_paused_since_timestamp_seconds{scope="%s"} %s\n' "${deploy_metric_paused}" "${deploy_metric_paused_at}"
+  } >"${file}.next"
+  chmod 0644 "${file}.next"
+  mv -f "${file}.next" "${file}"
+}
+
+deploy_metric_phase() {
+  deploy_metric_started="${deploy_metric_started:-$(date +%s)}"
+  deploy_metric_phase="$1" deploy_metric_phase_at="$(date +%s)"
+  deploy_metric_write
+}
+
+# The held DAGs have been paused since step 0 paused them all, so a narrower scope keeps that time.
+deploy_metric_paused() {
+  if [[ "$1" == none ]]; then
+    deploy_metric_paused="" deploy_metric_paused_at=""
+  else
+    deploy_metric_paused_at="${deploy_metric_paused_at:-$(date +%s)}"
+    deploy_metric_paused="$1"
+  fi
+  deploy_metric_write
+}
+
+deploy_metric_end() {
+  deploy_metric_started="" deploy_metric_phase=""
+  deploy_metric_write
+}
 
 # deploy_unpause_unheld <hold-file>   after the build (deploy D5, root ADR-0270 §3): unpauses every
 #     enabled DAG the hold file does not name; `*` names every job, so nothing is unpaused. The held
@@ -102,15 +158,18 @@ deploy_paused_dags_on_exit() {
       else
         printf 'foundation-deploy: THE DAGS ARE STILL PAUSED: the deploy of %s stopped (exit %s) before the release switch and unpausing them failed; unpause the enabled jobs of orchestration/jobs.v1.json by hand\n' \
           "${sha}" "${status}" >&2
+        return 1
       fi
       ;;
     switching)
       printf 'foundation-deploy: THE HELD DAGS STAY PAUSED: the deploy of %s stopped (exit %s) while activating, migrating or loading the new release; the jobs it does not hold run on; fix it and deploy again, or unpause the enabled jobs of orchestration/jobs.v1.json by hand once the release is known good\n' \
         "${sha}" "${status}" >&2
+      return 1
       ;;
     after-switch)
       printf 'foundation-deploy: DAGS MAY STILL BE PAUSED: %s is deployed but unpausing its DAGs failed (exit %s); unpause the enabled jobs of orchestration/jobs.v1.json by hand\n' \
         "${sha}" "${status}" >&2
+      return 1
       ;;
   esac
   return 0

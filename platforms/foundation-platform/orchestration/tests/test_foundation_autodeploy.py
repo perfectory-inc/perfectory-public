@@ -684,6 +684,8 @@ class TheWholeDeploy(unittest.TestCase):
             '#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$FIXTURE_ROOT/release.log"\n'
             # What the deploy holds while this step runs (proposal 1, deploy D5).
             '[[ ! -f "$FIXTURE_ROOT/deploy-hold" ]] || cp "$FIXTURE_ROOT/deploy-hold" "$FIXTURE_ROOT/hold-at-$1"\n'
+            # And what its metrics say then (root ADR-0321 §5).
+            'cp "$FIXTURE_ROOT/metrics/deploy.prom" "$FIXTURE_ROOT/metrics-at-$1"\n'
             '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]]\n')
         (new / "foundation-release.sh").chmod(0o755)
         # The host's release admission: here it refuses what the real one refuses first after a root
@@ -699,7 +701,8 @@ class TheWholeDeploy(unittest.TestCase):
         text = DEPLOY.read_text(encoding="utf-8")
         text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
-                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold")):
+                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold"),
+                            ("deploy_metrics", root / "metrics/deploy.prom")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
@@ -854,6 +857,40 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("building_register_floor", live[1:])
         self.assertNotIn("*", live[1:])
         self.assertFalse((self.root / "deploy-hold").exists(), "a finished deploy holds nothing")
+
+    def series(self, name):
+        """The series of the deploy's metrics file, or of its copy at a step, without HELP/TYPE."""
+        text = (self.root / name).read_text()
+        return {line.rsplit(" ", 1)[0]: int(line.rsplit(" ", 1)[1])
+                for line in text.splitlines() if line and not line.startswith("#")}
+
+    def test_the_metrics_say_the_phase_and_what_is_paused_and_a_finished_deploy_says_nothing(self):
+        # Root ADR-0321 §5: 2026-10-26 step 0 waited 1.5h with every DAG paused and no one was told.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        paused_all = 'foundation_deploy_dags_paused_since_timestamp_seconds{scope="all"}'
+        building = self.series("metrics-at-prepare")
+        self.assertEqual(sorted(building), [
+            paused_all,
+            'foundation_deploy_phase_started_timestamp_seconds{phase="build"}',
+            f'foundation_deploy_started_timestamp_seconds{{sha="{HEAD}"}}'])
+        switching = self.series("metrics-at-migrate")
+        self.assertIn('foundation_deploy_phase_started_timestamp_seconds{phase="switch"}', switching)
+        self.assertEqual(switching['foundation_deploy_dags_paused_since_timestamp_seconds{scope="held"}'],
+                         building[paused_all], "the held DAGs have been paused since step 0")
+        self.assertEqual(self.series("metrics/deploy.prom"), {})
+
+    def test_dags_a_deploy_that_fails_during_the_switch_leaves_paused_keep_their_series(self):
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate").returncode, 0)
+        self.assertEqual(list(self.series("metrics/deploy.prom")),
+                         ['foundation_deploy_dags_paused_since_timestamp_seconds{scope="held"}'])
+
+    def test_a_deploy_that_fails_before_the_switch_unpauses_and_its_series_go(self):
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="prepare").returncode, 0)
+        self.assertEqual(self.series("metrics/deploy.prom"), {}, "before the switch every DAG is unpaused again")
 
     def test_a_deploy_that_stops_leaves_no_hold_behind(self):
         result = self.deploy(FIXTURE_FAIL_AT="prepare")

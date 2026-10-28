@@ -332,6 +332,17 @@ class BackfillKeepsThePins(unittest.TestCase):
         hand = self.snapshot("90", None, "overwrite")
         self.assertEqual(migrate.carried_properties([hand], "90"), {})
 
+    def test_the_backfill_carries_the_code_version_beside_the_pins(self):
+        # Root ADR-0321: without it a backfilled Gold reads as built by the current code.
+        import gold_code_version
+        import gold_rebuild as rebuild
+
+        pins = rebuild.pins_property_value({"silver.a": "11"})
+        built = self.snapshot("90", None, "overwrite", **{rebuild.SOURCE_SNAPSHOTS_PROPERTY: pins,
+                                                         gold_code_version.PROPERTY: "V1"})
+        self.assertEqual(migrate.carried_properties([built], "90"),
+                         {rebuild.SOURCE_SNAPSHOTS_PROPERTY: pins, gold_code_version.PROPERTY: "V1"})
+
 
 if __name__ == "__main__":
     unittest.main()

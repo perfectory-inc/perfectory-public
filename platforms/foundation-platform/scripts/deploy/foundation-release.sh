@@ -1138,9 +1138,8 @@ migrate_runtime() {
   # shellcheck source=runtime-up-in-order.sh
   source "${in_order}"
   runtime_chain_before "${runtime}" foundation-api
-  # `foundation-api` is the last link, so requiring it requires all of them, in the order the
-  # compose file owns. `--wait` makes the command finish when the state is reached rather than
-  # when the request was accepted.
+  # `foundation-api` is the last link: requiring it requires all of them, in the compose file's
+  # order. `--wait` returns once the state is reached, not when the request was accepted.
   "${runtime}" up -d --wait foundation-api
   # The identity loopback sidecars are asked for separately, and not redundantly: they depend
   # on foundation-api, and compose only pulls dependencies in the direction of the arrow —
@@ -1153,6 +1152,7 @@ migrate_runtime() {
   # old container on the old release's files). Their data and the notification log live in
   # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
   "${runtime}" up -d --wait --force-recreate prometheus alertmanager
+  "${runtime}" up -d --wait node-exporter # serves the deploy's textfile (root ADR-0321 §5)
   verify_runtime_schema
   migrate_lakehouse
 }

@@ -195,6 +195,51 @@ groups:
         annotations:
           summary: '보안 권고 출처 {{ with $labels.source }}{{ . }}{{ else }}전체{{ end }} 를 6시간째 못 읽어요{{ with $labels.reason }} ({{ . }}){{ end }} — 새 권고가 와도 알림이 안 갈 수 있어요'
           runbook: docs/runbooks/security-advisories.md
+      # What the deploy is doing (root ADR-0321 §5, closing ADR-0301 §3): 2026-10-26 step 0 waited
+      # 1.5h on the by-PNU bake with every DAG paused and collection stopped for 2h, and nothing
+      # said so. Each series is a start time that stays the same for the phase or pause it names,
+      # so Alertmanager sends one notice when the bound is crossed and one when it ends. Measured on
+      # the host (journal of foundation-autodeploy.service, 9 deploys since ADR-0301 stage 1 on
+      # 10-27): the drain took 1.1–2.6 min, every DAG was paused 2.9–4.5 min, the held ones
+      # 11.3–14.5 min, a whole deploy 11.7–14.9 min. Each bound is several times the longest.
+      - alert: FoundationDeployDrainLong
+        expr: time() - foundation_deploy_phase_started_timestamp_seconds{phase="drain"} > 1200
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: '배포 0단계(드레인)가 20분 넘게 끝나지 않아요 — 그동안 모든 DAG 이 멈춰 있어요. journalctl -u foundation-autodeploy.service 로 무엇을 기다리는지 보세요'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationDeployLong
+        expr: time() - foundation_deploy_started_timestamp_seconds > 3600
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: '{{ $labels.sha }} 배포가 1시간 넘게 진행 중이에요 — journalctl -u foundation-autodeploy.service'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationDeployDagsPausedLong
+        # Every DAG (scope all) or the jobs the release holds (scope held). The series outlives a
+        # deploy that left DAGs paused, and is gone once they are unpaused.
+        expr: >-
+          time() - foundation_deploy_dags_paused_since_timestamp_seconds{scope="all"} > 1800
+          or time() - foundation_deploy_dags_paused_since_timestamp_seconds{scope="held"} > 3600
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: '배포가 DAG({{ $labels.scope }})을 {{ humanizeDuration $value }}째 멈춰 두고 있어요 — 수집·적재가 돌지 않아요. 배포가 끝났는데도 남아 있으면 jobs.v1.json 의 켜진 작업을 손으로 unpause 하세요'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationDeployMetricsUnread
+        # Without the textfile the three alerts above cannot fire.
+        expr: up{job="node-exporter"} != 1 or absent(up{job="node-exporter"}) or node_textfile_scrape_error != 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: 배포 상태 지표(node-exporter textfile)를 30분째 못 읽어요 — 배포가 DAG 을 오래 멈춰도 알림이 안 가요
+          runbook: docs/runbooks/deploy-alerts.md
       - alert: FoundationSecurityTokenExpiring
         expr: foundation_security_token_expires_days < 14
         for: 1h
