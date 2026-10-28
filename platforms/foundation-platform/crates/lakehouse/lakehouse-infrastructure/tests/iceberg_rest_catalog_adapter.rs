@@ -553,6 +553,52 @@ async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Bo
     Ok(())
 }
 
+/// Root ADR-0310: a bake pinned to the snapshot it started from reads that snapshot after `main`
+/// moved on (generation 5 of the parcel lane was thrown away after 15 h on 2026-10-24 because the
+/// bake read only the current snapshot); an expired pin is named as such.
+#[tokio::test]
+async fn a_pinned_snapshot_is_read_after_main_moved_and_an_expired_one_is_named(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00003.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "timestamp-ms": 1_777_777_000_000_i64,
+                     "manifest-list": "r2://lakehouse/gold/parcel_panel/metadata/snap-pinned.avro"},
+                    {"snapshot-id": OTHER, "timestamp-ms": 1_777_777_777_000_i64,
+                     "manifest-list": "r2://lakehouse/gold/parcel_panel/metadata/snap-now.avro"}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let pinned = catalog
+        .load_snapshot_manifest_list("gold.parcel_panel", TAGGED)
+        .await?
+        .ok_or("the table was not found")?;
+    assert_eq!(pinned.snapshot_id, TAGGED);
+    assert_eq!(
+        pinned.manifest_list_location,
+        "r2://lakehouse/gold/parcel_panel/metadata/snap-pinned.avro"
+    );
+    let expired = catalog
+        .load_snapshot_manifest_list("gold.parcel_panel", 999_990_000_000_000_009)
+        .await
+        .err()
+        .ok_or("an expired pin was read")?;
+    assert!(
+        expired.to_string().contains("no longer holds snapshot"),
+        "{expired}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_tag_is_committed_only_where_no_reference_of_its_name_exists(
 ) -> Result<(), Box<dyn Error>> {

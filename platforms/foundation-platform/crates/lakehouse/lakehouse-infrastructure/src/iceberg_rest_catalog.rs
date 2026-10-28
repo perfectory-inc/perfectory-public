@@ -366,39 +366,27 @@ impl IcebergRestCatalog {
         let Some(snapshot_id) = payload.current_snapshot_id_i64() else {
             return Ok(None);
         };
-        let snapshot = payload
-            .metadata
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.snapshot_id == snapshot_id)
-            .ok_or_else(|| {
-                LakehouseError::Upstream(format!(
-                    "Iceberg REST load table response omitted metadata for current snapshot {snapshot_id}"
-                ))
-            })?;
-        let manifest_list_location = snapshot
-            .manifest_list
-            .as_deref()
-            .filter(|location| !location.is_empty())
-            .ok_or_else(|| {
-                LakehouseError::Upstream(format!(
-                    "Iceberg REST load table response omitted the manifest list of snapshot {snapshot_id}"
-                ))
-            })?
-            .to_owned();
-        let snapshot_timestamp_ms = snapshot.timestamp_ms.ok_or_else(|| {
-            LakehouseError::Upstream(format!(
-                "Iceberg REST load table response omitted timestamp-ms for snapshot {snapshot_id}"
-            ))
-        })?;
+        manifest_list_of(table_name, payload, snapshot_id, false).map(Some)
+    }
 
-        Ok(Some(IcebergSnapshotManifestList {
-            table_name: table_name.to_owned(),
-            snapshot_id,
-            snapshot_timestamp_ms,
-            manifest_list_location,
-            metadata_location: payload.metadata_location,
-        }))
+    /// Resolves the manifest list of `snapshot_id`, wherever `main` stands now: a bake pinned to
+    /// the snapshot it started from reads that snapshot to the end (root ADR-0310).
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached, or when the metadata no longer
+    /// holds the snapshot (expired) or omits its manifest list.
+    pub async fn load_snapshot_manifest_list(
+        &self,
+        table_name: &str,
+        snapshot_id: i64,
+    ) -> Result<Option<IcebergSnapshotManifestList>, LakehouseError> {
+        let Some(payload) = self.load_table_response(table_name).await? else {
+            return Ok(None);
+        };
+        manifest_list_of(table_name, payload, snapshot_id, true).map(Some)
     }
 
     /// The number of live rows of `snapshot_id`, as the table metadata records it (the snapshot
@@ -1005,6 +993,52 @@ fn ingested_batch_objects<'a>(
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+/// The manifest list of `snapshot_id` in a loaded table. `pinned`: the caller named the snapshot,
+/// so its absence means it expired (the words `by-pnu-serving-bake.sh` reads, root ADR-0310).
+fn manifest_list_of(
+    table_name: &str,
+    payload: LoadTableResponse,
+    snapshot_id: i64,
+    pinned: bool,
+) -> Result<IcebergSnapshotManifestList, LakehouseError> {
+    let snapshot = payload
+        .metadata
+        .snapshots
+        .iter()
+        .find(|snapshot| snapshot.snapshot_id == snapshot_id)
+        .ok_or_else(|| {
+            LakehouseError::Upstream(if pinned {
+                format!("{table_name} metadata no longer holds snapshot {snapshot_id}")
+            } else {
+                format!(
+                    "Iceberg REST load table response omitted metadata for current snapshot {snapshot_id}"
+                )
+            })
+        })?;
+    let manifest_list_location = snapshot
+        .manifest_list
+        .as_deref()
+        .filter(|location| !location.is_empty())
+        .ok_or_else(|| {
+            LakehouseError::Upstream(format!(
+                "Iceberg REST load table response omitted the manifest list of snapshot {snapshot_id}"
+            ))
+        })?
+        .to_owned();
+    let snapshot_timestamp_ms = snapshot.timestamp_ms.ok_or_else(|| {
+        LakehouseError::Upstream(format!(
+            "Iceberg REST load table response omitted timestamp-ms for snapshot {snapshot_id}"
+        ))
+    })?;
+    Ok(IcebergSnapshotManifestList {
+        table_name: table_name.to_owned(),
+        snapshot_id,
+        snapshot_timestamp_ms,
+        manifest_list_location,
+        metadata_location: payload.metadata_location,
+    })
 }
 
 /// The snapshot `main` names: its reference, or the current snapshot of metadata that carries no

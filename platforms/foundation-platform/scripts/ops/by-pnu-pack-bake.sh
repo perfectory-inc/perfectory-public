@@ -18,7 +18,8 @@
 # - Resumable: a shard whose summary exists is done and is not run again.
 # - One Gold snapshot: the first shard runs alone and unpinned; its summary's snapshot pins every
 #   later shard (…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID), and a rerun pins from the summaries already
-#   there. Summaries of two snapshots are refused, and so is a table that moved (the export stops).
+#   there; a table that moved since is read at that snapshot (root ADR-0310). Summaries of two
+#   snapshots are refused, and so is a pin Gold no longer holds (expired).
 # - BY_PNU_PACK_BAKE_WORKERS shards side by side, each with BY_PNU_PACK_BAKE_ATTEMPTS attempts
 #   (by-pnu-bake-shards.sh). A retry resumes: the export rewrites the same bytes create-only.
 # - Each shard's result goes to the log (the dispatcher's logs/bake.log); each attempt's output to
@@ -106,7 +107,7 @@ bake_shard() {
     rm -f "${summary}.partial"
     by_pnu_shard_over_row_cap "${attempt_log}" && return 10
     # Refusals a retry cannot change.
-    if grep -q -e 'moved during the bake' -e 'holds packs of Gold snapshot' "${attempt_log}"; then
+    if grep -q -e 'no longer holds snapshot' -e 'holds packs of Gold snapshot' "${attempt_log}"; then
       tail -n 3 "${attempt_log}"
       return 1
     fi
