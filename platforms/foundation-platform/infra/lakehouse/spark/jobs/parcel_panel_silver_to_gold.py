@@ -1682,7 +1682,7 @@ def write_gold_iceberg(
     added_columns = ensure_contract_table(spark, table, GOLD_CONTRACT)
     # The snapshot records the Silver pins it was built from (root ADR-0139), and the pinned
     # Silver snapshots stay readable for the next incremental comparison (ADR-0180).
-    outcome.commit(spark, table, pins, args.iceberg_write_mode)
+    outcome.commit(spark, table, pins, args.iceberg_write_mode, contract_table=GOLD_CONTRACT_NAME)
     incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                        GOLD_CONTRACT_NAME, pins)
     return added_columns

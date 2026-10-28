@@ -283,6 +283,73 @@ class CurrentRowLatest:
 # A removal marker's value in its table's `removal_column`; any other value, null included, is a row.
 REMOVED = "removed"
 
+ROW_VERSION_KINDS = ("replaced", "latest_per_key", "editions", "events", "unwritten")
+
+
+def row_versions(contract: dict[str, Any]) -> dict[str, Any]:
+    """How the table's rows pile up (root ADR-0286): required on every contract, and naming only the
+    table's own columns. ``latest_per_key`` details are ``current_row_latest``."""
+
+    table = contract.get("table_name")
+    value = contract.get("row_versions")
+    if not isinstance(value, dict) or value.get("kind") not in ROW_VERSION_KINDS:
+        raise ValueError(f"lakehouse contract {table} must declare row_versions as one of {ROW_VERSION_KINDS}")
+    names = {column["name"] for column in columns(contract)}
+    kind = value["kind"]
+    named = {
+        "replaced": list(value.get("key") or []),
+        "editions": [value.get("edition_column"), *(value.get("newest_first") or [None]), *(value.get("per") or [])],
+    }.get(kind, [])
+    if any(not isinstance(name, str) or name not in names for name in named):
+        raise ValueError(f"lakehouse contract {table} row_versions must name its own columns: {named}")
+    if (kind == "latest_per_key") != (current_row_latest(contract) is not None):
+        raise ValueError(f"lakehouse contract {table}: current_row_latest belongs to latest_per_key alone")
+    if kind == "editions" and value.get("read") not in ("newest", "pinned"):
+        raise ValueError(f"lakehouse contract {table} row_versions.read must be newest or pinned")
+    return value
+
+
+# What a write does to the table's main: add rows, replace the rows it covers, commit no rows to
+# record a snapshot property, or rewrite the same rows (a schema migration's backfill).
+WRITE_INTENTS = ("append", "replace", "record", "rewrite")
+
+
+class WriteRefused(ValueError):
+    """The table's contract does not allow this write (root ADR-0286)."""
+
+
+def admit_write(contract_table: str, intent: str, *, target: str | None = None, branch: str | None = None) -> None:
+    """Refuse a write the table's `row_versions` does not allow, before anything is written.
+
+    Every Iceberg write in a job calls this first; a guard refuses a write that does not (root
+    ADR-0286 stage 3). A `Replaced` table's load replaces what it covers and never appends; every
+    other table only appends, since replacing it would drop the versions, editions or facts it
+    keeps; an `Unwritten` table takes no write at all. A staging write (a branch other than
+    `main`, or a target that is not the contract's table, such as a `_smoke` copy) is the load's
+    own and not checked against the declaration. `record` (no rows) and `rewrite` (the same
+    rows) change no row the declaration speaks about.
+    """
+
+    if intent not in WRITE_INTENTS:
+        raise ValueError(f"write intent must be one of {WRITE_INTENTS}, not {intent!r}")
+    if intent == "rewrite":
+        # The same rows, whatever the declaration: asked before the contract is loaded, so a
+        # migration of a table the artifact does not hold (a test's own) is not refused for that.
+        return
+    declared = row_versions(load_lakehouse_contract(contract_table))
+    kind = declared["kind"]
+    if kind == "unwritten":
+        raise WriteRefused(f"{contract_table} is Unwritten ({declared.get('reason')}): declare how its rows pile up first")
+    staging = branch not in (None, "main") or (
+        target is not None and target.replace("`", "").split(".")[-2:] != contract_table.split(".")
+    )
+    if staging or intent in ("record", "rewrite"):
+        return
+    if kind == "replaced" and intent == "append":
+        raise WriteRefused(f"{contract_table} is Replaced: a load replaces the rows it covers, it does not append")
+    if kind != "replaced" and intent == "replace":
+        raise WriteRefused(f"{contract_table} keeps every row ({kind}): a load appends, it does not replace")
+
 
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
     """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""

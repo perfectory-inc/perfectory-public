@@ -191,7 +191,7 @@ class EmptyRegistryTest(unittest.TestCase):
 
         with self.assertRaises(ValueError) as caught:
             append_batch_once(
-                spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.parcel_boundaries"
+                spark, frame, ["source_record_id"], "`c`.`silver`.`court_auction_item`", "silver.parcel_boundaries"
             )
 
         self.assertIn("records no ingested objects", str(caught.exception))
@@ -203,7 +203,7 @@ class EmptyRegistryTest(unittest.TestCase):
         frame = FakeBatchFrame(["a.zip"])
 
         result = append_batch_once(
-            spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.parcel_boundaries"
+            spark, frame, ["source_record_id"], "`c`.`silver`.`court_auction_item`", "silver.parcel_boundaries"
         )
 
         self.assertTrue(result["appended"])
@@ -218,7 +218,7 @@ class EmptyRegistryTest(unittest.TestCase):
             spark,
             frame,
             ["source_record_id"],
-            "`c`.`s`.`t`",
+            "`c`.`silver`.`court_auction_item`",
             "silver.parcel_boundaries",
             write_mode="overwrite",
         )
@@ -229,13 +229,13 @@ class EmptyRegistryTest(unittest.TestCase):
         """1억 행을 세려면 모든 파일을 연다. 물음은 "비었나" 하나뿐이다."""
         spark = FakeAnsweringSpark(registry=[], total_records=5)
 
-        self.assertTrue(table_holds_rows(spark, "`c`.`s`.`t`", "c.s.t"))
+        self.assertTrue(table_holds_rows(spark, "`c`.`silver`.`court_auction_item`", "c.s.t"))
 
         empty = FakeAnsweringSpark(registry=[], total_records=0)
-        self.assertFalse(table_holds_rows(empty, "`c`.`s`.`t`", "c.s.t"))
+        self.assertFalse(table_holds_rows(empty, "`c`.`silver`.`court_auction_item`", "c.s.t"))
 
         unknown = FakeAnsweringSpark(registry=[], total_records=None)
-        self.assertFalse(table_holds_rows(unknown, "`c`.`s`.`t`", "c.s.t"))
+        self.assertFalse(table_holds_rows(unknown, "`c`.`silver`.`court_auction_item`", "c.s.t"))
 
 
 class DeclaredLoadIdentityTest(unittest.TestCase):
@@ -260,6 +260,8 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
             ["unit_row_id"],
             "`c`.`silver`.`building_register_unit_areas`",
             "silver.building_register_unit_areas",
+            # A later batch of the lane's replacing load (root ADR-0286): its first batch overwrote.
+            load_mode="overwrite",
         )
 
         self.assertEqual(frame.selected, ("source_snapshot_id",))
@@ -328,6 +330,18 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
 
         self.assertFalse(frame.appended)
 
+    def test_an_append_to_a_replaced_table_is_refused_before_anything_is_read(self) -> None:
+        """Root ADR-0286: the declaration decides, before the registry is asked or a row written."""
+        from platform_contracts import WriteRefused  # noqa: PLC0415
+
+        frame = FakeBatchFrame(["run-2026-06"], column="source_snapshot_id")
+        spark = FakeAnsweringSpark(registry=[], total_records=0)
+        with self.assertRaisesRegex(WriteRefused, "is Replaced"):
+            append_batch_once(spark, frame, ["unit_row_id"], "`c`.`silver`.`building_register_units`",
+                              "silver.building_register_units")
+        self.assertFalse(frame.appended)
+        self.assertFalse(frame.selected)
+
     def test_a_derived_table_has_no_load_identity_to_record(self) -> None:
         """파생 표의 생산자는 덮어쓴다. 기록을 남기면 아무도 묻지 않는 물음에 답하는 것이다."""
         frame = FakeBatchFrame(["vworldkr__sandan_profile-202506"])
@@ -340,6 +354,7 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
                 ["complex_id"],
                 "`c`.`gold`.`complex_catalog`",
                 "gold.complex_catalog",
+                load_mode="overwrite",
             )
 
 
@@ -558,13 +573,15 @@ class SourceObjectTest(unittest.TestCase):
 
     def test_an_object_with_no_rows_is_still_written_and_recorded(self) -> None:
         frame = FakeBatchFrame([])
-        self.assertTrue(append_source_object(FakeSpark([]), frame, ["source_record_id"], "`c`.`s`.`t`", self.KEY))
+        self.assertTrue(append_source_object(FakeSpark([]), frame, ["source_record_id"], "`c`.`silver`.`court_auction_item`", self.KEY,
+                                                 contract_table="silver.court_auction_item"))
         self.assertTrue(frame.appended, "빈 커밋이라도 객체 이름을 요약에 싣는다")
 
     def test_an_object_the_table_records_is_not_written_again(self) -> None:
         spark = FakeSpark([FakeRow(7, {INGEST_BATCH_OBJECTS_KEY: self.KEY, INGEST_BATCH_TOKEN_KEY: "t"})])
         frame = FakeBatchFrame([self.KEY])
-        self.assertFalse(append_source_object(spark, frame, ["source_record_id"], "`c`.`s`.`t`", self.KEY))
+        self.assertFalse(append_source_object(spark, frame, ["source_record_id"], "`c`.`silver`.`court_auction_item`", self.KEY,
+                                                 contract_table="silver.court_auction_item"))
         self.assertFalse(frame.appended)
 
 
@@ -681,7 +698,7 @@ class DerivationTest(unittest.TestCase):
             FakeAnsweringSpark(registry=loaded, total_records=10),
             frame,
             ["source_record_id"],
-            "`c`.`s`.`t`",
+            "`c`.`silver`.`court_auction_item`",
             "silver.parcel_boundaries",
         )
         self.assertFalse(skipped["appended"], "라벨 없이는 이미 실린 객체를 다시 붙이지 않는다")
@@ -691,7 +708,7 @@ class DerivationTest(unittest.TestCase):
             FakeAnsweringSpark(registry=loaded, total_records=10),
             again,
             ["source_record_id"],
-            "`c`.`s`.`t`",
+            "`c`.`silver`.`court_auction_item`",
             "silver.parcel_boundaries",
             derivation="v2",
         )
@@ -706,7 +723,7 @@ class DerivationTest(unittest.TestCase):
             ),
             rerun,
             ["source_record_id"],
-            "`c`.`s`.`t`",
+            "`c`.`silver`.`court_auction_item`",
             "silver.parcel_boundaries",
             derivation="v2",
         )

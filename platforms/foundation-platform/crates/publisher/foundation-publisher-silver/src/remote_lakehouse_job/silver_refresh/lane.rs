@@ -518,7 +518,7 @@ fn checked_compare(table: &str, content: Vec<String>) -> anyhow::Result<Vec<Stri
     let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
         .with_context(|| format!("{table} has no lakehouse contract"))?;
     let latest = contract
-        .current_row_latest
+        .current_row_latest()
         .filter(|latest| latest.removal_column.is_some())
         .with_context(|| {
             format!(

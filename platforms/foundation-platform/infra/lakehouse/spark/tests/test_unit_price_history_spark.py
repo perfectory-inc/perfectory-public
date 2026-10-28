@@ -37,6 +37,7 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         cls.spark.sql(silver.PRICES_SQL).createOrReplaceTempView("reference_prices")
         cls.prices = (cls.spark.sql(silver.JOIN_SQL).withColumn("sido", F.lit("99"))
                       .withColumn("source_snapshot_id", F.lit("synthetic-source-a"))
+                      .withColumn("vintage", F.lit("209906"))
                       .withColumn("source_record_id", F.lit("unit-official-price/base-date-v2/99/fixture")))
         cls.units = cls.spark.createDataFrame([
             (cls.pnu, "UNIT-1", "BLDG-1", "", "101동", "101호", "101호", 1, "above_ground"),
@@ -124,13 +125,17 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         older = silver.batch_source_snapshot_id(1, 2, "209907")
         newer = silver.batch_source_snapshot_id(3, 4, "209908")
         with tempfile.TemporaryDirectory() as temp:
+            # Each batch carries the vintage of its id, as the job and the deploy's backfill write it.
             (self.prices.withColumn("source_snapshot_id", self.F.lit(older))
+             .withColumn("vintage", silver.vintage_column())
              .unionByName(self.prices.withColumn("source_snapshot_id", self.F.lit(newer))
+                          .withColumn("vintage", silver.vintage_column())
                           .withColumn("price_won", self.F.col("price_won") + 1))
              .write.parquet(temp + "/unit_official_price"))
             args = SimpleNamespace(input_mode="parquet", input_root=temp, price_source_snapshot_id=None)
             prices = self.gold.read_source(self.spark, args, self.gold.PRICE_SOURCE, {})
             self.assertEqual(self.gold.assert_single_snapshot(prices, self.gold.PRICE_SOURCE), newer)
+            self.assertEqual({r.vintage for r in prices.select("vintage").distinct().collect()}, {"209908"})
             self.assertEqual(sorted(r.price_won for r in prices.collect()),
                              sorted(r.price_won + 1 for r in self.prices.collect()))
             # A named batch still wins: an operator can serve an older vintage on purpose.

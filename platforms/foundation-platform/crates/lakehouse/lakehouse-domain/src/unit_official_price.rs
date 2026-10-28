@@ -1,8 +1,9 @@
 //! Unit-indexed reference-date prices derived from the two HUB registers.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 /// Append-only province batches retaining every assessment reference date.
@@ -12,7 +13,12 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["vintage"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: &[
         LakehouseColumn {
             name: "mgm_bldrgst_pk",
@@ -53,6 +59,16 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
             name: "source_snapshot_id",
             logical_type: "string",
             required: true,
+        },
+        // The vintage the batch joined: what orders the batches, so a reader takes the newest
+        // without parsing the batch id (root ADR-0286 stage 1c). The job always fills it and the
+        // deploy backfills the batches appended before it (lakehouse_schema_migrate.BACKFILLS).
+        // Not required: the scan reads data files of the earlier 9-column shape, which Iceberg
+        // serves with the column null (root ADR-0259 section 3).
+        LakehouseColumn {
+            name: "vintage",
+            logical_type: "string",
+            required: false,
         },
         LakehouseColumn {
             name: "source_record_id",

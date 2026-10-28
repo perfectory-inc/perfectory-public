@@ -23,6 +23,7 @@ from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg
 from lakehouse_ingest import append_batch_once
 from parcel_lineage_to_silver import DATE, IDENTIFIER, PREFIX, sql_prefixes
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
     evolve_iceberg_table_to_contract,
@@ -159,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
                     summary["changelog_appended"] = append_batch_once(spark, frame, columns, table, contract["table_name"])["appended"]
             else:
                 frame.createOrReplaceTempView(f"release_{name}")
+                admit_write(contract["table_name"], "replace", target=table)
                 spark.sql(f"INSERT OVERWRITE {table} SELECT {', '.join(columns)} FROM release_{name}")
         counts: dict[str, int] = {}
         for c in changes:

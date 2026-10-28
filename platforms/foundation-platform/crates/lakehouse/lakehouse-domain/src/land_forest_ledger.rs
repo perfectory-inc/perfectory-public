@@ -1,8 +1,8 @@
 //! Named `AL_D003` CSV attributes; forest-ledger fields remain independent of land characteristics (root ADR-0088).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_FOREST_LEDGER_COLUMNS: &[LakehouseColumn] = &[
@@ -110,7 +110,11 @@ pub const SILVER_LAND_FOREST_LEDGER: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Keyless {
+            reason: "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)",
+        },
+    },
     columns: SILVER_LAND_FOREST_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "data_reference_date"],
