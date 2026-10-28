@@ -669,6 +669,13 @@ class WriteDistributionTest(unittest.TestCase):
             ("pnu", "string", ""), ("", "", ""), ("# Partitioning", "", ""),
             ("Part 0", "source_snapshot_id", ""), ("Part 1", "bucket(16, pnu)", "")]
         self.assertEqual(table_partition_fields(spark, "t"), ("source_snapshot_id", "bucket(16, pnu)"))
+        # Spark 3.4+ prints an identity-only spec Hive style.
+        spark.sql.return_value.collect.return_value = [
+            ("pnu", "string", ""), ("source_snapshot_id", "string", ""),
+            ("# Partition Information", "", ""), ("# col_name", "data_type", "comment"),
+            ("source_snapshot_id", "string", ""), ("", "", ""),
+            ("# Metadata Columns", "", ""), ("_spec_id", "int", "")]
+        self.assertEqual(table_partition_fields(spark, "t"), ("source_snapshot_id",))
         spark.sql.return_value.collect.return_value = [
             ("pnu", "string", ""), ("# Partitioning", "", ""), ("Not partitioned", "", "")]
         self.assertEqual(table_partition_fields(spark, "t"), ())
