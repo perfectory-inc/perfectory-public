@@ -81,9 +81,9 @@ done
 for request in "${switches}"/*.stop; do
   job="${request##*/}" job="${job%.stop}"
   [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || continue
-  id="$(sed -n 's/^request=//p' "${request}" | head -n 1)"
+  id="$(sed -n 's/^request=//p' "${request}" | sed -n 1p)"
   [[ "${id}" =~ ${UUID} && ! -e "${marks}/stopped/${id}" ]] || continue
-  actor="$(sed -n 's/^actor=//p' "${request}" | head -n 1)"
+  actor="$(sed -n 's/^actor=//p' "${request}" | sed -n 1p)"
   stamp="$(sed -n '/^requested_at=/{s///p;q}' "${request}")"
   asked="$(date -d "${stamp}" +%s 2>/dev/null)" || asked=0
   if (($(date +%s) - asked > 600)); then

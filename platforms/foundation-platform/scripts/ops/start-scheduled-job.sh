@@ -271,9 +271,9 @@ if [[ "${result}" != success ]]; then
   claimed="${outcome#foundation-job-outcome }"
   # An operator's stop names who ended the run (root ADR-0282 §5): foundation-run-now marks the
   # invocation it stopped before it stops it.
-  stopper="$(grep -lx "invocation=${invocation}" "${FOUNDATION_OPERATOR_STOPS_DIR:-/var/lib/foundation-run-now/stopped}"/* 2>/dev/null | head -n 1)" || stopper=""
+  stopper="$(grep -lx "invocation=${invocation}" "${FOUNDATION_OPERATOR_STOPS_DIR:-/var/lib/foundation-run-now/stopped}"/* 2>/dev/null | sed -n 1p)" || stopper=""
   if [[ -n "${stopper}" ]]; then
-    printf 'foundation-job-outcome failed stopped by %s\n' "$(sed -n 's/^actor=//p' "${stopper}" | head -n 1)"
+    printf 'foundation-job-outcome failed stopped by %s\n' "$(sed -n 's/^actor=//p' "${stopper}" | sed -n 1p)"
   elif [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
     printf 'foundation-job-outcome failed systemd result=%s after the run said %s\n' "${result}" "${claimed}"
   else
