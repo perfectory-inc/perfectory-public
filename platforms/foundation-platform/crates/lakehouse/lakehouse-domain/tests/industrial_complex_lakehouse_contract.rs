@@ -5,13 +5,15 @@ use std::{collections::BTreeSet, error::Error, io};
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseCurrentRowLatest,
     LakehouseLayer, LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS,
+    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR,
+    SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_TRANSFER_HISTORY,
     SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
     SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
+    SILVER_UNIT_OFFICIAL_PRICE_VERSIONS,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -287,6 +289,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 })
             );
         } else if contract.table_name == SILVER_LAND_TRANSFER_HISTORY.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS.table_name
+            || contract.table_name == SILVER_UNIT_OFFICIAL_PRICE_VERSIONS.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
         {

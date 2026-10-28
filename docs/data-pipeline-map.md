@@ -212,6 +212,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 표 | 상태 | 이유 |
 |---|---|---|
+| `silver.building_register_apartment_price_versions` | 계약만 있음 | 공동주택가격의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 판의 전체 사본과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 레인 전환 전까지 읽는 소비자가 없어 섬으로 둔다. |
+| `silver.unit_official_price_versions` | 계약만 있음 | 세대 가격 조합의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 패널이 읽던 그 판의 묶음과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 독자 전환 전까지 읽는 소비자가 없어 섬으로 둔다. |
 | `silver.court_auction_item` | 계약만 있음 | 물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.court_auction_sale_result` | 계약만 있음 | 매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
@@ -365,6 +367,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 공동주택가격 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 건축물대장 전유부 → 세대별 기준일 공시가격 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py` |
 | 세대별 기준일 공시가격 → 세대 공시가격 연혁 | `load-unit-official-price-projection` |
+| 건축물대장 공동주택가격 → 건축물대장 공동주택가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/vintage_versions.py` |
+| 세대별 기준일 공시가격 → 세대별 기준일 공시가격 판 버전 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/vintage_versions.py` |
 | 산업단지 기본 정보 → 산업단지 | `load-industrial-complex-canonical` |
 | 산업단지 경계 → 산업단지 경계 서빙 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_silver_to_postgis_handoff.py`<br>`publish-industrial-complex-boundary-postgis` |
 | 산업단지 제공용 프로필 → 산업단지 Gold 포인터 발행 | `export-industrial-complex-gold-profiles`<br>`publish-industrial-complex-gold-pointer` |

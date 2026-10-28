@@ -31,6 +31,9 @@ from platform_contracts import load_identity_from_value, load_unit
 # reading `<table>.snapshots`; `OBJECTS` is what the skip decision actually reads.
 INGEST_BATCH_TOKEN_KEY = "foundation.ingest-batch-token"
 INGEST_BATCH_OBJECTS_KEY = "foundation.ingest-batch-objects"
+# The edition a commit of a versioned table loaded (root ADR-0317): an edition with no changed key
+# appends no row, so the commit, not the rows, says that it was loaded.
+EDITION_KEY = "foundation.edition"
 
 # Iceberg's Spark writer strips this prefix and puts the rest into the snapshot summary.
 SNAPSHOT_PROPERTY_PREFIX = "snapshot-property."
@@ -138,6 +141,24 @@ def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str,
         for name in recorded.split(OBJECT_NAME_SEPARATOR):
             ingested.setdefault(name, int(row.snapshot_id))
     return ingested
+
+
+def edition_property_option(edition: str) -> dict[str, str]:
+    """The writer option that records in its commit which edition the commit loaded."""
+    if not edition or OBJECT_NAME_SEPARATOR in edition:
+        raise ValueError(f"an edition is a non-empty value without {OBJECT_NAME_SEPARATOR!r}: {edition!r}")
+    return {f"{SNAPSHOT_PROPERTY_PREFIX}{EDITION_KEY}": edition}
+
+
+def read_editions(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> set[str]:
+    """Every edition `ref`'s lineage records as loaded (`edition_property_option`); empty for a
+    table that does not exist. Read from the same snapshot summaries as `read_ingested_objects`."""
+    if not spark.catalog.tableExists(unquoted_table):
+        return set()
+    lineage = ref_lineage(spark, qualified_table, ref)
+    return {row.summary[EDITION_KEY]
+            for row in spark.sql(f"SELECT snapshot_id, summary FROM {qualified_table}.snapshots").collect()
+            if int(row.snapshot_id) in lineage and (row.summary or {}).get(EDITION_KEY)}
 
 
 def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> bool:
