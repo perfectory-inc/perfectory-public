@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0308. The release deploy's steps that ran in full on every deploy, whatever the release changed (the deploy of 77198c1f on 2026-10-27 spent 1 min 51 s migrating 48 lakehouse tables that release_changes.py had reported unchanged). Each step states either `inputs` -- paths under the Foundation Platform tree whose bytes make up what the step does, the shape config/worker-deploys.contract.json gives a Worker, read by scripts/deploy/deploy_steps.py with worker_autodeploy.py's fingerprint -- and is skipped while those bytes are the ones its last successful run on this host saw; or `always`, why it runs on every deploy, with `budget_seconds`, how long it may take before a line on stderr says it took longer. Which DAGs a deploy pauses and which running jobs it waits for or stops are not steps here: release_changes.py's hold list decides them (root ADR-0270 §3, ADR-0308).",
+  "$comment": "Root ADR-0308. The release deploy's steps that ran in full on every deploy, whatever the release changed (the deploy of 77198c1f on 2026-10-27 spent 1 min 51 s migrating 48 lakehouse tables that release_changes.py had reported unchanged). Each step states either `inputs` -- paths under the Foundation Platform tree whose bytes make up what the step does, the shape config/worker-deploys.contract.json gives a Worker, read by scripts/deploy/deploy_steps.py with worker_autodeploy.py's fingerprint -- and is skipped while those bytes are the ones its last successful run on this host saw; or `always`, why it runs on every deploy, with `budget_seconds`, how long it may take before a line on stderr says it took longer. Each job orchestration/jobs.v1.json marks started_once_after_deploy is a step `start-once.<job id>` (root ADR-0159 §4, ADR-0173): it starts under the new release only when the release changes its inputs or it never succeeded here (2026-10-28: the deploy's start of legal_dong_code_changes was about ten of its runs a day, 55 MB each, against one scheduled run); its inputs are its own script, unit and the code and contracts it runs, not the whole publisher, since its schedule runs it within a day anyway. Which DAGs a deploy pauses and which running jobs it waits for or stops are not steps here: release_changes.py's hold list decides them (root ADR-0270 §3, ADR-0308).",
   "schema_version": 1,
   "decision": "docs/adr/0308-the-deploy-stops-only-the-jobs-its-release-holds-and-skips-a-step-whose-inputs-did-not-change.md",
   "steps": {
@@ -17,9 +17,34 @@
       "always": "The runtime image is the release's own and carries its migrations (sqlx::migrate!), so the chain postgres, bootstrap, migrate, grants, finalize, api runs each deploy; the chain is run to completion before the API is replaced (2026-10-14) and is asked for as an end state, never with --no-deps (2026-09-02, scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh), so compose re-runs its idempotent one-shots once per `up`. Measured 77 s on 2026-10-27.",
       "budget_seconds": 150
     },
-    "start-once": {
-      "always": "Each short job orchestration/jobs.v1.json marks started_once_after_deploy runs once under the new release before the schedule returns (root ADR-0159 §4, ADR-0173): the first real input the release meets, while the deploy that brought it is still the one to blame. Measured 2 min 15 s for six jobs on 2026-10-27.",
-      "budget_seconds": 300
+    "start-once.outbox_publish": {
+      "inputs": ["scripts/ops/publish-outbox.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/database-url.sh",
+                 "infra/systemd/foundation-outbox-publish.service", "crates/foundation-outbox", "migrations"]
+    },
+    "start-once.map_edit_fold_admin": {
+      "inputs": ["scripts/ops/map-edit-fold.sh", "scripts/ops/admitted-writer-runtime.sh", "infra/systemd/foundation-map-edit-fold@.service",
+                 "infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py",
+                 "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"]
+    },
+    "start-once.map_edit_fold_complex": {
+      "inputs": ["scripts/ops/map-edit-fold.sh", "scripts/ops/admitted-writer-runtime.sh", "infra/systemd/foundation-map-edit-fold@.service",
+                 "infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py",
+                 "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"]
+    },
+    "start-once.legal_dong_code_changes": {
+      "inputs": ["scripts/ops/legal-dong-code-collect.sh", "scripts/ops/admitted-writer-runtime.sh",
+                 "infra/systemd/foundation-legal-dong-code.service",
+                 "services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs",
+                 "crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs",
+                 "infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json",
+                 "infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py", "infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py"]
+    },
+    "start-once.data_quality": {
+      "inputs": ["scripts/ops/data-quality-check.py", "infra/systemd/foundation-data-quality.service", "contracts/data"]
+    },
+    "start-once.shape_ledger_check": {
+      "inputs": ["scripts/ops/shape-ledger-check.py", "infra/systemd/foundation-shape-ledger-check.service",
+                 "infra/lakehouse/contracts", "config/postgres-production-shape.json", "migrations"]
     }
   }
 }

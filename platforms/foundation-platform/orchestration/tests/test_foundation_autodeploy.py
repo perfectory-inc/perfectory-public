@@ -711,7 +711,8 @@ class TheWholeDeploy(unittest.TestCase):
         text = DEPLOY.read_text(encoding="utf-8")
         text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
-                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold")):
+                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold"),
+                            ("deploy_steps_state", root / "deploy-steps")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
@@ -931,6 +932,39 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no registered job is running", result.stdout)
         self.assertEqual((self.root / "hold-at-prepare").read_text().splitlines()[1:], ["*"])
 
+    def test_a_job_started_once_starts_again_only_when_the_release_changes_what_it_runs(self):
+        # 2026-10-28: about ten legal-dong collections a day (55 MB each) came from step 6, one from the
+        # schedule. A job starts once when it never succeeded here or its inputs changed (ADR-0308).
+        current = self.root / "opt/foundation-platform/current"
+        for name in ("deploy_steps.py", "worker_autodeploy.py"):
+            (current / "scripts/deploy" / name).write_bytes((PLATFORM / "scripts/deploy" / name).read_bytes())
+        (current / "config").mkdir()
+        (current / "config/deploy-steps.contract.json").write_text(json.dumps({"steps": {
+            "start-once.source_sweep": {"inputs": ["orchestration/jobs.v1.json"]},
+            "start-once.outbox_publish": {"inputs": ["scripts/deploy/airflow-runtime.sh"]}}}))
+        starts = lambda: [line for line in (self.root / "systemctl.log").read_text().splitlines()  # noqa: E731
+                          if line.startswith("start")]
+        control = self.root / "opt/perfectory-control/current"
+
+        def again(**env):
+            # Step 1 moved the control checkout to the commit; the next deploy starts from the trusted one.
+            control.unlink()
+            control.symlink_to(pathlib.Path("releases") / ("d" * 40))
+            return self.deploy(**env)
+
+        result = self.deploy(FIXTURE_FAILING="foundation-outbox_publish.service")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(starts()), 2, "the first deploy here starts both")
+        result = again()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(starts()[2:], ["start foundation-outbox_publish.service"],
+                         "the one that succeeded is skipped; the one that failed starts again")
+        self.assertRegex(result.stdout, r"foundation-source_sweep\.service +skipped")
+        (current / "orchestration/jobs.v1.json").write_text((current / "orchestration/jobs.v1.json").read_text() + "\n")
+        result = again()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("start foundation-source_sweep.service", starts()[3:], "a changed input starts it again")
+
     def test_a_deploy_that_stops_leaves_no_hold_behind(self):
         result = self.deploy(FIXTURE_FAIL_AT="prepare")
         self.assertNotEqual(result.returncode, 0)
@@ -1096,7 +1130,7 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
         expected = []
         for job in jobs:
             if job["enabled"] and job.get("started_once_after_deploy"):
-                expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job))]
+                expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job)), job["id"]]
         self.assertTrue(expected)
         self.assertEqual(waited, expected)
 

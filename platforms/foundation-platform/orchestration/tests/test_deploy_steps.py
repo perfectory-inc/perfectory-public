@@ -15,12 +15,13 @@ import unittest
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT = PLATFORM / "config/deploy-steps.contract.json"
 STEPS = PLATFORM / "scripts/deploy/deploy_steps.py"
+JOBS = PLATFORM / "orchestration/jobs.v1.json"
 # Where each step is run, and so where its contract entry is read.
 CALLERS = {
     "lakehouse-migrate": PLATFORM / "scripts/deploy/foundation-release.sh",
     "postgres-chain": PLATFORM / "scripts/deploy/foundation-release.sh",
-    "start-once": PLATFORM / "scripts/deploy/deploy-start-once.sh",
 }
+START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 
 
 def steps(*args):
@@ -31,7 +32,12 @@ def steps(*args):
 class TheContract(unittest.TestCase):
     def test_every_step_has_inputs_or_a_reason_and_a_budget(self):
         entries = json.loads(CONTRACT.read_text(encoding="utf-8"))["steps"]
-        self.assertEqual(set(entries), set(CALLERS))
+        once = {f"start-once.{job['id']}" for job in json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
+                if job["enabled"] and job.get("started_once_after_deploy")}
+        self.assertEqual(set(entries), set(CALLERS) | once,
+                         "every job a deploy starts once says what it runs, and nothing else is listed")
+        for step in once:
+            self.assertIn("inputs", entries[step], "a started-once job starts only when what it runs changed")
         for step, entry in entries.items():
             with self.subTest(step):
                 if "inputs" in entry:
@@ -47,6 +53,8 @@ class TheContract(unittest.TestCase):
         for step, caller in CALLERS.items():
             with self.subTest(step):
                 self.assertIn(f" {step} ", caller.read_text(encoding="utf-8").replace('"', " "))
+        self.assertIn('should-run "start-once.${id}"', START_ONCE.read_text(encoding="utf-8"))
+        self.assertIn('ran "start-once.${id}"', START_ONCE.read_text(encoding="utf-8"))
 
 
 class TheGate(unittest.TestCase):

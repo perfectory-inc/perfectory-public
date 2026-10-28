@@ -43,6 +43,8 @@ mirror=/var/lib/perfectory/control-source.git
 # What this deploy holds, for the operator's starts (by-pnu-pack-operator.sh): its pid, then `*`
 # from step 0 until the build is done, then the jobs its release holds until it is live (D5).
 deploy_hold=/run/foundation-deploy-hold
+# Where a deploy step records the inputs of its last successful run here (deploy_steps.py, root ADR-0308).
+deploy_steps_state=/var/lib/foundation-platform/deploy-steps
 identity="${control_root}/current/tools/github/repository-identity.json"
 repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
 
@@ -71,9 +73,9 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         # list read is the release being replaced, and the one this change replaces still states
         # timeout_minutes. Drop that branch once the host runs a release with stop_grace_minutes.
         if "timeout_minutes" in job:
-            print(job["systemd_service"], job["timeout_minutes"])
+            print(job["systemd_service"], job["timeout_minutes"], job["id"])
         else:
-            print(job["systemd_service"], job["time_limit_minutes"] + job["stop_grace_minutes"])
+            print(job["systemd_service"], job["time_limit_minutes"] + job["stop_grace_minutes"], job["id"])
 if which == "enabled-consumers-first":
     # Airflow drops an output event for a DAG that is still paused (root ADR-0179): the order is the
     # job registry's own dependency graph, consumers first (orchestration/dags/job_specs.py).

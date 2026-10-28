@@ -92,29 +92,40 @@ deploy_unpause_enabled() {
   done
 }
 
-# deploy_step_budget <step> <started at, $SECONDS>   a step that runs on every deploy states why and how
-#     long it may take (config/deploy-steps.contract.json, root ADR-0308); over that, a line on stderr
-#     says so. A release without the contract says nothing.
-deploy_step_budget() {
-  # shellcheck disable=SC2154 # release_root is the caller's (foundation-deploy.sh)
+# deploy_step <should-run|ran> <step>   config/deploy-steps.contract.json of the release now current
+#     (root ADR-0308). should-run answers 3 only when the step may be skipped; a release without
+#     the contract, or any failure to answer, runs it.
+deploy_step() {
+  # shellcheck disable=SC2154 # release_root and deploy_steps_state are the caller's (foundation-deploy.sh)
   local steps="${release_root}/current/scripts/deploy/deploy_steps.py"
   [[ -f "${steps}" ]] || return 0
-  python3 -I -B "${steps}" budget "${release_root}/current" "$1" "$((SECONDS - $2))" || true
+  python3 -I -B "${steps}" "$1" "${release_root}/current" "${deploy_steps_state}" "$2"
 }
 
 start_once_then_unpause() {
-  local sha="$1" entry service result started="${SECONDS}"
+  local sha="$1" entry service minutes id result gate
   local -a once failed=()
   mapfile -t once < <(jobs_of started-once)
   for entry in "${once[@]}"; do
-    service="${entry% *}"
+    read -r service minutes id <<<"${entry}"
+    # Only when the release changes what the job runs, or it never succeeded here (2026-10-28: about
+    # ten extra legal-dong collections a day, 55 MB each, came from this step, not the schedule).
+    gate=0
+    [[ -z "${id}" ]] || deploy_step should-run "start-once.${id}" || gate=$?
+    if ((gate == 3)); then
+      printf '%-45s %s\n' "${service}" "skipped"
+      continue
+    fi
     # The job's own limit from the registry, and a minute for systemd to report it.
-    timeout "$(( ${entry##* } * 60 + 60 ))" systemctl start "${service}" || true
+    timeout "$(( minutes * 60 + 60 ))" systemctl start "${service}" || true
     result="$(systemctl show -p Result --value "${service}")" || result=unknown
     printf '%-45s %s\n' "${service}" "${result}"
-    [[ "${result}" == success ]] || failed+=("${service}")
+    if [[ "${result}" == success ]]; then
+      [[ -z "${id}" ]] || deploy_step ran "start-once.${id}" >/dev/null || true
+    else
+      failed+=("${service}")
+    fi
   done
-  deploy_step_budget start-once "${started}"
 
   printf '\n==== %s\n' "7. unpause the enabled DAGs"
   deploy_unpause_enabled || return 1
