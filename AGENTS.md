@@ -106,6 +106,12 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - **번호는 열린 PR까지 본다**: ADR 번호와 마이그레이션 버전은 main만이 아니라 다른 열린 PR이 이미 잡은 것도 피한다. PR CI의 `numbering_collisions.py`(`required/repository`)가 main이나 더 먼저 연 PR이 가진 번호를 거부하고 다음 빈 번호를 알려 준다. 나중에 연 쪽이 번호를 바꾼다.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
 
+## 위생 불변식
+
+기계가 강제하는 위생 규칙만 둔다: 규칙 + 그것을 강제하는 장치 + 결정 ADR([ADR-0299](./docs/adr/0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md) §5).
+
+- **서빙 신선도(B·C)**: 모든 by-PNU 레인은 사용자가 받는 manifest 의 나이(`published_at_utc`)를 계약 예산(`by_pnu_section_packs.freshness_budget_hours`) 안에 둔다 — 작업 상태가 아니라 산출물로 잰다. 장치: 매시 `foundation-by-pnu-serving-monitor@<lane>` 실패 → Slack([ADR-0306](./docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md)).
+
 ## 작업 목록 SSOT
 
 - `AGENTS.md`에는 작업 내용을 복제하지 않는다. 운영 출시 작업은 [루트 README](./README.md)의 문서 지도에서 연결한 단일 TODO/로드맵을 따른다.
