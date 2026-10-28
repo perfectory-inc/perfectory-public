@@ -9,9 +9,17 @@ compose=(docker compose --project-directory "${root_dir}" -f "${root_dir}/docker
 export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:-};FOUNDATION_RECOVERY_REPOSITORY_PATH;FOUNDATION_RECOVERY_EVIDENCE_DIR"
 max_age_hours=26 # one nightly run, its randomized start and a slow night
 
-info="$("${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup info --output=json)"
-# A backup's stop time is the one integer "stop" in its timestamp object; an lsn "stop" is a quoted string.
-newest="$(grep -oE '"stop":[0-9]+' <<<"${info}" | grep -oE '[0-9]+' | sort -n | tail -n 1)" || true
+# The restore-drill service carries the repository's read-only key, never the writer's; its
+# `pgbackrest-backup` entrypoint branch runs pgbackrest as-is without touching the restore volume.
+info="$("${compose[@]}" run --rm -T --interactive=false --no-deps foundation-restore-drill pgbackrest-backup info --output=json)"
+# Newest backup stop time across every stanza; any unexpected shape fails closed.
+newest="$(python3 -c '
+import json, sys
+stops = [b["timestamp"]["stop"] for s in json.load(sys.stdin) for b in s.get("backup", [])]
+if not all(isinstance(t, int) for t in stops):
+    sys.exit("pgBackRest info: a backup stop time is not an integer")
+print(max(stops) if stops else "")
+' <<<"${info}")"
 [[ -n "${newest}" ]] || { printf 'postgres backup: the pgBackRest repository holds no backup\n' >&2; exit 1; }
 
 now="$(date -u +%s)"
