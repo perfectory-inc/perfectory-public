@@ -152,6 +152,7 @@ fi
 # 달라져 여기서 다시 만든다.
 last_queue_summary="${STATE_ROOT}/last-queue-summary.json"
 queue_check="$(python3 "$(dirname "${BASH_SOURCE[0]}")/lineage-queue-check.py")"
+queue_rebuilt=0
 if queue_unchanged "${queue_check}" "${last_queue_summary}"; then
   job_journal "${journal}" "stewardship queue unchanged run=${run_id}: ${queue_check}; no Spark, no load"
   cp "${last_queue_summary}" "${work}/queue-summary.json"
@@ -162,6 +163,7 @@ else
   FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
     "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
   cp "${work}/queue-summary.json" "${last_queue_summary}"
+  queue_rebuilt=1
 fi
 
 # 4. 요약
@@ -182,5 +184,12 @@ if [ "${derive_refused}" != 0 ]; then
   printf 'foundation-job-outcome failed %s lineage groups refused\n' "${derive_refused}"
   exit 1
 fi
-# The run's last line (root ADR-0171, ADR-0260): it loaded the review queue and folded decisions.
-printf 'foundation-job-outcome changed\n'
+# The run's last line (root ADR-0171, ADR-0260): `changed` only when a step wrote — the 법정동 load or
+# pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
+# derived=0, folded 0, queue unchanged).
+if [ "${legal_dong_code_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
+  || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ]; then
+  printf 'foundation-job-outcome changed\n'
+else
+  printf 'foundation-job-outcome unchanged\n'
+fi
