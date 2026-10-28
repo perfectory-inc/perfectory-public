@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, w1kch9812-cmd/partial-w3-ci]
   merge_group:
   # A new advisory reaches main without any commit. The daily run finds it before
   # the next pull request does, and the failed run carries the prepared fix

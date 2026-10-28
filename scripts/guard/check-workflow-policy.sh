@@ -356,7 +356,7 @@ for workflow in "${workflows[@]}"; do
     /^[^[:space:]]/ { in_pull=0; in_merge=0 }
     in_pull && /^  [A-Za-z0-9_-]+:/ { in_pull=0 }
     in_merge && /^  [A-Za-z0-9_-]+:/ { in_merge=0 }
-    in_pull && /^    branches:[[:space:]]*\[main\][[:space:]]*$/ { branch_count++; next }
+    in_pull && /^    branches:[[:space:]]*\[main(, w1kch9812-cmd\/partial-w3-ci)?\][[:space:]]*$/ { branch_count++; next }
     in_pull && /^    [A-Za-z0-9_-]+:/ { fail("pull_request allows only branches: [main]") }
     in_merge && /^    [A-Za-z0-9_-]+:/ { fail("merge_group admits no filter; it must run for every queued group") }
     /^  merge_group:/ { fail("merge_group must use the canonical bare block form") }
