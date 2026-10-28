@@ -4,10 +4,11 @@
 `tools/ci/change-scope.json` (root ADR-0202) holds the one ordered list of the
 guards `scripts/guard/monorepo-guard.sh` runs, under `guards`. Each entry either
 names the paths whose change can change its verdict (`paths`), or runs on every
-change and says why (`always`). A guard's own script, its `.py` twin, the
+change, says why (`always`) and how long it may take on a CI runner (`budget_seconds`, root
+ADR-0313; the runner fails a CI sweep in which it takes longer). A guard's own script, its `.py` twin, the
 repository files its scripts name (followed through the scripts they name), and,
 for `<guard>-self-test`, the scripts of `<guard>`, are inputs without being
-listed. A pull request runs the guards whose inputs it touches; every other event,
+listed. A pull request and the merge queue run the guards whose inputs they touch; every other event,
 an unknown comparison, or a change to the runner, the shared fixture library, the
 contract or a selector runs every guard.
 
@@ -35,9 +36,12 @@ SELF = "scripts/ci/guard_scope.py"
 # A change to how guards are chosen, or to what every guard shares, can change every verdict.
 RUN_ALL = cs.RUN_ALL | {SELF, RUNNER}
 RUN_ALL_GLOBS = (f"{GUARD_DIR}/lib/**",)
-# Only a pull request is narrowed. main, the merge queue, the daily run and a manual run
-# keep the whole sweep: it is about a minute, and it catches drift no diff shows.
-SCOPED_EVENTS = frozenset({"pull_request"})
+# A pull request and the merge queue are narrowed (root ADR-0313). main, the daily run and a manual
+# run keep the whole sweep: it catches drift no diff shows.
+SCOPED_EVENTS = cs.NARROWED_EVENTS
+# What an `always` guard may cost: it runs on every pull request and every merge group. On
+# 2026-10-28 one walked every compose file for 8.5 minutes (16 on some runners), six times per merge.
+MAX_ALWAYS_BUDGET_SECONDS = 60
 # Guards name more kinds of file than workflows do (env files, documents, SQL, schemas).
 NAMED_FILE = re.compile(
     r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:sh|py|json|jsonc|toml|yml|yaml|env|md|txt|sql|avsc|mjs|rs|tsv|css|sha256))\b"
@@ -175,7 +179,15 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
         if always:
             if not str(entry["always"]).strip():
                 errors.append(f"guard {name}: `always` states why the guard reads every change")
+            budget = entry.get("budget_seconds")
+            if type(budget) is not int or not 0 < budget <= MAX_ALWAYS_BUDGET_SECONDS:
+                errors.append(
+                    f"guard {name}: an `always` guard declares `budget_seconds`, 1..{MAX_ALWAYS_BUDGET_SECONDS}, "
+                    "the CI time it may take on every change; give it `paths` if it needs more"
+                )
             continue
+        if "budget_seconds" in entry:
+            errors.append(f"guard {name}: `budget_seconds` belongs to an `always` guard")
         globs = entry["paths"]
         if len(globs) != len(set(globs)):
             errors.append(f"guard {name}: duplicate paths")
@@ -233,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("select", help="print the guards to run, one per line, in contract order")
     sub.add_parser("check", help="the guard list and the guard scripts agree")
+    sub.add_parser("budgets", help="print `<guard> <seconds>` for every `always` guard")
     args = parser.parse_args(argv)
     if args.command == "check":
         errors = check()
@@ -241,7 +254,16 @@ def main(argv: list[str] | None = None) -> int:
         if not errors:
             print("OK guard-scope")
         return 1 if errors else 0
+    if args.command == "budgets":
+        for entry in guards(cs.load_contract()):
+            if "always" in entry:
+                print(f"{entry['name']} {entry.get('budget_seconds', 0)}")
+        return 0
     event = os.environ.get("CHANGE_SCOPE_EVENT", "")
+    verified = cs.push_verified_by_queue("monorepo-guard.yml")
+    if verified:
+        print(f"guard-scope: the merge queue passed this tree, no guard runs again: {verified}", file=sys.stderr)
+        return 0
     changed = None
     if event in SCOPED_EVENTS:
         changed = cs.git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
