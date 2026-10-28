@@ -1,0 +1,13 @@
+[Unit]
+Description=Drill the PostgreSQL restore weekly
+
+[Timer]
+# Wednesday, apart from the Sunday identity restore drill and the Sunday full backup: this drill
+# builds a whole throwaway stack and the host is small, so two heavy drills do not share a night.
+OnCalendar=Wed *-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=foundation-postgres-restore-drill.service
+
+[Install]
+WantedBy=timers.target
