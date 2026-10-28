@@ -13,7 +13,10 @@ the release's schema. For each contract table the lakehouse holds:
 3. `--mode apply` adds the columns (contract order) and runs the registered backfills: rows read
    from the current main snapshot, pinned by id; the filled column checked for the same row
    count and no empty value; the overwrite rejects concurrent changes and is read back. A required
-   registered column left empty after a failed migration is filled on retry.
+   registered column left empty after a failed migration is filled on retry. The backfill commit
+   carries the source pins of the producer commit it rewrote (root ADR-0312 §3): the registered
+   function is the build's own, so the rows are still what the build makes of those pins, and the
+   next Gold rebuild plans from them instead of rebuilding whole.
 4. A table the contract declares range distributed is given the contract's sort order as its
    Iceberg write order (`WRITE ORDERED BY`, root ADR-0164). A metadata commit: rows already
    written stay where they are, and the next write lays them out in order.
@@ -238,14 +241,28 @@ def reorder_to_contract(spark: SparkSession, quoted: str, contract: dict, actual
         raise MigrationBlocked(f"{quoted} did not take the contract order")
 
 
+def carried_properties(snapshots: list[dict], head: str) -> dict[str, str]:
+    """The snapshot summary a backfill of `head` keeps: the source pins of the producer commit its
+    rows are (only compactions after it), so the Gold planner sees no content change (root ADR-0312
+    §3). A head that is no producer commit (a hand write) has none to carry, and the planner rebuilds."""
+    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, head_build_pins, pins_property_value
+
+    pins = head_build_pins(snapshots, str(head))
+    return {} if pins is None else {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}
+
+
 def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict, columns: list[str]) -> dict:
     from pyspark.sql import functions as F
+
+    from gold_rebuild import _snapshots
+    from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
     identifier = f"{catalog}.{table_name}"
     quoted = ".".join(f"`{part}`" for part in identifier.split("."))
     snapshot = spark.sql(
         f"SELECT snapshot_id FROM {quoted}.refs WHERE name = 'main'"
     ).first()[0]
+    carried = carried_properties(_snapshots(spark, quoted), str(snapshot))
     frame = spark.read.format("iceberg").option("snapshot-id", snapshot).load(identifier)
     expected = column_names(contract)
     types = {column["name"]: spark_sql_type(column["logical_type"]) for column in contract["columns"]}
@@ -262,9 +279,12 @@ def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict,
             raise MigrationBlocked(f"{table_name}.{name} backfill left {empty} of {rows} rows empty")
     # Iceberg validates all concurrent appends/deletes since the pinned read before committing.
     # A plain INSERT OVERWRITE could silently discard a writer that committed during backfill.
-    frame.writeTo(identifier).option("isolation-level", "serializable").option(
+    writer = frame.writeTo(identifier).option("isolation-level", "serializable").option(
         "validate-from-snapshot-id", str(snapshot)
-    ).overwrite(F.lit(True))
+    )
+    for key, value in carried.items():
+        writer = writer.option(f"{SNAPSHOT_PROPERTY_PREFIX}{key}", value)
+    writer.overwrite(F.lit(True))
     persisted = spark.table(quoted)
     persisted_rows = persisted.count()
     still_empty = {name: persisted.where(empty_value(contract, name)).count() for name in columns}
@@ -272,7 +292,7 @@ def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict,
         raise MigrationBlocked(
             f"{table_name} backfill did not hold: rows {rows}->{persisted_rows}, empty {still_empty}"
         )
-    return {"rows": rows, "from_snapshot": str(snapshot)}
+    return {"rows": rows, "from_snapshot": str(snapshot), "carried_pins": bool(carried)}
 
 
 def empty_value(contract: dict, name: str) -> Column:

@@ -388,10 +388,11 @@ class Contract(unittest.TestCase):
             entry = contract["tables"][kind.gold_table]
             self.assertEqual((entry["unit"], entry["producer_arguments"]), (lane, ["--lane", lane]))
             if not kind.follows_host_panel:
-                # Root ADR-0287: its own producer and inputs, no host pin, always a whole rebuild.
+                # Root ADR-0287: its own producer and inputs, no host pin; root ADR-0312 §2: merged by
+                # its own key map like every kind.
                 self.assertEqual(entry["producer"], kind.producer)
                 self.assertNotIn("pins_from", entry)
-                self.assertNotIn("incremental", entry)
+                self.assertIn("incremental", entry)
                 producer = __import__(kind.producer)
                 required, _, anchor = rebuild.producer_inputs(producer, entry)
                 self.assertEqual(anchor, parcel.PARCEL_SOURCE)

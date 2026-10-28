@@ -91,14 +91,10 @@ class PlanMode(unittest.TestCase):
     def test_incremental_is_declared_wherever_a_rebuild_can_merge(self):
         contract = rebuild.load_contract()
         for name, table in contract["tables"].items():
-            # Root ADR-0287: a kind with its own producer (a --lane argument, no host-panel pin) reads
-            # its own inputs at their own heads and rebuilds whole, so it carries no incremental merge;
-            # a panel and a kind pinned to its host panel merge only the changed PNUs and must declare it.
-            own_producer = "pins_from" not in table and table.get("producer_arguments", [])[:1] == ["--lane"]
-            if own_producer:
-                self.assertNotIn("incremental", table, name)
-            else:
-                self.assertIn("incremental", table, name)
+            # Root ADR-0312 §2: every table merges only its changed PNUs, a kind with its own producer
+            # (the 공매 kind) by its own key map, unless the contract says why it rebuilds whole.
+            self.assertNotEqual("incremental" in table, bool(table.get("full_reason")), name)
+        self.assertIn("incremental", contract["tables"]["gold.parcel_public_auction"])
         broken = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
         broken["tables"]["gold.building_panel"]["incremental"]["max_changed_key_fraction"] = 0
         path = Path(self.id().replace(".", "_") + ".json")
@@ -212,6 +208,66 @@ class BuildColumns(unittest.TestCase):
         self.assertEqual({level: parcel.CODE_LEVEL_DIGITS[parcel.code_level(code)] for level, code in (
             ("sido", "9900000000"), ("sigungu", "9999900000"), ("eupmyeondong", "9999900100"),
             ("ri", "9999900101"))}, {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10})
+
+
+class UndeclaredFull(unittest.TestCase):
+    """Root ADR-0312 §2: a rebuild is partial unless the contract says why not. 2026-10-24..28 the
+    공매 kind declared no incremental and rebuilt whole every run (230 -> 511 s for 4.6K rows)."""
+
+    def load(self, change):
+        raw = json.loads(rebuild.CONTRACT_PATH.read_text(encoding="utf-8"))
+        change(raw)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "c.json"
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            return rebuild.load_contract(path)
+
+    def test_a_table_with_neither_incremental_nor_a_full_reason_is_refused(self):
+        with self.assertRaisesRegex(rebuild.PlanError, "incremental or full_reason"):
+            self.load(lambda raw: raw["tables"]["gold.parcel_panel"].pop("incremental"))
+        with self.assertRaisesRegex(rebuild.PlanError, "incremental or full_reason"):
+            self.load(lambda raw: raw["kind_tables"].pop("incremental"))
+
+    def test_a_table_with_both_is_refused(self):
+        with self.assertRaisesRegex(rebuild.PlanError, "incremental or full_reason"):
+            self.load(lambda raw: raw["tables"]["gold.parcel_panel"].update(full_reason="fixture"))
+
+    def test_a_declared_full_rebuilds_whole_with_its_reason(self):
+        def full(raw):
+            raw["tables"]["gold.parcel_panel"].pop("incremental")
+            raw["tables"]["gold.parcel_panel"]["full_reason"] = "fixture: whole on purpose"
+            raw["kind_tables"]["overrides"]["parcel-public-auction"]["full_reason"] = "fixture: kind whole"
+        tables = self.load(full)["tables"]
+        self.assertNotIn("incremental", tables["gold.parcel_public_auction"])
+        entry = {**ENTRY, "full_reason": "fixture: whole on purpose"}
+        entry.pop("incremental")
+        decision = rebuild.plan("gold.x", entry, INPUTS, gold(), silver())
+        self.assertEqual(decision["mode"], "full")
+        self.assertIn("fixture: whole on purpose", decision["mode_reasons"][0])
+
+
+class RecordedSteps(unittest.TestCase):
+    """Root ADR-0312 §1: the bake's delta reads the PNUs each Gold commit recorded when every step
+    from the served snapshot to the new one has a record; any other step sends it to the full join."""
+
+    SNAPSHOTS = [{"snapshot_id": "1", "parent_id": None, "operation": "overwrite"},
+                 {"snapshot_id": "2", "parent_id": "1", "operation": "overwrite"},   # a merge
+                 {"snapshot_id": "3", "parent_id": "2", "operation": "replace"},     # a compaction
+                 {"snapshot_id": "4", "parent_id": "3", "operation": "append"},      # an empty merge
+                 {"snapshot_id": "5", "parent_id": "4", "operation": "overwrite"}]   # a full rebuild
+
+    def test_recorded_merges_and_compactions_between_two_snapshots_are_walked(self):
+        self.assertEqual(incremental.recorded_steps(self.SNAPSHOTS, {"2", "4"}, "1", "4"), ["2", "4"])
+        self.assertEqual(incremental.recorded_steps(self.SNAPSHOTS, {"2", "4"}, "2", "4"), ["4"])
+
+    def test_an_unrecorded_step_falls_back_to_the_join(self):
+        self.assertIsNone(incremental.recorded_steps(self.SNAPSHOTS, {"2", "4"}, "1", "5"), "a full rebuild")
+        self.assertIsNone(incremental.recorded_steps(self.SNAPSHOTS, {"4"}, "1", "4"), "a merge whose record failed")
+        self.assertIsNone(incremental.recorded_steps(self.SNAPSHOTS, {"2", "4"}, "9", "4"), "an expired baseline")
+
+    def test_the_record_sits_beside_its_gold_table(self):
+        self.assertEqual(incremental.changes_table("`r2`.`gold`.`parcel_panel`"), "`r2`.`gold`.`parcel_panel__changes`")
+        self.assertEqual(incremental.changes_table("`r2`.gold.parcel_panel"), "`r2`.gold.parcel_panel__changes")
 
 
 if __name__ == "__main__":
