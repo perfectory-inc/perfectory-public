@@ -1,6 +1,6 @@
 # ADR 0325: 요청 하나가 복사할 수 있는 크기를 넘는 문서는 쪽(page)으로 나눠 서빙하고, 문서 하나가 레인을 멈추지 않는다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Applies: [ADR-0233](./0233-every-by-pnu-pack-is-read-by-one-rule-head-then-range.md) §3(요청 하나가 복사하는 바이트 상한,
   `PackWriter` 가 지킨다) — 상한은 그대로 두고, 넘는 문서를 거부 대신 쪽으로 낸다
