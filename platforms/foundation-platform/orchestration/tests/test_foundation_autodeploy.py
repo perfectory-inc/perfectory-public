@@ -649,7 +649,10 @@ class TheWholeDeploy(unittest.TestCase):
             "    words = line.split()\n"
             "    if words[:2] in (['dags', 'pause'], ['dags', 'unpause']):\n"
             "        state[words[2]] = words[1] == 'pause'\n"
-            "print(json.dumps([{'dag_id': dag, 'is_paused': str(paused)} for dag, paused in state.items()]))\n")
+            # A DAG Airflow has not parsed yet is not listed (FIXTURE_UNLISTED).
+            "unlisted = {'foundation_' + job for job in os.environ.get('FIXTURE_UNLISTED', '').split()}\n"
+            "print(json.dumps([{'dag_id': dag, 'is_paused': str(paused)} for dag, paused in state.items()\n"
+            "                  if dag not in unlisted]))\n")
         # The running release's compose wrapper stands in for psql on the production database: it
         # answers the ledger from FIXTURE_ROOT/applied and a setting from FIXTURE_SETTING.
         (running / "scripts/deploy/foundation-runtime.sh").write_text(
@@ -706,13 +709,15 @@ class TheWholeDeploy(unittest.TestCase):
                              f'[[ -z "$(find {release_root}/current/ -name __pycache__)" ]]\n')
         admission.chmod(0o755)
         (root / "var").mkdir()
+        # The deploy's own root-owned state (config/deploy-steps.contract.json state_directory's parent).
+        (root / "var/lib/perfectory").mkdir(parents=True)
+        (root / "var/lib/perfectory").chmod(0o755)
         conf = root / "release-deploy.conf"
         conf.write_text(f"FOUNDATION_DEPLOYER={getpass.getuser()}\n")
         text = DEPLOY.read_text(encoding="utf-8")
         text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
-                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold"),
-                            ("deploy_steps_state", root / "deploy-steps")):
+                            ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
@@ -746,7 +751,8 @@ class TheWholeDeploy(unittest.TestCase):
     def deploy(self, **env):
         return subprocess.run(
             ["bash", str(self.script), HEAD],
-            env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FIXTURE_ROOT": str(self.root), **env},
+            env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FIXTURE_ROOT": str(self.root),
+                 "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(self.root), **env},
             capture_output=True, text=True, check=False, timeout=120,
         )
 
@@ -802,15 +808,23 @@ class TheWholeDeploy(unittest.TestCase):
             contract.parent.mkdir(parents=True, exist_ok=True)
             contract.write_text(json.dumps({"artifacts_from": artifacts_from}))
         old = self.root / "opt/foundation-platform/current"
+        new = self.root / "commit/platforms/foundation-platform"
+        steps = json.loads((PLATFORM / "config/deploy-steps.contract.json").read_text(encoding="utf-8"))
+        # The migration's inputs, its contract and the programs that read them, in both releases.
+        shared = ("scripts/deploy/deploy_steps.py", "scripts/deploy/worker_autodeploy.py",
+                  "config/deploy-steps.contract.json", *steps["steps"]["lakehouse-migrate"]["inputs"])
         for relative in ("scripts/deploy/release_changes.py", "orchestration/jobs.v1.json",
-                         "docs/catalog/pipeline-graph.v1.json",
-                         "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"):
-            target = self.root / "commit/platforms/foundation-platform" / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((PLATFORM / relative).read_bytes())
-            if relative.startswith("infra/"):
-                (old / relative).parent.mkdir(parents=True, exist_ok=True)
-                (old / relative).write_bytes((PLATFORM / relative).read_bytes())
+                         "docs/catalog/pipeline-graph.v1.json", *shared):
+            for tree in (new, old) if relative in shared else (new,):
+                (tree / relative).parent.mkdir(parents=True, exist_ok=True)
+                if (PLATFORM / relative).is_dir():
+                    shutil.copytree(PLATFORM / relative, tree / relative, dirs_exist_ok=True)
+                else:
+                    (tree / relative).write_bytes((PLATFORM / relative).read_bytes())
+        # This host migrated the running release (its record), so the running release is the baseline.
+        sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
+        import deploy_steps
+        deploy_steps.ran(old, "lakehouse-migrate", self.root)
         # The running release has applied the migrations the commit carries: none is new.
         shutil.copytree(self.root / "commit/platforms/foundation-platform/migrations", old / "migrations")
         if changed_table:
@@ -914,14 +928,58 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual((self.root / "sleep.log").read_text().split(), ["10", "10"])
         self.assertNotIn("stop", (self.root / "systemctl.log").read_text())
 
+    def owed_runs_are_recorded(self):
+        (self.root / "opt/foundation-platform/current/scripts/deploy/job_units.py").write_bytes(
+            (PLATFORM / "scripts/deploy/job_units.py").read_bytes())
+        owed = self.root / "scheduler/deferred"
+        owed.parent.mkdir()
+        return owed
+
     def test_a_held_interruptible_job_is_stopped_once_not_waited_for_for_hours(self):
         # Root ADR-0301 §2: 2026-10-26 an operator stopped the bake by hand after the drain had waited 1.5 h.
         self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
-        result = self.deploy(FIXTURE_BUSY_ANSWERS="3")
+        owed = self.owed_runs_are_recorded()
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         stops = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("stop")]
         self.assertEqual(stops, ["stop --no-block foundation-source_sweep.service"])
         self.assertIn("stopped foundation-source_sweep.service", result.stdout)
+
+    def test_a_stopped_job_is_owed_a_run_and_started_when_the_schedule_comes_back(self):
+        # 2026-10-29 review: a `*` deploy (a Postgres migration) stops every interruptible job, and one
+        # with retries 0 (a 20 h bake) was run again by nothing. It is recorded before it is stopped and
+        # step 7 starts it, the way a job a release build deferred is (root ADR-0260).
+        owed = self.owed_runs_are_recorded()
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(path.name for path in owed.iterdir()), ["source_sweep"],
+                         "the record stays until the runner starts it")
+        self.assertIn("it is owed a run, started when the deploy gives the schedule back", result.stdout)
+        log = (self.root / "airflow.log").read_text().splitlines()
+        self.assertLess(log.index("dags unpause foundation_source_sweep"), log.index("dags trigger foundation_source_sweep"))
+        self.assertIn("started foundation_source_sweep", result.stdout)
+
+    def test_a_stopped_job_is_started_again_when_the_deploy_stops_before_the_switch(self):
+        owed = self.owed_runs_are_recorded()
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed), FIXTURE_FAIL_AT="prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dags trigger foundation_source_sweep", (self.root / "airflow.log").read_text())
+
+    def test_a_job_that_cannot_be_recorded_as_owed_is_waited_for_not_stopped(self):
+        # The running release has no job_units.py: nowhere to record the run it would lose.
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="3")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("stop", (self.root / "systemctl.log").read_text())
+        self.assertIn("waiting for it instead of stopping it", result.stderr)
+        self.assertEqual((self.root / "sleep.log").read_text().split(), ["10", "10", "10"])
+
+    def test_a_dag_airflow_has_not_listed_yet_is_unpaused(self):
+        # 2026-10-29 review: a new job's DAG not parsed yet is created paused by Airflow; a filter that
+        # unpaused only the DAGs listed as paused left it paused for good.
+        self.commit_tells_what_it_changes(artifacts_from="registry")
+        result = self.deploy(FIXTURE_UNLISTED="outbox_publish")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.airflow_told("unpause"), ["outbox_publish"])
 
     def test_a_release_the_host_builds_drains_every_job_as_before(self):
         # ADR-0137: the 22g builder is the host's one-shot job; by the memory budget nothing fits beside it.
@@ -939,7 +997,8 @@ class TheWholeDeploy(unittest.TestCase):
         for name in ("deploy_steps.py", "worker_autodeploy.py"):
             (current / "scripts/deploy" / name).write_bytes((PLATFORM / "scripts/deploy" / name).read_bytes())
         (current / "config").mkdir()
-        (current / "config/deploy-steps.contract.json").write_text(json.dumps({"steps": {
+        (current / "config/deploy-steps.contract.json").write_text(json.dumps({
+            "state_directory": "/var/lib/perfectory/deploy-steps", "steps": {
             "start-once.source_sweep": {"inputs": ["orchestration/jobs.v1.json"]},
             "start-once.outbox_publish": {"inputs": ["scripts/deploy/airflow-runtime.sh"]}}}))
         starts = lambda: [line for line in (self.root / "systemctl.log").read_text().splitlines()  # noqa: E731

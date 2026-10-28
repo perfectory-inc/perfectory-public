@@ -39,7 +39,7 @@ usage:
   foundation-release.sh staging-smoke <40-char-git-sha>
   foundation-release.sh install <40-char-git-sha> <source.tar.gz>
   foundation-release.sh activate <40-char-git-sha>
-  foundation-release.sh migrate
+  foundation-release.sh migrate [--skip-unchanged]
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
@@ -727,7 +727,7 @@ rollback_release() {
 # nothing removed) rather than raising the failure alarm; the next activation, or `prune` by hand,
 # catches up.
 prune_releases() {
-  python3 "${prune_program}" "${retention_contract}" "${release_root}" "${control_releases_dir}" "${admission}"
+  python3 -I -B "${prune_program}" "${retention_contract}" "${release_root}" "${control_releases_dir}" "${admission}"
 }
 
 # Retention runs after the switch, never instead of it: a failed prune leaves the new release
@@ -804,6 +804,7 @@ verify_runtime_secrets() {
 }
 
 migrate_runtime() {
+  local lakehouse="$1"
   assert_current_release
   # Rebuild before applying. The migrator is the release's own binary and the migrations live
   # inside it, so an image built from an older tree applies an older set however new the source
@@ -815,7 +816,7 @@ migrate_runtime() {
   }
   # A release from the registry (root ADR-0276 §13) records the API and recovery images CI built and
   # admission checked against the signed manifest; they become the images compose names, unbuilt.
-  local tagged=0 started="${SECONDS}" steps="${release_root}/current/scripts/deploy/deploy_steps.py"
+  local tagged=0 steps="${release_root}/current/scripts/deploy/deploy_steps.py"
   "${admission}" tag-compose-images || tagged=$?
   case "${tagged}" in
     0) ;;
@@ -843,11 +844,16 @@ migrate_runtime() {
   }
   # shellcheck source=runtime-up-in-order.sh
   source "${in_order}"
+  # The chain's own time (root ADR-0308 postgres-chain budget): from its first `up` to its last.
+  local started="${SECONDS}"
   runtime_chain_before "${runtime}" foundation-api
   # `foundation-api` is the last link, so requiring it requires all of them, in the order the
   # compose file owns. `--wait` makes the command finish when the state is reached rather than
   # when the request was accepted.
   "${runtime}" up -d --wait foundation-api
+  # It runs on every deploy and says when it took longer than its budget (root ADR-0308).
+  [[ ! -f "${steps}" ]] \
+    || python3 -I -B "${steps}" budget "${release_root}/current" postgres-chain "$((SECONDS - started))" || true
   # The identity loopback sidecars are asked for separately, and not redundantly: they depend
   # on foundation-api, and compose only pulls dependencies in the direction of the arrow —
   # asking for the api alone leaves its own loopback listeners down, which surfaced on the
@@ -860,10 +866,7 @@ migrate_runtime() {
   # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
   "${runtime}" up -d --wait --force-recreate prometheus alertmanager
   verify_runtime_schema
-  # It runs on every deploy and says when it took longer than its budget (root ADR-0308).
-  [[ ! -f "${steps}" ]] \
-    || python3 -I -B "${steps}" budget "${release_root}/current" postgres-chain "$((SECONDS - started))" || true
-  migrate_lakehouse
+  migrate_lakehouse "${lakehouse}"
 }
 
 # The lakehouse half of `migrate` (root ADR-0124): every published lakehouse table is brought to
@@ -946,15 +949,28 @@ install_lakehouse_migration_unit() {
   install -d -o foundation-platform -g foundation-platform /var/lib/foundation-platform/lakehouse-migrate
 }
 
+# The records of the deploy steps (config/deploy-steps.contract.json state_directory, root ADR-0308):
+# root's, 0700. deploy_steps.py refuses them under a parent another account could write.
+prepare_deploy_steps_state() {
+  install -d -o root -g root -m 0700 "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["state_directory"])' \
+    "${release_root}/current/config/deploy-steps.contract.json")"
+}
+
+# <run|skip-unchanged>: skip-unchanged (the deploy) skips it while what it runs against is what its
+# last successful run here recorded (root ADR-0308: inputs, catalog settings, jars, and no drift in
+# shape_ledger_check's capture); only exit 3 skips, anything else runs it. `run` (by hand) always runs.
+# Its record goes before any run and comes back only after a successful one, so a run that fails or
+# is cut short is never taken for the state of the catalog.
 migrate_lakehouse() {
+  local mode="$1" steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0
   assert_current_release
-  # Skipped while its inputs are the bytes its last successful run here saw (root ADR-0308): the
-  # tables were brought to those contracts then. Only exit 3 skips; anything else runs it. To force a
-  # run, remove ${state_root}/deploy-steps/lakehouse-migrate.inputs.
-  local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0
   if [[ -f "${steps}" ]]; then
-    python3 -I -B "${steps}" should-run "${release_root}/current" "${state_root}/deploy-steps" lakehouse-migrate || gate=$?
-    [[ "${gate}" != 3 ]] || return 0
+    prepare_deploy_steps_state
+    if [[ "${mode}" == skip-unchanged ]]; then
+      python3 -I -B "${steps}" should-run "${release_root}/current" lakehouse-migrate || gate=$?
+      [[ "${gate}" != 3 ]] || return 0
+    fi
+    python3 -I -B "${steps}" forget "${release_root}/current" lakehouse-migrate
   fi
   install_lakehouse_migration_unit
   # The migration's lakehouse-target-init checks /tmp is writable; it is made before, not in `timers`.
@@ -966,7 +982,7 @@ migrate_lakehouse() {
       grep -a '^lakehouse-migrate apply:' | tail -1
     # A record that cannot be written only means the next deploy runs it again.
     [[ ! -f "${steps}" ]] \
-      || python3 -I -B "${steps}" ran "${release_root}/current" "${state_root}/deploy-steps" lakehouse-migrate || true
+      || python3 -I -B "${steps}" ran "${release_root}/current" lakehouse-migrate || true
   else
     journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
       grep -a '^lakehouse-migrate' | tail -40 >&2
@@ -1070,8 +1086,14 @@ case "${command}" in
     activate_and_prune "$2"
     ;;
   migrate)
-    [[ "$#" == 1 ]] || usage
-    migrate_runtime
+    # By hand it runs every step: the operator's way to bring the lakehouse to the contracts again
+    # (after a catalog restore, docs/runbooks/iceberg-snapshot-rollback.md). The deploy passes
+    # --skip-unchanged (root ADR-0308).
+    case "$#:${2:-}" in
+      1:) migrate_runtime run ;;
+      2:--skip-unchanged) migrate_runtime skip-unchanged ;;
+      *) usage ;;
+    esac
     ;;
   staging-smoke)
     [[ "$#" == 2 ]] || usage

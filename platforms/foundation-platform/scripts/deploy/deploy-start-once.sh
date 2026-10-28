@@ -3,12 +3,18 @@
 # ADR-0173), sourced so it can be run against stand-ins. The caller defines
 #
 #   airflow <args...>   Airflow's CLI in the scheduler container
-#   jobs_of <which>     the job registry's lists: `enabled` ids, `started-once` "<service> <minutes>",
-#                       `deferred` ids of enabled jobs a release build kept from starting (root ADR-0260)
+#   jobs_of <which>     the job registry's lists: `enabled` ids, `enabled-consumers-first` ids in
+#                       unpause order, `started-once` "<service> <minutes> <job id>" (the id names
+#                       its step start-once.<id> in config/deploy-steps.contract.json, root ADR-0308;
+#                       a registry from before it prints no id, and such a job always starts),
+#                       `deferred` ids of enabled jobs owed a run: a release build kept them from
+#                       starting (root ADR-0260) or step 0 stopped them (root ADR-0308)
+#   release_root        the release tree root; deploy_step asks its current release's deploy_steps.py
 #
 # start_once_then_unpause <sha>   steps 6 and 7. Starts once, with the held DAGs still paused, each job the
-#     registry marks `started_once_after_deploy`, then unpauses every enabled DAG whatever those runs
-#     did. A run that does not succeed (or outlives its limit) does not undo the deploy and does not
+#     registry marks `started_once_after_deploy` whose step says it has work (it never succeeded here
+#     or the release changed what it runs; deploy_steps.py), then unpauses every enabled DAG whatever
+#     those runs did, and starts each job owed a run. A run that does not succeed (or outlives its limit) does not undo the deploy and does not
 #     keep the schedule off: its unit's OnFailure has posted it to Slack, the next scheduled run tries
 #     again, and one line here names it. Returns non-zero only when a DAG could not be unpaused.
 #
@@ -32,46 +38,48 @@
 #     ones stay paused until step 7. A job owed a run waits for step 7 too.
 deploy_unpause_unheld() {
   local id count=0
-  local -a enabled held
-  mapfile -t held <"$1"
-  if [[ " ${held[*]-} " == *" * "* ]]; then
+  local -a enabled listed
+  local -A held=()
+  mapfile -t listed <"$1"
+  for id in "${listed[@]}"; do held["${id}"]=1; done
+  if [[ -n "${held["*"]-}" ]]; then
     echo "every DAG stays paused until the release is live: it brings a Postgres migration, or what it changes could not be told"
     return 0
   fi
   mapfile -t enabled < <(jobs_of enabled-consumers-first)
   for id in "${enabled[@]}"; do
-    [[ " ${held[*]-} " == *" ${id} "* ]] && continue
+    [[ -z "${held["${id}"]-}" ]] || continue
     airflow dags unpause "foundation_${id}" >/dev/null || return 1
     count=$((count + 1))
   done
-  echo "unpaused ${count} DAGs; held until the release is live: ${held[*]:-none}"
+  echo "unpaused ${count} DAGs; held until the release is live: ${listed[*]:-none}"
 }
 
-# The enabled job ids whose DAG Airflow lists as paused, in the order given on stdin; every one of them
-# when Airflow's list cannot be read. One question instead of an unpause per DAG (root ADR-0308): on
-# 2026-10-27 unpausing 33 DAGs one by one took 55 s, and a deploy that drains only what its release
-# holds leaves most of them unpaused.
+# The enabled job ids (the arguments, in their order) whose DAG may be paused: every one Airflow does
+# not list as unpaused. A DAG Airflow has not parsed yet (a job the new release adds) is not listed,
+# and Airflow creates it paused, so it is unpaused too; a list that cannot be read names every one.
+# One question instead of an unpause per DAG (root ADR-0308): on 2026-10-27 unpausing 33 DAGs one by
+# one took 55 s, and a deploy that drains only what its release holds leaves most of them unpaused.
+# The list goes on stdin, not as an argument (an argument is at most 128 KiB).
 deploy_paused_of() {
-  local listed
-  listed="$(airflow dags list -o json 2>/dev/null)" || listed=""
-  python3 -I -c '
+  { airflow dags list -o json 2>/dev/null || true; } | python3 -I -c '
 import json, sys
-order = sys.stdin.read().split()
+order = sys.argv[1:]
 try:
-    rows = json.loads(sys.argv[1])
-    paused = {row["dag_id"].removeprefix("foundation_") for row in rows if str(row["is_paused"]).lower() == "true"}
+    rows = json.load(sys.stdin)
+    unpaused = {row["dag_id"].removeprefix("foundation_") for row in rows if str(row["is_paused"]).lower() == "false"}
 except Exception:
-    paused = set(order)
-sys.stdout.write("".join(f"{job}\n" for job in order if job in paused))
-' "${listed}"
+    unpaused = set()
+sys.stdout.write("".join(f"{job}\n" for job in order if job not in unpaused))
+' "$@"
 }
 
 deploy_unpause_enabled() {
-  local id order count=0
-  local -a enabled
-  order="$(jobs_of enabled-consumers-first)"
+  local id count=0
+  local -a order enabled
+  mapfile -t order < <(jobs_of enabled-consumers-first)
   # A filter that fails leaves nothing paused behind: every enabled DAG is unpaused, as before.
-  mapfile -t enabled < <(deploy_paused_of <<<"${order}" || printf '%s\n' "${order}")
+  mapfile -t enabled < <(deploy_paused_of "${order[@]}" || printf '%s\n' "${order[@]}")
   for id in "${enabled[@]}"; do
     [[ -n "${id}" ]] || continue
     airflow dags unpause "foundation_${id}" >/dev/null || return 1
@@ -96,10 +104,10 @@ deploy_unpause_enabled() {
 #     (root ADR-0308). should-run answers 3 only when the step may be skipped; a release without
 #     the contract, or any failure to answer, runs it.
 deploy_step() {
-  # shellcheck disable=SC2154 # release_root and deploy_steps_state are the caller's (foundation-deploy.sh)
+  # shellcheck disable=SC2154 # release_root is the caller's (foundation-deploy.sh)
   local steps="${release_root}/current/scripts/deploy/deploy_steps.py"
   [[ -f "${steps}" ]] || return 0
-  python3 -I -B "${steps}" "$1" "${release_root}/current" "${deploy_steps_state}" "$2"
+  python3 -I -B "${steps}" "$1" "${release_root}/current" "$2"
 }
 
 start_once_then_unpause() {

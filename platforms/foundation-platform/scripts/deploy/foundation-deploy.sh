@@ -43,8 +43,6 @@ mirror=/var/lib/perfectory/control-source.git
 # What this deploy holds, for the operator's starts (by-pnu-pack-operator.sh): its pid, then `*`
 # from step 0 until the build is done, then the jobs its release holds until it is live (D5).
 deploy_hold=/run/foundation-deploy-hold
-# Where a deploy step records the inputs of its last successful run here (deploy_steps.py, root ADR-0308).
-deploy_steps_state=/var/lib/foundation-platform/deploy-steps
 identity="${control_root}/current/tools/github/repository-identity.json"
 repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
 
@@ -130,13 +128,25 @@ log "pre-flight: what ${sha} changes and which jobs write it (root ADR-0270 §3 
 # job, as before D5.
 changes="$(mktemp -d /var/lib/perfectory/changes-XXXXXX)"
 hold=("*")
-git --git-dir="${mirror}" archive "${sha}" platforms/foundation-platform/scripts/deploy/release_changes.py \
-  platforms/foundation-platform/orchestration/jobs.v1.json platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json \
-  platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json \
-  platforms/foundation-platform/migrations tools/release-build.contract.json | tar -x -C "${changes}" \
-  && python3 -I -B "${changes}/platforms/foundation-platform/scripts/deploy/release_changes.py" \
-    "${release_root}/current" "${changes}/platforms/foundation-platform" --hold-file "${changes}/hold" \
-  && mapfile -t hold <"${changes}/hold" \
+# The lakehouse migration's inputs are its contract entry's (config/deploy-steps.contract.json), the
+# same list its skip reads (root ADR-0308): a change that makes it run holds the writers of what it runs over.
+release_changes() {
+  local platform=platforms/foundation-platform inputs
+  git --git-dir="${mirror}" archive "${sha}" "${platform}/scripts/deploy/release_changes.py" \
+    "${platform}/scripts/deploy/deploy_steps.py" "${platform}/scripts/deploy/worker_autodeploy.py" \
+    "${platform}/config/deploy-steps.contract.json" "${platform}/orchestration/jobs.v1.json" \
+    "${platform}/docs/catalog/pipeline-graph.v1.json" "${platform}/migrations" tools/release-build.contract.json \
+    | tar -x -C "${changes}" || return 1
+  inputs="$(python3 -I -c 'import json, sys
+print("\n".join(sys.argv[2] + "/" + item for item in json.load(open(sys.argv[1]))["steps"]["lakehouse-migrate"]["inputs"]))' \
+    "${changes}/${platform}/config/deploy-steps.contract.json" "${platform}")" || return 1
+  # shellcheck disable=SC2086 # one tree path per word
+  git --git-dir="${mirror}" archive "${sha}" ${inputs} | tar -x -C "${changes}" || return 1
+  python3 -I -B "${changes}/${platform}/scripts/deploy/release_changes.py" \
+    "${release_root}/current" "${changes}/${platform}" --hold-file "${changes}/hold" --host || return 1
+  mapfile -t hold <"${changes}/hold"
+}
+release_changes \
   || { hold=("*"); echo "foundation-deploy: cannot tell what ${sha} changes; every job is held until the release is live" >&2; }
 # What step 0 drains (root ADR-0308): the held jobs and nothing else, since a release from the registry
 # is pulled, not built, and a run keeps the release it started with (D1). A release the host builds
@@ -149,8 +159,11 @@ artifacts_from="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv
 : >"${changes}.hold"
 ((${#hold[@]} == 0)) || printf '%s\n' "${hold[@]}" >"${changes}.hold"
 rm -rf "${changes}"
+# Membership by key, never by matching a pattern against a joined list.
+declare -A drained=()
+for id in "${drain[@]}"; do drained["${id}"]=1; done
 drains_all=no
-[[ " ${drain[*]-} " != *" * "* ]] || drains_all=yes
+[[ -z "${drained["*"]-}" ]] || drains_all=yes
 
 log "0. pause and drain what ${sha} holds (root ADR-0308): ${drain[*]:-nothing}"
 # From here until step 7 the drained DAGs are paused; every other job keeps its schedule and its run.
@@ -158,9 +171,11 @@ log "0. pause and drain what ${sha} holds (root ADR-0308): ${drain[*]:-nothing}"
 # stops during the switch says loudly that the held ones stay paused (deploy-start-once.sh, root
 # ADR-0173). A signal (the unit's time limit) ends it the same way.
 phase=before-switch
-trap 'status=$?; rm -f "${deploy_hold}"; deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}"' EXIT
+trap 'status=$?; rm -f "${deploy_hold}" "${changes}.hold"; deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}"' EXIT
 trap 'exit 143' TERM INT HUP
 { printf 'pid %s\n' "$$"; ((${#drain[@]} == 0)) || printf '%s\n' "${drain[@]}"; } >"${deploy_hold}"
+declare -A enabled=()
+for id in "${jobs[@]}"; do enabled["${id}"]=1; done
 if [[ "${drains_all}" == yes ]]; then
   for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
   echo "paused ${#jobs[@]} DAGs"
@@ -169,23 +184,36 @@ if [[ "${drains_all}" == yes ]]; then
 else
   count=0
   for id in "${drain[@]}"; do
-    [[ " ${jobs[*]-} " == *" ${id} "* ]] || continue
+    [[ -n "${enabled["${id}"]-}" ]] || continue
     airflow dags pause "foundation_${id}" >/dev/null
     count=$((count + 1))
   done
   echo "paused ${count} DAGs; every other job keeps its schedule and its run"
 fi
 # The drained jobs' units, and those a deploy stops instead of waiting for (root ADR-0301 §2): an
-# interruptible job is append-only and resumable, so a held one is stopped and runs again afterwards.
-held_units=() stoppable=()
+# interruptible job is append-only and resumable (a bake resumes at its pin, root ADR-0310).
+declare -A held_job=() stoppable=() stopped=()
 while read -r id service interruptible; do
-  [[ "${drains_all}" == yes || " ${drain[*]-} " == *" ${id} "* ]] || continue
-  held_units+=("${service}")
-  [[ "${interruptible}" != yes ]] || stoppable+=("${service}")
+  [[ "${drains_all}" == yes || -n "${drained["${id}"]-}" ]] || continue
+  held_job["${service}"]="${id}"
+  [[ "${interruptible}" != yes ]] || stoppable["${service}"]=1
 done < <(jobs_of units)
+# A stopped run is owed a run, never lost (a job with retries 0 is not run again by Airflow): it is
+# recorded where the runner records a job a release build deferred (job_units.py deferred-dir, root
+# ADR-0260) before it is stopped, step 7 (or the EXIT trap) starts it, and the runner drops the record
+# when it starts. A deploy that cannot record it waits for the run instead.
+owed_dir="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" deferred-dir 2>/dev/null)" || owed_dir=""
+owe_a_run() {
+  local id="$1"
+  [[ -n "${owed_dir}" ]] || return 1
+  if [[ ! -d "${owed_dir}" ]]; then
+    # The runner (its account) removes the record, so the directory is its home's owner's.
+    mkdir -p "${owed_dir}" && chown --reference="${owed_dir%/*}" "${owed_dir}" || return 1
+  fi
+  date +%s >"${owed_dir}/${id}"
+}
 running=0
 if ((${#drain[@]} > 0)); then
-  stopped=" "
   running=75
   for _ in $(seq 1 1800); do
     running=0
@@ -194,14 +222,18 @@ if ((${#drain[@]} > 0)); then
     # Only a drained job is waited for; any other registered job runs on through the release switch.
     waiting=()
     while read -r unit _; do
-      [[ -n "${unit}" && " ${held_units[*]-} " == *" ${unit} "* ]] && waiting+=("${unit}")
+      [[ -n "${unit}" && -n "${held_job["${unit}"]-}" ]] && waiting+=("${unit}")
     done <<<"${busy}"
     if ((${#waiting[@]} == 0)); then running=0; break; fi
     for unit in "${waiting[@]}"; do
-      [[ " ${stoppable[*]-} " == *" ${unit} "* && "${stopped}" != *" ${unit} "* ]] || continue
+      [[ -n "${stoppable["${unit}"]-}" && -z "${stopped["${unit}"]-}" ]] || continue
+      stopped["${unit}"]=1
+      if ! owe_a_run "${held_job["${unit}"]}"; then
+        echo "foundation-deploy: cannot record ${unit} as owed a run (${owed_dir:-no deferred-dir}); waiting for it instead of stopping it" >&2
+        continue
+      fi
       systemctl stop --no-block "${unit}"
-      stopped+="${unit} "
-      echo "stopped ${unit}: ${sha} holds it and it is interruptible; it runs again after the deploy (root ADR-0301)"
+      echo "stopped ${unit}: ${sha} holds it and it is interruptible; it is owed a run, started when the deploy gives the schedule back (root ADR-0301, ADR-0260)"
     done
     busy="$(printf '%s\n' "${waiting[@]}")"
     sleep 10
@@ -266,7 +298,7 @@ log "3b. staging smoke of ${sha}: a few real inputs under staging/ and foundatio
 log "4. activate, migrate, timers"
 phase=switching
 "${release}" activate "${sha}"
-"${release}" migrate
+"${release}" migrate --skip-unchanged
 "${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
 "${release}" status | tail -3
 

@@ -1,7 +1,8 @@
 {
-  "$comment": "Root ADR-0308. The release deploy's steps that ran in full on every deploy, whatever the release changed (the deploy of 77198c1f on 2026-10-27 spent 1 min 51 s migrating 48 lakehouse tables that release_changes.py had reported unchanged). Each step states either `inputs` -- paths under the Foundation Platform tree whose bytes make up what the step does, the shape config/worker-deploys.contract.json gives a Worker, read by scripts/deploy/deploy_steps.py with worker_autodeploy.py's fingerprint -- and is skipped while those bytes are the ones its last successful run on this host saw; or `always`, why it runs on every deploy, with `budget_seconds`, how long it may take before a line on stderr says it took longer. Each job orchestration/jobs.v1.json marks started_once_after_deploy is a step `start-once.<job id>` (root ADR-0159 §4, ADR-0173): it starts under the new release only when the release changes its inputs or it never succeeded here (2026-10-28: the deploy's start of legal_dong_code_changes was about ten of its runs a day, 55 MB each, against one scheduled run); its inputs are its own script, unit and the code and contracts it runs, not the whole publisher, since its schedule runs it within a day anyway. Which DAGs a deploy pauses and which running jobs it waits for or stops are not steps here: release_changes.py's hold list decides them (root ADR-0270 §3, ADR-0308).",
+  "$comment": "Root ADR-0308. The release deploy's steps that ran in full on every deploy, whatever the release changed (the deploy of 77198c1f on 2026-10-27 spent 1 min 51 s migrating 48 lakehouse tables that release_changes.py had reported unchanged). Each step states either `inputs` -- paths under the Foundation Platform tree whose bytes make up what the step does, the shape config/worker-deploys.contract.json gives a Worker, read by scripts/deploy/deploy_steps.py with worker_autodeploy.py's fingerprint -- and is skipped while those bytes are the ones its last successful run on this host saw; or `always`, why it runs on every deploy, with `budget_seconds`, how long it may take before a line on stderr says it took longer. Each job orchestration/jobs.v1.json marks started_once_after_deploy is a step `start-once.<job id>` (root ADR-0159 §4, ADR-0173): it starts under the new release only when the release changes its inputs or it never succeeded here (2026-10-28: the deploy's start of legal_dong_code_changes was about ten of its runs a day, 55 MB each, against one scheduled run); its inputs are its own script, unit and the code and contracts it runs, not the whole publisher, since its schedule runs it within a day anyway. A step may also run against what the host holds: `environment` (the named non-secret settings of the files its unit loads, hashed; a credential-like name is refused and no value is printed), `release_jars` (the frozen jars the release's build.json names, SPARK_RELEASE_JARS) and `reverify` (shape_ledger_check's last capture of production, root ADR-0259 §5: a contract table whose captured columns lack a contract column runs the step whatever the record says, so a catalog restore or drift is re-verified within a day). The records live in `state_directory`, root's, 0700, under a parent only root may write (2026-10-29 review: /var/lib/foundation-platform belongs to the jobs' account, which must not be able to forge a record that skips a migration). `per_table` names the inputs a step reads table by table (file: key): release_changes.py holds only the writers of the tables whose entry changed there, and the writers of every lakehouse table when any other input of the step changed or the host's record does not match the running release (root ADR-0308 §1: the hold is computed from the migration's own inputs, not from one file of them). Which DAGs a deploy pauses and which running jobs it waits for or stops are not steps here: release_changes.py's hold list decides them (root ADR-0270 §3, ADR-0308).",
   "schema_version": 1,
   "decision": "docs/adr/0308-the-deploy-stops-only-the-jobs-its-release-holds-and-skips-a-step-whose-inputs-did-not-change.md",
+  "state_directory": "/var/lib/perfectory/deploy-steps",
   "steps": {
     "lakehouse-migrate": {
       "inputs": [
@@ -11,7 +12,21 @@
         "scripts/ops/lakehouse-migrate.sh",
         "scripts/ops/admitted-writer-runtime.sh",
         "infra/systemd/foundation-lakehouse-migrate.service"
-      ]
+      ],
+      "per_table": {
+        "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json": "contracts",
+        "infra/lakehouse/contracts/lakehouse-production-shape.json": "tables"
+      },
+      "environment": {
+        "unit": "infra/systemd/foundation-lakehouse-migrate.service",
+        "names": ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI", "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
+                  "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER"]
+      },
+      "release_jars": true,
+      "reverify": {
+        "production_shape": "/var/lib/foundation-shape-ledger/lakehouse-production-shape.json",
+        "contracts": "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      }
     },
     "postgres-chain": {
       "always": "The runtime image is the release's own and carries its migrations (sqlx::migrate!), so the chain postgres, bootstrap, migrate, grants, finalize, api runs each deploy; the chain is run to completion before the API is replaced (2026-10-14) and is asked for as an end state, never with --no-deps (2026-09-02, scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh), so compose re-runs its idempotent one-shots once per `up`. Measured 77 s on 2026-10-27.",
