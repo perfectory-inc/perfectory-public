@@ -84,6 +84,9 @@ pub struct ScannedRows {
     pub skipped_record_count: u64,
     /// Row count the manifests declared for the files the scan read.
     pub read_record_count: u64,
+    /// Bytes of the data files the scan read, by their manifests' `file_size_in_bytes`: what the
+    /// scan cost in reads (root ADR-0314 §4).
+    pub read_byte_count: u64,
     /// Rows decoded across every file read, counted before any keep-filter dropped them. This is
     /// what must equal `read_record_count` with `skipped_row_group_record_count` — the retained
     /// rows never can when a filter is in play.
@@ -268,6 +271,7 @@ pub async fn scan_snapshot_rows_kept(
         skipped_data_file_count: 0,
         skipped_record_count: 0,
         read_record_count: 0,
+        read_byte_count: 0,
         skipped_row_group_record_count: 0,
         decoded_row_count: 0,
         keep_limit_exceeded: false,
@@ -308,6 +312,10 @@ pub async fn scan_snapshot_rows_kept(
             .read_record_count
             .checked_add(data_file.record_count)
             .context("read record count overflow")?;
+        scanned.read_byte_count = scanned
+            .read_byte_count
+            .checked_add(data_file.file_size_in_bytes)
+            .context("read byte count overflow")?;
         let rows = &mut scanned.rows;
         let mut past_limit = false;
         let (decoded, skipped) = iceberg_scan::decode_rows_under(

@@ -121,6 +121,9 @@ fn spark_summary() -> Result<SparkRunSummary, LakehouseError> {
         source_snapshot_count: 1,
         source_snapshot_ids: vec!["bronze-snapshot-2026-05-14".to_owned()],
         source_snapshot_truncated: false,
+        bytes_read: None,
+        bytes_written: None,
+        keys_changed: None,
     })
 }
 

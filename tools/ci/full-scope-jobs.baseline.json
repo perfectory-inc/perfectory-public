@@ -1,0 +1,29 @@
+{
+  "$comment": "Shrink-only (scripts/guard/every-job-declares-its-scope.py, root ADR-0314). A job that becomes partial leaves this list; never add one.",
+  "jobs": [
+    "building_register_floor",
+    "court_auction_collect",
+    "gold_kind_rebuild",
+    "gold_panel_rebuild",
+    "gold_public_auction_rebuild",
+    "lakehouse_maintenance",
+    "legal_dong_code_changes",
+    "lineage_stewardship",
+    "onbid_public_auction_collect",
+    "parcel_served_gold",
+    "parcel_tile_bake",
+    "shape_ledger_check",
+    "silver_refresh_building_register_apartment_price",
+    "silver_refresh_building_register_exclusive_unit",
+    "silver_refresh_building_register_titles",
+    "silver_refresh_building_register_unit_areas",
+    "silver_refresh_building_register_units",
+    "silver_refresh_land_characteristic",
+    "silver_refresh_land_forest_ledger",
+    "silver_refresh_land_individual_price",
+    "silver_refresh_land_right_registration",
+    "silver_refresh_land_transfer_history",
+    "silver_refresh_land_use_plan",
+    "silver_refresh_land_use_zone_code"
+  ]
+}
