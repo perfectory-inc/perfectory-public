@@ -96,6 +96,9 @@ case "${UNIT}" in
     # ADR-0171).
     BY_PNU_BAKE_PUBLISHED="$(mktemp)"
     export BY_PNU_BAKE_PUBLISHED
+    # A lane that published but withheld a document names itself here (root ADR-0325 §4).
+    BY_PNU_BAKE_WITHHELD="$(mktemp)"
+    export BY_PNU_BAKE_WITHHELD
     # The lanes run as hand runs (exit 75 when held) and name what they found held; this run decides.
     FOUNDATION_HELD_LOCKS="$(mktemp)"
     export FOUNDATION_HELD_LOCKS
@@ -145,6 +148,12 @@ case "${UNIT}" in
     done
     # Then every lane's superseded pack generations past their rollback window (root ADR-0242).
     "${BASH_SOURCE[0]}" retire || { lane_status=$?; failed+="retire "; ((status)) || status=${lane_status}; }
+    # A lane that withheld a document published the rest and fails the run here (root ADR-0325 §4).
+    while read -r lane; do
+      [[ -n "${lane}" ]] || continue
+      failed+="${lane}-withheld "
+      ((status)) || status=1
+    done <"${BY_PNU_BAKE_WITHHELD}"
     # The last word matches the exit: a run that exits non-zero says failed, though another lane
     # published (2026-10-16: `changed` and then exit 1). What did publish is named with it.
     # A run where nothing failed or published but a lane waited ends as that lane's wait.
@@ -158,7 +167,7 @@ case "${UNIT}" in
     elif [[ "${waiting}" != " " ]]; then
       outcome=waiting
     fi
-    rm -f "${BY_PNU_BAKE_PUBLISHED}" "${FOUNDATION_HELD_LOCKS}"
+    rm -f "${BY_PNU_BAKE_PUBLISHED}" "${BY_PNU_BAKE_WITHHELD}" "${FOUNDATION_HELD_LOCKS}"
     if [[ "${outcome}" == waiting ]]; then
       waiting="${waiting# }"
       export FOUNDATION_JOB_SERVICE="${job_service}" FOUNDATION_HELD_LOCKS=""
@@ -830,3 +839,20 @@ for path in pathlib.Path(sys.argv[1]).glob("shard-*.json"):
     path.write_text(json.dumps(summary, sort_keys=True) + "\n")
 PY
 log "published ${where}: ${expected} documents, ${tombstones} tombstones from Gold snapshot ${gold}"
+# Root ADR-0325 §4: a document no cut into pages fits is withheld (its page says so) and every other
+# is published, so one document never stops the lane again (2026-10-28: one oversized building
+# document refused the whole lane six times; it had served nothing new for 585 hours). The run still
+# fails after publishing, so the unit's failure notice names it. Under `all` the lane exits 0 and the
+# run fails at its end, so a lane that follows this one is still baked.
+withheld="$(python3 -I - "${summary_dir}" <<'PY'
+import json, pathlib, sys
+keys = sorted(document["key"] for path in pathlib.Path(sys.argv[1]).glob("shard-*.json")
+              for document in json.loads(path.read_text()).get("withheld", []))
+print(f"{len(keys)} ({' '.join(keys[:20])})" if keys else "")
+PY
+)"
+if [[ -n "${withheld}" ]]; then
+  log "WITHHELD (root ADR-0325 §4): ${withheld} documents answer only that they are withheld; the rest is published"
+  [[ -z "${BY_PNU_BAKE_WITHHELD:-}" ]] || { echo "${UNIT}" >>"${BY_PNU_BAKE_WITHHELD}"; exit 0; }
+  exit 1
+fi

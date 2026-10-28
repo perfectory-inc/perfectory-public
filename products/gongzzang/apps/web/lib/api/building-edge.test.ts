@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BuildingNotServedError,
+  BuildingWithheldError,
   EdgeBuildingProfileSchema,
   EdgeUnitSchema,
   fetchBuildingProfile,
+  joinBuildingPages,
 } from "./building-edge";
 import { toBuildingUnitsResponse } from "./building-units";
 import { toBuildingsResponse } from "./buildings";
@@ -144,6 +146,71 @@ describe("building edge transport", () => {
     vi.stubGlobal("fetch", fetcher);
     await expect(fetchBuildingProfile(pnu)).rejects.toBeInstanceOf(BuildingNotServedError);
     await expect(fetchBuildingProfile(pnu)).rejects.toThrow("503");
+  });
+
+  // Root ADR-0325 (the 2026-10-28 building lane stop): a document too large for one request is
+  // served as pages; the client reads every page and joins them, never drawing page 1 alone.
+  const pages = () => {
+    const whole = document();
+    const [building] = whole.buildings;
+    if (building === undefined) throw new Error("the fixture has a building");
+    const [firstUnit] = building.units;
+    const secondUnit = unit("00000000-0000-8000-8000-000000000004", buildingId);
+    const page = (index: number, rest: Record<string, unknown>) => ({
+      schema_version: "foundation-platform.building_by_pnu_page.v1",
+      pnu,
+      source: whole.source,
+      page: { index, count: 2 },
+      ...rest,
+    });
+    return {
+      first: page(1, { buildings: [{ ...building, units: [firstUnit] }], unlinked_units: [] }),
+      // The building continues on page 2: same fields, no floors, its next unit.
+      second: page(2, {
+        buildings: [{ ...building, floors: [], units: [secondUnit] }],
+        unlinked_units: whole.unlinked_units,
+      }),
+      joined: {
+        ...whole,
+        schema_version: "foundation-platform.building_by_pnu_profile.v4",
+        buildings: [{ ...building, units: [firstUnit, secondUnit] }],
+      },
+    };
+  };
+
+  it("reads every page of a paged document and joins them into the whole document", async () => {
+    const { first, second, joined } = pages();
+    const fetcher = vi.fn(async (url: string) =>
+      Response.json(url.includes(`${pnu}/2?`) ? second : first),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    expect(await fetchBuildingProfile(pnu)).toEqual(EdgeBuildingProfileSchema.parse(joined));
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      `https://buildings.example.test/buildings/by-pnu/${pnu}?schema=2`,
+      `https://buildings.example.test/buildings/by-pnu/${pnu}/2?schema=2`,
+    ]);
+  });
+
+  it("refuses pages of two publishes, and says when a document is withheld", async () => {
+    const { first, second } = pages();
+    const later = {
+      ...second,
+      source: { ...second.source, iceberg_snapshot_id: "999990000000000002" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => Response.json(url.includes(`${pnu}/2?`) ? later : first)),
+    );
+    await expect(fetchBuildingProfile(pnu)).rejects.toThrow("pages");
+    const withheld = {
+      ...first,
+      page: { index: 1, count: 1 },
+      buildings: [],
+      withheld: "document_too_large: synthetic",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(withheld)));
+    await expect(fetchBuildingProfile(pnu)).rejects.toBeInstanceOf(BuildingWithheldError);
+    expect(() => joinBuildingPages(pnu, [])).toThrow();
   });
 
   it("refuses a noncanonical request and a response for another parcel", async () => {

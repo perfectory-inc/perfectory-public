@@ -19,7 +19,7 @@ use anyhow::{ensure, Context};
 use lakehouse_domain::{LakehouseTableContract, GOLD_BUILDING_PANEL, GOLD_PARCEL_PANEL};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::super::building_document::{self, BuildingByPnuDocument};
+use super::super::building_document::{self, BuildingByPnuDocument, BuildingByPnuPage, Served};
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
 use crate::pack_lane_document;
@@ -65,7 +65,24 @@ pub const fn gold_table(lane: ByPnuLane) -> &'static LakehouseTableContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PackDocument {
     pub pnu: String,
+    /// What the key's own path answers: the document whole, or page 1 of it (root ADR-0325).
     pub bytes: Vec<u8>,
+    /// Pages 2.. of a document served as pages; empty for one served whole.
+    pub more_pages: Vec<Vec<u8>>,
+    /// Why the document is withheld (root ADR-0325 §4); `bytes` is then the page that says so.
+    pub withheld: Option<String>,
+}
+
+impl PackDocument {
+    /// A document served whole.
+    pub fn whole(pnu: String, bytes: Vec<u8>) -> Self {
+        Self {
+            pnu,
+            bytes,
+            more_pages: Vec::new(),
+            withheld: None,
+        }
+    }
 }
 
 /// The Gold snapshot a run renders its documents from.
@@ -136,9 +153,24 @@ impl Renderer {
                 };
                 let document =
                     building_document::document_with_approvals(&provenance, row, approvals)?;
-                Ok(PackDocument {
-                    bytes: document.to_bytes()?,
-                    pnu: document.pnu,
+                // A document past one request is served as pages, or withheld (root ADR-0325).
+                Ok(match building_document::served(&document)? {
+                    Served::Whole(bytes) => PackDocument::whole(document.pnu, bytes),
+                    Served::Pages(pages) => {
+                        let mut pages = pages.into_iter();
+                        PackDocument {
+                            bytes: pages.next().context("a paged document has a first page")?,
+                            more_pages: pages.collect(),
+                            pnu: document.pnu,
+                            withheld: None,
+                        }
+                    }
+                    Served::Withheld { page, reason } => PackDocument {
+                        pnu: document.pnu,
+                        bytes: page,
+                        more_pages: Vec::new(),
+                        withheld: Some(reason),
+                    },
                 })
             }
             Self::Parcel => {
@@ -149,10 +181,7 @@ impl Renderer {
                     manifest_list_location: provenance.manifest_list_location.clone(),
                 };
                 let artifact = parcel_document::build(&provenance, row)?;
-                Ok(PackDocument {
-                    pnu: artifact.pnu,
-                    bytes: artifact.body,
-                })
+                Ok(PackDocument::whole(artifact.pnu, artifact.body))
             }
             Self::Pack(lane) => {
                 let (pnu, bytes) = pack_lane_document::render(
@@ -161,7 +190,7 @@ impl Renderer {
                     &provenance.iceberg_snapshot_id,
                     row,
                 )?;
-                Ok(PackDocument { pnu, bytes })
+                Ok(PackDocument::whole(pnu, bytes))
             }
         }
     }
@@ -197,6 +226,20 @@ pub fn join(lane: ByPnuLane, schema: &str, fragments: &[(&str, &[u8])]) -> anyho
     let (_, bytes) = fragments[0];
     match lane {
         ByPnuLane::Building => {
+            // A document past one request answers with its page 1 (root ADR-0325), beside whole
+            // documents of the schema the state records.
+            let schema_of = serde_json::from_slice::<JsonValue>(bytes)
+                .ok()
+                .and_then(|value| value.get("schema_version").cloned());
+            if schema_of
+                == Some(JsonValue::from(
+                    building_document::BUILDING_PAGE_SCHEMA_VERSION,
+                ))
+            {
+                serde_json::from_slice::<BuildingByPnuPage>(bytes)
+                    .context("the documents fragment is not a building page")?;
+                return Ok(());
+            }
             let document = serde_json::from_slice::<BuildingByPnuDocument>(bytes)
                 .context("the documents fragment is not a building document")?;
             ensure!(
@@ -251,10 +294,10 @@ mod tests {
     }
 
     fn pack_document(document: &BuildingByPnuDocument) -> anyhow::Result<PackDocument> {
-        Ok(PackDocument {
-            pnu: document.pnu.clone(),
-            bytes: document.to_bytes()?,
-        })
+        Ok(PackDocument::whole(
+            document.pnu.clone(),
+            document.to_bytes()?,
+        ))
     }
 
     #[test]
