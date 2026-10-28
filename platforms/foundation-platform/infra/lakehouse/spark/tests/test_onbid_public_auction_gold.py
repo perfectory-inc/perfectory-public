@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
-import onbid_public_sale_silver_to_gold as job  # noqa: E402
+import onbid_public_auction_silver_to_gold as job  # noqa: E402
 
 DONG = "9999910100"
 
@@ -32,17 +32,28 @@ ITEM_SCHEMA = "cltr_mng_no string, pbct_cdtn_no long, pnu string, row_state stri
 
 class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_carries_lineage_optionally(self):
-        required, optional, anchor, whole = job.lane_inputs("parcel-public-sale")
+        required, optional, anchor, whole = job.lane_inputs("parcel-public-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "open rounds only: no bid results read")
-        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
-        self.assertEqual(set(whole), {job.ITEM_SOURCE})
+        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
+        self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE})
+
+    def test_declared_sources_names_every_pinned_input_so_the_harness_pins_match(self):
+        required, optional, _anchor, _whole = job.lane_inputs("parcel-public-auction")
+        # The rebuild harness pins the required inputs plus every present optional (from lane_inputs);
+        # the producer must declare exactly that set or load_source_snapshot_pins refuses the run
+        # ("must name every Silver source exactly once"). 2026-10-27: photos were pinned but the
+        # producer omitted the photo source, crashing gold_public_auction_rebuild with v1 gold kept.
+        self.assertEqual(set(job.declared_sources("parcel-public-auction", carry_lineage=True, photos=True)),
+                         set(required) | set(optional))
+        self.assertNotIn(job.PHOTO_SOURCE, job.declared_sources("parcel-public-auction", carry_lineage=True, photos=False))
+        self.assertNotIn(job.LINEAGE_SOURCE, job.declared_sources("parcel-public-auction", carry_lineage=False, photos=True))
 
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
 
-        kind = by_pnu_kinds.kind("parcel-public-sale")
-        self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_sale", ("public_sale_json",)))
+        kind = by_pnu_kinds.kind("parcel-public-auction")
+        self.assertEqual((kind.producer, kind.section, kind.columns), (job.JOB_NAME, "public_auction", ("public_auction_json",)))
 
     def test_parse_args_accepts_the_section_coverage_flags_the_harness_passes(self):
         # The gold-rebuild harness passes --section-coverage-* to every kind producer whose contract
@@ -52,7 +63,7 @@ class InputsTest(unittest.TestCase):
         # not enforce them: a 시도's open-auction count swings daily and legitimately reaches zero, so
         # main() holds this kind to the row-loss floor, not a per-region gate (root ADR-0292).
         args = job.parse_args([
-            "--lane", "parcel-public-sale", "--iceberg-snapshot-id", "1",
+            "--lane", "parcel-public-auction", "--iceberg-snapshot-id", "1",
             "--source-snapshots-path", "/x", "--validate-only",
             "--section-coverage-snapshot", "123", "--max-section-coverage-drop", "0.05",
             "--section-coverage-min-pnus", "1000"])
@@ -81,7 +92,7 @@ class PlacementSparkTest(unittest.TestCase):
     def setUpClass(cls):
         from pyspark.sql import SparkSession
 
-        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-sale").getOrCreate()
+        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-auction").getOrCreate()
 
     @classmethod
     def tearDownClass(cls):
@@ -168,12 +179,14 @@ ROUND_SCHEMA = ", ".join(
         ("usg_scls_ctgr_id", "string"), ("appraisal_amount_krw", "long"), ("lowest_bid_price_krw", "long"),
         ("lowest_bid_price_raw", "string"), ("first_bid_price_krw", "long"), ("usbd_nft", "long"),
         ("bid_begins_at", "timestamp"), ("bid_ends_at", "timestamp"), ("land_area_m2", "double"),
-        ("building_area_m2", "double"), ("share_item_yn", "string"))])
+        ("building_area_m2", "double"), ("share_item_yn", "string"), ("photos", job.PHOTO_STRUCT))])
 
 
-def round_row(key, is_open, ends, pnu_value=CURRENT, usage="10000"):
+def round_row(key, is_open, ends, pnu_value=CURRENT, usage="10000",
+              photos=(("a" * 64, "photo", 0, None, "jpg", 100),)):
     return (key, 1, is_open, pnu_value, 1, 2, 3, "1", "synthetic item", "0007", "0001", "0001", "0001",
-            usage, usage + "1", usage + "11", 100, 70, "70", 100, 0, datetime(2099, 1, 1), ends, 10.0, None, "N")
+            usage, usage + "1", usage + "11", 100, 70, "70", 100, 0, datetime(2099, 1, 1), ends, 10.0, None, "N",
+            list(photos))
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
@@ -182,7 +195,7 @@ class DocumentSparkTest(unittest.TestCase):
     def setUpClass(cls):
         from pyspark.sql import SparkSession
 
-        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-sale-document").getOrCreate()
+        cls.spark = SparkSession.builder.master("local[2]").appName("onbid-public-auction-document").getOrCreate()
 
     @classmethod
     def tearDownClass(cls):
@@ -218,7 +231,7 @@ class DocumentSparkTest(unittest.TestCase):
             round_row("LATE", True, datetime(2099, 1, 9)), round_row("SOON", True, datetime(2099, 1, 3))]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         doc = job.document_rows(placed).first()
-        body = json.loads(doc.public_sale_json)
+        body = json.loads(doc.public_auction_json)
         self.assertEqual([r["cltr_mng_no"] for r in body["rounds"]], ["SOON", "LATE"])
         self.assertEqual(body["rounds"][0]["prpt_div_cd"], "0007", "codes stay codes")
         self.assertIn("bid_ends_at", body["rounds"][0])
@@ -233,9 +246,46 @@ class DocumentSparkTest(unittest.TestCase):
 
         rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5))]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_sale_json), "public_sale")
-        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_sale_by_pnu") if p.startswith("public_sale.")}
+        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_auction_json), "public_auction")
+        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
         self.assertEqual(written, recorded)
+
+    def test_a_document_carries_a_round_s_media_in_array_order_with_all_fields(self):
+        # document_rows serializes the round's photos array as given; photos_by_round is what orders it
+        # (by kind then sequence, verified separately), so here the input is already in that order.
+        import json
+        from pyspark.sql import functions as F
+
+        media = [("a" * 64, "appraisal", 0, "감정서", "pdf", 300), ("b" * 64, "photo", 0, "front", "png", 100),
+                 ("c" * 64, "photo", 1, None, "jpg", 200)]
+        rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=media)]), None)
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        photos = json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"]
+        self.assertEqual([(p["media_kind"], p["sequence"], p["sha256"][0]) for p in photos],
+                         [("appraisal", 0, "a"), ("photo", 0, "b"), ("photo", 1, "c")], "array order preserved")
+        self.assertEqual((photos[1]["media_format"], photos[1]["title"], photos[2]["size_bytes"]), ("png", "front", 200))
+
+    def test_a_round_without_media_carries_an_empty_array(self):
+        import json
+        from pyspark.sql import functions as F
+
+        rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=())]), None)
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        self.assertEqual(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"], [])
+
+    def test_photos_by_round_groups_sorts_and_with_photos_fills_absent_rounds(self):
+        photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
+                        "sequence int, title string, media_format string, size_bytes bigint")
+        photo_rows = self.spark.createDataFrame([
+            ("A", 1, "b" * 64, "photo", 1, None, "jpg", 10), ("A", 1, "a" * 64, "photo", 0, "f", "png", 20),
+            ("B", 1, "c" * 64, "appraisal", 0, "g", "pdf", 30)], photo_schema)
+        grouped = job.photos_by_round(photo_rows)
+        by_round = {(r.cltr_mng_no, r.pbct_cdtn_no): [p.sha256[0] for p in r.photos] for r in grouped.collect()}
+        self.assertEqual(by_round[("A", 1)], ["a", "b"])  # one row per round, ordered by sequence
+        rounds = self.spark.createDataFrame([("Z", 1), ("A", 1)], "cltr_mng_no string, pbct_cdtn_no long")
+        filled = {r.cltr_mng_no: r.photos for r in job.with_photos(rounds, grouped).collect()}
+        self.assertEqual(filled["Z"], [], "a round with no media gets an empty array, never null")
+        self.assertEqual([p.sha256[0] for p in filled["A"]], ["a", "b"])
 
     def test_a_document_over_the_ceiling_keeps_the_soonest_closing_rounds(self):
         import json
@@ -244,9 +294,9 @@ class DocumentSparkTest(unittest.TestCase):
         rows = job.with_usage_names(self.rounds([
             round_row(f"R{day}", True, datetime(2099, 1, day)) for day in range(3, 9)]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        one = len(json.loads(job.document_rows(placed).first().public_sale_json)["rounds"][0].__repr__())
+        one = len(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0].__repr__())
         small = job.DOCUMENT_ENVELOPE_BYTES + 3 * (one + 200)
-        body = json.loads(job.document_rows(placed, limit_bytes=small).first().public_sale_json)
+        body = json.loads(job.document_rows(placed, limit_bytes=small).first().public_auction_json)
         kept = [r["cltr_mng_no"] for r in body["rounds"]]
         self.assertTrue(0 < len(kept) < 6)
         self.assertEqual(kept, [f"R{day}" for day in range(3, 3 + len(kept))], "the soonest-closing are kept")

@@ -34,12 +34,17 @@ import json
 import os
 from typing import Any
 
-JOB_NAME = "onbid_public_sale_silver_to_gold"
+JOB_NAME = "onbid_public_auction_silver_to_gold"
 ITEM_SOURCE = "silver.onbid_real_estate_item"
 PARCEL_SOURCE = "silver.parcel_boundaries"
 LINEAGE_SOURCE = "silver.parcel_lineage"
 KEY = ("cltr_mng_no", "pbct_cdtn_no")
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
+PHOTO_SOURCE = "silver.onbid_real_estate_item_photo"
+# A round's media as the document carries it (root ADR-0296 §5): the content hash and its facts, from
+# which the web builds the public URL. Order matches the Silver columns the struct is built from.
+PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,sequence:int,title:string,"
+                "media_format:string,size_bytes:bigint>>")
 REMOVED = "removed"
 LINEAGE_MISSING = "lineage_missing"
 # Lineage grades not yet in effect (root ADR-0113 §4): never followed.
@@ -66,8 +71,20 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     seam `gold_rebuild.producer_inputs` reads. The item table is read whole: `current_rows` reads
     every version to pick the current one per key, so any change to it rebuilds the kind."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE), {LINEAGE_SOURCE: "--no-carry-lineage"}, PARCEL_SOURCE,
-            (ITEM_SOURCE,))
+    return ((PARCEL_SOURCE, ITEM_SOURCE),
+            {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
+            (ITEM_SOURCE, PHOTO_SOURCE))
+
+
+def declared_sources(lane: str, carry_lineage: bool, photos: bool) -> tuple[str, ...]:
+    """Every Silver source this build pins. It must name exactly what the rebuild harness pins from
+    `lane_inputs` (the required inputs and every present optional), because `load_source_snapshot_pins`
+    rejects any mismatch — a source pinned but not named here, or named but not pinned, fails the run.
+    2026-10-27: the photo source was pinned (present) but omitted here, crashing the rebuild."""
+    required, _optional, _anchor, _whole = lane_inputs(lane)
+    return (*required,
+            *((LINEAGE_SOURCE,) if carry_lineage else ()),
+            *((PHOTO_SOURCE,) if photos else ()))
 
 
 def rounds(items: Any) -> Any:
@@ -143,13 +160,36 @@ def with_usage_names(round_rows: Any, usage_codes: Any | None) -> Any:
     return named
 
 
+def photos_by_round(photo_rows: Any) -> Any:
+    """Each round's media as one array, keyed by round: its current (item, hash) rows (the photo
+    table's `current_rows`), ordered by kind then the provider's list order (`sequence`)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    return (photo_rows.groupBy(*KEY).agg(F.array_sort(F.collect_list(F.struct(
+        F.col("media_kind").alias("_kind"), F.col("sequence").alias("_seq"),
+        F.struct("sha256", "media_kind", "sequence", "title", "media_format", "size_bytes").alias("_photo"),
+    ))).alias("_sorted")).select(*KEY, F.col("_sorted._photo").alias("photos")))
+
+
+def with_photos(round_rows: Any, photos: Any | None) -> Any:
+    """Attach each round's `photos` (the media index joined by round, root ADR-0296 §5), an empty
+    array when the round has none or the photo table is absent — so every served round carries the
+    field and the web reads one shape."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    empty = F.expr(f"CAST(array() AS {PHOTO_STRUCT})")
+    if photos is None:
+        return round_rows.withColumn("photos", empty)
+    return round_rows.join(photos, list(KEY), "left").withColumn("photos", F.coalesce(F.col("photos"), empty))
+
+
 def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
-    """One row per PNU: `public_sale_json` (the served rounds, soonest-closing first, cut at the
+    """One row per PNU: `public_auction_json` (the served rounds, soonest-closing first, cut at the
     document ceiling), `round_count`, and `attached_via` — null when the PNU holds a round of its
     own, else its nearest carried round's path."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
-    fields = [*ROUND_FIELDS, *(f"usg_{level}_ctgr_name" for level in USAGE_LEVELS), "attached_via"]
+    fields = [*ROUND_FIELDS, *(f"usg_{level}_ctgr_name" for level in USAGE_LEVELS), "photos", "attached_via"]
     entries = placed_rounds.withColumn("_entry", F.struct(*[F.col(f) for f in fields]))
     order = Window.partitionBy("pnu").orderBy(F.col("bid_ends_at").asc(), *[F.col(k).asc() for k in KEY])
     sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry")) + F.lit(1))
@@ -162,7 +202,7 @@ def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) ->
                                                  F.col("pbct_cdtn_no").alias("_k2"), F.col("_entry").alias("round"))))
             .getField("round").alias("rounds"),
             F.array(*[F.lit(d) for d in SOURCE_DATASETS]).alias("source_datasets"),
-        ), {"ignoreNullFields": "false"}).alias("public_sale_json"),
+        ), {"ignoreNullFields": "false"}).alias("public_auction_json"),
         F.count(F.lit(1)).alias("round_count"),
         F.when(F.max(F.col("attached_via").isNull().cast("int")) == 1, F.lit(None).cast("string"))
         .otherwise(F.min("attached_via")).alias("attached_via"),
@@ -199,6 +239,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--minimum-count", type=int, help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--no-carry-lineage", dest="carry_lineage", action="store_false",
                         help="Place a retired PNU's sale under itself, flagged, instead of following the lineage.")
+    parser.add_argument("--no-photos", dest="photos", action="store_false",
+                        help="Build without the media index (silver.onbid_real_estate_item_photo absent or empty).")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
     # The gold-rebuild harness passes these to every kind producer whose contract entry sets
@@ -223,6 +265,7 @@ def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], count
 
     import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
     from lakehouse_snapshot_pins import read_pinned_iceberg  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
 
     as_of = panel.normalize_utc_timestamp(args.published_at_utc)
     # The parcel universe is the SERVED edition only (root ADR-0148), the same one the panel, map and
@@ -243,17 +286,24 @@ def build_gold(spark: Any, args: argparse.Namespace, pins: dict[str, str], count
     usage = None
     if USAGE_CODE_SOURCE in pins:
         usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
+    photos = None
+    if args.photos and PHOTO_SOURCE in pins:
+        # Read whole and take each (item, hash)'s current row, the same way rounds() reads items.
+        photo_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{PHOTO_SOURCE.split('.', 1)[1]}"
+        photos = photos_by_round(current_rows(read_pinned_iceberg(spark, photo_table, PHOTO_SOURCE, pins),
+                                              load_lakehouse_contract(PHOTO_SOURCE)))
     round_rows = rounds(items)
     served = served_rounds(round_rows, F.to_timestamp(F.lit(as_of)))
     counters["served_rounds"] = served.count()
     counters["served_rounds_without_pnu"] = served.where(F.col("source_pnu").isNull()).count()
-    located = placed(with_usage_names(served, usage), parcels, candidates, merges)
+    located = placed(with_photos(with_usage_names(served, usage), photos), parcels, candidates, merges)
+    counters["rounds_with_photos"] = located.where(F.size("photos") > 0).count()
     counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
     documents = document_rows(servable(located))
     return documents.select(
-        "pnu", "public_sale_json", "attached_via",
+        "pnu", "public_auction_json", "attached_via",
         F.lit(pins[PARCEL_SOURCE]).alias("source_snapshot_id"), F.lit(as_of).alias("published_at_utc"),
-    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_sale_json", "attached_via")), 256))
+    ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", "public_auction_json", "attached_via")), 256))
 
 
 def main(argv=None) -> int:
@@ -271,8 +321,8 @@ def main(argv=None) -> int:
     if kind.producer != JOB_NAME:
         raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
     args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
-    required, optional, anchor, _ = lane_inputs(args.lane)
-    sources = (*required, *((LINEAGE_SOURCE,) if args.carry_lineage else ()))
+    _required, _optional, anchor, _whole = lane_inputs(args.lane)
+    sources = declared_sources(args.lane, args.carry_lineage, args.photos)
     pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = column_names(contract)

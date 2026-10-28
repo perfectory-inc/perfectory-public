@@ -3,7 +3,8 @@
   "description": [
     "Dependency updates arrive as pull requests from the hosted Renovate app (root ADR-0271).",
     "Version pins live in tools/technology-versions.contract.json (root ADR-0097): the custom managers below update the contract in the same branch as every file that copies a pin, so the version guards see one value.",
-    "Patch and digest updates open ready pull requests that the merge queue takes once CI is green; minor and major updates open as drafts for a person to review."
+    "Patch and digest updates open ready pull requests that the merge queue takes once CI is green; minor and major (non-security) updates open as drafts for a person to review.",
+    "Security (vulnerability) updates automerge once CI is green, even a major: the vulnerability risk outweighs the regression risk and CI is the gate (ADR-0302 amends ADR-0097 for security only)."
   ],
   "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
@@ -18,6 +19,7 @@
     "enabled": true,
     "schedule": ["at any time"],
     "draftPR": false,
+    "automerge": true,
     "labels": ["security"]
   },
   "lockFileMaintenance": {

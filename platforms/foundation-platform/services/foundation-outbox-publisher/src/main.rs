@@ -102,6 +102,7 @@ use foundation_publisher_silver::land_use_silver_export;
 mod loopback_http;
 #[cfg(test)]
 mod main_tests;
+mod onbid_media;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_by_pnu::by_pnu_serving_rebase;

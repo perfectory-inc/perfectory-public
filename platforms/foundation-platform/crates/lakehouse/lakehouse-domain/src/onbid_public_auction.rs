@@ -1,4 +1,4 @@
-//! 차세대 온비드 public sale (KAMCO, data.go.kr), keyed to the provider's own PNU (root ADR-0280).
+//! 차세대 온비드 public auction (KAMCO, data.go.kr), keyed to the provider's own PNU (root ADR-0280).
 //!
 //! Both tables append: a load adds the rows of keys whose content changed and, for the item list,
 //! one removal marker per item condition that left a complete pass (root ADR-0275). Values only:
@@ -92,6 +92,60 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM: LakehouseTableContract = LakehouseTable
         "removal markers only from a complete pass",
     ],
     // One pass is one gzip JSONL Bronze object.
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO_COLUMNS: &[LakehouseColumn] = &[
+    // Key: one media file of one item condition, by the hash of its bytes — its content-addressed
+    // R2 object name (root ADR-0298). This table is the reference index from an item to the blobs
+    // the collector stored; the blobs themselves are identified by hash alone.
+    column("cltr_mng_no", "string", true),
+    column("pbct_cdtn_no", "long", true),
+    column("sha256", "string", true),
+    // "photo" (potoUrlList) or "appraisal" (apslEvlClgList); both share the one media store.
+    column("media_kind", "string", true),
+    // The order the provider lists it in, as given; its title when the provider gives one.
+    column("sequence", "int", false),
+    column("title", "string", false),
+    // Sniffed from the bytes at download (root ADR-0298): jpg, png, gif or pdf.
+    column("media_format", "string", true),
+    column("size_bytes", "long", true),
+    column("source_record_id", "string", true),
+    column("source_line_number", "int", true),
+    column("source_snapshot_id", "string", true),
+    column("ingested_at_utc", "timestamp", true),
+];
+
+/// Each photo and appraisal attachment of an item, by its content hash (root ADR-0296 §3, ADR-0298).
+///
+/// "어느 물건이 어떤 사진 해시를 갖는가" — the reference, lineage and audit index for the
+/// content-addressed media the collector mirrored, so the by-PNU gold can join photos to an item.
+pub const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.onbid_real_estate_item_photo",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    // One item's one media file is one (item, hash); the newest run that recorded it wins, so a
+    // re-seen photo keeps one row. "처음 본 시각" is the earliest ingested_at_utc across its appends.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["cltr_mng_no", "pbct_cdtn_no", "sha256"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["cltr_mng_no", "pbct_cdtn_no", "sequence"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(cltr_mng_no, pbct_cdtn_no, sha256, source_snapshot_id) unique",
+    ],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",
         object_prefix: None,

@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **142개**
-- 고유 dataset slug: **123개**
-- 고유 Bronze source slug: **142개**
-- 국가 수집 허용 endpoint: **93개**
+- 엔드포인트 정의: **143개**
+- 고유 dataset slug: **124개**
+- 고유 Bronze source slug: **143개**
+- 국가 수집 허용 endpoint: **94개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 2 | 2 | 0 | 전용 커맨드 2 |
-| data.go.kr | 28 | 5 | 0 | API 예정 5, 전용 커맨드 1, 중복 API 비활성 22 |
+| data.go.kr | 29 | 6 | 0 | API 예정 6, 전용 커맨드 1, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
@@ -63,7 +63,7 @@ last_reviewed: 2026-07-30
 | `ilis` | 3 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
-| `onbid_open_api` | 4 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
+| `onbid_open_api` | 5 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
 | `other_bulk` | 12 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
 | `vworld_dataset` | 25 | vworld.kr 제공기관 데이터 파일 |
@@ -114,6 +114,7 @@ last_reviewed: 2026-07-30
 | data.go.kr | 온비드 공매 | 온비드 공고 입찰결과목록 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 공고목록 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 부동산 물건목록 | 공개 API | true | API 예정 |
+| data.go.kr | 온비드 공매 | 온비드 부동산 물건상세 | 공개 API | true | API 예정 |
 | data.go.kr | 부동산 실거래 | 아파트 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 아파트 매매 상세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 공장창고 실거래가 | 중복 API | false | 중복 API 비활성 |

@@ -17,10 +17,16 @@ import {
   type Resolved,
   withRetry,
 } from "./packs";
-import { cacheOrigin, laneOfPath, LANES, lanePacks, OWN, policy, type ServedLane } from "./lane";
+import { cacheOrigin, LANE, laneOfPath, LANES, lanePacks, OWN, policy, type ServedLane } from "./lane";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
+// Content-addressed media served on the parcel edge only (root ADR-0296 §5 / ADR-0297 §5): the URL
+// path is the R2 key and the file name is the content hash, so it answers public and immutable. This
+// one source serves several lanes; only the lane the media policy names (parcel) answers it, off the
+// lakehouse bucket the lane already binds.
+const mediaPolicy = connectionContract.parcel_media;
+const mediaPath = new RegExp(`^/(?:${mediaPolicy.path_pattern})$`);
 /// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, 3, the
 /// `section_packs` block a v2 envelope can carry (root ADR-0147), and the block whose sections name
 /// a parts index (root ADR-0163). The publisher asks for this list at `request_path.capabilities`
@@ -448,6 +454,40 @@ function workerVersion(env: Env): string | null {
   return null;
 }
 
+/// A content-addressed media blob served on the parcel edge (root ADR-0296 §5, ADR-0297 §5): the
+/// request path is the R2 key under the lakehouse bucket this Worker already binds, the file name is
+/// the content hash, so it answers public and immutable with no new host. `null` when the path is
+/// not a media path (the request then falls through to the by-PNU lanes). Read only — never
+/// put/list/delete — so the Worker keeps its pack-only stance (root ADR-0274).
+async function serveMedia(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response | null> {
+  if (LANE !== mediaPolicy.lane || url.search !== "" || !mediaPath.test(url.pathname)) return null;
+  if (!["GET", "HEAD"].includes(request.method)) {
+    return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  const bucket = env[mediaPolicy.r2_binding];
+  if (typeof bucket !== "object" || bucket === null || !("get" in bucket)) {
+    return new Response(null, { status: 500 });
+  }
+  const key = url.pathname.slice(1);
+  const cacheRequest = new Request(url.toString());
+  if (request.method === "GET") {
+    const cached = await caches.default.match(cacheRequest);
+    if (cached !== undefined) return cached;
+  }
+  const object = await bucket.get(key, { onlyIf: request.headers });
+  if (object === null) return new Response(null, { status: 404 });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("Cache-Control", mediaPolicy.cache_control);
+  headers.set("ETag", object.httpEtag);
+  headers.set("X-Content-Type-Options", "nosniff");
+  if (!("body" in object)) return new Response(null, { status: 304, headers });
+  headers.set("Content-Length", object.size.toString());
+  const response = new Response(object.body, { status: 200, headers });
+  if (request.method === "GET") ctx.waitUntil(caches.default.put(cacheRequest, response.clone()));
+  return response;
+}
+
 async function fetchByPnu(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   return withVersion(await answerByPnu(request, env, ctx), env);
 }
@@ -459,6 +499,10 @@ async function answerByPnu(
 ): Promise<Response> {
   const started = Date.now();
   const url = new URL(request.url);
+  // Content-addressed media (root ADR-0296 §5 / ADR-0297 §5) answers before the by-PNU lanes; a
+  // path that is not a media path falls through to them.
+  const media = await serveMedia(request, env, ctx, url);
+  if (media !== null) return media;
   // One Worker serves its own lane and the lanes derived from its block (root ADR-0193 §4).
   const lane = laneOfPath(url.pathname);
   if (lane === null) return new Response(null, { status: 404 });
