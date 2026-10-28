@@ -38,10 +38,13 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
   `mode_reasons`. Every table declares `incremental` or the `full_reason` it rebuilds whole for;
   the contract is refused otherwise (root ADR-0312 §2).
 - The producer's code is an input too (root ADR-0321): each commit records its code version
-  (gold_code_version.PROPERTY) beside the pins. When the current code differs from the version the
-  current Gold's pins were recorded with, the table is rebuilt in full, and the plan names the files
-  that changed. A Gold whose pins carry no code version (built before ADR-0321) is taken as built by
-  the current code: the next commit records it.
+  (gold_code_version.PROPERTY, the symbols the producer's call graph reaches) beside the pins. When
+  the current code differs from the version the current Gold's pins were recorded with, every row is
+  recomputed, but the build is published by key (`publish: changed_keys`): written to a shadow
+  branch, compared with the served Gold by `row_digest`, and only the differing keys merged into
+  main and recorded (gold_incremental.Outcome.publish_by_key). The plan names the symbols that
+  changed. A Gold whose pins carry no code version (built before ADR-0321) is taken as built by the
+  current code: the next commit records it.
 
 `main` is the Spark entry the scheduled job runs (scripts/ops/gold-panel-rebuild.sh). Everything
 else is pure Python, so the CI runner, which has no PySpark, tests the decisions themselves.
@@ -464,20 +467,23 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     recorded_code = None if previous is None else recorded_code_version(gold["snapshots"], gold["head"])
     if current_code is not None and recorded_code is not None \
             and not gold_code_version.same(recorded_code, current_code):
-        code_changed = gold_code_version.changed_files(recorded_code, current_code)
+        code_changed = gold_code_version.changed_parts(recorded_code, current_code)
         reasons.append(f"the producer code changed since the current Gold was built: {code_changed}")
     minimum = None if previous is None else math.ceil(previous * (1 - entry["max_row_loss_fraction"]))
     mode, mode_reasons, previous_pins = ("none", [], None)
     if reasons:
         mode, mode_reasons, previous_pins = incremental_mode(entry, gold, silver, pins, whole_table_inputs,
                                                              unconditional)
-    if code_changed is not None and mode == "incremental":
-        # Root ADR-0321 §2: which rows a code change touches is not derivable from the code, so the
-        # build is full; the content fingerprint and row_digest keep unchanged rows from being
-        # rewritten or re-baked.
-        mode, mode_reasons, previous_pins = "full", [
-            f"the producer code changed ({code_changed}); a code change can touch any row"], None
     settings = entry.get("incremental") or {}
+    publish = None
+    if code_changed is not None:
+        # Root ADR-0321 §5: which rows a code change touches is not derivable from the code, so every
+        # row is recomputed (the declared full exception); it is written to a shadow branch, and only
+        # the rows whose row_digest differs from the served Gold reach main (Write-Audit-Publish).
+        mode, previous_pins, publish = "full", None, "changed_keys"
+        mode_reasons = [f"the producer code changed ({code_changed}): every row is recomputed on a shadow "
+                        "branch, and only the rows whose row_digest differs are merged into main"]
+        flags += ["--publish-changed-keys", repr(float(settings.get("max_changed_key_fraction", 1.0)))]
     coverage = entry.get("section_coverage")
     # Root ADR-0272: the producer measures its sections against the served Gold before it writes.
     against = None if coverage is None or previous is None else gold["head"]
@@ -511,7 +517,10 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         # Root ADR-0321: the code the rebuild runs, and whether the current Gold recorded the code it ran.
         "code_version": current_code,
         "code_version_recorded": recorded_code is not None,
-        "code_changed_files": code_changed,
+        "code_changed_parts": code_changed,
+        # How a full build reaches main: by its changed keys after a shadow branch (a code change), or
+        # by overwrite (None).
+        "publish": publish,
     }
 
 
@@ -538,14 +547,15 @@ def pins_properties(table: str, pins: dict[str, str]) -> dict[str, str]:
 
 
 def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any,
-                        properties: dict[str, str] | None = None) -> None:
+                        properties: dict[str, str] | None = None, branch: str | None = None) -> None:
     """Commit `frame` to `table` with the Silver pins it was built from in the snapshot summary.
 
     `overwrite` replaces every row in one new snapshot (the old one stays in the history, as with
     INSERT OVERWRITE); `append` adds one. `everything` is the always-true filter (F.lit(True)).
     `properties` are further snapshot summary entries (the content fingerprint, root ADR-0274).
+    `branch`: commit to that branch of `table` instead of `main` (a shadow build, root ADR-0321 §5).
     """
-    writer = frame.writeTo(table)
+    writer = frame.writeTo(table if branch is None else f"{table}.`branch_{branch}`")
     if pins:
         properties = {**pins_properties(table, pins), **(properties or {})}
     for key, value in (properties or {}).items():
@@ -646,7 +656,7 @@ def main(argv=None) -> int:
     print("gold-rebuild-plan " + json.dumps(
         {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count",
                                   "mode", "mode_reasons", "absent_inputs", "unmeasured_inputs_unread",
-                                  "code_version_recorded", "code_changed_files")},
+                                  "code_version_recorded", "code_changed_parts", "publish")},
         ensure_ascii=False, sort_keys=True))
     return 0
 

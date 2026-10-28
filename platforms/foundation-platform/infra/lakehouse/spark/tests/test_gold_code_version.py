@@ -1,15 +1,17 @@
-"""A Gold commit records the code that built it, and a code change rebuilds (root ADR-0321).
+"""A Gold commit records the code that built it, and a code change is published by key (root ADR-0321).
 
-The code version covers the producer, the modules it imports at any depth and the contracts they
-name, but not a comment, a docstring, or a module the contract declares as plumbing. The planner
-rebuilds in full when the version recorded beside the current Gold's pins differs. Fixture modules
-are synthetic.
+The code version covers the symbols the producer's call graph reaches, at any depth, and the
+contracts they name, but not a comment, a docstring, an annotation, a function the producer never
+reaches, or a module the contract declares as plumbing. The planner rebuilds when the version
+recorded beside the current Gold's pins differs, and publishes that build by its changed keys.
+Fixture modules are synthetic.
 """
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
@@ -42,6 +44,26 @@ def silver(*ids):
                                                         for n, i in enumerate(ids)]}}
 
 
+PRODUCER = '''"""Doc."""
+import helper
+
+
+def main():
+    from deep import f
+    return f() + helper.LIMIT
+
+
+def cli_only():
+    return helper.other()
+
+
+if __name__ == "__main__":
+    main()
+'''
+HELPER = 'CONTRACT = "rules.contract.json"\nLIMIT = len(CONTRACT)\n\n\ndef other():\n    return 3\n'
+DEEP = "def f():\n    return g()\n\n\ndef g():\n    return 1\n\n\ndef unused():\n    return 9\n"
+
+
 class Tree:
     """A synthetic jobs directory and contracts directory."""
 
@@ -60,53 +82,77 @@ class Tree:
         return code.value("producer", {"plumbing": plumbing or {}, "scoped": scoped or {}}, table, inputs,
                           jobs=self.jobs, contract_dirs=(self.contracts,), root=self.root)
 
+    def parts(self, **kwargs):
+        return set(json.loads(self.version(**kwargs))["parts"])
 
-def fixture_tree():
-    return (Tree()
-            .write("jobs/producer.py", '"""Doc."""\nimport helper\n\ndef build():\n    from deep import f\n    return f()\n')
-            .write("jobs/helper.py", 'CONTRACT = "rules.contract.json"\n')
-            .write("jobs/deep.py", "def f():\n    return 1\n")
-            .write("jobs/planner.py", "X = 1\n")
-            .write("jobs/unrelated.py", "Y = 1\n")
+
+def fixture_tree(test):
+    tree = (Tree().write("jobs/producer.py", PRODUCER).write("jobs/helper.py", HELPER).write("jobs/deep.py", DEEP)
+            .write("jobs/planner.py", "X = 1\n").write("jobs/unrelated.py", "Y = 1\n")
             .write("contracts/rules.contract.json", '{"a": 1, "b": 2}'))
+    test.addCleanup(tree.dir.cleanup)
+    return tree
 
 
 class Version(unittest.TestCase):
-    def test_it_covers_transitive_and_deferred_imports_and_named_contracts_only(self):
-        tree = fixture_tree()
-        self.addCleanup(tree.dir.cleanup)
-        self.assertEqual(sorted(json.loads(tree.version())["files"]),
-                         ["contracts/rules.contract.json", "jobs/deep.py", "jobs/helper.py", "jobs/producer.py"])
+    def test_it_covers_the_reached_symbols_at_any_depth_and_the_contracts_they_name(self):
+        parts = fixture_tree(self).parts()
+        for reached in ("jobs/producer.py::<module>", "jobs/producer.py::main", "jobs/deep.py::f", "jobs/deep.py::g",
+                        "jobs/helper.py::LIMIT", "jobs/helper.py::CONTRACT", "contracts/rules.contract.json"):
+            self.assertIn(reached, parts)
+        for unreached in ("jobs/producer.py::cli_only", "jobs/helper.py::other", "jobs/deep.py::unused"):
+            self.assertNotIn(unreached, parts)
+        self.assertFalse({p for p in parts if p.startswith(("jobs/unrelated.py", "jobs/planner.py"))})
 
-    def test_a_comment_docstring_or_formatting_change_is_not_a_code_change(self):
-        tree = fixture_tree()
-        self.addCleanup(tree.dir.cleanup)
+    def test_a_refactor_that_cannot_change_a_row_is_not_a_code_change(self):
+        tree = fixture_tree(self)
         before = tree.version()
-        tree.write("jobs/producer.py", '"""Other doc."""\nimport helper  # why\n\n\ndef build():\n'
-                                       '    """Says what."""\n    from deep import f\n    return f()\n')
+        # Comments, docstrings, formatting, annotations, key order, a function nothing reaches, a new
+        # function, and the body of another entry point of the same modules.
+        tree.write("jobs/producer.py", PRODUCER.replace('"""Doc."""', '"""Other doc."""\n# why')
+                   .replace("def main():", "def main() -> int:\n    \"\"\"Says what.\"\"\"")
+                   .replace("return helper.other()", "return helper.other() + 1"))
+        tree.write("jobs/helper.py", HELPER.replace("return 3", "return 4") + "\n\ndef added(x: int) -> int:\n    return x\n")
+        tree.write("jobs/deep.py", DEEP.replace("return 9", "return 10").replace("def g():", "def g(  ):  # same"))
         tree.write("contracts/rules.contract.json", '{\n  "b": 2,\n  "a": 1\n}\n')
-        self.assertTrue(code.same(before, tree.version()))
+        self.assertTrue(code.same(before, tree.version()), code.changed_parts(before, tree.version()))
+        decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(before), silver("11"),
+                                code_version=lambda inputs: tree.version())
+        self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
 
-    def test_a_change_at_any_depth_or_in_a_contract_changes_the_version_and_names_the_file(self):
-        for path, text, changed in (("jobs/deep.py", "def f():\n    return 2\n", "jobs/deep.py"),
+    def test_a_change_at_any_depth_or_in_a_contract_changes_the_version_and_names_the_part(self):
+        for path, text, changed in (("jobs/deep.py", DEEP.replace("return 1", "return 2"), "jobs/deep.py::g"),
+                                    ("jobs/helper.py", HELPER.replace("len(CONTRACT)", "len(CONTRACT) + 1"),
+                                     "jobs/helper.py::LIMIT"),
                                     ("contracts/rules.contract.json", '{"a": 1, "b": 3}', "contracts/rules.contract.json")):
-            tree = fixture_tree()
-            self.addCleanup(tree.dir.cleanup)
+            tree = fixture_tree(self)
             before = tree.version()
             tree.write(path, text)
             after = tree.version()
             self.assertFalse(code.same(before, after))
-            self.assertEqual(code.changed_files(before, after), [changed])
+            self.assertEqual(code.changed_parts(before, after), [changed])
+
+    def test_a_reached_class_counts_whole_and_a_module_used_as_a_value_counts_whole(self):
+        tree = fixture_tree(self)
+        tree.write("jobs/deep.py", DEEP + "\n\nclass Lane:\n    def build(self):\n        return 1\n\n"
+                   "    def report(self):\n        return 2\n")
+        tree.write("jobs/producer.py", PRODUCER.replace("return f()", "import unrelated\n    getattr(unrelated, 'Y')\n"
+                                                                     "    from deep import Lane\n    return Lane().build() + f()"))
+        before = tree.version()
+        self.assertIn("jobs/unrelated.py::Y", json.loads(before)["parts"])
+        tree.write("jobs/deep.py", DEEP + "\n\nclass Lane:\n    def build(self):\n        return 1\n\n"
+                   "    def report(self):\n        return 3\n")
+        self.assertEqual(code.changed_parts(before, tree.version()), ["jobs/deep.py::Lane"])
 
     def test_a_plumbing_module_is_left_out_and_its_change_rebuilds_nothing(self):
-        tree = fixture_tree().write("jobs/helper.py", 'import planner\nCONTRACT = "rules.contract.json"\n')
-        self.addCleanup(tree.dir.cleanup)
+        tree = fixture_tree(self).write("jobs/helper.py", HELPER.replace("LIMIT = len(CONTRACT)",
+                                                                         "import planner\nLIMIT = planner.X"))
         plumbing = {"planner": "decides; does not build rows"}
+        self.assertFalse({p for p in tree.parts(plumbing=plumbing) if p.startswith("jobs/planner.py")})
         before = tree.version(plumbing)
-        self.assertNotIn("jobs/planner.py", json.loads(before)["files"])
         tree.write("jobs/planner.py", "X = 2\n")
         self.assertTrue(code.same(before, tree.version(plumbing)))
-        self.assertFalse(code.same(before, tree.version()))
+        self.assertIn("jobs/planner.py::X", tree.parts())
 
     def test_a_shared_registry_counts_only_at_the_entries_the_table_reads(self):
         registry = {"contracts": {"gold.t": 1, "silver.a": 2, "silver.other": 3}, "domains": 4, "prose": 5}
@@ -114,8 +160,8 @@ class Version(unittest.TestCase):
                                   "w": {"gold_table": "gold.w"}}}
         scoped = {"rules.contract.json": {"reason": "fixture", "keep": ["domains"], "entries": {"contracts": "tables"}},
                   "lanes.json": {"reason": "fixture", "entries": {"by_pnu_lanes": "lanes"}}}
-        tree = fixture_tree().write("jobs/helper.py", 'A = "rules.contract.json"\nB = "lanes.json"\n')
-        self.addCleanup(tree.dir.cleanup)
+        tree = fixture_tree(self).write("jobs/helper.py", HELPER.replace('"rules.contract.json"',
+                                                                         '("rules.contract.json", "lanes.json")'))
         tree.write("contracts/rules.contract.json", json.dumps(registry)).write("contracts/lanes.json", json.dumps(lanes))
         before = tree.version(scoped=scoped)
         for path, document in (("contracts/rules.contract.json", {**registry, "prose": 6,
@@ -147,13 +193,14 @@ class Version(unittest.TestCase):
             with self.assertRaises(ValueError):
                 code.settings({"code_version": bad})
 
-    def test_every_producer_of_the_contract_has_a_version_covering_its_own_script(self):
+    def test_every_producer_of_the_contract_has_a_version_starting_at_its_own_script(self):
         contract = rebuild.load_contract()
         config = code.settings(contract)
         for table, entry in contract["tables"].items():
-            files = json.loads(code.value(entry["producer"], config, table, ["silver.x"]))["files"]
-            self.assertIn(f"infra/lakehouse/spark/jobs/{entry['producer']}.py", files)
-            self.assertFalse(set(config["plumbing"]) & {Path(f).stem for f in files}, entry["producer"])
+            parts = json.loads(code.value(entry["producer"], config, table, ["silver.x"]))["parts"]
+            self.assertIn(f"infra/lakehouse/spark/jobs/{entry['producer']}.py::<module>", parts)
+            self.assertIn(f"infra/lakehouse/spark/jobs/{entry['producer']}.py::main", parts)
+            self.assertFalse(set(config["plumbing"]) & {Path(p.split("::")[0]).stem for p in parts}, entry["producer"])
 
     def test_a_test_runner_is_not_a_producer_and_records_no_version(self):
         self.assertIsNone(code.of_running_producer("gold.parcel_panel", PINS))
@@ -166,26 +213,36 @@ class Version(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
-    V1 = json.dumps({"sha256": "a", "files": {"jobs/p.py": "1", "jobs/q.py": "2"}})
-    V2 = json.dumps({"sha256": "b", "files": {"jobs/p.py": "1", "jobs/q.py": "3"}})
+    V1 = json.dumps({"sha256": "a", "parts": {"jobs/p.py::f": "1", "jobs/q.py::g": "2"}})
+    V2 = json.dumps({"sha256": "b", "parts": {"jobs/p.py::f": "1", "jobs/q.py::g": "3"}})
 
     def test_same_code_and_pins_is_nothing_to_do(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(self.V1), silver("11"), code_version=lambda inputs: self.V1)
         self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
         self.assertTrue(decision["code_version_recorded"])
+        self.assertIsNone(decision["publish"])
 
-    def test_changed_code_with_unchanged_pins_rebuilds_in_full_and_names_the_file(self):
+    def test_changed_code_recomputes_every_row_and_publishes_by_changed_keys(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(self.V1), silver("11"), code_version=lambda inputs: self.V2)
-        self.assertEqual((decision["action"], decision["mode"]), ("rebuild", "full"), decision)
-        self.assertEqual(decision["code_changed_files"], ["jobs/q.py"])
-        self.assertIn("jobs/q.py", decision["mode_reasons"][0])
+        self.assertEqual((decision["action"], decision["mode"], decision["publish"]),
+                         ("rebuild", "full", "changed_keys"), decision)
+        self.assertEqual(decision["code_changed_parts"], ["jobs/q.py::g"])
+        self.assertIn("jobs/q.py::g", decision["mode_reasons"][0])
         self.assertIsNone(decision["previous_source_snapshots"])
+        flag = decision["producer_arguments"].index("--publish-changed-keys")
+        self.assertEqual(decision["producer_arguments"][flag + 1], "0.3")
 
-    def test_changed_code_turns_an_incremental_input_change_into_a_full_rebuild(self):
+    def test_changed_code_with_an_input_change_is_published_by_key_too(self):
         self.assertEqual(rebuild.plan("gold.x", ENTRY, INPUTS, gold(self.V1), silver("11", "12"),
                                       code_version=lambda inputs: self.V1)["mode"], "incremental")
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(self.V1), silver("11", "12"), code_version=lambda inputs: self.V2)
-        self.assertEqual(decision["mode"], "full")
+        self.assertEqual((decision["mode"], decision["publish"]), ("full", "changed_keys"))
+
+    def test_a_table_without_an_incremental_bound_merges_any_share_of_changed_keys(self):
+        entry = {k: v for k, v in ENTRY.items() if k != "incremental"} | {"full_reason": "fixture"}
+        decision = rebuild.plan("gold.x", entry, INPUTS, gold(self.V1), silver("11"), code_version=lambda inputs: self.V2)
+        flag = decision["producer_arguments"].index("--publish-changed-keys")
+        self.assertEqual(decision["producer_arguments"][flag + 1], "1.0")
 
     def test_a_gold_built_before_the_record_adopts_the_current_code(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(None), silver("11"), code_version=lambda inputs: self.V2)
@@ -201,6 +258,30 @@ class Commit(unittest.TestCase):
             self.assertEqual(rebuild.pins_properties("t", PINS)[code.PROPERTY], "V")
         options = dict(call.args for call in frame.mock_calls if call[0].endswith("option"))
         self.assertEqual(options[rebuild.SNAPSHOT_PROPERTY_PREFIX + code.PROPERTY], "V")
+
+    def test_a_shadow_write_goes_to_the_branch_and_records_the_tables_code(self):
+        frame = mock.MagicMock()
+        with mock.patch.object(code, "of_running_producer", return_value="V") as running:
+            rebuild.write_gold_snapshot(frame, "`r2`.`gold`.`t`", "overwrite", PINS, "ALL", branch="audit")
+        frame.writeTo.assert_called_once_with("`r2`.`gold`.`t`.`branch_audit`")
+        running.assert_called_once_with("`r2`.`gold`.`t`", PINS)
+
+
+class Arguments(unittest.TestCase):
+    def args(self, **overrides):
+        values = {"publish_changed_keys": 0.3, "incremental_from_snapshots": None, "input_mode": "iceberg",
+                  "write_mode": "iceberg", "iceberg_write_mode": "overwrite", "region_prefix": None}
+        return SimpleNamespace(**{**values, **overrides})
+
+    def test_publishing_by_key_is_a_whole_iceberg_overwrite_only(self):
+        import gold_incremental
+
+        self.assertIsNone(gold_incremental.validate_arguments(self.args(), ("silver.a",)))
+        for bad in ({"publish_changed_keys": 0.0}, {"publish_changed_keys": 1.5},
+                    {"incremental_from_snapshots": "pins.json"}, {"iceberg_write_mode": "append"},
+                    {"region_prefix": "99999"}):
+            with self.assertRaises(ValueError, msg=bad):
+                gold_incremental.validate_arguments(self.args(**bad), ("silver.a",))
 
 
 if __name__ == "__main__":

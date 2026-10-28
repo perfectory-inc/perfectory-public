@@ -41,6 +41,10 @@ this module adds is the machinery around it:
 7. **Keeping the comparison point.** After a commit the producer tags each pinned Silver snapshot
    (`input_tag`), so snapshot expiry cannot remove the state the next incremental run compares
    against. A pin that is gone anyway makes the planner choose the full rebuild.
+8. **Publishing a code change by key** (root ADR-0321 §5). A producer code change recomputes every
+   row, but `--publish-changed-keys` publishes the build Write-Audit-Publish style
+   (`Outcome.publish_by_key`): written to a shadow branch, compared with main by `row_digest`, and
+   only the differing keys merged and recorded as in 5-6; nothing differs, nothing is rewritten.
 
 PySpark is imported inside the functions: the CI runner has no PySpark and tests the pure parts.
 """
@@ -69,6 +73,8 @@ HASH_SPACE = 2**32
 # The keys a commit changed, on the commit itself: the shape-ledger check weighs the bytes it
 # rewrote against them (root ADR-0314 §4).
 KEYS_CHANGED_PROPERTY = "foundation.keys-changed"
+# The shadow branch a code change's full build is written to before it is published (root ADR-0321 §5).
+AUDIT_BRANCH = "foundation_code_change_audit"
 
 
 def keys_changed(counts: dict[str, int]) -> int:
@@ -90,12 +96,26 @@ def add_arguments(parser: Any) -> None:
     parser.add_argument("--parity-sample-keys", type=int, default=0,
                         help="PNUs whose inputs did not change, rebuilt and compared with the current Gold "
                              "before merging.")
+    parser.add_argument("--publish-changed-keys", type=float, default=None, metavar="FRACTION",
+                        help="A code change (root ADR-0321 §5): write the full build to a shadow branch and "
+                             "merge into main only the rows whose row_digest differs; above FRACTION of the "
+                             "Gold's PNUs, fast-forward main to the branch instead.")
 
 
 def validate_arguments(args: Any, sources: tuple[str, ...]) -> dict[str, str] | None:
     """The previous pins an incremental run compares against, or None for a full rebuild."""
     from lakehouse_snapshot_pins import read_snapshot_document, snapshot_id
 
+    publish = getattr(args, "publish_changed_keys", None)
+    if publish is not None:
+        if not 0 < publish <= 1:
+            raise ValueError("--publish-changed-keys must be in (0, 1]")
+        if args.incremental_from_snapshots is not None:
+            raise ValueError("--publish-changed-keys publishes a full build; an incremental run merges already")
+        if args.input_mode != "iceberg" or args.write_mode != "iceberg" or args.iceberg_write_mode != "overwrite":
+            raise ValueError("--publish-changed-keys replaces the full Iceberg overwrite")
+        if getattr(args, "region_prefix", None) or getattr(args, "pnu_prefix", None):
+            raise ValueError("--publish-changed-keys compares the whole Gold; a region run cannot")
     if args.incremental_from_snapshots is None:
         return None
     if args.input_mode != "iceberg" or args.write_mode != "iceberg":
@@ -309,6 +329,11 @@ class Outcome:
     merged: bool | None = None
     # True when the full build's content equals the current Gold's, so no row was rewritten.
     content_unchanged: bool | None = None
+    # A full build of a code change (root ADR-0321 §5): above this fraction of the Gold's PNUs
+    # changed, main is fast-forwarded to the shadow branch; at or below it, the changed keys merge.
+    publish_changed_keys: float | None = None
+    row_key: tuple[str, ...] = (KEY,)
+    published: dict[str, Any] | None = None
 
     def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
         """Write the full Gold in `write_mode`, or merge the changed PNUs; one snapshot either way.
@@ -316,7 +341,8 @@ class Outcome:
         Root ADR-0274 §1: a full build whose content fingerprint equals the current Gold's rewrites
         no row; it commits an empty append carrying the new Silver pins and the same fingerprint, as
         an empty merge does, so the next plan starts from the new pins and the bake reflects the
-        snapshot without comparing it.
+        snapshot without comparing it. A full build of a code change is published by its changed
+        keys (`publish_changed_keys`).
         """
         from pyspark.sql import functions as F
 
@@ -331,6 +357,11 @@ class Outcome:
             if self.content_unchanged:
                 write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties)
                 record_changes(spark, table, None)
+                if self.publish_changed_keys is not None:
+                    self.merged, self.published = False, {"by": "metadata", "counts": {"affected_pnus": 0}}
+                return
+            if self.publish_changed_keys is not None and spark.catalog.tableExists(table.replace("`", "")):
+                self.publish_by_key(spark, table, pins, properties)
                 return
             # A whole overwrite records no step: the bake's delta compares the two snapshots.
             write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
@@ -346,6 +377,59 @@ class Outcome:
         phase_done("merge", started)
         record_changes(spark, table, self.merge["source"] if self.merged else None)
 
+    def publish_by_key(self, spark: Any, table: str, pins: dict[str, str], properties: dict[str, str]) -> None:
+        """Write-Audit-Publish a full build (root ADR-0321 §5, Netflix's Iceberg WAP).
+
+        Write: the build goes to the shadow branch AUDIT_BRANCH, made from main's head; main and its
+        readers see nothing. Audit: the branch holds the rows the producer's gates passed. Publish:
+        the branch is compared with main by `row_key` and `row_digest`; only the keys that differ are
+        merged into main, in one commit that records them (`gold.<t>__changes`, KEYS_CHANGED_PROPERTY).
+        No key differs: an empty commit adopts the new code version and pins. More than
+        `publish_changed_keys` of the Gold's PNUs differ: main is fast-forwarded to the branch (its
+        commit is the full write already made), and the changed keys are recorded all the same.
+        The branch is dropped once main has the result.
+        """
+        from lakehouse_engine import current_snapshot
+        from lakehouse_ingest import checked_ref
+        from pyspark.sql import functions as F
+
+        from gold_rebuild import pins_properties, write_gold_snapshot
+
+        started = time.monotonic()
+        branch = checked_ref(AUDIT_BRANCH)
+        head = int(current_snapshot(spark, table))
+        spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE BRANCH `{branch}` AS OF VERSION {head}")
+        write_gold_snapshot(self.gold, table, "overwrite", pins, F.lit(True), properties, branch=branch)
+        shadow = spark.table(f"{table}.`branch_{branch}`")
+        written = shadow.count()
+        if written != self.row_count:
+            raise ValueError(f"the shadow branch {branch} of {table} holds {written} rows, the build {self.row_count}; "
+                             "main is untouched")
+        started = phase_done("shadow-write", started)
+        current = spark.table(table)
+        stages = Stages(spark)
+        try:
+            source, counts = merge_source(shadow, current, self.row_key)
+            source = stages.materialize("publish-source", source)
+            changed = source.select(KEY).distinct().count()
+            gold_pnus = self.row_count if self.row_key == (KEY,) else shadow.select(KEY).distinct().count()
+            started = phase_done("diff", started)
+            if changed > self.publish_changed_keys * max(gold_pnus, 1):
+                catalog, namespace, name = table.replace("`", "").split(".")
+                spark.sql(f"CALL `{catalog}`.system.fast_forward('{namespace}.{name}', 'main', '{branch}')")
+                self.merged, by = True, "fast_forward"
+            else:
+                self.merged = merge_into_gold(spark, table, source, {**pins_properties(table, pins), **properties,
+                                                                     KEYS_CHANGED_PROPERTY: str(keys_changed(counts))},
+                                              self.row_key)
+                by = "merge" if self.merged else "metadata"
+            phase_done("publish", started)
+            record_changes(spark, table, source if self.merged else None)
+        finally:
+            stages.remove()
+        spark.sql(f"ALTER TABLE {table} DROP BRANCH IF EXISTS `{branch}`")
+        self.published = {"by": by, "counts": {"affected_pnus": changed, **counts}}
+
     def disposition(self, args: Any) -> str:
         return "iceberg_merge" if self.mode == "incremental" else "iceberg_" + args.iceberg_write_mode
 
@@ -356,6 +440,9 @@ class Outcome:
             report["full_reason"] = self.full_reason
         if self.merge is not None:
             report["counts"] = self.merge["counts"]
+        if self.published is not None:
+            report["publish"] = {"to": "changed_keys", "by": self.published["by"]}
+            report["counts"] = self.published["counts"]
         if self.merged is not None:
             report["merged"] = self.merged
         if self.content_unchanged is not None:
@@ -428,7 +515,8 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     if coverage is not None:
         coverage.check(coverage.measure(gold))
     return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed,
-                   appended_inputs=appended)
+                   appended_inputs=appended, publish_changed_keys=getattr(args, "publish_changed_keys", None),
+                   row_key=lane.row_key)
 
 
 def pins_seed(pins: dict[str, str]) -> str:
@@ -544,22 +632,9 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
             "what the build makes of its pinned inputs")
 
     recomputed = built.join(affected, KEY, "left_semi")
-    key = list(row_key)
-    current = current_gold.select(*key, F.col("row_digest").alias("_current_digest"))
-    upserts = (recomputed.join(current, key, "left")
-               .where(~F.col("row_digest").eqNullSafe(F.col("_current_digest"))))
-    inserted = upserts.where(F.col("_current_digest").isNull()).count()
-    updated = upserts.where(F.col("_current_digest").isNotNull()).count()
-    # Every current row of an affected PNU the rebuild no longer makes, e.g. a building whose
-    # units all moved away (root ADR-0204).
-    deletes = (current_gold.select(*key).join(affected, KEY, "left_semi")
-               .join(recomputed.select(*key), key, "left_anti"))
-    deleted = deletes.count()
-    gold_columns = list(current_gold.columns)
-    source = upserts.select(*gold_columns).withColumn(DELETE_FLAG, F.lit(False)).unionByName(
-        deletes.select(*[F.col(c) if c in row_key else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
-                         for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True)))
+    source, counts = merge_source(recomputed, current_gold, row_key, affected)
     source = stages.materialize("source", source)
+    inserted, deleted = counts["inserted_pnus"], counts["deleted_pnus"]
     return {
         "source": source,
         "recomputed": recomputed,
@@ -567,16 +642,40 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
         "counts": {
             "affected_pnus": affected_count,
             "parity_sample_pnus": sample_count,
-            "inserted_pnus": inserted,
-            "updated_pnus": updated,
-            "deleted_pnus": deleted,
-            "unchanged_recomputed_pnus": affected_count - inserted - updated - deleted,
+            **counts,
+            "unchanged_recomputed_pnus": affected_count - keys_changed(counts),
         },
         "row_count": gold_rows + inserted - deleted,
         "row_key": row_key,
         "persisted": [],
         "stages": stages,
     }
+
+
+def merge_source(rebuilt: Any, current_gold: Any, row_key: tuple[str, ...],
+                 affected: Any | None = None) -> tuple[Any, dict[str, int]]:
+    """The rows a MERGE must write to turn `current_gold` into `rebuilt`, and their counts.
+
+    Upserts: rebuilt rows whose `row_digest` differs from the current row of their key, or that have
+    none. Deletes (DELETE_FLAG): current rows of the `affected` PNUs (every PNU when None) that the
+    rebuild no longer makes, e.g. a building whose units all moved away (root ADR-0204).
+    """
+    from pyspark.sql import functions as F
+
+    key = list(row_key)
+    current = current_gold.select(*key, F.col("row_digest").alias("_current_digest"))
+    upserts = (rebuilt.join(current, key, "left")
+               .where(~F.col("row_digest").eqNullSafe(F.col("_current_digest"))))
+    inserted = upserts.where(F.col("_current_digest").isNull()).count()
+    updated = upserts.where(F.col("_current_digest").isNotNull()).count()
+    gone = current_gold.select(*key) if affected is None else current_gold.select(*key).join(affected, KEY, "left_semi")
+    deletes = gone.join(rebuilt.select(*key), key, "left_anti")
+    deleted = deletes.count()
+    gold_columns = list(current_gold.columns)
+    source = upserts.select(*gold_columns).withColumn(DELETE_FLAG, F.lit(False)).unionByName(
+        deletes.select(*[F.col(c) if c in row_key else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
+                         for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True)))
+    return source, {"inserted_pnus": inserted, "updated_pnus": updated, "deleted_pnus": deleted}
 
 
 def current_fingerprint(spark: Any, table: str) -> str | None:

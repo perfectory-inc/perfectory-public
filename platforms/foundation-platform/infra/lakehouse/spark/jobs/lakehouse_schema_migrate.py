@@ -244,11 +244,17 @@ def reorder_to_contract(spark: SparkSession, quoted: str, contract: dict, actual
 def carried_properties(snapshots: list[dict], head: str) -> dict[str, str]:
     """The snapshot summary a backfill of `head` keeps: the source pins of the producer commit its
     rows are (only compactions after it), so the Gold planner sees no content change (root ADR-0312
-    §3). A head that is no producer commit (a hand write) has none to carry, and the planner rebuilds."""
-    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, head_build_pins, pins_property_value
+    §3), and the code version recorded beside them (root ADR-0321), so a backfill is not read as a
+    Gold built by the current code. A head that is no producer commit (a hand write) has none to
+    carry, and the planner rebuilds."""
+    import gold_code_version
+    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, head_build_pins, pins_property_value, recorded_code_version
 
     pins = head_build_pins(snapshots, str(head))
-    return {} if pins is None else {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}
+    if pins is None:
+        return {}
+    code = recorded_code_version(snapshots, str(head))
+    return {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins), **({} if code is None else {gold_code_version.PROPERTY: code})}
 
 
 def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict, columns: list[str]) -> dict:

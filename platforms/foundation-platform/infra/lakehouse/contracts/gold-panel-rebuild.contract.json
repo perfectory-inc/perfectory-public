@@ -55,7 +55,7 @@
   },
   "code_version": {
     "decision": "docs/adr/0321-a-gold-commit-records-the-code-that-built-it.md",
-    "purpose": "Every producer commit records its code version (infra/lakehouse/spark/jobs/gold_code_version.py: the producer script, the modules of spark/jobs it imports transitively, and the JSON contracts they name) beside its source pins; the planner rebuilds a table in full when that version changes. A module named here cannot change a Gold row, so it and what only it imports are left out of the version, and a change to it rebuilds nothing.",
+    "purpose": "Every producer commit records its code version (infra/lakehouse/spark/jobs/gold_code_version.py: the top-level symbols of spark/jobs the producer script's call graph reaches, at any depth, and the JSON contracts they name) beside its source pins. When that version changes, the planner recomputes every row and publishes the build by key: written to a shadow branch, compared with main by row_digest, and only the differing keys merged and recorded (root ADR-0321 §5). A module named here cannot change a Gold row, so nothing of it is followed, and a change to it rebuilds nothing.",
     "plumbing_modules": {
       "gold_rebuild": "The planner and the commit writer: it decides whether to rebuild and writes the producer's frame unchanged with summary entries.",
       "gold_fingerprint": "Computes the summary fingerprint of rows already built; it does not build them.",
