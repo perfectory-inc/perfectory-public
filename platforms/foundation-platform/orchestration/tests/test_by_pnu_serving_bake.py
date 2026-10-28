@@ -45,6 +45,15 @@ if os.environ.get("FAKE_EXIT_COMMAND") == command:
     sys.exit(int(os.environ["FAKE_EXIT_CODE"]))
 lane = "PARCEL" if "parcel" in command else "BUILDING"
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
+def expired(pinned, gone="FAKE_EXPIRED"):
+    # Like the catalog, a pinned snapshot expiry removed is refused in these words (root ADR-0310).
+    if pinned and pinned == os.environ.get(gone):
+        sys.exit(f"Error: failed to resolve the gold.panel snapshot to bake\n\nCaused by:\n    gold.panel metadata no longer holds snapshot {pinned}")
+def schema(prefix):
+    # The document schema the export bakes; FAKE_SCHEMA_PREFIX bakes another one for one shard.
+    if os.environ.get("FAKE_SCHEMA_PREFIX") == prefix:
+        return "doc.v9"
+    return os.environ.get("FAKE_EXPORT_SCHEMA", "doc.v2")
 if command.startswith("show-") and os.environ.get("FAKE_NOT_CUT_OVER") == command:
     # A pack-only lane before its first publish (root ADR-0190) says only that.
     with open(os.environ["FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH"], "w") as out:
@@ -84,6 +93,7 @@ elif command.startswith("export-") and command.endswith("-section-packs"):
         return None if path is None else open(path).read().split()
     allow, deletes = listed("PNU_ALLOWLIST_PATH"), listed("DELETE_LIST_PATH") or []
     expected = os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
+    expired(expected)
     if os.environ.get("FAKE_FOREIGN_PACKS"):
         sys.exit(f"Error: serving/buildings/packs/floors/g2/p{patch}/9999910000.pack holds packs of Gold snapshot 909 but this run is of {expected}; a new snapshot goes into a new generation or patch")
     pnus = json.loads(os.environ["FAKE_PNUS"])
@@ -95,7 +105,8 @@ elif command.startswith("export-") and command.endswith("-section-packs"):
     lost_tombstone = 1 if tombstones and os.environ.get("FAKE_LOSE_TOMBSTONE") else 0
     with open(os.environ[prefix_env + "PACK_SUMMARY_PATH"], "w") as out:
         json.dump({"schema_version": "foundation-platform.building_by_pnu_section_pack_export_summary.v1",
-                   "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"],
+                   "gold_iceberg_snapshot_id": expected or os.environ["FAKE_GOLD"],
+                   "document_schema_version": schema(prefix),
                    "generation": int(generation) if generation else 1,
                    "section_generations": {"buildings": 1, "floors": 2} if patch else {},
                    "patch": int(patch) if patch else None, "pnu_prefix": prefix or None,
@@ -110,10 +121,10 @@ elif command.startswith("export-"):
         path = os.environ.get(prefix_env + name)
         return None if path is None else open(path).read().split()
     allow, deletes = listed("PNU_ALLOWLIST_PATH"), listed("DELETE_LIST_PATH") or []
-    moved = os.environ.get("FAKE_MOVED_SNAPSHOT") if os.environ.get("FAKE_MOVED_PREFIX") == prefix else None
+    # A broken export that wrote a summary of another snapshot (the completeness check's defence).
+    foreign = os.environ.get("FAKE_FOREIGN_SNAPSHOT") if os.environ.get("FAKE_FOREIGN_PREFIX") == prefix else None
     expected = os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID")
-    if moved and expected and expected != moved and not os.environ.get("FAKE_UNCHECKED_SNAPSHOT"):
-        sys.exit(f"Error: gold.panel moved during the bake: this bake is of snapshot {expected} but the table is now at {moved}")
+    expired(expected)
     pnus = json.loads(os.environ["FAKE_PNUS"])
     kept = [pnu for pnu in pnus if pnu.startswith(prefix) and (allow is None or pnu in allow)]
     tombstones = [pnu for pnu in deletes if pnu.startswith(prefix)]
@@ -140,9 +151,9 @@ elif command.startswith("export-"):
     short = os.environ.get("FAKE_SHORT_PREFIX") == prefix and os.environ.get("FAKE_SHORT_LANE", lane) == lane
     exported = len(kept) - (1 if short else 0)
     lost_tombstone = 1 if tombstones and os.environ.get("FAKE_LOSE_TOMBSTONE") else 0
-    snapshot = moved
     with open(os.environ[prefix_env + "SUMMARY_PATH"], "w") as out:
-        json.dump({"gold_iceberg_snapshot_id": snapshot or os.environ["FAKE_GOLD"],
+        json.dump({"gold_iceberg_snapshot_id": foreign or expected or os.environ["FAKE_GOLD"],
+                   "document_schema_version": schema(prefix),
                    "target_generation": target, "target_patch": int(patch) if patch else None,
                    "pnu_prefix": prefix or None, "scanned_row_count": len(pnus),
                    "exported_row_count": exported, "tombstone_count": len(tombstones) - lost_tombstone,
@@ -185,7 +196,7 @@ elif command.startswith("verify-"):
                                     "changed": len(upserts) - new, "only_served": len(deletes),
                                     "only_gold": new}}, out)
 elif command.startswith("publish-"):
-    pass
+    expired(os.environ.get(prefix_env + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"), "FAKE_PUBLISH_EXPIRED")
 elif command.startswith("retire-"):
     if os.environ.get("FAKE_RETIRE_FAIL") == command:
         sys.exit("a delete failed; rerun to finish the retirement")
@@ -336,28 +347,105 @@ class ByPnuServingBake(unittest.TestCase):
     def exports(self, calls):
         return [call for call in calls if call["command"].startswith("export-")]
 
-    def test_gold_moving_during_the_bake_stops_it_at_that_shard(self):
-        result, calls = self.bake(FAKE_MOVED_PREFIX="9999915", FAKE_MOVED_SNAPSHOT="303")
+    P = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_"
+
+    def stopped_half_way(self):
+        """A full bake of 202 into generation 3 that a deploy stopped after some shards (ADR-0301):
+        the shard summaries written, the target recorded. Returns the shards already baked."""
+        result, _ = self.bake(FAKE_CRASH_ONCE_PREFIX="9999917", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("the Gold table moved off snapshot 202 during the bake", result.stdout)
-        # The half-written generation is named, so its manual cleanup can find it.
-        self.assertIn("abandoned: generation 3 holds the objects this bake wrote for Gold snapshot 202", result.stdout)
-        self.assertEqual([call for call in calls if call["command"] == "delta"], [],
-                         "a base of another document schema was weighed as a patch")
-        self.assertEqual(self.published(calls), [])
+        self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text()),
+                         {"gold_iceberg_snapshot_id": "202", "mode": "full", "base_generation": 2, "target": 3})
+        done = {path.name[len("shard-"):-len(".json")]
+                for path in (self.state_root / "parcel/runs/202-g3").glob("shard-*.json")}
+        self.assertTrue(done)
+        self.log.unlink()
+        return done
+
+    def test_a_full_bake_gold_moved_under_finishes_at_its_pin_then_patches_forward(self):
+        # Root ADR-0310. 2026-10-24: the parcel lane's generation 5 was thrown away after 15 h
+        # because Gold moved mid-bake, and generation 6 started from zero.
+        done = self.stopped_half_way()
+        # Gold has moved on to 404. The next run finishes generation 3 at 202, the snapshot it pinned:
+        # no change set, no new generation, no finished shard baked again.
+        result, calls = self.bake(FAKE_GOLD="404", FAKE_LISTED="[2, 3]", FAKE_CLAIMED_GENERATION="3")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("finishing the full bake pinned to Gold snapshot 202 (Gold is now at 404)", result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
         exports = self.exports(calls)
+        self.assertTrue(exports)
+        self.assertFalse({call["env"].get(self.P + "PNU_PREFIX") for call in exports} & done)
         for call in exports:
-            self.assertEqual(call["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "202")
-        # Not retried, and no shard after it was baked: the bake stopped there, not ~20h later.
-        prefix = "FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREFIX"
-        self.assertEqual([call["env"][prefix] for call in exports].count("9999915"), 1)
-        self.assertEqual(exports[-1]["env"][prefix], "9999915")
+            self.assertEqual(call["env"][self.P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "202")
+            self.assertEqual(call["env"][self.P + "TARGET_GENERATION"], "3")
+            self.assertEqual(call["env"][self.P + "FRESH_GENERATION"], "false")
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"][self.P + "TARGET_GENERATION"], "3")
+        self.assertEqual(publish["env"][self.P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"], "202")
+        summary = json.loads((self.state_root / "parcel/runs/202-g3/run-summary.json").read_text())
+        self.assertEqual((summary["gold_iceberg_snapshot_id"], summary["gold_now_iceberg_snapshot_id"],
+                          summary["published"]), ("202", "404", "full"))
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
+        # The run after it patches generation 3 forward from 202 to 404 (root ADR-0274).
+        self.log.unlink()
+        result, calls = self.bake(FAKE_GOLD="404", FAKE_PUBLISHED_GENERATION="3", FAKE_PUBLISHED_SNAPSHOT="202",
+                                  FAKE_SERVED_SCHEMA="doc.v2", FAKE_LISTED="[2, 3]",
+                                  FAKE_DELTA_UPSERTS=json.dumps(PNUS[:1]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual((delta["options"]["--baseline-snapshot-id"], delta["options"]["--current-snapshot-id"]),
+                         ("202", "404"))
+        [publish] = self.published(calls)
+        self.assertEqual((publish["env"][self.P + "TARGET_GENERATION"], publish["env"][self.P + "TARGET_PATCH"],
+                          publish["env"][self.P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"]), ("3", "1", "404"))
+
+    def test_a_pinned_bake_of_another_document_schema_is_not_finished(self):
+        # One generation is one schema: shards baked by a release with another schema are left
+        # unserved, and the new full bake goes above them, of the current snapshot.
+        self.bake(FAKE_CRASH_ONCE_PREFIX="9999917", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1", FAKE_EXPORT_SCHEMA="doc.v1")
+        self.log.unlink()
+        result, calls = self.bake(FAKE_GOLD="404", FAKE_LISTED="[2, 3]")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual((publish["env"][self.P + "TARGET_GENERATION"],
+                          publish["env"][self.P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"]), ("4", "404"))
+
+    def test_an_expired_pin_abandons_its_generation_and_the_next_run_starts_over(self):
+        # Expiry removed 202 while generation 3 waited: the export refuses it, nothing of the
+        # current snapshot is mixed in, and the record goes (no retry can bring 202 back).
+        self.stopped_half_way()
+        result, calls = self.bake(FAKE_GOLD="404", FAKE_LISTED="[2, 3]", FAKE_EXPIRED="202")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("Gold no longer holds snapshot 202, which generation 3 is pinned to (expired)", result.stdout)
+        self.assertIn("abandoned: generation 3 holds what this bake wrote for Gold snapshot 202", result.stdout)
+        self.assertEqual(len(self.exports(calls)), 1)
+        self.assertEqual(self.published(calls), [])
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
+        self.log.unlink()
+        result, calls = self.bake(FAKE_GOLD="404", FAKE_LISTED="[2, 3]")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual((publish["env"][self.P + "TARGET_GENERATION"],
+                          publish["env"][self.P + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID"]), ("4", "404"))
+
+    def test_a_publish_whose_pin_expired_abandons_its_generation(self):
+        result, calls = self.bake(FAKE_PUBLISH_EXPIRED="202")
+        # The exports read 202 before it expired; the publish finds it gone.
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("abandoned: generation 3 holds what this bake wrote for Gold snapshot 202", result.stdout)
+        self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
 
     def test_a_shard_summary_of_another_snapshot_is_still_not_published(self):
-        # Defence behind the export's own check: the summaries are compared before publishing.
-        result, calls = self.bake(FAKE_MOVED_PREFIX="9999915", FAKE_MOVED_SNAPSHOT="303", FAKE_UNCHECKED_SNAPSHOT="1")
+        # Defence behind the export's pin: the summaries are compared before publishing.
+        result, calls = self.bake(FAKE_FOREIGN_PREFIX="9999915", FAKE_FOREIGN_SNAPSHOT="303")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("the table moved during the bake", result.stderr)
+        self.assertIn("a bake of two snapshots is never published", result.stderr)
+        self.assertEqual(self.published(calls), [])
+
+    def test_shards_of_two_document_schemas_are_not_published(self):
+        result, calls = self.bake(FAKE_SCHEMA_PREFIX="9999915")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("shards baked different document schemas", result.stderr)
         self.assertEqual(self.published(calls), [])
 
     def test_a_half_written_generation_without_a_record_is_skipped_past(self):
@@ -418,14 +506,14 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_GENERATION"], "4")
 
     def test_a_generation_is_recorded_only_after_a_shard_passed_its_check(self):
-        # The first shard is refused before its check (Gold moved): nothing is recorded to resume.
-        result, calls = self.bake(FAKE_MOVED_PREFIX="1", FAKE_MOVED_SNAPSHOT="303")
+        # The first shard fails before its check: nothing is recorded to resume.
+        result, calls = self.bake(FAKE_CRASH_BEFORE_CHECK_ONCE_PREFIX="1", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(len(self.exports(calls)), 1)
         self.assertFalse((self.state_root / "parcel/in-progress.json").exists())
         # Once a shard has passed its check, the generation is this lane's.
         self.log.unlink()
-        result, _ = self.bake(FAKE_MOVED_PREFIX="2", FAKE_MOVED_SNAPSHOT="303", FAKE_GOLD="404")
+        result, _ = self.bake(FAKE_CRASH_ONCE_PREFIX="2", FOUNDATION_BY_PNU_BAKE_ATTEMPTS="1", FAKE_GOLD="404")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(json.loads((self.state_root / "parcel/in-progress.json").read_text()),
                          {"gold_iceberg_snapshot_id": "404", "mode": "full", "base_generation": 2, "target": 3})
@@ -484,8 +572,11 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertIn("full PNU length and still too large", result.stdout)
         self.assertEqual(self.published(calls), [])
 
-    def test_a_snapshot_change_after_a_half_bake_starts_a_new_generation(self):
+    def test_a_snapshot_change_after_a_refused_bake_starts_a_new_generation(self):
+        # Every shard baked and the bake was refused as incomplete: resuming it at its pin would
+        # change nothing (root ADR-0310), so once Gold moves the next full bake goes above it.
         self.bake(FAKE_SHORT_PREFIX="9999913")
+        self.assertTrue(json.loads((self.state_root / "parcel/in-progress.json").read_text())["refused_incomplete"])
         self.log.unlink()
         result, calls = self.bake(FAKE_GOLD="404")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

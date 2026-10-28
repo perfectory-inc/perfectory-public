@@ -39,8 +39,8 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
 use super::super::{
-    optional_env, parse_max_concurrency, read_pnu_allowlist, refuse_a_moved_table, select_rows_by,
-    write_summary, MAX_ROWS_PER_RUN,
+    optional_env, parse_max_concurrency, read_pnu_allowlist, select_rows_by, write_summary,
+    MAX_ROWS_PER_RUN,
 };
 use super::sections::{self, PackDocument, PackProvenance, Renderer};
 use super::{gate, read};
@@ -330,10 +330,12 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )?;
-    let snapshot = catalog
-        .load_current_snapshot_manifest_list(table)
-        .await?
-        .with_context(|| format!("{table} has no current snapshot to export"))?;
+    let snapshot = crate::by_pnu_serving_pins::load_baked_snapshot(
+        &catalog,
+        table,
+        config.expected_gold_snapshot.as_deref(),
+    )
+    .await?;
     let lakehouse = LakehouseObjectReader::from_env()?;
     let store = ByPnuServingStore::open(lane, &config.output)?;
     let renderer = Renderer::load(lane).await?;
@@ -378,11 +380,6 @@ async fn scan(
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64)> {
-    refuse_a_moved_table(
-        config.expected_gold_snapshot.as_deref(),
-        &snapshot.table_name,
-        &snapshot.snapshot_id.to_string(),
-    )?;
     let rows = scan_snapshot_rows_kept(
         sections::gold_table(config.lane),
         lakehouse,
