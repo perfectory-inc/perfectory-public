@@ -77,9 +77,10 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     },
 };
 
-/// The unit prices stored as versions (root ADR-0317): a vintage's join appends only the rows of
-/// the `(mgm_bldrgst_pk, base_date)` keys whose row changed and a removal marker per vanished key.
-/// Any vintage is the newest version of every key at or before it (`platform_contracts.rows_as_of`),
+/// The unit prices stored as versions (root ADR-0317).
+///
+/// A vintage's join appends only the rows of the `(mgm_bldrgst_pk, base_date)` keys whose row
+/// changed and a removal marker per vanished key. Any vintage is the newest version of every key at or before it (`platform_contracts.rows_as_of`),
 /// equal on every column but the load's to the batch `silver.unit_official_price` holds for it.
 pub const SILVER_UNIT_OFFICIAL_PRICE_VERSIONS: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.unit_official_price_versions",

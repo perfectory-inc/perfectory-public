@@ -122,9 +122,11 @@ pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE: LakehouseTableContract =
         },
     };
 
-/// The apartment-price vintages stored as versions (root ADR-0317): the first vintage whole, then
-/// per vintage only the rows of the `(mgmt_key, base_date)` keys whose rows changed and a removal
-/// marker per vanished key. Any vintage is the newest version of every key at or before it
+/// The apartment-price vintages stored as versions (root ADR-0317).
+///
+/// The first vintage is stored whole, then per vintage only the rows of the
+/// `(mgmt_key, base_date)` keys whose rows changed and a removal marker per vanished key. Any
+/// vintage is the newest version of every key at or before it
 /// (`platform_contracts.rows_as_of`), equal to that vintage's full copy in
 /// `silver.building_register_apartment_price` on every source column.
 pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS: LakehouseTableContract =
