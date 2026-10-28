@@ -187,7 +187,7 @@ jobs:
 
   required:
     name: required/gongzzang-frontend
-    if: ${{ always() }}
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
     needs: [scope, frontend]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
