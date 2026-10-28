@@ -51,7 +51,7 @@ def value(column, kind, n, vintage):
     if kind == "date":
         return date(2099, 1, 1)
     if kind == "timestamp":
-        return datetime(2099, int(vintage[4:6]), 1, tzinfo=timezone.utc)
+        return datetime(2099, int(vintage[4:6]) if vintage[:8].isdigit() else 1, 1, tzinfo=timezone.utc)
     raise AssertionError(f"no synthetic {kind}")
 
 
@@ -88,6 +88,8 @@ class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
                     row[column] = f"bronze/{vintage}.zip"
                 elif column == "data_reference_date":
                     row[column] = vintage  # changes on every row of every release, and is not content
+                elif column == "vintage":
+                    row[column] = vintage[:6]  # the release's version, which orders a key's versions
                 elif column == first_content:
                     row[column] = value(column, kinds[column], n, vintage if n in changed else "same")
                 else:
@@ -99,8 +101,8 @@ class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
     def test_every_comparing_lane_appends_its_changed_keys_and_keeps_its_current_rows(self):
         from pyspark.sql import functions as F
 
-        from platform_contracts import REMOVED, column_names, current_rows, load_lakehouse_contract
-        from silver_release_compare import compare_rule, release_changes
+        from platform_contracts import REMOVED, column_names, current_row_latest, current_rows, load_lakehouse_contract
+        from silver_release_compare import compare_rule, release_changes, release_versions
 
         lanes = comparing_lanes()
         self.assertGreaterEqual(len(lanes), 5)
@@ -117,7 +119,8 @@ class ComparingLanesWriteTheirChangesTest(unittest.TestCase):
                 changes = release_changes(september, current_rows(june, contract), key=key, content=content,
                                           removal=removal, source_snapshot_id="synthetic-lane:20990901",
                                           ingested_at=F.lit(datetime(2099, 9, 2, tzinfo=timezone.utc)),
-                                          columns=columns)
+                                          columns=columns,
+                                          versions=release_versions(september, current_row_latest(contract).newest_first))
 
                 markers = changes.where(F.col(removal) == REMOVED).count()
                 self.assertEqual((changes.count() - markers, markers), (len(CHANGED) + 1, 1),

@@ -17,7 +17,7 @@ of the key's first column (a 시도 lane: the PNU's 시도, N = 2), and each buc
 committed alone to the changes branch, naming its bucket in the commit's summary. Each bucket reads
 only its own rows of both sides (`startsWith`, which Iceberg prunes by file and row-group bounds).
 A run that reaches `--deadline-utc` starts no new bucket and reports `deadline`; the next run
-compares only the buckets the branch does not record yet. The 2026-10-21 compare of 131.66M rows
+compares only the buckets the branch does not record yet. The 2026-10-21 compare of 131,664,668 rows
 took 87 minutes in one piece, and `silver.land_use_plan` (247.58M) would not fit the unit's 150.
 
 When every bucket is recorded, a last empty commit records every Bronze object of the release in
@@ -158,13 +158,25 @@ def compare_rule(contract: dict[str, Any], content: list[str]) -> tuple[tuple[st
     return latest.key, latest.removal_column
 
 
+def release_versions(staged: Any, newest_first: tuple[str, ...]) -> dict[str, Any]:
+    """The release's value of each `newest_first` column the load does not stamp itself (a vintage):
+    read once for the whole release, since a bucket that only lost keys has no staged row to read."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    stamped = {"source_snapshot_id", "ingested_at_utc"}
+    return {c: staged.agg(F.max(c)).first()[0] for c in newest_first if c not in stamped}
+
+
 def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content: list[str], removal: str,
-                    source_snapshot_id: str, ingested_at: Any, columns: list[str]) -> Any:
+                    source_snapshot_id: str, ingested_at: Any, columns: list[str],
+                    versions: dict[str, Any] | None = None) -> Any:
     """The rows to append: every staged row of a key that is new or whose rows changed, and one
     removal marker per key with current rows and none staged.
 
     A key's release is a set of rows (the source repeats a key, root ADR-0090), so a key is compared
-    by the multiset of its rows' content fingerprints, repeats counted.
+    by the multiset of its rows' content fingerprints, repeats counted. A marker carries the release's
+    `source_snapshot_id`, this run's `ingested_at_utc` and the release's `versions` (`release_versions`):
+    a marker that kept the vanished row's vintage would tie with it and leave it current (ADR-0318).
     """
 
     from pyspark.sql import Window  # noqa: PLC0415
@@ -187,6 +199,10 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
                .withColumn(removal, F.lit(REMOVED))
                .withColumn("source_snapshot_id", F.lit(source_snapshot_id))
                .withColumn("ingested_at_utc", ingested_at))
+    for column, version in (versions or {}).items():
+        if version is None:
+            raise ValueError(f"the release carries no {column}, so a removal marker could not outrank the row it removes")
+        removed = removed.withColumn(column, F.lit(version).cast(current.schema[column].dataType))
     return changed.select(*columns).unionByName(removed.select(*columns))
 
 
@@ -236,6 +252,8 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
                  for r in spark.sql(f"SELECT snapshot_id, summary FROM {qualified}.snapshots").collect()]
     done = recorded_buckets(snapshots, ref_lineage(spark, qualified, args.changes_branch), args.source_snapshot_id)
     pending = [b for b in every if bucket_label(b) not in done]
+    latest = current_row_latest(contract)
+    versions = release_versions(staged, latest.newest_first)
     totals = {"changed_key_rows": 0, "removed_keys": 0}
     progress = {"buckets": len(every), "buckets_done": len(every) - len(pending)}
     for bucket in pending:
@@ -250,7 +268,8 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
         current = current_rows(main_part, contract).select(*columns)
         changes = release_changes(staged_part, current, key=key, content=content, removal=removal,
                                   source_snapshot_id=args.source_snapshot_id,
-                                  ingested_at=F.current_timestamp(), columns=columns).persist(StorageLevel.DISK_ONLY)
+                                  ingested_at=F.current_timestamp(), columns=columns,
+                                  versions=versions).persist(StorageLevel.DISK_ONLY)
         counts = changes.groupBy(F.col(removal) == F.lit(REMOVED)).count().collect()
         removed = sum(row["count"] for row in counts if row[0])
         appended = sum(row["count"] for row in counts if not row[0])
@@ -266,9 +285,9 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     # The seal: an empty commit that records the release's objects, so the published main says it is
     # loaded, and the version the release carries, which a release that changed nothing has no row of.
     seal = {**snapshot_property_options(objects, ingest_batch_token(objects)), **change_record_options(0, 0)}
-    latest = current_row_latest(contract)
-    if latest is not None and len(latest.newest_first) == 1:
-        version = staged.agg(F.max(latest.newest_first[0])).first()[0]
+    if len(latest.newest_first) == 1:
+        version = (versions.get(latest.newest_first[0]) if latest.newest_first[0] in versions
+                   else staged.agg(F.max(latest.newest_first[0])).first()[0])
         if version is not None:
             seal[f"{SNAPSHOT_PROPERTY_PREFIX}{RELEASE_VERSION_KEY}"] = str(version)
     write(staged.limit(0), target, seal)

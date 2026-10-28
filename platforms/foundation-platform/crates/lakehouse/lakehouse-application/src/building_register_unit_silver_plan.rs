@@ -846,6 +846,8 @@ mod tests {
             .columns
             .iter()
             .map(|column| column.name)
+            // the removal column is the release compare's, never a source row's (root ADR-0318)
+            .filter(|name| *name != "row_state")
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             record

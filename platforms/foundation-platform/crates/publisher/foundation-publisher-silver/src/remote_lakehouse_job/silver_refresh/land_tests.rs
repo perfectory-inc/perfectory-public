@@ -829,12 +829,14 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 5] = [
+const COMPARING_LANES: [Lane; 7] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
+    Lane::LandUsePlan,
+    Lane::LandUseZoneCode,
 ];
 
 #[test]

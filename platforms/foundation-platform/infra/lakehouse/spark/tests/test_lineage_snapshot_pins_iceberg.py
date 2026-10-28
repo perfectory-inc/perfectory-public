@@ -14,6 +14,18 @@ import parcel_lineage_to_silver as job
 from parcel_lineage_inputs import bind_input_views
 
 
+TITLES_SCHEMA = ("mgm_bldrgst_pk STRING, pnu STRING, source_snapshot_id STRING, title_row_id STRING, register_parcel_key STRING, "
+                 "main_or_annex_kind STRING, normalization_status STRING, normalization_reason STRING, "
+                 "bronze_object_key STRING, valid_from_utc TIMESTAMP, ingested_at_utc TIMESTAMP, "
+                 "row_checksum_sha256 STRING, row_state STRING")
+
+
+def titles_row(register, pnu, release):
+    return (f"('{register}', '{pnu}', '{release}', 'title-{register}', 'key-{register}', 'main', 'accepted', "
+            f"'accepted_title', 'bronze/b.zip', TIMESTAMP '2099-06-01 00:00:00', TIMESTAMP '2099-06-01 00:00:00', "
+            f"'{'0' * 64}', NULL)")
+
+
 @unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
 class LineageSnapshotIcebergTest(unittest.TestCase):
     @classmethod
@@ -51,10 +63,12 @@ class LineageSnapshotIcebergTest(unittest.TestCase):
              f"('{cls.before}', '10', '지목변경', '2099-05-15', '', '17', 42.0, 1, 'history-0930', NULL, 'bronze/x.zip', TIMESTAMP '2099-09-30 00:00:00'), "
              f"('{cls.after}', '52', '행정관할구역변경', '2099-07-01', '', '17', 42.0, 1, 'history-0930', NULL, 'bronze/x.zip', TIMESTAMP '2099-09-30 00:00:00')",
              "('9999999999100030000', '52', 'changed head', '2099-07-01', '', '17', 99.0, 1, 'history-1231', NULL, 'bronze/y.zip', TIMESTAMP '2099-12-31 00:00:00')"),
-            ("buildings_from", "silver.building_register_titles", "mgm_bldrgst_pk STRING, pnu STRING, source_snapshot_id STRING",
-             f"('building-1', '{cls.before}', 'building-june')", "('changed', '9999999999100040000', 'building-june')"),
-            ("buildings_to", "staging.building_register_titles", "mgm_bldrgst_pk STRING, pnu STRING, source_snapshot_id STRING",
-             f"('building-1', '{cls.after}', 'building-september')", "('changed', '9999999999100050000', 'building-september')"),
+            # The titles keep versions (root ADR-0318): their required columns, the release and the removal column.
+            ("buildings_from", "silver.building_register_titles", TITLES_SCHEMA,
+             titles_row("building-1", cls.before, "building-june"), titles_row("changed", "9999999999100040000", "building-june")),
+            ("buildings_to", "staging.building_register_titles", TITLES_SCHEMA,
+             titles_row("building-1", cls.after, "building-september"),
+             titles_row("changed", "9999999999100050000", "building-september")),
         ]
         cls.heads = {}
         for role, table, schema, rows, changed_rows in fixtures:

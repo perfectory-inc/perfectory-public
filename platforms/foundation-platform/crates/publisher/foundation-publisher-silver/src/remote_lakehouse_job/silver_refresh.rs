@@ -57,9 +57,11 @@ const PLAN_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_PLAN";
 pub(super) const UNIT_TIME_LIMIT_MINUTES: i64 = 150;
 /// No compare bucket starts later than this into a run (root ADR-0318). The largest bucket of the
 /// largest compared table, 시도 41 of `silver.land_use_plan` (46,842,275 of 247,584,668 rows,
-/// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131.66M rows in 87 minutes),
+/// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131,664,668 rows in 87 minutes),
 /// so the 40 minutes left hold it and the publish.
-pub(super) const LAST_BUCKET_START_MINUTES: i64 = 110;
+pub(super) const LAST_BUCKET_START_MINUTES: i64 = UNIT_TIME_LIMIT_MINUTES - LARGEST_BUCKET_MINUTES;
+/// What the deadline leaves for the bucket that starts last and the publish (see above).
+const LARGEST_BUCKET_MINUTES: i64 = 40;
 
 /// What the run found, and what it reports on its last line.
 #[derive(Clone, Debug, Eq, PartialEq)]
