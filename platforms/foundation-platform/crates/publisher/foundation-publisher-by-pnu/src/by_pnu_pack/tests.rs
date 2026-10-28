@@ -22,9 +22,20 @@ pub fn assert_golden(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
         let actual = std::env::temp_dir().join("section-pack-golden");
         std::fs::create_dir_all(&actual)?;
         std::fs::write(actual.join(name), bytes)?;
+        // A small golden is also printed, so a run where the temp directory is out of reach (CI)
+        // still shows the bytes to review.
+        let hex = if bytes.len() <= 4096 {
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        } else {
+            String::new()
+        };
         anyhow::bail!(
             "{} drifted from what the writer writes now (written to {}): the pack format or the \
-             gzip output changed; a format change is a new format_version (root ADR-0147 §2)",
+             gzip output changed; a format change is a new format_version (root ADR-0147 §2). \
+             Written now, hex: {hex}",
             path.display(),
             actual.join(name).display()
         );
@@ -305,6 +316,152 @@ fn a_wide_key_is_one_length_a_pnu_of_the_dong_and_no_slash() -> anyhow::Result<(
             .is_err(),
         "another dong"
     );
+    Ok(())
+}
+
+/// A pack with one document served as pages between two whole ones (root ADR-0325).
+fn sample_paged() -> anyhow::Result<Vec<u8>> {
+    let mut writer = PackWriter::new(identity(None))?;
+    writer.push_document(PNU_A, br#"{"page":"whole a"}"#)?;
+    writer.push_pages(
+        PNU_B,
+        &[
+            br#"{"page":1}"#.to_vec(),
+            br#"{"page":2}"#.to_vec(),
+            br#"{"page":3}"#.to_vec(),
+        ],
+    )?;
+    writer.push_document(PNU_C, br#"{"page":"whole c"}"#)?;
+    writer.finish()
+}
+
+/// Root ADR-0325: a paged document's entry is its page 1, the other pages follow it in the body,
+/// and the header's pages table is all a reader needs to find any of them by range; the entries
+/// beside it read as before.
+#[test]
+fn a_paged_document_reads_back_every_page_by_its_table() -> anyhow::Result<()> {
+    let bytes = sample_paged()?;
+    let pack = Pack::read(&bytes)?;
+    assert_eq!(pack.header.entry_count, 3);
+    assert_eq!(pack.header.document_count, 3);
+    let lengths = pack.header.pages.get(PNU_B).context("B is paged")?;
+    assert_eq!(lengths.len(), 3);
+    let b = pack.find(PNU_B).context("B is in the index")?;
+    assert_eq!(pack.page_count(b), 3);
+    assert_eq!(lengths[0], b.length);
+    for (page, expected) in [(1, "1"), (2, "2"), (3, "3")] {
+        assert_eq!(
+            pack.page(b, page)?,
+            Some(format!(r#"{{"page":{expected}}}"#).into_bytes())
+        );
+    }
+    assert_eq!(pack.page(b, 4)?, None);
+    assert_eq!(pack.page(b, 0)?, None);
+    // Each page is a standalone gzip member at its offset, as a range read returns it.
+    let body = read_prefix(&bytes)?.head_length();
+    let second = body + usize::try_from(b.offset + lengths[0])?;
+    let member = &bytes[second..second + usize::try_from(lengths[1])?];
+    assert_eq!(gunzip(member)?, br#"{"page":2}"#);
+    let c = pack.find(PNU_C).context("C is in the index")?;
+    assert_eq!(pack.page_count(c), 1);
+    assert_eq!(pack.page(c, 2)?, None);
+    assert_eq!(
+        pack.document(c)?.as_deref(),
+        Some(br#"{"page":"whole c"}"#.as_slice())
+    );
+    // A pack without a paged document has no table: the served packs keep their bytes.
+    assert!(Pack::read(&sample_patch()?)?.header.pages.is_empty());
+    assert!(!String::from_utf8_lossy(&sample_patch()?).contains("\"pages\""));
+    Ok(())
+}
+
+#[test]
+fn the_paged_format_bytes_are_pinned() -> anyhow::Result<()> {
+    assert_golden("format-paged.golden.pack", &sample_paged()?)
+}
+
+/// Root ADR-0325: the writer pages 2 to `max_pages` members, each within what one request may
+/// copy; the reader refuses a table that does not describe members of the body.
+#[test]
+fn a_pages_table_that_does_not_describe_the_body_is_refused() -> anyhow::Result<()> {
+    let max = usize::try_from(
+        section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .pages
+            .max_pages,
+    )?;
+    let mut writer = PackWriter::new(identity(None))?;
+    assert!(
+        writer.push_pages(PNU_A, &[b"{}".to_vec()]).is_err(),
+        "one page"
+    );
+    assert!(
+        writer
+            .push_pages(PNU_A, &vec![b"{}".to_vec(); max + 1])
+            .is_err(),
+        "past max_pages"
+    );
+    writer.push_pages(PNU_A, &vec![b"{}".to_vec(); max])?;
+    let bound = usize::try_from(
+        section_pack_policy()?
+            .read_path
+            .request_cpu_budget
+            .document_max_bytes,
+    )?;
+    let mut writer = PackWriter::new(identity(None))?;
+    let refused = writer
+        .push_pages(PNU_A, &[b"{}".to_vec(), incompressible(bound + 1)])
+        .err()
+        .context("a page past the budget was written")?;
+    assert!(
+        refused.to_string().contains("document_max_bytes"),
+        "{refused:#}"
+    );
+
+    let bytes = sample_paged()?;
+    let (header, _) = read_head(&bytes)?;
+    let rewrite = |pages: BTreeMap<String, Vec<u32>>| -> anyhow::Result<Vec<u8>> {
+        let mut changed = header.clone();
+        changed.pages = pages;
+        let json = serde_json::to_vec(&changed)?;
+        let prefix = read_prefix(&bytes)?;
+        let mut out = bytes[..PREFIX_BYTES].to_vec();
+        out[12..16].copy_from_slice(&u32::try_from(json.len())?.to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&bytes[PREFIX_BYTES + prefix.header_length..]);
+        Ok(out)
+    };
+    // The unchanged table reads: the rewrite itself is sound.
+    read_head(&rewrite(header.pages.clone())?)?;
+    let lengths = header.pages[PNU_B].clone();
+    for (label, pages) in [
+        (
+            "a key with no entry",
+            BTreeMap::from([("9999900000300000000".to_owned(), vec![1, 1])]),
+        ),
+        (
+            "one page",
+            BTreeMap::from([(PNU_B.to_owned(), lengths[..1].to_vec())]),
+        ),
+        ("a first page that is not the entry's", {
+            let mut wrong = lengths.clone();
+            wrong[0] += 1;
+            BTreeMap::from([(PNU_B.to_owned(), wrong)])
+        }),
+        ("pages past the body", {
+            let mut wrong = lengths.clone();
+            wrong[2] += 1_000;
+            BTreeMap::from([(PNU_B.to_owned(), wrong)])
+        }),
+        ("an empty page", {
+            let mut wrong = lengths.clone();
+            wrong[1] = 0;
+            BTreeMap::from([(PNU_B.to_owned(), wrong)])
+        }),
+    ] {
+        assert!(read_head(&rewrite(pages)?).is_err(), "{label}");
+    }
     Ok(())
 }
 

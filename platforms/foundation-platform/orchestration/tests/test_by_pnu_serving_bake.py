@@ -112,6 +112,8 @@ elif command.startswith("export-") and command.endswith("-section-packs"):
                    "patch": int(patch) if patch else None, "pnu_prefix": prefix or None,
                    "gold_record_count": len(pnus), "exported_row_count": len(kept) - (1 if short else 0),
                    "tombstone_count": len(tombstones) - lost_tombstone,
+                   "withheld": [{"key": pnu, "reason": "document_too_large: planted"} for pnu in kept
+                                if pnu in json.loads(os.environ.get("FAKE_WITHHELD", "[]"))],
                    "packs": [{"unit": pnu[:10]} for pnu in kept + tombstones]}, out)
 elif command.startswith("export-"):
     prefix = os.environ.get(prefix_env + "PNU_PREFIX", "")
@@ -1180,6 +1182,29 @@ class SectionPackBake(unittest.TestCase):
         self.assertEqual(len(self.exports(calls)), 1, "a refusal a retry cannot change was retried")
         self.assertEqual(self.published(calls), [])
         self.assertFalse((self.state_root / "building/in-progress-packs.json").exists())
+
+    def test_a_withheld_document_is_published_around_and_fails_the_run_after(self):
+        # Root ADR-0325 §4. 2026-10-28: one building document past what one request may copy
+        # refused the whole lane six times and nothing was published for 585 hours. Now the lane
+        # publishes every other document, and the run fails after it so the failure notice names it.
+        change = {"FAKE_DELTA_UPSERTS": json.dumps(PNUS[:2]), "FAKE_WITHHELD": json.dumps([PNUS[0]])}
+        result, calls = self.bake(**change)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual(publish["command"], "publish-building-by-pnu-section-packs")
+        self.assertIn(f"WITHHELD (root ADR-0325 §4): 1 ({PNUS[0]}) documents answer only that they are withheld",
+                      result.stdout)
+        # Under the registered job the lane ends 0, so a lane that follows it still bakes, and the
+        # run fails at its end, naming the lane.
+        for path in self.state_root.glob("*/in-progress*.json"):
+            path.unlink()
+        self.log.unlink()
+        result, calls = ByPnuServingBake.bake(self, "all", FAKE_PACKS=packs_state(), FAKE_GOLD="203", **change)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("publish-building-by-pnu-section-packs", [call["command"] for call in self.published(calls)])
+        last = result.stdout.splitlines()[-1]
+        self.assertTrue(last.startswith("foundation-job-outcome failed"), last)
+        self.assertIn("building-withheld", last)
 
     def test_the_job_declares_the_capability_the_first_pack_publish_requires(self):
         contract = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))

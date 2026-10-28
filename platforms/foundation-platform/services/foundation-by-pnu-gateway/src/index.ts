@@ -21,6 +21,7 @@ import { cacheOrigin, LANE, laneOfPath, LANES, lanePacks, OWN, policy, type Serv
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
+const pagesPolicy = packPolicy.read_path.request_cpu_budget.pages;
 // Content-addressed media served on the parcel edge only (root ADR-0296 §5 / ADR-0297 §5): the URL
 // path is the R2 key and the file name is the content hash, so it answers public and immutable. This
 // one source serves several lanes; only the lane the media policy names (parcel) answers it, off the
@@ -79,6 +80,9 @@ interface ServingPlan {
 /// earlier run left was timed against R2 reads).
 interface CanonicalRequest {
   pnu: string;
+  /// The page of a document too large for one request (root ADR-0325): 1 for the PNU's own path,
+  /// `n` for `<pnu>/<n>`.
+  page: number;
   previewGeneration: number | null;
   previewRun: string | null;
   /// A manifest-history file name (`<published>-<sha256>`): a preview version serves that recorded
@@ -109,11 +113,16 @@ function canonicalRequest(url: URL, lane: ServedLane = OWN): CanonicalRequest | 
     const [pnu, suffix, ...rest] = candidate.split("/");
     if (pnu === undefined || suffix === undefined || rest.length > 0) return null;
     if (!pnuPattern.test(pnu) || !lane.keySuffix.test(suffix)) return null;
-    return { pnu: `${pnu}${suffix}`, previewGeneration, previewRun, previewState };
+    return { pnu: `${pnu}${suffix}`, page: 1, previewGeneration, previewRun, previewState };
   }
-  if (!pnuPattern.test(candidate)) return null;
-  if (url.pathname !== `${prefix}${candidate}`) return null;
-  return { pnu: candidate, previewGeneration, previewRun, previewState };
+  // `<pnu>/<page>`: a later page of a document served as pages (root ADR-0325); 2 to max_pages,
+  // without a leading zero, so one page has one path.
+  const [pnu = "", page, ...rest] = candidate.split("/");
+  if (!pnuPattern.test(pnu) || rest.length > 0) return null;
+  if (page === undefined) return { pnu, page: 1, previewGeneration, previewRun, previewState };
+  const number = Number(page);
+  if (!/^[1-9][0-9]?$/.test(page) || number < 2 || number > pagesPolicy.max_pages) return null;
+  return { pnu, page: number, previewGeneration, previewRun, previewState };
 }
 
 function canonicalPnu(url: URL): string | null {
@@ -339,7 +348,7 @@ async function packResponse(
   bucket: Pick<R2Bucket, "get">,
   ctx: ExecutionContext,
   plan: PackPlan,
-  pnu: string,
+  { pnu, page }: Pick<CanonicalRequest, "pnu" | "page">,
   origin: string | null,
   allowed: ReadonlySet<string>,
   timing: { started: number } | null,
@@ -353,14 +362,14 @@ async function packResponse(
   try {
     // A PNU read before under this served state is one edge lookup, as on the object path; a
     // tombstone or an absence is never copied, so only documents answer from here.
-    const cached = await answerFromCache(plan.fingerprint, pnu);
+    const cached = await answerFromCache(plan.fingerprint, pnu, page);
     if (cached !== null) {
       reads.trace.note(lanePacks.anchor_section, "edge-answer");
       resolved = { kind: "document", ...cached };
     } else {
-      resolved = await resolvePacks(reads, plan, pnu);
+      resolved = await resolvePacks(reads, plan, pnu, page);
       if (resolved.kind === "document") {
-        ctx.waitUntil(caches.default.put(answerCacheUrl(plan.fingerprint, pnu), answerCacheResponse(resolved)));
+        ctx.waitUntil(caches.default.put(answerCacheUrl(plan.fingerprint, pnu, page), answerCacheResponse(resolved)));
       }
     }
   } catch (error) {
@@ -511,7 +520,7 @@ async function answerByPnu(
   }
   const canonical = canonicalRequest(url, lane);
   if (canonical === null) return new Response(null, { status: 404 });
-  const { pnu, previewGeneration, previewRun, previewState } = canonical;
+  const { previewGeneration, previewRun, previewState } = canonical;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response(null, {
       status: 405,
@@ -558,7 +567,7 @@ async function answerByPnu(
   const timing = env[lanePacks.preview_binding] === "true" ? { started } : null;
   if (previewGeneration !== null && timing !== null) {
     const preview = previewPlan(previewGeneration, workerVersion(env), lane, previewRun);
-    return packResponse(request, bucket, ctx, preview, pnu, origin, allowed, timing);
+    return packResponse(request, bucket, ctx, preview, canonical, origin, allowed, timing);
   }
   // Root ADR-0274 §5: one recorded manifest state, served exactly as its packs and patches say, so the
   // rollback rehearsal reads the state a rollback would serve. Only a preview version reads the
@@ -570,7 +579,7 @@ async function answerByPnu(
     const recorded = stored === null || !("body" in stored) ? null : parseManifest(await stored.json().catch(() => null), lane);
     if (recorded?.packs === undefined) return missing();
     const state = { ...recorded.packs, fingerprint: `${recorded.packs.fingerprint}-preview-h-${workerVersion(env) ?? "local"}` };
-    return packResponse(request, bucket, ctx, state, pnu, origin, allowed, timing);
+    return packResponse(request, bucket, ctx, state, canonical, origin, allowed, timing);
   }
 
   // One request, one R2 deadline: the manifest read and the pack reads share it.
@@ -596,7 +605,7 @@ async function answerByPnu(
   }
   if (packs === undefined) return withCors(outageResponse("no-section-packs"), origin, allowed);
   // The per-PNU edge copy is the member itself under the pack plan's fingerprint (packResponse).
-  return packResponse(request, bucket, ctx, packs, pnu, origin, allowed, timing, reads);
+  return packResponse(request, bucket, ctx, packs, canonical, origin, allowed, timing, reads);
 }
 
 /// The request path's pure steps, run once per isolate at startup (root ADR-0233): global scope
