@@ -25,7 +25,7 @@ last_reviewed: 2026-07-29
 
 ## 현재 확정된 원칙
 
-1. **3-service 데이터 접근** — [AGENTS.md §0.5](../../AGENTS.md)
+1. **3-service 데이터 접근** — [영역 AGENTS.md 의 소유 표](../../AGENTS.md)
 2. **Clean Architecture** — UI → UseCase → Port → Adapter
 3. **Foundation Platform가 Catalog SSOT** — parcel geometry, PNU anchors, public/reference spatial layers
 4. **Gongzzang은 B2C product semantics SSOT** — listing, listing photo, user, market, insights

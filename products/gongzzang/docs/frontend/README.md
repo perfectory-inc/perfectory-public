@@ -107,5 +107,5 @@ pnpm dev
 ## 참고
 
 - [ADR-0003](../adr/0003-frontend-nextjs-react19.md): frontend stack decision
-- [AGENTS.md](../../AGENTS.md): 프로젝트 헌법
+- [AGENTS.md](../../AGENTS.md): 영역 규칙과 강제 장치
 - 패널 시스템 규범: [panel-sss-axes.md](./panel-sss-axes.md) (AGENTS.md §10 이관)
