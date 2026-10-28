@@ -275,3 +275,5 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
 - 실행물이 공개된다(§5). 저장된 비밀은 생기지 않는다.
 - GitHub 장애 동안에는 새 릴리스를 배포할 수 없다(§7, 받아들인 대가). 되돌리기와 릴리스 없는 운영 조작은 된다.
 - 승인이 compose 이미지(foundation-api, 복구 Postgres)까지 맡게 되어, 지금 승인 밖에서 빌드되던 두 이미지의 빈틈이 닫힌다.
+
+2026-10-28: 구현 점검 — Proposed 유지. R1–R3은 있다(`.github/workflows/foundation-release-build.yml`, `tools/release-build.contract.json`, `scripts/deploy/foundation-release-admission.py`의 `verify-registry`). §10 R4(서버 빌드 경로 제거 — `foundation-release.sh`가 아직 종료 코드 75에서 직접 빌드한다)와 §4.6의 `build:` 거부 시험은 없다.

@@ -102,3 +102,5 @@ Zitadel E2E 가 이 인스턴스 하나에 기대고 있다. identity-platform �
   foundation 스모크)에 있다.
 - 4.4 의 가드는 4.3 이 끝난 뒤에만 넣을 수 있다. 그 전에 넣으면 위반이 0 이 아니라서 규칙이 아니라 예외 목록이 된다.
 - AWS 운영 공짱(배포·설정)은 이 결정의 어떤 단계에서도 건드리지 않는다. 이 결정은 저장소 안의 파일만 다룬다.
+
+2026-10-28: 구현 점검 — Proposed 유지. §4.1(이 ADR)만 끝났다. `products/gongzzang/infra/zitadel/`이 아직 있고 §4.2–4.5(identity-platform 로컬 진입점, 소비자 이전, 옛 폴더 삭제와 가드, `infrastructure-v2/` 처분)는 없다. §6·§7은 사장 결정 대기.

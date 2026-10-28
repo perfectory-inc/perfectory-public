@@ -336,3 +336,7 @@ pre-push에서 몇 초 만에 끝나는 이유다. JSON 경로를 택하면 가�
 4. **임포트 게이트는 여전히 없다.** 이 결함군이 들어온 경로 — 감사된 소스 스냅샷의 일괄 임포트,
    ADR-0010 Context가 지목한 그 유입 지점 — 는 지금도 검사 없이 열려 있다. ADR-0010 부채 #7 그대로다.
    이 ADR이 고친 모순 단언도 그 임포트 시점의 모습 그대로였다.
+
+개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
+
+- `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(`tools/xtask/src/live.rs`, #799)

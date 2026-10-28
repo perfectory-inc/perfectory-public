@@ -136,7 +136,7 @@ Important files:
 
 - `services/gongzzang-api/src/photo_upload.rs`
 - `services/gongzzang-outbox-publisher/src/listing_photo_lakehouse.rs`
-- `services/gongzzang-outbox-publisher/src/foundation_platform_lakehouse_registry.rs`
+- `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
 - `docs/architecture/platform-integration/lakehouse-registry-policy.v1.json`
 
 ## 7. 가드

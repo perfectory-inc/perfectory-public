@@ -21,7 +21,7 @@ Phase 3+ 자리. 시맨틱 검색·유사 매물 추천을 위한 임베딩.
 - 재인덱싱 (업데이트된 텍스트)
 
 ## 의존 (Phase 3+)
-- `crates/data-clients/gemini-embedding`
+- `crates/data-clients/gemini-embedding` (예정 — 아직 없음)
 - `crates/gongzzang-persistence`
 - `tracing` (계측 — 관측성 초기화는 각 service 가 직접 수행)
 - `pgvector` Rust crate

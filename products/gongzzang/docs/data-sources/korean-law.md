@@ -24,7 +24,7 @@ last_reviewed: 2026-07-29
 - 일별 한도 (정확한 수치 사이트 확인)
 - 본문 조회는 무거움 — 캐시 필수
 
-## 핵심 endpoint (`crates/data-clients/korean-law/`)
+## 핵심 endpoint (예정 어댑터 `crates/data-clients/korean-law/`, 아직 없음)
 
 | endpoint | 용도 |
 |----------|------|

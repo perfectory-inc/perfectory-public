@@ -113,7 +113,7 @@ pub enum ErrorCode {
 
 ## 9. 자동 강제
 
-- Rust: `crates/api-types/src/error.rs` 단일 SSOT
+- Rust: `services/gongzzang-api/src/http/problem.rs` 단일 SSOT
 - Axum 미들웨어: 모든 에러 → Problem Details 변환
 - 변환 누락 = utoipa 컴파일 실패 (모든 endpoint에 명시 의무)
 - TS: openapi-typescript 자동 타입 → 클라이언트 컴파일 시점 검증
