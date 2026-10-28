@@ -379,6 +379,13 @@ class R2ResetsTest(unittest.TestCase):
         self.assertIn("'partial-progress.enabled','true'", sql)
         self.assertIn("'partial-progress.max-commits','10'", sql)
         self.assertIn("'min-input-files','2'", sql)
+        self.assertNotIn("strategy", sql)
+
+    def test_a_sorted_table_is_compacted_in_its_sort_order(self):
+        """Bin-pack mixed gold.parcel_panel's PNU ranges into whole-country files (root ADR-0307)."""
+        sql = rewrite_data_files_sql("r2", "gold.parcel_panel", sound_contract()["compaction"], ordered=True)
+        self.assertIn("strategy => 'sort'", sql)
+        self.assertIn("'partial-progress.enabled','true'", sql)
 
 
 class CompactionTriggerTest(unittest.TestCase):
