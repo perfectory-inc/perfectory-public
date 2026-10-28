@@ -32,4 +32,37 @@ last_reviewed: 2026-07-29
 - [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 
+## 주제별 런북
+
+### 수집
+
+- [hub.go.kr 건축물 벌크 Bronze 수집·매일 훑기](./building-hub-bulk-bronze-ingest.md)
+- [공급자 장애·쿼터 대응](./provider-outage-and-quota.md)
+
+### lakehouse·Iceberg
+
+- [Iceberg 스냅샷 되돌리기](./iceberg-snapshot-rollback.md)
+- [Lakehouse 백필·스키마 재빌드](./lakehouse-backfill-and-schema-rebuild.md)
+- [Lakehouse 카탈로그 읽기 전용 스모크](./lakehouse-catalog-smoke.md)
+
+### R2
+
+- [R2 인벤토리 감사·정리·청구 지표](./r2-inventory-audit.md)
+- [R2 네임스페이스 오염 복구](./r2-namespace-contamination-recovery.md)
+- [R2 쓰기 스모크·manifest 포인터 발행 확인](./r2-vector-tile-manifest-smoke.md)
+
+### 타일·서빙
+
+- [건물 by-PNU 묶음 파일 전환](./building-section-pack-cutover.md)
+- [필지 by-PNU 묶음 파일 전환](./parcel-section-pack-cutover.md)
+- [필지 타일 전국 굽기](./parcel-tile-bake.md)
+- [객체 저장소 우선 타일(PMTiles·Martin) 증명과 정적 릴리스](./tiles-object-storage-first-slice.md)
+
+### 릴리스·운영·관측
+
+- [Canonical 릴리스 증명 — Silver·Gold·타일 manifest 계보 대조](./canonical-release-proof.md)
+- [저비용 운영 강화 — 부하 기준·백업·복구·알림](./foundation-platform-low-cost-production-hardening.md)
+- [SLO·알림 정책](./slo-alert-policy.md)
+- [모양 원장 버킷·준비된 PR 봇 설정](./shape-ledger-bucket.md)
+
 전체 목록은 [문서 색인 생성 안내](../../../../docs/README.md)에서 확인한다.

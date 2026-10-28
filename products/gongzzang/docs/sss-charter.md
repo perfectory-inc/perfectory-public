@@ -16,8 +16,8 @@ last_reviewed: 2026-07-29
 ## 0. 최상위 규칙 — 제품 우선 (SSS보다 우선)
 
 런칭 전 단계에서 SSS는 **"그렇게 *될 수 있게* 설계하라"는 방향**이지,
-"유저도 없는데 검사·거버넌스를 미리 다 지으라"는 뜻이 **아니다.** 충돌하면 [AGENTS.md ✱ 제품 우선
-원칙](../AGENTS.md)이 이긴다. ([ADR 0044](./adr/0044-bazel-transition-reconciliation.md))
+"유저도 없는데 검사·거버넌스를 미리 다 지으라"는 뜻이 **아니다.** 충돌하면 [GZ-ADR-0044](./adr/0044-bazel-transition-reconciliation.md)의
+제품 우선 원칙이 이긴다.
 
 - **이 헌장은 *방향 문서*다. *메타 머신*이 아니다.** 레지스트리/투영/래칫/증거번들/준비게이트/자기감사
   자동화를 만들지 않는다.
@@ -107,7 +107,7 @@ ui-writing-korean·testing·git-and-pr·comments). *신호:* 처음 보는 사�
 - **좋다는 건:** 모든 값에 출처·수집시각·SRID·라이선스 추적, 원본(raw lineage) 보존, 신선도 인지.
 - **어떻게 아나:** 임의 매물/필지의 "이 값 어디서 언제 왔나"를 끝까지 되짚을 수 있다. 오래된 데이터가 최신인 척 안 함.
 - **런칭 전 최소선:** Catalog 원본=Foundation Platform lineage store, 자체 외부호출=승인된 archive/lineage 계약
-  ([AGENTS.md §3·§8](../AGENTS.md)). SRID 항상 명시. "맞는 것만 보여주고, 불확실하면 숨기거나 표시."
+  ([데이터 원천 경계](./data-sources/README.md#catalog-원천-경계)). SRID 항상 명시. "맞는 것만 보여주고, 불확실하면 숨기거나 표시."
 
 ### B-2. 신뢰성 (Reliability / SLO)
 
@@ -176,7 +176,7 @@ ui-writing-korean·testing·git-and-pr·comments). *신호:* 처음 보는 사�
 
 ## 참조
 
-- [AGENTS.md](../AGENTS.md) — ✱ 제품 우선 원칙(최상위) · §0 7기둥 · §10 패널 SSS 축(패널 한정 상세, B기둥의 구현체)
+- [AGENTS.md](../AGENTS.md) — 영역 소유 범위·규칙과 강제 장치 · 패널 SSS 축은 [panel-sss-axes.md](./frontend/panel-sss-axes.md)(B기둥의 구현체)
 - [ADR 0044](./adr/0044-bazel-transition-reconciliation.md) — PowerShell 제거 / 제품 우선 전환
 - [ssot-matrix.md](./ssot-matrix.md) · [conventions/](./conventions/README.md) · [glossary.md](./glossary.md)
 - 표준: WCAG 2.2 AA · OWASP ASVS · NIST SSDF SP 800-218 · Core Web Vitals · 개인정보보호법(PIPA)

@@ -1,1 +1,1 @@
-Read @AGENTS.md
+@AGENTS.md의 규칙을 따릅니다.
