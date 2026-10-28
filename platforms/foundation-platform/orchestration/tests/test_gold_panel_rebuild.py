@@ -606,7 +606,11 @@ class Registration(unittest.TestCase):
                        f"{builder}'s unit runs gold-panel-rebuild.sh {lane}"),
                       (server is not None, f"a bake job carries {served}"),
                       (kind.follows_host_panel == (server == "by_pnu_serving_bake"),
-                       f"{served} is baked by {'by_pnu_serving_bake' if kind.follows_host_panel else 'the kind own dedicated job, not by_pnu_serving_bake'}")]
+                       f"{served} is baked by {'by_pnu_serving_bake' if kind.follows_host_panel else 'the kind own dedicated job, not by_pnu_serving_bake'}"),
+                      # `all` skips an own-producer lane, so its job must bake that lane by name, or no job does.
+                      (server is not None and "by-pnu-serving-bake.sh " + ("all" if kind.follows_host_panel else lane) in
+                       (job_specs.SYSTEMD / jobs[server]["systemd_service"]).read_text(encoding="utf-8"),
+                       f"{server}'s unit runs by-pnu-serving-bake.sh {'all' if kind.follows_host_panel else lane}")]
             missing += [f"{lane}: {what}" for ok, what in wanted if not ok]
         self.assertEqual(missing, [])
         kind_golds = {node_id(kind.gold_table) for kind in by_pnu_kinds.kinds().values() if kind.follows_host_panel}

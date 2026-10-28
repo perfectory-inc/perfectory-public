@@ -293,7 +293,8 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # 1-slot bake run), and by what already holds the pool when its turn comes: one panel Gold
         # rebuild (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
         # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
-        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) counts like the serving bake.
+        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) counts like the serving bake;
+        # the bound reads no takes_turns, so it counts though it does not take turns.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
@@ -659,7 +660,8 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
     # check above cannot see (2026-10-28: gold-panel-rebuild.sh printed it for `all` and `kinds`, not for
     # the one table gold_public_auction_rebuild runs). Each such program's own test runs every registered
     # job's arguments and reads the run's last line.
-    RUN_FOR_EVERY_JOB = {"gold-panel-rebuild.sh": "test_gold_panel_rebuild.py"}
+    RUN_FOR_EVERY_JOB = {"gold-panel-rebuild.sh": "test_gold_panel_rebuild.py",
+                         "by-pnu-serving-bake.sh": "test_by_pnu_serving_bake.py"}
 
     def test_a_program_jobs_run_in_several_modes_is_run_in_each(self):
         modes = {}
