@@ -110,8 +110,13 @@ def decide(
 
 
 def table_baseline(spark: Any, table: str, F: Any) -> OrdinaryLandPnuNulls | None:
-    """Measures the table as readers see it now (its current snapshot), or None when absent."""
+    """Measures the table as readers see it now (its current snapshot's current rows), or None when
+    absent. A table that appends only each release's changed keys holds old versions and removal
+    markers beside the current rows (root ADR-0318); a reader sees only those current rows."""
 
-    if not spark.catalog.tableExists(unquoted_table_name(table)):
+    from platform_contracts import current_rows_of_versioned  # noqa: PLC0415
+
+    unquoted = unquoted_table_name(table)
+    if not spark.catalog.tableExists(unquoted):
         return None
-    return measure(spark.table(table), F)
+    return measure(current_rows_of_versioned(spark.table(table), ".".join(unquoted.split(".")[-2:])), F)

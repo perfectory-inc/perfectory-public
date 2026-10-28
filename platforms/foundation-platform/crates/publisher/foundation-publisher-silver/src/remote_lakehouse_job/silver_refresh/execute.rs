@@ -270,9 +270,19 @@ pub(in crate::remote_lakehouse_job) struct SparkLoad {
 /// The branch the batches of load `identity` stage on: one per load, the same on every retry, so a
 /// resumed load continues on it (root ADR-0183). The only place a load branch is named.
 pub(in crate::remote_lakehouse_job) fn load_branch(identity: &str) -> String {
+    format!("load_{}", branch_digest(identity))
+}
+
+/// The branch a compare stages load `identity`'s changes on, bucket by bucket, until the lane
+/// publishes it as `main` in one fast-forward (root ADR-0318). The only place it is named.
+pub(in crate::remote_lakehouse_job) fn changes_branch(identity: &str) -> String {
+    format!("changes_{}", branch_digest(identity))
+}
+
+fn branch_digest(identity: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
-    format!("load_{}", &digest[..16])
+    digest[..16].to_owned()
 }
 
 impl SparkLoad {
@@ -334,14 +344,41 @@ pub(in crate::remote_lakehouse_job) fn spark_arguments(
     args
 }
 
-/// A staged release appended to `main` as its changes (root ADR-0275).
+/// A staged release appended to `main` as its changes (root ADR-0275), bucket by bucket on its
+/// changes branch (root ADR-0318).
 pub(in crate::remote_lakehouse_job) struct ReleaseCompare {
     /// The load branch the release is staged on.
     pub branch: String,
+    /// The branch the changes are staged on until the lane publishes it (`changes_branch`).
+    pub changes_branch: String,
     pub source_snapshot_id: String,
-    /// Every Bronze object of the release: the append's commit records them.
+    /// Every Bronze object of the release: the last commit of the changes branch records them.
     pub objects: Vec<String>,
     pub content_columns: Vec<String>,
+    /// How many leading characters of the key's first column name a bucket; 0 is one bucket.
+    pub bucket_prefix_length: u32,
+    /// After this instant (RFC 3339, UTC) no new bucket starts; the next run resumes.
+    pub deadline_utc: Option<String>,
+}
+
+/// What a compare left: the changes branch is ready to publish, the release was in `main`
+/// already, or the run's time ran out with buckets left (the next run resumes them).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::remote_lakehouse_job) enum CompareOutcome {
+    Staged,
+    AlreadyAppended,
+    Deadline,
+}
+
+impl CompareOutcome {
+    pub(in crate::remote_lakehouse_job) fn of(summary: &serde_json::Value) -> Option<Self> {
+        match summary["outcome"].as_str()? {
+            "staged" => Some(Self::Staged),
+            "already_appended" => Some(Self::AlreadyAppended),
+            "deadline" => Some(Self::Deadline),
+            _ => None,
+        }
+    }
 }
 
 /// The `docker compose` arguments of a release compare (`silver_release_compare.py`).
@@ -368,9 +405,16 @@ pub(in crate::remote_lakehouse_job) fn compare_arguments(
         compare.objects.join(","),
         "--content-columns".to_owned(),
         compare.content_columns.join(","),
+        "--changes-branch".to_owned(),
+        compare.changes_branch.clone(),
+        "--bucket-prefix-length".to_owned(),
+        compare.bucket_prefix_length.to_string(),
         "--summary-output".to_owned(),
         summary,
     ]);
+    if let Some(deadline) = &compare.deadline_utc {
+        args.extend(["--deadline-utc".to_owned(), deadline.clone()]);
+    }
     Ok(args)
 }
 
@@ -449,7 +493,7 @@ pub(in crate::remote_lakehouse_job) fn compare(
     runtime: &Runtime,
     contract: &LaneContract,
     compare: &ReleaseCompare,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<(CompareOutcome, serde_json::Value)> {
     let raw = run_spark(
         runtime,
         contract,
@@ -457,15 +501,17 @@ pub(in crate::remote_lakehouse_job) fn compare(
     )?;
     let summary: serde_json::Value =
         serde_json::from_str(&raw).context("the release compare summary is not JSON")?;
-    ensure!(
-        matches!(
-            summary["outcome"].as_str(),
-            Some("appended" | "already_appended")
-        ) && summary["source_snapshot_id"].as_str() == Some(compare.source_snapshot_id.as_str()),
-        "the release compare of {} reported {summary}",
-        contract.table
-    );
-    Ok(summary)
+    let outcome = CompareOutcome::of(&summary)
+        .filter(|_| {
+            summary["source_snapshot_id"].as_str() == Some(compare.source_snapshot_id.as_str())
+        })
+        .with_context(|| {
+            format!(
+                "the release compare of {} reported {summary}",
+                contract.table
+            )
+        })?;
+    Ok((outcome, summary))
 }
 
 /// Runs one Spark job of the lane and returns the summary it wrote.

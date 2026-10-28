@@ -101,6 +101,10 @@ schema:
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
+      - name: "row_state"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "ucode_not_null"

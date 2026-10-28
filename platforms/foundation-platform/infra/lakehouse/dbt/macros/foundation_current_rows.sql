@@ -1,8 +1,8 @@
 {# Rendered by render_current_rows.py from the lakehouse contracts; do not edit (root ADR-0267, ADR-0275). #}
 {% macro foundation_current_rows(name) %}
 {%- set rules = {
-    'building_register_unit': none,
-    'building_register_unit_area': none,
+    'building_register_unit': {'predicate': none, 'key': ['mgm_bldrgst_pk'], 'newest_first': ['source_snapshot_id'], 'removal': 'row_state'},
+    'building_register_unit_area': {'predicate': none, 'key': ['mgm_bldrgst_pk'], 'newest_first': ['source_snapshot_id'], 'removal': 'row_state'},
     'land_right_registration': {'predicate': none, 'key': ['pnu', 'right_serial_no'], 'newest_first': ['source_snapshot_id'], 'removal': 'row_state'},
     'unit_official_price': none,
 } -%}

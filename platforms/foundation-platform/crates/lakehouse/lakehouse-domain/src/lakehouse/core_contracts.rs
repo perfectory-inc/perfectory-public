@@ -144,7 +144,14 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only the rows of its changed keys and a removal marker per vanished key
+    // (root ADR-0275, ADR-0318); a parcel's designations are every row of its newest release.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["pnu"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_LAND_USE_PLAN_COLUMNS,
     // 무분할: 필지 경계 40M 이 무분할로 파일 15개였다(root ADR-0066 실측 방식). 2.6억이라도
     // pnu 정렬이 파일 min/max 로 범위 읽기를 건너뛰게 한다. 시도 분할은 열이 접두사(pnu 앞
@@ -205,7 +212,15 @@ pub const SILVER_LAND_USE_ZONE_CODES: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A release appends only its changed codes and a removal marker per vanished code (root
+    // ADR-0275, ADR-0318). Its source_snapshot_id is the file's name and checksum, not a date, so
+    // the load that wrote a row orders the versions; one load is one ingest instant.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["ucode"],
+        newest_first: &["ingested_at_utc"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_LAND_USE_ZONE_CODES_COLUMNS,
     partition_spec: &[],
     sort_order: &["ucode"],
@@ -267,7 +282,15 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A monthly release appends only the rows of its changed registers and a removal marker per
+    // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
+    // release. The run identity carries the provider month, so it orders the releases.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["mgm_bldrgst_pk"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_BUILDING_REGISTER_TITLES_COLUMNS,
     // No partitions: 8,051,204 rows is a fraction of the unpartitioned units table, and the
     // sort order alone gives the file-level min/max a PNU-range read skips on (root ADR-0066).
@@ -295,7 +318,15 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A monthly release appends only the rows of its changed registers and a removal marker per
+    // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
+    // release. The run identity carries the provider month, so it orders the releases.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["mgm_bldrgst_pk"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_BUILDING_REGISTER_UNITS_COLUMNS,
     // No partitions. 1.17 GB fits in three target files, and bucketing on `pnu` fought the
     // sort order below: the bucket scatters neighbouring PNUs across 256 hash buckets while
@@ -337,7 +368,15 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    // A monthly release appends only the rows of its changed registers and a removal marker per
+    // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
+    // release. The run identity carries the provider month, so it orders the releases.
+    current_row_latest: Some(LakehouseCurrentRowLatest {
+        key: &["mgm_bldrgst_pk"],
+        newest_first: &["source_snapshot_id"],
+        removal_column: Some("row_state"),
+        keep_ties: true,
+    }),
     columns: SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS,
     partition_spec: &["bucket(32, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "area_kind", "floor_index", "area_row_id"],

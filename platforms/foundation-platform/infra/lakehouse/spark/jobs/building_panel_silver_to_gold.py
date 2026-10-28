@@ -186,6 +186,11 @@ def read_source(spark, args, name, pins, after=None, batches=None):
 
 
 def assert_single_snapshot(frame, name):
+    if current_row_latest(load_lakehouse_contract(name)) is not None:
+        # A register that appends only each release's changed keys holds the current rows of several
+        # releases by design (root ADR-0318); `frame` is its current rows, and the newest is named.
+        # The Iceberg pin beside it (source_iceberg_snapshots_by_dataset) is exact.
+        return frame.agg(F.max("source_snapshot_id")).first()[0]
     values = [r.source_snapshot_id for r in frame.select("source_snapshot_id").distinct().limit(3).collect()]
     if len(values) != 1 or not values[0]:
         raise ValueError(f"{name} must carry exactly one non-empty source_snapshot_id: {values}")
@@ -617,7 +622,10 @@ def run(spark, args, pins):
         affected=lambda changed, appended: affected_pnus(
             read_inputs(spark, args, previous), frames, changed,
             appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
-        append_inputs={name: iceberg_table(args, name) for name in ALL_SOURCES},
+        # A versioned input's appends are new versions of its keys, not rows beside one batch: its
+        # change is the difference of its current rows (root ADR-0180), never `read_appended`.
+        append_inputs={name: iceberg_table(args, name) for name in ALL_SOURCES
+                       if current_row_latest(load_lakehouse_contract(name)) is None},
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,

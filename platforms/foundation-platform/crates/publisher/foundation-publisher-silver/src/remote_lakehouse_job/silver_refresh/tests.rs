@@ -356,14 +356,30 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
             Lane::Titles,
             Box::new(|v| {
                 if let Some(block) = v["silver_refresh"].as_object_mut() {
-                    block.remove("full_reason");
+                    block.remove("compare");
                 }
             }),
         ),
         // a reason with no measured cost is not an exception anybody priced
         (
             Lane::Titles,
-            Box::new(|v| v["silver_refresh"]["full_reason"]["measured_cost"] = " ".into()),
+            Box::new(|v| {
+                if let Some(block) = v["silver_refresh"].as_object_mut() {
+                    block.remove("compare");
+                    block.insert(
+                        "full_reason".to_owned(),
+                        serde_json::json!({"reason": "r", "measured_cost": " "}),
+                    );
+                }
+            }),
+        ),
+        // a comparing part lane has no full write to excuse (root ADR-0318)
+        (
+            Lane::ExclusiveUnit,
+            Box::new(|v| {
+                v["silver_refresh"]["full_reason"] =
+                    serde_json::json!({"reason": "r", "measured_cost": "c"});
+            }),
         ),
         // both: a lane does one of them
         (
@@ -386,13 +402,34 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
         let text = planted(lane, edit)?;
         assert!(LaneContract::parse(lane, &text).is_err(), "accepted {text}");
     }
+    // A priced reason is still an exception a lane may declare instead of comparing.
+    let priced = planted(Lane::Titles, |v| {
+        if let Some(block) = v["silver_refresh"].as_object_mut() {
+            block.remove("compare");
+            block.insert(
+                "full_reason".to_owned(),
+                serde_json::json!({"reason": "r", "measured_cost": "c"}),
+            );
+        }
+    })?;
+    assert!(LaneContract::parse(Lane::Titles, &priced)?
+        .compare_content
+        .is_none());
     for lane in Lane::ALL {
         let (_, text) = lane.contract_source();
         let value: serde_json::Value = serde_json::from_str(text)?;
         let block = &value["silver_refresh"];
         let overwrites = block["spark"]["iceberg_write_mode"] == "overwrite";
         let declared = block.get("compare").is_some() != block.get("full_reason").is_some();
-        assert_eq!(overwrites, declared, "{lane:?}");
+        // An appending lane may compare (root ADR-0318) but never names a full write.
+        assert!(
+            if overwrites {
+                declared
+            } else {
+                block.get("full_reason").is_none()
+            },
+            "{lane:?}"
+        );
     }
     Ok(())
 }

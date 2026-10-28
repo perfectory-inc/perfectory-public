@@ -829,12 +829,14 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 5] = [
+const COMPARING_LANES: [Lane; 7] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
+    Lane::LandUsePlan,
+    Lane::LandUseZoneCode,
 ];
 
 #[test]
@@ -914,9 +916,12 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
     let contract = Lane::LandTransferHistory.contract()?;
     let mut compare = execute::ReleaseCompare {
         branch: execute::load_branch("synthetic-load"),
+        changes_branch: execute::changes_branch("synthetic-load"),
         source_snapshot_id: "vworldkr-land-transfer-history:20990901".to_owned(),
         objects: vec!["bronze/a.zip".to_owned(), "bronze/b.zip".to_owned()],
         content_columns: vec!["reason".to_owned(), "moved_at".to_owned()],
+        bucket_prefix_length: 2,
+        deadline_utc: Some("2099-09-01T08:50:00Z".to_owned()),
     };
     let args = execute::compare_arguments(&runtime, &contract, &compare)?;
     assert!(args
@@ -931,6 +936,9 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
         ],
         ["--objects", "bronze/a.zip,bronze/b.zip"],
         ["--content-columns", "reason,moved_at"],
+        ["--changes-branch", compare.changes_branch.as_str()],
+        ["--bucket-prefix-length", "2"],
+        ["--deadline-utc", "2099-09-01T08:50:00Z"],
     ] {
         assert!(args.windows(2).any(|w| w == pair), "missing {pair:?}");
     }
@@ -938,7 +946,69 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
     assert!(!args
         .iter()
         .any(|a| a == "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"));
+    // The load and its changes stage on two branches named by the same identity.
+    assert_ne!(compare.branch, compare.changes_branch);
+    assert_eq!(
+        compare.changes_branch.strip_prefix("changes_"),
+        compare.branch.strip_prefix("load_")
+    );
     compare.objects.push("bronze/c,d.zip".to_owned());
     assert!(execute::compare_arguments(&runtime, &contract, &compare).is_err());
     Ok(())
+}
+
+#[test]
+fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> anyhow::Result<()> {
+    // ADR-0318: a 시도 lane's buckets are the PNU's 시도, its first two digits.
+    for lane in Lane::ALL {
+        let contract = lane.contract()?;
+        let (Some(rule), Some(_)) = (&contract.land, &contract.compare_content) else {
+            continue;
+        };
+        let latest =
+            lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(&contract.table)
+                .and_then(|table| table.current_row_latest)
+                .context("a comparing lane's table keeps versions")?;
+        let expected = match rule.completeness {
+            Completeness::Sido => {
+                assert_eq!(latest.key.first(), Some(&"pnu"), "{}", lane.id());
+                2
+            }
+            Completeness::National => 0,
+        };
+        assert_eq!(
+            contract.compare_bucket_prefix_length,
+            expected,
+            "{}",
+            lane.id()
+        );
+    }
+    for (raw, outcome) in [
+        ("staged", Some(execute::CompareOutcome::Staged)),
+        (
+            "already_appended",
+            Some(execute::CompareOutcome::AlreadyAppended),
+        ),
+        ("deadline", Some(execute::CompareOutcome::Deadline)),
+        ("appended", None),
+    ] {
+        assert_eq!(
+            execute::CompareOutcome::of(&serde_json::json!({ "outcome": raw })),
+            outcome
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn no_compare_bucket_starts_too_late_for_the_unit_to_finish() {
+    // ADR-0318: the deadline is counted against the unit's own limit, read from the unit file.
+    let unit = include_str!("../../../../../../infra/systemd/foundation-silver-refresh@.service");
+    assert!(
+        unit.lines()
+            .any(|line| line.trim()
+                == format!("TimeoutStartSec={}m", super::UNIT_TIME_LIMIT_MINUTES)),
+        "UNIT_TIME_LIMIT_MINUTES is not the unit's TimeoutStartSec"
+    );
+    const _: () = assert!(super::LAST_BUCKET_START_MINUTES + 30 <= super::UNIT_TIME_LIMIT_MINUTES);
 }

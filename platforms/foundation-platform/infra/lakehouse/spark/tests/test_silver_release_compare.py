@@ -10,7 +10,7 @@ from platform_contracts import load_lakehouse_contract  # noqa: E402
 
 ARGS = ["--contract", "silver.land_transfer_history", "--branch", "load_0123456789abcdef",
         "--source-snapshot-id", "vworldkr-land-transfer-history:20990901", "--objects", "a.zip",
-        "--content-columns", "reason"]
+        "--content-columns", "reason", "--changes-branch", "changes_0123456789abcdef"]
 
 
 class CompareRuleTest(unittest.TestCase):
@@ -36,6 +36,45 @@ class CompareRuleTest(unittest.TestCase):
             with self.subTest(branch=branch):
                 with self.assertRaises(ValueError):
                     job.parse_args([*ARGS[:2], "--branch", branch, *ARGS[4:]])
+
+    def test_the_changes_are_staged_on_their_own_branch_never_main(self):
+        self.assertEqual(job.parse_args(ARGS).changes_branch, "changes_0123456789abcdef")
+        for branch in ("main", "load_0123456789abcdef", "x;drop"):
+            with self.subTest(branch=branch):
+                with self.assertRaises(ValueError):
+                    job.parse_args([*ARGS[:-1], branch])
+
+
+class BucketTest(unittest.TestCase):
+    """The compare's buckets (ADR-0318): disjoint, named the same on every run, resumable."""
+
+    def test_a_deadline_names_its_zone(self):
+        self.assertEqual(job.parse_args([*ARGS, "--deadline-utc", "2099-01-01T00:00:00Z"]).deadline_utc.year, 2099)
+        with self.assertRaisesRegex(ValueError, "no zone"):
+            job.parse_args([*ARGS, "--deadline-utc", "2099-01-01T00:00:00"])
+        with self.assertRaises(ValueError):
+            job.parse_args([*ARGS, "--bucket-prefix-length", "-1"])
+
+    def test_the_null_bucket_and_the_empty_bucket_are_two_names(self):
+        self.assertEqual(job.bucket_label(None), "null")
+        self.assertEqual(job.bucket_label(""), '""')
+        self.assertEqual(job.bucket_label("41"), '"41"')
+
+    def test_buckets_are_compared_null_first_then_in_order(self):
+        self.assertEqual(job.ordered_buckets({"47", None, "11", ""}), [None, "", "11", "47"])
+
+    def test_only_this_releases_buckets_on_the_branch_lineage_are_done(self):
+        mine = "vworldkr-land-use-plan:20990901"
+        snapshots = [
+            {"snapshot_id": 1, "summary": {job.COMPARE_RELEASE_KEY: mine, job.COMPARE_BUCKET_KEY: '"11"'}},
+            {"snapshot_id": 2, "summary": {job.COMPARE_RELEASE_KEY: "vworldkr-land-use-plan:20990601",
+                                           job.COMPARE_BUCKET_KEY: '"26"'}},
+            {"snapshot_id": 3, "summary": {job.COMPARE_RELEASE_KEY: mine, job.COMPARE_BUCKET_KEY: '"41"'}},
+            {"snapshot_id": 4, "summary": {job.COMPARE_RELEASE_KEY: mine}},
+            {"snapshot_id": 5, "summary": None},
+        ]
+        # Snapshot 3 is on another lineage (a dropped branch), so its bucket is compared again.
+        self.assertEqual(job.recorded_buckets(snapshots, {1, 2, 4, 5}, mine), {'"11"'})
 
 
 if __name__ == "__main__":

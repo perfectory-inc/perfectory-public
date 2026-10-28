@@ -6,7 +6,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -97,6 +106,11 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [
@@ -691,7 +705,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "pnu"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "pnu",
@@ -782,6 +805,11 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -807,7 +835,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "ucode"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "ucode",
@@ -908,6 +945,11 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -1180,7 +1222,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "mgm_bldrgst_pk"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "partition_spec": [],
       "sort_order": [
         "pnu",
@@ -1369,6 +1420,11 @@
           "name": "row_checksum_sha256",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ]
     },
@@ -1377,7 +1433,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "mgm_bldrgst_pk"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "unit_row_id",
@@ -1533,6 +1598,11 @@
           "name": "row_checksum_sha256",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -1564,7 +1634,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "mgm_bldrgst_pk"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "area_row_id",
@@ -1725,6 +1804,11 @@
           "name": "row_checksum_sha256",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [

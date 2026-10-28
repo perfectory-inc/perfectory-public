@@ -6,14 +6,11 @@
   "load_granularity": "national",
   "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다(snapshot_date 는 그 월의 1일). 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 파일 이름 OPN<YYYYMMDD> 가 그 월 안이어야 한다(root ADR-0169 §2).",
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-titles.service 의 실행 값(root ADR-0169 §3). 한 판이 한 source_snapshot_id 이고 gold.building_panel 은 그 하나만 읽으므로 새 판은 표를 바꿔 쓴다(overwrite, root ADR-0142 Consequences). 대지 PNU NULL 비율 게이트는 적재기가 표 계약대로 건다.",
+    "$comment": "foundation-silver-refresh@building-register-titles.service 의 실행 값(root ADR-0169 §3). 표제부 한 판(한 달)은 load branch 에 통째로 올린 뒤(overwrite, ADR-0183) main 에 발행하지 않고, compare 가 main 의 현재 행과 관리건축물대장PK(mgm_bldrgst_pk) 마다 비교해 바뀐 대장의 행 전부와 사라진 대장의 삭제 표시만 changes branch 에 PK 앞 두 자리 묶음마다 커밋하고, 묶음이 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 시간이 모자라면 남은 묶음은 다음 실행이 export 없이 잇는다. content_columns 는 판마다 모든 행에서 바뀌는 계보 열(행 id·Bronze 객체·줄 번호·valid_from_utc·행 체크섬·대장 연결 입력의 출처·적재 열)을 넣지 않는다. 대지 PNU NULL 비율 게이트는 적재기가 표 계약대로 건다.",
     "table": "silver.building_register_titles",
     "roles": {"title": "hubgokr__building_register_main"},
     "export": "export-building-register-title-silver-handoff",
     "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0},
-    "full_reason": {
-      "reason": "허브 레인은 판을 load branch 없이 main 에 한 번에 쓰고(ADR-0169) 비교 블록을 받지 않으며(lane.rs), gold.building_panel 이 입력마다 source_snapshot_id 하나만 받는다(building_panel_silver_to_gold.assert_single_snapshot). 비교 후 추가(ADR-0275)로 옮기려면 브랜치 적재와 건물 패널 독자 이전이 먼저다(ADR-0311 남은 일).",
-      "measured_cost": "2026-10-20 덮어쓰기 실측(Trino $snapshots): 8,064,354행·668,105,827 B 를 썼고, 앞 판과의 행 수 차이는 -52행이다."
-    }
+    "compare": {"content_columns": ["pnu", "register_parcel_key", "dong_name_raw", "main_or_annex_kind", "main_or_annex_name_raw", "register_kind_name_raw", "register_type_name_raw", "jibun_address_raw", "road_address_raw", "structure_code_raw", "structure_name_raw", "purpose_code_raw", "purpose_name_raw", "purpose_detail_raw", "roof_code_raw", "roof_name_raw", "building_area_m2", "floor_area_m2", "ground_floor_count", "basement_floor_count", "title_unit_count", "approval_date_raw", "approval_year", "normalization_status", "normalization_reason"], "bucket_prefix_length": 2}
   }
 }

@@ -102,5 +102,23 @@ class ColumnsTest(unittest.TestCase):
         self.assertEqual(changelog.changes_table("silver.example"), "silver.example__changes")
 
 
+class ReleasedVersionsTest(unittest.TestCase):
+    """ADR-0318: a sealed compare records its release's version, read along one lineage."""
+
+    def test_only_the_seals_on_the_lineage_name_versions(self):
+        import changelog
+
+        snapshots = [
+            {"snapshot_id": 1, "parent_id": None, "summary": {}},
+            {"snapshot_id": 2, "parent_id": 1, "summary": {changelog.RELEASE_VERSION_KEY: "209909"}},
+            {"snapshot_id": 3, "parent_id": 2, "summary": None},
+            {"snapshot_id": 4, "parent_id": 2, "summary": {changelog.RELEASE_VERSION_KEY: "209910"}},
+        ]
+        lineage = changelog.snapshot_lineage(snapshots, 3)
+        self.assertEqual(lineage, {1, 2, 3})
+        self.assertEqual(changelog.released_versions(snapshots, lineage), {"209909"})
+        self.assertEqual(changelog.snapshot_lineage(snapshots, None), set())
+
+
 if __name__ == "__main__":
     unittest.main()

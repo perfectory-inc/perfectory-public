@@ -1,8 +1,9 @@
 //! HUB exclusive-unit observations bridging management keys and unit labels (ADR-0094).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -96,6 +97,12 @@ const COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // `removed` on a removal marker (root ADR-0275, ADR-0318); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 /// Append-only observations; management-key and unit-label uniqueness are not assumed.
@@ -106,7 +113,14 @@ pub const SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Canonical,
         current_row_predicate: None,
-        current_row_latest: None,
+        // A monthly release appends only its changed units and a removal marker per vanished unit
+        // (root ADR-0275, ADR-0318); a unit's version is its newest vintage's row.
+        current_row_latest: Some(LakehouseCurrentRowLatest {
+            key: &["mgmt_key"],
+            newest_first: &["vintage"],
+            removal_column: Some("row_state"),
+            keep_ties: true,
+        }),
         columns: COLUMNS,
         partition_spec: &["vintage"],
         sort_order: &["pnu", "mgmt_key", "dong_name", "ho_name"],

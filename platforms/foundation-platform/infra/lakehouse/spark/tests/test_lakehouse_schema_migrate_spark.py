@@ -91,9 +91,19 @@ class MigrationSpark(unittest.TestCase):
         import silver_scalar_handoff_to_lakehouse as scalar
 
         evidence = {"building_link_source_record_id", "building_link_input_sha256", "building_link_reason"}
+        from contextlib import ExitStack
+        from unittest import mock
+
+        import lakehouse_ingest
+
         for name in ("silver.building_register_units", "silver.building_register_unit_areas"):
             for mode in ("append", "overwrite"):
-                with self.subTest(table=name, mode=mode):
+                with self.subTest(table=name, mode=mode), ExitStack() as stack:
+                    if mode == "overwrite":
+                        # These lanes compare since ADR-0318, so main is never overwritten by them; the
+                        # overwrite of a lane that declares a full_reason is what this proves.
+                        stack.enter_context(mock.patch.object(
+                            lakehouse_ingest, "overwrite_declaration", return_value=lakehouse_ingest.FULL_REASON))
                     contract, first = self.scalar_fixture(name, "first")
                     columns = contract["columns"]
                     # UNIT 근거 3개는 과거 ADD COLUMN처럼 끝에 둔다. 나머지도 순서를 뒤집어

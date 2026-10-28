@@ -193,13 +193,20 @@ class LineageInputTest(unittest.TestCase):
         job.read_code_changes(spark, "`pinned_codes`")
         job.read_window_events(spark, "`pinned_history`", "99", "2099-06-01", "2099-09-01")
         job.read_facts_before(spark, "`pinned_history`", "2099-06-01", {"9999910100100010000"})
-        job.read_buildings(spark, "`pinned_buildings`", "old", "99")
         for call, relation in zip(spark.sql.call_args_list, [
-            "pinned_before", "pinned_codes", "pinned_history", "pinned_history", "pinned_buildings",
-        ]):
+            "pinned_before", "pinned_codes", "pinned_history", "pinned_history",
+        ], strict=True):
             self.assertIn(f"FROM `{relation}`", call.args[0])
             self.assertNotIn(".silver.", call.args[0])
             self.assertNotIn(".reference.", call.args[0])
+        # The titles as they stood at the release are read from the pinned relation (ADR-0318).
+        import platform_contracts
+
+        with mock.patch.object(platform_contracts, "rows_as_of") as as_of:
+            as_of.return_value.where.return_value.select.return_value.collect.return_value = []
+            job.read_buildings(spark, "`pinned_buildings`", "old", "99")
+        spark.table.assert_called_once_with("`pinned_buildings`")
+        self.assertEqual(as_of.call_args.args[2], "old")
 
     def test_main_reuses_the_plan_after_files_change_and_reports_consumed_inputs(self):
         for buildings in [False, True]:

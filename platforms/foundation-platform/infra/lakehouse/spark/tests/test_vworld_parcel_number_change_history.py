@@ -335,5 +335,43 @@ class TableContractTest(unittest.TestCase):
                 job.region_code(broken, CONTRACT)
 
 
+
+def _has_pyspark() -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("pyspark") is not None
+    except ValueError:  # another test module left a stand-in `pyspark` in sys.modules
+        return False
+
+
+@unittest.skipUnless(_has_pyspark(), "requires pyspark")
+class AFileUploadedAgainAppendsOnlyWhatIsNewTest(unittest.TestCase):
+    """Root ADR-0318: an upload that repeats the rows the table holds appends only its new rows."""
+
+    def test_only_the_rows_the_table_does_not_hold_are_appended(self):
+        from pyspark.sql import SparkSession
+        from pyspark.sql import functions as F
+
+        spark = (SparkSession.builder.master("local[1]").appName("pnch-unheld")
+                 .config("spark.sql.shuffle.partitions", "1").config("spark.ui.enabled", "false").getOrCreate())
+        try:
+            schema = ", ".join(f"{c} string" for c in job.EVENT_COLUMNS) + ", source_line_number string"
+
+            def row(old, changed_on, quarantine, line):
+                return (old, "9999910100100020000", "false", "10", changed_on, changed_on or "x", quarantine, "99999",
+                        "99", line)
+
+            held = spark.createDataFrame([row("9999910100100010000", "2099-01-01", None, "1"),
+                                          row("9999910100100030000", None, "no date", "2")], schema)
+            upload = spark.createDataFrame([row("9999910100100010000", "2099-01-01", None, "7"),   # held, moved line
+                                            row("9999910100100030000", None, "no date", "8"),      # held, nulls
+                                            row("9999910100100040000", "2099-02-01", None, "9")], schema)
+            fresh = job.unheld_rows(upload, held.select(*job.EVENT_COLUMNS).distinct(), F).collect()
+            self.assertEqual([r.old_pnu for r in fresh], ["9999910100100040000"])
+        finally:
+            spark.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

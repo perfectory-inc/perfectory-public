@@ -325,12 +325,16 @@ def read_facts_before(spark: Any, table: str, from_date: str, pool: set[str]) ->
 
 
 def read_buildings(spark: Any, table: str, snapshot: str, sidos: str) -> dict[str, str]:
+    """Each register's PNU in the titles as they stood at release `snapshot`: the table appends only a
+    release's changed registers (root ADR-0318), so its titles are each register's newest row up to
+    that release (`rows_as_of`), not the rows that carry its id."""
+
+    from platform_contracts import load_lakehouse_contract, rows_as_of  # noqa: PLC0415
+
+    titles = rows_as_of(spark.table(table), load_lakehouse_contract("silver.building_register_titles"), snapshot)
     return {
         row["mgm_bldrgst_pk"]: row["pnu"]
-        for row in spark.sql(
-            f"SELECT mgm_bldrgst_pk, pnu FROM {table} "
-            f"WHERE source_snapshot_id = '{snapshot}' AND substr(pnu, 1, 2) IN ({sql_prefixes(sidos)})"
-        ).collect()
+        for row in titles.where(f"substr(pnu, 1, 2) IN ({sql_prefixes(sidos)})").select("mgm_bldrgst_pk", "pnu").collect()
         if row["pnu"]
     }
 

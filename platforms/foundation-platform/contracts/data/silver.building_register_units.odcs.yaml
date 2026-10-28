@@ -145,6 +145,10 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
+      - name: "row_state"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "building_link_evidence_valid"
