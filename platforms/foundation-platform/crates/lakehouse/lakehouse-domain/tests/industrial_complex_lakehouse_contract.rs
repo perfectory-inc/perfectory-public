@@ -300,7 +300,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // photo reference never vanishes (root ADR-0298).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
-                .current_row_latest
+                .current_row_latest()
                 .is_some_and(|latest| latest.removal_column.is_none()));
         } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name

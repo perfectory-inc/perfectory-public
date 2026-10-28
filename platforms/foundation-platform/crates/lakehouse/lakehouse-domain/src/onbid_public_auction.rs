@@ -132,7 +132,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO: LakehouseTableContract = Lakehous
     current_row_predicate: None,
     // One item's one media file is one (item, hash); the newest run that recorded it wins, so a
     // re-seen photo keeps one row. "처음 본 시각" is the earliest ingested_at_utc across its appends.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "pbct_cdtn_no", "sha256"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,

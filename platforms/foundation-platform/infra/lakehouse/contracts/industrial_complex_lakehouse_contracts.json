@@ -4686,6 +4686,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "cltr_mng_no",
@@ -5856,6 +5859,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
