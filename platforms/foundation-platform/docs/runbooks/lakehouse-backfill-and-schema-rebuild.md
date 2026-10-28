@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-28
 ---
 
 # Lakehouse 백필·스키마 재빌드
@@ -44,20 +44,22 @@ last_reviewed: 2026-07-29
 5. 이전 스냅샷과 행 수·필수 컬럼·대표 ID를 비교한다.
 6. 재빌드를 새 batch 감사 행으로 기록한다.
 
-## 실시간 DB 스키마 드리프트 확인
+## 운영 스키마와의 드리프트 확인 (루트 ADR-0259)
 
-마이그레이션 기반 계약 fixture는 `docs/db/catalog-schema-contract.v1.example.json`이다. CI의
-`postgres-integration` job은 핵심 extension·table·column이 마이그레이션 SQL에 계속 존재하는지
-확인하고, `sqlx migrate run` 뒤 계약을 실시간 `pg_extension`·`information_schema.columns`와
-비교한다. 마이그레이션 상태는 다음으로 로컬에서 확인할 수 있다.
+CI 는 `docs/db/catalog-schema-contract.v1.example.json` 을 실시간 스키마와 비교하지 않는다(그 fixture 를 읽는
+것은 `postgis_mirror_dlq_cutover_evidence.rs` 의 컷오버 증거뿐이다). 드리프트는 운영 표 모양 원장 두 개로 막는다.
 
-```bash
-sqlx migrate info
-```
+| 무엇 | 원장 | PR 에서 거는 곳 |
+| --- | --- | --- |
+| Iceberg 표의 열·타입·행 유무·옛 데이터 파일 열 집합 | `infra/lakehouse/contracts/lakehouse-production-shape.json` | `infra/lakehouse/spark/tests/test_lakehouse_production_shape.py`(배포의 `lakehouse_schema_migrate.py` `plan_table` 을 원장 위에서 돌린다), `foundation-publisher-core` 의 `lakehouse_snapshot_scan/production_shape_tests.rs`(옛 모양 Parquet 을 현재 계약으로 읽는다) |
+| Postgres 에서 행이 있는 표 | `config/postgres-production-shape.json` | `.github/workflows/foundation-ci.yml` `postgres-integration` 의 `cargo xtask ci postgres-production-shape` — 새 마이그레이션을 main 스키마+합성 행 위에 적용 |
 
-장애 기록이나 staging 데이터베이스와의 수동 드리프트 비교가 필요하면
-`information_schema.columns`의 `columns` 행과 `pg_extension`의 `extensions` 배열을 가진 JSON
-객체로 실시간 스키마를 내보내고 계약 fixture와 diff한다.
+원장은 손으로 고치지 않는다. 운영에서 캡처 스크립트로만 다시 만든다(`scripts/ops/lakehouse-production-shape.py`,
+`scripts/ops/postgres-production-shape.sh`). 배포 직후와 매일 `scripts/ops/shape-ledger-check.py` 작업이 둘을 다시
+캡처해 커밋된 원장과 비교하고, 다르면 원장 갱신 PR 이 준비된다. 운영 DB 가 배포된 마이그레이션까지 왔는지는
+서버에서 `sudo /opt/foundation-platform/current/scripts/deploy/foundation-release.sh verify`
+(`assert-runtime-migrations.sh`)로 본다. 로컬 마이그레이션 상태는 `platforms/foundation-platform` 에서
+`sqlx migrate info` 로 볼 수 있다(기본 `migrations/`).
 
 ## 검증
 
@@ -65,7 +67,7 @@ sqlx migrate info
 
 - `cargo test --workspace --all-features`
 - `python -m py_compile infra/lakehouse/spark/jobs/*.py`
-- the CI `postgres-integration` DB schema drift gate when a DB stack is part of the change
+- 운영 표 모양 원장 관문(위 표: 레이크하우스 테스트 두 개, Postgres 는 CI `postgres-integration` 의 production-shape 단계)
 - target-specific ignored integration tests when the local database stack is part of the change
 
 ## 롤백

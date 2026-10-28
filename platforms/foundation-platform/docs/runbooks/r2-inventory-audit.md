@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-28
 ---
 
 # R2 Inventory Audit
@@ -17,17 +17,30 @@ Cloudflare R2 bucket의 현재 object를 읽기 전용으로 수집한 뒤 Found
 
 ## 분류 규칙
 
+정본은 `services/foundation-outbox-publisher/src/r2_inventory_audit.rs` 의 `classify_key` 다(위에서부터 처음 맞는 규칙).
+이 표는 그 요약이다.
+
 | Prefix / Key | Classification | Action | 의미 |
 |---|---|---|---|
 | `__r2_data_catalog/` | `managed_iceberg_catalog` | `keep` | R2 Data Catalog / Iceberg 내부 메타데이터 |
+| `control/evidence/bronze-catalog-recovery/<kind>/<file>` | `bronze_catalog_recovery_evidence` | `keep` | Bronze Catalog 복구 적용의 내용 주소 증거 |
+| `control/evidence/` | `control_evidence` | `keep` | 운영 증거. 지우지 않는다 |
 | `gold/manifest.json` | `runtime_manifest_pointer` | `keep` | canonical runtime manifest pointer |
-| `gold/v*/` | `runtime_gold_artifact` | `keep` | manifest가 참조할 수 있는 versioned Gold artifact |
-| `bronze/source=*/run_id=*/partition=*` | `current_bronze_contract` | `keep` | source/run_id/partition Bronze object contract |
+| by-PNU 서빙 키(manifest·base 객체·patch 객체·교체된 manifest 이력, pack 레인 manifest·이력) | `*_by_pnu_serving_*` | `keep` | `r2_layout::by_pnu` 가 알아보는 키 (루트 ADR-0096·0141·0190) |
+| `gold/vector-tiles/artifacts/`, `gold/vector-tiles/manifests/`, `gold/vector-tiles/releases/`, `gold/parcel-marker-anchors/artifacts/` | `runtime_spatial_artifact` | `keep` | 불변 공간 산출물·manifest |
+| `gold/v<숫자>/…`, `gold/parcel-marker-anchor-pbf/`, `gold/parcel-marker-anchor-aggregate-pbf/`, `gold/parcel-marker-anchor-runtime/`, `artifacts/` 밖의 `gold/parcel-marker-anchors/` | `legacy_gold_artifact` | `review` | 옛 Gold 배치. **보호 대상이 아니다** — 아래 "보호되는 것과 아닌 것" |
+| `silver-handoff/` | `silver_handoff_artifact` | `keep` | 재생 가능한 승격 입력·감사 출력 |
 | `bronze/source=*/ingest_date=*/run_id=*/partition=*` | `legacy_date_partitioned_bronze` | `review` | legacy date-partitioned Bronze object; migrate before deletion |
+| `bronze/source=…` 중 키 계약 위반 | `legacy_bronze_path_contract` | `review` | 메타데이터를 Catalog 로 옮기고 bytes 를 보존한 뒤에만 정리 |
+| `bronze/source=*/run_id=*/partition=*` (`catalog.bronze_object` 에 있음) | `current_bronze_contract` | `keep` | source/run_id/partition Bronze object contract |
+| 같은 모양이나 `catalog.bronze_object` 에 없음 | `bronze_catalog_metadata_missing` | `review` | 메타데이터 없는 Bronze bytes |
+| 같은 모양, Catalog 에 없고 displaced 사건이 orphan 창(기본 24시간)보다 오래됨 | `bronze_orphan_candidate` | `delete_candidate` | 단, 삭제 명령은 `bronze/source=` 계약 키를 거부한다 |
+| `warehouse/` 중 `smoke` 포함 | `iceberg_catalog_cleanup_required` | `review` | Catalog 로 지운다. raw R2 삭제 금지 |
+| `warehouse/` | `managed_iceberg_table` | `keep` | Iceberg 테이블 데이터·메타데이터 |
 | `gold/staging/` | `staging_gold_artifact` | `delete_candidate` | 장기 보존 대상이 아닌 staging artifact |
 | `bronze/YYYY-MM/` | `legacy_uncontracted_bronze` | `delete_candidate` | 현재 Bronze 계약 밖의 legacy 날짜형 prefix |
 | `*smoke*` | `smoke_artifact` | `delete_candidate` | 남아 있으면 정리 가능한 smoke artifact |
-| 기타 | `unknown` | `review` | 사람이 소유권을 확인해야 하는 object |
+| 기타 (예: `gold/vector-tiles/runtime-manifest.json`) | `unknown` | `review` | 사람이 소유권을 확인해야 하는 object |
 
 ## 실행
 
@@ -79,8 +92,7 @@ metric 산출물은 다음을 포함한다.
 - `foundation_platform_r2_smoke_bytes_verified`
 
 metric label에는 source와 operation만 들어간다. object key는 넣지 않으므로 smoke 실행마다
-고카디널리티 series가 생기지 않는다. 선택적인 GitHub Actions `r2-live-smoke` job은 이 파일을
-`r2-live-smoke-metrics` 산출물로 업로드한다.
+고카디널리티 series가 생기지 않는다. 이 smoke 를 돌리는 CI job 은 없다 — 필요할 때 사람이 위 명령으로 돌린다.
 
 Inventory audit의 list request cost는 호출자가 넣은 단가 기반 estimate다. 실제 R2 request/cost
 accounting은 Cloudflare billing export를 내려받아 normalized CSV 또는 JSON으로 저장한 뒤 별도
@@ -137,7 +149,12 @@ FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID=
 FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION=auto
 FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID=
 FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=
+DATABASE_URL=                                           # 또는 FOUNDATION_PLATFORM_R2_INVENTORY_AUDIT_DATABASE_URL
 ```
+
+`audit-r2-inventory` 는 offline(`INPUT_JSON`) 실행에서도 `catalog.bronze_object` 와 orphan 사건을 읽으므로
+DB URL 이 없으면 거부한다(`bronze_orphan_database_url`). orphan 창은 `FOUNDATION_PLATFORM_R2_INVENTORY_AUDIT_BRONZE_ORPHAN_MIN_AGE_HOURS`
+(기본 `24`).
 
 스크립트는 secret 값을 출력하지 않는다.
 
@@ -145,9 +162,10 @@ FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY=
 
 1. `r2-inventory-audit.json`의 `review_count`가 0인지 확인한다.
 2. `r2-delete-candidates.json`의 모든 key가 예상 prefix에만 속하는지 확인한다.
-3. `__r2_data_catalog/`, `gold/manifest.json`, `gold/v*/`, and canonical
-   `bronze/source=*/run_id=*/partition=*` keys are not delete candidates. Date-partitioned
-   `bronze/source=*/ingest_date=*/...` keys must be migrated before deletion.
+3. `r2-delete-candidates.json` 은 audit 가 쓴 그대로 쓴다 — 손으로 키를 더하거나 `action` 을 바꾸지 않는다.
+   삭제 명령은 manifest 의 `action == "delete_candidate"` 를 믿고, 스스로 다시 거부하는 것은 아래 "보호되는 것과
+   아닌 것"의 키뿐이다. 특히 `gold/v<숫자>/…` 는 audit 가 `review` 로 두지만 **삭제 명령은 막지 않는다**.
+   Date-partitioned `bronze/source=*/ingest_date=*/...` keys must be migrated before deletion.
 4. `FOUNDATION_PLATFORM_R2_INVENTORY_AUDIT_USAGE_METRICS_PATH` artifact 가 `foundation_platform_r2_inventory_object_count`,
    `foundation_platform_r2_inventory_total_size_bytes`, `foundation_platform_r2_inventory_delete_candidate_count`,
    `foundation_platform_r2_inventory_review_count`, `foundation_platform_r2_inventory_list_request_count` 를
@@ -197,12 +215,27 @@ FOUNDATION_PLATFORM_R2_DELETE_CANDIDATES_CONFIRM_PHRASE="DELETE FOUNDATION PLATF
 cargo run -p foundation-outbox-publisher -- delete-r2-candidates
 ```
 
-스크립트는 다음 key를 항상 보호한다.
+### 보호되는 것과 아닌 것
 
-- `__r2_data_catalog/*`
-- `gold/manifest.json`
-- `gold/v*/*`
-- `bronze/source=*/run_id=*/partition=*`
+삭제 명령(`services/foundation-outbox-publisher/src/r2_delete_candidates.rs` 의 `assert_delete_candidate_object`)은
+manifest 의 모든 키에 대해 다음을 거부하고, 하나라도 걸리면 아무것도 지우지 않는다.
+
+- `action` 이 `delete_candidate` 가 아닌 항목, 빈 키, `/` 로 시작하거나 `..`·`\` 가 든 키
+- audit 가 `keep` 으로 분류하는 모든 키(`is_protected_key` → `audit_keeps`, 루트 ADR-0264) — 위 분류 표의 `keep` 행 전부
+- `warehouse/` 아래 전부(Iceberg 파일은 Catalog 로만 지운다)
+- 날짜 분할이 아닌 `bronze/source=…` 전부(`bronze_orphan_candidate` 포함)
+- 날짜 분할 Bronze 인데 classification 이 `legacy_date_partitioned_bronze` 가 아닌 항목
+- 허용 prefix 밖의 키(`EXECUTE=true` 에는 허용 prefix 가 필수, dry-run 은 주었을 때만 검사)
+
+**보호되지 않는 것:** audit 가 `review` 로 두는 나머지 — `gold/v<숫자>/…` 와 옛 `gold/parcel-marker-anchor*` 배치
+(`legacy_gold_artifact`), `unknown`(예: `gold/vector-tiles/runtime-manifest.json`), 날짜 분할 Bronze. 이 키들은
+audit 의 후보 파일에는 들어가지 않지만, manifest 에 `delete_candidate` 로 적혀 있으면 삭제 명령은 지운다(테스트
+`delete_plan_allows_explicitly_audited_legacy_spatial_layouts` 가 `gold/v1/…` 삭제 허용을 고정한다). 그래서 운영자는:
+
+1. manifest 는 방금 돌린 audit 의 `r2-delete-candidates.json` 만 쓴다(`FOUNDATION_PLATFORM_R2_DELETE_CANDIDATES_MANIFEST_PATH` 로 다른 파일을 가리키지 않는다).
+2. 허용 prefix 에 `gold/` 나 `gold/v1/` 같은 넓은 prefix 를 넣지 않는다 — 지울 prefix 만 정확히 적는다.
+3. `gold/v<숫자>/` 를 정말 지워야 하면, 먼저 그 키를 가리키는 Catalog·manifest 포인터가 없음을 확인하고 그 증거를
+   남긴 뒤, 그 prefix 하나만 허용해 dry-run 계획을 사람이 검토한다.
 
 Date-partitioned Bronze keys under `bronze/source=*/ingest_date=*/...` are legacy migration
 inputs, not current-contract keep objects.
