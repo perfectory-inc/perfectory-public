@@ -2,7 +2,7 @@
   "schema_version": "foundation-platform.postgres_production_shape.v1",
   "decision": "root ADR-0259 \u00a78",
   "captured_by": "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh",
-  "captured_at": "2026-10-18",
+  "captured_at": "2026-10-27",
   "tables_with_rows": [
     "catalog.administrative_boundary_revision",
     "catalog.administrative_unit",
