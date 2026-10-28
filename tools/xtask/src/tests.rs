@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// The area list has one home, `tools/areas.contract.json`; this table attaches verification
