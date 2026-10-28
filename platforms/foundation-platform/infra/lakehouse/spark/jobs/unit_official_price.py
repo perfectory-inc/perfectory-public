@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Reindex the nation's apartment assessments by unit identity (root ADR-0095, ADR-0182).
+"""Reindex the nation's apartment assessments by unit identity (root ADR-0095, ADR-0182, ADR-0317).
 
-One invocation joins one vintage, the newest both hub tables hold, for every province, and appends
-it as one batch: the table never holds part of a vintage (root ADR-0182). A vintage the table
-already holds is not derived again. Every reference date survives; only correction notices for that
-same date resolve to their confirmed value. Source snapshots stay immutable and untouched.
+One invocation joins one vintage, the newest both hub tables hold, and appends to
+`silver.unit_official_price_versions` only its changes: the rows of the (unit, reference date) keys
+whose row differs from the table's current rows, and a removal marker per key the vintage dropped
+(root ADR-0317). After the first join only the keys whose inputs can have changed are joined again
+(`rejoined_keys`). Every reference date survives; only correction notices for that same date
+resolve to their confirmed value. Any vintage reads back whole with `platform_contracts.rows_as_of`.
 
-The building panel reads the newest vintage's batch (`newest_batch`); each vintage carries the
-whole history of reference dates, so the older batches stay as the record of what was served.
+`newest_batch` and `batch_commit_order` read the full-copy batches `silver.unit_official_price`
+kept until 2026-10 (root ADR-0182, ADR-0185); the migration (`vintage_versions.py`) uses them.
 """
 
 from __future__ import annotations
@@ -16,14 +18,14 @@ import argparse
 import json
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
-from lakehouse_ingest import append_batch_once
-from platform_contracts import (column_names, create_table_columns_sql, evolve_iceberg_table_to_contract,
-                                load_lakehouse_contract, partition_clause_sql)
+from platform_contracts import column_names, load_lakehouse_contract
 
-CONTRACT = "silver.unit_official_price"
+CONTRACT = "silver.unit_official_price_versions"
+PRICE_CONTRACT = "silver.building_register_apartment_price_versions"
 # Shared SQL is executed by both Spark and relational fixture tests.
 DICTIONARY_SQL = """
 SELECT DISTINCT mgmt_key, pnu, COALESCE(dong_name, '') AS dong_name,
@@ -91,7 +93,7 @@ def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
         return next(iter(batches))
     ordered = [batch for batch in commit_order if batch in batches]
     if set(ordered) != batches:
-        raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest} "
+        raise ValueError(f"silver.unit_official_price holds {len(batches)} batches of vintage {newest} "
                          f"and their order is unknown: {sorted(batches)}")
     return ordered[-1]
 
@@ -172,9 +174,44 @@ def read_snapshot(spark, qualified_table, requested):
     return spark.read.format("iceberg").option("snapshot-id", str(snapshot)).load(qualified_table), snapshot
 
 
+def batch_record(source_snapshot: str) -> str:
+    """The load record of one join's commit (root ADR-0069): the batch it joined."""
+    return f"unit-official-price/versions/{source_snapshot}"
+
+
+def rejoined_keys(prices, dictionary, joined, held_vintage, vintage):
+    """The management keys whose joined rows can differ from the table's current rows (root ADR-0317 §6).
+
+    A key's join reads only that key's price lines and its dictionary entry, so every other key's
+    rows are the held vintage's. A key is joined again when (a) a price version of it was appended
+    at or after the held vintage (at: that vintage loaded again), (b) the current rows place it
+    other than the dictionary does, or the dictionary dropped it, or (c) the dictionary names it
+    newly and it has price lines. A superset is harmless: the compare writes nothing for a key whose
+    rows come out the same.
+    """
+    from pyspark.sql import functions as F
+
+    changed_prices = (prices.where((F.col("vintage") >= held_vintage) & (F.col("vintage") <= vintage))
+                      .select(F.col("mgmt_key").alias("key")))
+    placed = joined.select(F.col("mgm_bldrgst_pk").alias("mgmt_key"), "pnu", "dong_name", "ho_name").distinct()
+    moved = (placed.join(dictionary, ["mgmt_key", "pnu", "dong_name", "ho_name"], "left_anti")
+             .select(F.col("mgmt_key").alias("key")))
+    priced = prices.select(F.col("mgmt_key").alias("key")).distinct()
+    new = (dictionary.select(F.col("mgmt_key").alias("key"))
+           .join(placed.select(F.col("mgmt_key").alias("key")), "key", "left_anti")
+           .join(priced, "key", "left_semi"))
+    return changed_prices.unionByName(moved).unionByName(new).where(F.col("key").isNotNull()).distinct()
+
+
 def main(argv=None):
     args = parse_args(argv)
     from pyspark.sql import SparkSession, functions as F
+
+    from lakehouse_ingest import (MAIN, edition_property_option, ingest_batch_token, read_editions,
+                                  read_ingested_objects, snapshot_property_options)
+    from platform_contracts import current_row_latest, current_rows, ensure_contract_table, rows_as_of
+    from silver_release_compare import commit_stamp, refuse_older_edition, release_changes
+    from vintage_versions import UNIT_PRICE_CONTENT
 
     assert_catalog_env()
     started = time.monotonic()
@@ -186,34 +223,36 @@ def main(argv=None):
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:
         assert_iceberg_runtime_loaded(spark, iceberg_packages())
-        prefix = f"`{args.iceberg_catalog_name}`.`silver`"
+        catalog = args.iceberg_catalog_name
+        prefix = f"`{catalog}`.`silver`"
+        price_table = f"{prefix}.`building_register_apartment_price_versions`"
         exclusive, exclusive_snapshot = read_snapshot(spark, f"{prefix}.`building_register_exclusive_unit`", args.exclusive_snapshot_id)
-        prices, price_snapshot = read_snapshot(spark, f"{prefix}.`building_register_apartment_price`", args.price_snapshot_id)
+        prices, price_snapshot = read_snapshot(spark, price_table, args.price_snapshot_id)
+        price_contract = load_lakehouse_contract(PRICE_CONTRACT)
         if args.vintage is None:
+            # A vintage with no changed price line appends no row; its commit records it (root ADR-0317).
             args.vintage = newest_shared_vintage(
                 [row.vintage for row in exclusive.select("vintage").distinct().collect()],
-                [row.vintage for row in prices.select("vintage").distinct().collect()],
+                read_editions(spark, price_table, f"{catalog}.{PRICE_CONTRACT}", MAIN),
             )
             print(json.dumps({"vintage": args.vintage, "chosen_by": "newest_shared_vintage"}), flush=True)
         contract = load_lakehouse_contract(CONTRACT)
-        target = f"{prefix}.`unit_official_price`"
-        spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
-        # Refuse a year-only target; preserve it and replay the dated sources (ADR-0101).
-        evolve_iceberg_table_to_contract(spark, target, contract)
+        columns = list(column_names(contract))
+        target = f"{prefix}.`unit_official_price_versions`"
+        unquoted = f"{catalog}.{CONTRACT}"
+        ensure_contract_table(spark, target, contract)
         source_snapshot = batch_source_snapshot_id(price_snapshot, exclusive_snapshot, args.vintage)
-        held = [row.source_snapshot_id for row in spark.table(target).select("source_snapshot_id").distinct().collect()
-                if row.source_snapshot_id == source_snapshot]
-        if held:
-            # The batch of exactly these hub snapshots is already joined. A batch of the same vintage
-            # from other snapshots is not: the price table's main moved since (a full reload after a
-            # partial one on 2026-10-11), so the vintage is joined again and the panel reads the
-            # later batch (newest_batch).
-            summary = {"vintage": args.vintage, "appended": False, "held_by": held,
+        record = batch_record(source_snapshot)
+        if record in read_ingested_objects(spark, target, unquoted, MAIN):
+            # The batch of exactly these hub snapshots is already joined (root ADR-0185 §1).
+            summary = {"vintage": args.vintage, "appended": False, "held_by": [source_snapshot],
                        "elapsed_seconds": time.monotonic() - started}
             print(f"unit-official-price-unchanged {json.dumps(summary, sort_keys=True)}", flush=True)
             if args.summary_output:
                 Path(args.summary_output).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
             return
+        held = read_editions(spark, target, unquoted, MAIN)
+        refuse_older_edition(args.vintage, held)
         exclusive.where(F.col("vintage") == args.vintage).createOrReplaceTempView("exclusive_source")
         # The whole dictionary: a key split across provinces is refused.
         dictionary = spark.sql(DICTIONARY_SQL)
@@ -221,32 +260,54 @@ def main(argv=None):
         conflicting = int(spark.sql(CONFLICTING_SQL).first()[0])
         print(json.dumps({"conflicting": conflicting}), flush=True)
         refuse_conflicting(conflicting)
-        price_source = prices.where(F.col("vintage") == args.vintage)
-        price_source.createOrReplaceTempView("price_source")
-        reference_prices = spark.sql(PRICES_SQL)
-        reference_prices.createOrReplaceTempView("reference_prices")
+        current = current_rows(spark.table(target), contract)
+        if held:
+            # Only the keys whose rows can have changed are joined again (root ADR-0317 §6).
+            keys = rejoined_keys(prices, dictionary, current, max(held), args.vintage)
+            keys = keys.select(F.col("key").alias("mgmt_key")).persist()
+            prices = prices.join(keys, "mgmt_key", "left_semi")
+            current = current.join(keys.withColumnRenamed("mgmt_key", "mgm_bldrgst_pk"), "mgm_bldrgst_pk", "left_semi")
+            scope = {"rejoined_keys": keys.count(), "held_vintage": max(held)}
+        else:
+            # The first join is the whole nation: nothing is held to compare with (the declared exception).
+            scope = {"rejoined_keys": None, "held_vintage": None}
+        print(json.dumps(scope), flush=True)
+        # Filtered by key before the as-of read: the read ranks versions within a key.
+        rows_as_of(prices, price_contract, args.vintage).createOrReplaceTempView("price_source")
+        spark.sql(PRICES_SQL).createOrReplaceTempView("reference_prices")
         invalid = int(spark.sql(f"SELECT COUNT(*) FROM price_source WHERE COALESCE(({PRICE_VALID}), FALSE) = FALSE").first()[0])
         unmatched = int(spark.sql("""SELECT COUNT(*) FROM reference_prices p
             LEFT JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
             WHERE d.mgmt_key IS NULL OR d.pnu IS NULL OR NOT (d.pnu REGEXP '^[0-9]{19}$')""").first()[0])
-        sido = F.substring("pnu", 1, 2)
-        # One load identity per province, as the per-province runs wrote them: the registry keeps
-        # one record per province and vintage.
-        frame = (spark.sql(JOIN_SQL)
-                 .withColumn("sido", sido)
-                 .withColumn("source_snapshot_id", F.lit(source_snapshot))
-                 .withColumn("source_record_id",
-                             F.concat(F.lit("unit-official-price/base-date-v2/"), sido, F.lit("/" + source_snapshot))))
-        row_count = frame.count()
-        if row_count == 0:
-            raise ValueError("the vintage produced no price rows; refusing an empty append")
-        appended = append_batch_once(spark, frame, column_names(contract), target, CONTRACT)
+        instant = F.lit(datetime.now(timezone.utc)).cast("timestamp")
+        joined = (spark.sql(JOIN_SQL)
+                  .withColumn("sido", F.substring("pnu", 1, 2))
+                  .withColumn("vintage", F.lit(args.vintage))
+                  .withColumn("source_snapshot_id", F.lit(source_snapshot))
+                  .withColumn("source_record_id", F.lit(record))
+                  .withColumn("ingested_at_utc", instant)
+                  .withColumn("row_state", F.lit(None).cast("string")))
+        latest = current_row_latest(contract)
+        stamp, _ = commit_stamp(latest, args.vintage, instant)
+        changes = release_changes(joined.select(*columns), current.select(*columns), key=latest.key,
+                                  content=list(UNIT_PRICE_CONTENT), removal=latest.removal_column,
+                                  source_snapshot_id=source_snapshot, ingested_at=instant, columns=columns,
+                                  stamp=stamp).persist()
+        counts = {bool(row[0]): row["count"] for row in
+                  changes.groupBy(F.col(latest.removal_column).isNotNull()).count().collect()}
+        if not held and not counts:
+            raise ValueError("the vintage produced no price rows; refusing an empty first join")
+        writer = changes.writeTo(unquoted)
+        for option, value in {**snapshot_property_options([record], ingest_batch_token([record])),
+                              **edition_property_option(args.vintage)}.items():
+            writer = writer.option(option, value)
+        writer.append()
         summary = {
-            "vintage": args.vintage, "source_snapshot_id": source_snapshot,
+            "vintage": args.vintage, "source_snapshot_id": source_snapshot, "appended": True,
             "price_snapshot_id": price_snapshot, "exclusive_snapshot_id": exclusive_snapshot,
-            "rows": row_count, "conflicting": conflicting, "invalid_prices": invalid,
-            "unmatched_prices": unmatched, "elapsed_seconds": time.monotonic() - started,
-            **appended,
+            "changed_key_rows": counts.get(False, 0), "removed_keys": counts.get(True, 0), **scope,
+            "conflicting": conflicting, "invalid_prices": invalid, "unmatched_prices": unmatched,
+            "elapsed_seconds": time.monotonic() - started,
         }
         text = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
         if args.summary_output:

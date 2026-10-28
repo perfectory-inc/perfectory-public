@@ -273,7 +273,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(self.content("building_panel", job), self.content("building_panel_full", job))
 
     def test_an_appended_price_batch_is_its_own_change_set(self):
-        """Root ADR-0189: appends are read as the change set, and a switched batch maps both batches."""
+        """Root ADR-0189, ADR-0317: the versions a vintage appended are the change set."""
         import building_panel_silver_to_gold as job
 
         names = self.building_tables()
@@ -281,31 +281,37 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
             self.create(name)
         data = self.building_v1()
         batch_a, batch_b = "price:1|exclusive:2|vintage:202501", "price:3|exclusive:4|vintage:202601"
-        prices_a = [{**row, "source_snapshot_id": batch_a} for row in data["prices"]]
+
+        def version(row, batch, vintage, day, **change):
+            return {**row, "source_snapshot_id": batch, "vintage": vintage, **change,
+                    "ingested_at_utc": datetime(2099, 1, day)}
+
+        prices_a = [version(row, batch_a, "202501", 1) for row in data["prices"]]
         pins1 = {names[k]: self.put(names[k], prices_a if k == "prices" else rows) for k, rows in data.items()}
         self.run_job(job, pins1, "building_append", "2099-01-01T00:00:00Z")
         price = names["prices"]
         phases = ("affected", "restrict", "build", "parity", "merge")
+        by_unit = {row["mgm_bldrgst_pk"]: row for row in prices_a}
 
-        # A new vintage, appended in two snapshots: its history drops U1 (PNU 1 loses its price,
-        # a row only the old batch held), adds a date to U5 and corrects U7; the rest repeat.
-        prices_b = [{**row, "source_snapshot_id": batch_b, "price_won": 1 if row["mgm_bldrgst_pk"] == "U7"
-                     else row["price_won"]} for row in prices_a if row["mgm_bldrgst_pk"] != "U1"]
-        prices_b.append({**prices_b[1], "base_date": "20260101", "price_won": 5})
-        self.append(price, prices_b[:5])
-        pins2 = {**pins1, price: self.append(price, prices_b[5:])}
+        # A new vintage appends only its changes, in two snapshots: U1's key vanished (a removal
+        # marker; PNU 1 loses its price), U5 gains a reference date and U7 is corrected.
+        changes = [version(by_unit["U1"], batch_b, "202601", 2, row_state="removed"),
+                   version(by_unit["U5"], batch_b, "202601", 2, base_date="20260101", price_won=5),
+                   version(by_unit["U7"], batch_b, "202601", 2, price_won=1)]
+        self.append(price, changes[:1])
+        pins2 = {**pins1, price: self.append(price, changes[1:])}
         switched = self.run_job(job, pins2, "building_append", "2099-02-01T00:00:00Z", previous=pins1)
         self.assertEqual(switched["rebuild"]["mode"], "incremental", switched["rebuild"])
         self.assertEqual(switched["rebuild"]["appended_inputs"], [price])
-        # Both batches' units: every priced PNU, PNU 1 among them.
-        self.assertEqual(switched["rebuild"]["counts"]["affected_pnus"], len(prices_a))
+        # Only the three units' PNUs, not every priced one.
+        self.assertEqual(switched["rebuild"]["counts"]["affected_pnus"], 3, switched["rebuild"])
         for phase in phases:
             self.assertIn(f"gold-incremental-phase {phase} seconds=", self.log)
         self.run_job(job, pins2, "building_append_full", "2099-02-01T00:00:00Z")
         self.assertEqual(self.content("building_append", job), self.content("building_append_full", job))
 
-        # More rows of the batch already read: the change set is those rows, one unit's PNU.
-        pins3 = {**pins2, price: self.append(price, [{**prices_b[4], "base_date": "20270101", "price_won": 9}])}
+        # A vintage loaded again (root ADR-0185): a later commit of the same vintage wins.
+        pins3 = {**pins2, price: self.append(price, [version(by_unit["U9"], batch_b, "202601", 3, price_won=9)])}
         same = self.run_job(job, pins3, "building_append", "2099-03-01T00:00:00Z", previous=pins2)
         self.assertEqual((same["rebuild"]["mode"], same["rebuild"]["appended_inputs"]), ("incremental", [price]))
         self.assertEqual(same["rebuild"]["counts"]["affected_pnus"], 1, same["rebuild"])

@@ -501,8 +501,8 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         )
         link = self.read("models/silver/entity_link/silver_entity_link_assertion_candidate.sql")
 
-        self.assertIn("name: unit_official_price", sources)
-        self.assertIn("{{ foundation_current_rows('unit_official_price') }}", staging)
+        self.assertIn("name: unit_official_price_versions", sources)
+        self.assertIn("{{ foundation_current_rows('unit_official_price_versions') }}", staging)
         # 열쇠 기반: 관리번호 + pnu 동시 일치, 열쇠당 단일 표기만 후보다.
         self.assertIn("price_latest.mgm_bldrgst_pk = unit_scope.mgm_bldrgst_pk", candidates)
         self.assertIn("price_latest.pnu = unit_scope.pnu", candidates)

@@ -50,18 +50,29 @@ impl Config {
         })
     }
 
-    fn source_sql(&self) -> String {
-        format!(
-            "r2.silver.unit_official_price FOR VERSION AS OF {}",
-            self.iceberg_snapshot
-        )
+    /// The unit prices as they stood at the batch's vintage: the newest version of each key at
+    /// or before it, removal markers dropped (root ADR-0317, `platform_contracts.rows_as_of`).
+    fn source_sql(&self) -> anyhow::Result<String> {
+        Ok(as_of_sql(
+            "r2.silver.unit_official_price_versions",
+            "mgm_bldrgst_pk, base_date",
+            self.iceberg_snapshot,
+            &self.vintage()?,
+        ))
     }
 
-    fn selection_sql(&self) -> String {
-        format!(
-            "source_snapshot_id = '{}'",
-            self.source_snapshot.replace('\'', "''")
-        )
+    fn selection_sql(&self) -> &'static str {
+        "TRUE"
+    }
+
+    /// The vintage the batch joined, parsed out of the same lineage as `price_snapshot`.
+    fn vintage(&self) -> anyhow::Result<String> {
+        self.source_snapshot
+            .split('|')
+            .find_map(|part| part.strip_prefix("vintage:"))
+            .filter(|vintage| vintage.len() == 6 && vintage.bytes().all(|b| b.is_ascii_digit()))
+            .map(str::to_owned)
+            .context("source_snapshot_id does not name a YYYYMM vintage")
     }
 
     /// The price Silver snapshot this projection was joined from, parsed out of the
@@ -74,6 +85,18 @@ impl Config {
             .filter(|snapshot| *snapshot > 0)
             .context("source_snapshot_id does not name a positive price snapshot")
     }
+}
+
+/// A versioned table's rows as of `vintage` at Iceberg `snapshot`, as a Trino relation: the
+/// newest version of each `key` at or before the vintage, without removal markers. `vintage` is
+/// six ASCII digits (`Config::vintage`), so it is safe in the literal.
+fn as_of_sql(table: &str, key: &str, snapshot: i64, vintage: &str) -> String {
+    format!(
+        "(SELECT * FROM (SELECT *, rank() OVER (PARTITION BY {key} \
+         ORDER BY vintage DESC, ingested_at_utc DESC) AS current_rank \
+         FROM {table} FOR VERSION AS OF {snapshot} WHERE vintage <= '{vintage}') ranked \
+         WHERE current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')) as_of"
+    )
 }
 
 /// Trino's supported CLI owns protocol pagination, retries and cancellation.
@@ -177,9 +200,14 @@ impl PriceRow {
 async fn expected_provinces(config: &Config) -> anyhow::Result<std::collections::BTreeSet<String>> {
     let sql = format!(
         "SELECT DISTINCT substr(sigungu_cd, 1, 2) AS sido
-         FROM r2.silver.building_register_apartment_price FOR VERSION AS OF {}
+         FROM {}
          WHERE sigungu_cd IS NOT NULL",
-        config.price_snapshot()?
+        as_of_sql(
+            "r2.silver.building_register_apartment_price_versions",
+            "mgmt_key, base_date",
+            config.price_snapshot()?,
+            &config.vintage()?,
+        )
     );
     let mut reader = TrinoRows::start(&config.container, &sql)?;
     let mut expected = std::collections::BTreeSet::new();
@@ -198,7 +226,7 @@ async fn expected_provinces(config: &Config) -> anyhow::Result<std::collections:
 async fn provinces(config: &Config) -> anyhow::Result<Vec<Province>> {
     let sql = format!(
         "SELECT sido, COUNT(*) AS row_count FROM {} WHERE {} GROUP BY sido ORDER BY sido",
-        config.source_sql(),
+        config.source_sql()?,
         config.selection_sql()
     );
     let mut reader = TrinoRows::start(&config.container, &sql)?;
@@ -234,7 +262,7 @@ async fn load_province(
 ) -> anyhow::Result<u64> {
     let sql = format!(
         "SELECT pnu,dong_name,ho_name,base_date,price_won FROM {} WHERE {} AND sido = '{}'",
-        config.source_sql(),
+        config.source_sql()?,
         config.selection_sql(),
         province.sido
     );

@@ -4,7 +4,7 @@
     'building_register_unit': none,
     'building_register_unit_area': none,
     'land_right_registration': none,
-    'unit_official_price': none,
+    'unit_official_price_versions': {'predicate': none, 'key': ['mgm_bldrgst_pk', 'base_date'], 'newest_first': ['vintage', 'ingested_at_utc'], 'removal': 'row_state'},
 } -%}
 {%- set relation = source('foundation', name) -%}
 {%- set rule = rules[name] -%}

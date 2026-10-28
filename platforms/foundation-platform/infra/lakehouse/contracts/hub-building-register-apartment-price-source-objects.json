@@ -30,10 +30,11 @@
   "rows_per_part": 1000000,
   "max_row_bytes": 1048576,
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-apartment-price.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다. 묶음 40 부분(100만 행 부분 40개 = 4,000만 행)·16g 는 옛 손 적재(land-use-batch-load.sh, ADR-0169 ③에서 은퇴)의 측정값(1,000만 행 부분 4개)을 따른다. 부분이 100만 행인 것은 내보내기가 부분마다 한 워커를 쓰기 때문이다(hub_register_silver_export.rs export_workers).",
-    "table": "silver.building_register_apartment_price",
+    "$comment": "foundation-silver-refresh@building-register-apartment-price.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다. 묶음 40 부분(100만 행 부분 40개 = 4,000만 행)·16g 는 옛 손 적재(land-use-batch-load.sh, ADR-0169 ③에서 은퇴)의 측정값(1,000만 행 부분 4개)을 따른다. 부분이 100만 행인 것은 내보내기가 부분마다 한 워커를 쓰기 때문이다(hub_register_silver_export.rs export_workers). 판은 silver.building_register_apartment_price_versions 의 load branch 에 쌓고, 공개하지 않고 compare 가 main 의 현재 행과 (mgmt_key, base_date) 마다 비교해 바뀐 키의 행과 사라진 키의 삭제 표시만 main 에 append 한다(root ADR-0317). content_columns 는 원천 줄이 말하는 것 전부이고, 판·적재 열과 줄 위치(부분·줄 번호)는 넣지 않는다.",
+    "table": "silver.building_register_apartment_price_versions",
     "roles": {"source": "hubgokr__building_register_apartment_price"},
     "export": "export-building-register-apartment-price-silver-handoff",
-    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 40}
+    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 40},
+    "compare": {"content_columns": ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "price_won", "notice_date", "pnu", "raw_columns"]}
   }
 }

@@ -50,11 +50,12 @@ class BuildingPanelArgumentsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "every Silver source"):
                 job.load_snapshot_pins(args)
 
-    def test_price_batch_selection_is_explicit_and_cannot_be_blank(self):
-        self.assertEqual(self.parse("--price-source-snapshot-id", "price:42|exclusive:7").price_source_snapshot_id,
-                         "price:42|exclusive:7")
-        with self.assertRaisesRegex(ValueError, "price-source-snapshot-id"):
-            job.validate_args(self.parse("--validate-only", "--price-source-snapshot-id", " "))
+    def test_a_pinned_price_vintage_is_a_month(self):
+        # Root ADR-0317: an operator serves the prices as of a vintage, never a batch id.
+        self.assertEqual(self.parse("--price-vintage", "209908").price_vintage, "209908")
+        for value in (" ", "2099-08", "price:42|exclusive:7"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "price-vintage"):
+                job.validate_args(self.parse("--validate-only", "--price-vintage", value))
 
 
 if __name__ == "__main__":

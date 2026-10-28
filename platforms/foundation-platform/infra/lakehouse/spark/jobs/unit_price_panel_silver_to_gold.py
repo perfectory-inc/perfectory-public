@@ -3,7 +3,7 @@
 histories (root ADR-0190, ADR-0204).
 
 A unit's price history is a time series on its own cadence (a monthly vintage, a new reference
-date a year). Its record of truth stays long and append-only in `silver.unit_official_price`; this
+date a year). Its record of truth stays long and append-only in `silver.unit_official_price_versions`; this
 Gold is its by-PNU serving projection, apart from `gold.building_panel` so that a price vintage
 never touches a building row or a building pack, and a building change never re-encodes prices.
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from typing import Any
 
 from pyspark.sql import SparkSession, functions as F
@@ -74,7 +75,7 @@ def parse_args(argv=None):
     parser.add_argument("--iceberg-snapshot-id", required=True,
                         help="Title-table Iceberg snapshot to read; local source identity in parquet mode.")
     parser.add_argument("--source-snapshots-path", help="JSON file mapping all Silver tables to pinned Iceberg snapshot IDs.")
-    parser.add_argument("--price-source-snapshot-id", help="Exact logical price batch within the pinned append-only Silver snapshot.")
+    parser.add_argument("--price-vintage", help="Serve the unit prices as of this vintage (YYYYMM) instead of the newest (root ADR-0317).")
     parser.add_argument("--published-at-utc")
     parser.add_argument("--allow-non-smoke-overwrite", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
@@ -100,16 +101,16 @@ def validate_args(args):
     for name in ("expected_count", "minimum_count"):
         if getattr(args, name) is not None and getattr(args, name) < 0:
             raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
-    if args.price_source_snapshot_id is not None and not args.price_source_snapshot_id.strip():
-        raise ValueError("--price-source-snapshot-id must be non-empty")
+    if args.price_vintage is not None and not re.fullmatch(r"[0-9]{6}", args.price_vintage):
+        raise ValueError("--price-vintage must be YYYYMM")
     if (args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite" and
             not args.validate_only and not args.target_iceberg_table.endswith("_smoke") and
             not args.allow_non_smoke_overwrite):
         raise ValueError("Refusing non-smoke overwrite without --allow-non-smoke-overwrite")
     if args.input_mode == "iceberg" or args.write_mode == "iceberg":
         assert_catalog_env(args.iceberg_catalog_name)
-    if incremental.validate_arguments(args, ALL_SOURCES) is not None and args.price_source_snapshot_id:
-        raise ValueError("--incremental-from-snapshots cannot compare a --price-source-snapshot-id batch")
+    if incremental.validate_arguments(args, ALL_SOURCES) is not None and args.price_vintage:
+        raise ValueError("--incremental-from-snapshots cannot compare a --price-vintage")
     return load_source_snapshot_pins(args.input_mode, args.source_snapshots_path,
                                      ALL_SOURCES, TITLE_SOURCE, args.iceberg_snapshot_id)
 

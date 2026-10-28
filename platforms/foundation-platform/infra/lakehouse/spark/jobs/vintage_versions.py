@@ -43,10 +43,10 @@ from platform_contracts import (column_names, current_row_latest, current_rows, 
 from silver_release_compare import commit_stamp, refuse_older_edition, release_changes
 
 JOB_NAME = "vintage-versions"
-# What a price line is: everything the source file says about it. Not the vintage, the load's ids
-# and instant, nor where the line sat in the file (its part and line number move between vintages).
-APARTMENT_PRICE_CONTENT = ("sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "price_won", "notice_date",
-                           "pnu", "raw_columns")
+# What a price line is, as the price lane compares it: its contract's compare.content_columns.
+APARTMENT_PRICE_LANE = Path(__file__).resolve().parents[2] / "contracts" / "hub-building-register-apartment-price-source-objects.json"
+APARTMENT_PRICE_CONTENT = tuple(
+    json.loads(APARTMENT_PRICE_LANE.read_text(encoding="utf-8"))["silver_refresh"]["compare"]["content_columns"])
 # What a joined unit price is, besides its key: where it is served and its value.
 UNIT_PRICE_CONTENT = ("pnu", "dong_name", "ho_name", "price_won", "sido")
 
@@ -57,6 +57,8 @@ class Migration:
     content: tuple[str, ...]
     # (spark, the source table read whole, the source table's quoted name) -> {vintage: (rows, source batch id)}
     vintages: Callable[[Any, Any, str], dict[str, tuple[Any, str]]]
+    # (target, vintage, the vintage's rows, source batch id) -> what the commit records as loaded
+    records: Callable[[str, str, Any, str], list[str]]
 
 
 def apartment_price_vintages(spark: Any, source: Any, qualified: str) -> dict[str, tuple[Any, str]]:
@@ -93,9 +95,13 @@ def unit_price_vintages(spark: Any, source: Any, qualified: str) -> dict[str, tu
 
 MIGRATIONS = {
     "silver.building_register_apartment_price_versions": Migration(
-        "silver.building_register_apartment_price", APARTMENT_PRICE_CONTENT, apartment_price_vintages),
+        "silver.building_register_apartment_price", APARTMENT_PRICE_CONTENT, apartment_price_vintages,
+        # The vintage's handoff parts, as the price lane records them: once moved to the versions
+        # table, the lane finds the migrated vintages loaded and does not export them again.
+        lambda target, vintage, rows, batch: sorted(row[0] for row in rows.select("source_part_id").distinct().collect())),
     "silver.unit_official_price_versions": Migration(
-        "silver.unit_official_price", UNIT_PRICE_CONTENT, unit_price_vintages),
+        "silver.unit_official_price", UNIT_PRICE_CONTENT, unit_price_vintages,
+        lambda target, vintage, rows, batch: [migration_record(target, vintage, batch)]),
 }
 
 
@@ -152,9 +158,10 @@ def migrate(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
         entry: dict[str, Any] = {"source_batch": batch}
         if not args.parity_only and vintage not in read_editions(spark, target_q, target_u, MAIN):
             refuse_older_edition(vintage, read_editions(spark, target_q, target_u, MAIN))
-            record = migration_record(args.target, vintage, batch)
-            if record in read_ingested_objects(spark, target_q, target_u, MAIN):
-                raise ValueError(f"{args.target} records {record} without its edition {vintage}")
+            records = migration.records(args.target, vintage, staged, batch)
+            held = [record for record in records if record in read_ingested_objects(spark, target_q, target_u, MAIN)]
+            if held:
+                raise ValueError(f"{args.target} records {held[:3]} without their edition {vintage}")
             started = time.monotonic()
             instant = F.lit(datetime.now(timezone.utc)).cast("timestamp")
             # The full copy as versions: the commit's instant, and no removal mark on a source row.
@@ -163,7 +170,7 @@ def migrate(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
             changes = vintage_changes(staged_rows, spark.table(target_q), contract, migration.content, vintage,
                                       batch, instant)
             writer = changes.writeTo(target_u)
-            options = {**snapshot_property_options([record], ingest_batch_token([record])),
+            options = {**snapshot_property_options(records, ingest_batch_token(records)),
                        **edition_property_option(vintage)}
             for option, value in options.items():
                 writer = writer.option(option, value)
