@@ -16,7 +16,10 @@
 //! 3. start a `lakehouse_bake` build against the active validated static release;
 //! 4. reproject and repair with GDAL (`-makevalid`), tile with tippecanoe — both pinned containers
 //!    with the memory caps of `config/tile-bake-containers.contract.json`, tippecanoe's temporary
-//!    files under the work directory;
+//!    files under the work directory. A unit the contract partitions (root ADR-0316: parcels by
+//!    시도) is split by feature-id prefix in step 2, only the partitions whose rows or bake inputs
+//!    changed are baked, each into a create-only archive kept under the work root, and every
+//!    partition's archive is joined into the unit's with tile-join;
 //! 5. gate: the archive is PMTiles v3 MVT over the layer's zoom range, and its maxzoom tiles carry
 //!    exactly the served feature ids, read by streaming the archive without decoding geometry;
 //! 6. upload create-only and rehash, record the result, promote (the unit is left with no fallback);
@@ -95,6 +98,10 @@ pub struct BakeContract {
     /// whose features its default 12 drops; a unit not listed keeps the default.
     #[serde(default)]
     pub maxzoom_detail: std::collections::BTreeMap<String, u8>,
+    /// Root ADR-0316: a unit listed here is baked one archive per feature-id prefix (a 시도 for
+    /// parcels) and the archives are joined; a prefix whose rows did not change keeps its archive.
+    #[serde(default)]
+    pub partition_by_feature_id_prefix: std::collections::BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,6 +152,13 @@ impl BakeContract {
                 .values()
                 .all(|detail| (12..=16).contains(detail)),
             "a maxzoom_detail is between tippecanoe's default 12 and 16"
+        );
+        ensure!(
+            contract
+                .partition_by_feature_id_prefix
+                .values()
+                .all(|chars| (1..=10).contains(chars)),
+            "a partition_by_feature_id_prefix is between 1 and 10 characters"
         );
         Ok(contract)
     }
@@ -429,6 +443,180 @@ pub fn handoff_bytes(summary: &ServedSummary, handoff: &Path) -> anyhow::Result<
     }
 }
 
+/// Where the GDAL input goes: one CSV, or one per partition ([`PartitionedCsv`]).
+pub trait CsvOut {
+    /// The header line, written before any row.
+    fn header(&mut self, line: &str) -> std::io::Result<()>;
+    fn row(&mut self, feature_id: &str, line: &str) -> std::io::Result<()>;
+}
+
+impl<W: Write> CsvOut for W {
+    fn header(&mut self, line: &str) -> std::io::Result<()> {
+        writeln!(self, "{line}")
+    }
+
+    fn row(&mut self, _feature_id: &str, line: &str) -> std::io::Result<()> {
+        writeln!(self, "{line}")
+    }
+}
+
+/// Root ADR-0316: the GDAL input split by the first `prefix_chars` of the feature id (a 시도 for
+/// parcels), one CSV per partition under `dir`, each with the header.
+pub struct PartitionedCsv {
+    dir: PathBuf,
+    prefix_chars: usize,
+    header: String,
+    /// Per prefix: its CSV, its row count and the wrapping sum of its rows' hashes.
+    parts: std::collections::BTreeMap<String, (BufWriter<File>, usize, u128)>,
+}
+
+/// One partition's GDAL input and the content its archive is named by.
+#[derive(Debug, Clone)]
+pub struct CsvPart {
+    pub prefix: String,
+    pub csv: PathBuf,
+    pub rows: usize,
+    /// SHA-256 of the header, the row count and the sum of the rows' hashes: the same rows in any
+    /// order give the same content (Spark's part order is not stable), any changed row another.
+    pub content: String,
+}
+
+impl PartitionedCsv {
+    pub fn new(dir: PathBuf, prefix_chars: usize) -> Self {
+        Self {
+            dir,
+            prefix_chars,
+            header: String::new(),
+            parts: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Flushes every partition's CSV and names its content.
+    pub fn finish(self) -> anyhow::Result<Vec<CsvPart>> {
+        let Self {
+            dir, header, parts, ..
+        } = self;
+        parts
+            .into_iter()
+            .map(|(prefix, (out, rows, sum))| {
+                out.into_inner()
+                    .map_err(|error| error.into_error())?
+                    .sync_all()?;
+                let mut content = Sha256::new();
+                content.update(header.as_bytes());
+                content.update(rows.to_be_bytes());
+                content.update(sum.to_be_bytes());
+                Ok(CsvPart {
+                    csv: dir.join(format!("{prefix}.csv")),
+                    prefix,
+                    rows,
+                    content: format!("{:x}", content.finalize()),
+                })
+            })
+            .collect()
+    }
+}
+
+impl CsvOut for PartitionedCsv {
+    fn header(&mut self, line: &str) -> std::io::Result<()> {
+        line.clone_into(&mut self.header);
+        Ok(())
+    }
+
+    fn row(&mut self, feature_id: &str, line: &str) -> std::io::Result<()> {
+        let prefix = feature_id
+            .get(..self.prefix_chars)
+            .filter(|prefix| prefix.bytes().all(|b| b.is_ascii_alphanumeric()))
+            .ok_or_else(|| {
+                std::io::Error::other(format!(
+                    "feature {feature_id:?} has no {}-character alphanumeric partition prefix",
+                    self.prefix_chars
+                ))
+            })?;
+        if !self.parts.contains_key(prefix) {
+            let mut out = BufWriter::with_capacity(
+                1 << 20,
+                File::create(self.dir.join(format!("{prefix}.csv")))?,
+            );
+            writeln!(out, "{}", self.header)?;
+            self.parts.insert(prefix.to_owned(), (out, 0, 0));
+        }
+        if let Some((out, rows, sum)) = self.parts.get_mut(prefix) {
+            writeln!(out, "{line}")?;
+            *rows += 1;
+            *sum = sum.wrapping_add(id_hash(line));
+        }
+        Ok(())
+    }
+}
+
+/// Where a partition's archive lives under `root`: named by its content and every bake input, so a
+/// partition whose rows and inputs did not change finds the archive an earlier bake left.
+pub fn partition_archive(root: &Path, part: &CsvPart, bake_inputs: &str) -> PathBuf {
+    let mut name = Sha256::new();
+    name.update(part.content.as_bytes());
+    name.update(bake_inputs.as_bytes());
+    root.join(&part.prefix)
+        .join(format!("{:x}.pmtiles", name.finalize()))
+}
+
+/// Bakes only the partitions whose archive is not under `root` yet, each in its own directory
+/// under `work` (`bake` turns its `served.csv` into `unit.pmtiles`), and links each result in
+/// create-only; a reused partition's CSV is dropped unread. Returns each partition's prefix, its
+/// archive, and whether it was baked now.
+pub async fn bake_partitions<F, Fut>(
+    work: &Path,
+    root: &Path,
+    parts: Vec<CsvPart>,
+    bake_inputs: &str,
+    mut bake: F,
+) -> anyhow::Result<Vec<(String, PathBuf, bool)>>
+where
+    F: FnMut(PathBuf) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
+    let mut archives = Vec::with_capacity(parts.len());
+    for part in parts {
+        let archive = partition_archive(root, &part, bake_inputs);
+        let baked = !archive.exists();
+        if baked {
+            let dir = work.join(format!("partition-{}", part.prefix));
+            std::fs::create_dir_all(dir.join("tmp"))?;
+            std::fs::rename(&part.csv, dir.join("served.csv"))?;
+            bake(dir.clone()).await?;
+            std::fs::create_dir_all(root.join(&part.prefix))?;
+            // Create-only: a named archive is never rewritten, and appears only once complete.
+            std::fs::hard_link(dir.join("unit.pmtiles"), &archive)
+                .with_context(|| format!("partition archive {}", archive.display()))?;
+            std::fs::remove_dir_all(&dir)?;
+        } else {
+            std::fs::remove_file(&part.csv)?;
+        }
+        archives.push((part.prefix, archive, baked));
+    }
+    Ok(archives)
+}
+
+/// tile-join's arguments after the image: every partition archive (linked as
+/// `/w/join/<prefix>.pmtiles`) into one archive, every tile kept whole.
+pub fn tile_join_args(prefixes: &[String]) -> Vec<OsString> {
+    let mut args: Vec<OsString> = [
+        "-o",
+        "/w/unit.pmtiles",
+        "--no-tile-size-limit",
+        "--force",
+        "--quiet",
+    ]
+    .map(OsString::from)
+    .into();
+    args.extend(
+        prefixes
+            .iter()
+            .map(|prefix| format!("/w/join/{prefix}.pmtiles").into()),
+    );
+    args
+}
+
 /// The served handoff, validated and turned into the GDAL input.
 #[derive(Debug)]
 pub struct PreparedHandoff<W> {
@@ -445,7 +633,7 @@ fn csv_field(value: &str) -> String {
 /// Streams the handoff once into `csv` — one CSV row per feature: id, properties, hex WKB —
 /// refusing repeats, a CRS or a property set that differs between rows, a part whose bytes or
 /// count differ from the summary, and a total the summary did not promise.
-pub fn prepare_handoff<W: Write>(
+pub fn prepare_handoff<W: CsvOut>(
     summary: &ServedSummary,
     handoff: &Path,
     mut csv: W,
@@ -485,7 +673,7 @@ pub fn prepare_handoff<W: Write>(
                 .chain(row.properties.keys().cloned())
                 .collect();
             let header: Vec<String> = names.iter().map(|name| csv_field(name)).collect();
-            writeln!(csv, "{},geometry", header.join(","))?;
+            csv.header(&format!("{},geometry", header.join(",")))?;
             columns = Some(names);
         }
         let columns = columns.as_deref().unwrap_or_default();
@@ -496,7 +684,7 @@ pub fn prepare_handoff<W: Write>(
                 .map(|name| csv_field(row.properties.get(name).map_or("", String::as_str))),
         );
         fields.push(row.geometry_wkb_hex);
-        writeln!(csv, "{}", fields.join(","))?;
+        csv.row(&row.feature_id, &fields.join(","))?;
         hashes.push(id_hash(&row.feature_id));
         Ok(())
     })?;
@@ -751,6 +939,8 @@ struct Config {
     rehearsal: bool,
     /// ADR-0262: the contract's maxzoom detail for this unit, if it sets one.
     maxzoom_detail: Option<u8>,
+    /// ADR-0316: the contract's partition prefix length for this unit, if it sets one.
+    partition_prefix: Option<usize>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -814,6 +1004,7 @@ impl Config {
             ))?)?,
             rehearsal: rehearsal_flag(optional_env_value(&format!("{PREFIX}_REHEARSAL"))?)?,
             maxzoom_detail: None,
+            partition_prefix: None,
         })
     }
 }
@@ -1014,6 +1205,7 @@ async fn build_archive(
     columns: &[String],
     srid: i32,
     layer: &ServedLayer,
+    partitions: Option<Vec<CsvPart>>,
 ) -> anyhow::Result<PathBuf> {
     let missing: Vec<&String> = layer
         .properties
@@ -1024,6 +1216,73 @@ async fn build_archive(
         missing.is_empty(),
         "the served snapshot lacks properties the served layer promises: {missing:?}"
     );
+    let Some(partitions) = partitions else {
+        bake_unit(config, images, work, columns, srid, layer).await?;
+        return Ok(work.join("unit.pmtiles"));
+    };
+    // ADR-0316: the tippecanoe version, not the release's image ID, which every release build
+    // changes while the pinned source commit (and so the bytes it bakes) stays the same.
+    let bake_inputs = format!(
+        "{:?}",
+        (
+            &images.gdal.image,
+            &images.tippecanoe.version_banner,
+            srid,
+            tippecanoe_args(layer, columns, config.maxzoom_detail),
+        )
+    );
+    let root = config
+        .work_root
+        .join(format!("{}-partitions", config.unit_key));
+    let archives = bake_partitions(work, &root, partitions, &bake_inputs, |dir| async move {
+        bake_unit(config, images, &dir, columns, srid, layer).await
+    })
+    .await?;
+    std::fs::remove_dir_all(work_partition_csvs(&work.join("served.csv")))?;
+    let join = work.join("join");
+    std::fs::create_dir_all(&join)?;
+    let mut prefixes = Vec::with_capacity(archives.len());
+    for (prefix, archive, _) in &archives {
+        std::fs::hard_link(archive, join.join(format!("{prefix}.pmtiles")))?;
+        prefixes.push(prefix.clone());
+    }
+    let baked: Vec<&str> = archives
+        .iter()
+        .filter(|(_, _, baked)| *baked)
+        .map(|(prefix, _, _)| prefix.as_str())
+        .collect();
+    println!(
+        "lakehouse-tile-bake-partitions unit={} partitions={} baked={} reused={}",
+        config.unit_key,
+        archives.len(),
+        baked.join(","),
+        archives.len() - baked.len()
+    );
+    let mut tile_join = run_args(
+        work,
+        &images.tippecanoe,
+        config.container_project.as_deref(),
+    );
+    // The image's entrypoint is tippecanoe; tile-join is installed beside it from the same commit.
+    let image = tile_join
+        .pop()
+        .context("docker run arguments end with the image")?;
+    tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
+    tile_join.extend(tile_join_args(&prefixes));
+    docker(tile_join, config.tool_timeout, "tile-join").await?;
+    std::fs::remove_dir_all(&join)?;
+    Ok(work.join("unit.pmtiles"))
+}
+
+/// GDAL then tippecanoe in `work`: `served.csv` in, `unit.pmtiles` out.
+async fn bake_unit(
+    config: &Config,
+    images: &ImageSet,
+    work: &Path,
+    columns: &[String],
+    srid: i32,
+    layer: &ServedLayer,
+) -> anyhow::Result<()> {
     let source_srs = format!("EPSG:{srid}");
     let project = config.container_project.as_deref();
     let mut gdal = run_args(work, &images.gdal, project);
@@ -1082,7 +1341,7 @@ async fn build_archive(
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
     std::fs::remove_file(work.join("served.geojsons"))?;
-    Ok(work.join("unit.pmtiles"))
+    Ok(())
 }
 
 async fn record_fold(
@@ -1123,6 +1382,10 @@ pub async fn run() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?
         .with_release_tippecanoe(optional_env_value(&format!("{PREFIX}_TIPPECANOE_IMAGE"))?)?;
     config.maxzoom_detail = contract.maxzoom_detail.get(&config.unit_key).copied();
+    config.partition_prefix = contract
+        .partition_by_feature_id_prefix
+        .get(&config.unit_key)
+        .copied();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1158,12 +1421,20 @@ async fn bake_in(
 ) -> anyhow::Result<()> {
     let summary = Arc::new(summary);
     let prepared = {
-        let (summary, handoff, csv) = (
+        let (summary, handoff, csv, partition_prefix) = (
             summary.clone(),
             config.served_handoff.clone(),
             work.join("served.csv"),
+            config.partition_prefix,
         );
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Prepared> {
+            if let Some(chars) = partition_prefix {
+                let dir = work_partition_csvs(&csv);
+                std::fs::create_dir_all(&dir)?;
+                let prepared =
+                    prepare_handoff(&summary, &handoff, PartitionedCsv::new(dir, chars))?;
+                return Ok((prepared.columns, prepared.ids, Some(prepared.csv.finish()?)));
+            }
             let out = BufWriter::with_capacity(1 << 20, File::create(&csv)?);
             let prepared = prepare_handoff(&summary, &handoff, out)?;
             prepared
@@ -1171,7 +1442,7 @@ async fn bake_in(
                 .into_inner()
                 .map_err(|error| error.into_error())?
                 .sync_all()?;
-            Ok((prepared.columns, prepared.ids))
+            Ok((prepared.columns, prepared.ids, None))
         })
         .await
         .context("the handoff reader stopped")??
@@ -1275,6 +1546,15 @@ async fn bake_in(
     Ok(())
 }
 
+/// The tile properties, the served ids and, for a partitioned unit (ADR-0316), each partition's
+/// GDAL input in place of the one `served.csv`.
+type Prepared = (Vec<String>, ServedIds, Option<Vec<CsvPart>>);
+
+/// The directory a partitioned unit's per-partition CSVs are written to, beside `served.csv`.
+fn work_partition_csvs(served_csv: &Path) -> PathBuf {
+    served_csv.with_file_name("partition-csv")
+}
+
 /// What the bake produced before anything is written: the archive, the maxzoom id gate (the SHA-256
 /// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0262), and — when the active release came from another oven — the first-release equivalence
 /// outcome with the file its whole evidence was written to.
@@ -1292,14 +1572,22 @@ async fn bake_and_gate(
     images: &ImageSet,
     label: &str,
     work: &Path,
-    (columns, ids): (Vec<String>, ServedIds),
+    (columns, ids, partitions): Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
 ) -> anyhow::Result<Gated> {
     let layer = &active.layer;
-    let archive =
-        build_archive(config, images, work, &columns, summary.geometry_srid, layer).await?;
+    let archive = build_archive(
+        config,
+        images,
+        work,
+        &columns,
+        summary.geometry_srid,
+        layer,
+        partitions,
+    )
+    .await?;
     let (id_gate, collector, ids) = {
         let (archive, layer, summary, handoff) = (
             archive.clone(),
@@ -1370,7 +1658,7 @@ async fn rehearse(
     config: &Config,
     images: &ImageSet,
     work: &Path,
-    prepared: (Vec<String>, ServedIds),
+    prepared: Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
@@ -1413,7 +1701,7 @@ async fn bake_and_upload(
     images: &ImageSet,
     build_job_id: VectorTileBuildJobId,
     work: &Path,
-    prepared: (Vec<String>, ServedIds),
+    prepared: Prepared,
     active: &ActiveStatic,
     samples: &SampleContract,
     summary: Arc<ServedSummary>,
