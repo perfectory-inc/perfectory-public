@@ -23,6 +23,10 @@
       "driver_memory": "16g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 4
+    },
+    "full_reason": {
+      "reason": "비교 후 추가는 1억 3,166만 행(토지 이동 이력, 2026-10-21)에서 비교만 87분 걸렸고(08:17→09:44), 첫 시도는 단위 상한 150분(infra/systemd/foundation-silver-refresh@.service TimeoutStartSec)에 걸려 실패했다. 이 표는 2억 4,758만 행이라 선형 추정 약 165분으로 같은 상한을 넘는다. 비교를 시도 단위로 나누거나 상한을 정하는 일이 먼저다(ADR-0311 남은 일).",
+      "measured_cost": "마지막 적재 2026-09-05 실측(Trino $snapshots added-records·added-files-size 합): 247,584,668행·2,681,543,114 B."
     }
   }
 }

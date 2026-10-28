@@ -269,6 +269,17 @@ struct Block {
     /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
     #[serde(default)]
     compare: Option<CompareBlock>,
+    /// Why an overwriting lane still writes its release whole, and what that costs (root ADR-0311).
+    #[serde(default)]
+    full_reason: Option<FullReasonBlock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FullReasonBlock {
+    reason: String,
+    /// Rows and bytes one load writes, measured: an exception nobody priced is not one.
+    measured_cost: String,
 }
 
 #[derive(Deserialize)]
@@ -355,6 +366,12 @@ impl LaneContract {
             lane.table()
         );
         let spark = block.spark;
+        checked_full_reason(
+            &block.table,
+            spark.iceberg_write_mode,
+            block.compare.is_some(),
+            block.full_reason.as_ref(),
+        )?;
         ensure!(
             master_retries_tasks(&spark.master),
             "spark.master must be local[N,maxFailures] with maxFailures >= 2: plain local[N] ignores \
@@ -509,6 +526,37 @@ impl LaneContract {
             spark,
             compare_content: None,
         })
+    }
+}
+
+/// An overwriting lane names how it avoids rewriting the table (`compare`) or why it cannot yet
+/// (`full_reason` with a measured cost): `silver.land_forest_ledger` rewrote 39.9M rows a week for
+/// about 5K changes, and nothing in its contract said so (root ADR-0311). An appending lane names
+/// neither.
+fn checked_full_reason(
+    table: &str,
+    mode: WriteMode,
+    compares: bool,
+    full: Option<&FullReasonBlock>,
+) -> anyhow::Result<()> {
+    if let Some(full) = full {
+        ensure!(
+            !full.reason.trim().is_empty() && !full.measured_cost.trim().is_empty(),
+            "{table}: full_reason states a reason and a measured_cost"
+        );
+    }
+    match (mode, compares, full.is_some()) {
+        (WriteMode::Overwrite, true, false) | (WriteMode::Overwrite, false, true) => Ok(()),
+        (WriteMode::Append, false, false) => Ok(()),
+        (WriteMode::Overwrite, false, false) => bail!(
+            "{table} overwrites its release: name compare.content_columns to append only the              changed keys (root ADR-0275), or a full_reason with its measured cost (root ADR-0311)"
+        ),
+        (WriteMode::Overwrite, true, true) => bail!(
+            "{table} names both compare and full_reason; a lane does one of them"
+        ),
+        (WriteMode::Append, _, _) => bail!(
+            "{table} appends; compare and full_reason are for a lane that overwrites"
+        ),
     }
 }
 
