@@ -580,25 +580,23 @@ fn root_tile_contract_inputs_trigger_their_authoritative_ci_lanes() {
         .as_array()
         .expect("gongzzang-frontend.yml is a scoped workflow");
 
-    assert_eq!(
-        foundation_ci.matches("- \"scripts/tiles/**\"").count(),
-        1,
-        "Foundation CI must watch tile proof/config inputs on main pushes; pull requests are unfiltered"
-    );
-    assert_eq!(
-        foundation_ci
-            .matches("- \"scripts/verify/integration.sh\"")
-            .count(),
-        1,
-        "Foundation CI must watch its disposable-DB integration provisioner"
-    );
-    assert_eq!(
-        foundation_ci
-            .matches("- \"tools/ci/change-scope.json\"")
-            .count(),
-        1,
-        "Foundation CI must rerun the cross-workflow tile-contract guard when Gongzzang CI routing changes"
-    );
+    // Foundation CI is a scoped workflow too (root ADR-0313): its inputs are in the contract, and a
+    // change to the contract itself reruns every scoped workflow.
+    let foundation_inputs = change_scope["workflows"]["foundation-ci.yml"]["paths"]
+        .as_array()
+        .expect("foundation-ci.yml is a scoped workflow");
+    for (input, why) in [
+        ("scripts/tiles/**", "tile proof/config inputs"),
+        (
+            "scripts/verify/integration.sh",
+            "its disposable-DB integration provisioner",
+        ),
+    ] {
+        assert!(
+            foundation_inputs.iter().any(|glob| glob == input),
+            "Foundation CI must take {why} ({input}) as an input"
+        );
+    }
     require_all(
         &foundation_ci,
         &[
