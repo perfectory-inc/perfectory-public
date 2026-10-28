@@ -10,6 +10,10 @@
     "table": "silver.building_register_titles",
     "roles": {"title": "hubgokr__building_register_main"},
     "export": "export-building-register-title-silver-handoff",
-    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0}
+    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0},
+    "full_reason": {
+      "reason": "허브 레인은 판을 load branch 없이 main 에 한 번에 쓰고(ADR-0169) 비교 블록을 받지 않으며(lane.rs), gold.building_panel 이 입력마다 source_snapshot_id 하나만 받는다(building_panel_silver_to_gold.assert_single_snapshot). 비교 후 추가(ADR-0275)로 옮기려면 브랜치 적재와 건물 패널 독자 이전이 먼저다(ADR-0311 남은 일).",
+      "measured_cost": "2026-10-20 덮어쓰기 실측(Trino $snapshots): 8,064,354행·668,105,827 B 를 썼고, 앞 판과의 행 수 차이는 -52행이다."
+    }
   }
 }

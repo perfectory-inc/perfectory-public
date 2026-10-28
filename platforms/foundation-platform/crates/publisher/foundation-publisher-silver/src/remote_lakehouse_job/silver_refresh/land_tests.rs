@@ -827,20 +827,39 @@ fn a_failed_region_export_fails_the_release() {
 
 // ---- a lane that appends a release's changes (root ADR-0275) --------------------------------
 
+/// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
+/// ADR-0311); the other two state why they still write whole.
+const COMPARING_LANES: [Lane; 5] = [
+    Lane::LandCharacteristic,
+    Lane::LandForestLedger,
+    Lane::LandIndividualPrice,
+    Lane::LandRightRegistration,
+    Lane::LandTransferHistory,
+];
+
 #[test]
-fn only_the_transfer_history_lane_compares_and_never_on_its_key_or_load_columns(
-) -> anyhow::Result<()> {
+fn the_comparing_land_lanes_never_compare_their_key_or_load_columns() -> anyhow::Result<()> {
     for lane in LAND_LANES {
-        let compared = lane.contract()?.compare_content;
-        if lane == Lane::LandTransferHistory {
-            let content = compared.context("the transfer history lane appends its changes")?;
-            for column in [
-                "pnu",
-                "transfer_history_seq",
+        let contract = lane.contract()?;
+        let compared = contract.compare_content;
+        if COMPARING_LANES.contains(&lane) {
+            let content = compared.with_context(|| format!("{lane:?} appends its changes"))?;
+            let latest = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(
+                &contract.table,
+            )
+            .and_then(|table| table.current_row_latest)
+            .with_context(|| format!("{lane:?} declares its current rows"))?;
+            for column in latest.key.iter().copied().chain([
                 "data_reference_date",
                 "source_record_id",
-            ] {
-                assert!(!content.iter().any(|c| c == column), "compares {column}");
+                "source_snapshot_id",
+                "ingested_at_utc",
+                "row_state",
+            ]) {
+                assert!(
+                    !content.iter().any(|c| c == column),
+                    "{lane:?} compares {column}"
+                );
             }
         } else {
             assert_eq!(compared, None, "{lane:?} publishes its release whole");
@@ -867,7 +886,7 @@ fn a_compare_the_table_cannot_answer_is_refused() -> anyhow::Result<()> {
             compare(serde_json::json!(["no_such_column"])),
         ),
         (Lane::LandTransferHistory, compare(serde_json::json!([]))),
-        // a table that does not mark vanished keys
+        // a table that does not mark vanished keys (and a lane naming compare beside full_reason)
         (Lane::LandUsePlan, compare(serde_json::json!(["pnu"]))),
         // a hub lane publishes whole
         (Lane::Titles, compare(serde_json::json!(["pnu"]))),
