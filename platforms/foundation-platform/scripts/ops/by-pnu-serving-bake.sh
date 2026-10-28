@@ -66,6 +66,7 @@
 # <lanes>` when any lane failed: the last word matches the exit status. When nothing failed or
 # published and a lane found its lock held by another run (an operator's attended bake, 2026-10-19),
 # the run waits for it like any job (held-lock.sh): `waiting the lanes <lanes> is held by another run`.
+# A lane run on its own ends with its own line: `changed`, `unchanged` or `failed <reason>`.
 #
 # The run summary (runs/<snapshot>-<mode>/run-summary.json) records the choice, its reason and the
 # counts. Never overwrites an object and never repoints a published generation. Work files live
@@ -244,6 +245,23 @@ exec 9>>"${STATE_ROOT}/lane.lock"
 if ! flock -n 9; then
   log "refused: another run of the ${UNIT} lane holds ${STATE_ROOT}/lane.lock; this run starts after it finishes"
   lock_held_by_another_run "the ${UNIT} lane"
+fi
+# A lane run on its own (not a lane of `all`, which decides the run's outcome above) ends with the
+# outcome line itself, whichever way it exits (root ADR-0260: a run without one is failed).
+if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
+  BY_PNU_BAKE_PUBLISHED="$(mktemp)"
+  lane_outcome() {
+    local code=$?
+    if ((code)); then
+      echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
+    elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
+      echo "foundation-job-outcome changed"
+    else
+      echo "foundation-job-outcome unchanged"
+    fi
+    rm -f "${BY_PNU_BAKE_PUBLISHED}"
+  }
+  trap lane_outcome EXIT
 fi
 
 # 1. What is there to do?

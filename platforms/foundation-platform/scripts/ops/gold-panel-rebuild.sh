@@ -28,7 +28,8 @@
 #    does not count as a change for the bake.
 #
 # `all` ends with `foundation-job-outcome changed` when a table committed a snapshot, `unchanged`
-# otherwise (root ADR-0171): Airflow starts the by-PNU bake only on `changed`.
+# otherwise (root ADR-0171): Airflow starts the by-PNU bake only on `changed`. A table run on its
+# own ends the same way, or with `failed <reason>` when it exits non-zero.
 #
 # --dry-run runs the producer with --validate-only: the whole transform and every check, no
 # commit. The by-PNU bake (by-pnu-serving-bake.sh) bakes a Gold snapshot its published generation
@@ -140,6 +141,25 @@ if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   fi
   rm -f "${GOLD_PANEL_REBUILD_COMMITTED}" "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
   exit "${status}"
+fi
+# A table run on its own (a job's whole program, gold_public_auction_rebuild; not a table of `all`
+# or `kinds`, which decide the run's outcome above) ends with the outcome line itself, whichever
+# way it exits (2026-10-28: every public auction run committed and was still `failed no outcome
+# reported`, so the bake was never started by it).
+if [[ -z "${GOLD_PANEL_REBUILD_COMMITTED:-}" ]]; then
+  GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
+  table_outcome() {
+    local code=$?
+    if ((code)); then
+      echo "foundation-job-outcome failed the ${UNIT} rebuild exited ${code}"
+    elif [[ -s "${GOLD_PANEL_REBUILD_COMMITTED}" ]]; then
+      echo "foundation-job-outcome changed"
+    else
+      echo "foundation-job-outcome unchanged"
+    fi
+    rm -f "${GOLD_PANEL_REBUILD_COMMITTED}"
+  }
+  trap table_outcome EXIT
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-panel-rebuild}/${UNIT}"

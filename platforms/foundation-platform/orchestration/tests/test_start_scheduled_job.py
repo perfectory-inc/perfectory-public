@@ -396,6 +396,34 @@ class TheCheckBeforeThePool(HostFixture):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.starts / "floor").exists(), "takes_turns counts runs, not checks")
 
+    def test_a_check_that_found_nothing_to_do_is_the_jobs_turn(self):
+        # Root ADR-0304, 2026-10-19..28: every daily check of the Silver lanes found nothing, their runs
+        # were skipped and never recorded, and the bake deferred every clock start to them.
+        self.record("bake", 2000)
+        self.record("floor", 1000)
+        for _ in range(3):
+            result, asked = self.start("bake")
+            self.assertIn("bake deferred: floor", result.stdout)
+            self.assertEqual(asked, "")
+            result, _ = self.start("floor check", FIXTURE_JOURNAL="plan\\nfoundation-job-check would_change\\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+        # A check that found work leaves the turn to its run: the floor still goes first.
+        self.assertEqual((self.starts / "floor").read_text(), "1000\n")
+        result, _ = self.start("floor check", FIXTURE_JOURNAL="plan\\nfoundation-job-check unchanged\\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual((self.starts / "floor").read_text(), "1000\n")
+        result, asked = self.start("bake")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("deferred", result.stdout)
+        self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+
+    def test_a_failed_check_that_said_unchanged_is_not_a_turn(self):
+        self.record("floor", 1000)
+        result, _ = self.start("floor check", FIXTURE_RESULT="exit-code",
+                               FIXTURE_JOURNAL="foundation-job-check unchanged\\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.starts / "floor").read_text(), "1000\n")
+
     def test_a_failed_check_gives_no_answer(self):
         result, _ = self.start("floor check", FIXTURE_RESULT="exit-code",
                                FIXTURE_JOURNAL="foundation-job-check unchanged\\n")
