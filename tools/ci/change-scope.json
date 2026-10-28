@@ -1,5 +1,5 @@
 {
-  "$comment": "Which changed paths make each pull-request workflow do its work (root ADR-0202). The ONE place an area's inputs are written: workflows carry no `paths:` filter. A scoped workflow always starts and its required/* context always reports; its `scope` job runs scripts/ci/change_scope.py, and an untouched area finishes green in seconds. Implicit inputs, never listed here: the workflow file itself, every repository file the workflow names (scripts, contracts), and the selector and this file (those two run everything). Every repository file an area's sources name in quotes must be an input (checked). The merge queue, a manual run and a schedule always run everything. `unscoped` workflows always run in full, each with the reason and the paths it owns; a changed path that no scoped input and no owner claims runs every scoped workflow.",
+  "$comment": "Which changed paths make each pull-request workflow do its work (root ADR-0202). The ONE place an area's inputs are written: workflows carry no `paths:` filter. A scoped workflow always starts and its required/* context always reports; its `scope` job runs scripts/ci/change_scope.py, and an untouched area finishes green in seconds. Implicit inputs, never listed here: the workflow file itself, every repository file the workflow names (scripts, contracts), and the selector and this file (those two run everything). Every repository file an area's sources name in quotes must be an input (checked). A pull request and the merge queue narrow (the queue against its base, root ADR-0313); a manual run and the nightly schedule, which every scoped workflow that the queue narrows keeps, run everything; a push to main the queue already passed on the same tree does nothing. `unscoped` workflows always run in full, each with the reason and the paths it owns; a changed path that no scoped input and no owner claims runs every scoped workflow.",
   "workflows": {
     "dawneer-ci.yml": {
       "paths": [
@@ -105,6 +105,37 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         ".github/workflows/gongzzang-*.yml"
       ]
+    },
+    "foundation-ci.yml": {
+      "paths": [
+        "platforms/foundation-platform/**",
+        "scripts/deploy/**",
+        "scripts/tiles/**",
+        "scripts/verify/integration.sh",
+        "scripts/verify/foundation-spark-runtime.sh",
+        "scripts/verify/foundation-spark-runtime-files.sh",
+        "scripts/ci/test_foundation_spark_runtime_files.py",
+        "scripts/ci/foundation_postgres_production_shape.py",
+        "scripts/ci/test_foundation_postgres_production_shape.py",
+        "scripts/guard/foundation-kafka-contract.sh",
+        "**/Cargo.lock",
+        "**/pnpm-lock.yaml",
+        "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+        "docs/technology-stack.md",
+        "docs/adr/**",
+        "docs/architecture/**",
+        "tools/xtask/**",
+        ".cargo/config.toml",
+        "rust-toolchain.toml",
+        "scripts/github/**",
+        "tools/github/**",
+        "scripts/guard/migration-approval-gates.py",
+        "tools/ci/migration-approval-gates.contract.json",
+        "scripts/ci/ci_time_budget.py",
+        "tools/container-images.env",
+        "tools/host-memory-budget.contract.json",
+        "tools/technology-versions.contract.json"
+      ]
     }
   },
   "unscoped": {
@@ -132,16 +163,10 @@
         "REUSE.toml",
         "LICENSES/**"
       ]
-    },
-    "foundation-ci.yml": {
-      "reason": "Selects its own heavy gates per job with scripts/ci/foundation_ci_scope.py; adopting this area scope there is a separate change to jobs another change is reshaping.",
-      "owns": [
-        "platforms/foundation-platform/**"
-      ]
     }
   },
   "crates": {
-    "$comment": "Which crates of a Cargo workspace a pull request verifies (root ADR-0269). `cargo xtask verify|integration <area> --affected` asks `change_scope.py crates --workspace <dir>`. A changed path selects the member whose directory holds it, then every member whose Rust sources name it (or a directory above it) in quotes, then every member that depends on those (nextest's rdeps()). Only a pull request narrows: a push to main, the merge queue, the nightly run and a manual run verify every crate. A path matching `run_all` (from the repository root) or `run_all_in_workspace` (from the workspace directory), Rust outside every member, the selector or this file verifies every crate.",
+    "$comment": "Which crates of a Cargo workspace a pull request verifies (root ADR-0269). `cargo xtask verify|integration <area> --affected` asks `change_scope.py crates --workspace <dir>`. A changed path selects the member whose directory holds it, then every member whose Rust sources name it (or a directory above it) in quotes, then every member that depends on those (nextest's rdeps()). A pull request and the merge queue narrow (root ADR-0313): a push to main the queue did not pass, the nightly run and a manual run verify every crate. A path matching `run_all` (from the repository root) or `run_all_in_workspace` (from the workspace directory), Rust outside every member, the selector or this file verifies every crate.",
     "run_all": [
       "**/Cargo.lock",
       "rust-toolchain.toml",
@@ -160,15 +185,17 @@
     ]
   },
   "guards": {
-    "$comment": "The one ordered list of guards scripts/guard/monorepo-guard.sh runs (root ADR-0207). `paths`: what can change the guard's verdict; its own script and .py, every repository file its scripts name (followed through named scripts), and for <guard>-self-test the scripts of <guard>, reads, are inputs without being listed. `always`: the guard reads every change, and why. A pull request runs the guards whose inputs it touches; main, the merge queue, the daily run, a manual or local run, an unknown comparison, or a change to the runner, scripts/guard/lib, this file or a selector run every guard. Checked by scripts/ci/test_guard_scope.py.",
+    "$comment": "The one ordered list of guards scripts/guard/monorepo-guard.sh runs (root ADR-0207). `paths`: what can change the guard's verdict; its own script and .py, every repository file its scripts name (followed through named scripts), and for <guard>-self-test the scripts of <guard>, reads, are inputs without being listed. `always`: the guard reads every change, and why, with `budget_seconds`: what it may take on a CI runner, at most 60 (root ADR-0313; the runner fails a CI sweep over it). A pull request and the merge queue run the guards whose inputs they touch; main, the daily run, a manual or local run, an unknown comparison, or a change to the runner, scripts/guard/lib, this file or a selector run every guard. Checked by scripts/ci/test_guard_scope.py.",
     "run": [
       {
         "name": "hook-isolation-self-test",
-        "always": "Re-runs fixture-building self-tests under a poisoned GIT_DIR; any guard change can break isolation."
+        "always": "Re-runs fixture-building self-tests under a poisoned GIT_DIR; any guard change can break isolation.",
+        "budget_seconds": 60
       },
       {
         "name": "no-subdir-github",
-        "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`."
+        "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`.",
+        "budget_seconds": 60
       },
       {
         "name": "technology-version-consistency",
@@ -193,7 +220,8 @@
       },
       {
         "name": "static-release-toolchain-ssot",
-        "always": "Any tracked file may restate a pinned static-release tool version or digest."
+        "always": "Any tracked file may restate a pinned static-release tool version or digest.",
+        "budget_seconds": 60
       },
       {
         "name": "foundation-kafka-contract",
@@ -241,7 +269,8 @@
       },
       {
         "name": "r2-reads-have-one-path",
-        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file."
+        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file.",
+        "budget_seconds": 60
       },
       {
         "name": "environment-variable-naming-self-test",
@@ -399,7 +428,8 @@
       },
       {
         "name": "public-repository-safety",
-        "always": "Public-tree hygiene: any tracked path or content may leak private evidence."
+        "always": "Public-tree hygiene: any tracked path or content may leak private evidence.",
+        "budget_seconds": 60
       },
       {
         "name": "tracked-paths-are-portable-self-test",
@@ -407,7 +437,8 @@
       },
       {
         "name": "tracked-paths-are-portable",
-        "always": "Every tracked path must check out on every OS; any change can add a path."
+        "always": "Every tracked path must check out on every OS; any change can add a path.",
+        "budget_seconds": 60
       },
       {
         "name": "container-runtime-policy-self-test",
@@ -419,7 +450,8 @@
       },
       {
         "name": "container-runtime-policy",
-        "always": "Every compose file, Dockerfile and shell script in any area may pull an image or publish a port."
+        "always": "Every compose file, Dockerfile and shell script in any area may pull an image or publish a port.",
+        "budget_seconds": 60
       },
       {
         "name": "every-container-has-a-memory-cap-self-test",
@@ -429,7 +461,8 @@
       },
       {
         "name": "every-container-has-a-memory-cap",
-        "always": "Walks the whole tree for compose files; any area may add a service."
+        "always": "Walks the whole tree for compose files; any area may add a service.",
+        "budget_seconds": 60
       },
       {
         "name": "runtime-secrets-contract-self-test",
@@ -454,7 +487,8 @@
       },
       {
         "name": "credential-names",
-        "always": "Reads every tracked file for a credential-shaped FOUNDATION_PLATFORM_ name."
+        "always": "Reads every tracked file for a credential-shaped FOUNDATION_PLATFORM_ name.",
+        "budget_seconds": 60
       },
       {
         "name": "container-images-match-the-contract-self-test",
@@ -465,7 +499,8 @@
       },
       {
         "name": "container-images-match-the-contract",
-        "always": "Any tracked file may carry an image digest; the contract must match all of them."
+        "always": "Any tracked file may carry an image digest; the contract must match all of them.",
+        "budget_seconds": 60
       },
       {
         "name": "workflow-policy-self-test",
@@ -508,7 +543,8 @@
       },
       {
         "name": "pinned-downloads",
-        "always": "Any script in any area may download a release outside the pinned fetcher."
+        "always": "Any script in any area may download a release outside the pinned fetcher.",
+        "budget_seconds": 60
       },
       {
         "name": "repository-identity-policy-self-test",
@@ -720,7 +756,8 @@
       },
       {
         "name": "region-code-pairs-have-one-home",
-        "always": "Walks every source and contract file for a second home of a region-code pair."
+        "always": "Walks every source and contract file for a second home of a region-code pair.",
+        "budget_seconds": 60
       },
       {
         "name": "area-registry-self-test",
@@ -728,7 +765,8 @@
       },
       {
         "name": "area-registry",
-        "always": "Walks every tracked non-prose file for a hand-written copy of the area list."
+        "always": "Walks every tracked non-prose file for a hand-written copy of the area list.",
+        "budget_seconds": 60
       },
       {
         "name": "a-deploy-verifies-the-schema-it-left-self-test",
@@ -941,7 +979,8 @@
       },
       {
         "name": "public-github-policy",
-        "always": "Pins the GitHub desired state and the publication machinery, which names every area's verification."
+        "always": "Pins the GitHub desired state and the publication machinery, which names every area's verification.",
+        "budget_seconds": 60
       },
       {
         "name": "public-root-builder",

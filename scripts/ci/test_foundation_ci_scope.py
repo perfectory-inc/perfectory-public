@@ -284,13 +284,14 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_aggregates_exactly_nine_jobs(self) -> None:
+    def test_required_foundation_aggregates_the_scope_and_nine_jobs(self) -> None:
         self.assertIn(
-            "needs: [rust-quality, suites, static-release-toolchain-windows, supply-chain, "
+            "needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, "
             "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
             self.workflow,
         )
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 9)
+        # The nine gates and the area scope job (root ADR-0313).
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 10)
 
     def test_only_a_job_that_runs_pnpm_caches_pnpm(self) -> None:
         self.assertEqual(pnpm_caches_without_pnpm(self.workflow), [])
