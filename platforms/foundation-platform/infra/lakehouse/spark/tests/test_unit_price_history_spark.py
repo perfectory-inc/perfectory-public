@@ -37,6 +37,7 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         cls.spark.sql(silver.PRICES_SQL).createOrReplaceTempView("reference_prices")
         cls.prices = (cls.spark.sql(silver.JOIN_SQL).withColumn("sido", F.lit("99"))
                       .withColumn("source_snapshot_id", F.lit("synthetic-source-a"))
+                      .withColumn("vintage", F.lit("209906"))
                       .withColumn("source_record_id", F.lit("unit-official-price/base-date-v2/99/fixture")))
         cls.units = cls.spark.createDataFrame([
             (cls.pnu, "UNIT-1", "BLDG-1", "", "101동", "101호", "101호", 1, "above_ground"),
