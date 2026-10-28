@@ -106,6 +106,12 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 - **번호는 열린 PR까지 본다**: ADR 번호와 마이그레이션 버전은 main만이 아니라 다른 열린 PR이 이미 잡은 것도 피한다. PR CI의 `numbering_collisions.py`(`required/repository`)가 main이나 더 먼저 연 PR이 가진 번호를 거부하고 다음 빈 번호를 알려 준다. 나중에 연 쪽이 번호를 바꾼다.
 - **훅은 조언, CI가 권위**([ADR-0005](./docs/adr/0005-hooks-advisory-ci-authoritative.md)): git 훅은 빠른 로컬 편의일 뿐 권위 게이트가 아니다. host 도구(cargo/pnpm)가 없으면 훅은 실패가 아니라 **skip**한다. 무거운/툴체인 검사의 권위는 CI에 있다.
 
+## 위생 불변식
+
+엔지니어링 위생은 기계가 강제하는 불변식의 집합이다([ADR-0299](./docs/adr/0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md)). 각 규칙은 자기 가드로 CI에서 검사하고, 위반이 일으킨 실제 사고를 하나씩 막는다. 새 위생 PR은 이 목록에 한 줄씩 덧붙인다.
+
+- **스키마 변경은 expand→backfill→contract**: 바뀐 마이그레이션은 `ADD COLUMN ... NOT NULL` 을 DEFAULT·백필·공란 가드 없이 넣지 못하고, 읽는 코드가 남아 있는 `DROP`/`RENAME` 을 승인 게이트나 `expand-contract-ok:` 표식 없이 하지 못한다. `scripts/guard/expand-contract-migrations.sh` 가 PR diff 의 새 마이그레이션만 검사한다([ADR-0299](./docs/adr/0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md) 계열 E). 막는 사고: #469 가 필수열을 백필·가드 없이 넣어 migrate 가 거부되고 API 가 내려갔다.
+
 ## 작업 목록 SSOT
 
 - `AGENTS.md`에는 작업 내용을 복제하지 않는다. 운영 출시 작업은 [루트 README](./README.md)의 문서 지도에서 연결한 단일 TODO/로드맵을 따른다.

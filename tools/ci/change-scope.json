@@ -756,6 +756,16 @@
         ]
       },
       {
+        "name": "expand-contract-migrations-self-test",
+        "paths": []
+      },
+      {
+        "name": "expand-contract-migrations",
+        "paths": [
+          "**/migrations/**"
+        ]
+      },
+      {
         "name": "the-deploy-does-not-restate-the-compose-chain-self-test",
         "paths": [
           "platforms/foundation-platform/scripts/deploy/**",
