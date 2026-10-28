@@ -9,10 +9,10 @@ the release's schema. For each contract table the lakehouse holds:
    id), so no data is rewritten.
 2. Contract columns the table lacks are planned. A required one on a table with rows needs a
    backfill registered in BACKFILLS -- the function the table's own build uses for that column --
-   or the run stops before changing anything.
+   or the run stops before changing anything. A registered optional column is backfilled too.
 3. `--mode apply` adds the columns (contract order) and runs the registered backfills: rows read
    from the current main snapshot, pinned by id; the filled column checked for the same row
-   count and no empty value; the overwrite rejects concurrent changes and is read back. A required
+   count and no empty value; the overwrite rejects concurrent changes and is read back. A
    registered column left empty after a failed migration is filled on retry.
 4. A table the contract declares range distributed is given the contract's sort order as its
    Iceberg write order (`WRITE ORDERED BY`, root ADR-0164). A metadata commit: rows already
@@ -55,6 +55,7 @@ BACKFILLS: dict[tuple[str, str], tuple[str, str]] = {
     ("gold.building_panel", "row_digest"): ("building_panel_silver_to_gold", "row_digest_column"),
     ("silver.parcel_number_change_history", "source_region_code"): (
         "vworld_parcel_number_change_history", "source_region_code_column"),
+    ("silver.unit_official_price", "vintage"): ("unit_official_price", "vintage_column"),
 }
 
 
@@ -153,7 +154,10 @@ def plan_table(
     reorder = list(actual) != present_in_contract_order
     required = {column["name"] for column in contract["columns"] if column["required"]}
     missing = [name for name in expected if name not in actual]
-    backfills = [name for name in expected if name in required and has_rows
+    # A registered backfill runs for an optional column too: one the scan must read null in earlier
+    # data files (root ADR-0259 section 3) is still filled for the rows already there.
+    backfills = [name for name in expected
+                 if (name in required or (table_name, name) in BACKFILLS) and has_rows
                  and (name in missing or name in needs_backfill)]
     unregistered = [name for name in backfills if (table_name, name) not in BACKFILLS]
     if unregistered:
@@ -295,9 +299,9 @@ def inspect_table(spark: SparkSession, quoted: str, contract: dict, table_name: 
     plan_table(contract, actual, False, table_name, actual_types=types, actual_nullability=nullable)
     has_rows = frame.limit(1).count() > 0
     # ADD COLUMN and backfill are separate commits. A failed backfill must remain actionable on
-    # the next deploy even though its required column now exists.
+    # the next deploy even though its column now exists.
     incomplete = tuple(column["name"] for column in contract["columns"]
-                       if column["required"] and column["name"] in actual
+                       if column["name"] in actual
                        and (table_name, column["name"]) in BACKFILLS and has_rows
                        and frame.where(empty_value(contract, column["name"])).limit(1).count())
     return plan_table(contract, actual, has_rows, table_name, actual_types=types,

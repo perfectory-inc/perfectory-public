@@ -1,8 +1,9 @@
 //! HUB exclusive-unit observations bridging management keys and unit labels (ADR-0094).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
+    LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -106,7 +107,12 @@ pub const SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Canonical,
         current_row_predicate: None,
-        current_row_latest: None,
+        row_versions: LakehouseRowVersions::Editions {
+            edition_column: "vintage",
+            newest_first: &["vintage"],
+            per: &[],
+            read: LakehouseEditionRead::Newest,
+        },
         columns: COLUMNS,
         partition_spec: &["vintage"],
         sort_order: &["pnu", "mgmt_key", "dong_name", "ho_name"],

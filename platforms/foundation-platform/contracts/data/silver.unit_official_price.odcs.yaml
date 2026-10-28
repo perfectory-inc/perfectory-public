@@ -55,6 +55,10 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
+      - name: "vintage"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "source_record_id"
         physicalType: "string"
         logicalType: "string"

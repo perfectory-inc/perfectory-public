@@ -1,8 +1,8 @@
 //! Named `AL_D195` CSV attributes; price remains owned by the price lane (root ADR-0087).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_LAND_CHARACTERISTIC_COLUMNS: &[LakehouseColumn] = &[
@@ -155,7 +155,11 @@ pub const SILVER_LAND_CHARACTERISTIC: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Keyless {
+            reason: "the VWorld source repeats keys and gives no row id (root ADR-0090); a key is measured before this lane may append (root ADR-0275)",
+        },
+    },
     columns: SILVER_LAND_CHARACTERISTIC_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "data_reference_date"],
