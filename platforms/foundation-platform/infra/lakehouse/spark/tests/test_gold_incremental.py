@@ -78,6 +78,29 @@ class PlanMode(unittest.TestCase):
                 self.assertIn(needle, "; ".join(decision["mode_reasons"]))
                 self.assertIsNone(decision["previous_source_snapshots"])
 
+    def test_the_full_rebuild_is_chosen_when_finding_the_change_reads_more_rows(self):
+        # Root ADR-0326, the 2026-10-28 building panel: whole releases of the large input are read
+        # twice to find the change; the full rebuild reads each input once.
+        def table(*snapshots):
+            return {"head": snapshots[-1]["snapshot_id"], "snapshots": list(snapshots)}
+        small = table(snap("21", None, **{"total-records": "100"}))
+        overwritten = table(snap("11", None, "overwrite", 1000, **{"total-records": "1000"}),
+                            snap("12", "11", "overwrite", 1000, **{"total-records": "1000"}))
+        decision = self.plan(gold(), {"silver.a": overwritten, "silver.b": small})
+        self.assertEqual(decision["mode"], "full", decision)
+        self.assertIn("finding the change reads 2000 rows of ['silver.a'], more than the 1100 rows",
+                      decision["mode_reasons"][0])
+        # Appends are read as their added rows (root ADR-0189): 50 rows, the merge.
+        appended = table(snap("11", None, "append", 1000, **{"total-records": "1000"}),
+                         snap("12", "11", "append", 50, **{"total-records": "1050"}))
+        self.assertEqual(self.plan(gold(), {"silver.a": appended, "silver.b": small})["mode"], "incremental")
+        # A compaction between breaks the append span, as it does for the producer.
+        compacted = table(*appended["snapshots"], snap("13", "12", "replace", 1050, **{"total-records": "1050"}))
+        self.assertEqual(self.plan(gold(), {"silver.a": compacted, "silver.b": small})["mode"], "full")
+        # A count the history does not record decides nothing.
+        unrecorded = table(snap("11", None, "overwrite", 1000), snap("12", "11", "overwrite", 1000))
+        self.assertEqual(self.plan(gold(), {"silver.a": unrecorded, "silver.b": small})["mode"], "incremental")
+
     def test_a_compaction_after_the_build_still_merges(self):
         decision = self.plan(gold(snap("91", "90", "replace", 5)), silver())
         self.assertEqual(decision["mode"], "incremental", decision["mode_reasons"])

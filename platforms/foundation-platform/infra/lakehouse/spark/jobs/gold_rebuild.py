@@ -33,8 +33,9 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
   fewer before it writes, so a refused rebuild commits nothing.
 - A rebuild has a `mode` (root ADR-0180): `incremental` when the contract allows it, the current
   Gold head is a producer commit with pins (compactions may follow), every changed input's pinned
-  snapshot is still kept, and no changed input is one the producer reads whole; the producer then
-  recomputes only the PNUs whose inputs changed (gold_incremental.py). Otherwise `full`, with
+  snapshot is still kept, no changed input is one the producer reads whole, and finding the change
+  does not read more rows than the full rebuild (root ADR-0326, from the snapshots' recorded counts);
+  the producer then recomputes only the PNUs whose inputs changed (gold_incremental.py). Otherwise `full`, with
   `mode_reasons`. Every table declares `incremental` or the `full_reason` it rebuilds whole for;
   the contract is refused otherwise (root ADR-0312 §2).
 
@@ -325,7 +326,56 @@ def incremental_mode(entry: dict[str, Any], gold: dict[str, Any] | None,
         if previous[name] not in kept:
             reasons.append(f"{name}: snapshot {previous[name]} the Gold was built from is no longer kept, "
                            "so the change cannot be read")
+    if not reasons:
+        reasons += costlier_to_read_the_change(silver, pins, previous, changed)
     return ("full", reasons, None) if reasons else ("incremental", [], previous)
+
+
+def total_rows(snapshots: list[dict[str, Any]], snapshot_id: str) -> int | None:
+    snapshot = next((s for s in snapshots if s["snapshot_id"] == snapshot_id), None)
+    total = None if snapshot is None else (snapshot.get("summary") or {}).get("total-records")
+    return None if total is None else int(total)
+
+
+def change_read_rows(snapshots: list[dict[str, Any]], pin: str, head: str) -> int | None:
+    """The rows the incremental rebuild reads to find what changed in one input from `pin` to `head`
+    (root ADR-0326): the rows the appends added when every snapshot since the pin appends (root
+    ADR-0189, the producer's own test), else both snapshots whole (root ADR-0180 §1). None when a
+    snapshot does not record what it needs."""
+    from gold_incremental import appended_span
+
+    chain = {int(s["snapshot_id"]): (None if s.get("parent_id") is None else int(s["parent_id"]), s.get("operation"))
+             for s in snapshots}
+    if appended_span(chain, int(pin), int(head)):
+        added = 0
+        for snapshot in ancestry(snapshots, head):
+            if snapshot["snapshot_id"] == pin:
+                return added
+            value = (snapshot.get("summary") or {}).get("added-records")
+            if value is None:
+                return None
+            added += int(value)
+        return None
+    old, new = total_rows(snapshots, pin), total_rows(snapshots, head)
+    return None if old is None or new is None else old + new
+
+
+def costlier_to_read_the_change(silver: dict[str, dict[str, Any] | None], pins: dict[str, str],
+                                previous: dict[str, str], changed: list[str]) -> list[str]:
+    """Why the full rebuild is cheaper than finding the change, or nothing (root ADR-0326).
+
+    The incremental rebuild reads every changed input twice over before it knows how many PNUs
+    changed; the full rebuild reads every input once. When the first is more rows, the merge cannot
+    be the cheaper commit whatever it finds: on 2026-10-28 the building panel read 2.3 billion rows for
+    117 minutes to learn that every PNU changed, then timed out in the full rebuild it fell back to.
+    Unknown counts decide nothing; the producer's own bound (max_changed_key_fraction) still applies.
+    """
+    reading = [change_read_rows(silver[name]["snapshots"], previous[name], pins[name]) for name in changed]
+    building = [total_rows(silver[name]["snapshots"], pins[name]) for name in pins]
+    if not changed or None in reading or None in building or sum(reading) <= sum(building):
+        return []
+    return [f"finding the change reads {sum(reading)} rows of {changed}, more than the {sum(building)} rows "
+            "the full rebuild reads, so the full rebuild is the cheaper commit"]
 
 
 def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] | None,
