@@ -6,7 +6,8 @@
 #   foundation-deploy.sh <40-hex commit on main>
 #
 # Root only. Every job list comes from orchestration/jobs.v1.json of the release being replaced:
-# the DAGs paused and the services waited for are its jobs, and the jobs started once under the new
+# the DAGs paused and the services waited for are those of its jobs the new release holds
+# (release_changes.py, root ADR-0308), and the jobs started once under the new
 # release are those it marks `started_once_after_deploy`. Before the switch the new release runs the
 # staging smoke (root ADR-0177); a smoke that fails refuses the release like any step before the
 # switch. Stops at the first failure; every step is
@@ -59,6 +60,10 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
+    elif which == "units":
+        # What step 0 stops or waits for (root ADR-0301, ADR-0308); a registry before ADR-0301 says
+        # nothing, and a job that says nothing is waited for.
+        print(job["id"], job["systemd_service"], "yes" if job.get("interruptible") is True else "no")
     elif which == "started-once" and job["enabled"] and job.get("started_once_after_deploy"):
         # One run's limit (root ADR-0270 §1), the sum job_specs.run_limit_minutes makes: the deploy
         # starts the unit itself, so it never waits for the host;
@@ -119,44 +124,92 @@ rm -rf "${preflight}"
 ((preflight_status == 0)) || exit "${preflight_status}"
 
 log "pre-flight: what ${sha} changes and which jobs write it (root ADR-0270 §3 deploys D3, D5)"
-# The answer names the jobs held until the release is live (step 2b gives every other job its
-# schedule back after the build). A deploy that cannot tell holds every job, as before D5.
+# The answer names the jobs held until the release is live. A deploy that cannot tell holds every
+# job, as before D5.
 changes="$(mktemp -d /var/lib/perfectory/changes-XXXXXX)"
 hold=("*")
 git --git-dir="${mirror}" archive "${sha}" platforms/foundation-platform/scripts/deploy/release_changes.py \
   platforms/foundation-platform/orchestration/jobs.v1.json platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json \
   platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json \
-  platforms/foundation-platform/migrations | tar -x -C "${changes}" \
+  platforms/foundation-platform/migrations tools/release-build.contract.json | tar -x -C "${changes}" \
   && python3 -I -B "${changes}/platforms/foundation-platform/scripts/deploy/release_changes.py" \
     "${release_root}/current" "${changes}/platforms/foundation-platform" --hold-file "${changes}/hold" \
   && mapfile -t hold <"${changes}/hold" \
   || { hold=("*"); echo "foundation-deploy: cannot tell what ${sha} changes; every job is held until the release is live" >&2; }
+# What step 0 drains (root ADR-0308): the held jobs and nothing else, since a release from the registry
+# is pulled, not built, and a run keeps the release it started with (D1). A release the host builds
+# (artifacts_from: server-build, the rollback of ADR-0276) needs the 22g builder, and by the memory
+# budget nothing else fits beside it (ADR-0137 §3-4): every job, as before.
+drain=("${hold[@]}")
+artifacts_from="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["artifacts_from"])' \
+  "${changes}/tools/release-build.contract.json" 2>/dev/null)" || artifacts_from=""
+[[ "${artifacts_from}" == registry ]] || drain=("*")
 : >"${changes}.hold"
 ((${#hold[@]} == 0)) || printf '%s\n' "${hold[@]}" >"${changes}.hold"
 rm -rf "${changes}"
+drains_all=no
+[[ " ${drain[*]-} " != *" * "* ]] || drains_all=yes
 
-log "0. pause the DAGs and wait until no registered job runs (oneshot jobs show 'activating')"
-# From here until step 7 the DAGs are paused. A deploy that stops before the release switch gives the
-# running release its schedule back; one that stops during the switch says loudly that they stay
-# paused (deploy-start-once.sh, root ADR-0173). A signal (the unit's time limit) ends it the same way.
+log "0. pause and drain what ${sha} holds (root ADR-0308): ${drain[*]:-nothing}"
+# From here until step 7 the drained DAGs are paused; every other job keeps its schedule and its run.
+# A deploy that stops before the release switch gives the running release its schedule back; one that
+# stops during the switch says loudly that the held ones stay paused (deploy-start-once.sh, root
+# ADR-0173). A signal (the unit's time limit) ends it the same way.
 phase=before-switch
 trap 'status=$?; rm -f "${deploy_hold}"; deploy_paused_dags_on_exit "${status}" "${phase}" "${sha}"' EXIT
 trap 'exit 143' TERM INT HUP
-printf 'pid %s\n*\n' "$$" >"${deploy_hold}"
-for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
-echo "paused ${#jobs[@]} DAGs"
-# Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
-for id in "${disabled[@]}"; do airflow dags pause "foundation_${id}" >/dev/null 2>&1 || true; done
-running=75
-for _ in $(seq 1 1800); do
-  running=0
-  busy="$("${admission}" running-jobs)" || running=$?
-  ((running == 75)) || break
-  sleep 10
-done
+{ printf 'pid %s\n' "$$"; ((${#drain[@]} == 0)) || printf '%s\n' "${drain[@]}"; } >"${deploy_hold}"
+if [[ "${drains_all}" == yes ]]; then
+  for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
+  echo "paused ${#jobs[@]} DAGs"
+  # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
+  for id in "${disabled[@]}"; do airflow dags pause "foundation_${id}" >/dev/null 2>&1 || true; done
+else
+  count=0
+  for id in "${drain[@]}"; do
+    [[ " ${jobs[*]-} " == *" ${id} "* ]] || continue
+    airflow dags pause "foundation_${id}" >/dev/null
+    count=$((count + 1))
+  done
+  echo "paused ${count} DAGs; every other job keeps its schedule and its run"
+fi
+# The drained jobs' units, and those a deploy stops instead of waiting for (root ADR-0301 §2): an
+# interruptible job is append-only and resumable, so a held one is stopped and runs again afterwards.
+held_units=() stoppable=()
+while read -r id service interruptible; do
+  [[ "${drains_all}" == yes || " ${drain[*]-} " == *" ${id} "* ]] || continue
+  held_units+=("${service}")
+  [[ "${interruptible}" != yes ]] || stoppable+=("${service}")
+done < <(jobs_of units)
+running=0
+if ((${#drain[@]} > 0)); then
+  stopped=" "
+  running=75
+  for _ in $(seq 1 1800); do
+    running=0
+    busy="$("${admission}" running-jobs)" || running=$?
+    ((running == 75)) || break
+    # Only a drained job is waited for; any other registered job runs on through the release switch.
+    waiting=()
+    while read -r unit _; do
+      [[ -n "${unit}" && " ${held_units[*]-} " == *" ${unit} "* ]] && waiting+=("${unit}")
+    done <<<"${busy}"
+    if ((${#waiting[@]} == 0)); then running=0; break; fi
+    for unit in "${waiting[@]}"; do
+      [[ " ${stoppable[*]-} " == *" ${unit} "* && "${stopped}" != *" ${unit} "* ]] || continue
+      systemctl stop --no-block "${unit}"
+      stopped+="${unit} "
+      echo "stopped ${unit}: ${sha} holds it and it is interruptible; it runs again after the deploy (root ADR-0301)"
+    done
+    busy="$(printf '%s\n' "${waiting[@]}")"
+    sleep 10
+  done
+fi
 case "${running}" in
-  0) echo "no registered job is running" ;;
-  75) echo "jobs still running after 5h: $(tr '\n' ' ' <<<"${busy}")"; exit 1 ;;
+  0) if ((${#drain[@]} == 0)); then echo "${sha} holds no job: nothing is paused, waited for or stopped"
+     elif [[ "${drains_all}" == yes ]]; then echo "no registered job is running"
+     else echo "no held job is running"; fi ;;
+  75) echo "held jobs still running after 5h: $(tr '\n' ' ' <<<"${busy}")"; exit 1 ;;
   *) echo "foundation-deploy: release admission cannot tell which registered jobs run (exit ${running})" >&2; exit 1 ;;
 esac
 
@@ -173,18 +226,23 @@ ln -sfn "releases/${sha}" "${control_root}/current.next"
 mv -T "${control_root}/current.next" "${control_root}/current"
 release="${control_root}/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh"
 
-log "2. prepare (admission build under the build lock)"
+log "2. prepare (release admission: the signed release from the registry, or a build under the build lock)"
 archive="$(mktemp /var/lib/perfectory/foundation-XXXXXX.tar.gz)"
 git --git-dir="${mirror}" archive --format=tar.gz -o "${archive}" "${sha}:platforms/foundation-platform"
 "${release}" prepare "${sha}" "${archive}"
 rm -f "${archive}"
 
 log "2b. the schedule comes back for every job ${sha} does not hold (root ADR-0270 §3, deploy D5)"
-# The build ran alone (root ADR-0137) and is done. A job ${sha} does not hold writes no table it
-# changes and runs no migration, so it may run while the release is switched: a run keeps the
-# release it started with (D1) and outlives the Airflow restart in step 5 (D2), and a run step 6
-# starts is joined, not doubled. The held jobs stay paused until step 7.
-deploy_unpause_unheld "${changes}.hold"
+# A job ${sha} does not hold writes no table it changes and runs no migration, so it may run while the
+# release is switched: a run keeps the release it started with (D1) and outlives the Airflow restart
+# in step 5 (D2), and a run step 6 starts is joined, not doubled. The held jobs stay paused until
+# step 7. Only a deploy that drained every job (a release built here, which ran alone, ADR-0137) has
+# anything to give back now; otherwise no unheld DAG was paused.
+if [[ "${drains_all}" == yes ]]; then
+  deploy_unpause_unheld "${changes}.hold"
+else
+  echo "no unheld DAG was paused"
+fi
 { printf 'pid %s\n' "$$"; cat "${changes}.hold"; } >"${deploy_hold}.next" && mv -f "${deploy_hold}.next" "${deploy_hold}"
 rm -f "${changes}.hold"
 

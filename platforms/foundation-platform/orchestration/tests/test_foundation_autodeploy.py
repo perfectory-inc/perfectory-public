@@ -632,13 +632,24 @@ class TheWholeDeploy(unittest.TestCase):
         (running / "scripts/deploy").mkdir(parents=True)
         once = {"source_sweep": 5, "outbox_publish": 1}
         jobs = [{"id": job, "enabled": job in self.ENABLED, "systemd_service": f"foundation-{job}.service",
-                 "timeout_minutes": once.get(job, 30), "started_once_after_deploy": job in once}
+                 "timeout_minutes": once.get(job, 30), "started_once_after_deploy": job in once,
+                 "interruptible": job == "source_sweep"}
                 for job in self.ENABLED + self.DISABLED]
         (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
-        # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>.
+        # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>; `dags list` answers
+        # each DAG's state from what it was told (an enabled one starts unpaused, a disabled one paused).
         (running / "scripts/deploy/airflow-runtime.sh").write_text(
             'if [[ "$1" == exec ]]; then shift 3; printf "%s\\n" "$*" >> "$FIXTURE_ROOT/airflow.log"\n'
+            '  [[ "$*" != "dags list -o json" ]] || python3 "$FIXTURE_ROOT/dags_list.py"\n'
             '  [[ -z "${FIXTURE_AIRFLOW_FAILS:-}" || "$*" != *"$FIXTURE_AIRFLOW_FAILS"* ]]; fi\n')
+        (root / "dags_list.py").write_text(
+            "import json, os\n"
+            f"state = {{'foundation_' + job: job in {self.DISABLED!r} for job in {self.ENABLED + self.DISABLED!r}}}\n"
+            "for line in open(os.path.join(os.environ['FIXTURE_ROOT'], 'airflow.log')):\n"
+            "    words = line.split()\n"
+            "    if words[:2] in (['dags', 'pause'], ['dags', 'unpause']):\n"
+            "        state[words[2]] = words[1] == 'pause'\n"
+            "print(json.dumps([{'dag_id': dag, 'is_paused': str(paused)} for dag, paused in state.items()]))\n")
         # The running release's compose wrapper stands in for psql on the production database: it
         # answers the ledger from FIXTURE_ROOT/applied and a setting from FIXTURE_SETTING.
         (running / "scripts/deploy/foundation-runtime.sh").write_text(
@@ -675,7 +686,8 @@ class TheWholeDeploy(unittest.TestCase):
             '[[ "$1" == running-jobs ]] || exit 64\n'
             '[[ -z "${FIXTURE_NO_ANSWER:-}" ]] || exit 65\n'
             'count="$(grep -c running-jobs "$FIXTURE_ROOT/admission.log")"\n'
-            'if ((count <= ${FIXTURE_BUSY_ANSWERS:-0})); then echo "foundation-source_sweep.service activating"; exit 75; fi\n')
+            'if ((count <= ${FIXTURE_BUSY_ANSWERS:-0})); then\n'
+            '  echo "${FIXTURE_BUSY_UNIT:-foundation-source_sweep.service} activating"; exit 75; fi\n')
         running_jobs.chmod(0o755)
         # The commit's checkout exists already, so step 1 only moves `current` to it.
         new = control_root / "releases" / HEAD / "platforms/foundation-platform/scripts/deploy"
@@ -781,8 +793,13 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no registered job is running", result.stdout)
         self.assertEqual(self.released()[0], "prepare")
 
-    def commit_tells_what_it_changes(self, changed_table=None):
-        """The commit's release_changes.py and its inputs; the running release has the same contracts."""
+    def commit_tells_what_it_changes(self, changed_table=None, artifacts_from=None):
+        """The commit's release_changes.py and its inputs; the running release has the same contracts.
+        With artifacts_from, the commit's release build contract says where its release comes from."""
+        if artifacts_from:
+            contract = self.root / "commit/tools/release-build.contract.json"
+            contract.parent.mkdir(parents=True, exist_ok=True)
+            contract.write_text(json.dumps({"artifacts_from": artifacts_from}))
         old = self.root / "opt/foundation-platform/current"
         for relative in ("scripts/deploy/release_changes.py", "orchestration/jobs.v1.json",
                          "docs/catalog/pipeline-graph.v1.json",
@@ -854,6 +871,65 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("building_register_floor", live[1:])
         self.assertNotIn("*", live[1:])
         self.assertFalse((self.root / "deploy-hold").exists(), "a finished deploy holds nothing")
+
+    # Root ADR-0308: a release from the registry is pulled, not built, so step 0 drains only what the
+    # release holds. 2026-10-26: a release that held nothing paused all 33 DAGs and waited 1.5 h on
+    # the by-PNU bake (ADR-0301); 2026-10-27: pausing and unpausing 33 DAGs twice took 2 min 50 s.
+
+    def airflow_told(self, verb):
+        return [line.split()[-1].removeprefix("foundation_")
+                for line in (self.root / "airflow.log").read_text().splitlines() if line.startswith(f"dags {verb} ")]
+
+    def test_a_registry_release_that_holds_nothing_touches_no_running_job(self):
+        self.commit_tells_what_it_changes(artifacts_from="registry")
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="1000")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"{HEAD} holds no job: nothing is paused, waited for or stopped", result.stdout)
+        self.assertEqual(self.airflow_told("pause"), [])
+        self.assertEqual(self.airflow_told("unpause"), [], "nothing was paused, so nothing is unpaused")
+        self.assertFalse((self.root / "admission.log").exists(), "nothing is asked what runs")
+        self.assertFalse((self.root / "sleep.log").exists())
+        self.assertNotIn("stop", (self.root / "systemctl.log").read_text())
+        self.assertEqual((self.root / "hold-at-prepare").read_text().splitlines()[1:], [])
+        self.assertIn("no unheld DAG was paused", result.stdout)
+
+    def test_a_registry_release_pauses_only_what_it_holds_and_never_waits_for_another_job(self):
+        # source_sweep and outbox_publish are held (the graph cannot place them); the fold is not,
+        # and its run goes on through the whole deploy.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="1000", FIXTURE_BUSY_UNIT="foundation-map_edit_fold_admin.service")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(self.airflow_told("pause")), ["outbox_publish", "source_sweep"])
+        self.assertIn("no held job is running", result.stdout)
+        self.assertFalse((self.root / "sleep.log").exists(), "an unheld job is not waited for")
+        self.assertEqual(sorted(self.airflow_told("unpause")), ["outbox_publish", "source_sweep"])
+        self.assertEqual(self.dags(), {"outbox_publish": "unpause", "source_sweep": "unpause"})
+        self.assertNotIn("dags pause foundation_vworld_parcel_edition", (self.root / "airflow.log").read_text())
+
+    def test_a_held_job_that_is_not_interruptible_is_waited_for(self):
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="2", FIXTURE_BUSY_UNIT="foundation-outbox_publish.service")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "sleep.log").read_text().split(), ["10", "10"])
+        self.assertNotIn("stop", (self.root / "systemctl.log").read_text())
+
+    def test_a_held_interruptible_job_is_stopped_once_not_waited_for_for_hours(self):
+        # Root ADR-0301 §2: 2026-10-26 an operator stopped the bake by hand after the drain had waited 1.5 h.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        result = self.deploy(FIXTURE_BUSY_ANSWERS="3")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        stops = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("stop")]
+        self.assertEqual(stops, ["stop --no-block foundation-source_sweep.service"])
+        self.assertIn("stopped foundation-source_sweep.service", result.stdout)
+
+    def test_a_release_the_host_builds_drains_every_job_as_before(self):
+        # ADR-0137: the 22g builder is the host's one-shot job; by the memory budget nothing fits beside it.
+        self.commit_tells_what_it_changes(artifacts_from="server-build")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(self.airflow_told("pause")), sorted(self.ENABLED + self.DISABLED))
+        self.assertIn("no registered job is running", result.stdout)
+        self.assertEqual((self.root / "hold-at-prepare").read_text().splitlines()[1:], ["*"])
 
     def test_a_deploy_that_stops_leaves_no_hold_behind(self):
         result = self.deploy(FIXTURE_FAIL_AT="prepare")

@@ -47,14 +47,37 @@ deploy_unpause_unheld() {
   echo "unpaused ${count} DAGs; held until the release is live: ${held[*]:-none}"
 }
 
+# The enabled job ids whose DAG Airflow lists as paused, in the order given on stdin; every one of them
+# when Airflow's list cannot be read. One question instead of an unpause per DAG (root ADR-0308): on
+# 2026-10-27 unpausing 33 DAGs one by one took 55 s, and a deploy that drains only what its release
+# holds leaves most of them unpaused.
+deploy_paused_of() {
+  local listed
+  listed="$(airflow dags list -o json 2>/dev/null)" || listed=""
+  python3 -I -c '
+import json, sys
+order = sys.stdin.read().split()
+try:
+    rows = json.loads(sys.argv[1])
+    paused = {row["dag_id"].removeprefix("foundation_") for row in rows if str(row["is_paused"]).lower() == "true"}
+except Exception:
+    paused = set(order)
+sys.stdout.write("".join(f"{job}\n" for job in order if job in paused))
+' "${listed}"
+}
+
 deploy_unpause_enabled() {
-  local id
+  local id order count=0
   local -a enabled
-  mapfile -t enabled < <(jobs_of enabled-consumers-first)
+  order="$(jobs_of enabled-consumers-first)"
+  # A filter that fails leaves nothing paused behind: every enabled DAG is unpaused, as before.
+  mapfile -t enabled < <(deploy_paused_of <<<"${order}" || printf '%s\n' "${order}")
   for id in "${enabled[@]}"; do
+    [[ -n "${id}" ]] || continue
     airflow dags unpause "foundation_${id}" >/dev/null || return 1
+    count=$((count + 1))
   done
-  echo "unpaused ${#enabled[@]} DAGs"
+  echo "unpaused ${count} DAGs"
   # A job that came due while the release built was not started; it is owed its run now (root
   # ADR-0260). Its record goes when it starts, so a trigger that fails is tried by the next deploy.
   local -a owed
@@ -69,8 +92,18 @@ deploy_unpause_enabled() {
   done
 }
 
+# deploy_step_budget <step> <started at, $SECONDS>   a step that runs on every deploy states why and how
+#     long it may take (config/deploy-steps.contract.json, root ADR-0308); over that, a line on stderr
+#     says so. A release without the contract says nothing.
+deploy_step_budget() {
+  # shellcheck disable=SC2154 # release_root is the caller's (foundation-deploy.sh)
+  local steps="${release_root}/current/scripts/deploy/deploy_steps.py"
+  [[ -f "${steps}" ]] || return 0
+  python3 -I -B "${steps}" budget "${release_root}/current" "$1" "$((SECONDS - $2))" || true
+}
+
 start_once_then_unpause() {
-  local sha="$1" entry service result
+  local sha="$1" entry service result started="${SECONDS}"
   local -a once failed=()
   mapfile -t once < <(jobs_of started-once)
   for entry in "${once[@]}"; do
@@ -81,6 +114,7 @@ start_once_then_unpause() {
     printf '%-45s %s\n' "${service}" "${result}"
     [[ "${result}" == success ]] || failed+=("${service}")
   done
+  deploy_step_budget start-once "${started}"
 
   printf '\n==== %s\n' "7. unpause the enabled DAGs"
   deploy_unpause_enabled || return 1

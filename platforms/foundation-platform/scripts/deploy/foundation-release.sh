@@ -1109,7 +1109,7 @@ migrate_runtime() {
   }
   # A release from the registry (root ADR-0276 §13) records the API and recovery images CI built and
   # admission checked against the signed manifest; they become the images compose names, unbuilt.
-  local tagged=0
+  local tagged=0 started="${SECONDS}" steps="${release_root}/current/scripts/deploy/deploy_steps.py"
   "${admission}" tag-compose-images || tagged=$?
   case "${tagged}" in
     0) ;;
@@ -1154,6 +1154,9 @@ migrate_runtime() {
   # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
   "${runtime}" up -d --wait --force-recreate prometheus alertmanager
   verify_runtime_schema
+  # It runs on every deploy and says when it took longer than its budget (root ADR-0308).
+  [[ ! -f "${steps}" ]] \
+    || python3 -I -B "${steps}" budget "${release_root}/current" postgres-chain "$((SECONDS - started))" || true
   migrate_lakehouse
 }
 
@@ -1239,6 +1242,14 @@ install_lakehouse_migration_unit() {
 
 migrate_lakehouse() {
   assert_current_release
+  # Skipped while its inputs are the bytes its last successful run here saw (root ADR-0308): the
+  # tables were brought to those contracts then. Only exit 3 skips; anything else runs it. To force a
+  # run, remove ${state_root}/deploy-steps/lakehouse-migrate.inputs.
+  local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0
+  if [[ -f "${steps}" ]]; then
+    python3 -I -B "${steps}" should-run "${release_root}/current" "${state_root}/deploy-steps" lakehouse-migrate || gate=$?
+    [[ "${gate}" != 3 ]] || return 0
+  fi
   install_lakehouse_migration_unit
   # The migration's lakehouse-target-init checks /tmp is writable; it is made before, not in `timers`.
   prepare_spark_tmp
@@ -1247,6 +1258,9 @@ migrate_lakehouse() {
   if systemctl start foundation-lakehouse-migrate.service; then
     journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
       grep -a '^lakehouse-migrate apply:' | tail -1
+    # A record that cannot be written only means the next deploy runs it again.
+    [[ ! -f "${steps}" ]] \
+      || python3 -I -B "${steps}" ran "${release_root}/current" "${state_root}/deploy-steps" lakehouse-migrate || true
   else
     journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
       grep -a '^lakehouse-migrate' | tail -40 >&2
