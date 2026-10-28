@@ -14,7 +14,7 @@
 |---|---|
 | 저장소 가드(`monorepo-guard.sh`) | `cargo xtask verify <영역>` 마다 실행 → 머지 그룹 하나에 6번. 크레이트 0개를 고른 문서 PR #870 에서 rust-quality 10.7분 중 9.3분(566 s) |
 | 머지 큐 | `change_scope.py` 의 `ALWAYS_RUN_EVENTS` 에 `merge_group` → 문서 한 줄도 전 영역·전 크레이트·전 가드. Foundation CI 중앙값 16분(12–26), monorepo-guard 11분 |
-| main 푸시 | 큐가 방금 통과시킨 **같은 커밋**(트리 `90f8ff5d…` 가 큐·푸시 양쪽 실행에 동일)을 다시 검증. Foundation CI 중앙값 17분(12–32), monorepo-guard 10분 |
+| main 푸시 | 큐가 방금 통과시킨 **같은 커밋**(큐 실행과 푸시 실행의 `head_commit.tree_id` 가 같다)을 다시 검증. Foundation CI 중앙값 17분(12–32), monorepo-guard 10분 |
 | Postgres 통합 | 게이트 없음. #870(ADR 한 장)에서 크레이트 0개 선택 **뒤에** `apt-get` 4분 7초 + 마이그레이션 빌드 18초, 테스트 0개 |
 | `always` 가드 | 이유만 적으면 됐다. 메모리 상한 가드 하나가 8.5분(느린 러너 16분) × 머지마다 6번(#895 가 0.05초로 고침) |
 

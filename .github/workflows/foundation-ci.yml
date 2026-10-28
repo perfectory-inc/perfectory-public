@@ -483,6 +483,12 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The production-shape gate's own tests run whatever the crate selection: a change to the gate
+      # alone reaches no crate, and the gate below then does not run (root ADR-0313).
+      - name: Verify the production-shape gate
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/test_foundation_postgres_production_shape.py
+
       - name: Set dynamic database URL
         env:
           POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
