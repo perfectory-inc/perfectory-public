@@ -572,6 +572,6 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
                       "'newest_first': ['ingested_at_utc'], 'removal': 'source_record_id'},", macro)
         # A key whose newest row is a removal marker has no current row, as in Spark (ADR-0275).
         self.assertIn("and ({{ rule['removal'] }} is null or {{ rule['removal'] }} <> 'removed')", macro)
-        self.assertIn("'building_register_unit': none,", macro, "an unversioned table is read as it is")
+        self.assertIn("'unit_official_price': none,", macro, "an unversioned table is read as it is")
         self.assertIn("rank() over (", macro)
         self.assertIn("where _current_row_rank = 1", macro)

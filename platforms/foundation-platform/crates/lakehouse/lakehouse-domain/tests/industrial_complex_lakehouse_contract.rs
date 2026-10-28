@@ -11,7 +11,8 @@ use lakehouse_domain::{
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT,
     SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC,
     SILVER_LAND_FOREST_LEDGER, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION,
-    SILVER_LAND_TRANSFER_HISTORY, SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
+    SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
+    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
     SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
 };
 
@@ -301,10 +302,15 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_LAND_FOREST_LEDGER.table_name
             || contract.table_name == SILVER_LAND_INDIVIDUAL_PRICE.table_name
             || contract.table_name == SILVER_LAND_RIGHT_REGISTRATION.table_name
+            || contract.table_name == SILVER_LAND_USE_PLAN.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_TITLES.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_UNITS.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_UNIT_AREAS.table_name
+            || contract.table_name == SILVER_LAND_USE_ZONE_CODES.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
         {
-            // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311).
+            // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311, ADR-0318).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest

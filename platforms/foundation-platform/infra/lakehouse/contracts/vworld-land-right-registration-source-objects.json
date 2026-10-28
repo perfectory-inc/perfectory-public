@@ -42,7 +42,8 @@
         "closure_kind_name",
         "related_parcel_code",
         "source_sigungu_code"
-      ]
+      ],
+      "bucket_prefix_length": 2
     }
   }
 }

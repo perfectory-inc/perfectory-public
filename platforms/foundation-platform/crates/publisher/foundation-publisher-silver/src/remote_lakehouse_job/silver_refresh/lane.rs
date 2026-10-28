@@ -288,6 +288,10 @@ struct CompareBlock {
     /// The columns a row's content is: never one the load writes (`data_reference_date` changes on
     /// every row of every release and made each row look changed, root ADR-0275 step 1).
     content_columns: Vec<String>,
+    /// How many leading characters of the key's first column name a compare bucket (root
+    /// ADR-0318): each bucket is compared and committed alone, so a run that runs out of time
+    /// resumes at the next one. 0 compares the release in one piece.
+    bucket_prefix_length: u32,
 }
 
 #[derive(Deserialize)]
@@ -321,6 +325,8 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     /// A land lane that appends a release's changes to `main` rather than publishing its staged
     /// branch (root ADR-0275): the columns compared. `None` publishes the release whole.
     pub compare_content: Option<Vec<String>>,
+    /// The compare's bucket width (`CompareBlock::bucket_prefix_length`); 0 without a compare.
+    pub compare_bucket_prefix_length: u32,
 }
 
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
@@ -450,10 +456,8 @@ impl LaneContract {
                 handoff_suffix,
             };
             rule.member_regex()?;
-            let compare_content = block
-                .compare
-                .map(|compare| checked_compare(&block.table, compare.content_columns))
-                .transpose()?;
+            let (compare_content, compare_bucket_prefix_length) =
+                checked_compare_block(&block.table, block.compare)?;
             return Ok(Self {
                 lane,
                 table: block.table,
@@ -465,6 +469,7 @@ impl LaneContract {
                 land: Some(rule),
                 spark,
                 compare_content,
+                compare_bucket_prefix_length,
             });
         }
         ensure!(
@@ -472,9 +477,11 @@ impl LaneContract {
             "a hub lane reads roles from the ledger month, not land member names"
         );
         ensure!(
-            block.compare.is_none(),
-            "a hub lane publishes its release whole; compare is for land lanes (root ADR-0275)"
+            block.compare.is_none() || kind.loads_as_one_run(),
+            "a part lane appends its parts; compare is for a lane that stages a whole release (root ADR-0275)"
         );
+        let (compare_content, compare_bucket_prefix_length) =
+            checked_compare_block(&block.table, block.compare)?;
         let block_roles = block
             .roles
             .context("a hub lane names the roles of its release")?;
@@ -524,7 +531,8 @@ impl LaneContract {
             handoff_prefix,
             land: None,
             spark,
-            compare_content: None,
+            compare_content,
+            compare_bucket_prefix_length,
         })
     }
 }
@@ -559,6 +567,25 @@ fn checked_full_reason(
             bail!("{table} appends; compare and full_reason are for a lane that overwrites")
         }
     }
+}
+
+fn checked_compare_block(
+    table: &str,
+    compare: Option<CompareBlock>,
+) -> anyhow::Result<(Option<Vec<String>>, u32)> {
+    let Some(compare) = compare else {
+        return Ok((None, 0));
+    };
+    // A PNU's 시도 is 2 characters; a bucket narrower than a register id's whole length still splits.
+    ensure!(
+        compare.bucket_prefix_length <= 19,
+        "{table}: compare.bucket_prefix_length {} is wider than any key it buckets",
+        compare.bucket_prefix_length
+    );
+    Ok((
+        Some(checked_compare(table, compare.content_columns)?),
+        compare.bucket_prefix_length,
+    ))
 }
 
 /// Content columns a lane may compare: its table's own, the table marks vanished keys, and none is

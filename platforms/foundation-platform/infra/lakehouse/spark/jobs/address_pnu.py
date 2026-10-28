@@ -174,7 +174,9 @@ def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:
 
     parcels = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
                            load_lakehouse_contract("silver.parcel_boundaries")).select("pnu").distinct()
-    titles = spark.table(f"`{catalog}`.`silver`.`building_register_titles`").select("pnu", "road_address_raw")
+    # The register appends only each release's changed buildings (root ADR-0318): its current rows.
+    titles = current_rows(spark.table(f"`{catalog}`.`silver`.`building_register_titles`"),
+                          load_lakehouse_contract("silver.building_register_titles")).select("pnu", "road_address_raw")
     return parcels, titles
 
 

@@ -6,7 +6,7 @@
   "load_granularity": "national",
   "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 제공자 월 중 전유부·표제부·기본개요가 모두 있는 월이다(snapshot_date 는 그 월의 1일). 하나라도 없는 더 새 월은 건너뛴다. 한 역할의 객체가 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 세 파일의 이름 OPN<YYYYMMDD> 는 같은 날이어야 한다: 호실의 부모 키 증거는 같은 내보내기 날의 표제부·기본개요에서만 온다(root ADR-0125, ADR-0169 §2).",
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-units.service 의 실행 값(root ADR-0169 §3). 한 판이 한 source_snapshot_id 라서 한 묶음으로 적재하고, gold.building_panel 이 그 하나만 읽으므로 새 판은 표를 바꿔 쓴다(overwrite). 승인된 호실 정정은 내보내기가 DB 에서 읽는다(APPLY_APPROVED_OVERRIDES).",
+    "$comment": "foundation-silver-refresh@building-register-units.service 의 실행 값(root ADR-0169 §3). 전유부 한 판(한 달)은 load branch 에 통째로 올린 뒤(overwrite, ADR-0183) main 에 발행하지 않고, compare 가 main 의 현재 행과 관리건축물대장PK(mgm_bldrgst_pk) 마다 비교해 바뀐 대장의 행 전부와 사라진 대장의 삭제 표시만 changes branch 에 PK 앞 두 자리 묶음마다 커밋하고, 묶음이 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 시간이 모자라면 남은 묶음은 다음 실행이 export 없이 잇는다. content_columns 는 판마다 모든 행에서 바뀌는 계보 열(행 id·Bronze 객체·줄 번호·valid_from_utc·행 체크섬·대장 연결 입력의 출처·적재 열)을 넣지 않는다. 승인된 호실 정정은 내보내기가 DB 에서 읽는다(APPLY_APPROVED_OVERRIDES).",
     "table": "silver.building_register_units",
     "roles": {
       "basis": "hubgokr__building_register_basis_outline",
@@ -16,9 +16,6 @@
     "export": "export-building-register-unit-silver-handoff",
     "export_chunk_rows": 250000,
     "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0},
-    "full_reason": {
-      "reason": "허브 레인은 판을 load branch 없이 main 에 한 번에 쓰고(ADR-0169) 비교 블록을 받지 않으며(lane.rs), gold.building_panel 이 입력마다 source_snapshot_id 하나만 받는다(building_panel_silver_to_gold.assert_single_snapshot). 비교 후 추가(ADR-0275)로 옮기려면 브랜치 적재와 건물 패널 독자 이전이 먼저다(ADR-0311 남은 일).",
-      "measured_cost": "2026-10-20 덮어쓰기 실측(Trino $snapshots): 19,860,453행·1,392,835,902 B 를 썼고, 앞 판과의 행 수 차이는 +12,849행이다."
-    }
+    "compare": {"content_columns": ["pnu", "register_parcel_key", "dong_join_name", "dong_name_raw", "unit_name_raw", "unit_number", "unit_label_ko", "unit_designation", "unit_designation_normalized", "floor_kind", "floor_index", "floor_number", "building_mgm_bldrgst_pk", "building_link_method", "building_link_reason", "building_main_or_annex", "building_title_unit_count", "normalization_status", "normalization_reason", "normalization_application_id"], "bucket_prefix_length": 2}
   }
 }

@@ -215,19 +215,25 @@ class EmptyRegistryTest(unittest.TestCase):
     def test_a_declared_overwrite_is_not_refused(self) -> None:
         """덮어쓰기는 자기가 쓰는 것을 대체한다. 두 번 들어가는 물음이 생기지 않는다.
 
-        레인 계약이 이유와 잰 비용(full_reason)을 적은 표만 그렇다(root ADR-0311).
+        레인 계약이 이유와 잰 비용(full_reason)을 적은 표만 그렇다(root ADR-0311). 2026-10-28 부터 저장소의
+        레인은 모두 비교하므로(ADR-0318) 그런 계약 하나를 심는다.
         """
+        from unittest import mock
+
+        import lakehouse_ingest
+
         spark = FakeAnsweringSpark(registry=[], total_records=8_064_354)
         frame = FakeBatchFrame(["hubgokr-building-register-main:20260901"], column="source_snapshot_id")
 
-        result = append_batch_once(
-            spark,
-            frame,
-            ["source_record_id"],
-            "`c`.`s`.`t`",
-            "silver.building_register_titles",
-            write_mode="overwrite",
-        )
+        with mock.patch.object(lakehouse_ingest, "overwrite_declaration", return_value=FULL_REASON):
+            result = append_batch_once(
+                spark,
+                frame,
+                ["source_record_id"],
+                "`c`.`s`.`t`",
+                "silver.building_register_titles",
+                write_mode="overwrite",
+            )
 
         self.assertTrue(result["appended"])
 
@@ -783,9 +789,12 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 self.assertNotIn(COMPARE, block, table)
                 self.assertNotIn(FULL_REASON, block, table)
         compared = sorted(t for t, b in lanes.items() if COMPARE in b)
-        self.assertEqual(compared, ["silver.land_characteristic", "silver.land_forest_ledger",
-                                    "silver.land_individual_price", "silver.land_right_registration",
-                                    "silver.land_transfer_history"])
+        # Every overwriting lane compares (ADR-0318); only the two part lanes append.
+        self.assertEqual(compared, ["silver.building_register_titles", "silver.building_register_unit_areas",
+                                    "silver.building_register_units", "silver.land_characteristic",
+                                    "silver.land_forest_ledger", "silver.land_individual_price",
+                                    "silver.land_right_registration", "silver.land_transfer_history",
+                                    "silver.land_use_plan", "silver.land_use_zone_code"])
 
     def test_a_reason_without_a_measured_cost_is_no_declaration(self) -> None:
         import json

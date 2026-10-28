@@ -40,7 +40,8 @@
         "scale_code",
         "scale_name",
         "source_sigungu_code"
-      ]
+      ],
+      "bucket_prefix_length": 2
     }
   }
 }

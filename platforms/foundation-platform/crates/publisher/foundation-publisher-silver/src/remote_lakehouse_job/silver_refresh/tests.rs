@@ -356,14 +356,30 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
             Lane::Titles,
             Box::new(|v| {
                 if let Some(block) = v["silver_refresh"].as_object_mut() {
-                    block.remove("full_reason");
+                    block.remove("compare");
                 }
             }),
         ),
         // a reason with no measured cost is not an exception anybody priced
         (
             Lane::Titles,
-            Box::new(|v| v["silver_refresh"]["full_reason"]["measured_cost"] = " ".into()),
+            Box::new(|v| {
+                if let Some(block) = v["silver_refresh"].as_object_mut() {
+                    block.remove("compare");
+                    block.insert(
+                        "full_reason".to_owned(),
+                        serde_json::json!({"reason": "r", "measured_cost": " "}),
+                    );
+                }
+            }),
+        ),
+        // a part lane appends its parts: it has no release to compare (root ADR-0318)
+        (
+            Lane::ApartmentPrice,
+            Box::new(|v| {
+                v["silver_refresh"]["compare"] =
+                    serde_json::json!({"content_columns": ["pnu"], "bucket_prefix_length": 0});
+            }),
         ),
         // both: a lane does one of them
         (
@@ -386,6 +402,19 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
         let text = planted(lane, edit)?;
         assert!(LaneContract::parse(lane, &text).is_err(), "accepted {text}");
     }
+    // A priced reason is still an exception a lane may declare instead of comparing.
+    let priced = planted(Lane::Titles, |v| {
+        if let Some(block) = v["silver_refresh"].as_object_mut() {
+            block.remove("compare");
+            block.insert(
+                "full_reason".to_owned(),
+                serde_json::json!({"reason": "r", "measured_cost": "c"}),
+            );
+        }
+    })?;
+    assert!(LaneContract::parse(Lane::Titles, &priced)?
+        .compare_content
+        .is_none());
     for lane in Lane::ALL {
         let (_, text) = lane.contract_source();
         let value: serde_json::Value = serde_json::from_str(text)?;

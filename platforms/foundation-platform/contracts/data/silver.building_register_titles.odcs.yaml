@@ -157,6 +157,10 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: true
+      - name: "row_state"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "title_row_id_not_null"

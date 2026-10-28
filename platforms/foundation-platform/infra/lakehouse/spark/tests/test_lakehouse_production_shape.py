@@ -54,10 +54,12 @@ class ProductionShape(unittest.TestCase):
         self.assertTrue(set(self.shapes) - set(self.contracts))
 
     def test_the_comparing_land_tables_gain_their_removal_column_without_a_backfill(self) -> None:
-        # Root ADR-0275, ADR-0311: a lane's first compare needs `row_state` on the table production
+        # Root ADR-0275, ADR-0311, ADR-0318: a lane's first compare needs `row_state` on the table production
         # holds; every row there is a source row, which a null says.
         for table in ("silver.land_transfer_history", "silver.land_characteristic", "silver.land_forest_ledger",
-                      "silver.land_individual_price", "silver.land_right_registration"):
+                      "silver.land_individual_price", "silver.land_right_registration", "silver.land_use_plan",
+                      "silver.land_use_zone_code", "silver.building_register_titles", "silver.building_register_units",
+                      "silver.building_register_unit_areas"):
             with self.subTest(table=table):
                 shape = self.shapes[table]
                 self.assertTrue(shape["has_rows"])

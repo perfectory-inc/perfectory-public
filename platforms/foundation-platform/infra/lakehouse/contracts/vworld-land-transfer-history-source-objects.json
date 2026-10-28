@@ -41,7 +41,8 @@
         "erased_at",
         "parcel_history_seq",
         "source_sigungu_code"
-      ]
+      ],
+      "bucket_prefix_length": 2
     }
   }
 }
