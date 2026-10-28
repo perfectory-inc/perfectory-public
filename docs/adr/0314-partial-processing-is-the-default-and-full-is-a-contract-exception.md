@@ -46,7 +46,7 @@
 
 선언하는 SSOT 는 새로 만들지 않고 이미 있는 것이다: `orchestration/jobs.v1.json` 의 작업(`scope`, 이 ADR), Silver 레인 계약(`content_columns`/`full_reason`), Gold 표 계약의 load(`incremental`/`full_reason`), CI `tools/ci/change-scope.json` 의 always 항목(이미 이유 문장을 요구한다), 배포 단계. 어휘(`full_reason`)는 모두 같다.
 
-**2. `scripts/guard/every-job-declares-its-scope.sh` 가 jobs.v1.json 을 검사한다.** scope 가 없거나 넷 밖이면, `full` 인데 세 칸 중 하나라도 비면, 부분 작업에 full 칸이 남아 있으면 실패한다. `full` 작업은 `tools/ci/full-scope-jobs.baseline.json` 에 있어야 하고, 그 목록은 줄기만 한다(`--shrink`, [`scripts/catalog/documentation_ratchets.py`](../../scripts/catalog/documentation_ratchets.py) 와 같은 래칫). 2026-10-28 기준 38개 중 24개가 `full` 이고, 각자 잰 비용과 고칠 곳을 적었다.
+**2. `scripts/guard/every-job-declares-its-scope.sh` 가 jobs.v1.json 을 검사한다.** scope 가 없거나 넷 밖이면, `full` 인데 세 칸 중 하나라도 비면, 부분 작업에 full 칸이 남아 있으면 실패한다. `full` 작업은 `tools/ci/full-scope-jobs.baseline.json` 에 있어야 하고, 그 목록은 줄기만 한다(`--shrink`, PR #894 의 문서 부채 래칫과 같은 방식). 2026-10-28 기준 38개 중 24개가 `full` 이고, 각자 잰 비용과 고칠 곳을 적었다.
 
 **3. 키로 가지치기되는 표는 그 키로 모여 있어야 하고, 매일 잰다.** 클러스터 키는 새 칸이 아니라 표 계약에 이미 있는 것이다: `write_distribution: range` 인 표의 `sort_order` 첫 칸(서빙 Gold 는 `pnu`). 매일 도는 모양 원장 점검(`scripts/ops/shape-ledger-check.py`, ADR-0259)이 그 표들의 `$files` 하한·상한을 읽어 **시도(PNU 앞 2자리) 하나를 읽을 때 여는 파일 비율의 평균**을 구하고, 50% 를 넘으면 실패한다. "시도 둘 이상에 걸친 파일 비율"은 쓰지 않는다: 정렬이 옳은 표도 파일 9~14개로 시도 17개를 덮으면 대부분 파일이 경계 둘에 걸친다(2026-10-28 정렬된 표 7개가 6~10개 파일에서 그랬다). 잰 값: 정렬된 표 0.16~0.33, 전국 범위 표 3개 1.00.
 
