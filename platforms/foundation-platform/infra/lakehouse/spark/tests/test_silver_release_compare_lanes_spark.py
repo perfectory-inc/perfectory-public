@@ -44,7 +44,7 @@ def value(column, kind, n, vintage):
         return f"99999101001{n:04d}0000"
     if kind == "string":
         return f"{column}-{n}-{vintage}"
-    if kind in ("integer", "long"):
+    if kind in ("int", "long"):
         return n
     if kind == "double":
         return float(n)
