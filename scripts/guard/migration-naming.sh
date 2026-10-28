@@ -10,7 +10,7 @@ fail=0
 declare -A seen=()
 for f in products/gongzzang/migrations/*.sql platforms/*/migrations/*.sql; do
   base=$(basename "$f")
-  if ! echo "$base" | grep -qE '^[0-9]{14}_[a-z0-9_]+\.sql$'; then
+  if ! grep -qE '^[0-9]{14}_[a-z0-9_]+\.sql$' <<<"$base"; then
     echo "FAIL migration-naming: $f (want YYYYMMDDHHMMSS_snake_case.sql)" >&2; fail=1
     continue
   fi

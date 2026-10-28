@@ -30,7 +30,7 @@ while IFS= read -r manifest; do
 
   while IFS= read -r key; do
     [ -n "$key" ] || continue
-    if printf '%s' "$key" | grep -Eq "$FORBIDDEN"; then
+    if grep -Eq "$FORBIDDEN" <<<"$key"; then
       echo "FAIL: $manifest declares forbidden dependency '$key'" >&2
       echo "      Intelligence ADR-0002 forbids pinning an unapproved embedding provider or vector index." >&2
       echo "      Write the engine ADR first, then update docs/technology-stack.md and this guard in the same commit." >&2

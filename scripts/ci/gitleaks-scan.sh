@@ -26,7 +26,7 @@ if [ ! -f "$policy" ] || [ ! -f "$config" ]; then
 fi
 # shellcheck disable=SC1090 -- policy is a versioned two-scalar shell contract.
 source "$policy"
-if ! printf '%s\n' "$GITLEAKS_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$GITLEAKS_VERSION"; then
   echo "FAIL gitleaks-scan: malformed pinned release policy" >&2
   exit 1
 fi
@@ -34,7 +34,7 @@ for checksum_name in \
   GITLEAKS_LINUX_X64_SHA256 GITLEAKS_LINUX_ARM64_SHA256 \
   GITLEAKS_DARWIN_X64_SHA256 GITLEAKS_DARWIN_ARM64_SHA256 \
   GITLEAKS_WINDOWS_X64_SHA256 GITLEAKS_WINDOWS_ARM64_SHA256; do
-  if ! printf '%s\n' "${!checksum_name:-}" | grep -Eq '^[0-9a-f]{64}$'; then
+  if ! grep -Eq '^[0-9a-f]{64}$' <<<"${!checksum_name:-}"; then
     echo "FAIL gitleaks-scan: malformed checksum policy for $checksum_name" >&2
     exit 1
   fi
@@ -55,7 +55,7 @@ case "$kernel" in
 esac
 checksum_name="GITLEAKS_$(printf '%s_%s' "$platform" "$architecture" | tr '[:lower:]' '[:upper:]')_SHA256"
 expected_sha="${!checksum_name:-}"
-if ! printf '%s\n' "$expected_sha" | grep -Eq '^[0-9a-f]{64}$'; then
+if ! grep -Eq '^[0-9a-f]{64}$' <<<"$expected_sha"; then
   echo "FAIL gitleaks-scan: missing checksum for ${platform}_${architecture}" >&2
   exit 1
 fi

@@ -124,7 +124,7 @@ verify_dockerfile=tools/verify-image/Dockerfile
 pin_file=tools/container-images.env
 if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
   pinned_toolchain=$(sed -n 's/^RUST_TOOLCHAIN_IMAGE=//p' "$pin_file" | tr -d '\r')
-  verify_rust_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^rust:' | head -1)
+  verify_rust_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^rust:' | sed -n 1p)
   if [ -z "$pinned_toolchain" ] || [ -z "$verify_rust_base" ]; then
     echo "FAIL technology-version: could not read the toolchain pin or the verification image base" >&2
     fail=1
@@ -136,7 +136,7 @@ if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
   fi
 
   pinned_node=$(sed -n 's/^NODE_VERIFY_IMAGE=//p' "$pin_file" | tr -d '\r')
-  verify_node_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^node:' | head -1)
+  verify_node_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^node:' | sed -n 1p)
   if [ -z "$pinned_node" ] || [ -z "$verify_node_base" ]; then
     echo "FAIL technology-version: could not read the Node pin or verification image Node stage" >&2
     fail=1
@@ -202,7 +202,7 @@ while IFS=$'\t' read -r crate requirement; do
       *'workspace = true'*) continue ;;
     esac
     declaration=${line#*:*:}
-    value=$(printf '%s\n' "$declaration" | sed -n -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/p; s/.*version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' | head -1)
+    value=$(printf '%s\n' "$declaration" | sed -n -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/p; s/.*version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' | sed -n 1p)
     if [ "$value" != "$requirement" ]; then
       echo "FAIL technology-version: $crate must be required as \"$requirement\" (tools/technology-versions.contract.json):" >&2
       echo "  $line" >&2

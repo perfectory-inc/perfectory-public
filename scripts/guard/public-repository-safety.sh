@@ -282,10 +282,8 @@ for exact_hashed_text in \
   attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
     -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
     -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text eol -- "$exact_hashed_text")"
-  if ! printf '%s\n' "$attributes" \
-    | grep -Fq "$exact_hashed_text: text: auto" \
-    || ! printf '%s\n' "$attributes" \
-      | grep -Fq "$exact_hashed_text: eol: lf"; then
+  if ! grep -Fq "$exact_hashed_text: text: auto" <<<"$attributes" \
+    || ! grep -Fq "$exact_hashed_text: eol: lf" <<<"$attributes"; then
     fail "exact-hashed legal artifact lacks LF checkout attributes: $exact_hashed_text"
   fi
 done
@@ -296,10 +294,8 @@ for windows_script in \
   attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
     -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
     -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text eol -- "$windows_script")"
-  if ! printf '%s\n' "$attributes" \
-    | grep -Fq "$windows_script: text: set" \
-    || ! printf '%s\n' "$attributes" \
-      | grep -Fq "$windows_script: eol: crlf"; then
+  if ! grep -Fq "$windows_script: text: set" <<<"$attributes" \
+    || ! grep -Fq "$windows_script: eol: crlf" <<<"$attributes"; then
     fail "Windows script checkout attributes are not CRLF: $windows_script"
   fi
 done
@@ -307,8 +303,7 @@ woff2_probe="products/gongzzang/apps/web/public/fonts/attribute-probe.woff2"
 woff2_attributes="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
   -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
   -u GIT_COMMON_DIR git -C "$attribute_test_root" check-attr text -- "$woff2_probe")"
-if ! printf '%s\n' "$woff2_attributes" \
-  | grep -Fq "$woff2_probe: text: unset"; then
+if ! grep -Fq "$woff2_probe: text: unset" <<<"$woff2_attributes"; then
   fail "WOFF2 checkout attributes are not binary"
 fi
 rm -rf -- "$attribute_test_root"
@@ -316,8 +311,8 @@ rm -rf -- "$attribute_test_root"
 while IFS= read -r image_ref; do
   [ -n "$image_ref" ] || continue
   case "$image_ref" in \#*) continue ;; esac
-  if ! printf '%s\n' "$image_ref" | grep -Eq \
-    '^[A-Z][A-Z0-9_]*=[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'; then
+  if ! grep -Eq \
+    '^[A-Z][A-Z0-9_]*=[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$' <<<"$image_ref"; then
     fail "tools/container-images.env contains a mutable or malformed image reference: ${image_ref%%=*}"
   fi
 done < tools/container-images.env
@@ -340,8 +335,7 @@ workflow_files="$(printf '%s\n' "$tracked" | grep -E '^\.github/workflows/[^/]+\
 # design from stale instructions.
 while IFS= read -r workflow_reference_line; do
   [ -n "$workflow_reference_line" ] || continue
-  if printf '%s\n' "$workflow_reference_line" \
-    | grep -Fq '<!-- public-repository-safety: allow-future-workflow -->'; then
+  if grep -Fq '<!-- public-repository-safety: allow-future-workflow -->' <<<"$workflow_reference_line"; then
     continue
   fi
 
@@ -441,7 +435,7 @@ while IFS= read -r workflow; do
     [ -n "$image_line" ] || continue
     image_ref="$(printf '%s' "$image_line" | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]#].*$//')"
     digest="${image_ref##*@sha256:}"
-    if [ "$digest" = "$image_ref" ] || [ "${#digest}" -ne 64 ] || printf '%s' "$digest" | grep -Eq '[^0-9a-f]'; then
+    if [ "$digest" = "$image_ref" ] || [ "${#digest}" -ne 64 ] || grep -Eq '[^0-9a-f]' <<<"$digest"; then
       fail "$workflow has a service image without an immutable sha256 digest: $image_ref"
     fi
   done < <(grep -E '^[[:space:]]+image:[[:space:]]*' "$workflow" || true)

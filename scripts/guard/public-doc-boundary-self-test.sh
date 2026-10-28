@@ -43,7 +43,7 @@ assert_rejected() {
   output="$(bash "$checker" "$test_root" 2>&1)"
   status=$?
   set -e
-  if [ "$status" -eq 0 ] || ! printf '%s\n' "$output" | grep -Fq "$expected"; then
+  if [ "$status" -eq 0 ] || ! grep -Fq "$expected" <<<"$output"; then
     echo "FAIL public-doc-boundary-self-test: $label was not rejected as expected" >&2
     printf '%s\n' "$output" >&2
     exit 1

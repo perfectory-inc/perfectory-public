@@ -314,7 +314,8 @@ verify() {
   local run="$1" name missing=0 code url
   [[ "$(docker info --format '{{.DockerRootDir}}')" == "${DOCKER_ROOT}" ]] || { log "verify: Docker's root is not ${DOCKER_ROOT}"; return 1; }
   # containerd 2 prints the merged config with single quotes (root = '/var/lib/containerd').
-  containerd config dump 2>/dev/null | grep -qE "^root = [\"']${CTRD_ROOT}[\"']$" || { log "verify: containerd's root is not ${CTRD_ROOT}"; return 1; }
+  # Process substitution, not a pipe: grep -q stops early and pipefail would report the dump's SIGPIPE.
+  grep -qE "^root = [\"']${CTRD_ROOT}[\"']$" < <(containerd config dump 2>/dev/null) || { log "verify: containerd's root is not ${CTRD_ROOT}"; return 1; }
   # Containers with a restart policy come back by themselves; the rest are started by name.
   sleep 20
   comm -23 "${run}/running-before" <(running_containers) | while read -r name; do

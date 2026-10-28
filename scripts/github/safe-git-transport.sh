@@ -129,8 +129,7 @@ if [ "$trusted_commit_identity" -eq 1 ]; then
     esac
     clean_environment+=("$identity_name=${!identity_name}")
   done
-  if ! printf '%s\n' "$GIT_AUTHOR_DATE" "$GIT_COMMITTER_DATE" \
-    | grep -Eq '^@[0-9]+ \+0000$' \
+  if ! grep -Eq '^@[0-9]+ \+0000$' < <(printf '%s\n' "$GIT_AUTHOR_DATE" "$GIT_COMMITTER_DATE") \
     || [ "$GIT_AUTHOR_DATE" != "$GIT_COMMITTER_DATE" ]; then
     echo "FAIL safe-git-transport: trusted commit dates must be one exact UTC epoch" >&2
     exit 2

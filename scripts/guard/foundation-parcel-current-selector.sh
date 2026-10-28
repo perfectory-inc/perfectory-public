@@ -36,7 +36,7 @@ while IFS= read -r -d '' candidate; do
   case "$basename" in
     spatial_tile_publication_wap.py) ;;
     *)
-      if ! printf '%s\n' "$basename" | grep -Eiq 'parcel[[:alnum:]_]*boundar' \
+      if ! grep -Eiq 'parcel[[:alnum:]_]*boundar' <<<"$basename" \
         && ! grep -Eiq 'parcel[[:alnum:]_]*boundar' "$candidate"; then
         continue
       fi
@@ -45,9 +45,7 @@ while IFS= read -r -d '' candidate; do
   # Ignore only unambiguous full-line Python/SQL comments. Inline comments and
   # string literals containing an exact selector remain fail-closed; parsing
   # both languages here would create a second analyzer.
-  if sed '/^[[:space:]]*#/d; /^[[:space:]]*--/d' "$candidate" \
-    | tr '\n' ' ' \
-    | grep -Eiq "$pattern"; then
+  if grep -Eiq "$pattern" < <(sed '/^[[:space:]]*#/d; /^[[:space:]]*--/d' "$candidate" | tr '\n' ' '); then
     echo "FAIL foundation-parcel-current-selector: handwritten selector in $candidate; use platform_contracts.current_row_predicate()" >&2
     exit 1
   fi

@@ -35,8 +35,8 @@ commit_epoch="$(python3 -c 'import datetime,json,sys; value=json.load(open(sys.a
 if [ "$author_email" != "public-root@perfectory.invalid" ] \
   || [ "$author_name" != "Perfectory" ] \
   || [ "$commit_message" != "chore: publish audited source snapshot" ] \
-  || ! printf '%s\n' "$commit_date" | grep -Eq '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
-  || ! printf '%s\n' "$commit_epoch" | grep -Eq '^[0-9]+$'; then
+  || ! grep -Eq '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' <<<"$commit_date" \
+  || ! grep -Eq '^[0-9]+$' <<<"$commit_epoch"; then
   echo "FAIL public-root-builder: public root identity policy is not approved" >&2
   exit 1
 fi
@@ -133,7 +133,7 @@ fsck_output="$("$git_transport" --repository "$destination" fsck --full --strict
   printf '%s\n' "$fsck_output" >&2
   exit 1
 }
-if printf '%s\n' "$fsck_output" | grep -Eq '(^| )((unreachable|dangling) )'; then
+if grep -Eq '(^| )((unreachable|dangling) )' <<<"$fsck_output"; then
   echo "FAIL public-root-builder: snapshot contains unreachable objects; destination retained for inspection" >&2
   printf '%s\n' "$fsck_output" >&2
   exit 1

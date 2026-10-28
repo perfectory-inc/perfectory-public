@@ -40,7 +40,7 @@ expect() {
   local err
   # A rejection must be the guard's verdict, not a crash.
   if err="$(bash "$checker" "$dir" 2>&1 >/dev/null)"; then got=accepted
-  elif printf '%s' "$err" | grep -q '^FAIL file-line-limit:'; then got=rejected
+  elif grep -q '^FAIL file-line-limit:' <<<"$err"; then got=rejected
   else got="a crash: $err"; fi
   if [ "$got" != "$verdict" ]; then
     echo "FAIL file-line-limit-self-test: $label was $got" >&2

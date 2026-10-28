@@ -30,8 +30,8 @@ for request in "${switches}/run-now.d"/*; do
   id="${request##*/}"
   [[ "${id}" =~ ${UUID} ]] || continue # a partial write or anything else
   [[ ! -e "${marks}/triggered/${id}" && ! -e "${marks}/expired/${id}" ]] || continue
-  job="$(sed -n 's/^job=\([a-z][a-z0-9_]*\)$/\1/p' "${request}" | head -n 1)"
-  expires_at="$(sed -n 's/^expires_at=//p' "${request}" | head -n 1)"
+  job="$(sed -n 's/^job=\([a-z][a-z0-9_]*\)$/\1/p' "${request}" | sed -n 1p)"
+  expires_at="$(sed -n 's/^expires_at=//p' "${request}" | sed -n 1p)"
   [[ -n "${job}" && -n "${expires_at}" ]] || { log "${id}: no job or expiry; skipped"; continue; }
   expires="$(date -d "${expires_at}" +%s 2>/dev/null)" || { log "${id}: expiry ${expires_at} unreadable; skipped"; continue; }
   if (($(date +%s) >= expires)); then
@@ -81,9 +81,9 @@ done
 for request in "${switches}"/*.stop; do
   job="${request##*/}" job="${job%.stop}"
   [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || continue
-  id="$(sed -n 's/^request=//p' "${request}" | head -n 1)"
+  id="$(sed -n 's/^request=//p' "${request}" | sed -n 1p)"
   [[ "${id}" =~ ${UUID} && ! -e "${marks}/stopped/${id}" ]] || continue
-  actor="$(sed -n 's/^actor=//p' "${request}" | head -n 1)"
+  actor="$(sed -n 's/^actor=//p' "${request}" | sed -n 1p)"
   stamp="$(sed -n '/^requested_at=/{s///p;q}' "${request}")"
   asked="$(date -d "${stamp}" +%s 2>/dev/null)" || asked=0
   if (($(date +%s) - asked > 600)); then

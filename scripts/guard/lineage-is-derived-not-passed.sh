@@ -53,7 +53,7 @@ while IFS= read -r candidate; do
   hits=$(grep -nE "${names_the_record}[[:space:]]*=" "$candidate" 2>/dev/null || true)
   [ -z "$hits" ] && continue
   report "a script hands the command an input and also names it: $candidate" \
-    "$(printf '%s' "$hits" | head -3)"
+    "$(printf '%s' "$hits" | sed -n 1,3p)"
 done < <(git ls-files '*.sh' 2>/dev/null | sort -u)
 
 # Rust commands. Reading it from the environment is the same defect one layer down: the value
@@ -63,7 +63,7 @@ while IFS= read -r candidate; do
   hits=$(grep -nE "$reads_from_env" "$candidate" 2>/dev/null || true)
   [ -z "$hits" ] && continue
   report "a command opens an input and takes its name from the environment: $candidate" \
-    "$(printf '%s' "$hits" | head -3)"
+    "$(printf '%s' "$hits" | sed -n 1,3p)"
 done < <(git ls-files '*.rs' 2>/dev/null | sort -u)
 
 if [ "$failed" -ne 0 ]; then
