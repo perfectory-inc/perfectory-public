@@ -518,13 +518,26 @@ def missing_partition_fields(contract: dict[str, Any], partitions: tuple[str, ..
 
 
 def table_partition_fields(spark: Any, table: str) -> tuple[str, ...]:
-    """A live table's current partition spec, as ``DESCRIBE TABLE`` lists it under ``# Partitioning``
-    (``Part 0`` -> ``source_snapshot_id``, ``bucket(256, pnu)``). Files written under an earlier
-    spec keep theirs; this is the spec the next write uses."""
+    """A live table's current partition spec, as ``DESCRIBE TABLE`` lists it. Spark prints identity-only
+    specs Hive style (``# Partition Information``, a ``# col_name`` header, then one column per row)
+    and any other spec as ``# Partitioning`` with ``Part 0`` -> ``bucket(256, pnu)`` rows. Files
+    written under an earlier spec keep theirs; this is the spec the next write uses."""
 
     rows = [(str(row[0] or "").strip(), str(row[1] or "").strip())
             for row in spark.sql(f"DESCRIBE TABLE {table}").collect()]
-    return tuple(value for name, value in rows if re.fullmatch(r"Part \d+", name))
+    fields: list[str] = []
+    section = None
+    for name, value in rows:
+        if name.startswith("#"):
+            section = name if name in ("# Partition Information", "# Partitioning") else (
+                section if name == "# col_name" else None)
+        elif not name:
+            section = None
+        elif section == "# Partition Information":
+            fields.append(name)
+        elif section == "# Partitioning" and re.fullmatch(r"Part \d+", name):
+            fields.append(value)
+    return tuple(fields)
 
 
 def table_properties(spark: Any, table: str) -> dict[str, str]:
