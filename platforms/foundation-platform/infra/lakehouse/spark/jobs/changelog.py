@@ -49,6 +49,10 @@ CHANGE_RECORD_KEY = "foundation.change-record"
 CHANGE_RECORD_RELEASE_COMPARE = "silver-release-compare"
 CHANGED_KEY_ROWS_KEY = "foundation.change-record.changed-key-rows"
 REMOVED_KEYS_KEY = "foundation.change-record.removed-keys"
+# On the commit that seals a compared release: the value of the table's one `newest_first` column the
+# release carries (root ADR-0318). A release that changed no key leaves no row of that value, so a
+# reader asking "which releases are loaded" reads this as well as the rows.
+RELEASE_VERSION_KEY = "foundation.compare-release-version"
 
 
 def change_record_options(changed_key_rows: int, removed_keys: int) -> dict[str, str]:
@@ -58,6 +62,23 @@ def change_record_options(changed_key_rows: int, removed_keys: int) -> dict[str,
         f"{SNAPSHOT_PROPERTY_PREFIX}{CHANGED_KEY_ROWS_KEY}": str(int(changed_key_rows)),
         f"{SNAPSHOT_PROPERTY_PREFIX}{REMOVED_KEYS_KEY}": str(int(removed_keys)),
     }
+
+
+def released_versions(snapshots: Iterable[dict[str, Any]], lineage: set[int]) -> set[str]:
+    """The release versions the sealed compares of `lineage` record (`RELEASE_VERSION_KEY`)."""
+    return {str((s.get("summary") or {})[RELEASE_VERSION_KEY]) for s in snapshots
+            if int(s["snapshot_id"]) in lineage and RELEASE_VERSION_KEY in (s.get("summary") or {})}
+
+
+def snapshot_lineage(snapshots: Iterable[dict[str, Any]], head: Any) -> set[int]:
+    """`head` and each parent back as far as `snapshots` hold them."""
+    parents = {int(s["snapshot_id"]): s.get("parent_id") for s in snapshots}
+    lineage, current = set(), None if head is None else int(head)
+    while current is not None and current in parents and current not in lineage:
+        lineage.add(current)
+        parent = parents[current]
+        current = None if parent is None else int(parent)
+    return lineage
 
 
 def recorded_steps(snapshots: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:

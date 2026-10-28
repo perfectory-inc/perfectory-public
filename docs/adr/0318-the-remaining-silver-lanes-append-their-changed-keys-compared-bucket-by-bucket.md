@@ -29,8 +29,11 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
 허브 대장 셋의 `mgm_bldrgst_pk` 는 지역 코드가 아닌 일련번호다(앞 두 자리 10·11·12 가 각각 약 256만~287만 행).
 
 이 밖에 append 레인 둘(`building_register_apartment_price`, `building_register_exclusive_unit`)은 판 전체를 다시
-붙이고, `parcel_number_change_history` 는 제공자가 파일을 다시 올리면 그 파일의 1,370,351행을 똑같이 한 번 더 붙인다.
-앞의 둘은 V1(ADR-0317, 공시가격 판을 바뀐 행만 담는 모델)이 표 모델째 다시 정하므로 여기서 건드리지 않는다.
+붙인다. 전유부 다리는 판마다 약 1,986만 행(202608 19,822,168 · 202609 19,847,604 · 202610 19,860,453)을 붙이는데,
+202609→202610 에 서울 111xx 시군구의 같은 `mgmt_key` 257,764개 중 바뀐 것은 3개다(`raw_columns` 포함, 2026-10-28).
+`parcel_number_change_history` 는 제공자가 파일을 다시 올리면 그 파일의 1,370,351행을 똑같이 한 번 더 붙인다. 가격
+다리(`building_register_apartment_price`)와 `unit_official_price` 는 V1(ADR-0317, 공시가격 판을 바뀐 행만 담는
+모델)이 표 모델째 다시 정하므로 여기서 건드리지 않는다.
 
 ## Decision
 
@@ -61,8 +64,7 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
    올리고(`overwrite`, ADR-0183) 비교 후 추가한다. 키는 `mgm_bldrgst_pk`, 최신 순서는 `source_snapshot_id`(실행 이름
    `silver-refresh-<lane>-YYYYMM-<digest>` 라 제공자 월 순이다). `content_columns` 는 판마다 모든 행에서 바뀌는 계보 열
    (행 id 가 Bronze 객체와 줄 번호로 만들어진다, `row_identity`; 행 체크섬; `valid_from_utc`; 대장 연결 입력의 출처와
-   해시; 적재 열)을 넣지 않는다. 바뀌지 않은 대장은 옛 행(옛 행 id)을 그대로 둔다. part 레인(가격·전유부 다리)은
-   append 라 비교를 받지 않는다(`lane.rs` 가 거부).
+   해시; 적재 열)을 넣지 않는다. 바뀌지 않은 대장은 옛 행(옛 행 id)을 그대로 둔다. part 레인은 7번이다.
 
 5. **모든 독자는 현재 행이나 "판 X 시점의 행"을 계약에서 받는다.** 새 함수 `platform_contracts.rows_as_of(frame,
    contract, release)` 는 계약의 `newest_first` 한 열이 `release` 이하인 행의 현재 행이다(시점 복원: 키가 마지막으로
@@ -76,12 +78,20 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
 6. **코드표도 비교한다.** `land_use_zone_code` 의 최신 순서는 `ingested_at_utc`(한 적재는 한 시각)다. 1,270행이라
    한 덩어리(0)다. 통째로 쓰는 것이 더 싸다는 이유는 "부분이 기본, 전량은 잰 예외"(ADR-0314) 앞에서 남길 만큼 크지 않다.
 
-7. **필지고유번호변동연혁은 표가 갖지 않은 행만 붙인다.** `vworld_parcel_number_change_history load` 는 객체마다
+7. **전유부 다리도 비교한다.** part 레인(`building_register_exclusive_unit`)은 부분을 판의 load branch 에 쌓고
+   (append, 이미 그렇다) 발행하는 대신 비교한다(키 `mgmt_key`, 최신 순서 `vintage`, 묶음 2). append 레인이 `compare`
+   를 적는 것은 허용하고 `full_reason` 은 여전히 거부한다(`lane.rs`). 비교의 봉인 커밋은 판이 가진 버전(계약의
+   `newest_first` 한 열의 최댓값, 여기서는 `vintage`)을 `foundation.compare-release-version` 으로 적는다: 바뀐 키가
+   하나도 없는 판은 그 vintage 의 행을 남기지 않기 때문이다. 독자 `unit_official_price` 는 vintage 목록을 행과 봉인
+   기록(`changelog.released_versions`)에서 읽고, 그 vintage 의 사전을 `rows_as_of` 로 읽는다(표 모델은 V1 의 것이라
+   읽기 두 줄만 바꾼다).
+
+8. **필지고유번호변동연혁은 표가 갖지 않은 행만 붙인다.** `vworld_parcel_number_change_history load` 는 객체마다
    표가 이미 가진 행(`EVENT_COLUMNS`: 옛·새 PNU, 동 단위, 사유, 날짜와 원문, 격리 사유, 시군구, 시도; null 끼리도 같게)을
    빼고 붙이며, 붙일 행이 없어도 객체를 같은 커밋에 기록한다(`append_source_object`). 표의 뜻은 그대로다: 제공자가
    낸 적 있는 연결은 모두 남고(append-only), 뒤 파일이 빠뜨린 연결을 지우지 않는다.
 
-8. 이제 저장소의 덮어쓰는 레인 10개는 모두 `compare` 를 적고 `full_reason` 을 적은 레인은 없다. ADR-0311 의 규칙
+9. 이제 저장소의 덮어쓰는 레인 10개는 모두 `compare` 를 적고 `full_reason` 을 적은 레인은 없다. ADR-0311 의 규칙
    (둘 중 정확히 하나)은 그대로이고, 새 예외는 잰 값과 함께 다시 적을 수 있다.
 
 ## 실제 사례
@@ -103,5 +113,5 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
   추정이고 아직 재지 않았다. 마감 덕에 상한을 넘으면 실패가 아니라 다음 날 이어진다.
 - 현재 행을 고르는 창 함수(`rank` over key)가 건물 패널·dbt 독자의 읽기에 붙는다(전유공용면적 1억 1,446만 행).
 - 판이 이틀에 걸치면 main 은 그동안 앞 판이다. 하루 늦어질 수 있지만 반쪽 판은 보이지 않는다.
-- 남은 일: 가격·전유부 다리 append 레인은 ADR-0317(V1). 묶음 비교의 운영 실측(묶음별 시간·읽은 바이트)은 첫 판이
+- 남은 일: 가격 다리 append 레인과 `unit_official_price` 는 ADR-0317(V1). 묶음 비교의 운영 실측(묶음별 시간·읽은 바이트)은 첫 판이
   들어올 때 잰다. 압축이 changes branch 를 낡게 만드는 날이 잦으면 압축 창을 비교 창과 떼는 일을 따로 정한다.

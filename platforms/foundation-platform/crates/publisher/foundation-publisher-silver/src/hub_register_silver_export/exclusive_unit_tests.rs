@@ -84,6 +84,8 @@ fn exclusive_unit_stream_preserves_labels_raw_fields_and_invalid_pnus() -> anyho
                 .columns
                 .iter()
                 .map(|c| c.name)
+                // the removal column is the release compare's, never a source row's (root ADR-0318)
+                .filter(|name| *name != "row_state")
                 .collect()
         );
     }

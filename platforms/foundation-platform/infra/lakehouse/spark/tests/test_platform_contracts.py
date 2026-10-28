@@ -148,7 +148,8 @@ class PlatformContractsTest(unittest.TestCase):
 
 
 PIPELINE_GRAPH = SPARK_DIR.parents[2] / "docs" / "catalog" / "pipeline-graph.v1.json"
-CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned"}
+# `rows_as_of` is the current rows as of a release (root ADR-0318).
+CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of"}
 
 
 def versioned_tables() -> set[str]:

@@ -59,7 +59,7 @@ class ProductionShape(unittest.TestCase):
         for table in ("silver.land_transfer_history", "silver.land_characteristic", "silver.land_forest_ledger",
                       "silver.land_individual_price", "silver.land_right_registration", "silver.land_use_plan",
                       "silver.land_use_zone_code", "silver.building_register_titles", "silver.building_register_units",
-                      "silver.building_register_unit_areas"):
+                      "silver.building_register_unit_areas", "silver.building_register_exclusive_unit"):
             with self.subTest(table=table):
                 shape = self.shapes[table]
                 self.assertTrue(shape["has_rows"])

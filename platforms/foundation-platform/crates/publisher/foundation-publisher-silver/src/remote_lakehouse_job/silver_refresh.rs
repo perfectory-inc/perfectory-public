@@ -119,7 +119,10 @@ pub(super) async fn run() -> anyhow::Result<()> {
         )
         .await?
     } else {
-        refresh_parts(&contract, &release, &runtime, &catalog, &ingested, plan).await?
+        refresh_parts(
+            &contract, &release, &runtime, &catalog, &ingested, plan, deadline,
+        )
+        .await?
     };
     let line = outcome_line(lane, &release.vintage(), &decision, &identity, rows);
     println!("{}", if plan { as_plan(&line) } else { line });
@@ -553,6 +556,7 @@ async fn refresh_parts(
     catalog: &IcebergRestCatalog,
     ingested: &BTreeSet<String>,
     plan: bool,
+    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Decision, String, Option<u64>)> {
     let prefix = contract
         .handoff_prefix
@@ -633,7 +637,23 @@ async fn refresh_parts(
         .iter()
         .map(|part| part.object_key.clone())
         .collect();
-    publish_load(catalog, &contract.table, &branch, &parts).await?;
+    if let Some(content) = &contract.compare_content {
+        // The parts are the release; main gets only its changed keys (root ADR-0318).
+        let compare = execute::ReleaseCompare {
+            branch: branch.clone(),
+            changes_branch: execute::changes_branch(&evidence_name),
+            source_snapshot_id: evidence_name.clone(),
+            objects: parts,
+            content_columns: content.clone(),
+            bucket_prefix_length: contract.compare_bucket_prefix_length,
+            deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        };
+        if !append_changes(contract, runtime, catalog, &compare).await? {
+            return Ok((Decision::CompareInProgress, key, Some(rows)));
+        }
+    } else {
+        publish_load(catalog, &contract.table, &branch, &parts).await?;
+    }
     runtime.reset_work()?;
     Ok((decision, key, Some(rows)))
 }

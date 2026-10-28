@@ -6,7 +6,16 @@
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,
-      "current_row_latest": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -97,6 +106,11 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [

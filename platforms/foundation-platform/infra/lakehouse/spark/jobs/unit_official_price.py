@@ -21,7 +21,7 @@ from pathlib import Path
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_ingest import append_batch_once
 from platform_contracts import (column_names, create_table_columns_sql, evolve_iceberg_table_to_contract,
-                                load_lakehouse_contract, partition_clause_sql)
+                                load_lakehouse_contract, partition_clause_sql, rows_as_of)
 
 CONTRACT = "silver.unit_official_price"
 # Shared SQL is executed by both Spark and relational fixture tests.
@@ -162,6 +162,20 @@ def newest_shared_vintage(exclusive_vintages, price_vintages):
     return max(shared)
 
 
+EXCLUSIVE_CONTRACT = "silver.building_register_exclusive_unit"
+
+
+def exclusive_vintages(spark, qualified_table, frame, snapshot):
+    """The vintages the unit table holds at `snapshot`: those its rows carry and those its sealed
+    compares record, since a vintage that changed no unit adds no row (root ADR-0318)."""
+    from changelog import released_versions, snapshot_lineage  # noqa: PLC0415
+
+    snapshots = [{"snapshot_id": r.snapshot_id, "parent_id": r.parent_id, "summary": r.summary or {}}
+                 for r in spark.sql(f"SELECT snapshot_id, parent_id, summary FROM {qualified_table}.snapshots").collect()]
+    held = {row.vintage for row in frame.select("vintage").distinct().collect()}
+    return sorted(held | released_versions(snapshots, snapshot_lineage(snapshots, snapshot)))
+
+
 def read_snapshot(spark, qualified_table, requested):
     snapshot = requested
     if snapshot is None:
@@ -187,11 +201,12 @@ def main(argv=None):
     try:
         assert_iceberg_runtime_loaded(spark, iceberg_packages())
         prefix = f"`{args.iceberg_catalog_name}`.`silver`"
-        exclusive, exclusive_snapshot = read_snapshot(spark, f"{prefix}.`building_register_exclusive_unit`", args.exclusive_snapshot_id)
+        exclusive_table = f"{prefix}.`building_register_exclusive_unit`"
+        exclusive, exclusive_snapshot = read_snapshot(spark, exclusive_table, args.exclusive_snapshot_id)
         prices, price_snapshot = read_snapshot(spark, f"{prefix}.`building_register_apartment_price`", args.price_snapshot_id)
         if args.vintage is None:
             args.vintage = newest_shared_vintage(
-                [row.vintage for row in exclusive.select("vintage").distinct().collect()],
+                exclusive_vintages(spark, exclusive_table, exclusive, exclusive_snapshot),
                 [row.vintage for row in prices.select("vintage").distinct().collect()],
             )
             print(json.dumps({"vintage": args.vintage, "chosen_by": "newest_shared_vintage"}), flush=True)
@@ -214,7 +229,10 @@ def main(argv=None):
             if args.summary_output:
                 Path(args.summary_output).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
             return
-        exclusive.where(F.col("vintage") == args.vintage).createOrReplaceTempView("exclusive_source")
+        # The unit table appends only each vintage's changed units (root ADR-0318): a vintage's units
+        # are each unit's newest row up to it.
+        rows_as_of(exclusive, load_lakehouse_contract(EXCLUSIVE_CONTRACT), args.vintage) \
+            .createOrReplaceTempView("exclusive_source")
         # The whole dictionary: a key split across provinces is refused.
         dictionary = spark.sql(DICTIONARY_SQL)
         dictionary.createOrReplaceTempView("unit_dictionary")

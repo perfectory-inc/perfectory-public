@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from changelog import change_record_options
+from changelog import RELEASE_VERSION_KEY, change_record_options
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_ingest import (
     MAIN,
@@ -263,9 +263,15 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
         totals["changed_key_rows"] += appended
         totals["removed_keys"] += removed
         progress["buckets_done"] += 1
-    # The seal: an empty commit that records the release's objects, so the published main says it is loaded.
-    write(staged.limit(0), target, {**snapshot_property_options(objects, ingest_batch_token(objects)),
-                                    **change_record_options(0, 0)})
+    # The seal: an empty commit that records the release's objects, so the published main says it is
+    # loaded, and the version the release carries, which a release that changed nothing has no row of.
+    seal = {**snapshot_property_options(objects, ingest_batch_token(objects)), **change_record_options(0, 0)}
+    latest = current_row_latest(contract)
+    if latest is not None and len(latest.newest_first) == 1:
+        version = staged.agg(F.max(latest.newest_first[0])).first()[0]
+        if version is not None:
+            seal[f"{SNAPSHOT_PROPERTY_PREFIX}{RELEASE_VERSION_KEY}"] = str(version)
+    write(staged.limit(0), target, seal)
     return {**report, "outcome": "staged", "resumed": False, "staged_rows": staged.count(), **progress, **totals}
 
 

@@ -476,10 +476,6 @@ impl LaneContract {
             block.source.is_none() && block.member_name.is_none() && block.completeness.is_none(),
             "a hub lane reads roles from the ledger month, not land member names"
         );
-        ensure!(
-            block.compare.is_none() || kind.loads_as_one_run(),
-            "a part lane appends its parts; compare is for a lane that stages a whole release (root ADR-0275)"
-        );
         let (compare_content, compare_bucket_prefix_length) =
             checked_compare_block(&block.table, block.compare)?;
         let block_roles = block
@@ -539,8 +535,9 @@ impl LaneContract {
 
 /// An overwriting lane names how it avoids rewriting the table (`compare`) or why it cannot yet
 /// (`full_reason` with a measured cost): `silver.land_forest_ledger` rewrote 39.9M rows a week for
-/// about 5K changes, and nothing in its contract said so (root ADR-0311). An appending lane names
-/// neither.
+/// about 5K changes, and nothing in its contract said so (root ADR-0311). An appending lane has
+/// nothing to excuse; it may compare (its parts stage on the load branch and only the changed keys
+/// reach main, root ADR-0318), and names no `full_reason`.
 fn checked_full_reason(
     table: &str,
     mode: WriteMode,
@@ -555,7 +552,7 @@ fn checked_full_reason(
     }
     match (mode, compares, full.is_some()) {
         (WriteMode::Overwrite, true, false) | (WriteMode::Overwrite, false, true) => Ok(()),
-        (WriteMode::Append, false, false) => Ok(()),
+        (WriteMode::Append, _, false) => Ok(()),
         (WriteMode::Overwrite, false, false) => bail!(
             "{table} overwrites its release: name compare.content_columns to append only the \
              changed keys (root ADR-0275), or a full_reason with its measured cost (root ADR-0311)"
@@ -563,8 +560,8 @@ fn checked_full_reason(
         (WriteMode::Overwrite, true, true) => {
             bail!("{table} names both compare and full_reason; a lane does one of them")
         }
-        (WriteMode::Append, _, _) => {
-            bail!("{table} appends; compare and full_reason are for a lane that overwrites")
+        (WriteMode::Append, _, true) => {
+            bail!("{table} appends; full_reason is for a lane that overwrites")
         }
     }
 }

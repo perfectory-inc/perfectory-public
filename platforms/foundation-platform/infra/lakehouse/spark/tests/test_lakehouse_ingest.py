@@ -786,11 +786,12 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
                 self.assertNotEqual(COMPARE in block, FULL_REASON in block, table)
             else:
-                self.assertNotIn(COMPARE, block, table)
+                # An appending lane may compare its staged parts (ADR-0318); it never excuses a full write.
                 self.assertNotIn(FULL_REASON, block, table)
         compared = sorted(t for t, b in lanes.items() if COMPARE in b)
-        # Every overwriting lane compares (ADR-0318); only the two part lanes append.
-        self.assertEqual(compared, ["silver.building_register_titles", "silver.building_register_unit_areas",
+        # Every overwriting lane compares, and so does the exclusive-unit part lane (ADR-0318).
+        self.assertEqual(compared, ["silver.building_register_exclusive_unit",
+                                    "silver.building_register_titles", "silver.building_register_unit_areas",
                                     "silver.building_register_units", "silver.land_characteristic",
                                     "silver.land_forest_ledger", "silver.land_individual_price",
                                     "silver.land_right_registration", "silver.land_transfer_history",

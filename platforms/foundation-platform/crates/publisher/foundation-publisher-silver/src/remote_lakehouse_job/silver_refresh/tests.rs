@@ -373,12 +373,12 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
                 }
             }),
         ),
-        // a part lane appends its parts: it has no release to compare (root ADR-0318)
+        // a comparing part lane has no full write to excuse (root ADR-0318)
         (
-            Lane::ApartmentPrice,
+            Lane::ExclusiveUnit,
             Box::new(|v| {
-                v["silver_refresh"]["compare"] =
-                    serde_json::json!({"content_columns": ["pnu"], "bucket_prefix_length": 0});
+                v["silver_refresh"]["full_reason"] =
+                    serde_json::json!({"reason": "r", "measured_cost": "c"});
             }),
         ),
         // both: a lane does one of them
@@ -421,7 +421,15 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
         let block = &value["silver_refresh"];
         let overwrites = block["spark"]["iceberg_write_mode"] == "overwrite";
         let declared = block.get("compare").is_some() != block.get("full_reason").is_some();
-        assert_eq!(overwrites, declared, "{lane:?}");
+        // An appending lane may compare (root ADR-0318) but never names a full write.
+        assert!(
+            if overwrites {
+                declared
+            } else {
+                block.get("full_reason").is_none()
+            },
+            "{lane:?}"
+        );
     }
     Ok(())
 }
