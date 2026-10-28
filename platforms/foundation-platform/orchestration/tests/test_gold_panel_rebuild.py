@@ -592,6 +592,10 @@ class Registration(unittest.TestCase):
             # runs the rebuild script for its lane (root ADR-0287).
             builder = "gold_kind_rebuild" if kind.follows_host_panel else next(
                 (job_id for job_id, job in jobs.items() if fed in job.get("pipeline_graph_edges", [])), None)
+            # A section kind's packs are baked by by_pnu_serving_bake; an own-producer kind's by its own
+            # dedicated bake job, which the served edge moves to so a slow panel bake never blocks it
+            # (root ADR-0303 §2). The server is the job that carries the served edge.
+            server = next((job_id for job_id, job in jobs.items() if served in job.get("pipeline_graph_edges", [])), None)
             wanted = [(gold in nodes and nodes[gold].get("table_name") == kind.gold_table, f"graph node {gold}"),
                       (surface in nodes, f"graph node {surface}"),
                       (fed in edges, f"graph edge {fed}"), (served in edges, f"graph edge {served}"),
@@ -600,7 +604,13 @@ class Registration(unittest.TestCase):
                       (kind.follows_host_panel or builder is not None and f"gold-panel-rebuild.sh {lane}" in
                        (job_specs.SYSTEMD / jobs[builder]["systemd_service"]).read_text(encoding="utf-8"),
                        f"{builder}'s unit runs gold-panel-rebuild.sh {lane}"),
-                      (served in jobs["by_pnu_serving_bake"]["pipeline_graph_edges"], f"by_pnu_serving_bake carries {served}")]
+                      (server is not None, f"a bake job carries {served}"),
+                      (kind.follows_host_panel == (server == "by_pnu_serving_bake"),
+                       f"{served} is baked by {'by_pnu_serving_bake' if kind.follows_host_panel else 'the kind own dedicated job, not by_pnu_serving_bake'}"),
+                      # `all` skips an own-producer lane, so its job must bake that lane by name, or no job does.
+                      (server is not None and "by-pnu-serving-bake.sh " + ("all" if kind.follows_host_panel else lane) in
+                       (job_specs.SYSTEMD / jobs[server]["systemd_service"]).read_text(encoding="utf-8"),
+                       f"{server}'s unit runs by-pnu-serving-bake.sh {'all' if kind.follows_host_panel else lane}")]
             missing += [f"{lane}: {what}" for ok, what in wanted if not ok]
         self.assertEqual(missing, [])
         kind_golds = {node_id(kind.gold_table) for kind in by_pnu_kinds.kinds().values() if kind.follows_host_panel}
