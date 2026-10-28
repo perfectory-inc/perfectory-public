@@ -33,7 +33,12 @@ this module adds is the machinery around it:
    their bytes, `source_snapshot_id` and `published_at_utc`; a data file that holds none of the
    merged PNUs is not rewritten. A table set to merge-on-read is refused: the by-PNU bake reads row
    data files only and refuses delete files.
-6. **Keeping the comparison point.** After a commit the producer tags each pinned Silver snapshot
+6. **Recording the change.** Every commit that changes rows by a known set appends that set to
+   `gold.<t>__changes` (root ADR-0191 §4, ADR-0312 §1): the merged PNUs under the commit's
+   (parent, head) step, plus one NULL marker so a step that changed nothing is recorded too. The
+   by-PNU bake's delta reads those PNUs instead of joining two whole snapshots; a step without a
+   record (a full overwrite, a backfill) sends it back to that join.
+7. **Keeping the comparison point.** After a commit the producer tags each pinned Silver snapshot
    (`input_tag`), so snapshot expiry cannot remove the state the next incremental run compares
    against. A pin that is gone anyway makes the planner choose the full rebuild.
 
@@ -49,6 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from changelog import CHANGES_SUFFIX, FROM_SNAPSHOT, TO_SNAPSHOT, chain
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
 KEY = "pnu"
@@ -60,6 +66,14 @@ STAGES_PREFIX = "gold-incremental-"
 MERGE_MODE_PROPERTY = "write.merge.mode"
 COPY_ON_WRITE = "copy-on-write"
 HASH_SPACE = 2**32
+# The keys a commit changed, on the commit itself: the shape-ledger check weighs the bytes it
+# rewrote against them (root ADR-0314 §4).
+KEYS_CHANGED_PROPERTY = "foundation.keys-changed"
+
+
+def keys_changed(counts: dict[str, int]) -> int:
+    """The PNUs a merge inserts, updates or deletes; recomputed PNUs that came out equal are not."""
+    return counts["inserted_pnus"] + counts["updated_pnus"] + counts["deleted_pnus"]
 
 
 class IncrementalRefusal(ValueError):
@@ -316,16 +330,21 @@ class Outcome:
             self.content_unchanged = built is not None and built == current
             if self.content_unchanged:
                 write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties)
+                record_changes(spark, table, None)
                 return
+            # A whole overwrite records no step: the bake's delta compares the two snapshots.
             write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
             return
         started = time.monotonic()
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
         unchanged = {} if current is None else {gold_fingerprint.PROPERTY: current}
         self.merged = merge_into_gold(spark, table, self.merge["source"],
-                                      pins_properties(table, pins), self.merge["row_key"],
+                                      {**pins_properties(table, pins),
+                                       KEYS_CHANGED_PROPERTY: str(keys_changed(self.merge["counts"]))},
+                                      self.merge["row_key"],
                                       unchanged)
         phase_done("merge", started)
+        record_changes(spark, table, self.merge["source"] if self.merged else None)
 
     def disposition(self, args: Any) -> str:
         return "iceberg_merge" if self.mode == "incremental" else "iceberg_" + args.iceberg_write_mode
@@ -682,3 +701,65 @@ def retain_input_snapshots(spark: Any, catalog: str, namespace: str, gold_table:
         spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE TAG `{tag}` AS OF VERSION {int(snapshot)}")
         tagged.append(name)
     return tagged
+
+
+def changes_table(table: str) -> str:
+    """`table`'s change record (root ADR-0191 naming), quoted like `table` when it is."""
+    return table[:-1] + CHANGES_SUFFIX + "`" if table.endswith("`") else table + CHANGES_SUFFIX
+
+
+def record_changes(spark: Any, table: str, changed: Any | None) -> None:
+    """Append the PNUs of `changed` (None: none) under the step `table`'s head commit just made.
+
+    Written after the Gold commit: a record that fails leaves the step unrecorded, which only sends
+    the next delta back to the two-snapshot join, so the failure is printed and not raised. Gold
+    runs are serialized by the rebuild lock, so the head is this run's commit.
+    """
+    from pyspark.sql import functions as F
+    from lakehouse_engine import current_snapshot
+
+    try:
+        head = int(current_snapshot(spark, table))
+        parent = spark.sql(f"SELECT parent_id FROM {table}.snapshots WHERE snapshot_id = {head}").first()[0]
+        target = changes_table(table)
+        spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({KEY} string, {FROM_SNAPSHOT} bigint, "
+                  f"{TO_SNAPSHOT} bigint) USING iceberg PARTITIONED BY ({TO_SNAPSHOT})")
+        marker = spark.createDataFrame([(None,)], f"{KEY} string")
+        keys = marker if changed is None else changed.select(F.col(KEY).cast("string").alias(KEY)).distinct().unionByName(marker)
+        (keys.withColumn(FROM_SNAPSHOT, F.lit(parent).cast("bigint")).withColumn(TO_SNAPSHOT, F.lit(head).cast("bigint"))
+         .coalesce(1).writeTo(target).append())
+        print(f"gold-changes-recorded table={table} step={parent}->{head}", flush=True)
+    except Exception as error:  # noqa: BLE001 - see the docstring: an unrecorded step is a slower delta, not a loss
+        print(f"gold-changes-unrecorded table={table} reason={error}", flush=True)
+
+
+def recorded_steps(snapshots: list[dict[str, Any]], recorded_heads: set[str], old: str,
+                   new: str) -> list[str] | None:
+    """The recorded heads that take `main` from `old` to `new`, or None when a step has no record.
+
+    Each record is the step from its head's parent (record_changes), so the walk is ADR-0191's
+    `chain` over those steps; a compaction between them is content-preserving.
+    """
+    parents = {str(s["snapshot_id"]): s.get("parent_id") for s in snapshots}
+    steps = [(parents[head], head) for head in recorded_heads if parents.get(head) is not None]
+    walked = chain(snapshots, steps, old, new)
+    return None if walked is None else [to for _, to in walked]
+
+
+def recorded_changes(spark: Any, table: str, old: str, new: str) -> Any | None:
+    """The PNUs whose rows `table` changed from snapshot `old` to `new`, or None when any step
+    between them is unrecorded (then only comparing the two snapshots can say)."""
+    from pyspark.sql import functions as F
+
+    target = changes_table(table)
+    if not spark.catalog.tableExists(target.replace("`", "")):
+        return None
+    snapshots = [{"snapshot_id": str(r.snapshot_id), "parent_id": None if r.parent_id is None else str(r.parent_id),
+                  "operation": r.operation}
+                 for r in spark.sql(f"SELECT snapshot_id, parent_id, operation FROM {table}.snapshots").collect()]
+    heads = {str(r[0]) for r in spark.sql(f"SELECT partition.{TO_SNAPSHOT} FROM {target}.partitions").collect()}
+    walked = recorded_steps(snapshots, heads, str(old), str(new))
+    if walked is None:
+        return None
+    return (spark.table(target).where(F.col(TO_SNAPSHOT).isin([int(h) for h in walked]) & F.col(KEY).isNotNull())
+            .select(KEY).distinct())

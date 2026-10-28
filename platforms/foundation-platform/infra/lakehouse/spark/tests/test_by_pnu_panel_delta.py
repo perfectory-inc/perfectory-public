@@ -194,5 +194,18 @@ class ComparisonSnapshotIceberg(unittest.TestCase):
         self.assertEqual(verdicts, {f"{pnu}b1": "changed", f"{pnu}b2": "deleted"})
 
 
+class RecordedChangeSet(unittest.TestCase):
+    """Root ADR-0312 §1: with recorded PNUs only they are compared; every other current row is the same."""
+
+    def test_the_rows_outside_the_recorded_pnus_count_as_unchanged(self):
+        counts = {"changed": 3, "new": 2, "deleted": 1, "same": 4}
+        self.assertEqual(delta.unchanged_rest(100, counts), 95)
+        self.assertEqual(delta.judge({**counts, "same": delta.unchanged_rest(100, counts)}, 0.1)["unchanged_count"], 95)
+
+    def test_a_row_count_below_the_recorded_pnus_is_refused(self):
+        with self.assertRaises(ValueError):
+            delta.unchanged_rest(5, {"changed": 3, "new": 2, "same": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

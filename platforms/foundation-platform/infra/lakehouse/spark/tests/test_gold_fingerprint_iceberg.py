@@ -118,5 +118,115 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
         self.assertTrue(commit("13").content_unchanged)
 
 
+@unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
+class RecordedChangesIcebergTest(unittest.TestCase):
+    """Root ADR-0312 §1: an incremental merge records the PNUs it changed, and the bake's delta compares
+    only those, with the counts the whole-snapshot join gives; a full overwrite records none, and the
+    delta joins the two snapshots again."""
+
+    TABLE = "proof.gold.recorded_panel"
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.directory = tempfile.TemporaryDirectory()
+        cls.spark = (SparkSession.builder.master("local[2]").appName("gold-recorded-changes")
+                     .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+                     .config("spark.sql.catalog.proof", "org.apache.iceberg.spark.SparkCatalog")
+                     .config("spark.sql.catalog.proof.type", "hadoop")
+                     .config("spark.sql.catalog.proof.warehouse", cls.directory.name)
+                     .config("spark.sql.session.timeZone", "UTC")
+                     .config("spark.ui.enabled", "false")
+                     .getOrCreate())
+        cls.spark.sparkContext.setLogLevel("ERROR")
+        cls.spark.sql("CREATE NAMESPACE IF NOT EXISTS proof.gold")
+        cls.spark.sql(f"CREATE TABLE {cls.TABLE} (pnu string, payload string, row_digest string) USING iceberg")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+        cls.directory.cleanup()
+
+    def head(self):
+        return str(self.spark.sql(f"SELECT snapshot_id FROM {self.TABLE}.refs WHERE name = 'main'").first()[0])
+
+    def delta(self, baseline, current, recorded=True):
+        import by_pnu_panel_delta as delta
+        import gold_incremental
+
+        work = Path(self.directory.name) / f"delta-{baseline}-{current}-{recorded}"
+        args = SimpleNamespace(unit="parcel", iceberg_catalog_name="proof", baseline_snapshot_id=baseline,
+                               current_snapshot_id=current, max_delta_fraction=1.0,
+                               upsert_output=str(work / "upserts.txt"), delete_output=str(work / "deletes.txt"))
+        tables, reader = dict(delta.GOLD_TABLES), gold_incremental.recorded_changes
+        delta.GOLD_TABLES["parcel"] = self.TABLE.split(".", 1)[1]
+        if not recorded:
+            gold_incremental.recorded_changes = lambda *_args: None
+        try:
+            metrics = delta.compare(self.spark, args)
+        finally:
+            delta.GOLD_TABLES.clear()
+            delta.GOLD_TABLES.update(tables)
+            gold_incremental.recorded_changes = reader
+        return metrics, (work / "upserts.txt").read_text().split(), (work / "deletes.txt").read_text().split()
+
+    def test_the_delta_reads_the_recorded_pnus_and_agrees_with_the_join(self):
+        from pyspark.sql import functions as F
+
+        import gold_incremental as incremental
+
+        p = [f"99999000001{n:04d}0000" for n in range(6)]
+        v1 = [(p[0], "a", "d0"), (p[1], "b", "d1"), (p[2], "c", "d2"), (p[3], "d", "d3")]
+        frame = self.spark.createDataFrame(v1, "pnu string, payload string, row_digest string")
+        incremental.Outcome(mode="full", row_count=4, metrics={}, gold=frame).commit(
+            self.spark, self.TABLE, {"silver.example": "11"}, "overwrite")
+        first = self.head()
+        # One changed, one new, one deleted, one untouched: the merge source of plan_merge.
+        source = self.spark.createDataFrame(
+            [(p[1], "b2", "d1b", False), (p[4], "e", "d4", False), (p[2], None, None, True)],
+            f"pnu string, payload string, row_digest string, {incremental.DELETE_FLAG} boolean")
+        counts = {"inserted_pnus": 1, "updated_pnus": 1, "deleted_pnus": 1}
+        merge = {"source": source, "row_key": ("pnu",), "counts": counts, "persisted": [], "stages": None}
+        incremental.Outcome(mode="incremental", row_count=4, metrics={}, merge=merge).commit(
+            self.spark, self.TABLE, {"silver.example": "12"}, "overwrite")
+        second = self.head()
+        summary = self.spark.sql(f"SELECT summary FROM {self.TABLE}.snapshots WHERE snapshot_id = {second}").first()[0]
+        self.assertEqual(summary[incremental.KEYS_CHANGED_PROPERTY], "3")
+        recorded = {r.pnu for r in incremental.recorded_changes(self.spark, self.TABLE, first, second).collect()}
+        self.assertEqual(recorded, {p[1], p[2], p[4]})
+        # An empty merge records its step too, so the walk passes it.
+        empty = self.spark.createDataFrame([], f"pnu string, payload string, row_digest string, {incremental.DELETE_FLAG} boolean")
+        incremental.Outcome(mode="incremental", row_count=4, metrics={},
+                            merge={**merge, "source": empty, "counts": dict.fromkeys(counts, 0)}).commit(self.spark, self.TABLE, {"silver.example": "13"}, "overwrite")
+        third = self.head()
+        self.spark.sql(f"CALL proof.system.rewrite_data_files(table => 'gold.recorded_panel', options => map('rewrite-all', 'true'))")
+        compacted = self.head()
+
+        via_record, upserts, deletes = self.delta(first, compacted)
+        via_join, joined_upserts, joined_deletes = self.delta(first, compacted, recorded=False)
+        self.assertEqual((via_record["change_source"], via_join["change_source"]), ("recorded", "diff"))
+        counts = ("changed_count", "new_count", "deleted_count", "unchanged_count", "current_total")
+        self.assertEqual({k: via_record[k] for k in counts}, {k: via_join[k] for k in counts})
+        self.assertEqual({k: via_record[k] for k in counts},
+                         {"changed_count": 1, "new_count": 1, "deleted_count": 1, "unchanged_count": 2, "current_total": 4})
+        self.assertEqual((upserts, deletes), (joined_upserts, joined_deletes))
+        import by_pnu_panel_delta as delta
+        pushdown, delta.PUSHDOWN_PNUS = delta.PUSHDOWN_PNUS, 0
+        try:
+            via_join_of_record = self.delta(first, compacted)[0]
+        finally:
+            delta.PUSHDOWN_PNUS = pushdown
+        self.assertEqual({k: via_join_of_record[k] for k in counts}, {k: via_join[k] for k in counts})
+        self.assertEqual(self.delta(second, third)[0]["upsert_count"], 0)
+
+        # A full overwrite records no step: the delta joins the snapshots again.
+        rewritten = self.spark.table(self.TABLE).withColumn("payload", F.concat("payload", F.lit("!")))
+        incremental.Outcome(mode="full", row_count=4, metrics={}, gold=rewritten.cache()).commit(
+            self.spark, self.TABLE, {"silver.example": "14"}, "overwrite")
+        self.assertIsNone(incremental.recorded_changes(self.spark, self.TABLE, compacted, self.head()))
+        self.assertEqual(self.delta(compacted, self.head())[0]["change_source"], "diff")
+
+
 if __name__ == "__main__":
     unittest.main()

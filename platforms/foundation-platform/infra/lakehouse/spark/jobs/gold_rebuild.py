@@ -35,7 +35,8 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
   Gold head is a producer commit with pins (compactions may follow), every changed input's pinned
   snapshot is still kept, and no changed input is one the producer reads whole; the producer then
   recomputes only the PNUs whose inputs changed (gold_incremental.py). Otherwise `full`, with
-  `mode_reasons`.
+  `mode_reasons`. Every table declares `incremental` or the `full_reason` it rebuilds whole for;
+  the contract is refused otherwise (root ADR-0312 §2).
 - The producer's code is an input too (root ADR-0321): each commit records its code version
   (gold_code_version.PROPERTY) beside the pins. When the current code differs from the version the
   current Gold's pins were recorded with, the table is rebuilt in full, and the plan names the files
@@ -97,10 +98,13 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
         for key in ("max_row_loss_fraction", "max_row_loss_reason"):
             if key in override:
                 entry[key] = override[key]
+        # Root ADR-0180: every kind merges only its changed PNUs, an own producer by its own key map
+        # (root ADR-0312 §2); a kind that cannot says why under `overrides.<lane>.full_reason`.
+        if "full_reason" in override:
+            entry["full_reason"] = override["full_reason"]
+        elif "incremental" in template:
+            entry["incremental"] = template["incremental"]
         if kind.follows_host_panel:
-            # Root ADR-0180's incremental merge reads the panel's input map; an own producer rebuilds whole.
-            if "incremental" in template:
-                entry["incremental"] = template["incremental"]
             # Its host panel's: a kind reads a subset of the panel's inputs at the panel's pins.
             entry.update({
                 "unmeasured_inputs": panels.get(kind.host_panel, {}).get("unmeasured_inputs", {}),
@@ -163,6 +167,10 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
                 and all(isinstance(why, str) and why.strip() for why in accepted.values())):
             raise PlanError(f"{name}: absent_inputs_accepted must map each input to why it may be absent")
         incremental = table.get("incremental")
+        # Root ADR-0312 §2: a rebuild is partial unless the contract says why not. 2026-10-24..28 the
+        # 공매 kind declared neither and rebuilt whole every run (230 -> 511 s for 4.6K rows).
+        if (incremental is None) == (not str(table.get("full_reason", "")).strip()):
+            raise PlanError(f"{name}: declare exactly one of incremental or full_reason (why it rebuilds whole)")
         if incremental is not None:
             fraction = incremental.get("max_changed_key_fraction")
             sample = incremental.get("parity_sample_keys")
@@ -315,7 +323,8 @@ def incremental_mode(entry: dict[str, Any], gold: dict[str, Any] | None,
     """("incremental", [], previous pins) when a rebuild may merge only changed PNUs, else
     ("full", reasons, None) (root ADR-0180 §3)."""
     if entry.get("incremental") is None:
-        return "full", ["the contract declares no incremental rebuild for this table"], None
+        why = str(entry.get("full_reason", "")).strip()
+        return "full", ["the contract declares no incremental rebuild for this table" + (f": {why}" if why else "")], None
     if unconditional:
         return "full", ["an unconditional rebuild is a full rebuild"], None
     if gold is None or gold.get("head") is None:

@@ -314,5 +314,108 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertEqual(job.document_rows(carried).first().attached_via, "origin:split:confirmed")
 
 
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class IncrementalParitySparkTest(unittest.TestCase):
+    """Root ADR-0312 §2: merging only the affected PNUs gives the full rebuild's Gold.
+
+    v1 is built whole; v2 moves a round to another parcel, closes one on a retired parcel (carried to
+    its successor), adds rounds (one on a parcel that already had one), and lets a round's close time
+    pass with no input change. The affected PNUs are recomputed and merged into v1 through
+    gold_incremental.plan_merge, with a parity sample, and the result must equal v2 built whole.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.spark = (SparkSession.builder.master("local[2]").appName("onbid-public-auction-incremental")
+                     .config("spark.sql.session.timeZone", "UTC").config("spark.sql.shuffle.partitions", "4")
+                     .getOrCreate())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def table(self, source, rows):
+        from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+        contract = load_lakehouse_contract(source)
+        schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+        names = [c["name"] for c in contract["columns"]]
+        return self.spark.createDataFrame([tuple(row.get(n) for n in names) for row in rows], schema)
+
+    @staticmethod
+    def item(key, pnu_value, ends, snapshot, removed=False):
+        return {"cltr_mng_no": key, "pbct_cdtn_no": 1, "pnu": pnu_value, "item_name": f"synthetic {key}",
+                "prpt_div_cd": "0007", "bid_begins_at": datetime(2098, 12, 1), "bid_ends_at": ends,
+                "appraisal_amount_krw": 100, "source_snapshot_id": snapshot,
+                "row_state": "removed" if removed else None}
+
+    def test_merging_the_affected_pnus_equals_the_full_rebuild(self):
+        from pyspark.sql import functions as F
+
+        import gold_incremental as incremental
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        a, b_old, b_new, c, s1, e, f = pnu(11), pnu(12), pnu(13), pnu(14), pnu(15), pnu(16), pnu(17)
+        late, soon = datetime(2099, 1, 10), datetime(2099, 1, 3)
+        v1 = [self.item("A", a, late, "snap-1"), self.item("B", b_old, late, "snap-1"),
+              self.item("C", c, soon, "snap-1"), self.item("D", RETIRED, late, "snap-1"),
+              self.item("E", e, late, "snap-1")]
+        # Untouched parcels beside them, so the change stays under the merge's change bound.
+        quiet = [pnu(30 + n) for n in range(6)]
+        v1 += [self.item(f"Q{n}", p, late, "snap-1") for n, p in enumerate(quiet)]
+        v2 = v1 + [self.item("B", b_new, late, "snap-2"), self.item("D", RETIRED, late, "snap-2", removed=True),
+                   self.item("F", f, late, "snap-2"), self.item("A2", a, late, "snap-2")]
+        photos = self.table(job.PHOTO_SOURCE, [{"cltr_mng_no": "E", "pbct_cdtn_no": 1, "sha256": "e" * 64,
+                                                 "media_kind": "photo", "sequence": 0, "media_format": "jpg",
+                                                 "size_bytes": 10, "source_snapshot_id": "snap-1"}])
+        parcels = self.spark.createDataFrame([(p,) for p in (a, b_old, b_new, c, s1, e, f, *quiet)], "pnu string")
+        candidates = self.spark.createDataFrame([(s1, RETIRED, 1, "relot")],
+                                                "successor_pnu string, source_pnu string, hop int, path string")
+        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        before = job.Placement("2099-01-02T00:00:00Z", candidates)
+        after = job.Placement("2099-01-04T00:00:00Z", candidates)
+        old = {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, v1), job.PHOTO_SOURCE: photos, job.PARCEL_SOURCE: parcels}
+        new = {**old, job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, v2)}
+
+        def build(frames, how):
+            return job.gold_rows(job.placement(frames, how), how.as_of, "snap-p", columns)
+
+        gold_v1 = build(old, before).cache()
+        self.assertEqual({r.pnu for r in gold_v1.collect()}, {a, b_old, c, s1, e, *quiet})
+        affected = job.affected_pnus(old, new, after, gold_v1, before.as_of, [job.ITEM_SOURCE])
+        # B moved (both ends), C closed by time, D closed under its successor, F and A2 are new; E is untouched.
+        self.assertEqual({r.pnu for r in affected.collect()}, {a, b_old, b_new, c, s1, f})
+        plan = incremental.plan_merge(
+            self.spark, build=lambda frames: build(frames, after),
+            restrict=lambda frames, keys: job.restrict_inputs(frames, keys, after), new=new, affected=affected,
+            current_gold=gold_v1, gold_rows=gold_v1.count(), content_columns=job.GOLD_CONTENT,
+            max_fraction=1.0, sample_keys=100, seed="fixture")
+        try:
+            self.assertEqual(plan["counts"]["parity_sample_pnus"], 7, "E and the quiet parcels are rebuilt and agree")
+            source = plan["source"]
+            merged = (gold_v1.join(source.select("pnu"), "pnu", "left_anti")
+                      .unionByName(source.where(~F.col(incremental.DELETE_FLAG)).drop(incremental.DELETE_FLAG)))
+            content = ["pnu", *job.GOLD_CONTENT, "row_digest"]
+            full = build(new, after)
+            self.assertEqual(sorted(merged.select(*content).collect()), sorted(full.select(*content).collect()))
+            self.assertEqual(plan["row_count"], full.count())
+            self.assertEqual({r.pnu for r in full.collect()}, {a, b_new, e, f, *quiet})
+        finally:
+            plan["stages"].remove()
+
+    def test_the_parcels_read_are_only_those_a_sale_or_its_lineage_names(self):
+        parcels = self.spark.createDataFrame([(p,) for p in (CURRENT, SPLIT_A, SPLIT_B, pnu(99))], "pnu string")
+        items = self.table(job.ITEM_SOURCE, [self.item("X", RETIRED, datetime(2099, 1, 5), "snap-1"),
+                                             self.item("Y", CURRENT, datetime(2099, 1, 5), "snap-1")])
+        candidates = self.spark.createDataFrame([(SPLIT_A, RETIRED, 1, "split"), (pnu(99), pnu(98), 1, "other")],
+                                                "successor_pnu string, source_pnu string, hop int, path string")
+        merges = self.spark.createDataFrame([(RETIRED, SPLIT_B, "confirmed")],
+                                            "predecessor_pnu string, successor_pnu string, grade string")
+        named = {r.pnu for r in job.parcels_named(parcels, items, candidates, merges).collect()}
+        self.assertEqual(named, {CURRENT, SPLIT_A, SPLIT_B})
+
+
 if __name__ == "__main__":
     unittest.main()
