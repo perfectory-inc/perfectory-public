@@ -40,6 +40,8 @@ ITEM_SOURCE = "silver.onbid_real_estate_item"
 PARCEL_SOURCE = "silver.parcel_boundaries"
 LINEAGE_SOURCE = "silver.parcel_lineage"
 KEY = ("cltr_mng_no", "pbct_cdtn_no")
+# The media belong to the item, not to a round (root ADR-0339): every round of an item carries them.
+ITEM = "cltr_mng_no"
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
 PHOTO_SOURCE = "silver.onbid_real_estate_item_photo"
 # A round's media as the document carries it (root ADR-0296 §5): the content hash and its facts, from
@@ -161,27 +163,28 @@ def with_usage_names(round_rows: Any, usage_codes: Any | None) -> Any:
     return named
 
 
-def photos_by_round(photo_rows: Any) -> Any:
-    """Each round's media as one array, keyed by round: its current (item, hash) rows (the photo
-    table's `current_rows`), ordered by kind then the provider's list order (`sequence`)."""
+def photos_by_item(photo_rows: Any) -> Any:
+    """Each item's media as one array, keyed by item: its current (item, hash) rows (the photo
+    table's `current_rows`, root ADR-0339), ordered by kind then the provider's list order
+    (`sequence`)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    return (photo_rows.groupBy(*KEY).agg(F.array_sort(F.collect_list(F.struct(
+    return (photo_rows.groupBy(ITEM).agg(F.array_sort(F.collect_list(F.struct(
         F.col("media_kind").alias("_kind"), F.col("sequence").alias("_seq"),
         F.struct("sha256", "media_kind", "sequence", "title", "media_format", "size_bytes").alias("_photo"),
-    ))).alias("_sorted")).select(*KEY, F.col("_sorted._photo").alias("photos")))
+    ))).alias("_sorted")).select(ITEM, F.col("_sorted._photo").alias("photos")))
 
 
 def with_photos(round_rows: Any, photos: Any | None) -> Any:
-    """Attach each round's `photos` (the media index joined by round, root ADR-0296 §5), an empty
-    array when the round has none or the photo table is absent — so every served round carries the
-    field and the web reads one shape."""
+    """Attach to each round its item's `photos` (the media index joined by item: one 물건상세 serves
+    every round, root ADR-0296 §5, ADR-0339), an empty array when the item has none or the photo
+    table is absent — so every served round carries the field and the web reads one shape."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     empty = F.expr(f"CAST(array() AS {PHOTO_STRUCT})")
     if photos is None:
         return round_rows.withColumn("photos", empty)
-    return round_rows.join(photos, list(KEY), "left").withColumn("photos", F.coalesce(F.col("photos"), empty))
+    return round_rows.join(photos, ITEM, "left").withColumn("photos", F.coalesce(F.col("photos"), empty))
 
 
 def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
@@ -291,7 +294,7 @@ def placement(frames: dict[str, Any], how: Placement) -> Any:
     served = served_rounds(rounds(frames[ITEM_SOURCE]), F.to_timestamp(F.lit(how.as_of)))
     photos = None
     if PHOTO_SOURCE in frames:
-        photos = photos_by_round(current_rows(frames[PHOTO_SOURCE], load_lakehouse_contract(PHOTO_SOURCE)))
+        photos = photos_by_item(current_rows(frames[PHOTO_SOURCE], load_lakehouse_contract(PHOTO_SOURCE)))
     return placed(with_photos(with_usage_names(served, how.usage), photos), frames[PARCEL_SOURCE],
                   how.candidates, how.merges)
 
@@ -323,8 +326,10 @@ def parcels_named(parcels: Any, items: Any, candidates: Any | None, merges: Any 
 
 
 def rounds_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
-    """`frames` with the item and photo rows cut to the rounds of `keys` (every version of each)."""
-    return {name: frame.join(keys, list(KEY), "left_semi") if name in (ITEM_SOURCE, PHOTO_SOURCE) else frame
+    """`frames` with the item rows cut to the rounds of `keys` and the photo rows to their items
+    (every version of each; the media are the item's, root ADR-0339)."""
+    cut = {ITEM_SOURCE: keys.select(*KEY), PHOTO_SOURCE: keys.select(ITEM).distinct()}
+    return {name: frame.join(cut[name], cut[name].columns, "left_semi") if name in cut else frame
             for name, frame in frames.items()}
 
 
@@ -346,18 +351,24 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
                   previous_as_of: str | None, changed: list[str]) -> Any:
     """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
 
-    A round is touched when a row of it changed in the item or photo table, or when its close time
-    passed since the current Gold was built (`previous_as_of`: it left the served rounds with no
-    input change). Its PNUs are those the current Gold serves it under and those it is placed on
-    now, so a round that moved, closed or appeared reaches both ends."""
+    A round is touched when a row of it changed in the item table, when a media row of its item
+    changed in the photo table (every round of the item carries the media, root ADR-0339), or when
+    its close time passed since the current Gold was built (`previous_as_of`: it left the served
+    rounds with no input change). Its PNUs are those the current Gold serves it under and those it
+    is placed on now, so a round that moved, closed or appeared reaches both ends."""
     from functools import reduce  # noqa: PLC0415
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     import gold_incremental as incremental  # noqa: PLC0415
 
-    touched = [incremental.changed_rows(old[name], new[name], KEY)
-               for name in (ITEM_SOURCE, PHOTO_SOURCE) if name in changed and name in old and name in new]
+    def present(name: str) -> bool:
+        return name in changed and name in old and name in new
+
+    touched = [incremental.changed_rows(old[ITEM_SOURCE], new[ITEM_SOURCE], KEY)] if present(ITEM_SOURCE) else []
+    if present(PHOTO_SOURCE):
+        items = incremental.changed_rows(old[PHOTO_SOURCE], new[PHOTO_SOURCE], (ITEM,)).distinct()
+        touched.append(new[ITEM_SOURCE].join(items, ITEM, "left_semi").select(*KEY))
     open_rounds = rounds(new[ITEM_SOURCE]).where(F.col("is_open") & F.col("bid_ends_at").isNotNull())
     closed = open_rounds.where(F.col("bid_ends_at") <= F.to_timestamp(F.lit(how.as_of)))
     if previous_as_of is not None:

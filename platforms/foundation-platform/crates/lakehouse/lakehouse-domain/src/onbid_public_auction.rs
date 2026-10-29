@@ -130,11 +130,14 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    // One item's one media file is one (item, hash); the newest run that recorded it wins, so a
-    // re-seen photo keeps one row. "처음 본 시각" is the earliest ingested_at_utc across its appends.
+    // One item's one media file is one (item, hash): the media belong to the item, not to a round
+    // (root ADR-0339, measured 2026-10-29: every item's rounds held the same files), so
+    // `pbct_cdtn_no` only names the round whose detail answered. The newest run that recorded it
+    // wins, and within a run the later line (two rounds of one item fetched in one run before root
+    // ADR-0339); a re-seen photo keeps one row. "처음 본 시각" is the earliest ingested_at_utc.
     current_row_latest: Some(LakehouseCurrentRowLatest {
-        key: &["cltr_mng_no", "pbct_cdtn_no", "sha256"],
-        newest_first: &["source_snapshot_id"],
+        key: &["cltr_mng_no", "sha256"],
+        newest_first: &["source_snapshot_id", "source_line_number"],
         removal_column: None,
         keep_ties: false,
     }),
