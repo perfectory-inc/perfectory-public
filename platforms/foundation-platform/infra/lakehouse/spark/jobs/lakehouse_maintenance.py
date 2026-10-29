@@ -22,7 +22,9 @@ next run.
 Expiry never removes a snapshot this lakehouse's own readers read back out of the metadata
 (`protected_snapshots`): the Silver loaders decide what is already loaded from every ingest record
 in `main`'s ancestry, and the Gold rebuild plans from the newest source pins in it. Expiring those
-would make a loader load a release twice and a rebuild refuse to plan.
+would make a loader load a release twice and a rebuild refuse to plan. Before it expires anything
+it also copies every ingest record past the window into a table property (root ADR-0332), so the
+record no longer depends on that protection; what still does is named in the ADR.
 
 No PySpark import at module scope: the lane that runs `infra/lakehouse/spark/tests` has none,
 and a module-level import would make every check that touches this file skip itself.
@@ -39,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY
-from lakehouse_ingest import INGEST_BATCH_OBJECTS_KEY
+from lakehouse_ingest import INGEST_BATCH_OBJECTS_KEY, ingest_record_properties
 
 CONTRACT_PATH_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_MAINTENANCE_CONTRACT_PATH"
 DEFAULT_CONTRACT_PATH = (
@@ -188,8 +190,10 @@ def protected_snapshots(snapshots: dict[int, dict[str, Any]], head: int | None) 
 
     - Every snapshot recording an ingest (`lakehouse_ingest.INGEST_BATCH_OBJECTS_KEY`): the Silver
       refresh and the loaders take the union of them as "already loaded"; a part lane's release is
-      loaded only while every part's record is still there (`decide_parts`). One expired record
-      and the part is loaded again — appended twice.
+      loaded only while every part's record is still there (`decide_parts`). The record itself
+      now outlives its snapshot (`ingest_record_properties`, root ADR-0332); the protection stays
+      for what still reads these snapshots back (the Gold baselines and the FLOOR witness chain)
+      until those have rules of their own.
     - The newest snapshot recording Gold source pins (`gold_rebuild.SOURCE_SNAPSHOTS_PROPERTY`):
       the rebuild plans from it and refuses without it.
     """
@@ -321,6 +325,15 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
     )
 
 
+def set_properties_sql(qualified: str, properties: dict[str, str]) -> str:
+    """One `SET TBLPROPERTIES` commit; values are object names, quoted as Spark SQL literals."""
+    def literal(text: str) -> str:
+        return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+    pairs = ", ".join(f"{literal(key)} = {literal(value)}" for key, value in sorted(properties.items()))
+    return f"ALTER TABLE {qualified} SET TBLPROPERTIES ({pairs})"
+
+
 def run_snapshot_expiry(
     spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool
 ) -> None:
@@ -368,8 +381,20 @@ def run_snapshot_expiry(
             spark.sql(drop_tag_sql(catalog, table, name)).collect()
             print(f"maintenance-done step=drop_month_end_tag tag={name}", flush=True)
 
-    protected = protected_snapshots(snapshots, refs.get("main"))
     window = int((now - timedelta(days=expiry["retain_days"])).timestamp() * 1000)
+    # The ingest records past the window get their durable copy before anything expires (root
+    # ADR-0332): the record is then in a summary, a property, or both at every commit.
+    from platform_contracts import table_properties  # noqa: PLC0415
+
+    carried = ingest_record_properties(
+        snapshots, ancestry(snapshots, refs.get("main")), window, table_properties(spark, qualified))
+    if carried and dry_run:
+        print(f"maintenance-would step=ingest_record_properties count={len(carried)}", flush=True)
+    elif carried:
+        spark.sql(set_properties_sql(qualified, carried)).collect()
+        print(f"maintenance-done step=ingest_record_properties count={len(carried)}", flush=True)
+
+    protected = protected_snapshots(snapshots, refs.get("main"))
     cutoff = millis_text(expiry_floor_millis(window, snapshots, protected))
     if cutoff != millis_text(window):
         print(f"maintenance-floor step=snapshot_expiry protected={len(protected)} older_than={cutoff}", flush=True)

@@ -41,8 +41,8 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 
 1. 장부에서 레인 원천의 행을 읽고, 모든 역할이 있는 가장 새 제공자 월을 고른다. 빠진 역할이 있는 더 새 월은
    `skipped_incomplete_release=<YYYYMM>` 로 남기고 넘어간다.
-2. Silver 표의 스냅숏 요약(`foundation.ingest-batch-objects`, 적재기 `append_batch_once` 의 기록)을 카탈로그에서
-   읽는다. 그 판이 있으면 `already_loaded`, 더 새 판이 있으면 `newer_release_loaded` 다. 둘 다 `unchanged` 로 끝난다.
+2. Silver 표의 스냅숏 요약(`foundation.ingest-batch-objects`, 적재기 `append_batch_once` 의 기록)과 그 기록의
+   영구 사본인 표 속성(`foundation.ingest-batch-objects.<스냅숏>`, 루트 ADR-0332)을 카탈로그에서 읽는다. 그 판이 있으면 `already_loaded`, 더 새 판이 있으면 `newer_release_loaded` 다. 둘 다 `unchanged` 로 끝난다.
 3. 아니면 ZIP 을 장부의 크기·SHA-256 로 확인하며 받는다. 그다음 레인의 내보내기를 돌리고 compose `spark` 로
    적재한다. 마지막으로 표의 기록을 다시 읽는다.
 4. 마지막 줄:

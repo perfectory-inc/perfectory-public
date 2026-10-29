@@ -513,7 +513,9 @@ impl IcebergRestCatalog {
     ///
     /// A load staged on another branch is not in it until that branch is published (root
     /// ADR-0183). Returns `Ok(None)` when the table does not exist. An expired snapshot's
-    /// identities are gone with its summary, which the Spark reader shares.
+    /// identities are read from the table's durable copy (`foundation.ingest-batch-objects.<id>`
+    /// properties the maintenance job writes before it expires anything, root ADR-0332), as the
+    /// Spark reader reads them.
     ///
     /// # Errors
     ///
@@ -526,6 +528,7 @@ impl IcebergRestCatalog {
             let metadata = &payload.metadata;
             ingested_batch_objects(
                 lineage(metadata, main_head(metadata)).map(|snapshot| &snapshot.summary),
+                &metadata.properties,
             )
         }))
     }
@@ -547,7 +550,10 @@ impl IcebergRestCatalog {
             .map(|payload| {
                 let metadata = &payload.metadata;
                 let head = branch_head(metadata, branch).or_else(|| main_head(metadata));
-                ingested_batch_objects(lineage(metadata, head).map(|snapshot| &snapshot.summary))
+                ingested_batch_objects(
+                    lineage(metadata, head).map(|snapshot| &snapshot.summary),
+                    &metadata.properties,
+                )
             })
             .unwrap_or_default())
     }
@@ -995,12 +1001,21 @@ struct IcebergSnapshotMetadata {
 /// `OBJECT_NAME_SEPARATOR`).
 const INGEST_BATCH_OBJECTS_KEY: &str = "foundation.ingest-batch-objects";
 const INGEST_OBJECT_SEPARATOR: char = ',';
+/// The table-property prefix of the record's durable copy, one property per ingest commit
+/// (`lakehouse_ingest.py`: `INGEST_OBJECTS_PROPERTY_PREFIX`, root ADR-0332).
+const INGEST_OBJECTS_PROPERTY_PREFIX: &str = "foundation.ingest-batch-objects.";
 
 fn ingested_batch_objects<'a>(
     summaries: impl Iterator<Item = &'a BTreeMap<String, serde_json::Value>>,
+    properties: &'a BTreeMap<String, String>,
 ) -> std::collections::BTreeSet<String> {
+    let durable = properties
+        .iter()
+        .filter(|(key, _)| key.starts_with(INGEST_OBJECTS_PROPERTY_PREFIX))
+        .map(|(_, recorded)| recorded.as_str());
     summaries
         .filter_map(|summary| summary.get(INGEST_BATCH_OBJECTS_KEY)?.as_str())
+        .chain(durable)
         .flat_map(|recorded| recorded.split(INGEST_OBJECT_SEPARATOR))
         .filter(|name| !name.is_empty())
         .map(str::to_owned)

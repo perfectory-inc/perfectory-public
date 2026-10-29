@@ -68,10 +68,12 @@ class FakeSpark:
     anything Spark computes.
     """
 
-    def __init__(self, rows: list[FakeRow], table_exists: bool = True) -> None:
+    def __init__(self, rows: list[FakeRow], table_exists: bool = True,
+                 properties: dict[str, str] | None = None) -> None:
         self._rows = linked(rows)
         self._answer = self._rows
         self._table_exists = table_exists
+        self._properties = list((properties or {}).items())
         self.catalog = self
         self.queries: list[str] = []
 
@@ -80,7 +82,10 @@ class FakeSpark:
 
     def sql(self, query: str) -> FakeSpark:
         self.queries.append(query)
-        self._answer = self._rows[-1:] if asks_for_a_head(query) else self._rows
+        if query.startswith("SHOW TBLPROPERTIES"):
+            self._answer = self._properties
+        else:
+            self._answer = self._rows[-1:] if asks_for_a_head(query) else self._rows
         return self
 
     def collect(self) -> list[FakeRow]:
@@ -166,7 +171,9 @@ class FakeAnsweringSpark:
         return True
 
     def sql(self, query: str) -> "FakeAnsweringSpark":
-        if asks_for_a_head(query):
+        if query.startswith("SHOW TBLPROPERTIES"):
+            self._pending = []
+        elif asks_for_a_head(query):
             self._pending = self._registry[-1:]
         elif "refs" in query:
             self._pending = (
@@ -429,7 +436,9 @@ class RefSpark:
 
     def sql(self, query: str) -> "RefSpark":
         self.queries.append(query)
-        if asks_for_a_head(query):
+        if query.startswith("SHOW TBLPROPERTIES"):
+            self._answer = []
+        elif asks_for_a_head(query):
             name = query.rsplit("'", 2)[1]
             self._answer = [FakeRow(self._refs[name], None)] if name in self._refs else []
         elif query.startswith("ALTER TABLE"):
@@ -506,6 +515,23 @@ class ReadIngestedObjectsTest(unittest.TestCase):
             {"a.zip": 7, "b.zip": 7, "c.zip": 9},
             "객체마다 그것을 넣은 스냅숏이 나와야 사람이 짚어 갈 수 있다",
         )
+
+    def test_an_expired_summary_is_answered_by_the_durable_property(self) -> None:
+        """요약이 만료된 적재 기록도 표 속성으로 남는다(root ADR-0332).
+
+        스냅숏 7 은 만료되어 메타데이터에 없고, 속성만 그 기록을 가진다. 둘을 함께 읽어야 a.zip 이
+        다시 들어가지 않는다.
+        """
+        spark = FakeSpark(
+            [FakeRow(9, {INGEST_BATCH_OBJECTS_KEY: "c.zip"})],
+            properties={f"{INGEST_BATCH_OBJECTS_KEY}.7": "a.zip,b.zip", "write.format.default": "parquet"},
+        )
+        self.assertEqual(
+            read_ingested_objects(spark, "`c`.`n`.`t`", "c.n.t"),
+            {"a.zip": 7, "b.zip": 7, "c.zip": 9},
+        )
+        self.assertEqual(decide_whether_to_append(read_ingested_objects(spark, "`c`.`n`.`t`", "c.n.t"),
+                                                  ["a.zip"]), [])
 
     def test_summaries_without_our_record_are_passed_over(self) -> None:
         """우리가 남기지 않은 스냅숏도 표에 있다.

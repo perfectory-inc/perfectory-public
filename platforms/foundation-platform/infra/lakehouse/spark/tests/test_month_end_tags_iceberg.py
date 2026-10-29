@@ -146,6 +146,39 @@ class MonthEndTagsIceberg(unittest.TestCase):
         self.assertNotIn(old_pins, self.ids(gold), "superseded Gold pins kept the table from expiring")
         self.assertLessEqual({new_pins, after}, self.ids(gold), "expiry removed the pins the rebuild plans from")
 
+    def test_an_ingest_record_outlives_its_expired_snapshot(self):
+        """The maintenance run copies a record past the window into a table property; once the
+        snapshot that carried it is expired, the loaders still read the object as loaded (root ADR-0332).
+
+        The expiry here is Iceberg's own procedure with nothing protected, as any expiry would be.
+        """
+        import lakehouse_ingest as ingest  # noqa: PLC0415
+
+        expiry = maintenance.load_maintenance_contract()["snapshot_expiry"]
+        later = maintenance.month_start(datetime.now(timezone.utc).year + 1, 6)
+        table = "silver.registered_factory"
+        qualified = f"proof.{table}"
+        self.spark.sql(f"CREATE TABLE {qualified} (pnu STRING, row_digest STRING) USING iceberg")
+        loaded = self.commit(table, "a", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "bronze/a.zip,bronze/b.zip"})
+        self.commit(table, "b")
+        maintenance.run_snapshot_expiry(self.spark, "proof", table, expiry, later, False)
+        key = f"{ingest.INGEST_OBJECTS_PROPERTY_PREFIX}{loaded}"
+        properties = {row[0]: row[1] for row in self.spark.sql(f"SHOW TBLPROPERTIES {qualified}").collect()}
+        self.assertEqual(properties.get(key), "bronze/a.zip,bronze/b.zip")
+
+        self.spark.sql(f"CALL proof.system.expire_snapshots(table => '{table}', "
+                       f"older_than => TIMESTAMP '2999-01-01 00:00:00.000', retain_last => 1)").collect()
+        self.assertNotIn(loaded, self.ids(table), "the snapshot carrying the record was not expired")
+        recorded = ingest.read_ingested_objects(self.spark, qualified, qualified)
+        self.assertEqual(recorded, {"bronze/a.zip": int(loaded), "bronze/b.zip": int(loaded)})
+        self.assertEqual(ingest.decide_whether_to_append(recorded, ["bronze/a.zip", "bronze/b.zip"]), [],
+                         "an object whose summary expired would be appended again")
+        before = self.spark.sql(f"SELECT count(*) AS n FROM {qualified}").first().n
+        maintenance.run_snapshot_expiry(self.spark, "proof", table, expiry, later, False)
+        after = {row[0]: row[1] for row in self.spark.sql(f"SHOW TBLPROPERTIES {qualified}").collect()}
+        self.assertEqual(after.get(key), properties[key], "a second run rewrote the durable record")
+        self.assertEqual(self.spark.sql(f"SELECT count(*) AS n FROM {qualified}").first().n, before)
+
     def test_the_compaction_call_runs_on_the_pinned_iceberg(self):
         """The options the job passes are ones this Iceberg accepts (partial progress, root ADR-0238)."""
         table = "silver.compaction_probe"

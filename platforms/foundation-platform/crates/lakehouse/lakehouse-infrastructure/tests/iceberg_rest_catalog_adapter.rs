@@ -409,6 +409,45 @@ async fn ingested_batch_objects_are_the_identities_main_records() -> Result<(), 
     Ok(())
 }
 
+#[tokio::test]
+async fn an_expired_ingest_record_is_read_from_the_durable_property() -> Result<(), Box<dyn Error>>
+{
+    // Root ADR-0332: the snapshot that appended fixture-load-a is expired; the maintenance job had
+    // copied its record into a table property first, so the object still reads as loaded.
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00005.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "refs": {"main": {"snapshot-id": OTHER, "type": "branch"}},
+                "properties": {
+                    format!("foundation.ingest-batch-objects.{TAGGED}"): "fixture-load-a,fixture-load-b",
+                    "foundation.edition.202610": "1"
+                },
+                "snapshots": [
+                    {"snapshot-id": OTHER, "summary": {
+                        "operation": "append",
+                        "foundation.ingest-batch-objects": "fixture-load-c"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let ingested = catalog
+        .load_ingested_batch_objects("gold.parcel_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+    assert_eq!(
+        ingested.into_iter().collect::<Vec<_>>(),
+        ["fixture-load-a", "fixture-load-b", "fixture-load-c"]
+    );
+    Ok(())
+}
+
 async fn mount_staged(server: &MockServer, main: i64) {
     Mock::given(method("GET"))
         .and(path(GOLD_PATH))
