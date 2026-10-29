@@ -30,6 +30,7 @@ COPY crates /src/crates
 COPY config /src/config
 COPY services /src/services
 COPY schemas /src/schemas
+COPY contracts /src/contracts
 COPY infra/lakehouse/contracts /src/infra/lakehouse/contracts
 RUN cargo chef prepare --recipe-path /src/recipe.json
 
@@ -45,6 +46,8 @@ COPY crates /src/crates
 COPY config /src/config
 COPY services /src/services
 COPY schemas /src/schemas
+# contracts/ holds the schema registry the publisher compiles in (include_str!, root ADR-0336).
+COPY contracts /src/contracts
 # Only the part of infra/ the Rust code compiles in (include_str! of the lakehouse contracts). The
 # Spark jobs, compose files and units beside it are not inputs of this build: copying all of infra/
 # rebuilt the publisher for a Spark .py change (2026-10-27, #881: 351 s) (root ADR-0309).
