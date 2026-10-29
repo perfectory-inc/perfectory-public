@@ -87,7 +87,8 @@ chmod 0777 "${STATE_ROOT}" "${work}"
 # rotation.json is the container's (uid 185) once it exists; the service user cannot chmod it and
 # need not: the container that writes it owns it (2026-10-15 05:04 a chmod here failed the run).
 
-python3 -I - "${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}"   "${work}/keep-snapshots.json" <<'PY'
+python3 -I - "${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}" \
+  "${work}/keep-snapshots.json" <<'PY'
 import json, pathlib, sys
 root, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 keep = {}
@@ -99,8 +100,7 @@ for path in sorted(root.glob("*/state.json")):
         reflected = served.get("reflected_gold_iceberg_snapshot_id")
         if reflected:
             keep.setdefault(str(int(reflected)), f"the served state in {path}")
-out.write_text(json.dumps(keep, indent=1, sort_keys=True) + "
-")
+out.write_text(json.dumps(keep, indent=1, sort_keys=True) + "\n")
 print(f"lakehouse-maintenance: {len(keep)} snapshots pinned outside the catalog")
 PY
 chmod 0644 "${work}/keep-snapshots.json"
@@ -116,7 +116,8 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   spark spark-submit --master "${master}" --driver-memory "${driver_memory}" \
   --conf spark.local.dir=/scratch --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables \
-  --state-file /workspace/target/lakehouse/rotation.json   --keep-snapshots "/workspace/target/lakehouse/runs/${run_id}/keep-snapshots.json" ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
+  --state-file /workspace/target/lakehouse/rotation.json \
+  --keep-snapshots "/workspace/target/lakehouse/runs/${run_id}/keep-snapshots.json" ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
   >"${work}/lakehouse_maintenance.log" 2>&1 || status=$?
 grep -a -E '^maintenance-(done|floor|failed|deferred|summary|would|expiring)|^maintenance-skip step=snapshot_expiry|^foundation-job-outcome' "${work}/lakehouse_maintenance.log" || true
 if ((status)); then
