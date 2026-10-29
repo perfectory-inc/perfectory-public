@@ -450,8 +450,11 @@ function capabilities(lane: ServedLane): Response {
 /// leaves: an edge copy is shared by every version and never carries one.
 function withVersion(response: Response, env: Env): Response {
   const version = workerVersion(env);
-  if (version !== null) response.headers.set(policy.version_header, version);
-  return response;
+  if (version === null) return response;
+  // A copy: a cache hit's headers are immutable, and setting one threw (500 on every cached photo).
+  const versioned = new Response(response.body, response);
+  versioned.headers.set(policy.version_header, version);
+  return versioned;
 }
 
 /// This Worker version's id from the version metadata binding, `null` when it holds none.
