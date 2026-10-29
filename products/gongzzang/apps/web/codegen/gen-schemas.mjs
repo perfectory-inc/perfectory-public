@@ -23,7 +23,9 @@ function types(node) {
 /// The zod expression of `node` at `path`, keeping the members `reads` reaches.
 function zodOf(node, path, reads, indent) {
   const kinds = types(node).filter((kind) => kind !== "null");
-  if (kinds.length !== 1) throw new Error(`${path || "<root>"}: one type besides null, not ${types(node)}`);
+  if (kinds.length !== 1) {
+    throw new Error(`${path || "<root>"}: one type besides null, not ${types(node)}`);
+  }
   const [kind] = kinds;
   if (node.enum !== undefined && !node["x-open-enum"]) {
     return `z.enum([${node.enum.map((value) => JSON.stringify(value)).join(", ")}])`;
@@ -44,7 +46,9 @@ function zodOf(node, path, reads, indent) {
       const members = [];
       for (const [name, member] of Object.entries(node.properties ?? {})) {
         const at = path === "" ? name : `${path}.${name}`;
-        if (!reads.some((read) => read === at || read.startsWith(`${at}.`) || read.startsWith(`${at}[]`))) continue;
+        const reached = (read) =>
+          read === at || read.startsWith(`${at}.`) || read.startsWith(`${at}[]`);
+        if (!reads.some(reached)) continue;
         const required = (node.required ?? []).includes(name);
         const nullable = types(member).includes("null");
         const suffix = !required ? ".nullish()" : nullable ? ".nullable()" : "";
@@ -65,9 +69,8 @@ export function generate(repository = REPOSITORY) {
     for (const consumer of entry.consumers.filter((c) => c.name === CONSUMER)) {
       const current = entry.revisions.filter((r) => r.major === entry.major).at(-1);
       const short = entry.subject.replace(/^foundation-platform\./, "");
-      const schema = JSON.parse(
-        readFileSync(resolve(repository, REGISTRY, short, String(current.major), `${current.revision}.schema.json`), "utf8"),
-      );
+      const file = `${short}/${current.major}/${current.revision}.schema.json`;
+      const schema = JSON.parse(readFileSync(resolve(repository, REGISTRY, file), "utf8"));
       const reads = consumer.reads.map((read) => read.path);
       const name = pascal(short);
       files.push({

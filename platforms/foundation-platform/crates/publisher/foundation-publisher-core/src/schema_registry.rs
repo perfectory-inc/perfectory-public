@@ -30,6 +30,8 @@ pub struct Subject {
     pub major: u32,
     owner: Owner,
     revisions: Vec<Revision>,
+    #[serde(skip)]
+    current: Revision,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,7 +40,7 @@ struct Owner {
 }
 
 /// One revision of a subject.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Revision {
     pub major: u32,
     pub revision: u32,
@@ -50,17 +52,11 @@ pub struct Revision {
 }
 
 impl Subject {
-    /// The revision the producer writes: the newest of the subject's major.
-    ///
-    /// # Panics
-    /// Never for a registry `schema_registry.py check` passed: a subject's major has a revision.
+    /// The revision the producer writes: the newest of the subject's major (found when the
+    /// registry is read, which refuses a major without one).
     #[must_use]
-    pub fn current(&self) -> &Revision {
-        self.revisions
-            .iter()
-            .rev()
-            .find(|revision| revision.major == self.major)
-            .expect("a subject's major has a revision (schema_registry.py check)")
+    pub const fn current(&self) -> &Revision {
+        &self.current
     }
 
     /// Every `schema_version` a document of `major` may carry: `<subject>.v<major>`, then the
@@ -110,8 +106,22 @@ fn registry() -> anyhow::Result<&'static Registry> {
     static PARSED: OnceLock<Result<Registry, String>> = OnceLock::new();
     PARSED
         .get_or_init(|| {
-            let registry: Registry = serde_json::from_str(REGISTRY)
+            let mut registry: Registry = serde_json::from_str(REGISTRY)
                 .map_err(|error| format!("invalid schema registry: {error}"))?;
+            for subject in &mut registry.subjects {
+                subject.current = subject
+                    .revisions
+                    .iter()
+                    .rev()
+                    .find(|revision| revision.major == subject.major)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "{}: major {} has no revision",
+                            subject.subject, subject.major
+                        )
+                    })?;
+            }
             if registry.schema_version != 1 {
                 return Err(format!(
                     "the schema registry's schema must be 1, got {}",
