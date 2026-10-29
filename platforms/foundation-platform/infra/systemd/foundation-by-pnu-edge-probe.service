@@ -5,6 +5,9 @@ Documentation=file:///opt/foundation-platform/current/docs/runbooks/worker-autod
 After=network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
+# A user-path breach that lasts is one alert until a probe passes, not a notice every 15 minutes
+# (notify-unit-failure.sh; ADR-0327's "next step: Alertmanager").
+OnSuccess=foundation-unit-recovered@%n.service
 
 [Service]
 Type=oneshot
