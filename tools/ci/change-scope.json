@@ -119,6 +119,7 @@
         "scripts/tiles/**",
         "scripts/verify/integration.sh",
         "scripts/verify/foundation-spark-runtime.sh",
+        "scripts/verify/foundation-dagster-observe.sh",
         "scripts/verify/foundation-spark-runtime-files.sh",
         "scripts/ci/test_foundation_spark_runtime_files.py",
         "scripts/ci/foundation_postgres_production_shape.py",

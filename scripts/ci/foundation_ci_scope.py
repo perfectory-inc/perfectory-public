@@ -23,6 +23,7 @@ GATES = (
     "compose-smoke",
     "spark-runtime",
     "static-release-toolchain-windows",
+    "dagster-observe",
 )
 
 # Gates a pull request leaves to the merge queue (root ADR-0199). The boundary slice compiles the
@@ -134,6 +135,24 @@ RULES = {
             "platforms/foundation-platform/tests/static_release_toolchain/",
         ],
     },
+    # The Dagster observer (root ADR-0333 stage 0): its image and code location, and the contracts its
+    # assets are generated from, each of which the parity test replays a recorded day through.
+    "dagster-observe": {
+        "exact": [
+            "platforms/foundation-platform/compose.orchestration.yml",
+            "platforms/foundation-platform/config/r2-connections.contract.json",
+            "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+            "platforms/foundation-platform/infra/datahub/dataset_names.py",
+            "platforms/foundation-platform/orchestration/dags/job_specs.py",
+            "platforms/foundation-platform/orchestration/jobs.v1.json",
+            "platforms/foundation-platform/orchestration/tests/test_dagster_observe.py",
+            "scripts/verify/foundation-dagster-observe.sh",
+        ],
+        "prefixes": [
+            "platforms/foundation-platform/orchestration/dagster/",
+            "platforms/foundation-platform/orchestration/tests/fixtures/",
+        ],
+    },
 }
 
 # The jobs `--skipped-jobs` may name besides the gates (root ADR-0324). Each has no work when:
@@ -193,6 +212,14 @@ REQUIRED_WITNESSES = {
         "installer": "scripts/tiles/static_release_toolchain_contract.py",
         "embedded verifier": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
         "command entrypoint": "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
+    },
+    "dagster-observe": {
+        "runner": "scripts/verify/foundation-dagster-observe.sh",
+        "image": "platforms/foundation-platform/orchestration/dagster/Dockerfile",
+        "lock": "platforms/foundation-platform/orchestration/dagster/requirements.txt",
+        "job list": "platforms/foundation-platform/orchestration/jobs.v1.json",
+        "pipeline graph": "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+        "parity test": "platforms/foundation-platform/orchestration/tests/test_dagster_observe.py",
     },
 }
 

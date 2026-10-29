@@ -13,8 +13,10 @@
 #   airflow-runtime.sh <compose args...>   e.g. `up -d`, `ps`, `logs airflow-scheduler`
 #
 # After `up`/`restart`/`start` it waits for the API, makes sure the `spark` pool has its one slot
-# (ADR-0122 §5), pauses or unpauses each job's DAG as orchestration/jobs.v1.json says, and checks
-# that staff sign-in hands the browser to Zitadel; it exits 1 otherwise.
+# (ADR-0122 §5), pauses or unpauses each job's DAG as orchestration/jobs.v1.json says, starts or
+# removes the Dagster observer as its `observers.dagster.enabled` says (root ADR-0333 stage 0; a
+# Dagster that does not come up is a warning, never a failed deploy), and checks that staff sign-in
+# hands the browser to Zitadel; it exits 1 otherwise.
 #
 # The scheduler reaches the host only through the account `foundation-scheduler`, which
 # `foundation-release.sh timers <public key>` creates and limits to starting enabled jobs' services.
@@ -44,6 +46,32 @@ fail() {
 }
 
 random_hex() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+
+# Dagster's two secrets (root ADR-0333 stage 0): its database role's and its Airflow account's.
+# compose.orchestration.yml requires them even while the profile is off, so a host whose env file
+# predates them gets them here, before any compose call, instead of a deploy failing at step 5.
+ensure_dagster_secrets() {
+  [[ -s "${env_file}" ]] || return 0
+  local name
+  for name in DAGSTER_DB_PASSWORD DAGSTER_AIRFLOW_PASSWORD; do
+    grep -q "^${name}=" "${env_file}" && continue
+    (umask 077 && printf '%s=%s\n' "${name}" "$(random_hex)" >>"${env_file}")
+    printf 'added %s to %s\n' "${name}" "${env_file}"
+  done
+}
+
+# orchestration/jobs.v1.json `observers.dagster.enabled`: whether Dagster observes this Airflow.
+dagster_enabled() {
+  python3 -c '
+import json, sys
+sys.exit(0 if json.load(open(sys.argv[1])).get("observers", {}).get("dagster", {}).get("enabled") is True else 1)
+' "${jobs_file}"
+}
+
+dagster_network=foundation-platform-compute_default
+# Tagged by release admission from the signed release (OPTIONAL_COMPOSE_IMAGES), as compose names it.
+dagster_image=foundation-platform-dagster:local
+dagster_services=(dagster-webserver dagster-daemon)
 
 init_secrets() {
   mkdir -p "${runtime_dir}"
@@ -83,6 +111,7 @@ print("AIRFLOW_CONN_FOUNDATION_HOST='" + json.dumps(connection) + "'")
 PY
     printf 'added the host connection to %s\n' "${env_file}"
   fi
+  ensure_dagster_secrets
 }
 
 compose() {
@@ -92,6 +121,20 @@ compose() {
     fail "the identity-shared network is missing; start identity-platform first"
   docker network inspect metadata-shared >/dev/null 2>&1 ||
     docker network create metadata-shared >/dev/null
+  ensure_dagster_secrets
+  # The Dagster profile is on only when the contract says so, the release carried its image (a
+  # release from before it, or one the host built, does not) and Trino's network exists: a missing
+  # image or external network would stop `up` for Airflow too.
+  unset COMPOSE_PROFILES
+  if dagster_enabled; then
+    if ! docker image inspect "${dagster_image}" >/dev/null 2>&1; then
+      printf 'airflow-runtime: Dagster stays off: the release carries no %s\n' "${dagster_image}" >&2
+    elif ! docker network inspect "${dagster_network}" >/dev/null 2>&1; then
+      printf 'airflow-runtime: Dagster stays off: the lakehouse network %s is missing\n' "${dagster_network}" >&2
+    else
+      export COMPOSE_PROFILES=dagster-observe
+    fi
+  fi
   docker compose -p airflow \
     --project-directory "${root_dir}" \
     --env-file "${env_file}" --env-file "${oidc_file}" \
@@ -164,6 +207,43 @@ except (ValueError, TypeError, KeyError, OSError) as error:
   fail "declared DAGs did not become ready; pool and activation state were not changed"
 }
 
+env_value() { sed -n "s/^$1=//p" "${env_file}" | tail -1; }
+
+# Dagster follows orchestration/jobs.v1.json `observers.dagster` (root ADR-0333 stage 0). It runs
+# no job, so it never fails the deploy: what goes wrong is said on stderr and Airflow goes on.
+sync_dagster() {
+  local code
+  if [[ "${COMPOSE_PROFILES:-}" != dagster-observe ]]; then
+    # Off: its containers go; its database and history stay.
+    compose --profile dagster-observe rm --stop --force "${dagster_services[@]}" >/dev/null 2>&1 || true
+    printf 'dagster: off\n'
+    return 0
+  fi
+  # Its own role and database in airflow-db; the password reaches psql through the environment.
+  if ! DAGSTER_DB_PASSWORD="$(env_value DAGSTER_DB_PASSWORD)" compose exec -T -e DAGSTER_DB_PASSWORD airflow-db \
+    sh -c 'psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v password="$DAGSTER_DB_PASSWORD"' \
+    <"${root_dir}/orchestration/dagster/dagster-database.sql" >/dev/null; then
+    printf 'airflow-runtime: WARN dagster: its database could not be made; Dagster is not observing\n' >&2
+    return 0
+  fi
+  # Its Airflow account reads runs and changes nothing (Viewer); re-made so the password is the env file's.
+  airflow_cli users delete --username foundation-dagster-observe </dev/null >/dev/null 2>&1 || true
+  if ! DAGSTER_AIRFLOW_PASSWORD="$(env_value DAGSTER_AIRFLOW_PASSWORD)" compose exec -T -e DAGSTER_AIRFLOW_PASSWORD \
+    airflow-scheduler sh -c 'exec airflow users create --username foundation-dagster-observe --email foundation-dagster-observe@foundation.invalid --firstname dagster --lastname observe --role Viewer --password "${DAGSTER_AIRFLOW_PASSWORD}"' \
+    </dev/null >/dev/null; then
+    printf 'airflow-runtime: WARN dagster: its Airflow account could not be made; Dagster is not observing\n' >&2
+    return 0
+  fi
+  # A restart loads the release's code location (it is read when the process starts).
+  compose up -d "${dagster_services[@]}" >/dev/null && compose restart "${dagster_services[@]}" >/dev/null
+  for _ in $(seq 1 30); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19085/server_info || true)"
+    [[ "${code}" == 200 ]] && { printf 'dagster: observing; UI on 127.0.0.1:19085\n'; return 0; }
+    sleep 10
+  done
+  printf 'airflow-runtime: WARN dagster: the UI answered %s after 5 minutes\n' "${code}" >&2
+}
+
 verify_up() {
   local code redirect
   for _ in $(seq 1 60); do
@@ -177,6 +257,7 @@ verify_up() {
   wait_for_declared_dags
   ensure_pools
   sync_enabled
+  sync_dagster
   redirect="$(curl -s -o /dev/null -w '%{redirect_url}' "${api}/auth/login/zitadel?next=" || true)"
   [[ "${redirect}" == http://127.0.0.1:18453/oauth/v2/authorize\?* ]] ||
     fail "sign-in does not hand the browser to Zitadel (got '${redirect}')"

@@ -36,6 +36,17 @@ x-airflow-environment: &airflow-environment
   AIRFLOW__OPENLINEAGE__NAMESPACE: perfectory
   AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
 
+# The Dagster observer's settings (root ADR-0333 stage 0); the two secrets are made by
+# airflow-runtime.sh before any compose call, so the file loads whether the profile is on or not.
+x-dagster-environment: &dagster-environment
+  DAGSTER_PG_HOST: airflow-db
+  DAGSTER_PG_PORT: "5432"
+  DAGSTER_PG_PASSWORD: "${DAGSTER_DB_PASSWORD:?run airflow-runtime.sh init-secrets}"
+  FOUNDATION_DAGSTER_AIRFLOW_URL: http://airflow-apiserver:8080
+  FOUNDATION_DAGSTER_AIRFLOW_USERNAME: foundation-dagster-observe
+  FOUNDATION_DAGSTER_AIRFLOW_PASSWORD: "${DAGSTER_AIRFLOW_PASSWORD:?run airflow-runtime.sh init-secrets}"
+  FOUNDATION_DAGSTER_TRINO_URL: http://trino:8080
+
 services:
   airflow-db:
     logging: *log-cap
@@ -145,11 +156,65 @@ services:
       airflow-migrate:
         condition: service_completed_successfully
 
+  # Dagster observing this Airflow (root ADR-0333 stage 0, dagster-airlift's "observe"): it runs no
+  # job. Off unless orchestration/jobs.v1.json `observers.dagster.enabled` is true; airflow-runtime.sh
+  # then turns on the profile, makes the instance's database and role in airflow-db and its Airflow
+  # Viewer account. The image holds the locked dependencies; the code location is the release's.
+  # Caps: anonymous peaks measured 2026-10-29 against Airflow 3.3.2 with these definitions (webserver
+  # 271 MiB; daemon 410 MiB while an asset-check run ran) x1.3 (root ADR-0137, ADR-0138).
+  dagster-webserver:
+    logging: *log-cap
+    image: foundation-platform-dagster:local
+    build:
+      context: .
+      dockerfile: orchestration/dagster/Dockerfile
+    pull_policy: never
+    profiles: ["dagster-observe"]
+    mem_limit: 352m
+    restart: unless-stopped
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml"]
+    environment:
+      <<: *dagster-environment
+    ports:
+      - "127.0.0.1:19085:3000"
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+      - dagster-state:/var/lib/dagster
+    depends_on:
+      airflow-apiserver:
+        condition: service_healthy
+
+  dagster-daemon:
+    logging: *log-cap
+    image: foundation-platform-dagster:local
+    pull_policy: never
+    profiles: ["dagster-observe"]
+    mem_limit: 544m
+    restart: unless-stopped
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
+    environment:
+      <<: *dagster-environment
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+      - dagster-state:/var/lib/dagster
+    # The asset checks' runs read the lakehouse through Trino, on the compute project's network.
+    networks:
+      - default
+      - lakehouse-compute
+    depends_on:
+      airflow-apiserver:
+        condition: service_healthy
+
 volumes:
   airflow-db:
+  dagster-state:
 
 networks:
   identity-shared:
     external: true
   metadata-shared:
     external: true
+  # compose.lakehouse.yml's project default network, where Trino answers as `trino`.
+  lakehouse-compute:
+    external: true
+    name: foundation-platform-compute_default

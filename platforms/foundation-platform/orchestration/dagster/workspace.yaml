@@ -1,0 +1,7 @@
+# One code location: the release's (root ADR-0333 stage 0). The webserver and the daemon each load
+# it from the mounted release; a release switch takes effect when airflow-runtime.sh restarts them.
+load_from:
+  - python_file:
+      relative_path: /opt/foundation-platform/current/orchestration/dagster/definitions.py
+      working_directory: /opt/foundation-platform/current/orchestration/dagster
+      location_name: foundation

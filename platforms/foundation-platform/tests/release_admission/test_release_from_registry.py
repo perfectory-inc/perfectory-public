@@ -161,6 +161,27 @@ class FromTheRegistry(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable image ID"):
             self.module.seal_artifacts(COMMIT, target, {k: v for k, v in image.items() if k != "foundation-postgres-recovery"})
 
+    def test_an_optional_compose_image_is_tagged_when_recorded_and_its_absence_is_admitted(self):
+        # The Dagster observer's image (root ADR-0333 stage 0): a release carries it, and one built
+        # before it existed (a rollback) is admitted without it.
+        image = {name: "sha256:" + str(n) * 64 for n, name in enumerate(
+            ("publisher", "tippecanoe", "foundation-platform-runtime", "foundation-postgres-recovery",
+             "foundation-platform-dagster"), start=1)}
+        target = self.artifacts / COMMIT
+        (target / "jars").mkdir(parents=True)
+        (target / "jars/engine.jar").write_bytes(b"PK engine")
+        (target / "foundation-outbox-publisher").write_bytes(b"publisher")
+        self.module.seal_artifacts(COMMIT, target, image)
+        with mock.patch.object(self.module, "verify_artifacts"):
+            self.assertEqual(self.module.tag_compose_images(COMMIT), 3)
+        tags = [call[2:] for call in self.calls if call[:2] == ["/usr/bin/docker", "tag"]]
+        self.assertIn([image["foundation-platform-dagster"], "foundation-platform-dagster:local"], tags)
+        self.assertNotIn("foundation-platform-dagster", self.registry.images)
+        output = self.artifacts / "out"
+        output.mkdir()
+        # The fixture's signed release carries no Dagster image, as one from before it.
+        self.assertNotIn("foundation-platform-dagster", self.module.registry_artifacts(COMMIT, output, tag=False))
+
     def test_a_signature_cosign_refuses_installs_nothing(self):
         self.cosign_refuses = True
         with self.assertRaises(subprocess.CalledProcessError):

@@ -1282,5 +1282,13 @@
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
-  "serving_surfaces_without_a_job": []
+  "serving_surfaces_without_a_job": [],
+  "observers_means": "Schedulers that watch these jobs and run none of them (root ADR-0333 stage 0). `dagster`: Dagster with dagster-airlift in its \"observe\" step. Its assets and their mapping to each job's publish_outputs task are generated from this list and the pipeline graph (orchestration/dagster/observe_assets.py), so it materializes exactly what Airflow records events for (orchestration/tests/test_dagster_observe.py replays a recorded production day). When `enabled` is true, scripts/deploy/airflow-runtime.sh, which the deploy runs, turns on compose.orchestration.yml's `dagster-observe` profile, makes the instance's own database and role in airflow-db and its Airflow Viewer account, and restarts it on each release; when false, it stops and removes those two containers and leaves the database. Moving a job's execution to Dagster is a later, per-lane change, not this switch.",
+  "observers": {
+    "dagster": {
+      "enabled": false,
+      "decision": "docs/adr/0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md",
+      "ui": "http://127.0.0.1:19085"
+    }
+  }
 }

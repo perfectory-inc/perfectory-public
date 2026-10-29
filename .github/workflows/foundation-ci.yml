@@ -968,10 +968,48 @@ jobs:
           fi
           bash scripts/verify/foundation-spark-runtime.sh
 
+  dagster-observe:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'dagster-observe') }}
+    name: Dagster observer tests
+    runs-on: ubuntu-24.04
+    # Builds the observer's image from its hashed lock (about a minute) and replays a recorded day.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select Dagster observer gate
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          FOUNDATION_CI_EVENT_NAME: ${{ github.event_name }}
+          FOUNDATION_CI_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          FOUNDATION_CI_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+          FOUNDATION_CI_REPOSITORY: ${{ github.workspace }}
+        run: |
+          python3 scripts/ci/foundation_ci_scope.py --gate dagster-observe --event-name "$FOUNDATION_CI_EVENT_NAME" --base "$FOUNDATION_CI_BASE" --head "$FOUNDATION_CI_HEAD" --repository "$FOUNDATION_CI_REPOSITORY" --github-env "$GITHUB_ENV"
+
+      # orchestration/tests/test_dagster_*.py skip on the default runner, which has no Dagster (root
+      # ADR-0333 stage 0). Here they run in the observer's own image, and a test that still skips
+      # for want of it fails the job.
+      - name: Run the Dagster observer tests in its image
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "The Dagster observer's inputs are unaffected; its tests succeed without containers."
+            exit 0
+          fi
+          bash scripts/verify/foundation-dagster-observe.sh
+
   required:
     name: required/foundation
     if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
-    needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
+    needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime, dagster-observe]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -992,5 +1030,6 @@ jobs:
           REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
           REQUIRED_RESULT_BOUNDARY_SLICE: ${{ needs.boundary-slice.result }}
           REQUIRED_RESULT_SPARK_RUNTIME: ${{ needs.spark-runtime.result }}
+          REQUIRED_RESULT_DAGSTER_OBSERVE: ${{ needs.dagster-observe.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh
