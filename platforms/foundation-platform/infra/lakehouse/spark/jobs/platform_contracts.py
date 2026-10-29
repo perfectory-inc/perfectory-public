@@ -376,25 +376,24 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
 
 
 def rows_as_of(frame: Any, contract: dict[str, Any], release: str) -> Any:
-    """The current rows as they stood when ``release`` was the newest: point-in-time reconstruction.
+    """The rows the contract called current when ``release`` was the newest: point-in-time reconstruction.
 
-    A table that appends only each release's changed keys (root ADR-0275, ADR-0318) holds a key's
-    row under the release that last changed it, so "the rows of release X" are each key's newest row
-    up to X, not the rows that carry X's id. Its one ``newest_first`` column orders the releases
-    (``source_snapshot_id``); a later release's rows and markers are not read. A table that keeps
-    no versions holds each release whole: its rows of ``release``. ``frame`` needs only the key, that
-    column and the removal column; a pinned snapshot older than the removal column has no marker.
+    A table that appends only each release's changed keys and a removal marker per vanished key
+    (root ADR-0275, ADR-0318), or stores editions as versions (a vintage, root ADR-0317), holds a
+    key's row under the release that last changed it. So "the rows of release X" are ``current_rows``
+    over the versions at or before X (the SCD2 "as of" read), ordered by the first ``newest_first``
+    column (``source_snapshot_id``, or the edition); later releases and markers are not read, so the
+    answer never changes once X is loaded. ``frame`` needs only the key, those columns and the removal
+    column; a pinned snapshot older than the removal column has no marker. A table that does not mark
+    vanished keys cannot answer: an older row of a key the release dropped would still look current.
     """
 
     from pyspark.sql import functions as F
 
     latest = current_row_latest(contract)
-    if latest is None:
-        return frame.where(F.col("source_snapshot_id") == F.lit(release))
-    if len(latest.newest_first) != 1:
-        raise ValueError(f"{contract.get('table_name')} orders its versions by {list(latest.newest_first)}, "
-                         "not one release column, so a release's rows cannot be told")
-    if latest.removal_column is not None and latest.removal_column not in frame.columns:
+    if latest is None or latest.removal_column is None:
+        raise ValueError(f"{contract.get('table_name')} keeps no versions with removal markers to read as of a release")
+    if latest.removal_column not in frame.columns:
         frame = frame.withColumn(latest.removal_column, F.lit(None).cast("string"))
     return current_rows(frame.where(F.col(latest.newest_first[0]) <= F.lit(release)), contract)
 
